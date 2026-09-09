@@ -1,0 +1,110 @@
+[
+  {
+    "id": "c-001",
+    "ideationArtefactId": "ia-001",
+    "ideationProjectId": "ip-001",
+    "sourceSection": "\u00a73.2 Primary Efficacy Results",
+    "sourcePassage": "Veloricept plus pembrolizumab demonstrated a statistically significant improvement in progression-free survival (hazard ratio 0.61; 95% CI 0.48\u20130.77; p<0.001) in the intention-to-treat population, with a median PFS of 14.2 months versus 8.7 months with pembrolizumab alone.",
+    "claimCurrencyStatus": "current",
+    "channelFormats": [
+      "linkedin",
+      "blog",
+      "hcp",
+      "medical-affairs"
+    ],
+    "kolStatus": "approved",
+    "kolApprovedAt": "2026-10-21T14:00:00Z",
+    "kolApprovedBy": "Prof. James Whitfield",
+    "maStatus": "approved",
+    "maApprovedAt": "2026-10-22T11:45:00Z",
+    "overallStatus": "approved",
+    "provenance": {
+      "sourceDoc": "VELORA-301 KOL Advisory Board Summary v1.0",
+      "sourceDocVersion": "v1.0",
+      "section": "\u00a73.2 Primary Efficacy Results",
+      "passage": "Hazard ratio 0.61 \u2014 primary PFS endpoint",
+      "approvalDate": "2026-10-15",
+      "originModule": "C"
+    },
+    "provenanceChain": [
+      "Source: KOL Summary \u00a73.2",
+      "CSR v1.0 \u00b7 Table 14.2.1",
+      "Module A \u00b7 Clinical Writing"
+    ],
+    "title": "Primary PFS Efficacy Result",
+    "cardType": "efficacy"
+  },
+  {
+    "id": "c-002",
+    "ideationArtefactId": "ia-001",
+    "ideationProjectId": "ip-001",
+    "sourceSection": "\u00a74.1 Safety Profile Overview",
+    "sourcePassage": "The safety profile of veloricept plus pembrolizumab was consistent with the known profiles of each agent. Grade 3 or higher treatment-related adverse events occurred in 52% of patients in the veloricept arm versus 44% in the control arm.",
+    "claimCurrencyStatus": "current",
+    "channelFormats": [
+      "hcp",
+      "medical-affairs"
+    ],
+    "kolStatus": "approved",
+    "kolApprovedAt": "2026-10-21T14:15:00Z",
+    "kolApprovedBy": "Prof. James Whitfield",
+    "maStatus": "approved",
+    "maApprovedAt": "2026-10-22T11:45:00Z",
+    "overallStatus": "approved",
+    "provenance": {
+      "sourceDoc": "VELORA-301 KOL Advisory Board Summary v1.0",
+      "sourceDocVersion": "v1.0",
+      "section": "\u00a74.1 Safety Profile Overview",
+      "passage": "Grade 3+ TRAE rates: 52% vs 44%",
+      "approvalDate": "2026-10-15",
+      "originModule": "C"
+    },
+    "provenanceChain": [
+      "Source: KOL Summary \u00a74.1",
+      "CSR v1.0 \u00b7 Table 12.2.4",
+      "Module A \u00b7 Clinical Writing"
+    ],
+    "title": "Safety Profile \u2014 Grade 3+ AEs",
+    "cardType": "safety"
+  },
+  {
+    "id": "c-003",
+    "ideationArtefactId": "ia-001",
+    "ideationProjectId": "ip-001",
+    "sourceSection": "\u00a73.4 Subgroup Consistency",
+    "sourcePassage": "The clinical benefit was consistent across all pre-specified subgroups, including PD-L1 expression level (combined positive score \u22651% and \u226550%) and tumour histology (squamous and non-squamous).",
+    "claimCurrencyStatus": "potentially-superseded",
+    "claimCurrencyFlag": {
+      "flagId": "ccf-001",
+      "text": "PD-L1 subgroup claim may be superseded \u2014 updated label threshold data published 01 Oct 2026.",
+      "acknowledgedBy": "user-il",
+      "acknowledgedAt": "2026-10-19T10:00:00Z",
+      "acknowledgementNote": "Current label thresholds confirmed with CMC Lead. Subgroup claim remains consistent with approved SmPC v1.0. Acknowledged and proceeding."
+    },
+    "channelFormats": [
+      "linkedin",
+      "hcp"
+    ],
+    "kolStatus": "approved",
+    "kolApprovedAt": "2026-10-21T14:30:00Z",
+    "kolApprovedBy": "Prof. James Whitfield",
+    "maStatus": "approved",
+    "maApprovedAt": "2026-10-22T11:45:00Z",
+    "overallStatus": "approved",
+    "provenance": {
+      "sourceDoc": "VELORA-301 KOL Advisory Board Summary v1.0",
+      "sourceDocVersion": "v1.0",
+      "section": "\u00a73.4 Subgroup Consistency",
+      "passage": "Subgroup consistency across PD-L1 and histology",
+      "approvalDate": "2026-10-15",
+      "originModule": "C"
+    },
+    "provenanceChain": [
+      "Source: KOL Summary \u00a73.4",
+      "CSR v1.0 \u00b7 Table 14.2.7.1",
+      "Module A \u00b7 Clinical Writing"
+    ],
+    "title": "Subgroup Consistency",
+    "cardType": "subgroup"
+  }
+]

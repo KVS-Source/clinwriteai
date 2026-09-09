@@ -1,0 +1,51 @@
+{
+  "id": "val-001",
+  "submissionId": "sub-001",
+  "runAt": "2026-10-15T15:00:00Z",
+  "validator": "extedo",
+  "validatorVersion": "EXTEDOpulse 8.2.1",
+  "criticalCount": 0,
+  "majorCount": 1,
+  "minorCount": 3,
+  "passed": false,
+  "auditEntryId": "ae-val-001",
+  "errors": [
+    {
+      "id": "ve-001",
+      "severity": "major",
+      "rule": "FDA v3.2.2 \u00b7 M2-01",
+      "description": "Module 2.3 Quality Overall Summary \u2014 file naming convention violation",
+      "detail": "File named 'quality-overall-summary.pdf'. Required format per ICH M2 eCTD specification: 'm2-3-quality-overall-summary.pdf'",
+      "fixInstructions": "Rename file to 'm2-3-quality-overall-summary.pdf' and re-publish the section.",
+      "autoFixAvailable": true,
+      "fixed": false
+    },
+    {
+      "id": "ve-002",
+      "severity": "minor",
+      "rule": "ICH M2 \u00b7 META-01",
+      "description": "Section metadata \u2014 missing dc:creator field in Module 1 cover letter XML",
+      "detail": "The cover letter (1.1-fda) XML does not include a dc:creator metadata element. Advisory: add author metadata for completeness.",
+      "autoFixAvailable": false,
+      "fixed": false
+    },
+    {
+      "id": "ve-003",
+      "severity": "minor",
+      "rule": "ICH M2 \u00b7 LINK-02",
+      "description": "Hyperlink target not found \u2014 Section 2.5.4 contains a cross-reference to Appendix 14.2.1.1 which is not present in the current eCTD package",
+      "detail": "Cross-reference at paragraph 3 of Section 2.5.4 links to Appendix 14.2.1.1. This appendix is in Module 5 and may not have been compiled yet.",
+      "autoFixAvailable": false,
+      "fixed": false
+    },
+    {
+      "id": "ve-004",
+      "severity": "minor",
+      "rule": "EMA \u00b7 CESP-04",
+      "description": "EMA CESP submission: the electronic application form (eAF) version must be v4.1 or later. Current form version in package is v4.0.",
+      "detail": "Update the eAF to v4.1 before EMA gateway transmission.",
+      "autoFixAvailable": false,
+      "fixed": false
+    }
+  ]
+}

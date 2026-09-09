@@ -1,0 +1,118 @@
+{
+  "id": "ccc-001",
+  "ideationArtefactId": "ia-001",
+  "ideationProjectId": "ip-001",
+  "runAt": "2026-10-18T09:30:00Z",
+  "totalClaimsExtracted": 14,
+  "results": {
+    "current": 12,
+    "potentiallySuperseded": 1,
+    "conflicting": 0
+  },
+  "claimsExtracted": [
+    {
+      "id": "cl-001",
+      "text": "hazard ratio 0.61 (95% CI 0.48\u20130.77; p<0.001)",
+      "status": "current",
+      "source": "\u00a73.2",
+      "verifiedAgainst": "SmPC v1.0 \u00a75.1"
+    },
+    {
+      "id": "cl-002",
+      "text": "median PFS 14.2 months versus 8.7 months",
+      "status": "current",
+      "source": "\u00a73.2",
+      "verifiedAgainst": "SmPC v1.0 \u00a75.1"
+    },
+    {
+      "id": "cl-003",
+      "text": "Grade 3 or higher TRAEs occurred in 52% vs 44%",
+      "status": "current",
+      "source": "\u00a74.1",
+      "verifiedAgainst": "SmPC v1.0 \u00a74.8"
+    },
+    {
+      "id": "cl-004",
+      "text": "consistent across PD-L1 expression level and tumour histology",
+      "status": "potentially-superseded",
+      "source": "\u00a73.4",
+      "verifiedAgainst": "SmPC v1.0 \u00a74.1",
+      "flagNote": "PD-L1 subgroup claim \u2014 updated label threshold data published 01 Oct 2026. Verify against current SmPC \u00a74.1.",
+      "acknowledgedBy": "user-il",
+      "acknowledgedAt": "2026-10-19T10:00:00Z",
+      "acknowledgementNote": "Current label thresholds confirmed with CMC Lead. Subgroup claim consistent with approved SmPC v1.0. Proceeding."
+    },
+    {
+      "id": "cl-005",
+      "text": "intention-to-treat population",
+      "status": "current",
+      "source": "\u00a73.2",
+      "verifiedAgainst": "SmPC v1.0 \u00a75.1"
+    },
+    {
+      "id": "cl-006",
+      "text": "no new safety signals were identified",
+      "status": "current",
+      "source": "\u00a74.2",
+      "verifiedAgainst": "PV Lead confirmation 15 Oct 2026"
+    },
+    {
+      "id": "cl-007",
+      "text": "pneumonitis (8% in veloricept arm)",
+      "status": "current",
+      "source": "\u00a74.3",
+      "verifiedAgainst": "SmPC v1.0 \u00a74.8"
+    },
+    {
+      "id": "cl-008",
+      "text": "ECOG PS 0\u20132",
+      "status": "current",
+      "source": "\u00a72.1",
+      "verifiedAgainst": "Protocol inclusion criteria"
+    },
+    {
+      "id": "cl-009",
+      "text": "first-line advanced NSCLC",
+      "status": "current",
+      "source": "\u00a71.1",
+      "verifiedAgainst": "SmPC v1.0 \u00a74.1"
+    },
+    {
+      "id": "cl-010",
+      "text": "pembrolizumab alone",
+      "status": "current",
+      "source": "\u00a73.2",
+      "verifiedAgainst": "Protocol comparator arm"
+    },
+    {
+      "id": "cl-011",
+      "text": "interaction p-values non-significant",
+      "status": "current",
+      "source": "\u00a73.4",
+      "verifiedAgainst": "CSR v1.0 Table 14.2.7.1"
+    },
+    {
+      "id": "cl-012",
+      "text": "CPS \u22651%",
+      "status": "current",
+      "source": "\u00a73.4",
+      "verifiedAgainst": "SmPC v1.0 \u00a74.1"
+    },
+    {
+      "id": "cl-013",
+      "text": "squamous and non-squamous",
+      "status": "current",
+      "source": "\u00a73.4",
+      "verifiedAgainst": "Protocol histology stratification"
+    },
+    {
+      "id": "cl-014",
+      "text": "treatment discontinuation due to AEs: 12% vs 8%",
+      "status": "current",
+      "source": "\u00a74.4",
+      "verifiedAgainst": "SmPC v1.0 \u00a74.8"
+    }
+  ],
+  "acknowledgedBy": "user-il",
+  "acknowledgedAt": "2026-10-19T10:00:00Z"
+}

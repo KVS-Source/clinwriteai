@@ -1,0 +1,74 @@
+{
+  "id": "cmc-001",
+  "submissionId": "sub-001",
+  "completenessPct": 84,
+  "generatedAt": "2026-10-08T09:00:00Z",
+  "acknowledgedBy": "user-jh",
+  "acknowledgedAt": "2026-10-08T09:42:00Z",
+  "riskNote": "Stability data for batches 3 and 4 pending finalisation. Expected by 15 Nov 2026. Regulatory Affairs Lead acknowledges this risk and confirms Stage 2 authoring may proceed on the current data set.",
+  "sections": [
+    {
+      "section": "3.2.S",
+      "title": "Drug Substance",
+      "status": "complete",
+      "completePct": 100,
+      "missingItems": []
+    },
+    {
+      "section": "3.2.P",
+      "title": "Drug Product",
+      "status": "complete",
+      "completePct": 100,
+      "missingItems": []
+    },
+    {
+      "section": "3.2.A",
+      "title": "Appendices",
+      "status": "gap",
+      "completePct": 60,
+      "missingItems": [
+        {
+          "item": "Stability data \u2014 batch 3 (12-month)",
+          "required": true,
+          "expectedDate": "2026-11-15"
+        },
+        {
+          "item": "Stability data \u2014 batch 4 (12-month)",
+          "required": true,
+          "expectedDate": "2026-11-15"
+        }
+      ]
+    },
+    {
+      "section": "3.3",
+      "title": "Literature References",
+      "status": "complete",
+      "completePct": 100,
+      "missingItems": []
+    },
+    {
+      "section": "3.4",
+      "title": "Regional Information (FDA)",
+      "status": "not-started",
+      "completePct": 0,
+      "missingItems": [
+        {
+          "item": "FDA regional administrative forms",
+          "required": false,
+          "expectedDate": null
+        }
+      ]
+    }
+  ],
+  "ichQValidation": {
+    "3.2.S": {
+      "Q11": "pass",
+      "Q8": "pass"
+    },
+    "3.2.P": {
+      "Q8": "pass",
+      "Q9": "pass",
+      "Q10": "pass"
+    }
+  }
+}

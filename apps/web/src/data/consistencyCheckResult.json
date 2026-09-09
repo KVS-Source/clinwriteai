@@ -1,0 +1,34 @@
+{
+  "id": "cc-001",
+  "submissionId": "sub-001",
+  "runAt": "2026-10-15T09:18:00Z",
+  "model": "claude-sonnet-4-6",
+  "passed": false,
+  "auditEntryId": "ae-cc-001",
+  "contradictions": [
+    {
+      "id": "con-001",
+      "sourceSection": "2.5.4 Clinical Overview \u2014 Efficacy",
+      "targetSection": "Module 5 \u00b7 Table 14.2.1 (CSR v1.0)",
+      "sourceValue": "Hazard ratio: 0.61 (95% CI 0.48\u20130.77; p<0.001)",
+      "targetValue": "Hazard ratio: 0.63 (95% CI 0.50\u20130.79; p<0.001) \u2014 interim analysis",
+      "severity": "major",
+      "resolved": true,
+      "resolvedBy": "user-sc",
+      "resolvedAt": "2026-10-15T10:05:00Z",
+      "resolutionNote": "Module 2.5.4 references the final analysis HR (0.61) from the primary data cut. Table 14.2.1 in the CSR shows the interim analysis (0.63) from the Week 48 data cut. Both values are correct for their respective analyses. Section 2.5.4 updated to clarify 'final analysis, primary data cut: HR 0.61'. Cross-reference to Table 14.2.1 updated to specify interim analysis context."
+    },
+    {
+      "id": "con-002",
+      "sourceSection": "2.7.2.1 Clinical Summary \u2014 PFS",
+      "targetSection": "Module 5 \u00b7 Table 14.2.2 (CSR v1.0)",
+      "sourceValue": "Median PFS: 9.7 months (veloricept arm)",
+      "targetValue": "Median PFS: 9.4 months (interim analysis, Table 14.2.2)",
+      "severity": "minor",
+      "resolved": false,
+      "resolvedBy": null,
+      "resolvedAt": null,
+      "resolutionNote": null
+    }
+  ]
+}

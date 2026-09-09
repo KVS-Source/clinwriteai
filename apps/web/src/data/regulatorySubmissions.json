@@ -1,0 +1,82 @@
+[
+  {
+    "id": "sub-001",
+    "projectId": "proj-velora-301",
+    "sourceModuleAProjectId": "proj-velora-301",
+    "submissionType": "nda-maa",
+    "status": "module2-authoring",
+    "stage": 2,
+    "targetHAs": [
+      "fda-esg",
+      "ema-cesp"
+    ],
+    "ectdVersion": "3.2.2",
+    "taTag": "Oncology",
+    "validatorEngine": "extedo",
+    "title": "Veloricept NDA \u2014 FDA + EMA Submission",
+    "compound": "Veloricept + Pembrolizumab",
+    "indication": "First-line advanced NSCLC",
+    "ownerId": "user-sc",
+    "createdBy": "user-sc",
+    "createdAt": "2026-10-01T09:00:00Z",
+    "updatedAt": "2026-10-16T09:14:00Z",
+    "project": "VELORA-301",
+    "lane": "authoring",
+    "consistencyFlagged": true,
+    "consistencyContradictions": 2,
+    "cmcReadinessAcknowledged": true,
+    "cmcReadinessPct": 84,
+    "canonicalJsonIndexed": true,
+    "canonicalJsonDataPoints": 847
+  },
+  {
+    "id": "sub-002",
+    "projectId": "proj-velora-301",
+    "sourceModuleAProjectId": "proj-velora-301",
+    "submissionType": "psur-pbrer",
+    "status": "super-review",
+    "stage": 4,
+    "targetHAs": [
+      "ema-cesp"
+    ],
+    "ectdVersion": "3.2.2",
+    "taTag": "Oncology",
+    "validatorEngine": "extedo",
+    "title": "Veloricept PSUR \u2014 Annual Safety Update",
+    "compound": "Veloricept",
+    "indication": "NSCLC \u2014 safety update",
+    "ownerId": "user-rw",
+    "createdBy": "user-rw",
+    "createdAt": "2026-09-01T09:00:00Z",
+    "updatedAt": "2026-10-13T16:44:00Z",
+    "project": "VELORA-301",
+    "lane": "review",
+    "raciSignedCount": 3,
+    "raciTotalCount": 6
+  },
+  {
+    "id": "sub-003",
+    "projectId": "proj-aurelia-101",
+    "sourceModuleAProjectId": "proj-aurelia-101",
+    "submissionType": "ind",
+    "status": "submitted",
+    "stage": 6,
+    "targetHAs": [
+      "ema-cesp"
+    ],
+    "ectdVersion": "3.2.2",
+    "taTag": "Cardiometabolic",
+    "validatorEngine": "extedo",
+    "title": "AURELIA-101 IND \u2014 Phase I Safety",
+    "compound": "AUR-101",
+    "indication": "Cardiometabolic Phase I",
+    "ownerId": "user-ra",
+    "createdBy": "user-ra",
+    "createdAt": "2026-08-01T09:00:00Z",
+    "updatedAt": "2026-10-12T14:22:00Z",
+    "project": "AURELIA-101",
+    "lane": "submitted",
+    "gatewayAck2ConfirmedAt": "2026-10-12T14:22:00Z",
+    "gatewayAck2Gateway": "EMA CESP"
+  }
+]

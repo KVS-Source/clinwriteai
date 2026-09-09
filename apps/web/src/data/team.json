@@ -1,0 +1,10 @@
+[
+  { "id": "user-MW", "name": "Marcus Webb",        "initials": "MW", "role": "Lead Clinical Writer",   "email": "marcus.webb@genbiocat.com",    "colourKey": "MW" },
+  { "id": "user-SC", "name": "Dr. Sarah Chen",     "initials": "SC", "role": "Clinical PM",             "email": "sarah.chen@genbiocat.com",     "colourKey": "SC" },
+  { "id": "user-JO", "name": "Dr. James Okonkwo",  "initials": "JO", "role": "PV Lead",                 "email": "james.okonkwo@genbiocat.com",  "colourKey": "JO" },
+  { "id": "user-EV", "name": "Dr. Elena Vasquez",  "initials": "EV", "role": "Regulatory Affairs",      "email": "elena.vasquez@genbiocat.com",  "colourKey": "EV" },
+  { "id": "user-PN", "name": "Dr. Priya Nair",     "initials": "PN", "role": "Biostatistician",         "email": "priya.nair@genbiocat.com",     "colourKey": "PN" },
+  { "id": "user-AH", "name": "Dr. Amir Hossain",   "initials": "AH", "role": "Clinical Data Manager",   "email": "amir.hossain@genbiocat.com",   "colourKey": "AH" },
+  { "id": "user-RT", "name": "Rachel Thorn",       "initials": "RT", "role": "Data Manager",            "email": "rachel.thorn@genbiocat.com",   "colourKey": "RT" },
+  { "id": "user-LP", "name": "Dr. Linda Park",     "initials": "LP", "role": "QA Lead",                 "email": "linda.park@genbiocat.com",     "colourKey": "LP" }
+]

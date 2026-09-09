@@ -1,0 +1,102 @@
+{
+  "id": "red-001",
+  "submissionId": "sub-001",
+  "stageAtCreation": 5,
+  "totalPPD": 47,
+  "totalCCI": 8,
+  "confirmedPPD": 23,
+  "confirmedCCI": 5,
+  "documents": [
+    {
+      "documentId": "doc-5.3.1",
+      "documentTitle": "5.3.1 VELORA-301 Phase III CSR v1.0",
+      "ppdDetected": 38,
+      "ppdConfirmed": 14,
+      "cciDetected": 6,
+      "cciConfirmed": 5,
+      "totalPages": 387,
+      "ppdItems": [
+        {
+          "id": "ppd-001",
+          "page": 24,
+          "location": "\u00a74.3 Patient Listings",
+          "originalText": "PT-VELORA-301-004",
+          "redactedAs": "[REDACTED]",
+          "type": "ppd",
+          "confirmed": true,
+          "confirmedBy": "Dr Sarah Chen",
+          "confirmedAt": "2026-10-15T10:30:00Z"
+        },
+        {
+          "id": "ppd-002",
+          "page": 47,
+          "location": "\u00a76.2 Investigator List",
+          "originalText": "Dr. [Investigator Name], Memorial Cancer Institute",
+          "redactedAs": "[INVESTIGATOR NAME REDACTED]",
+          "type": "ppd",
+          "confirmed": false,
+          "confirmedBy": null,
+          "confirmedAt": null
+        },
+        {
+          "id": "ppd-003",
+          "page": 52,
+          "location": "\u00a76.2 Investigator List",
+          "originalText": "Dr. [Second Investigator], Royal Marsden Hospital",
+          "redactedAs": "[INVESTIGATOR NAME REDACTED]",
+          "type": "ppd",
+          "confirmed": false,
+          "confirmedBy": null,
+          "confirmedAt": null
+        }
+      ],
+      "cciItems": [
+        {
+          "id": "cci-001",
+          "page": 201,
+          "location": "\u00a711.4 Manufacturing Process",
+          "originalText": "[Proprietary formulation process \u2014 step 3 temperature parameters: REDACTED]",
+          "redactedAs": "[CCI REDACTED]",
+          "type": "cci",
+          "confirmed": true,
+          "confirmedBy": "Dr Sarah Chen",
+          "confirmedAt": "2026-10-15T11:00:00Z"
+        },
+        {
+          "id": "cci-002",
+          "page": 215,
+          "location": "\u00a711.4 Manufacturing Process",
+          "originalText": "[Proprietary formulation process \u2014 step 7 excipient ratios: REDACTED]",
+          "redactedAs": "[CCI REDACTED]",
+          "type": "cci",
+          "confirmed": false,
+          "confirmedBy": null,
+          "confirmedAt": null
+        }
+      ]
+    },
+    {
+      "documentId": "doc-5.3.1-appendix",
+      "documentTitle": "5.3.1 Appendix \u2014 Patient Data Listings",
+      "ppdDetected": 9,
+      "ppdConfirmed": 9,
+      "cciDetected": 0,
+      "cciConfirmed": 0,
+      "totalPages": 84,
+      "ppdItems": [
+        {
+          "id": "ppd-010",
+          "page": 3,
+          "location": "Patient Listing Table 1",
+          "originalText": "[All 9 patient IDs confirmed redacted]",
+          "redactedAs": "[REDACTED]",
+          "type": "ppd",
+          "confirmed": true,
+          "confirmedBy": "Dr Sarah Chen",
+          "confirmedAt": "2026-10-15T10:45:00Z"
+        }
+      ],
+      "cciItems": []
+    }
+  ]
+}

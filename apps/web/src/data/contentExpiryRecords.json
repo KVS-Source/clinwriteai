@@ -1,0 +1,14 @@
+[
+  {
+    "id": "exp-001",
+    "contentItemId": "mc-004",
+    "expiryDate": "2028-10-05",
+    "alert60dSentAt": null,
+    "alert30dSentAt": null,
+    "expired": false,
+    "alertRecipients": [
+      "user-sc",
+      "user-rm"
+    ]
+  }
+]

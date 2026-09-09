@@ -1,0 +1,90 @@
+[
+  {
+    "id": "rc-r1c1", "roundId": "round-001", "reviewerTab": "r1", "commentNumber": 1,
+    "commentText": "The sample size justification in the Methods section does not adequately describe the assumptions underlying the power calculation, in particular the expected hazard ratio and the accrual period.",
+    "responseText": "We thank Reviewer 1 for this comment. The sample size justification has been expanded in the revised manuscript (Methods, paragraph 3, lines 187–194). The calculation assumed an expected hazard ratio of 0.65 with 80% power at a two-sided alpha of 0.05, a 24-month accrual period and 12 months of additional follow-up, requiring 512 PFS events.",
+    "status": "responded", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": "Marcus Webb", "respondedAt": "2026-12-27T10:00:00Z", "auditEntryId": null
+  },
+  {
+    "id": "rc-r1c2", "roundId": "round-001", "reviewerTab": "r1", "commentNumber": 2,
+    "commentText": "Figure 2 (forest plot) lacks subgroup-level confidence intervals for the Asian patient subgroup. Given the differential PD-L1 expression patterns in this population, this omission is significant.",
+    "responseText": "",
+    "status": "not-started", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": null, "respondedAt": null, "auditEntryId": null
+  },
+  {
+    "id": "rc-r1c3", "roundId": "round-001", "reviewerTab": "r1", "commentNumber": 3,
+    "commentText": "The discussion of the pembrolizumab monotherapy comparator arm is insufficient. The authors should address how the observed control-arm PFS compares with previously published first-line data.",
+    "responseText": "",
+    "status": "not-started", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": null, "respondedAt": null, "auditEntryId": null
+  },
+  {
+    "id": "rc-r1c4", "roundId": "round-001", "reviewerTab": "r1", "commentNumber": 4,
+    "commentText": "Please clarify whether the independent data monitoring committee reviewed the primary analysis before database lock, and state the date of that review.",
+    "responseText": "",
+    "status": "not-started", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": null, "respondedAt": null, "auditEntryId": null
+  },
+  {
+    "id": "rc-r2c1", "roundId": "round-001", "reviewerTab": "r2", "commentNumber": 1,
+    "commentText": "The abstract conclusion overstates the benefit. Please align the wording with the reported confidence interval.",
+    "responseText": "We agree and have revised the abstract conclusion to state that the combination \"significantly improved progression-free survival (HR 0.61; 95% CI 0.48–0.77)\" rather than asserting a magnitude of benefit (Abstract, lines 41–44).",
+    "status": "responded", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": "Marcus Webb", "respondedAt": "2026-12-26T14:00:00Z", "auditEntryId": null
+  },
+  {
+    "id": "rc-r2c2", "roundId": "round-001", "reviewerTab": "r2", "commentNumber": 2,
+    "commentText": "Grade ≥3 adverse event rates should be presented by system organ class, not only in aggregate.",
+    "responseText": "A new supplementary table (Table S4) presents grade ≥3 treatment-emergent adverse events by system organ class for both arms, and the Results text now references it (Results, lines 302–308).",
+    "status": "responded", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": "Dr Elena Vasquez", "respondedAt": "2026-12-26T16:00:00Z", "auditEntryId": null
+  },
+  {
+    "id": "rc-r2c3", "roundId": "round-001", "reviewerTab": "r2", "commentNumber": 3,
+    "commentText": "Please state whether any patients crossed over to the combination arm after progression.",
+    "responseText": "No crossover was permitted by protocol. This is now stated explicitly in the Methods (lines 214–216) and reflected in the Discussion of overall survival interpretation.",
+    "status": "responded", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": "Marcus Webb", "respondedAt": "2026-12-27T09:00:00Z", "auditEntryId": null
+  },
+  {
+    "id": "rc-r2c4", "roundId": "round-001", "reviewerTab": "r2", "commentNumber": 4,
+    "commentText": "The data availability statement is too restrictive for the journal's policy. Please revise to describe the specific mechanism by which de-identified data may be requested.",
+    "responseText": "",
+    "status": "not-started", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": null, "respondedAt": null, "auditEntryId": null
+  },
+  {
+    "id": "rc-r3c1", "roundId": "round-001", "reviewerTab": "r3", "commentNumber": 1,
+    "commentText": "The introduction should cite the most recent TIGIT-directed combination data published in 2024.",
+    "responseText": "Two 2024 references describing TIGIT-directed combination therapy have been added to the Introduction (references 8 and 9, lines 62–68).",
+    "status": "responded", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": "Dr Sarah Chen", "respondedAt": "2026-12-25T15:00:00Z", "auditEntryId": null
+  },
+  {
+    "id": "rc-r3c2", "roundId": "round-001", "reviewerTab": "r3", "commentNumber": 2,
+    "commentText": "Please confirm the trial registration number appears on the title page.",
+    "responseText": "The trial registration number now appears on the title page and in the Methods (lines 176–177).",
+    "status": "responded", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": "Dr Sarah Chen", "respondedAt": "2026-12-25T15:30:00Z", "auditEntryId": null
+  },
+  {
+    "id": "rc-edc1", "roundId": "round-001", "reviewerTab": "ed", "commentNumber": 1,
+    "commentText": "Please supply a marked-up manuscript showing all changes, together with a clean copy, and confirm that all authors have approved the revised version.",
+    "responseText": "",
+    "status": "not-started", "aiDrafted": false, "aiModel": null, "aiGeneratedAt": null,
+    "aiAcceptedBy": null, "aiAcceptedAt": null,
+    "respondedBy": null, "respondedAt": null, "auditEntryId": null
+  }
+]

@@ -1,0 +1,20 @@
+[
+  { "section": "§1",    "title": "Title Page",                  "status": "complete" },
+  { "section": "§2",    "title": "Synopsis",                    "status": "complete" },
+  { "section": "§3",    "title": "Table of Contents",           "status": "complete", "note": "auto-generated" },
+  { "section": "§4",    "title": "List of Abbreviations",       "status": "complete" },
+  { "section": "§5",    "title": "Ethics",                      "status": "complete" },
+  { "section": "§6",    "title": "Investigators & Study Sites", "status": "complete" },
+  { "section": "§7",    "title": "Introduction",                "status": "complete" },
+  { "section": "§8",    "title": "Study Objectives",            "status": "complete" },
+  { "section": "§9",    "title": "Investigational Plan",        "status": "complete" },
+  { "section": "§10",   "title": "Study Patients",              "status": "complete" },
+  { "section": "§11",   "title": "Efficacy Evaluation",         "status": "in-progress" },
+  { "section": "§12",   "title": "Safety Evaluation",           "status": "in-progress" },
+  { "section": "§13",   "title": "Discussion & Conclusions",    "status": "not-started" },
+  { "section": "§14",   "title": "References",                  "status": "not-started" },
+  { "section": "§16.1", "title": "Study Information",           "status": "complete" },
+  { "section": "§16.2", "title": "Patient Data Listings",       "status": "warning", "note": "16.4 waived" },
+  { "section": "§16.3", "title": "Case Report Forms",           "status": "not-started" },
+  { "section": "§16.4", "title": "Individual Patient Data",     "status": "warning", "note": "Waived · ICH E3 §16" }
+]

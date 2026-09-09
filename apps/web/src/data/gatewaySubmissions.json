@@ -1,0 +1,68 @@
+[
+  {
+    "id": "gw-001",
+    "submissionId": "sub-001",
+    "gateway": "fda-esg",
+    "gatewayLabel": "FDA ESG",
+    "status": "ack2",
+    "transmittedAt": "2026-10-16T14:22:00Z",
+    "transmittedBy": "user-jh",
+    "transmittedByName": "Dr James Hartley",
+    "transmittedByRole": "Regulatory Affairs Lead",
+    "ack1At": "2026-10-16T14:28:00Z",
+    "ack1ElapsedMinutes": 6,
+    "ack2At": "2026-10-16T16:47:00Z",
+    "ack2ElapsedHours": 2.42,
+    "ack3At": null,
+    "ack3EstimatedDate": "2026-10-31",
+    "nackCode": null,
+    "partEleven": {
+      "meaning": "I authorise the transmission of this eCTD package to FDA ESG under 21 CFR Part 312/314.",
+      "timestamp": "2026-10-16T14:22:00Z",
+      "signatoryName": "Dr James Hartley",
+      "signatoryRole": "Regulatory Affairs Lead"
+    },
+    "packageSize": "847 MB",
+    "sectionCount": 62,
+    "packageHash": "a3f7c2e8d14b9f63a1c5e2d7b8f4c9e1d3a6b7c2e5f8d9a4b1c6e3f7d2a9b5c8",
+    "masterLibraryPushUnlocked": true,
+    "masterLibraryPushedAt": "2026-10-16T17:10:00Z",
+    "masterLibraryCardsPushed": 5
+  },
+  {
+    "id": "gw-002",
+    "submissionId": "sub-001",
+    "gateway": "ema-cesp",
+    "gatewayLabel": "EMA CESP",
+    "status": "pending",
+    "transmittedAt": null,
+    "transmittedBy": null,
+    "ack1At": null,
+    "ack2At": null,
+    "ack3At": null,
+    "nackCode": null,
+    "partEleven": null
+  },
+  {
+    "id": "gw-003",
+    "submissionId": "sub-003",
+    "gateway": "ema-cesp",
+    "gatewayLabel": "EMA CESP",
+    "status": "ack3",
+    "transmittedAt": "2026-10-12T10:00:00Z",
+    "transmittedBy": "user-ra",
+    "ack1At": "2026-10-12T10:09:00Z",
+    "ack1ElapsedMinutes": 9,
+    "ack2At": "2026-10-12T12:30:00Z",
+    "ack2ElapsedHours": 2.5,
+    "ack3At": "2026-10-12T14:22:00Z",
+    "ack3ElapsedHours": 4.37,
+    "nackCode": null,
+    "partEleven": {
+      "meaning": "I authorise the transmission of this eCTD package to EMA CESP.",
+      "timestamp": "2026-10-12T10:00:00Z",
+      "signatoryName": "Dr Rebecca Allworth",
+      "signatoryRole": "Regulatory Affairs Lead"
+    }
+  }
+]

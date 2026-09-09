@@ -1,0 +1,59 @@
+[
+  {
+    "id": "mlc-001",
+    "contentItemId": "mc-004",
+    "cardType": "claim",
+    "name": "Key efficacy claim \u2014 HR 0.61 (95% CI 0.48\u20130.77)",
+    "tags": "ONCOLOGY \u00b7 NSCLC \u00b7 PHASE III",
+    "taTag": "Oncology",
+    "channels": [
+      "Email distribution"
+    ],
+    "availableInModules": [
+      "regulatory-writing",
+      "ideation"
+    ],
+    "expiryDate": "2028-10-05",
+    "pushedBy": "user-sc",
+    "pushedAt": "2026-10-05T14:30:00Z",
+    "deprecatedAt": null
+  },
+  {
+    "id": "mlc-002",
+    "contentItemId": "mc-004",
+    "cardType": "claim",
+    "name": "Safety profile summary \u2014 Grade \u22653 AEs: 52% vs 44%",
+    "tags": "ONCOLOGY \u00b7 SAFETY",
+    "taTag": "Oncology",
+    "channels": [
+      "Email distribution"
+    ],
+    "availableInModules": [
+      "regulatory-writing",
+      "ideation"
+    ],
+    "expiryDate": "2028-10-05",
+    "pushedBy": "user-sc",
+    "pushedAt": "2026-10-05T14:30:00Z",
+    "deprecatedAt": null
+  },
+  {
+    "id": "mlc-003",
+    "contentItemId": "mc-004",
+    "cardType": "mi-paragraph",
+    "name": "MLR-approved MI paragraph \u2014 Veloricept dosing in renal impairment",
+    "tags": "ONCOLOGY \u00b7 DOSING \u00b7 RENAL",
+    "taTag": "Oncology",
+    "channels": [
+      "Email distribution"
+    ],
+    "availableInModules": [
+      "regulatory-writing",
+      "ideation"
+    ],
+    "expiryDate": "2028-10-05",
+    "pushedBy": "user-sc",
+    "pushedAt": "2026-10-05T14:30:00Z",
+    "deprecatedAt": null
+  }
+]

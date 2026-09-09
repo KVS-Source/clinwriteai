@@ -1,0 +1,38 @@
+[
+  {
+    "id": "alert-001",
+    "frameworkName": "ICH E2C(R2) \u2014 PBRER",
+    "changeSummary": "Draft revision published. Proposes changes to the benefit-risk evaluation framework structure (Section 8) and signal assessment methodology (Section 7). Public consultation open until 15 Dec 2026.",
+    "effectiveDate": "2027-01-01",
+    "isEffectiveDateEstimate": true,
+    "affectedModules": [
+      "regulatory-writing",
+      "medical-writing"
+    ],
+    "alertedAt": "2026-09-04T06:00:00Z",
+    "acknowledgedByIds": [],
+    "affectedDossierSections": [
+      "2.7.6 Safety Summary",
+      "PSUR/PBRER draft \u2014 benefit-risk section"
+    ],
+    "actionRequired": "Review Section 8 benefit-risk framework in PSUR draft. Flag 2 dossier sections for review.",
+    "sourceUrl": "https://www.ich.org/page/safety-guidelines"
+  },
+  {
+    "id": "alert-002",
+    "frameworkName": "FDA 21 CFR Part 314 \u2014 NDA Amendments",
+    "changeSummary": "Updated electronic submission format requirements for eCTD v4.0 pathways. New requirements apply to submissions filed on or after 01 Jan 2027.",
+    "effectiveDate": "2027-01-01",
+    "isEffectiveDateEstimate": false,
+    "affectedModules": [
+      "regulatory-writing"
+    ],
+    "alertedAt": "2026-09-05T06:00:00Z",
+    "acknowledgedByIds": [],
+    "affectedDossierSections": [
+      "eCTD structure \u2014 Module 1 cover letter format"
+    ],
+    "actionRequired": "Review eCTD v4.0 pathway requirements if submission is planned for after 01 Jan 2027.",
+    "sourceUrl": "https://www.fda.gov/drugs/electronic-regulatory-submission-and-review"
+  }
+]

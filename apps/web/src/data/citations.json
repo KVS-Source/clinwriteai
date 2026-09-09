@@ -1,0 +1,44 @@
+[
+  {
+    "id": "cit-001",
+    "publicationId": "pub-001",
+    "pmid": "PMID: 33764809",
+    "title": "First-line pembrolizumab plus pemetrexed and platinum in lung cancer",
+    "shortRef": "Socinski M et al., JCO 2021",
+    "fullRef": "Socinski MA, Jotte RM, Cappuzzo F, et al. First-line pembrolizumab plus pemetrexed and platinum in lung cancer. J Clin Oncol. 2021;39(21):2339–2349.",
+    "locus": "§Methods ¶4",
+    "isSourceDocument": false,
+    "insertedBy": "Marcus Webb",
+    "insertedAt": "2026-11-10T09:00:00Z",
+    "removedBy": null,
+    "removedAt": null
+  },
+  {
+    "id": "cit-002",
+    "publicationId": "pub-001",
+    "pmid": "PMID: 31562796",
+    "title": "Nivolumab plus ipilimumab in advanced non–small-cell lung cancer",
+    "shortRef": "Hellmann M et al., NEJM 2019",
+    "fullRef": "Hellmann MD, Paz-Ares L, Bernabe Caro R, et al. Nivolumab plus ipilimumab in advanced non–small-cell lung cancer. N Engl J Med. 2019;381(21):2020–2031.",
+    "locus": "§Results ¶3",
+    "isSourceDocument": false,
+    "insertedBy": "Marcus Webb",
+    "insertedAt": "2026-11-10T09:05:00Z",
+    "removedBy": null,
+    "removedAt": null
+  },
+  {
+    "id": "cit-003",
+    "publicationId": "pub-001",
+    "pmid": null,
+    "title": "VELORA-301 clinical study report v1.0",
+    "shortRef": "VELORA-301 clinical study report v1.0",
+    "fullRef": "GenBioCa Sciences. VELORA-301 clinical study report v1.0. Internal source document, Clinical Writing, 28 Oct 2026.",
+    "locus": "§Results ¶1",
+    "isSourceDocument": true,
+    "insertedBy": "system",
+    "insertedAt": "2026-11-05T09:00:00Z",
+    "removedBy": null,
+    "removedAt": null
+  }
+]

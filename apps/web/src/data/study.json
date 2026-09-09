@@ -1,0 +1,23 @@
+{
+  "id": "PROJ-001",
+  "name": "VELORA-301: Phase III NSCLC — Veloricept + Pembrolizumab",
+  "shortTitle": "VELORA-301",
+  "client": "GenBioCa",
+  "therapeuticArea": "Oncology",
+  "phase": "III",
+  "status": "ongoing",
+  "startDate": "2023-03-14",
+  "dataCutoff": "2024-09-30",
+  "activeModules": ["clinical-writing"],
+  "submissionCountries": ["US", "EU", "JP"],
+  "team": [
+    { "userId": "user-MW", "name": "Marcus Webb",       "initials": "MW", "role": "Lead Clinical Writer", "raci": "R", "colourKey": "MW" },
+    { "userId": "user-SC", "name": "Dr. Sarah Chen",    "initials": "SC", "role": "Clinical PM",          "raci": "A", "colourKey": "SC" },
+    { "userId": "user-JO", "name": "Dr. James Okonkwo", "initials": "JO", "role": "PV Lead",              "raci": "C", "colourKey": "JO" },
+    { "userId": "user-EV", "name": "Dr. Elena Vasquez", "initials": "EV", "role": "Regulatory Affairs",   "raci": "C", "colourKey": "EV" },
+    { "userId": "user-PN", "name": "Dr. Priya Nair",    "initials": "PN", "role": "Biostatistician",      "raci": "C", "colourKey": "PN" },
+    { "userId": "user-AH", "name": "Dr. Amir Hossain",  "initials": "AH", "role": "Clinical Data Manager","raci": "C", "colourKey": "AH" },
+    { "userId": "user-RT", "name": "Rachel Thorn",      "initials": "RT", "role": "Data Manager",         "raci": "I", "colourKey": "RT" },
+    { "userId": "user-LP", "name": "Dr. Linda Park",    "initials": "LP", "role": "QA Lead",              "raci": "I", "colourKey": "LP" }
+  ]
+}

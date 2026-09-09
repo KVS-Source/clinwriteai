@@ -1,0 +1,14 @@
+{
+  "version": "27.0",
+  "totalTerms": 80026,
+  "searchResults": [
+    { "pt": "Pneumonitis",               "code": "10035742", "soc": "Respiratory, thoracic and mediastinal disorders", "usedInDocument": true,  "sections": ["§12.2"] },
+    { "pt": "Pneumonitis allergic",      "code": "10060473", "soc": "Immune system disorders",                         "usedInDocument": false },
+    { "pt": "Interstitial lung disease", "code": "10022611", "soc": "Respiratory, thoracic and mediastinal disorders", "usedInDocument": false },
+    { "pt": "Lung infiltration",         "code": "10025102", "soc": "Respiratory, thoracic and mediastinal disorders", "usedInDocument": false }
+  ],
+  "recentlyUsed": [
+    { "pt": "Pneumonitis",                     "code": "10035742", "soc": "Respiratory, thoracic and mediastinal disorders",         "usedInDocument": true, "sections": ["§12.2"] },
+    { "pt": "Treatment-emergent adverse event","code": "10066244", "soc": "General disorders and administration site conditions",     "usedInDocument": true, "sections": ["§12.1"] }
+  ]
+}

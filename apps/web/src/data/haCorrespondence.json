@@ -1,0 +1,143 @@
+[
+  {
+    "id": "hac-001",
+    "submissionId": "sub-001",
+    "direction": "inbound",
+    "type": "loq",
+    "gateway": "fda-esg",
+    "contentSummary": "FDA Day 120 List of Questions \u2014 12 questions across Clinical (7), CMC (3), Administrative (2) categories",
+    "receivedAt": "2026-10-22T09:00:00Z",
+    "respondedAt": null,
+    "loqDocId": "loq-doc-001",
+    "loqDocTitle": "FDA Day 120 LoQ \u2014 Veloricept NDA",
+    "questionsExtracted": 12,
+    "questionsCategories": {
+      "clinical": 7,
+      "cmc": 3,
+      "administrative": 2
+    },
+    "responsePkgDocId": null,
+    "questions": [
+      {
+        "questionId": "q-001",
+        "number": 1,
+        "category": "clinical",
+        "text": "Please provide additional subgroup analyses for the primary endpoint (progression-free survival) stratified by baseline ECOG performance status (0 vs 1\u20132) and histology (squamous vs non-squamous), with associated confidence intervals and p-values for interaction.",
+        "assignedTo": "user-ev",
+        "assignedRole": "Clinical Lead",
+        "status": "responded",
+        "respondedAt": "2026-10-24T10:00:00Z",
+        "aiDraftGenerated": true,
+        "aiFootprintPct": 68
+      },
+      {
+        "questionId": "q-002",
+        "number": 2,
+        "category": "clinical",
+        "text": "Provide a detailed discussion of the immunogenic potential of veloricept including post-market commitments for ongoing immunogenicity monitoring.",
+        "assignedTo": "user-ev",
+        "assignedRole": "Clinical Lead",
+        "status": "responded",
+        "respondedAt": "2026-10-23T14:00:00Z",
+        "aiDraftGenerated": true,
+        "aiFootprintPct": 55
+      },
+      {
+        "questionId": "q-003",
+        "number": 3,
+        "category": "clinical",
+        "text": "Clarify the mechanism of any observed synergy between veloricept and pembrolizumab. If a PD-1/L1 mechanism is proposed, provide supporting preclinical data with appropriate statistical analyses.",
+        "assignedTo": "user-sc",
+        "assignedRole": "Regulatory Writer",
+        "status": "in-progress",
+        "respondedAt": null,
+        "aiDraftGenerated": true,
+        "aiFootprintPct": 72
+      },
+      {
+        "questionId": "q-004",
+        "number": 4,
+        "category": "clinical",
+        "text": "The benefit-risk assessment in Section 2.5.6 does not adequately address the subgroup of patients with ECOG PS 2. Please provide a dedicated benefit-risk discussion for this subgroup.",
+        "assignedTo": "user-sc",
+        "assignedRole": "Regulatory Writer",
+        "status": "not-started",
+        "respondedAt": null,
+        "aiDraftGenerated": false,
+        "aiFootprintPct": null
+      },
+      {
+        "questionId": "q-005",
+        "number": 5,
+        "category": "cmc",
+        "text": "Provide additional information on process validation for the commercial manufacturing site, including three consecutive validation batches with full analytical data.",
+        "assignedTo": "user-ap",
+        "assignedRole": "CMC Lead",
+        "status": "responded",
+        "respondedAt": "2026-10-23T11:00:00Z",
+        "aiDraftGenerated": false,
+        "aiFootprintPct": null
+      },
+      {
+        "questionId": "q-006",
+        "number": 6,
+        "category": "cmc",
+        "text": "The proposed shelf life of 24 months requires supporting data from primary stability batches. Please provide the accelerated stability data for all three batches.",
+        "assignedTo": "user-ap",
+        "assignedRole": "CMC Lead",
+        "status": "in-progress",
+        "respondedAt": null,
+        "aiDraftGenerated": false,
+        "aiFootprintPct": null
+      },
+      {
+        "questionId": "q-007",
+        "number": 7,
+        "category": "administrative",
+        "text": "Confirm the proposed USPI indication language aligns with the agreed Phase 3 trial primary endpoint language.",
+        "assignedTo": "user-jh",
+        "assignedRole": "Regulatory Affairs Lead",
+        "status": "not-started",
+        "respondedAt": null,
+        "aiDraftGenerated": false,
+        "aiFootprintPct": null
+      }
+    ]
+  },
+  {
+    "id": "hac-002",
+    "submissionId": "sub-001",
+    "direction": "inbound",
+    "type": "ack",
+    "gateway": "fda-esg",
+    "contentSummary": "ACK2 \u2014 Format validation passed",
+    "receivedAt": "2026-10-16T16:47:00Z",
+    "respondedAt": null,
+    "loqDocId": null,
+    "responsePkgDocId": null
+  },
+  {
+    "id": "hac-003",
+    "submissionId": "sub-001",
+    "direction": "inbound",
+    "type": "ack",
+    "gateway": "fda-esg",
+    "contentSummary": "ACK1 \u2014 Receipt confirmed",
+    "receivedAt": "2026-10-16T14:28:00Z",
+    "respondedAt": null,
+    "loqDocId": null,
+    "responsePkgDocId": null
+  },
+  {
+    "id": "hac-004",
+    "submissionId": "sub-001",
+    "direction": "outbound",
+    "type": "response",
+    "gateway": "fda-esg",
+    "contentSummary": "NDA Submission \u2014 VELORA-301 Veloricept NDA v1.0",
+    "receivedAt": null,
+    "respondedAt": "2026-10-16T14:22:00Z",
+    "loqDocId": null,
+    "responsePkgDocId": "pkg-001"
+  }
+]

@@ -1,0 +1,60 @@
+{
+  "root": true,
+  "parser": "@typescript-eslint/parser",
+  "plugins": ["@typescript-eslint"],
+  "extends": [
+    "eslint:recommended",
+    "plugin:@typescript-eslint/recommended"
+  ],
+  "rules": {
+    "@typescript-eslint/no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+    "no-restricted-imports": ["error", {
+      "patterns": [
+        {
+          "group": ["*/modules/scientific-writing/*"],
+          "message": "Module A must not import from Module B. Use the platform interface layer."
+        },
+        {
+          "group": ["*/modules/medical-writing/*"],
+          "message": "Modules A and B must not import from Module C. Use @platform/types or shared components."
+        },
+        {
+          "group": ["*/modules/regulatory-writing/*"],
+          "message": "Modules A, B, and C must not import from Module D. Use @platform/types or shared components."
+        },
+        {
+          "group": ["*/modules/ideation/*"],
+          "message": "Module A must not import from Module E."
+        }
+      ]
+    }]
+  },
+  "overrides": [
+    {
+      "files": ["apps/web/src/modules/scientific-writing/**/*.{ts,tsx}"],
+      "rules": {
+        "no-restricted-imports": ["error", {
+          "patterns": [
+            {
+              "group": ["**/screens/clinical-writing/*", "**/screens/crm/*", "**/screens/output/*", "**/panels/AuditTrailPanel", "**/panels/ChecklistPanel", "**/panels/CommentResolutionPanel", "**/panels/CommentsPanel", "**/panels/ICHValidatorPanel", "**/panels/MedDRAPanel", "**/panels/ReviewAssignmentPanel", "**/panels/VoiceNotePanel", "**/store/documentStore", "**/store/editorStore", "**/store/crmStore"],
+              "message": "Module B must not import Module A screens/panels/stores directly. Reuse via shared components under src/components/ui/ or shared types under @platform/types."
+            }
+          ]
+        }]
+      }
+    },
+    {
+      "files": [
+        "apps/web/src/panels/LiteratureCitationPanel.tsx",
+        "apps/web/src/screens/scientific-writing/**/*.{ts,tsx}",
+        "apps/web/src/modules/medical-writing/**/*.{ts,tsx}",
+        "apps/web/src/screens/medical-writing/**/*.{ts,tsx}",
+        "apps/web/src/modules/regulatory-writing/**/*.{ts,tsx}",
+        "apps/web/src/screens/regulatory-writing/**/*.{ts,tsx}"
+      ],
+      "rules": {
+        "no-restricted-imports": "off"
+      }
+    }
+  ]
+}

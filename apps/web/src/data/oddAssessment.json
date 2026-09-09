@@ -1,0 +1,28 @@
+{
+  "id": "odd-001",
+  "submissionId": "sub-003",
+  "projectId": "proj-aurelia-101",
+  "compound": "AUR-101",
+  "indication": "AURELIA-101 \u2014 Cardiometabolic rare variant",
+  "taTag": "Cardiometabolic",
+  "prevalenceScore": 84,
+  "eu": {
+    "prevalence": "3.2 per 10,000",
+    "threshold": "\u22645 per 10,000",
+    "meetsThreshold": true,
+    "patientEstimate": "~160,000 EU patients",
+    "status": "eligible"
+  },
+  "us": {
+    "prevalencePatients": 178000,
+    "threshold": "<200,000 patients",
+    "meetsThreshold": true,
+    "status": "eligible"
+  },
+  "eligibilityScore": 84,
+  "eligibilityLabel": "Likely eligible for ODD",
+  "benefitDraft": "AUR-101 demonstrates significant benefit over existing treatments in patients with the identified cardiometabolic rare variant, with preliminary Phase I data showing 67% reduction in primary composite endpoint versus standard of care.",
+  "benefitDraftStatus": "clinical-lead-pending",
+  "clinicalLeadSignedAt": null,
+  "generatedAt": "2026-10-18T09:00:00Z"
+}

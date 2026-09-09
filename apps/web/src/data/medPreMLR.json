@@ -1,0 +1,57 @@
+{
+  "id": "pmlr-001",
+  "contentItemId": "mc-001",
+  "runAt": "2026-10-17T09:10:00Z",
+  "mustFixCount": 0,
+  "shouldFixCount": 3,
+  "noteCount": 1,
+  "passed": true,
+  "runBy": "user-sc",
+  "auditEntryId": "ae-pmlr-001",
+  "issues": [
+    {
+      "id": "iss-001",
+      "severity": "should-fix",
+      "slide": "Slide 12",
+      "title": "Efficacy claim lacks safety qualifier",
+      "detail": "The PFS claim on Slide 12 presents efficacy without a corresponding safety context. ABPI 2023 Code \u00a76.1 requires fair-balance \u2014 efficacy and safety must be presented together.",
+      "suggestedFix": "Add after the PFS statement: 'with a safety profile consistent with pembrolizumab monotherapy (grade \u22653 AEs: 52% vs 44% control arm).'",
+      "acknowledged": true,
+      "acknowledgedBy": "Dr Sarah Chen",
+      "acknowledgedAt": "2026-10-17T09:18:00Z"
+    },
+    {
+      "id": "iss-002",
+      "severity": "should-fix",
+      "slide": "Slide 19",
+      "title": "Unsubstantiated comparative superlative",
+      "detail": "Slide 19 contains the phrase 'best-in-class tolerability with fewer discontinuations than any comparator' \u2014 this is a comparative superlative with no cited source. No approved label or published head-to-head data supports this statement.",
+      "suggestedFix": "Remove the comparative superlative or replace with the specific citation: 'discontinuation rate 8% vs 12% (pembrolizumab monotherapy, SmPC v2.1 \u00a74.8).'",
+      "acknowledged": false,
+      "acknowledgedBy": null,
+      "acknowledgedAt": null
+    },
+    {
+      "id": "iss-003",
+      "severity": "should-fix",
+      "slide": "Slide 24",
+      "title": "Trademark symbol missing on first use",
+      "detail": "Veloricept\u00ae \u2014 the registered trademark symbol is missing on first use (Slide 3 title slide). It appears correctly from Slide 5 onward. Required by brand guidelines and ABPI Code \u00a79.",
+      "suggestedFix": "Add \u00ae superscript on Slide 3 at first use of 'Veloricept'.",
+      "acknowledged": true,
+      "acknowledgedBy": "Dr Sarah Chen",
+      "acknowledgedAt": "2026-10-17T09:15:00Z"
+    },
+    {
+      "id": "iss-004",
+      "severity": "note",
+      "slide": null,
+      "title": "Legal footer \u2014 digital channel only",
+      "detail": "A product liability footer is recommended for digital distribution channels (Rep Detail Aid, Digital). For the Congress channel (poster/print), no footer is required. No action needed for print version.",
+      "suggestedFix": null,
+      "acknowledged": false,
+      "acknowledgedBy": null,
+      "acknowledgedAt": null
+    }
+  ]
+}

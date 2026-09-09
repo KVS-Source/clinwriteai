@@ -1,0 +1,13 @@
+{
+  "package": { "version": "v3", "validatedBy": "Rachel Thorn", "validatedDate": "2024-10-10" },
+  "items": [
+    { "type": "T", "id": "Table 14.1.1", "title": "Patient Disposition",                    "linkedSections": ["§9.1"],    "referenceCount": 2 },
+    { "type": "T", "id": "Table 14.1.2", "title": "Protocol Deviations",                    "linkedSections": [],          "referenceCount": 0 },
+    { "type": "T", "id": "Table 14.2.1", "title": "Primary Efficacy Analysis — PFS by Arm", "linkedSections": ["§11.4.1"], "referenceCount": 3 },
+    { "type": "T", "id": "Table 14.2.2", "title": "Kaplan-Meier Analysis — PFS Curves",     "linkedSections": ["§11.4.1"], "referenceCount": 1 },
+    { "type": "T", "id": "Table 14.3.1", "title": "TEAE Summary",                           "linkedSections": ["§12.2"],   "referenceCount": 2 },
+    { "type": "L", "id": "Listing 16.2.7.1", "title": "SAE Listing",                        "linkedSections": ["§12.2"],   "referenceCount": 1 },
+    { "type": "F", "id": "Figure 11.1",  "title": "Forest Plot — PFS Subgroup Analyses",    "linkedSections": ["§11.4.1"], "referenceCount": 1 },
+    { "type": "F", "id": "Figure 14.1",  "title": "Patient Flow (CONSORT)",                 "linkedSections": ["§9.1"],    "referenceCount": 1 }
+  ]
+}

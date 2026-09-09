@@ -1,0 +1,7 @@
+{
+  "name": "@platform/api",
+  "version": "0.1.0",
+  "scripts": {
+    "dev": "echo API stub — Phase 2 only"
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "id": "CRM-MEET-001",
+  "documentId": "DOC-001",
+  "documentTitle": "Clinical Study Report — VELORA-301",
+  "meetingRef": "CRM-001",
+  "version": "v0.4",
+  "date": "2024-10-28",
+  "startTime": "14:00 UTC",
+  "endTime": "15:30 UTC",
+  "startedAt": "2024-10-28T14:07:00Z",
+  "chair": { "userId": "user-SC", "name": "Dr. Sarah Chen",    "initials": "SC", "role": "Chair",    "raci": "A", "colourKey": "SC" },
+  "attendees": [
+    { "userId": "user-MW", "name": "Marcus Webb",       "initials": "MW", "role": "Author",   "raci": "R", "colourKey": "MW" },
+    { "userId": "user-EV", "name": "Dr. Elena Vasquez", "initials": "EV", "role": "Reviewer", "raci": "C", "colourKey": "EV" },
+    { "userId": "user-AH", "name": "Dr. Amir Hossain",  "initials": "AH", "role": "Reviewer", "raci": "C", "colourKey": "AH" },
+    { "userId": "user-JO", "name": "Dr. James Okonkwo", "initials": "JO", "role": "Observer", "raci": "I", "colourKey": "JO" }
+  ],
+  "commentIds": ["CMT-041", "CMT-042", "CMT-044"],
+  "resolvedIds": ["CMT-041"],
+  "activeId": "CMT-042",
+  "pendingIds": ["CMT-044"]
+}

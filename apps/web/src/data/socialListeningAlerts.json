@@ -1,0 +1,22 @@
+[
+  {
+    "id": "sla-001",
+    "publishRecordId": "cal-002",
+    "calendarEntryId": "cal-002",
+    "ideationProjectId": "ip-001",
+    "cardTitle": "Primary PFS Efficacy Result \u2014 Blog Post",
+    "alertType": "sentiment",
+    "thresholdBreached": false,
+    "sentimentScore": 0.36,
+    "sentimentThreshold": 0.4,
+    "triggeredAt": "2026-10-23T14:30:00Z",
+    "notifiedMALeadAt": "2026-10-23T14:31:00Z",
+    "notifiedMALeadName": "Dr Michael Andrews",
+    "autoStopTriggered": false,
+    "autoStopNote": "Sentiment score 0.36 negative \u2014 below advisory threshold (0.40). Notification sent to MA Lead. Auto-stop not triggered (threshold for auto-stop: >0.50 negative).",
+    "resolvedAt": "2026-10-24T09:00:00Z",
+    "resolvedBy": "user-ma",
+    "resolvedByName": "Dr Michael Andrews",
+    "resolutionNote": "Reviewed negative sentiment \u2014 attributed to one critical blog comment (off-label query). No label issue. Blog post content unchanged. Monitoring continues."
+  }
+]

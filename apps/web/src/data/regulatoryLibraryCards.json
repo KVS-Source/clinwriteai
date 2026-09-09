@@ -1,0 +1,86 @@
+[
+  {
+    "id": "rlc-001",
+    "submissionId": "sub-001",
+    "cardType": "ctd-section",
+    "name": "CTD 2.5 Clinical Overview \u2014 Veloricept NDA v1.0",
+    "tags": "ONCOLOGY \u00b7 NSCLC \u00b7 NDA \u00b7 FDA \u00b7 EMA",
+    "taTag": "Oncology",
+    "submissionType": "nda-maa",
+    "haTarget": "FDA + EMA",
+    "availableInModules": [
+      "regulatory-writing",
+      "ideation-publishing"
+    ],
+    "pushedBy": "user-jh",
+    "pushedAt": "2026-10-16T17:10:00Z",
+    "deprecatedAt": null
+  },
+  {
+    "id": "rlc-002",
+    "submissionId": "sub-001",
+    "cardType": "ctd-section",
+    "name": "CTD 2.7 Clinical Summary \u2014 Veloricept NDA v1.0",
+    "tags": "ONCOLOGY \u00b7 NSCLC \u00b7 NDA \u00b7 CLINICAL SUMMARY",
+    "taTag": "Oncology",
+    "submissionType": "nda-maa",
+    "haTarget": "FDA + EMA",
+    "availableInModules": [
+      "regulatory-writing",
+      "ideation-publishing"
+    ],
+    "pushedBy": "user-jh",
+    "pushedAt": "2026-10-16T17:10:00Z",
+    "deprecatedAt": null
+  },
+  {
+    "id": "rlc-003",
+    "submissionId": "sub-001",
+    "cardType": "label",
+    "name": "SmPC v1.0 \u2014 Veloricept approved label (EU)",
+    "tags": "ONCOLOGY \u00b7 SMPC \u00b7 EU LABEL",
+    "taTag": "Oncology",
+    "submissionType": "nda-maa",
+    "haTarget": "EMA",
+    "availableInModules": [
+      "regulatory-writing",
+      "medical-writing",
+      "ideation-publishing"
+    ],
+    "pushedBy": "user-jh",
+    "pushedAt": "2026-10-16T17:10:00Z",
+    "deprecatedAt": null
+  },
+  {
+    "id": "rlc-004",
+    "submissionId": "sub-001",
+    "cardType": "rmp",
+    "name": "RMP Core Document \u2014 Veloricept v1.0",
+    "tags": "ONCOLOGY \u00b7 RMP \u00b7 EMA \u00b7 RISK MANAGEMENT",
+    "taTag": "Oncology",
+    "submissionType": "nda-maa",
+    "haTarget": "EMA",
+    "availableInModules": [
+      "regulatory-writing"
+    ],
+    "pushedBy": "user-jh",
+    "pushedAt": "2026-10-16T17:10:00Z",
+    "deprecatedAt": null
+  },
+  {
+    "id": "rlc-005",
+    "submissionId": "sub-001",
+    "cardType": "ha-response-template",
+    "name": "HA Response Template Bundle \u2014 FDA Day 120 \u00b7 VELORA-301",
+    "tags": "ONCOLOGY \u00b7 HA RESPONSE \u00b7 FDA \u00b7 LOQ",
+    "taTag": "Oncology",
+    "submissionType": "ha-response",
+    "haTarget": "FDA",
+    "availableInModules": [
+      "regulatory-writing"
+    ],
+    "pushedBy": "user-jh",
+    "pushedAt": "2026-10-16T17:10:00Z",
+    "deprecatedAt": null
+  }
+]

@@ -1,0 +1,32 @@
+{
+  "id": "agr-001",
+  "contentItemId": "mc-001",
+  "runAt": "2026-10-17T09:18:00Z",
+  "model": "claude-sonnet-4-6",
+  "passedToMLRTeamAt": "2026-10-17T09:22:00Z",
+  "auditEntryId": "ae-agr-001",
+  "findings": [
+    {
+      "n": 1,
+      "slide": "Slide 12 \u00b7 Fair-Balance Requirement",
+      "severity": "should-fix",
+      "title": "Fair-balance deficiency \u2014 efficacy without safety context",
+      "detail": "The primary PFS claim (HR 0.61; 95% CI 0.48\u20130.77; p<0.001) is presented without an accompanying safety statement. SmPC v2.1 \u00a74.8 must be cited in proximity to any primary efficacy claim in materials governed by the ABPI Code 2023 \u00a76.1 and IFPMA Code \u00a75.2.",
+      "escalatedToMustFix": true,
+      "escalatedBy": "Dr Rebecca Morton",
+      "escalatedAt": "2026-10-15T10:23:00Z",
+      "escalationAuditId": "ae-esc-001"
+    },
+    {
+      "n": 2,
+      "slide": "Slide 19 \u00b7 Comparative Claim",
+      "severity": "should-fix",
+      "title": "Comparative claim without head-to-head data",
+      "detail": "The phrase 'fewer discontinuations than any comparator in first-line NSCLC' implies a cross-trial comparison that is not supported by the approved label (SmPC v2.1) or any cited publication. EFPIA Code 2022 Article 7 prohibits comparative claims unless based on direct head-to-head studies or clearly referenced indirect analyses.",
+      "escalatedToMustFix": false,
+      "escalatedBy": null,
+      "escalatedAt": null,
+      "escalationAuditId": null
+    }
+  ]
+}

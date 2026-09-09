@@ -1,0 +1,51 @@
+[
+  {
+    "id": "ia-001",
+    "ideationProjectId": "ip-001",
+    "sourceModule": "C",
+    "sourceDocId": "doc-kol-summary-001",
+    "title": "VELORA-301 KOL Advisory Board Summary",
+    "originalApprovalDate": "2026-10-15",
+    "version": "v1.0",
+    "sourceCurrencyStatus": "current",
+    "approvalStatusCheck": "passed",
+    "approvalStatusNote": "Document status: Final Output in Module C. Source gate passed.",
+    "masterLibraryPushDate": "2026-10-15",
+    "withinNinetyDays": true,
+    "claimCurrencyChecked": true,
+    "claimCurrencyCheckedAt": "2026-10-18T09:30:00Z"
+  },
+  {
+    "id": "ia-002",
+    "ideationProjectId": "ip-002",
+    "sourceModule": "external",
+    "sourceDocId": null,
+    "filePath": "/uploads/aurelia-101-phase1-brief-v1.pdf",
+    "title": "AURELIA-101 Phase I Clinical Brief",
+    "originalApprovalDate": "2026-10-19",
+    "version": "v1.0",
+    "sourceCurrencyStatus": "external-confirmed",
+    "approvalStatusCheck": "confirmed-external",
+    "approvalStatusNote": "External document. Ideation Lead confirmed approval via external process. Logged to audit trail.",
+    "externalConfirmedBy": "user-il",
+    "externalConfirmedAt": "2026-10-20T09:12:00Z",
+    "masterLibraryPushDate": null,
+    "withinNinetyDays": null,
+    "claimCurrencyChecked": false
+  },
+  {
+    "id": "ia-003",
+    "ideationProjectId": "ip-003",
+    "sourceModule": "A",
+    "sourceDocId": "doc-velora-302-draft",
+    "title": "VELORA-302 Draft CSR (Module A)",
+    "originalApprovalDate": null,
+    "version": "v0.2-draft",
+    "sourceCurrencyStatus": "current",
+    "approvalStatusCheck": "blocked",
+    "approvalStatusNote": "Source content gate failed \u2014 document status is 'In Authoring' in Module A. Only Signed / Final Output / Submitted documents may enter the ideation pipeline.",
+    "masterLibraryPushDate": null,
+    "withinNinetyDays": null,
+    "claimCurrencyChecked": false
+  }
+]

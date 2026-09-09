@@ -1,0 +1,32 @@
+[
+  {
+    "id": "kol-001",
+    "ideationProjectId": "ip-001",
+    "name": "Prof. James Whitfield",
+    "title": "Professor of Oncology, University of Edinburgh",
+    "email": "j.whitfield@oncology-edinburgh.ac.uk",
+    "reviewLinkToken": "kol-tok-001-demo",
+    "reviewLinkExpiry": "2026-10-28T00:00:00Z",
+    "signedOffAt": "2026-10-21T14:00:00Z",
+    "reminder1SentAt": null,
+    "reminder2SentAt": null,
+    "escalatedAt": null,
+    "reviewDecisions": [
+      {
+        "cardId": "c-001",
+        "decision": "approved",
+        "comment": null
+      },
+      {
+        "cardId": "c-002",
+        "decision": "approved",
+        "comment": null
+      },
+      {
+        "cardId": "c-003",
+        "decision": "approved",
+        "comment": "PD-L1 subgroup language \u2014 please ensure consistency with current ESMO guidelines."
+      }
+    ]
+  }
+]

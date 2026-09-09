@@ -1,0 +1,38 @@
+[
+  {
+    "id": "MLR-C-001",
+    "contentItemId": "mc-001",
+    "reviewerId": "user-rm",
+    "reviewerName": "Dr Rebecca Morton",
+    "reviewerStamp": "MLR Reviewer",
+    "text": "Fair-balance required per ABPI 2023 Code \u00a76.1. Efficacy claim must be accompanied by safety profile. Recommend adding: 'with a safety profile consistent with pembrolizumab monotherapy (grade \u22653 AEs: 52% vs 44% control arm).'",
+    "tag": "Must Fix",
+    "tagBg": "#EFF6FF",
+    "tagFg": "#005F8E",
+    "createdAt": "2026-10-15T10:23:00Z",
+    "resolvedAt": null,
+    "resolvedBy": null,
+    "escalatedFromAgentic": true,
+    "escalatedBy": "Dr Rebecca Morton",
+    "escalatedAt": "2026-10-15T10:23:00Z",
+    "escalationAuditId": "ae-esc-001"
+  },
+  {
+    "id": "MLR-C-002",
+    "contentItemId": "mc-001",
+    "reviewerId": "user-rm",
+    "reviewerName": "Dr Rebecca Morton",
+    "reviewerStamp": "MLR Reviewer",
+    "text": "Slide 19 comparative claim should be qualified \u2014 see agentic report Finding 2. The phrase 'best-in-class tolerability with fewer discontinuations than any comparator' is not supported by head-to-head data. Should Fix.",
+    "tag": "Should Fix",
+    "tagBg": "#FFFBEB",
+    "tagFg": "#B45309",
+    "createdAt": "2026-10-15T10:31:00Z",
+    "resolvedAt": null,
+    "resolvedBy": null,
+    "escalatedFromAgentic": false,
+    "escalatedBy": null,
+    "escalatedAt": null,
+    "escalationAuditId": null
+  }
+]

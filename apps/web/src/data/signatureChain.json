@@ -1,0 +1,6 @@
+[
+  { "id": "SIG-0417-JO", "signer": "Dr. James Okonkwo", "initials": "JO", "role": "PV Lead",              "meaning": "reviewed", "status": "signed",   "step": 1, "timestamp": "2024-10-28T15:32:07Z", "authMethod": "password re-auth + TOTP", "documentHash": "3a9fc2d14e8b7f1a...c4d2", "version_at_signing": "v0.4" },
+  { "id": "SIG-0418-MW", "signer": "Marcus Webb",       "initials": "MW", "role": "Lead Clinical Writer", "meaning": "authored", "status": "awaiting", "step": 2 },
+  { "id": "SIG-0419-EV", "signer": "Dr. Elena Vasquez", "initials": "EV", "role": "Regulatory Affairs",   "meaning": "reviewed", "status": "queued",   "step": 3 },
+  { "id": "SIG-0420-SC", "signer": "Dr. Sarah Chen",    "initials": "SC", "role": "Clinical PM",          "meaning": "approved", "status": "queued",   "step": 4 }
+]

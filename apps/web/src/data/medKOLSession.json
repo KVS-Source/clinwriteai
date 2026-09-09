@@ -1,0 +1,51 @@
+{
+  "id": "ks-001",
+  "contentItemId": "mc-001",
+  "sessionDate": "2026-10-14",
+  "attendees": [
+    {
+      "name": "Prof. James Hartley",
+      "affiliation": "Memorial Cancer Institute",
+      "gdprConsent": "confirmed",
+      "role": "Chair",
+      "consentBg": "#F0FDF4",
+      "consentFg": "#15803D"
+    },
+    {
+      "name": "Dr Elena Vasquez",
+      "affiliation": "Royal Marsden",
+      "gdprConsent": "confirmed",
+      "role": "Faculty",
+      "consentBg": "#F0FDF4",
+      "consentFg": "#15803D"
+    },
+    {
+      "name": "Dr Priya Nair",
+      "affiliation": "Christie Hospital",
+      "gdprConsent": "confirmed",
+      "role": "Faculty",
+      "consentBg": "#F0FDF4",
+      "consentFg": "#15803D"
+    },
+    {
+      "name": "Dr Marcus Webb",
+      "affiliation": "GenBioCa Sciences",
+      "gdprConsent": "internal",
+      "role": "Facilitator",
+      "consentBg": "#F1F5F9",
+      "consentFg": "#475569"
+    }
+  ],
+  "preReads": [
+    "VELORA-301 CSR synopsis",
+    "SmPC / Approved Label v2.1",
+    "Draft agenda \u2014 14 Oct 2026"
+  ],
+  "voiceNoteIds": [
+    "vn-ks-001"
+  ],
+  "transcriptRef": "VELORA-301-AdBoard-14Oct2026-transcript.docx",
+  "transcriptionEngine": "OpenAI Whisper",
+  "transcriptionTimestamp": "2026-10-14T09:47:00Z",
+  "insightsReport": null
+}

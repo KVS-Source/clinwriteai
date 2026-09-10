@@ -1,0 +1,303 @@
+[
+  {
+    "id": "ml-001",
+    "name": "CTD 2.5 Clinical Overview \u2014 Veloricept NDA v1.0",
+    "module": "D",
+    "itemType": "document",
+    "docType": "NDA",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-16T17:04:00Z",
+    "pushedBy": "user-admin",
+    "pushedByName": "Dr James Hartley",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "NDA",
+      "FDA + EMA",
+      "Oct 2026",
+      "Regulatory Writing"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module A \u00b7 VELORA-301 CSR v1.0",
+      "Module D \u00b7 Regulatory Writing Stage 6",
+      "Master Library 16 Oct 2026"
+    ]
+  },
+  {
+    "id": "ml-002",
+    "name": "CTD 2.7 Clinical Summary \u2014 Veloricept NDA v1.0",
+    "module": "D",
+    "itemType": "document",
+    "docType": "NDA",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-16T17:04:00Z",
+    "pushedBy": "user-admin",
+    "pushedByName": "Dr James Hartley",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "NDA",
+      "Clinical Summary"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module A \u00b7 VELORA-301 CSR v1.0",
+      "Module D \u00b7 Stage 6"
+    ]
+  },
+  {
+    "id": "ml-003",
+    "name": "VELORA-301 CSR v1.0",
+    "module": "A",
+    "itemType": "document",
+    "docType": "CSR",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-15T12:00:00Z",
+    "pushedBy": "user-cl",
+    "pushedByName": "Dr Elena Vasquez",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "CSR",
+      "Phase III",
+      "Oncology"
+    ],
+    "isArchived": true,
+    "archivedReason": "Project closed",
+    "provenanceChain": [
+      "Module A \u00b7 Clinical Writing \u00b7 Final Output"
+    ]
+  },
+  {
+    "id": "ml-004",
+    "name": "SmPC v1.0 \u2014 Veloricept approved label (EU)",
+    "module": "D",
+    "itemType": "document",
+    "docType": "SmPC",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-16T17:04:00Z",
+    "pushedBy": "user-admin",
+    "pushedByName": "Dr James Hartley",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "SmPC",
+      "EMA",
+      "Label"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module D \u00b7 Regulatory Writing Stage 6"
+    ]
+  },
+  {
+    "id": "ml-005",
+    "name": "VELORA-301 KOL Session Summary",
+    "module": "C",
+    "itemType": "document",
+    "docType": "KOL Summary",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-15T14:00:00Z",
+    "pushedBy": "user-ma",
+    "pushedByName": "Dr Rebecca Morton",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "KOL",
+      "Medical Writing"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module C \u00b7 Medical Writing \u00b7 Final Output"
+    ]
+  },
+  {
+    "id": "ml-006",
+    "name": "Primary PFS Efficacy Blog Post",
+    "module": "E",
+    "itemType": "document",
+    "docType": "Blog Post",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-28T17:04:00Z",
+    "pushedBy": "user-il",
+    "pushedByName": "Ms Priya Nair",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "Blog",
+      "LinkedIn",
+      "Published Oct 2026"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module E \u00b7 Ideation & Publishing \u00b7 Final Output"
+    ]
+  },
+  {
+    "id": "ml-007",
+    "name": "RMP Core Document \u2014 Veloricept v1.0",
+    "module": "D",
+    "itemType": "document",
+    "docType": "RMP",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-16T17:04:00Z",
+    "pushedBy": "user-admin",
+    "pushedByName": "Dr James Hartley",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "RMP",
+      "EMA"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module D \u00b7 Stage 6"
+    ]
+  },
+  {
+    "id": "ml-008",
+    "name": "AURELIA-101 Phase I Clinical Brief",
+    "module": "B",
+    "itemType": "document",
+    "docType": "Clinical Brief",
+    "ta": [
+      "Cardiometabolic"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-22T10:00:00Z",
+    "pushedBy": "user-cl",
+    "pushedByName": "Dr Elena Vasquez",
+    "projectId": "proj-aurelia-101",
+    "projectName": "AURELIA-101 Phase I",
+    "tags": [
+      "Phase I",
+      "Cardiometabolic"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module B \u00b7 Scientific Writing \u00b7 Final Output"
+    ]
+  },
+  {
+    "id": "ml-009",
+    "name": "HA Response Template Bundle \u2014 FDA Day 120",
+    "module": "D",
+    "itemType": "section",
+    "docType": "HA Response",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-16T17:05:00Z",
+    "pushedBy": "user-admin",
+    "pushedByName": "Dr James Hartley",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "HA Response",
+      "FDA",
+      "Template"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module D \u00b7 HA Response Drafting \u00b7 sD10"
+    ]
+  },
+  {
+    "id": "ml-010",
+    "name": "VELORA-301 Phase III Manuscript \u2014 NEJM submission",
+    "module": "B",
+    "itemType": "document",
+    "docType": "Manuscript",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v2.1",
+    "pushedAt": "2026-09-20T11:00:00Z",
+    "pushedBy": "user-cl",
+    "pushedByName": "Dr Elena Vasquez",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "Manuscript",
+      "NEJM",
+      "Publication"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module B \u00b7 Scientific Writing \u00b7 Final Output"
+    ]
+  },
+  {
+    "id": "ml-011",
+    "name": "SmPC v2.1 \u2014 Veloricept updated label (EU)",
+    "module": "D",
+    "itemType": "document",
+    "docType": "SmPC",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v2.1",
+    "pushedAt": "2026-10-01T08:00:00Z",
+    "pushedBy": "user-admin",
+    "pushedByName": "Dr James Hartley",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "SmPC",
+      "EMA",
+      "Updated Oct 2026"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module D \u00b7 Regulatory Writing"
+    ]
+  },
+  {
+    "id": "ml-012",
+    "name": "AURELIA-101 IND \u2014 Phase I Safety Summary",
+    "module": "D",
+    "itemType": "document",
+    "docType": "IND",
+    "ta": [
+      "Cardiometabolic"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-12T15:00:00Z",
+    "pushedBy": "user-admin",
+    "pushedByName": "Dr James Hartley",
+    "projectId": "proj-aurelia-101",
+    "projectName": "AURELIA-101 Phase I",
+    "tags": [
+      "IND",
+      "EMA",
+      "ACK3"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Module D \u00b7 Stage 6 \u00b7 EMA ACK3"
+    ]
+  }
+]

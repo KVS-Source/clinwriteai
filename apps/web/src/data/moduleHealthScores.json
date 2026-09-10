@@ -1,0 +1,68 @@
+[
+  {
+    "module": "A",
+    "label": "Clinical Writing",
+    "healthScore": 87,
+    "completionRate": 94,
+    "reviewPassRate": 96,
+    "crmCompletionRate": 91,
+    "avgStageDays": 4.2,
+    "activeDocuments": 12,
+    "overdueDocuments": 0
+  },
+  {
+    "module": "B",
+    "label": "Scientific Writing",
+    "healthScore": 79,
+    "completionRate": 82,
+    "reviewPassRate": 88,
+    "crmCompletionRate": 85,
+    "avgStageDays": 6.1,
+    "activeDocuments": 6,
+    "overdueDocuments": 1
+  },
+  {
+    "module": "C",
+    "label": "Medical Writing",
+    "healthScore": 91,
+    "completionRate": 96,
+    "reviewPassRate": 98,
+    "crmCompletionRate": 94,
+    "avgStageDays": 3.8,
+    "activeDocuments": 9,
+    "overdueDocuments": 0
+  },
+  {
+    "module": "D",
+    "label": "Regulatory Writing",
+    "healthScore": 88,
+    "completionRate": 91,
+    "reviewPassRate": 93,
+    "crmCompletionRate": 89,
+    "avgStageDays": 5.3,
+    "activeDocuments": 12,
+    "overdueDocuments": 1
+  },
+  {
+    "module": "E",
+    "label": "Ideation & Publishing",
+    "healthScore": 94,
+    "completionRate": 100,
+    "reviewPassRate": 100,
+    "crmCompletionRate": 98,
+    "avgStageDays": 2.1,
+    "activeDocuments": 3,
+    "overdueDocuments": 0
+  },
+  {
+    "module": "platform",
+    "label": "Platform Overall",
+    "healthScore": 88,
+    "completionRate": 93,
+    "reviewPassRate": 95,
+    "crmCompletionRate": 91,
+    "avgStageDays": 4.3,
+    "activeDocuments": 42,
+    "overdueDocuments": 2
+  }
+]

@@ -1,0 +1,182 @@
+{
+  "version": "v1.0",
+  "effectiveDate": "2026-01-01",
+  "modules": {
+    "D": {
+      "label": "Module D \u2014 Regulatory Writing",
+      "tasks": [
+        {
+          "id": "d-t1",
+          "label": "Submission setup (Stage 1)",
+          "assignments": {
+            "admin": "A",
+            "regulatory-writer": "R",
+            "clinical-lead": "C",
+            "cmc-lead": "C",
+            "qc-checker": "I",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "d-t2",
+          "label": "CTD Module 2 authoring (Stage 2)",
+          "assignments": {
+            "admin": "A",
+            "regulatory-writer": "R",
+            "clinical-lead": "C",
+            "cmc-lead": "I",
+            "qc-checker": "I",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "d-t3",
+          "label": "CMC/Nonclinical (Stage 3)",
+          "assignments": {
+            "admin": "A",
+            "regulatory-writer": "C",
+            "clinical-lead": "I",
+            "cmc-lead": "R",
+            "qc-checker": "I",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "d-t4",
+          "label": "Super Review (Stage 4)",
+          "assignments": {
+            "admin": "A",
+            "regulatory-writer": "R",
+            "clinical-lead": "R",
+            "cmc-lead": "R",
+            "qc-checker": "R",
+            "e-signatory": "R"
+          }
+        },
+        {
+          "id": "d-t5",
+          "label": "eCTD Publishing (Stage 5)",
+          "assignments": {
+            "admin": "A",
+            "regulatory-writer": "R",
+            "clinical-lead": "I",
+            "cmc-lead": "I",
+            "qc-checker": "C",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "d-t6",
+          "label": "Gateway Submission (Stage 6)",
+          "assignments": {
+            "admin": "A",
+            "regulatory-writer": "R",
+            "clinical-lead": "I",
+            "cmc-lead": "I",
+            "qc-checker": "I",
+            "e-signatory": "R"
+          }
+        },
+        {
+          "id": "d-t7",
+          "label": "HA Response Drafting",
+          "assignments": {
+            "admin": "A",
+            "regulatory-writer": "R",
+            "clinical-lead": "C",
+            "cmc-lead": "C",
+            "qc-checker": "I",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "d-t8",
+          "label": "Regulatory Intelligence",
+          "assignments": {
+            "admin": "A",
+            "regulatory-writer": "R",
+            "clinical-lead": "C",
+            "cmc-lead": "I",
+            "qc-checker": "I",
+            "e-signatory": "I"
+          }
+        }
+      ]
+    },
+    "E": {
+      "label": "Module E \u2014 Ideation & Publishing",
+      "tasks": [
+        {
+          "id": "e-t1",
+          "label": "Artefact upload & source check",
+          "assignments": {
+            "ideation-lead": "R",
+            "ma-team-lead": "C",
+            "content-calendar-manager": "I",
+            "creative-team-member": "I"
+          }
+        },
+        {
+          "id": "e-t2",
+          "label": "Content card tagging",
+          "assignments": {
+            "ideation-lead": "R",
+            "ma-team-lead": "C",
+            "content-calendar-manager": "I",
+            "creative-team-member": "I"
+          }
+        },
+        {
+          "id": "e-t3",
+          "label": "Pre-review compliance",
+          "assignments": {
+            "ideation-lead": "R",
+            "ma-team-lead": "C",
+            "content-calendar-manager": "I",
+            "creative-team-member": "I"
+          }
+        },
+        {
+          "id": "e-t4",
+          "label": "KOL review",
+          "assignments": {
+            "ideation-lead": "A",
+            "ma-team-lead": "C",
+            "content-calendar-manager": "I",
+            "creative-team-member": "I"
+          }
+        },
+        {
+          "id": "e-t5",
+          "label": "Medical Affairs approval",
+          "assignments": {
+            "ideation-lead": "C",
+            "ma-team-lead": "A",
+            "content-calendar-manager": "I",
+            "creative-team-member": "I"
+          }
+        },
+        {
+          "id": "e-t6",
+          "label": "Content calendar scheduling",
+          "assignments": {
+            "ideation-lead": "C",
+            "ma-team-lead": "I",
+            "content-calendar-manager": "R",
+            "creative-team-member": "C"
+          }
+        },
+        {
+          "id": "e-t7",
+          "label": "Publishing execution",
+          "assignments": {
+            "ideation-lead": "I",
+            "ma-team-lead": "I",
+            "content-calendar-manager": "A",
+            "creative-team-member": "R"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -1,0 +1,174 @@
+[
+  {
+    "id": "bp-001",
+    "module": "D",
+    "category": "CTD Authoring",
+    "name": "Module-D-CTD-Authoring-v1.2-2026-01",
+    "guidance": "Use the canonical JSON data layer as the single source of truth for all efficacy claims in CTD Module 2.5 and 2.7. Never transcribe values manually \u2014 always pull from the indexed data layer to eliminate transcription error and maintain full provenance.",
+    "applicableDocTypes": [
+      "NDA",
+      "IND",
+      "MAA"
+    ],
+    "frameworkRefs": [
+      "ICH M4E(R2)",
+      "ICH E3"
+    ],
+    "effectiveFrom": "2026-01-01",
+    "validUntil": "2026-12-31",
+    "version": "v1.2",
+    "createdBy": "user-sa",
+    "updatedAt": "2026-01-01T00:00:00Z",
+    "reviewDue": false
+  },
+  {
+    "id": "bp-002",
+    "module": "D",
+    "category": "Super Review",
+    "name": "Module-D-SuperReview-v1.0-2026-03",
+    "guidance": "All six RACI roles must sign off before Stage 5. The 21 CFR Part 11 inline form captures signatory name, role, meaning of signature, and timestamp for each sign-off. Do not use a separate e-signature system.",
+    "applicableDocTypes": [
+      "NDA",
+      "IND",
+      "MAA",
+      "PSUR"
+    ],
+    "frameworkRefs": [
+      "21 CFR Part 11",
+      "ICH M4E(R2)"
+    ],
+    "effectiveFrom": "2026-03-15",
+    "validUntil": "2026-12-31",
+    "version": "v1.0",
+    "createdBy": "user-sa",
+    "updatedAt": "2026-03-15T00:00:00Z",
+    "reviewDue": false
+  },
+  {
+    "id": "bp-003",
+    "module": "D",
+    "category": "MHRA Configuration",
+    "name": "Module-D-MHRA-OQ-D-008-v1.0-2026-01",
+    "guidance": "MHRA API procurement is required before production. Include MHRA in all prototype UI designs as Priority 4 (disabled state). OQ-D-008 is resolved for prototype purposes.",
+    "applicableDocTypes": [
+      "NDA",
+      "MAA"
+    ],
+    "frameworkRefs": [
+      "OQ-D-008"
+    ],
+    "effectiveFrom": "2026-01-01",
+    "validUntil": "2026-12-31",
+    "version": "v1.0",
+    "createdBy": "user-sa",
+    "updatedAt": "2026-01-01T00:00:00Z",
+    "reviewDue": true,
+    "reviewDueNote": "91 days old \u2014 quarterly refresh due"
+  },
+  {
+    "id": "bp-004",
+    "module": "E",
+    "category": "Claim Currency",
+    "name": "Module-E-ClaimCurrency-v1.0-2026-03",
+    "guidance": "All artefacts entering Module E must pass the claim currency check before content cards are tagged. Conflicting claims (status: conflicting) block tagging at the passage level. Potentially-superseded claims require acknowledgement with a written rationale before proceeding. DD-E-003.",
+    "applicableDocTypes": [
+      "KOL Summary",
+      "Clinical Brief",
+      "Advisory Board Report"
+    ],
+    "frameworkRefs": [
+      "DD-E-003",
+      "FR-E-003"
+    ],
+    "effectiveFrom": "2026-03-01",
+    "validUntil": "2026-12-31",
+    "version": "v1.0",
+    "createdBy": "user-sa",
+    "updatedAt": "2026-03-01T00:00:00Z",
+    "reviewDue": false
+  },
+  {
+    "id": "bp-005",
+    "module": "E",
+    "category": "KOL Review",
+    "name": "Module-E-KOLReview-v1.0-2026-03",
+    "guidance": "KOL review links are one-time, token-based, and expire after 7 days. KOLs have no Aurora account. The platform escalates automatically at Day 3 (Reminder 1), Day 5 (Reminder 2), and Day 7 (escalation to Ideation Lead + MA Team Lead). FR-E-013.",
+    "applicableDocTypes": [
+      "Content Cards"
+    ],
+    "frameworkRefs": [
+      "FR-E-013",
+      "AC-E-029"
+    ],
+    "effectiveFrom": "2026-03-01",
+    "validUntil": "2026-12-31",
+    "version": "v1.0",
+    "createdBy": "user-sa",
+    "updatedAt": "2026-03-01T00:00:00Z",
+    "reviewDue": false
+  },
+  {
+    "id": "bp-006",
+    "module": "C",
+    "category": "MLR Submission",
+    "name": "Module-C-MLRSubmission-v1.0-2026-01",
+    "guidance": "FK readability grade must be \u22648 for PIL and EU CTR PLS content types before MLR submission. The platform enforces this as a hard gate. DD-C-005.",
+    "applicableDocTypes": [
+      "PIL",
+      "EU CTR PLS"
+    ],
+    "frameworkRefs": [
+      "DD-C-005",
+      "ICH E3"
+    ],
+    "effectiveFrom": "2026-01-01",
+    "validUntil": "2026-12-31",
+    "version": "v1.0",
+    "createdBy": "user-sa",
+    "updatedAt": "2026-01-01T00:00:00Z",
+    "reviewDue": false
+  },
+  {
+    "id": "bp-007",
+    "module": "A",
+    "category": "Audit Trail",
+    "name": "Module-A-AuditTrail-v1.0-2026-01",
+    "guidance": "All document edits, stage advances, and signature events are written to the immutable audit trail in real time. Events cannot be retroactively modified. Compliant with 21 CFR Part 11. The audit trail is the legal record of authorship and approval.",
+    "applicableDocTypes": [
+      "CSR",
+      "IB",
+      "SAP",
+      "Protocol"
+    ],
+    "frameworkRefs": [
+      "21 CFR Part 11",
+      "EU GMP Annex 11"
+    ],
+    "effectiveFrom": "2026-01-01",
+    "validUntil": "2026-12-31",
+    "version": "v1.0",
+    "createdBy": "user-sa",
+    "updatedAt": "2026-01-01T00:00:00Z",
+    "reviewDue": false
+  },
+  {
+    "id": "bp-008",
+    "module": "platform",
+    "category": "Project Governance",
+    "name": "Platform-ProjectGovernance-v1.0-2026-01",
+    "guidance": "Closed projects are read-only at the API layer for all users including Super Admin. This cannot be overridden. All Master Library contributions from a closed project remain accessible in archived (read-only) form permanently. PRD \u00a73A.",
+    "applicableDocTypes": [
+      "All document types"
+    ],
+    "frameworkRefs": [
+      "PRD \u00a73A",
+      "AC-D-044"
+    ],
+    "effectiveFrom": "2026-01-01",
+    "validUntil": "2026-12-31",
+    "version": "v1.0",
+    "createdBy": "user-sa",
+    "updatedAt": "2026-01-01T00:00:00Z",
+    "reviewDue": false
+  }
+]

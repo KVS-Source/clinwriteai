@@ -211,6 +211,21 @@ Already present in `.eslintrc` from Module D setup:
 
 ---
 
+## Colour Decision (resolved — apply before writing any token)
+
+**Module E accent is `#0D9488` Teal.** Three documents listed three different values; the design files win:
+
+- PRD §3.3 said `#005F8E` — overridden (steel blue is the cross-module blocking-state colour, cannot be module accent)
+- Architecture Tailwind stub had `#E11D48` rose — overridden (rose = sE07/sE08 overdue/error colour)
+- Design files sE01–sE10 implement `#0D9488` consistently — **adopted**
+
+Tailwind config (already corrected in Architecture v5):
+```typescript
+teal: { 600: '#0D9488', 50: '#F0FDFA', 100: '#CCFBF1', 200: '#99F6E4' }
+```
+
+Module E blocking states use **amber, grey, rose, green** — never teal as a severity signal. `#005F8E` steel blue appears only in `ClaimCurrencyBadge` conflicting state.
+
 ## 12. Teal Tailwind Tokens
 
 Add to `tailwind.config.ts`:
@@ -237,8 +252,8 @@ colors: {
 | sE02 | ip-003 BLOCKED — SourceGateBlock full-width. ip-001 source gate passed. 90-day rule bypass shown on ia-001. |
 | sE03 | ia-001 artefact open. 3 content cards listed. c-003 shows amber `ClaimCurrencyBadge`. ProvenanceChain visible on all cards without interaction. |
 | sE04 | c-001 pre-review. LinkedIn adaptation shown with compliance fix: 'transformative' removed. Must Fix: 0. Advisory: 1 (noted). |
-| sE05 | KOL review interface for Prof. James Whitfield (token: kol-tok-001-demo). 3 cards. c-003 shows KOL comment on PD-L1 language. |
-| sE06 | MA approval: Dr Michael Andrews. All 3 cards approved. c-003 shows KOL comment + Ideation Lead resolution displayed to MA Lead. |
+| sE05 | KOL review interface for Prof. James Hartley (token: kol-tok-001-demo). 3 cards. c-003 shows KOL comment on PD-L1 language. |
+| sE06 | MA approval: Dr Rebecca Morton. All 3 cards approved 19 Oct 2026. c-003 shows KOL comment + Ideation Lead resolution displayed to MA Lead. |
 | sE07 | Calendar. cal-001 LinkedIn published ✓, cal-002 Blog overdue (red tint, 48h), cal-003 HCP published ✓, cal-004 Safety HCP overdue, cal-005 Subgroup LinkedIn scheduled 5 Nov. sla-001 sentiment alert badge on cal-002. |
 | sE08 | Publishing monitor. cal-002 Blog in-progress. sla-001 sentiment alert (score 0.36, resolved). DD-E-005: "Mark as published" is human action — no direct API to social platforms. |
 | sE09 | Final output for ip-001. All 3 cards approved. Master Library push record. |

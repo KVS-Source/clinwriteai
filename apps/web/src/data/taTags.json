@@ -1,0 +1,123 @@
+[
+  {
+    "id": "tag-onc",
+    "name": "Oncology",
+    "abbreviation": "ONC",
+    "status": "active",
+    "projectCount": 14,
+    "documentCount": 247,
+    "createdAt": "2026-01-01",
+    "createdBy": "user-admin"
+  },
+  {
+    "id": "tag-card",
+    "name": "Cardiometabolic",
+    "abbreviation": "CARD",
+    "status": "active",
+    "projectCount": 4,
+    "documentCount": 38,
+    "createdAt": "2026-01-01",
+    "createdBy": "user-admin"
+  },
+  {
+    "id": "tag-neuro",
+    "name": "Neurology",
+    "abbreviation": "NEURO",
+    "status": "active",
+    "projectCount": 2,
+    "documentCount": 11,
+    "createdAt": "2026-01-15",
+    "createdBy": "user-admin"
+  },
+  {
+    "id": "tag-rare",
+    "name": "Rare Disease",
+    "abbreviation": "RARE",
+    "status": "active",
+    "projectCount": 1,
+    "documentCount": 6,
+    "createdAt": "2026-02-01",
+    "createdBy": "user-admin"
+  },
+  {
+    "id": "tag-immuno",
+    "name": "Immunology",
+    "abbreviation": "IMMUNO",
+    "status": "active",
+    "projectCount": 0,
+    "documentCount": 0,
+    "createdAt": "2026-03-01",
+    "createdBy": "user-admin"
+  },
+  {
+    "id": "tag-resp",
+    "name": "Respiratory",
+    "abbreviation": "RESP",
+    "status": "active",
+    "projectCount": 1,
+    "documentCount": 8,
+    "createdAt": "2026-01-01",
+    "createdBy": "user-admin"
+  },
+  {
+    "id": "tag-derm",
+    "name": "Dermatology",
+    "abbreviation": "DERM",
+    "status": "archived",
+    "projectCount": 2,
+    "documentCount": 14,
+    "createdAt": "2025-06-01",
+    "createdBy": "user-sa",
+    "archivedAt": "2026-04-01"
+  },
+  {
+    "id": "tag-gi",
+    "name": "Gastroenterology",
+    "abbreviation": "GI",
+    "status": "active",
+    "projectCount": 0,
+    "documentCount": 2,
+    "createdAt": "2026-05-01",
+    "createdBy": "user-admin"
+  },
+  {
+    "id": "tag-endo",
+    "name": "Endocrinology",
+    "abbreviation": "ENDO",
+    "status": "active",
+    "projectCount": 0,
+    "documentCount": 0,
+    "createdAt": "2026-06-01",
+    "createdBy": "user-admin"
+  },
+  {
+    "id": "tag-inf",
+    "name": "Infectious Disease",
+    "abbreviation": "ID",
+    "status": "active",
+    "projectCount": 1,
+    "documentCount": 4,
+    "createdAt": "2026-03-15",
+    "createdBy": "user-admin"
+  },
+  {
+    "id": "tag-heme",
+    "name": "Haematology",
+    "abbreviation": "HEME",
+    "status": "active",
+    "projectCount": 0,
+    "documentCount": 0,
+    "createdAt": "2026-07-01",
+    "createdBy": "user-admin"
+  },
+  {
+    "id": "tag-gene",
+    "name": "Gene Therapy",
+    "abbreviation": "GENE",
+    "status": "active",
+    "projectCount": 0,
+    "documentCount": 0,
+    "createdAt": "2026-08-01",
+    "createdBy": "user-admin"
+  }
+]

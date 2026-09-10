@@ -1,0 +1,37 @@
+[
+  {
+    "userId": "user-rw",
+    "eventType": "stage_advance",
+    "email": true,
+    "inApp": true,
+    "sms": false
+  },
+  {
+    "userId": "user-rw",
+    "eventType": "review_assigned",
+    "email": true,
+    "inApp": true,
+    "sms": false
+  },
+  {
+    "userId": "user-rw",
+    "eventType": "kol_invitation",
+    "email": true,
+    "inApp": true,
+    "sms": true
+  },
+  {
+    "userId": "user-rw",
+    "eventType": "ma_advance_notice",
+    "email": true,
+    "inApp": true,
+    "sms": true
+  },
+  {
+    "userId": "user-rw",
+    "eventType": "system",
+    "email": false,
+    "inApp": true,
+    "sms": false
+  }
+]

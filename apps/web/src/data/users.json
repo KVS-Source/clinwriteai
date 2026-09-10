@@ -1,0 +1,96 @@
+[
+  {
+    "id": "user-admin",
+    "name": "Dr James Hartley",
+    "email": "j.hartley@genbioca.com",
+    "role": "admin",
+    "modules": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+    ],
+    "status": "active",
+    "lastActive": "2026-09-09T09:15:00Z"
+  },
+  {
+    "id": "user-il",
+    "name": "Ms Priya Nair",
+    "email": "p.nair@genbioca.com",
+    "role": "ideation-lead",
+    "modules": [
+      "E"
+    ],
+    "status": "active",
+    "lastActive": "2026-09-09T08:44:00Z"
+  },
+  {
+    "id": "user-rw",
+    "name": "Dr Sarah Chen",
+    "email": "s.chen@genbioca.com",
+    "role": "regulatory-writer",
+    "modules": [
+      "D"
+    ],
+    "status": "active",
+    "lastActive": "2026-09-08T17:30:00Z"
+  },
+  {
+    "id": "user-ma",
+    "name": "Dr Rebecca Morton",
+    "email": "r.morton@genbioca.com",
+    "role": "ma-team-lead",
+    "modules": [
+      "C",
+      "E"
+    ],
+    "status": "active",
+    "lastActive": "2026-09-09T07:30:00Z"
+  },
+  {
+    "id": "user-ccm",
+    "name": "Mr Daniel Okafor",
+    "email": "d.okafor@genbioca.com",
+    "role": "content-calendar-manager",
+    "modules": [
+      "E"
+    ],
+    "status": "active",
+    "lastActive": "2026-09-08T00:00:00Z"
+  },
+  {
+    "id": "user-cl",
+    "name": "Dr Elena Vasquez",
+    "email": "e.vasquez@genbioca.com",
+    "role": "clinical-lead",
+    "modules": [
+      "A"
+    ],
+    "status": "active",
+    "lastActive": "2026-09-07T00:00:00Z"
+  },
+  {
+    "id": "user-cmc",
+    "name": "Dr Arjun Patel",
+    "email": "a.patel@genbioca.com",
+    "role": "cmc-lead",
+    "modules": [
+      "D"
+    ],
+    "status": "active",
+    "lastActive": "2026-09-06T00:00:00Z"
+  },
+  {
+    "id": "user-auth",
+    "name": "Ms Laura Kim",
+    "email": "l.kim@genbioca.com",
+    "role": "author",
+    "modules": [
+      "A",
+      "B"
+    ],
+    "status": "invited",
+    "lastActive": null
+  }
+]

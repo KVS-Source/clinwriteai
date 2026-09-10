@@ -1,0 +1,154 @@
+[
+  {
+    "id": "ratecard-v1.0",
+    "version": "v1.0",
+    "label": "Rate Card v1.0 \u00b7 AURORA Disruption Rate Card",
+    "status": "archived",
+    "effectiveFrom": "2026-01-01",
+    "validUntil": "2026-06-30",
+    "archivedAt": "2026-07-01T00:00:00Z",
+    "createdBy": "user-sa",
+    "createdByName": "Alex Thornton",
+    "isDisruptionRateCard": true,
+    "note": "AURORA Disruption Rate Card (PRD \u00a710.2) \u2014 platform default. Represents market disruption pricing versus standard consultancy rates.",
+    "currency": "GBP",
+    "rates": [
+      {
+        "module": "A",
+        "serviceType": "CSR Authoring",
+        "unit": "per token (1K)",
+        "rate": 0.5
+      },
+      {
+        "module": "A",
+        "serviceType": "Document Review",
+        "unit": "per hour",
+        "rate": 150.0
+      },
+      {
+        "module": "B",
+        "serviceType": "Manuscript Authoring",
+        "unit": "per token (1K)",
+        "rate": 0.5
+      },
+      {
+        "module": "B",
+        "serviceType": "Slide Deck Generation",
+        "unit": "per deck",
+        "rate": 40.0
+      },
+      {
+        "module": "C",
+        "serviceType": "Content Authoring",
+        "unit": "per token (1K)",
+        "rate": 0.5
+      },
+      {
+        "module": "D",
+        "serviceType": "Regulatory Authoring",
+        "unit": "per token (1K)",
+        "rate": 0.5
+      },
+      {
+        "module": "D",
+        "serviceType": "Gateway Submission",
+        "unit": "per submission",
+        "rate": 180.0
+      },
+      {
+        "module": "E",
+        "serviceType": "Content Atomisation",
+        "unit": "per card per channel",
+        "rate": 4.5
+      },
+      {
+        "module": "Platform",
+        "serviceType": "AI Tokens (base)",
+        "unit": "per 1K tokens",
+        "rate": 0.005
+      },
+      {
+        "module": "Platform",
+        "serviceType": "Voice Transcription",
+        "unit": "per minute",
+        "rate": 0.02
+      }
+    ]
+  },
+  {
+    "id": "ratecard-v1.1",
+    "version": "v1.1",
+    "label": "Rate Card v1.1",
+    "status": "active",
+    "effectiveFrom": "2026-07-01",
+    "validUntil": "2026-12-31",
+    "archivedAt": null,
+    "createdBy": "user-sa",
+    "createdByName": "Alex Thornton",
+    "isDisruptionRateCard": false,
+    "expiryReminderSentAt": null,
+    "currency": "GBP",
+    "rates": [
+      {
+        "module": "A",
+        "serviceType": "CSR Authoring",
+        "unit": "per token (1K)",
+        "rate": 0.5
+      },
+      {
+        "module": "A",
+        "serviceType": "Document Review",
+        "unit": "per hour",
+        "rate": 150.0
+      },
+      {
+        "module": "B",
+        "serviceType": "Manuscript Authoring",
+        "unit": "per token (1K)",
+        "rate": 0.5
+      },
+      {
+        "module": "B",
+        "serviceType": "Slide Deck Generation",
+        "unit": "per deck",
+        "rate": 45.0
+      },
+      {
+        "module": "C",
+        "serviceType": "Content Authoring",
+        "unit": "per token (1K)",
+        "rate": 0.5
+      },
+      {
+        "module": "D",
+        "serviceType": "Regulatory Authoring",
+        "unit": "per token (1K)",
+        "rate": 0.5
+      },
+      {
+        "module": "D",
+        "serviceType": "Gateway Submission",
+        "unit": "per submission",
+        "rate": 200.0
+      },
+      {
+        "module": "E",
+        "serviceType": "Content Atomisation",
+        "unit": "per card per channel",
+        "rate": 5.0
+      },
+      {
+        "module": "Platform",
+        "serviceType": "AI Tokens (base)",
+        "unit": "per 1K tokens",
+        "rate": 0.005
+      },
+      {
+        "module": "Platform",
+        "serviceType": "Voice Transcription",
+        "unit": "per minute",
+        "rate": 0.02
+      }
+    ]
+  }
+]

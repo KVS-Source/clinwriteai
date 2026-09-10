@@ -1,0 +1,140 @@
+{
+  "clientId": "client-genbioca-001",
+  "planName": "Enterprise Plan",
+  "contractedTokensPerMonth": 4000000,
+  "currency": "GBP",
+  "monthlyFee": 15000,
+  "renewalDate": "2026-10-01",
+  "autoRenew": true,
+  "paymentMethod": {
+    "type": "card",
+    "brand": "Visa",
+    "last4": "4417",
+    "expiryMonth": 12,
+    "expiryYear": 2027
+  },
+  "activeGateways": [
+    "stripe",
+    "razorpay"
+  ],
+  "currentPeriod": {
+    "month": "2026-09",
+    "tokensConsumed": 1847200,
+    "tokensRemaining": 2152800,
+    "estimatedSpend": 9236,
+    "burnRatePerDay": 205244,
+    "projectedEndOfMonth": 3899636
+  },
+  "moduleBreakdown": [
+    {
+      "module": "A",
+      "label": "Clinical Writing",
+      "tokensConsumed": 412000,
+      "cost": 2060,
+      "pctOfTotal": 22,
+      "burnRate": "on-track",
+      "status": "healthy"
+    },
+    {
+      "module": "B",
+      "label": "Scientific Writing",
+      "tokensConsumed": 188000,
+      "cost": 940,
+      "pctOfTotal": 10,
+      "burnRate": "on-track",
+      "status": "healthy"
+    },
+    {
+      "module": "C",
+      "label": "Medical Writing",
+      "tokensConsumed": 537000,
+      "cost": 2685,
+      "pctOfTotal": 29,
+      "burnRate": "high",
+      "status": "monitor"
+    },
+    {
+      "module": "D",
+      "label": "Regulatory Writing",
+      "tokensConsumed": 621000,
+      "cost": 3105,
+      "pctOfTotal": 34,
+      "burnRate": "high",
+      "status": "monitor"
+    },
+    {
+      "module": "E",
+      "label": "Ideation & Publishing",
+      "tokensConsumed": 89200,
+      "cost": 446,
+      "pctOfTotal": 5,
+      "burnRate": "low",
+      "status": "healthy"
+    }
+  ],
+  "invoices": [
+    {
+      "id": "inv-2026-08",
+      "date": "2026-08-01",
+      "amount": 15000,
+      "services": "All modules",
+      "status": "paid",
+      "pdfUrl": "/invoices/inv-2026-08.pdf"
+    },
+    {
+      "id": "inv-2026-07",
+      "date": "2026-07-01",
+      "amount": 15000,
+      "services": "All modules",
+      "status": "paid",
+      "pdfUrl": "/invoices/inv-2026-07.pdf"
+    },
+    {
+      "id": "inv-2026-06",
+      "date": "2026-06-01",
+      "amount": 14200,
+      "services": "All modules + overage",
+      "status": "paid",
+      "pdfUrl": "/invoices/inv-2026-06.pdf"
+    }
+  ],
+  "marketValueSavings": {
+    "total": 184720,
+    "calculatedAt": "2026-09-09",
+    "rateCardVersion": "v1.1",
+    "rateCardSetBy": "Alex Thornton",
+    "rateCardEffectiveDate": "2026-07-01",
+    "breakdown": [
+      {
+        "module": "A",
+        "hoursEquivalent": 82.4,
+        "standardRate": 150,
+        "savings": 12360
+      },
+      {
+        "module": "B",
+        "hoursEquivalent": 37.6,
+        "standardRate": 125,
+        "savings": 4700
+      },
+      {
+        "module": "C",
+        "hoursEquivalent": 107.4,
+        "standardRate": 135,
+        "savings": 14499
+      },
+      {
+        "module": "D",
+        "hoursEquivalent": 124.2,
+        "standardRate": 160,
+        "savings": 19872
+      },
+      {
+        "module": "E",
+        "hoursEquivalent": 17.84,
+        "standardRate": 100,
+        "savings": 1784
+      }
+    ]
+  }
+}

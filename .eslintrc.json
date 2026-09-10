@@ -23,8 +23,8 @@
           "message": "Modules A, B, and C must not import from Module D. Use @platform/types or shared components."
         },
         {
-          "group": ["*/modules/ideation/*"],
-          "message": "Module A must not import from Module E."
+          "group": ["*/modules/ideation-publishing/*"],
+          "message": "Modules A, B, C, and D must not import from Module E. Use @platform/types or shared components."
         }
       ]
     }]
@@ -50,7 +50,9 @@
         "apps/web/src/modules/medical-writing/**/*.{ts,tsx}",
         "apps/web/src/screens/medical-writing/**/*.{ts,tsx}",
         "apps/web/src/modules/regulatory-writing/**/*.{ts,tsx}",
-        "apps/web/src/screens/regulatory-writing/**/*.{ts,tsx}"
+        "apps/web/src/screens/regulatory-writing/**/*.{ts,tsx}",
+        "apps/web/src/modules/ideation-publishing/**/*.{ts,tsx}",
+        "apps/web/src/screens/ideation-publishing/**/*.{ts,tsx}"
       ],
       "rules": {
         "no-restricted-imports": "off"

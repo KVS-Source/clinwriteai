@@ -1,0 +1,223 @@
+[
+  {
+    "id": "rf-001",
+    "code": "21CFR11",
+    "name": "21 CFR Part 11",
+    "issuer": "FDA",
+    "version": "Current",
+    "effectiveDate": "2003-08-11",
+    "scope": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+    ],
+    "status": "Current",
+    "lastUpdated": "2003-08-11",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-002",
+    "code": "21CFR312",
+    "name": "21 CFR Part 312",
+    "issuer": "FDA",
+    "version": "Current",
+    "effectiveDate": "2012-04-05",
+    "scope": [
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "2012-04-05",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-003",
+    "code": "21CFR314",
+    "name": "21 CFR Part 314",
+    "issuer": "FDA",
+    "version": "Current",
+    "effectiveDate": "2026-09-01",
+    "scope": [
+      "D"
+    ],
+    "status": "Updated",
+    "lastUpdated": "2026-09-01",
+    "changeSummary": "Updated electronic submission format requirements for eCTD v4.0 pathways. New requirements apply to submissions filed on or after 01 Jan 2027."
+  },
+  {
+    "id": "rf-004",
+    "code": "ICH-M4E-R2",
+    "name": "ICH M4E(R2)",
+    "issuer": "ICH",
+    "version": "R2",
+    "effectiveDate": "2022-06-01",
+    "scope": [
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "2022-06-01",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-005",
+    "code": "ICH-M2-3.2.2",
+    "name": "ICH M2 v3.2.2",
+    "issuer": "ICH",
+    "version": "v3.2.2",
+    "effectiveDate": "2008-01-01",
+    "scope": [
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "2008-01-01",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-006",
+    "code": "ICH-Q8-11",
+    "name": "ICH Q8\u2013Q11",
+    "issuer": "ICH",
+    "version": "Current",
+    "effectiveDate": "2009-08-01",
+    "scope": [
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "2009-08-01",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-007",
+    "code": "ICH-S1-9",
+    "name": "ICH S1\u2013S9",
+    "issuer": "ICH",
+    "version": "Current",
+    "effectiveDate": "2012-01-01",
+    "scope": [
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "2012-01-01",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-008",
+    "code": "ICH-E2C-R2",
+    "name": "ICH E2C(R2) PBRER",
+    "issuer": "ICH",
+    "version": "R2",
+    "effectiveDate": "2012-11-15",
+    "scope": [
+      "D"
+    ],
+    "status": "Draft revision",
+    "lastUpdated": "2026-09-04",
+    "changeSummary": "Draft revision proposes changes to the benefit-risk evaluation framework (Section 8) and signal assessment methodology (Section 7). Public consultation open until 15 Dec 2026."
+  },
+  {
+    "id": "rf-009",
+    "code": "EU-726-2004",
+    "name": "EU Reg 726/2004",
+    "issuer": "EMA",
+    "version": "2004 (amended)",
+    "effectiveDate": "2004-05-20",
+    "scope": [
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "2019-01-01",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-010",
+    "code": "EU-GMP-A11",
+    "name": "EU GMP Annex 11",
+    "issuer": "EMA",
+    "version": "2011",
+    "effectiveDate": "2011-06-30",
+    "scope": [
+      "A",
+      "B",
+      "C",
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "2011-06-30",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-011",
+    "code": "GSPR",
+    "name": "GSPR (MDR/IVDR)",
+    "issuer": "EU",
+    "version": "MDR 2017/745",
+    "effectiveDate": "2017-05-05",
+    "scope": [
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "2017-05-05",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-012",
+    "code": "ICH-E2F",
+    "name": "ICH E2F DSUR",
+    "issuer": "ICH",
+    "version": "Current",
+    "effectiveDate": "2011-07-07",
+    "scope": [
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "2011-07-07",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-013",
+    "code": "ICH-E2A",
+    "name": "ICH E2A",
+    "issuer": "ICH",
+    "version": "Current",
+    "effectiveDate": "1994-10-27",
+    "scope": [
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "1994-10-27",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-014",
+    "code": "EMA-GVP-V",
+    "name": "EMA GVP Module V",
+    "issuer": "EMA",
+    "version": "2014",
+    "effectiveDate": "2014-04-03",
+    "scope": [
+      "D"
+    ],
+    "status": "Current",
+    "lastUpdated": "2014-04-03",
+    "changeSummary": null
+  },
+  {
+    "id": "rf-015",
+    "code": "GDPR",
+    "name": "GDPR (EU) 2016/679",
+    "issuer": "EU",
+    "version": "2018",
+    "effectiveDate": "2018-05-25",
+    "scope": [
+      "A",
+      "B",
+      "C",
+      "D",
+      "E"
+    ],
+    "status": "Current",
+    "lastUpdated": "2018-05-25",
+    "changeSummary": null
+  }
+]

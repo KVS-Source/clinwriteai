@@ -1,0 +1,96 @@
+{
+  "id": "sdj-001",
+  "publicationId": "pub-velora-301-manuscript",
+  "publicationTitle": "VELORA-301 Phase III CSR v1.0 \u2014 Manuscript",
+  "source": "full-manuscript",
+  "congressTarget": "ESMO 2026",
+  "slideCountLimit": 15,
+  "status": "ready",
+  "aiModel": "claude-sonnet-4-5",
+  "aiFootprintPct": 62,
+  "generatedAt": "2026-09-09T14:30:00Z",
+  "totalSlides": 18,
+  "clientTemplate": {
+    "id": "tmpl-genbioca-v2",
+    "label": "GenBioCa Corporate v2.1",
+    "applied": true
+  },
+  "congressGateActive": true,
+  "congressGateMessage": "\u26a0 Slide limit: 15 \u00b7 Currently: 18 slides \u2014 please remove or merge slides before export.",
+  "accessibilityGate": {
+    "active": true,
+    "missingAltText": [
+      {
+        "slideId": "slide-006",
+        "slideTitle": "Safety Profile",
+        "figureId": "fig-003",
+        "figureDescription": "Safety profile bar chart"
+      }
+    ]
+  },
+  "slides": [
+    {
+      "id": "slide-001",
+      "position": 1,
+      "title": "Title Slide",
+      "bodyText": "VELORA-301 Phase III: Veloricept + Pembrolizumab in First-Line Advanced NSCLC\nPrimary PFS Results \u2014 ESMO 2026",
+      "figures": [],
+      "speakerNotes": "Opening slide. Present at ESMO Congress 2026, Berlin. Data cut: 14 Aug 2026."
+    },
+    {
+      "id": "slide-002",
+      "position": 2,
+      "title": "Key Message 1 \u2014 Primary PFS Result",
+      "bodyText": "Veloricept + pembrolizumab demonstrated statistically significant improvement in PFS vs pembrolizumab alone (HR 0.61; 95% CI 0.48\u20130.77; p<0.001).",
+      "figures": [],
+      "speakerNotes": "Emphasise the strength of the primary endpoint. Note interaction p-values for subgroups are non-significant."
+    },
+    {
+      "id": "slide-003",
+      "position": 3,
+      "title": "Methods Overview",
+      "bodyText": "Phase III, randomised, double-blind, placebo-controlled trial. n=487 patients. First-line advanced NSCLC. ECOG PS 0\u20132. Any PD-L1 expression.",
+      "figures": [],
+      "speakerNotes": "Briefly cover inclusion criteria. Audience is familiar with the design from prior presentations."
+    },
+    {
+      "id": "slide-004",
+      "position": 4,
+      "title": "Results \u2014 PFS Kaplan-Meier",
+      "bodyText": "Median PFS: 14.2 months (veloricept arm) vs 8.7 months (pembrolizumab alone). HR 0.61 (95% CI 0.48\u20130.77; p<0.001).",
+      "figures": [
+        {
+          "figureId": "fig-001",
+          "altText": "Kaplan-Meier curve showing progression-free survival probability over time for veloricept plus pembrolizumab versus pembrolizumab alone. Median PFS 14.2 months versus 8.7 months."
+        }
+      ],
+      "speakerNotes": "Point to the separation of curves at Month 4 and the sustained benefit through Month 18."
+    },
+    {
+      "id": "slide-005",
+      "position": 5,
+      "title": "Results \u2014 Subgroup Consistency",
+      "bodyText": "Consistent benefit across PD-L1 expression levels and histology subgroups. All interaction p-values non-significant.",
+      "figures": [
+        {
+          "figureId": "fig-002",
+          "altText": "Forest plot showing hazard ratios for progression-free survival across pre-specified subgroups including PD-L1 CPS threshold and tumour histology."
+        }
+      ],
+      "speakerNotes": "Key point: no differential benefit by PD-L1 threshold. Supports a broad label."
+    },
+    {
+      "id": "slide-006",
+      "position": 6,
+      "title": "Safety Summary",
+      "bodyText": "Grade 3+ TRAEs: 52% vs 44%. No new safety signals. Safety profile consistent with known profiles of each agent.",
+      "figures": [
+        {
+          "figureId": "fig-003",
+          "altText": null
+        }
+      ],
+      "speakerNotes": "Note grade 3+ pneumonitis 8% in veloricept arm. Standard management protocols apply."
+    }
+  ]
+}

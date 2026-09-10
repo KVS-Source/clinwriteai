@@ -1,0 +1,195 @@
+{
+  "clientId": "client-genbioca-001",
+  "clientName": "GenBioCa Sciences",
+  "plan": "Enterprise",
+  "planStartDate": "2026-01-01",
+  "renewalDate": "2026-10-01",
+  "contractedTokensPerMonth": 4000000,
+  "currency": "GBP",
+  "aiEngine": {
+    "default": "claude-sonnet-4-5",
+    "fallback": "claude-haiku-4-5",
+    "perModuleOverrideEnabled": true,
+    "availableEngines": [
+      {
+        "id": "claude-sonnet-4-5",
+        "label": "Claude Sonnet 4.5",
+        "provider": "Anthropic",
+        "status": "active"
+      },
+      {
+        "id": "claude-opus-4",
+        "label": "Claude Opus 4",
+        "provider": "Anthropic",
+        "status": "available"
+      },
+      {
+        "id": "gpt-4o",
+        "label": "GPT-4o",
+        "provider": "OpenAI",
+        "status": "available"
+      },
+      {
+        "id": "gemini-pro",
+        "label": "Gemini Pro",
+        "provider": "Google",
+        "status": "available"
+      }
+    ],
+    "lastTested": "2026-09-09T14:22:00Z",
+    "lastTestedLatencyMs": 340,
+    "lastTestedStatus": "connected"
+  },
+  "voiceTranscription": {
+    "engine": "whisper",
+    "availableEngines": [
+      {
+        "id": "whisper",
+        "label": "Whisper (OpenAI)",
+        "status": "active"
+      },
+      {
+        "id": "assemblyai",
+        "label": "AssemblyAI",
+        "status": "available"
+      },
+      {
+        "id": "azure-speech",
+        "label": "Azure Speech",
+        "status": "available"
+      }
+    ],
+    "gdprJurisdiction": "EU",
+    "audioRetentionPolicy": "delete-immediately",
+    "auditDeletionLogged": true
+  },
+  "ectd": {
+    "defaultVersion": "v3.2.2",
+    "validationTool": "EXTEDO EXTEDOpulse",
+    "validationCredentialsLastValidated": "2026-09-15T00:00:00Z"
+  },
+  "paymentGateways": [
+    {
+      "id": "stripe",
+      "label": "Stripe",
+      "status": "active",
+      "lastTested": "2026-09-08"
+    },
+    {
+      "id": "razorpay",
+      "label": "RazorPay",
+      "status": "active",
+      "lastTested": "2026-09-08"
+    },
+    {
+      "id": "payu",
+      "label": "PayU",
+      "status": "inactive",
+      "lastTested": null
+    },
+    {
+      "id": "ccavenue",
+      "label": "CCAvenue",
+      "status": "inactive",
+      "lastTested": null
+    },
+    {
+      "id": "upi",
+      "label": "UPI",
+      "status": "active",
+      "lastTested": "2026-09-08"
+    },
+    {
+      "id": "net-banking",
+      "label": "Net Banking",
+      "status": "active",
+      "lastTested": "2026-09-08"
+    }
+  ],
+  "externalApis": [
+    {
+      "id": "fda-esg",
+      "label": "FDA ESG",
+      "status": "connected",
+      "lastTested": "2026-09-09T09:00:00Z"
+    },
+    {
+      "id": "ema-cesp",
+      "label": "EMA CESP",
+      "status": "connected",
+      "lastTested": "2026-09-09T09:00:00Z"
+    },
+    {
+      "id": "mhra",
+      "label": "MHRA",
+      "status": "not-configured",
+      "lastTested": null,
+      "note": "OQ-D-008 \u2014 Priority 4"
+    },
+    {
+      "id": "extedo",
+      "label": "EXTEDO EXTEDOpulse",
+      "status": "connected",
+      "lastTested": "2026-09-15T00:00:00Z"
+    },
+    {
+      "id": "crossref-orcid",
+      "label": "CrossRef / ORCID",
+      "status": "connected",
+      "lastTested": "2026-09-09T00:00:00Z",
+      "owner": "Module E"
+    },
+    {
+      "id": "pubmed",
+      "label": "PubMed",
+      "status": "connected",
+      "lastTested": "2026-09-01T00:00:00Z"
+    },
+    {
+      "id": "cdsco",
+      "label": "CDSCO",
+      "status": "inactive",
+      "lastTested": null
+    },
+    {
+      "id": "sms-gateway",
+      "label": "SMS Gateway",
+      "status": "connected",
+      "lastTested": "2026-09-08T00:00:00Z"
+    },
+    {
+      "id": "smtp",
+      "label": "Email SMTP",
+      "status": "connected",
+      "lastTested": "2026-09-09T00:00:00Z"
+    },
+    {
+      "id": "pmda",
+      "label": "PMDA",
+      "status": "inactive",
+      "lastTested": null
+    }
+  ],
+  "featureFlags": [
+    {
+      "id": "module-e-localisation",
+      "label": "Module E Localisation",
+      "status": "enabled"
+    },
+    {
+      "id": "voice-notes",
+      "label": "Voice Notes",
+      "status": "enabled"
+    },
+    {
+      "id": "slide-deck-generator",
+      "label": "Slide Deck Generator",
+      "status": "enabled"
+    },
+    {
+      "id": "best-practices-api",
+      "label": "Best Practices API",
+      "status": "beta"
+    }
+  ]
+}

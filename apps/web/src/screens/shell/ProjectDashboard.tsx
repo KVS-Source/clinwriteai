@@ -7,10 +7,10 @@ import { useProjectStore } from '../../store'
 
 // --- Static module metadata for the "Available modules" grid ---
 const INACTIVE_MODULES = [
-  { key: 'scientific-writing',  label: 'Scientific Writing',    letter: 'B', colour: '#0D9488', desc: 'Manuscripts, abstracts, congress materials.' },
-  { key: 'medical-writing',     label: 'Medical Writing',       letter: 'C', colour: '#7C3AED', desc: 'Medical information, MSL and payer content.' },
-  { key: 'regulatory-writing',  label: 'Regulatory Writing',    letter: 'D', colour: '#D97706', desc: 'Briefing books, responses, submission modules.' },
-  { key: 'ideation',            label: 'Ideation & Publishing', letter: 'E', colour: '#E11D48', desc: 'Publication planning and channel output.' },
+  { key: 'scientific-writing',   label: 'Scientific Writing',    letter: 'B', colour: '#0D9488', desc: 'Manuscripts, abstracts, congress materials.' },
+  { key: 'medical-writing',      label: 'Medical Writing',       letter: 'C', colour: '#7C3AED', desc: 'Medical information, MSL and payer content.' },
+  { key: 'regulatory-writing',   label: 'Regulatory Writing',    letter: 'D', colour: '#B0200D', desc: 'CTD/eCTD dossier authoring and submission.' },
+  { key: 'ideation-publishing',  label: 'Ideation & Publishing', letter: 'E', colour: '#0D9488', desc: 'Publication planning and channel output.' },
 ] as const
 
 // --- Active-module labels/colours (for iterating project.activeModules) ---
@@ -20,10 +20,10 @@ const ACTIVE_MODULE_META: Record<string, { label: string; colour: string; descri
     colour: '#2563EB',
     description: 'Clinical study report authoring, TLF integration and QC cycle for VELORA-301.',
   },
-  'scientific-writing': { label: 'Scientific Writing', colour: '#0D9488', description: 'Manuscripts, abstracts, congress materials.' },
-  'medical-writing':    { label: 'Medical Writing',    colour: '#7C3AED', description: 'Medical information, MSL and payer content.' },
-  'regulatory-writing': { label: 'Regulatory Writing', colour: '#D97706', description: 'Briefing books, responses, submission modules.' },
-  'ideation':           { label: 'Ideation & Publishing', colour: '#E11D48', description: 'Publication planning and channel output.' },
+  'scientific-writing':  { label: 'Scientific Writing',    colour: '#0D9488', description: 'Manuscripts, abstracts, congress materials.' },
+  'medical-writing':     { label: 'Medical Writing',       colour: '#7C3AED', description: 'Medical information, MSL and payer content.' },
+  'regulatory-writing':  { label: 'Regulatory Writing',    colour: '#B0200D', description: 'CTD/eCTD dossier authoring and submission.' },
+  'ideation-publishing': { label: 'Ideation & Publishing', colour: '#0D9488', description: 'Publication planning and channel output.' },
 }
 
 export function ProjectDashboard() {

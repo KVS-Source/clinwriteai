@@ -12,7 +12,7 @@ const MODULE_LABELS: Record<string, string> = {
   'scientific-writing': 'Scientific Writing · B',
   'medical-writing':    'Medical Writing · C',
   'regulatory-writing': 'Regulatory Writing · D',
-  'ideation':           'Ideation & Publishing · E',
+  'ideation-publishing': 'Ideation & Publishing · E',
 }
 
 interface Framework {

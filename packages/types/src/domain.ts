@@ -1169,3 +1169,248 @@ export const MODULE_D_ACCENT = {
   border:       '#FFC5C5',
   blockingBlue: '#005F8E',
 } as const
+
+// ============================================================================
+// MODULE E — IDEATION & PUBLISHING (Technical Architecture v4.0 §39)
+// ============================================================================
+
+export type IdeationStage        = 'uploaded' | 'under-review' | 'reviewed' | 'approved'
+export type ContentCardStatus    = 'uploaded' | 'under-review' | 'reviewed' | 'approved' | 'rejected'
+export type ChannelFormat        =
+  | 'linkedin' | 'twitter' | 'blog' | 'email' | 'hcp' | 'medical-affairs' | 'instagram' | 'facebook'
+export type ClaimCurrencyStatus  = 'current' | 'potentially-superseded' | 'conflicting'
+export type SourceCurrencyStatus = 'current' | 'superseded' | 'warned' | 'external-confirmed'
+export type ApprovalStatusCheck  = 'passed' | 'blocked' | 'confirmed-external' | 'pending'
+export type SourceModuleOrigin   = 'A' | 'B' | 'C' | 'D' | 'external'
+
+export interface IdeationProject {
+  id:                    string
+  projectId:             string
+  sourceType:            'master-library' | 'upload'
+  taTag:                 string
+  status:                IdeationStage
+  stage:                 number
+  title:                 string
+  compound:              string
+  indication:            string
+  createdBy:             string
+  createdByName:         string
+  createdByRole:         string
+  createdAt:             string
+  updatedAt:             string
+  contentCardCount:      number
+  approvedCardCount:     number
+  scheduledCount:        number
+  publishedCount:        number
+  maApprovedAt:          string | null
+  maApprovedBy:          string | null
+  maApprovedByName?:     string | null
+  maApprovedByRole?:     string | null
+  sourceGateStatus?:     'passed' | 'blocked' | 'pending'
+  sourceGateReason?:     string
+}
+
+export interface IdeationArtefact {
+  id:                       string
+  ideationProjectId:        string
+  sourceModule:             SourceModuleOrigin
+  sourceDocId:              string | null
+  filePath?:                string
+  title:                    string
+  originalApprovalDate:     string | null
+  version:                  string
+  sourceCurrencyStatus:     SourceCurrencyStatus
+  approvalStatusCheck:      ApprovalStatusCheck
+  approvalStatusNote:       string
+  externalConfirmedBy?:     string
+  externalConfirmedAt?:     string
+  masterLibraryPushDate:    string | null
+  withinNinetyDays:         boolean | null
+  claimCurrencyChecked:     boolean
+  claimCurrencyCheckedAt?:  string
+}
+
+export interface ClaimCurrencyFlag {
+  flagId:              string
+  text:                string
+  acknowledgedBy:      string
+  acknowledgedAt:      string
+  acknowledgementNote: string
+}
+
+export interface IdeationCardProvenance {
+  sourceDoc:        string
+  sourceDocVersion: string
+  section:          string
+  passage:          string
+  approvalDate:     string
+  originModule:     SourceModuleOrigin
+}
+
+export interface IdeationContentCard {
+  id:                   string
+  ideationArtefactId:   string
+  ideationProjectId:    string
+  sourceSection:        string
+  sourcePassage:        string
+  claimCurrencyStatus:  ClaimCurrencyStatus
+  claimCurrencyFlag?:   ClaimCurrencyFlag
+  channelFormats:       ChannelFormat[]
+  kolStatus:            'pending' | 'approved' | 'rejected'
+  kolApprovedAt:        string | null
+  kolApprovedBy:        string | null
+  maStatus:             'pending' | 'approved' | 'rejected'
+  maApprovedAt:         string | null
+  overallStatus:        ContentCardStatus
+  provenance:           IdeationCardProvenance
+  provenanceChain:      string[]
+  title:                string
+  cardType:             'efficacy' | 'safety' | 'subgroup' | 'other'
+}
+
+export interface AtomisedContentComplianceFix {
+  issue:      string
+  fixApplied: boolean
+}
+
+export interface AtomisedContent {
+  id:                    string
+  ideationContentCardId: string
+  channel:               ChannelFormat
+  channelLabel:          string
+  contentText:           string
+  aiGenerated:           boolean
+  aiFootprintHash:       string
+  brandScreenPassed:     boolean
+  complianceScreenPassed: boolean
+  complianceFixes:       AtomisedContentComplianceFix[]
+  characterCount:        number
+  wordCount:             number
+}
+
+export interface ClaimCurrencyClaim {
+  id:                    string
+  text:                  string
+  status:                ClaimCurrencyStatus
+  source:                string
+  verifiedAgainst:       string
+  flagNote?:             string
+  acknowledgedBy?:       string
+  acknowledgedByName?:   string
+  acknowledgedAt?:       string
+  acknowledgementNote?:  string
+}
+
+export interface ClaimCurrencyCheck {
+  id:                    string
+  ideationArtefactId:    string
+  ideationProjectId:     string
+  runAt:                 string
+  totalClaimsExtracted:  number
+  results:               { current: number; potentiallySuperseded: number; conflicting: number }
+  claimsExtracted:       ClaimCurrencyClaim[]
+  acknowledgedBy:        string | null
+  acknowledgedAt:        string | null
+}
+
+export interface CalendarEntry {
+  id:                        string
+  ideationContentCardId:     string
+  ideationProjectId:         string
+  channel:                   ChannelFormat
+  channelLabel:              string
+  cardTitle:                 string
+  scheduledDate:             string
+  assignedCreativeId:        string
+  assignedCreativeName:      string
+  status:                    'scheduled' | 'published' | 'overdue' | 'cancelled'
+  publishedAt:               string | null
+  publishedBy:               string | null
+  utmParams:                 string | null
+  seoMetadata:               Record<string, unknown>
+  sentimentScore:            number | null
+  sentimentAlertSent:        boolean
+  isOverdue:                 boolean
+  overdueHours?:             number
+  overdueAlertSentAt?:       string
+  maAdvanceNotificationSent?: boolean
+  maAdvanceNotificationSentAt?: string
+}
+
+export interface SocialListeningAlert {
+  id:                  string
+  publishRecordId:     string
+  calendarEntryId:     string
+  ideationProjectId:   string
+  cardTitle:           string
+  alertType:           'sentiment' | 'engagement'
+  thresholdBreached:   boolean
+  sentimentScore:      number
+  sentimentThreshold:  number
+  triggeredAt:         string
+  notifiedMALeadAt:    string
+  notifiedMALeadName:  string
+  autoStopTriggered:   boolean
+  autoStopNote:        string
+  resolvedAt:          string | null
+  resolvedBy:          string | null
+  resolvedByName:      string | null
+  resolutionNote:      string | null
+}
+
+export interface KOLReviewDecision {
+  cardId:   string
+  decision: 'approved' | 'rejected' | 'pending'
+  comment:  string | null
+}
+
+export interface KOLContact {
+  id:                 string
+  ideationProjectId:  string
+  name:               string
+  title:              string
+  email:              string
+  reviewLinkToken:    string
+  reviewLinkExpiry:   string
+  signedOffAt:        string | null
+  reminder1SentAt:    string | null
+  reminder2SentAt:    string | null
+  escalatedAt:        string | null
+  reviewDecisions:    KOLReviewDecision[]
+}
+
+// --- Lookup constants ---
+
+export const CHANNEL_META: Record<ChannelFormat, { label: string; charLimit?: number }> = {
+  linkedin:          { label: 'LinkedIn',        charLimit: 3000 },
+  twitter:           { label: 'X / Twitter',     charLimit: 280 },
+  blog:              { label: 'Blog Post' },
+  email:             { label: 'Email' },
+  hcp:               { label: 'HCP Summary' },
+  'medical-affairs': { label: 'Medical Affairs' },
+  instagram:         { label: 'Instagram',       charLimit: 2200 },
+  facebook:          { label: 'Facebook' },
+}
+
+export const IDEATION_STAGE_META: Record<IdeationStage, { label: string; bg: string; fg: string }> = {
+  uploaded:       { label: 'Uploaded',     bg: '#F1F5F9', fg: '#64748B' },
+  'under-review': { label: 'Under Review', bg: '#FFFBEB', fg: '#B45309' },
+  reviewed:       { label: 'Reviewed',     bg: '#F0FDFA', fg: '#0F766E' },
+  approved:       { label: 'Approved',     bg: '#F0FDF4', fg: '#15803D' },
+}
+
+export const CLAIM_CURRENCY_META: Record<ClaimCurrencyStatus, { label: string; bg: string; fg: string }> = {
+  current:                 { label: 'Current',                bg: '#F0FDF4', fg: '#15803D' },
+  'potentially-superseded':{ label: 'Potentially Superseded', bg: '#FFFBEB', fg: '#B45309' },
+  conflicting:             { label: 'Conflicting',            bg: '#EFF6FF', fg: '#005F8E' },
+}
+
+export const MODULE_E_ACCENT = {
+  primary:      '#0D9488',
+  primaryHover: '#0F766E',
+  bgLight:      '#F0FDFA',
+  bgMedium:     '#CCFBF1',
+  border:       '#99F6E4',
+  blockingRose: '#BE123C',
+  blockingBg:   '#FFF1F2',
+} as const

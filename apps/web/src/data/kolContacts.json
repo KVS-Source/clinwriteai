@@ -2,12 +2,12 @@
   {
     "id": "kol-001",
     "ideationProjectId": "ip-001",
-    "name": "Prof. James Whitfield",
-    "title": "Professor of Oncology, University of Edinburgh",
-    "email": "j.whitfield@oncology-edinburgh.ac.uk",
+    "name": "Prof. James Hartley",
+    "title": "Professor of Oncology",
+    "email": "j.hartley@example.ac.uk",
     "reviewLinkToken": "kol-tok-001-demo",
     "reviewLinkExpiry": "2026-10-28T00:00:00Z",
-    "signedOffAt": "2026-10-21T14:00:00Z",
+    "signedOffAt": "2026-10-18T14:32:00Z",
     "reminder1SentAt": null,
     "reminder2SentAt": null,
     "escalatedAt": null,
@@ -25,7 +25,7 @@
       {
         "cardId": "c-003",
         "decision": "approved",
-        "comment": "PD-L1 subgroup language \u2014 please ensure consistency with current ESMO guidelines."
+        "comment": "PD-L1 subgroup language — please ensure consistency with current ESMO guidelines."
       }
     ]
   }

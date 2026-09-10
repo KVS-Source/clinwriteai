@@ -1,0 +1,74 @@
+[
+  {
+    "id": "rpt-001",
+    "type": "project-summary",
+    "label": "Project Summary Report",
+    "description": "Full activity summary for a single project \u2014 all modules, all stages, all documents",
+    "availableFormats": [
+      "pdf",
+      "csv"
+    ],
+    "lastGenerated": "2026-09-08T10:00:00Z",
+    "generatedBy": "user-admin"
+  },
+  {
+    "id": "rpt-002",
+    "type": "module-activity",
+    "label": "Module Activity Report",
+    "description": "Per-module document and stage activity for a given date range",
+    "availableFormats": [
+      "pdf",
+      "csv"
+    ],
+    "lastGenerated": null,
+    "generatedBy": null
+  },
+  {
+    "id": "rpt-003",
+    "type": "ai-usage",
+    "label": "AI Usage Report",
+    "description": "Token consumption, cost, and model breakdown by module and user",
+    "availableFormats": [
+      "pdf",
+      "csv"
+    ],
+    "lastGenerated": null,
+    "generatedBy": null
+  },
+  {
+    "id": "rpt-004",
+    "type": "user-activity",
+    "label": "User Activity Report",
+    "description": "Documents touched, stages advanced, signatures applied per user",
+    "availableFormats": [
+      "pdf",
+      "csv"
+    ],
+    "lastGenerated": null,
+    "generatedBy": null
+  },
+  {
+    "id": "rpt-005",
+    "type": "compliance",
+    "label": "Compliance Report",
+    "description": "Gate pass/fail rates, audit events by type, 21 CFR Part 11 signature summary",
+    "availableFormats": [
+      "pdf",
+      "csv"
+    ],
+    "lastGenerated": null,
+    "generatedBy": null
+  },
+  {
+    "id": "rpt-006",
+    "type": "publishing-performance",
+    "label": "Publishing Performance Report",
+    "description": "Module E \u2014 content published, sentiment scores, overdue rates, calendar adherence",
+    "availableFormats": [
+      "pdf",
+      "csv"
+    ],
+    "lastGenerated": null,
+    "generatedBy": null
+  }
+]

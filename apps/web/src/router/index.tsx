@@ -48,6 +48,16 @@ import { GatewaySubmission }             from '../screens/regulatory-writing/Gat
 import { HAResponseDrafting }            from '../screens/regulatory-writing/HAResponseDrafting'
 import { RegulatoryIntelligence }        from '../screens/regulatory-writing/RegulatoryIntelligence'
 import { FinalOutputPortfolio }          from '../screens/regulatory-writing/FinalOutputPortfolio'
+import { IdeationPublishingHome }        from '../screens/ideation-publishing/IdeationPublishingHome'
+import { ArtefactUploadSourceCheck }    from '../screens/ideation-publishing/ArtefactUploadSourceCheck'
+import { ContentCardTagging }           from '../screens/ideation-publishing/ContentCardTagging'
+import { PreReviewComplianceScreen }    from '../screens/ideation-publishing/PreReviewComplianceScreen'
+import { KOLReviewInterface }           from '../screens/ideation-publishing/KOLReviewInterface'
+import { MedicalAffairsApproval }       from '../screens/ideation-publishing/MedicalAffairsApproval'
+import { ContentCalendar }              from '../screens/ideation-publishing/ContentCalendar'
+import { PublishingMonitor }            from '../screens/ideation-publishing/PublishingMonitor'
+import { FinalOutputPublishingRecord }  from '../screens/ideation-publishing/FinalOutputPublishingRecord'
+import { StandardsMetadataDOI }         from '../screens/ideation-publishing/StandardsMetadataDOI'
 
 export const router = createBrowserRouter([
   // Auth screens — no shell
@@ -151,10 +161,30 @@ export const router = createBrowserRouter([
               },
             ],
           },
-          { path: 'ideation',           element: <PlaceholderScreen name="Module E — Coming Soon" /> },
+          {
+            path: 'ideation-publishing',
+            children: [
+              { index: true,             element: <IdeationPublishingHome /> },
+              { path: 'calendar',        element: <ContentCalendar /> },
+              { path: 'publishing',      element: <PublishingMonitor /> },
+              {
+                path: 'projects/:ideationProjectId',
+                children: [
+                  { index: true,          element: <ArtefactUploadSourceCheck /> },
+                  { path: 'tagging',      element: <ContentCardTagging /> },
+                  { path: 'compliance',   element: <PreReviewComplianceScreen /> },
+                  { path: 'ma-approval',  element: <MedicalAffairsApproval /> },
+                  { path: 'final',        element: <FinalOutputPublishingRecord /> },
+                  { path: 'standards',    element: <StandardsMetadataDOI /> },
+                ],
+              },
+            ],
+          },
         ],
       },
     ],
   },
+  // PUBLIC — outside AuthGuard/AppShell — KOL review link with token
+  { path: '/kol-review/:token', element: <KOLReviewInterface /> },
   { path: '*', element: <Navigate to="/projects" replace /> },
 ])

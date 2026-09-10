@@ -11,7 +11,7 @@
     ],
     "availableInModules": [
       "regulatory-writing",
-      "ideation"
+      "ideation-publishing"
     ],
     "expiryDate": "2028-10-05",
     "pushedBy": "user-sc",
@@ -30,7 +30,7 @@
     ],
     "availableInModules": [
       "regulatory-writing",
-      "ideation"
+      "ideation-publishing"
     ],
     "expiryDate": "2028-10-05",
     "pushedBy": "user-sc",
@@ -49,7 +49,7 @@
     ],
     "availableInModules": [
       "regulatory-writing",
-      "ideation"
+      "ideation-publishing"
     ],
     "expiryDate": "2028-10-05",
     "pushedBy": "user-sc",

@@ -43,7 +43,7 @@
     "version": "v0.2-draft",
     "sourceCurrencyStatus": "current",
     "approvalStatusCheck": "blocked",
-    "approvalStatusNote": "Source content gate failed \u2014 document status is 'In Authoring' in Module A. Only Signed / Final Output / Submitted documents may enter the ideation pipeline.",
+    "approvalStatusNote": "Source content gate failed — document status is 'In Authoring' in Module A. Only Signed / Final Output / Submitted documents may enter the ideation pipeline.",
     "masterLibraryPushDate": null,
     "withinNinetyDays": null,
     "claimCurrencyChecked": false

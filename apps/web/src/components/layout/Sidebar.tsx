@@ -7,8 +7,8 @@ const MODULE_COLOURS: Record<string, string> = {
   'clinical-writing':    '#2563EB',
   'scientific-writing':  '#0D9488',
   'medical-writing':     '#7C3AED',
-  'regulatory-writing':  '#D97706',
-  'ideation':            '#E11D48',
+  'regulatory-writing':  '#B0200D',
+  'ideation-publishing': '#0D9488',
 }
 
 const MODULE_LABELS: Record<string, string> = {
@@ -16,7 +16,7 @@ const MODULE_LABELS: Record<string, string> = {
   'scientific-writing':  'Scientific Writing',
   'medical-writing':     'Medical Writing',
   'regulatory-writing':  'Regulatory Writing',
-  'ideation':            'Ideation & Publishing',
+  'ideation-publishing': 'Ideation & Publishing',
 }
 
 function HomeIcon()   { return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 6.5L8 2l6 4.5V14H2V6.5Z"/></svg> }
@@ -36,14 +36,14 @@ interface Props {
 }
 
 // Per-module nav items — each module only exposes routes that exist in the router.
-type NavKey = 'home' | 'portfolio' | 'comments' | 'audit' | 'crm' | 'kol' | 'claims' | 'intelligence'
+type NavKey = 'home' | 'portfolio' | 'comments' | 'audit' | 'crm' | 'kol' | 'claims' | 'intelligence' | 'calendar' | 'publishing'
 
 const MODULE_NAV: Record<string, NavKey[]> = {
-  'clinical-writing':   ['home', 'portfolio', 'comments', 'audit', 'crm'],
-  'scientific-writing': ['home', 'portfolio'],
-  'medical-writing':    ['home', 'portfolio', 'kol', 'claims'],
-  'regulatory-writing': ['home', 'intelligence'],
-  'ideation':           ['home'],
+  'clinical-writing':    ['home', 'portfolio', 'comments', 'audit', 'crm'],
+  'scientific-writing':  ['home', 'portfolio'],
+  'medical-writing':     ['home', 'portfolio', 'kol', 'claims'],
+  'regulatory-writing':  ['home', 'intelligence'],
+  'ideation-publishing': ['home', 'calendar', 'publishing'],
 }
 
 export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
@@ -60,6 +60,8 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
     kol:          { label: 'KOL Sessions',   href: `/projects/${projectId}/${activeModule}/kol-session`,   icon: <ChatIcon />   },
     claims:       { label: 'Claims Matrix',  href: `/projects/${projectId}/${activeModule}/claims-matrix`, icon: <ShieldIcon /> },
     intelligence: { label: 'Intelligence',   href: `/projects/${projectId}/${activeModule}/intelligence`,  icon: <ShieldIcon /> },
+    calendar:     { label: 'Calendar',       href: `/projects/${projectId}/${activeModule}/calendar`,      icon: <GridIcon />   },
+    publishing:   { label: 'Publishing',     href: `/projects/${projectId}/${activeModule}/publishing`,    icon: <FolderIcon /> },
   }
 
   const moduleNavItems: NavItem[] = projectId

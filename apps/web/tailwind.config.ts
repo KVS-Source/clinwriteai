@@ -24,8 +24,8 @@ export default {
           100: '#DBEAFE',
           50:  '#EFF6FF',
         },
-        // Module B — Scientific Writing
-        teal: { 600: '#0D9488' },
+        // Modules B (Scientific Writing) + E (Ideation & Publishing) — shared teal palette
+        teal: { 600: '#0D9488', 200: '#99F6E4', 100: '#CCFBF1', 50: '#F0FDFA' },
         // Module C — Medical Writing
         violet: { 700: '#6D28D9', 600: '#7C3AED', 200: '#DDD6FE', 100: '#EDE9FE', 50: '#F5F3FF' },
         // Module D — Regulatory Writing (crimson) + amber

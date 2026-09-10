@@ -2,7 +2,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { TopNav }  from './TopNav'
 import { Sidebar } from './Sidebar'
 
-const MODULES = ['clinical-writing', 'scientific-writing', 'medical-writing', 'regulatory-writing', 'ideation']
+const MODULES = ['clinical-writing', 'scientific-writing', 'medical-writing', 'regulatory-writing', 'ideation-publishing']
 
 function useActiveModule(): string {
   const { pathname } = useLocation()

@@ -14,12 +14,7 @@
     "publishedBy": "user-cr",
     "utmParams": "utm_source=linkedin&utm_medium=social&utm_campaign=velora301-pfs&utm_content=hr-0.61",
     "seoMetadata": {
-      "tags": [
-        "Oncology",
-        "NSCLC",
-        "ClinicalTrials",
-        "Veloricept"
-      ]
+      "tags": ["Oncology", "NSCLC", "ClinicalTrials", "Veloricept"]
     },
     "sentimentScore": 0.78,
     "sentimentAlertSent": false,
@@ -71,7 +66,7 @@
     "ideationProjectId": "ip-001",
     "channel": "hcp",
     "channelLabel": "HCP Summary",
-    "cardTitle": "Safety Profile \u2014 Grade 3+ AEs",
+    "cardTitle": "Safety Profile — Grade 3+ AEs",
     "scheduledDate": "2026-10-18",
     "assignedCreativeId": "user-cr",
     "assignedCreativeName": "Alex Brennan",

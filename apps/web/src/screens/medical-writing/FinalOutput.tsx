@@ -40,7 +40,7 @@ const FRAMEWORK_CARD = {
   name:               'Veloricept brand messaging framework',
   tags:               'FRAMEWORK · PUSHED AT STAGE 2',
   taTag:              'Oncology',
-  availableInModules: ['regulatory-writing', 'ideation'],
+  availableInModules: ['regulatory-writing', 'ideation-publishing'],
   origin:             'originally pushed at Stage 2 · confirmed at Final Output ✓',
 }
 

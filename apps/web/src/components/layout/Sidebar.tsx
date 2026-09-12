@@ -102,14 +102,16 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
   return (
     <aside className="flex w-56 flex-none flex-col overflow-hidden" style={{ backgroundColor: '#1E293B' }}>
 
-      {/* Brand wordmark */}
-      <div className="flex h-14 flex-none items-center gap-2.5 px-5 border-b border-slate-700">
-        <div className="flex h-7 w-7 items-center justify-center rounded-md" style={{ backgroundColor: accentColour }}>
-          <span className="font-mono text-[11px] font-bold text-white">C</span>
-        </div>
-        <div>
-          <p className="text-sm font-bold leading-tight text-white">ClinWrite.AI</p>
-          <p className="font-mono text-[10px] leading-tight text-slate-400">AI-Native Authoring</p>
+      {/* Brand wordmark — official ClinWrite logo on a white pill (green/red brand
+          colours are unreadable directly on the dark navy sidebar). */}
+      <div className="flex h-14 flex-none flex-col items-start justify-center gap-1 px-4 border-b border-slate-700">
+        <div className="flex w-full items-center justify-center rounded-md bg-white px-3 py-1.5">
+          <img
+            src="/logo/clinwrite.svg"
+            alt="ClinWrite.AI"
+            className="h-6 w-auto"
+            data-brand-logo
+          />
         </div>
       </div>
 

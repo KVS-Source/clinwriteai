@@ -65,7 +65,7 @@ export function KOLReviewInterface() {
       data-public-route
       data-no-aurora-shell
     >
-      <div className="mx-auto flex flex-col gap-6" style={{ maxWidth: 960, padding: '32px 24px 48px' }}>
+      <div className="flex flex-col gap-6" style={{ maxWidth: 960, padding: '32px 24px 48px' }}>
 
         {/* Public header — no Aurora shell */}
         <header className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-6" data-public-header>

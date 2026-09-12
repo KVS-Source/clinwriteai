@@ -61,7 +61,7 @@ export function MasterLibrary() {
 
   return (
     <div className="bg-slate-50" data-screen="master-library">
-      <div className="mx-auto flex flex-col gap-4" style={{ maxWidth: 1600, padding: '20px 24px 48px' }}>
+      <div className="flex flex-col gap-4" style={{ maxWidth: 1600, padding: '20px 24px 48px' }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
           <span>Platform</span>

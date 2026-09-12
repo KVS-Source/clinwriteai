@@ -168,7 +168,7 @@ export function IdeationPublishingHome() {
 
   return (
     <div className="bg-slate-50" data-screen="ideation-publishing-home">
-      <div className="mx-auto flex flex-col gap-5" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
+      <div className="flex flex-col gap-5" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">

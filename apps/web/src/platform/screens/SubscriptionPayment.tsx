@@ -69,7 +69,7 @@ export function SubscriptionPayment() {
 
   return (
     <div className="bg-slate-50" data-screen="subscription-payment">
-      <div className="mx-auto flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
+      <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
           <span>Platform</span>

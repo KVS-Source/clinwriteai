@@ -16,6 +16,7 @@ import { publicationHandlers } from './handlers/publications'
 import { medContentHandlers }  from './handlers/medContent'
 import { regulatoryWritingHandlers } from './handlers/regulatoryWriting'
 import { ideationPublishingHandlers } from './handlers/ideationPublishing'
+import { platformHandlers }           from './handlers/platform'
 
 export const worker = setupWorker(
   ...authHandlers,
@@ -35,4 +36,5 @@ export const worker = setupWorker(
   ...medContentHandlers,
   ...regulatoryWritingHandlers,
   ...ideationPublishingHandlers,
+  ...platformHandlers,
 )

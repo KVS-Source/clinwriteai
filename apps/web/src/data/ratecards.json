@@ -11,7 +11,7 @@
     "createdByName": "Alex Thornton",
     "isDisruptionRateCard": true,
     "note": "AURORA Disruption Rate Card (PRD \u00a710.2) \u2014 platform default. Represents market disruption pricing versus standard consultancy rates.",
-    "currency": "GBP",
+    "currency": "USD",
     "rates": [
       {
         "module": "A",
@@ -87,7 +87,7 @@
     "createdByName": "Alex Thornton",
     "isDisruptionRateCard": false,
     "expiryReminderSentAt": null,
-    "currency": "GBP",
+    "currency": "USD",
     "rates": [
       {
         "module": "A",

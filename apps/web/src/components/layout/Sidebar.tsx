@@ -1,15 +1,39 @@
 import type { ReactNode } from 'react'
 import { NavLink, useNavigate, useParams } from 'react-router-dom'
 import { MonoLabel } from '../ui'
+import { usePlatformStore } from '../../platform/store'
 
-// Module accent colours — design-system.md Decision 10
+// Module accent colours — design-system.md Decision 10 (Platform = navy per PM00 §7 rule 1)
 const MODULE_COLOURS: Record<string, string> = {
   'clinical-writing':    '#2563EB',
   'scientific-writing':  '#0D9488',
   'medical-writing':     '#7C3AED',
   'regulatory-writing':  '#B0200D',
   'ideation-publishing': '#0D9488',
+  'platform':            '#1A3C5E',
 }
+
+// Platform section nav — items land as their sPM screens are built (PM00 §4).
+// Each entry is {label, href, roles} — filtered client-side against currentUser.role.
+interface PlatformNavItem { label: string; href: string; roles: readonly ('admin' | 'super-admin')[] }
+const PLATFORM_NAV: PlatformNavItem[] = [
+  { label: 'Admin Panel',      href: '/admin',       roles: ['admin', 'super-admin'] as const },
+  { label: 'User Management',  href: '/admin/users', roles: ['admin', 'super-admin'] as const },
+  { label: 'Audit Trail',      href: '/admin/audit', roles: ['admin', 'super-admin'] as const },
+  { label: 'TA Tags',          href: '/admin/taxonomy', roles: ['admin', 'super-admin'] as const },
+  { label: 'RACI Matrix',      href: '/admin/raci',  roles: ['admin', 'super-admin'] as const },
+  { label: 'Notifications',    href: '/notifications', roles: ['admin', 'super-admin'] as const },
+  { label: 'Master Library',   href: '/library',    roles: ['admin', 'super-admin'] as const },
+  { label: 'Best Practices',   href: '/library/best-practices', roles: ['admin', 'super-admin'] as const },
+  { label: 'Services',         href: '/services',   roles: ['admin', 'super-admin'] as const },
+  { label: 'Subscription',     href: '/admin/subscription', roles: ['admin', 'super-admin'] as const },
+  { label: 'Reports',          href: '/reports',    roles: ['admin', 'super-admin'] as const },
+]
+const SUPER_ADMIN_NAV: PlatformNavItem[] = [
+  { label: 'Super Admin Panel',   href: '/super-admin',            roles: ['super-admin'] as const },
+  { label: 'Framework Registry',  href: '/super-admin/frameworks', roles: ['super-admin'] as const },
+  { label: 'Rate Card',           href: '/super-admin/rate-card',  roles: ['super-admin'] as const },
+]
 
 const MODULE_LABELS: Record<string, string> = {
   'clinical-writing':    'Clinical Writing',
@@ -49,7 +73,14 @@ const MODULE_NAV: Record<string, NavKey[]> = {
 export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
   const { projectId } = useParams()
   const navigate = useNavigate()
+  const currentUser = usePlatformStore(s => s.currentUser)
   const accentColour = MODULE_COLOURS[activeModule] ?? '#2563EB'
+
+  const platformItems   = PLATFORM_NAV.filter(i =>   i.roles.includes(currentUser.role as 'admin' | 'super-admin'))
+  const superAdminItems = SUPER_ADMIN_NAV.filter(i => i.roles.includes(currentUser.role as 'admin' | 'super-admin'))
+  // Prototype: role guards are bypassed, so show the sections when they have items regardless of role.
+  const showPlatform   = platformItems.length   > 0 || PLATFORM_NAV.length   > 0
+  const showSuperAdmin = superAdminItems.length > 0 || SUPER_ADMIN_NAV.length > 0
 
   const allNavItems: Record<NavKey, NavItem> = {
     home:      { label: 'Home',          href: `/projects/${projectId}/${activeModule}`,               icon: <HomeIcon />   },
@@ -98,6 +129,70 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
           <span>All Projects</span>
         </NavLink>
       </div>
+
+      {/* Platform section (PM00 §4) — always visible in prototype; role-filtered in production */}
+      {showPlatform && (
+        <div className="mt-4 px-3" data-sidebar-section="platform">
+          <div className="mb-2 px-2.5">
+            <MonoLabel className="text-slate-500">Platform</MonoLabel>
+          </div>
+          <nav className="flex flex-col gap-0.5">
+            {PLATFORM_NAV.map(item => (
+              <NavLink
+                key={item.href}
+                to={item.href}
+                data-platform-link={item.href}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${
+                    isActive ? 'text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  }`
+                }
+                style={({ isActive }) =>
+                  isActive ? { backgroundColor: `${MODULE_COLOURS['platform']}44` } : {}
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <span style={{ color: isActive ? MODULE_COLOURS['platform'] : undefined }} className="flex-none">
+                      <ShieldIcon />
+                    </span>
+                    <span>{item.label}</span>
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+      )}
+
+      {/* Super Admin section (PM00 §4) — visible when super-admin nav items exist */}
+      {showSuperAdmin && SUPER_ADMIN_NAV.length > 0 && (
+        <div className="mt-4 px-3" data-sidebar-section="super-admin">
+          <div className="mb-2 px-2.5">
+            <MonoLabel className="text-slate-500">Super Admin</MonoLabel>
+          </div>
+          <nav className="flex flex-col gap-0.5">
+            {SUPER_ADMIN_NAV.map(item => (
+              <NavLink
+                key={item.href}
+                to={item.href}
+                data-super-admin-link={item.href}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${
+                    isActive ? 'text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  }`
+                }
+                style={({ isActive }) =>
+                  isActive ? { backgroundColor: `${MODULE_COLOURS['platform']}44` } : {}
+                }
+              >
+                <ShieldIcon />
+                <span>{item.label}</span>
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+      )}
 
       {/* Module section — only when inside a project */}
       {projectId && (

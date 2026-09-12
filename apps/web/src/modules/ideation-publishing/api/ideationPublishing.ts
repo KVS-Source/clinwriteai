@@ -7,7 +7,7 @@ import type {
   KOLContact, KOLReviewDecision, ChannelFormat, IdeationStage,
 } from '@platform/types'
 
-const RAW_API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'
+const RAW_API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 // --- Request/response bodies ---
 

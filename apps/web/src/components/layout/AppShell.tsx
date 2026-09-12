@@ -3,9 +3,11 @@ import { TopNav }  from './TopNav'
 import { Sidebar } from './Sidebar'
 
 const MODULES = ['clinical-writing', 'scientific-writing', 'medical-writing', 'regulatory-writing', 'ideation-publishing']
+const PLATFORM_ROUTES = ['/admin', '/super-admin', '/library', '/notifications', '/reports', '/services']
 
 function useActiveModule(): string {
   const { pathname } = useLocation()
+  if (PLATFORM_ROUTES.some(p => pathname === p || pathname.startsWith(p + '/'))) return 'platform'
   return MODULES.find(m => pathname.includes(m)) ?? 'clinical-writing'
 }
 

@@ -68,7 +68,7 @@ export function AllProjects() {
   const activeCount = projects.filter((p: Project) => p.status === 'ongoing').length
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-screen="all-projects">
 
       {/* Page header */}
       <div className="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-6">

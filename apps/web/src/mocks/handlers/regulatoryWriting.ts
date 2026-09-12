@@ -13,7 +13,7 @@ import regulatoryAlerts        from '../../data/regulatoryAlerts.json'
 import regulatoryLibraryCards  from '../../data/regulatoryLibraryCards.json'
 import oddAssessment           from '../../data/oddAssessment.json'
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'
+const BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 // In-memory state so mutations persist within a session
 let cmcState                = cmcReadinessReport as { acknowledgedBy: string | null; acknowledgedAt: string | null } & Record<string, unknown>

@@ -9,7 +9,7 @@ import medKOLSession        from '../../data/medKOLSession.json'
 import medLibraryCards      from '../../data/medLibraryCards.json'
 import contentExpiryRecords from '../../data/contentExpiryRecords.json'
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'
+const BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 // Simple in-memory copy of KOL session state — mutated by upload/generate
 let kolSessionState = medKOLSession as { id: string; contentItemId: string; sessionDate: string; attendees: unknown[]; transcriptUploadedAt?: string | null; insightsReportGeneratedAt?: string | null }

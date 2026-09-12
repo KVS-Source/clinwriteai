@@ -1,7 +1,7 @@
 import { http, HttpResponse, delay } from 'msw'
 import team from '../../data/team.json'
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'
+const BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 export const authHandlers = [
   http.post(`${BASE}/auth/login`, async ({ request }) => {

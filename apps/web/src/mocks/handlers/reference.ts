@@ -3,7 +3,7 @@ import tlf from '../../data/tlf.json'
 import meddra from '../../data/meddra.json'
 import ichSections from '../../data/ichSections.json'
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'
+const BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 export const referenceHandlers = [
   http.get(`${BASE}/documents/:documentId/tlf`, async () => {

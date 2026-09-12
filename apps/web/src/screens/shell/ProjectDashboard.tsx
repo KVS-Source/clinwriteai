@@ -52,7 +52,7 @@ export function ProjectDashboard() {
   const leadName = project.team.find(t => t.raci === 'R')?.name ?? project.team[0]?.name ?? '—'
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-screen="project-dashboard">
 
       {/* ============ Page Header ============ */}
       <div className="flex flex-col gap-3.5 border-b border-slate-200 bg-white px-8 pt-5 pb-[22px]">

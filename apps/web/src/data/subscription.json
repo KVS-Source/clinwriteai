@@ -1,10 +1,10 @@
 {
   "clientId": "client-genbioca-001",
-  "planName": "Enterprise Plan",
+  "planName": "Professional Plan",
   "contractedTokensPerMonth": 4000000,
-  "currency": "GBP",
+  "currency": "USD",
   "monthlyFee": 15000,
-  "renewalDate": "2026-10-01",
+  "renewalDate": "2027-01-01",
   "autoRenew": true,
   "paymentMethod": {
     "type": "card",
@@ -136,5 +136,17 @@
         "savings": 1784
       }
     ]
+  },
+  "currentMonthRunningTotal": 612000,
+  "burnRateAlert": {
+    "active": true,
+    "affectedModules": [
+      "C",
+      "D"
+    ],
+    "affectedPct": 63,
+    "projectedExhaustionDate": "2026-09-24",
+    "daysBeforeRenewal": 6,
+    "message": "Medical Writing and Regulatory Writing account for 63% of September consumption. At the current rate the contracted allowance is exhausted on 24 Sept 2026, six days before renewal."
   }
 }

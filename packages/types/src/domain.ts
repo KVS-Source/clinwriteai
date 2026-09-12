@@ -1414,3 +1414,459 @@ export const MODULE_E_ACCENT = {
   blockingRose: '#BE123C',
   blockingBg:   '#FFF1F2',
 } as const
+
+// ============================================================================
+// MODULE PM — Platform & Admin (sPM04–sPM18) + Module B sB10
+// ============================================================================
+
+export type PlatformUserRole =
+  | 'super-admin'
+  | 'admin'
+  | 'ideation-lead'
+  | 'regulatory-writer'
+  | 'ma-team-lead'
+  | 'content-calendar-manager'
+  | 'clinical-lead'
+  | 'cmc-lead'
+  | 'author'
+  | 'qc-checker'
+  | 'e-signatory'
+  | 'creative-team-member'
+
+export type PlatformUserStatus = 'active' | 'invited' | 'suspended'
+export type ModuleKey          = 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
+export type AiEngineStatus     = 'active' | 'available' | 'disabled'
+export type PaymentGatewayStatus = 'active' | 'inactive'
+export type ExternalApiStatus  = 'connected' | 'not-configured' | 'inactive'
+export type FeatureFlagStatus  = 'enabled' | 'disabled' | 'beta'
+export type RateCardStatus     = 'active' | 'archived' | 'draft'
+export type NotificationEventType =
+  | 'stage_advance' | 'review_assigned' | 'ma_advance_notice' | 'system'
+  | 'comment' | 'kol_reminder_1' | 'kol_reminder_2' | 'kol_invitation'
+  | 'publishing_overdue' | 'gate_failure'
+export type AuditActionType =
+  | 'SIGNATURE_APPLIED' | 'DOCUMENT_EDITED' | 'ARTEFACT_UPLOADED'
+  | 'ACK2_RECEIVED' | 'SUBMISSION_TRANSMITTED' | 'MA_APPROVED'
+  | 'CLAIM_CURRENCY_ACKNOWLEDGED' | 'COMMENT_ADDED' | 'USER_INVITED'
+  | 'TC_ACCEPTED' | 'FRAMEWORK_ALERT_TRIGGERED' | 'STAGE_ADVANCED'
+  | 'CONTRADICTION_RESOLVED' | 'CONTENT_CARD_TAGGED' | 'RATE_CARD_UPDATED'
+  | 'MA_REVIEW_RESOLVED' | 'TA_TAG_CREATED' | 'CLIENT_CREATED'
+  | 'FRAMEWORK_ACKNOWLEDGED'
+export type RegulatoryFrameworkStatus = 'Current' | 'Updated' | 'Draft revision' | 'Deprecated'
+export type SubscriptionStatus = 'active' | 'suspended' | 'expired'
+export type PaymentMethodType  = 'card' | 'bank-transfer' | 'upi'
+export type ReportType =
+  | 'project-summary' | 'module-activity' | 'ai-usage'
+  | 'user-activity' | 'compliance' | 'publishing-performance'
+export type MasterLibraryItemType = 'document' | 'section'
+export type TATagStatus = 'active' | 'archived'
+export type SlideDeckStatus = 'draft' | 'generating' | 'ready' | 'exported'
+
+export interface PlatformUser {
+  id:         string
+  name:       string
+  email:      string
+  role:       PlatformUserRole
+  modules:    Array<'A' | 'B' | 'C' | 'D' | 'E'>
+  status:     PlatformUserStatus
+  lastActive: string | null
+}
+
+export interface RaciAssignment {
+  admin?:                    RACIRole
+  'regulatory-writer'?:      RACIRole
+  'clinical-lead'?:          RACIRole
+  'cmc-lead'?:               RACIRole
+  'qc-checker'?:             RACIRole
+  'e-signatory'?:            RACIRole
+  'ideation-lead'?:          RACIRole
+  'ma-team-lead'?:           RACIRole
+  'content-calendar-manager'?: RACIRole
+  'creative-team-member'?:   RACIRole
+}
+
+export interface RaciTask {
+  id:          string
+  label:       string
+  assignments: RaciAssignment
+}
+
+export interface RaciModule {
+  label: string
+  tasks: RaciTask[]
+}
+
+export interface RaciMatrix {
+  version:       string
+  effectiveDate: string
+  modules:       Partial<Record<'A' | 'B' | 'C' | 'D' | 'E', RaciModule>>
+}
+
+export interface AiEngineOption { id: string; label: string; provider: string; status: AiEngineStatus }
+export interface VoiceEngineOption { id: string; label: string; status: AiEngineStatus }
+export interface PaymentGateway { id: string; label: string; status: PaymentGatewayStatus; lastTested: string | null }
+export interface ExternalApi    { id: string; label: string; status: ExternalApiStatus;    lastTested: string | null; note?: string; owner?: string }
+export interface FeatureFlag    { id: string; label: string; status: FeatureFlagStatus }
+
+export interface PlatformConfig {
+  clientId:                 string
+  clientName:               string
+  plan:                     string
+  planStartDate:            string
+  renewalDate:              string
+  contractedTokensPerMonth: number
+  currency:                 string
+  aiEngine: {
+    default:                    string
+    fallback:                   string
+    perModuleOverrideEnabled:   boolean
+    availableEngines:           AiEngineOption[]
+    lastTested:                 string
+    lastTestedLatencyMs:        number
+    lastTestedStatus:           string
+  }
+  voiceTranscription: {
+    engine:                 string
+    availableEngines:       VoiceEngineOption[]
+    gdprJurisdiction:       string
+    audioRetentionPolicy:   string
+    auditDeletionLogged:    boolean
+  }
+  ectd: {
+    defaultVersion:                       string
+    validationTool:                       string
+    validationCredentialsLastValidated:   string
+  }
+  paymentGateways: PaymentGateway[]
+  externalApis:    ExternalApi[]
+  featureFlags:    FeatureFlag[]
+  seats?:          { used: number; total: number }
+}
+
+export interface MasterLibraryItem {
+  id:                string
+  name:              string
+  module:            ModuleKey
+  itemType:          MasterLibraryItemType
+  docType:           string
+  ta:                string[]
+  version:           string
+  pushedAt:          string
+  pushedBy:          string
+  pushedByName:      string
+  projectId:         string
+  projectName:       string
+  tags:              string[]
+  isArchived:        boolean
+  archivedReason?:   string
+  provenanceChain:   string[]
+}
+
+export interface BestPractice {
+  id:                 string
+  module:             ModuleKey
+  category:           string
+  name:               string
+  guidance:           string
+  applicableDocTypes: string[]
+  frameworkRefs:      string[]
+  effectiveFrom:      string
+  validUntil:         string
+  version:            string
+  createdBy:          string
+  updatedAt:          string
+  reviewDue:          boolean
+  reviewDueNote?:     string
+}
+
+export interface PlatformNotification {
+  id:            string
+  eventType:     NotificationEventType
+  title:         string
+  body:          string
+  module:        ModuleKey
+  projectId:     string | null
+  entityRef:     string | null
+  targetUserId:  string
+  sentAt:        string
+  isRead:        boolean
+  ctaLabel:      string
+  ctaRoute:      string
+}
+
+export interface NotificationPreference {
+  userId:     string
+  eventType:  NotificationEventType | string
+  email:      boolean
+  inApp:      boolean
+  sms:        boolean
+}
+
+export interface PartElevenRecord {
+  signatoryName:        string
+  role:                 string
+  email:                string
+  meaning:              string
+  documentVersionHash:  string
+  timestamp:            string
+}
+
+export interface AuditTrailEntry {
+  id:          string
+  timestamp:   string
+  userId:      string
+  userName:    string
+  action:      AuditActionType
+  entityType:  string
+  entityId:    string
+  entityLabel: string
+  module:      ModuleKey
+  details:     string
+  ipAddress:   string | null
+  sessionId:   string | null
+  partEleven:  PartElevenRecord | null
+}
+
+export interface RateCardEntry {
+  module:      string
+  serviceType: string
+  unit:        string
+  rate:        number
+}
+
+export interface RateCard {
+  id:                     string
+  version:                string
+  label:                  string
+  status:                 RateCardStatus
+  effectiveFrom:          string
+  validUntil:             string
+  archivedAt:             string | null
+  createdBy:              string
+  createdByName:          string
+  isDisruptionRateCard:   boolean
+  note?:                  string
+  expiryReminderSentAt?:  string | null
+  currency:               string
+  rates:                  RateCardEntry[]
+}
+
+export interface ModuleBreakdown {
+  module:          ModuleKey
+  label:           string
+  tokensConsumed:  number
+  cost:            number
+  pctOfTotal:      number
+  burnRate:        'low' | 'on-track' | 'high'
+  status:          'healthy' | 'monitor' | 'over'
+}
+
+export interface Invoice {
+  id:       string
+  date:     string
+  amount:   number
+  services: string
+  status:   'paid' | 'pending' | 'overdue' | 'failed'
+  pdfUrl:   string
+}
+
+export interface MarketValueSavingsRow {
+  module:           ModuleKey
+  hoursEquivalent:  number
+  standardRate:     number
+  savings:          number
+}
+
+export interface Subscription {
+  clientId:                 string
+  planName:                 string
+  contractedTokensPerMonth: number
+  currency:                 string
+  monthlyFee:               number
+  renewalDate:              string
+  autoRenew:                boolean
+  currentMonthRunningTotal?: number
+  paymentMethod: {
+    type:         PaymentMethodType
+    brand:        string
+    last4:        string
+    expiryMonth:  number
+    expiryYear:   number
+  }
+  activeGateways: string[]
+  currentPeriod: {
+    month:                string
+    tokensConsumed:       number
+    tokensRemaining:      number
+    estimatedSpend:       number
+    burnRatePerDay:       number
+    projectedEndOfMonth:  number
+  }
+  moduleBreakdown: ModuleBreakdown[]
+  invoices:        Invoice[]
+  marketValueSavings: {
+    total:                 number
+    calculatedAt:          string
+    rateCardVersion:       string
+    rateCardSetBy:         string
+    rateCardEffectiveDate: string
+    breakdown:             MarketValueSavingsRow[]
+  }
+  burnRateAlert?: {
+    active:                    boolean
+    affectedModules:           string[]
+    affectedPct:               number
+    projectedExhaustionDate:   string
+    daysBeforeRenewal:         number
+    message:                   string
+  }
+}
+
+export interface ReportDefinition {
+  id:               string
+  type:             ReportType
+  label:            string
+  description:      string
+  availableFormats: Array<'pdf' | 'csv'>
+  lastGenerated:    string | null
+  generatedBy:      string | null
+}
+
+export interface ModuleHealthScore {
+  module:             ModuleKey
+  label:              string
+  healthScore:        number
+  completionRate:     number
+  reviewPassRate:     number
+  crmCompletionRate:  number
+  avgStageDays:       number
+  activeDocuments:    number
+  overdueDocuments:   number
+}
+
+export interface TATag {
+  id:              string
+  name:            string
+  abbreviation:    string
+  status:          TATagStatus
+  projectCount:    number
+  documentCount:   number
+  createdAt:       string
+  createdBy:       string
+  archivedAt?:     string
+}
+
+export interface RegulatoryFramework {
+  id:             string
+  code:           string
+  name:           string
+  issuer:         string
+  version:        string
+  effectiveDate:  string
+  scope:          Array<'A' | 'B' | 'C' | 'D' | 'E'>
+  status:         RegulatoryFrameworkStatus
+  lastUpdated:    string
+  changeSummary:  string | null
+}
+
+export interface SlideFigure {
+  figureId:          string
+  altText:           string | null
+  figureDescription?: string
+}
+
+export interface Slide {
+  id:            string
+  position:      number
+  title:         string
+  bodyText:      string
+  figures:       SlideFigure[]
+  speakerNotes:  string
+}
+
+export interface AccessibilityMissingAltText {
+  slideId:            string
+  slideTitle:         string
+  figureId:           string
+  figureDescription:  string
+}
+
+export interface SlideDeckJob {
+  id:                    string
+  publicationId:         string
+  publicationTitle:      string
+  source:                string
+  congressTarget:        string
+  slideCountLimit:       number
+  status:                SlideDeckStatus
+  aiModel:               string
+  aiFootprintPct:        number
+  generatedAt:           string
+  totalSlides:           number
+  clientTemplate:        { id: string; label: string; applied: boolean }
+  congressGateActive:    boolean
+  congressGateMessage:   string
+  accessibilityGate: {
+    active:            boolean
+    missingAltText:    AccessibilityMissingAltText[]
+  }
+  slides:                Slide[]
+}
+
+export const PLATFORM_ACCENT = {
+  primary:      '#1A3C5E',   // navy-700
+  primaryHover: '#12304F',
+  bgTint:       '#EFF6FF',   // navy-50
+  bgLight:      '#DBEAFE',   // navy-100
+  borderMedium: '#BFDBFE',   // navy-200
+  destructive:  '#B91C1C',
+} as const
+
+export const MODULE_B_SB10_ACCENT = {
+  primary:      '#7B3C9A',
+  primaryHover: '#5B21B6',
+} as const
+
+export type PlatformClientStatus = 'active' | 'suspended' | 'churned'
+
+export interface PlatformClient {
+  id:               string
+  name:             string
+  note?:            string
+  plan:             string
+  status:           PlatformClientStatus
+  adminContactName: string | null
+  createdAt:        string
+  revenueToDateGBP: number
+}
+
+export interface PlatformAnalytics {
+  totalActiveUsers:          number
+  activeProjects:            number
+  documentsCreatedRolling30: number
+  aiTokensRolling30:         number
+  mrrGBP:                    number
+  arrGBP:                    number
+  churnThisQuarter:          number
+  avgTokensPerClientMonth:   number
+  clientCounts: {
+    active:    number
+    suspended: number
+    churned:   number
+  }
+}
+
+export const PLATFORM_USER_ROLE_LABEL: Record<PlatformUserRole, string> = {
+  'super-admin':               'Super Admin',
+  'admin':                     'Admin',
+  'ideation-lead':             'Ideation Lead',
+  'regulatory-writer':         'Regulatory Writer',
+  'ma-team-lead':              'MA Team Lead',
+  'content-calendar-manager':  'Content Calendar Manager',
+  'clinical-lead':             'Clinical Lead',
+  'cmc-lead':                  'CMC Lead',
+  'author':                    'Author',
+  'qc-checker':                'QC Checker',
+  'e-signatory':               'E-Signatory',
+  'creative-team-member':      'Creative Team Member',
+}

@@ -135,7 +135,7 @@
     "entityRef": "ratecard-v1.1",
     "targetUserId": "user-sa",
     "sentAt": "2026-12-24T08:00:00Z",
-    "isRead": false,
+    "isRead": true,
     "ctaLabel": "Go to Rate Card Admin \u2192",
     "ctaRoute": "/super-admin/rate-card"
   }

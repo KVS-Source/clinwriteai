@@ -26,6 +26,7 @@ import { CongressAbstractExport } from '../screens/scientific-writing/CongressAb
 import { PeerReviewResponse }    from '../screens/scientific-writing/PeerReviewResponse'
 import { FinalOutput }           from '../screens/scientific-writing/FinalOutput'
 import { PortfolioDashboard as SciPortfolioDashboard } from '../screens/scientific-writing/PortfolioDashboard'
+import { SlidedeckGenerator }         from '../screens/scientific-writing/SlidedeckGenerator'
 import { MedicalWritingHome } from '../screens/medical-writing/MedicalWritingHome'
 import { ContentBriefing }   from '../screens/medical-writing/ContentBriefing'
 import { KOLAdvisoryBoardSession } from '../screens/medical-writing/KOLAdvisoryBoardSession'
@@ -58,6 +59,22 @@ import { ContentCalendar }              from '../screens/ideation-publishing/Con
 import { PublishingMonitor }            from '../screens/ideation-publishing/PublishingMonitor'
 import { FinalOutputPublishingRecord }  from '../screens/ideation-publishing/FinalOutputPublishingRecord'
 import { StandardsMetadataDOI }         from '../screens/ideation-publishing/StandardsMetadataDOI'
+import { AdminPanel }                   from '../platform/screens/AdminPanel'
+import { SuperAdminPanel }              from '../platform/screens/SuperAdminPanel'
+import { UserManagement }               from '../platform/screens/UserManagement'
+import { AuditTrailViewer }             from '../platform/screens/AuditTrailViewer'
+import { TATagConfiguration }           from '../platform/screens/TATagConfiguration'
+import { RACIMatrix }                   from '../platform/screens/RACIMatrix'
+import { OnboardingWizard }             from '../platform/screens/OnboardingWizard'
+import { NotificationCentre }           from '../platform/screens/NotificationCentre'
+import { RegulatoryFrameworkAdmin }     from '../platform/screens/RegulatoryFrameworkAdmin'
+import { MasterLibrary }                from '../platform/screens/MasterLibrary'
+import { BestPracticesLibrary }         from '../platform/screens/BestPracticesLibrary'
+import { ServicesDashboard }            from '../platform/screens/ServicesDashboard'
+import { RateCardAdmin }                 from '../platform/screens/RateCardAdmin'
+import { SubscriptionPayment }           from '../platform/screens/SubscriptionPayment'
+import { ReportsAnalytics }              from '../platform/screens/ReportsAnalytics'
+import { AdminGuard, SuperAdminGuard }  from '../platform/components/guards'
 
 export const router = createBrowserRouter([
   // Auth screens — no shell
@@ -72,6 +89,21 @@ export const router = createBrowserRouter([
       { index: true, element: <Navigate to="/projects" replace /> },
       { path: 'projects',     element: <AllProjects /> },
       { path: 'projects/new', element: <PlaceholderScreen name="New Project (04)" /> },
+      { path: 'admin',        element: <AdminGuard><AdminPanel /></AdminGuard> },
+      { path: 'super-admin',  element: <SuperAdminGuard><SuperAdminPanel /></SuperAdminGuard> },
+      { path: 'admin/users',  element: <AdminGuard><UserManagement /></AdminGuard> },
+      { path: 'admin/audit',  element: <AdminGuard><AuditTrailViewer /></AdminGuard> },
+      { path: 'admin/taxonomy', element: <AdminGuard><TATagConfiguration /></AdminGuard> },
+      { path: 'admin/raci',     element: <AdminGuard><RACIMatrix /></AdminGuard> },
+      { path: 'notifications',  element: <NotificationCentre /> },
+      { path: 'super-admin/frameworks', element: <SuperAdminGuard><RegulatoryFrameworkAdmin /></SuperAdminGuard> },
+      { path: 'admin/frameworks',       element: <AdminGuard><RegulatoryFrameworkAdmin readOnly /></AdminGuard> },
+      { path: 'library',               element: <MasterLibrary /> },
+      { path: 'library/best-practices', element: <BestPracticesLibrary /> },
+      { path: 'services',               element: <AdminGuard><ServicesDashboard /></AdminGuard> },
+      { path: 'super-admin/rate-card',  element: <SuperAdminGuard><RateCardAdmin /></SuperAdminGuard> },
+      { path: 'admin/subscription',     element: <AdminGuard><SubscriptionPayment /></AdminGuard> },
+      { path: 'reports',                element: <AdminGuard><ReportsAnalytics /></AdminGuard> },
       {
         path: 'projects/:projectId',
         children: [
@@ -114,6 +146,7 @@ export const router = createBrowserRouter([
                   { path: 'submission-readiness', element: <JournalSubmissionReadiness /> },
                   { path: 'congress-export', element: <CongressAbstractExport /> },
                   { path: 'peer-review',     element: <PeerReviewResponse /> },
+                  { path: 'slides',          element: <SlidedeckGenerator /> },
                   { path: 'final',           element: <FinalOutput /> },
                 ],
               },
@@ -184,6 +217,8 @@ export const router = createBrowserRouter([
       },
     ],
   },
+  // Onboarding wizard — full-screen overlay behind AuthGuard, no AppShell (PM07)
+  { path: '/onboarding/:module', element: <AuthGuard><OnboardingWizard /></AuthGuard> },
   // PUBLIC — outside AuthGuard/AppShell — KOL review link with token
   { path: '/kol-review/:token', element: <KOLReviewInterface /> },
   { path: '*', element: <Navigate to="/projects" replace /> },

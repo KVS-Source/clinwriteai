@@ -92,5 +92,16 @@
     ],
     "status": "invited",
     "lastActive": null
+  },
+  {
+    "id": "user-dc",
+    "name": "Mr David Chen",
+    "email": "d.chen@genbioca.com",
+    "role": "author",
+    "modules": [
+      "B"
+    ],
+    "status": "active",
+    "lastActive": "2026-09-09T14:30:00Z"
   }
 ]

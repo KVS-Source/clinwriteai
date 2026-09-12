@@ -143,7 +143,7 @@ export function ClinicalWritingHome() {
   const activeStatuses = Array.from(new Set(documents.map((d: Document) => d.status))) as DocumentStatus[]
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-screen="clinical-writing-home">
 
       {/* ============ Page Header ============ */}
       <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-8 pt-5 pb-[22px]">

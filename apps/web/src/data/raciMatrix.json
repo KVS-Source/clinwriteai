@@ -178,5 +178,15 @@
         }
       ]
     }
-  }
+  },
+  "raciImpactProjects": [
+    {
+      "id": "proj-velora-301",
+      "label": "VELORA-301 NDA"
+    },
+    {
+      "id": "proj-aurelia-101",
+      "label": "AURELIA-101 IND"
+    }
+  ]
 }

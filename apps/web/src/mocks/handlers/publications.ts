@@ -6,7 +6,7 @@ import submissionChecks  from '../../data/submissionChecks.json'
 import reviewRound       from '../../data/reviewRound.json'
 import reviewComments    from '../../data/reviewComments.json'
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'
+const BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 export const publicationHandlers = [
   // Publications — list (per project) + get + create

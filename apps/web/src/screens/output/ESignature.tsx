@@ -442,7 +442,7 @@ export function ESignature() {
   const panelStep = selectedIndex !== null ? `STEP ${selectedIndex + 1} OF ${totalCount}` : ''
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-screen="e-signature">
 
       {/* ============ Document header ============ */}
       <div className="flex flex-none flex-col gap-2 border-b border-slate-200 bg-white px-8 pt-3" style={{ position: 'relative', zIndex: 6 }}>

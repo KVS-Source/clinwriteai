@@ -1,4 +1,6 @@
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'
+// Same-origin default so MSW can intercept in both dev and production
+// deployments. Override with VITE_API_URL when a real backend is wired.
+const API_BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 export class ApiError extends Error {
   constructor(public status: number, public body: unknown) {

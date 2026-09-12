@@ -36,7 +36,7 @@ export function MFAVerify() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4" data-screen="mfa-verify">
       <div
         className="w-full max-w-[400px] rounded-xl border border-slate-200 bg-white p-10"
         style={{ boxShadow: '0 4px 24px rgba(15,23,42,0.08)' }}

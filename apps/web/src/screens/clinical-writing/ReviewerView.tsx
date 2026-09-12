@@ -125,7 +125,7 @@ export function ReviewerView() {
   const panelTitle = activePanel && activePanel in PANEL_TITLES ? PANEL_TITLES[activePanel] : ''
 
   return (
-    <div className="flex h-full flex-col">
+    <div className="flex h-full flex-col" data-screen="reviewer-view">
 
       {/* ============ Document header ============ */}
       <div

@@ -297,7 +297,7 @@ export function CRMModule() {
     : meeting.startTime
 
   return (
-    <div className="relative flex h-full flex-col">
+    <div className="relative flex h-full flex-col" data-screen="crm-module">
 
       {/* Page header */}
       <div className="flex flex-none flex-col gap-2.5 border-b border-slate-200 bg-white px-8 py-5">

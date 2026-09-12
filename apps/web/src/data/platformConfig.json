@@ -1,19 +1,19 @@
 {
   "clientId": "client-genbioca-001",
   "clientName": "GenBioCa Sciences",
-  "plan": "Enterprise",
+  "plan": "Professional",
   "planStartDate": "2026-01-01",
   "renewalDate": "2026-10-01",
   "contractedTokensPerMonth": 4000000,
-  "currency": "GBP",
+  "currency": "USD",
   "aiEngine": {
-    "default": "claude-sonnet-4-5",
+    "default": "claude-sonnet-4-6",
     "fallback": "claude-haiku-4-5",
     "perModuleOverrideEnabled": true,
     "availableEngines": [
       {
-        "id": "claude-sonnet-4-5",
-        "label": "Claude Sonnet 4.5",
+        "id": "claude-sonnet-4-6",
+        "label": "Claude Sonnet 4.6",
         "provider": "Anthropic",
         "status": "active"
       },
@@ -59,7 +59,7 @@
         "status": "available"
       }
     ],
-    "gdprJurisdiction": "EU",
+    "gdprJurisdiction": "APAC",
     "audioRetentionPolicy": "delete-immediately",
     "auditDeletionLogged": true
   },
@@ -191,5 +191,9 @@
       "label": "Best Practices API",
       "status": "beta"
     }
-  ]
+  ],
+  "seats": {
+    "used": 38,
+    "total": 50
+  }
 }

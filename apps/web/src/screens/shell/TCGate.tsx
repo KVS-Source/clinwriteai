@@ -63,6 +63,7 @@ export function TCGate() {
     // Full viewport dark overlay
     <div
       className="flex min-h-screen items-center justify-center px-4"
+      data-screen="tc-gate"
       style={{ backgroundColor: 'rgba(15,23,42,0.6)' }}
     >
       {/* Modal card */}

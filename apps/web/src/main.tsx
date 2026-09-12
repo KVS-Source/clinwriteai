@@ -10,10 +10,15 @@ const queryClient = new QueryClient({
 })
 
 async function prepare() {
-  if (import.meta.env.DEV) {
-    const { worker } = await import('./mocks/browser')
-    await worker.start({ onUnhandledRequest: 'bypass' })
-  }
+  // Prototype build serves data from MSW-intercepted JSON fixtures in both
+  // dev and production. Flip this to `if (import.meta.env.DEV)` once a real
+  // backend is available for production deployments.
+  const { worker } = await import('./mocks/browser')
+  const swUrl = `${import.meta.env.BASE_URL}mockServiceWorker.js`
+  await worker.start({
+    onUnhandledRequest: 'bypass',
+    serviceWorker: { url: swUrl },
+  })
 }
 
 prepare().then(() => {

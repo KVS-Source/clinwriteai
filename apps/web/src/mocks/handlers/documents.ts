@@ -1,7 +1,7 @@
 import { http, HttpResponse, delay } from 'msw'
 import documents from '../../data/documents.json'
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'
+const BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 export const documentHandlers = [
   http.get(`${BASE}/projects/:projectId/documents`, async () => {

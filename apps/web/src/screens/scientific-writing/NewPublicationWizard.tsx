@@ -214,6 +214,7 @@ export function NewPublicationWizard({ onClose }: WizardProps = {}) {
   return (
     <div
       className="absolute inset-0 flex items-center justify-center overflow-y-auto"
+      data-screen="new-publication-wizard"
       style={{ backgroundColor: 'rgba(15,23,42,0.6)', padding: 32, zIndex: 40 }}
       data-wizard-backdrop
       onClick={handleClose}

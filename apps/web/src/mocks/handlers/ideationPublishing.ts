@@ -10,7 +10,7 @@ import ideationCalendar   from '../../data/ideationCalendar.json'
 import socialListeningAlerts from '../../data/socialListeningAlerts.json'
 import kolContacts        from '../../data/kolContacts.json'
 
-const BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000/api'
+const BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 // Simple in-memory state so mutations persist across a session
 let projectsState   = ideationProjects        as Array<Record<string, unknown>>

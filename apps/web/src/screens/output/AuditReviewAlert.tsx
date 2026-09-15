@@ -82,7 +82,9 @@ interface AuditRowProps {
 }
 
 function AuditRow({ entry }: AuditRowProps) {
-  const meta = EVENT_META[entry.eventType]
+  // Fallback so any unknown event type renders as a plain "content edited"
+  // row instead of crashing the whole audit-review screen.
+  const meta = EVENT_META[entry.eventType] ?? EVENT_META['content-edited']
   const colours = AVATAR_COLOURS[entry.actorInitials] ?? AVATAR_COLOURS.MW
   const isAI = entry.actorInitials === 'AI' || (entry.actor ?? '').toLowerCase().includes(' ai')
 

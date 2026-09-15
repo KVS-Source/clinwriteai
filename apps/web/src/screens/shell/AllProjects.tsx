@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Project, ProjectStatus } from '@platform/types'
@@ -49,6 +49,17 @@ export function AllProjects() {
     queryKey: ['projects'],
     queryFn:  () => projectsApi.list(),
   })
+
+  // Single-project shortcut: when the workspace holds exactly one project and
+  // "+ New Project" is disabled in the demo, the projects-list page becomes a
+  // dead-end waypoint. Auto-forward straight into the project dashboard so
+  // every /projects visit lands the user where they can actually work.
+  useEffect(() => {
+    if (projects.length === 1) {
+      setActiveProject(projects[0])
+      navigate(`/projects/${projects[0].id}`, { replace: true })
+    }
+  }, [projects, navigate, setActiveProject])
 
   const filtered = useMemo(() => {
     return projects.filter((p: Project) => {

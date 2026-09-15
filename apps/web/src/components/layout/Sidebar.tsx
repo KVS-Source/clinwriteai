@@ -25,9 +25,7 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   { label: 'Notifications',    href: '/notifications', roles: ['admin', 'super-admin'] as const },
   { label: 'Master Library',   href: '/library',    roles: ['admin', 'super-admin'] as const },
   { label: 'Best Practices',   href: '/library/best-practices', roles: ['admin', 'super-admin'] as const },
-  // Services intentionally hidden — overlaps with Subscription (same token counts,
-  // same top-up flow). Route stays live at /services for in-app links and can be
-  // restored to the sidebar once the two screens are merged or clearly scoped.
+  { label: 'Services',         href: '/services',   roles: ['admin', 'super-admin'] as const },
   { label: 'Subscription',     href: '/admin/subscription', roles: ['admin', 'super-admin'] as const },
   { label: 'Reports',          href: '/reports',    roles: ['admin', 'super-admin'] as const },
 ]
@@ -78,11 +76,31 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
   const currentUser = usePlatformStore(s => s.currentUser)
   const accentColour = MODULE_COLOURS[activeModule] ?? '#2563EB'
 
-  const platformItems   = PLATFORM_NAV.filter(i =>   i.roles.includes(currentUser.role as 'admin' | 'super-admin'))
-  const superAdminItems = SUPER_ADMIN_NAV.filter(i => i.roles.includes(currentUser.role as 'admin' | 'super-admin'))
-  // Prototype: role guards are bypassed, so show the sections when they have items regardless of role.
-  const showPlatform   = platformItems.length   > 0 || PLATFORM_NAV.length   > 0
-  const showSuperAdmin = superAdminItems.length > 0 || SUPER_ADMIN_NAV.length > 0
+  // Role-scoped visibility — sidebar sections only appear for users who actually
+  // hold the role. Module users (Ideation Lead, Regulatory Writer, MA Team Lead,
+  // Clinical Lead, CMC Lead, Content Calendar Manager, Author) see neither
+  // Platform nor Super Admin sections — only their module + project navigation.
+  const isSuperAdmin = currentUser.role === 'super-admin'
+  const isAdmin      = currentUser.role === 'admin' || isSuperAdmin
+  const platformItems   = isAdmin      ? PLATFORM_NAV.filter(i => i.roles.includes(currentUser.role as 'admin' | 'super-admin'))   : []
+  const superAdminItems = isSuperAdmin ? SUPER_ADMIN_NAV.filter(i => i.roles.includes(currentUser.role as 'admin' | 'super-admin')) : []
+  const showPlatform   = platformItems.length   > 0
+  const showSuperAdmin = superAdminItems.length > 0
+
+  // Module access — admin/super-admin see all 5 modules; module users see only
+  // the modules listed in their profile (`currentUser.modules`).
+  const MODULE_SLUG_TO_KEY: Record<string, 'A' | 'B' | 'C' | 'D' | 'E'> = {
+    'clinical-writing':    'A',
+    'scientific-writing':  'B',
+    'medical-writing':     'C',
+    'regulatory-writing':  'D',
+    'ideation-publishing': 'E',
+  }
+  const userModuleKeys = new Set(currentUser.modules)
+  const canSeeModule = (slug: string) =>
+    isAdmin || userModuleKeys.has(MODULE_SLUG_TO_KEY[slug])
+  const visibleModules = Object.entries(MODULE_LABELS).filter(([slug]) => canSeeModule(slug))
+  const hasCurrentModuleAccess = canSeeModule(activeModule)
 
   const allNavItems: Record<NavKey, NavItem> = {
     home:      { label: 'Home',          href: `/projects/${projectId}/${activeModule}`,               icon: <HomeIcon />   },
@@ -134,14 +152,14 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
         </NavLink>
       </div>
 
-      {/* Platform section (PM00 §4) — always visible in prototype; role-filtered in production */}
+      {/* Platform section (PM00 §4) — visible to Admin + Super Admin only */}
       {showPlatform && (
         <div className="mt-4 px-3" data-sidebar-section="platform">
           <div className="mb-2 px-2.5">
             <MonoLabel className="text-slate-500">Platform</MonoLabel>
           </div>
           <nav className="flex flex-col gap-0.5">
-            {PLATFORM_NAV.map(item => (
+            {platformItems.map(item => (
               <NavLink
                 key={item.href}
                 to={item.href}
@@ -169,14 +187,14 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
         </div>
       )}
 
-      {/* Super Admin section (PM00 §4) — visible when super-admin nav items exist */}
-      {showSuperAdmin && SUPER_ADMIN_NAV.length > 0 && (
+      {/* Super Admin section (PM00 §4) — visible ONLY to Super Admin (Alex Thornton) */}
+      {showSuperAdmin && (
         <div className="mt-4 px-3" data-sidebar-section="super-admin">
           <div className="mb-2 px-2.5">
             <MonoLabel className="text-slate-500">Super Admin</MonoLabel>
           </div>
           <nav className="flex flex-col gap-0.5">
-            {SUPER_ADMIN_NAV.map(item => (
+            {superAdminItems.map(item => (
               <NavLink
                 key={item.href}
                 to={item.href}
@@ -198,8 +216,8 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
         </div>
       )}
 
-      {/* Module section — only when inside a project */}
-      {projectId && (
+      {/* Module section — only when inside a project AND user has access to it */}
+      {projectId && hasCurrentModuleAccess && (
         <div className="mt-4 px-3">
           <div className="mb-2 px-2.5">
             <MonoLabel className="text-slate-500">
@@ -241,14 +259,16 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
       {/* Spacer */}
       <div className="flex-1" />
 
-      {/* Module switcher — bottom of sidebar */}
-      {projectId && (
+      {/* Module switcher — bottom of sidebar, filtered to user's assigned modules */}
+      {projectId && visibleModules.length > 0 && (
         <div className="border-t border-slate-700 px-3 py-3">
           <div className="mb-2 px-2.5">
-            <MonoLabel className="text-slate-500">Switch Module</MonoLabel>
+            <MonoLabel className="text-slate-500">
+              {visibleModules.length === 1 ? 'Your module' : 'Switch module'}
+            </MonoLabel>
           </div>
           <div className="flex flex-col gap-0.5">
-            {Object.entries(MODULE_LABELS).map(([key, label]) => {
+            {visibleModules.map(([key, label]) => {
               const colour = MODULE_COLOURS[key]
               const isActive = key === activeModule
               return (

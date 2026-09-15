@@ -75,15 +75,10 @@ export const platformHandlers = [
     await delay(150)
     return HttpResponse.json(masterLibrary)
   }),
-  http.get(`${BASE}/library/:itemId`, async ({ params }) => {
-    await delay(120)
-    const item = (masterLibrary as Array<Record<string, unknown>>).find(x => x.id === params.itemId)
-    return item
-      ? HttpResponse.json(item)
-      : HttpResponse.json({ error: 'not-found' }, { status: 404 })
-  }),
 
   // --- sPM09 Best Practices ---
+  // Static routes MUST be registered before `${BASE}/library/:itemId` so MSW
+  // does not swallow /library/best-practices as an itemId=best-practices lookup.
   http.get(`${BASE}/library/best-practices`, async () => {
     await delay(120)
     return HttpResponse.json(bestPractices)
@@ -92,6 +87,15 @@ export const platformHandlers = [
     await delay(200)
     const body = await request.json() as Record<string, unknown>
     return HttpResponse.json({ ...body, id: `bp-${Date.now()}`, publishedAt: new Date().toISOString() }, { status: 201 })
+  }),
+
+  // sPM08 Master Library — item-by-id (parameterised, registered last of the /library/* GETs)
+  http.get(`${BASE}/library/:itemId`, async ({ params }) => {
+    await delay(120)
+    const item = (masterLibrary as Array<Record<string, unknown>>).find(x => x.id === params.itemId)
+    return item
+      ? HttpResponse.json(item)
+      : HttpResponse.json({ error: 'not-found' }, { status: 404 })
   }),
 
   // --- sPM14 Notifications ---

@@ -84,7 +84,7 @@ interface AuditRowProps {
 function AuditRow({ entry }: AuditRowProps) {
   const meta = EVENT_META[entry.eventType]
   const colours = AVATAR_COLOURS[entry.actorInitials] ?? AVATAR_COLOURS.MW
-  const isAI = entry.actorInitials === 'AI' || entry.actor.toLowerCase().includes(' ai')
+  const isAI = entry.actorInitials === 'AI' || (entry.actor ?? '').toLowerCase().includes(' ai')
 
   return (
     <div

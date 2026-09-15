@@ -120,7 +120,7 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
     : []
 
   return (
-    <aside className="flex w-56 flex-none flex-col overflow-hidden" style={{ backgroundColor: '#1E293B' }}>
+    <aside className="flex w-56 flex-none flex-col overflow-y-auto" style={{ backgroundColor: '#1E293B' }}>
 
       {/* Brand wordmark — official ClinWrite logo on a white pill (green/red brand
           colours are unreadable directly on the dark navy sidebar). */}
@@ -151,6 +151,78 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
           <span>All Projects</span>
         </NavLink>
       </div>
+
+      {/* Current module nav — appears IMMEDIATELY below All Projects when inside
+          a project, so users doing project work don't have to scroll past the
+          Platform admin section to reach their day-to-day nav. */}
+      {projectId && hasCurrentModuleAccess && (
+        <div className="mt-4 px-3" data-sidebar-section="module-current">
+          <div className="mb-2 px-2.5">
+            <MonoLabel className="text-slate-500">
+              {MODULE_LABELS[activeModule]}
+            </MonoLabel>
+          </div>
+
+          <nav className="flex flex-col gap-0.5">
+            {moduleNavItems.map(item => (
+              <NavLink
+                key={item.href}
+                to={item.href}
+                end={item.href.endsWith(activeModule)}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${
+                    isActive
+                      ? 'text-white'
+                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  }`
+                }
+                style={({ isActive }) =>
+                  isActive ? { backgroundColor: `${accentColour}33` } : {}
+                }
+              >
+                {({ isActive }) => (
+                  <>
+                    <span style={{ color: isActive ? accentColour : undefined }} className="flex-none">
+                      {item.icon}
+                    </span>
+                    <span>{item.label}</span>
+                  </>
+                )}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+      )}
+
+      {/* Module switcher — sits directly below the current-module nav so users
+          in a project keep switch controls together with their working nav. */}
+      {projectId && visibleModules.length > 0 && (
+        <div className="mt-4 border-t border-slate-700 px-3 pt-3" data-sidebar-section="module-switch">
+          <div className="mb-2 px-2.5">
+            <MonoLabel className="text-slate-500">
+              {visibleModules.length === 1 ? 'Your module' : 'Switch module'}
+            </MonoLabel>
+          </div>
+          <div className="flex flex-col gap-0.5">
+            {visibleModules.map(([key, label]) => {
+              const colour = MODULE_COLOURS[key]
+              const isActive = key === activeModule
+              return (
+                <button
+                  key={key}
+                  onClick={() => navigate(`/projects/${projectId}/${key}`)}
+                  className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition-colors text-left ${
+                    isActive ? 'text-white' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  <div className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: colour }} />
+                  {label}
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Platform section (PM00 §4) — visible to Admin + Super Admin only */}
       {showPlatform && (
@@ -216,77 +288,8 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
         </div>
       )}
 
-      {/* Module section — only when inside a project AND user has access to it */}
-      {projectId && hasCurrentModuleAccess && (
-        <div className="mt-4 px-3">
-          <div className="mb-2 px-2.5">
-            <MonoLabel className="text-slate-500">
-              {MODULE_LABELS[activeModule]}
-            </MonoLabel>
-          </div>
-
-          <nav className="flex flex-col gap-0.5">
-            {moduleNavItems.map(item => (
-              <NavLink
-                key={item.href}
-                to={item.href}
-                end={item.href.endsWith(activeModule)}
-                className={({ isActive }) =>
-                  `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${
-                    isActive
-                      ? 'text-white'
-                      : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-                  }`
-                }
-                style={({ isActive }) =>
-                  isActive ? { backgroundColor: `${accentColour}33` } : {}
-                }
-              >
-                {({ isActive }) => (
-                  <>
-                    <span style={{ color: isActive ? accentColour : undefined }} className="flex-none">
-                      {item.icon}
-                    </span>
-                    <span>{item.label}</span>
-                  </>
-                )}
-              </NavLink>
-            ))}
-          </nav>
-        </div>
-      )}
-
-      {/* Spacer */}
-      <div className="flex-1" />
-
-      {/* Module switcher — bottom of sidebar, filtered to user's assigned modules */}
-      {projectId && visibleModules.length > 0 && (
-        <div className="border-t border-slate-700 px-3 py-3">
-          <div className="mb-2 px-2.5">
-            <MonoLabel className="text-slate-500">
-              {visibleModules.length === 1 ? 'Your module' : 'Switch module'}
-            </MonoLabel>
-          </div>
-          <div className="flex flex-col gap-0.5">
-            {visibleModules.map(([key, label]) => {
-              const colour = MODULE_COLOURS[key]
-              const isActive = key === activeModule
-              return (
-                <button
-                  key={key}
-                  onClick={() => navigate(`/projects/${projectId}/${key}`)}
-                  className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition-colors text-left ${
-                    isActive ? 'text-white' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  <div className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: colour }} />
-                  {label}
-                </button>
-              )
-            })}
-          </div>
-        </div>
-      )}
+      {/* trailing spacer keeps content from stretching if viewport is very tall */}
+      <div className="flex-1 min-h-4" />
     </aside>
   )
 }

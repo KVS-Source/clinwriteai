@@ -25,7 +25,9 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   { label: 'Notifications',    href: '/notifications', roles: ['admin', 'super-admin'] as const },
   { label: 'Master Library',   href: '/library',    roles: ['admin', 'super-admin'] as const },
   { label: 'Best Practices',   href: '/library/best-practices', roles: ['admin', 'super-admin'] as const },
-  { label: 'Services',         href: '/services',   roles: ['admin', 'super-admin'] as const },
+  // Services intentionally hidden — overlaps with Subscription (same token counts,
+  // same top-up flow). Route stays live at /services for in-app links and can be
+  // restored to the sidebar once the two screens are merged or clearly scoped.
   { label: 'Subscription',     href: '/admin/subscription', roles: ['admin', 'super-admin'] as const },
   { label: 'Reports',          href: '/reports',    roles: ['admin', 'super-admin'] as const },
 ]

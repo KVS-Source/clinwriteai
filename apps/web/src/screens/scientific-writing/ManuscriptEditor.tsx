@@ -2,7 +2,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { publicationsApi } from '../../api'
-import { AIFootprintChip, ResizablePanel } from '../../components/ui'
+import { AIFootprintChip, ResizablePanel, SubNav } from '../../components/ui'
+import type { SubNavTab } from '../../components/ui'
 import type { ResizablePanelApi } from '../../components/ui/ResizablePanel'
 import { LiteratureCitationPanel } from '../../panels/LiteratureCitationPanel'
 import { usePublicationStore } from '../../modules/scientific-writing/store'
@@ -676,6 +677,17 @@ export function ManuscriptEditor() {
     navigate(`/projects/${projectId}/scientific-writing`)
   }
 
+  const pubBase = `/projects/${projectId}/scientific-writing/publications/${publicationId}`
+  const subNavTabs: SubNavTab[] = [
+    { to: pubBase,                       label: 'Manuscript',          end: true },
+    { to: `${pubBase}/authors`,          label: 'Authors' },
+    { to: `${pubBase}/submission`,       label: 'Submission Readiness' },
+    { to: `${pubBase}/peer-review`,      label: 'Peer Review' },
+    { to: `${pubBase}/congress-export`,  label: 'Congress Export' },
+    { to: `${pubBase}/slides`,           label: 'Slide Deck' },
+    { to: `${pubBase}/final`,            label: 'Final Output' },
+  ]
+
   return (
     <div
       className="absolute inset-0 flex flex-col overflow-hidden bg-white"
@@ -683,6 +695,7 @@ export function ManuscriptEditor() {
       data-screen="manuscript-editor"
     >
       <TopBar />
+      <SubNav tabs={subNavTabs} label="Publication navigation" />
       <div className="flex flex-1 min-h-0">
         <IconRail />
         <SectionNav

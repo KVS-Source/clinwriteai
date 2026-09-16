@@ -75,6 +75,11 @@ import { RateCardAdmin }                 from '../platform/screens/RateCardAdmin
 import { SubscriptionPayment }           from '../platform/screens/SubscriptionPayment'
 import { ReportsAnalytics }              from '../platform/screens/ReportsAnalytics'
 import { AdminGuard, SuperAdminGuard }  from '../platform/components/guards'
+import { PublicationLayout }            from '../components/layout/PublicationLayout'
+import { SubmissionLayout }             from '../components/layout/SubmissionLayout'
+import { ContentLayout }                from '../components/layout/ContentLayout'
+import { IdeationProjectLayout }        from '../components/layout/IdeationProjectLayout'
+import { DocumentLayout }               from '../components/layout/DocumentLayout'
 
 export const router = createBrowserRouter([
   // Auth screens — no shell
@@ -120,6 +125,7 @@ export const router = createBrowserRouter([
               { path: 'crm',          element: <CRMModule /> },
               {
                 path: 'documents/:documentId',
+                element: <DocumentLayout />,
                 children: [
                   { index: true,      element: <DocumentEditor /> },
                   { path: 'diff',     element: <DiffView /> },
@@ -138,6 +144,7 @@ export const router = createBrowserRouter([
               { path: 'portfolio',                          element: <SciPortfolioDashboard /> },
               {
                 path: 'publications/:publicationId',
+                element: <PublicationLayout />,
                 children: [
                   { index: true,             element: <ManuscriptEditor /> },
                   { path: 'literature',      element: <PlaceholderScreen name="Literature & Citation Panel (B04)" /> },
@@ -161,6 +168,7 @@ export const router = createBrowserRouter([
               { path: 'portfolio',     element: <ContentPortfolio /> },
               {
                 path: 'content/:contentId',
+                element: <ContentLayout />,
                 children: [
                   { index: true,         element: <ContentBriefing /> },
                   { path: 'editor',      element: <ContentEditor /> },
@@ -179,6 +187,7 @@ export const router = createBrowserRouter([
               { path: 'intelligence',               element: <RegulatoryIntelligence /> },
               {
                 path: 'submissions/:submissionId',
+                element: <SubmissionLayout />,
                 children: [
                   { index: true,                    element: <SubmissionSetupStrategy /> },
                   { path: 'ectd-map',              element: <ECTDGranularityMap /> },
@@ -202,6 +211,7 @@ export const router = createBrowserRouter([
               { path: 'publishing',      element: <PublishingMonitor /> },
               {
                 path: 'projects/:ideationProjectId',
+                element: <IdeationProjectLayout />,
                 children: [
                   { index: true,          element: <ArtefactUploadSourceCheck /> },
                   { path: 'tagging',      element: <ContentCardTagging /> },

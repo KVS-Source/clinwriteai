@@ -95,5 +95,186 @@
     ],
     "title": "Subgroup Consistency",
     "cardType": "subgroup"
+  },
+
+  {
+    "id": "c-tb-001",
+    "ideationArtefactId": "ia-tb-001",
+    "ideationProjectId": "ip-tb-001",
+    "sourceSection": "§3.1 Primary Efficacy — Culture Conversion at Month 6",
+    "sourcePassage": "Culture conversion at month 6 was 92.3% (95% CI 89.4–94.5) in the 9-month levofloxacin arm versus 91.8% (95% CI 88.8–94.1) in the 12-month standard arm — an absolute difference of +0.5 percentage points (95% CI −3.1 to +4.2), meeting the pre-specified non-inferiority margin of 5 percentage points.",
+    "claimCurrencyStatus": "current",
+    "channelFormats": ["linkedin", "hcp", "medical-affairs"],
+    "kolStatus": "approved",
+    "kolApprovedAt": "2026-12-04T09:22:00Z",
+    "kolApprovedBy": "Prof R Ramakrishnan",
+    "maStatus": "approved",
+    "maApprovedAt": "2026-12-06T15:22:00Z",
+    "overallStatus": "approved",
+    "provenance": {
+      "sourceDoc": "SPINE-TB-2 KOL Advisory Board Insights Report v1.0",
+      "sourceDocVersion": "v1.0",
+      "section": "§3.1 Primary Efficacy",
+      "passage": "9-month arm non-inferior to 12-month arm for culture conversion",
+      "approvalDate": "2026-11-28",
+      "originModule": "C"
+    },
+    "provenanceChain": [
+      "Source: KOL Insights §3.1",
+      "CSR v0.2 · Table 11.1 (primary efficacy)",
+      "Module A · Clinical Writing"
+    ],
+    "title": "Culture Conversion Non-Inferiority at Month 6",
+    "cardType": "efficacy"
+  },
+  {
+    "id": "c-tb-002",
+    "ideationArtefactId": "ia-tb-001",
+    "ideationProjectId": "ip-tb-001",
+    "sourceSection": "§3.3 Radiological Healing at 24 Months",
+    "sourcePassage": "MRI-confirmed radiological healing (Bhojraj grade ≥ III) was achieved in 87.4% (9-month arm) versus 88.1% (12-month arm) at 24 months — consistent with the culture-conversion result and supporting durable structural recovery under the shortened regimen.",
+    "claimCurrencyStatus": "current",
+    "channelFormats": ["hcp", "medical-affairs"],
+    "kolStatus": "approved",
+    "kolApprovedAt": "2026-12-04T09:22:00Z",
+    "kolApprovedBy": "Prof R Ramakrishnan",
+    "maStatus": "approved",
+    "maApprovedAt": "2026-12-06T15:22:00Z",
+    "overallStatus": "approved",
+    "provenance": {
+      "sourceDoc": "SPINE-TB-2 KOL Advisory Board Insights Report v1.0",
+      "sourceDocVersion": "v1.0",
+      "section": "§3.3 Radiological Healing",
+      "passage": "MRI Bhojraj grade ≥ III at 24 months — 87.4% vs 88.1%",
+      "approvalDate": "2026-11-28",
+      "originModule": "C"
+    },
+    "provenanceChain": [
+      "Source: KOL Insights §3.3",
+      "CSR v0.2 · Table 11.3.2 (radiological)",
+      "Module A · Clinical Writing"
+    ],
+    "title": "Radiological Healing at 24 Months",
+    "cardType": "efficacy"
+  },
+  {
+    "id": "c-tb-003",
+    "ideationArtefactId": "ia-tb-001",
+    "ideationProjectId": "ip-tb-001",
+    "sourceSection": "§4.2 Safety — Hepatotoxicity Signal",
+    "sourcePassage": "Grade 3+ hepatotoxicity was observed in 2.1% of patients in the 9-month levofloxacin arm versus 1.4% in the 12-month standard arm. The signal did not reach statistical significance but is monitored under the SPINE-TB-2 Risk Management Plan v1.0, with monthly LFT monitoring during the intensive phase.",
+    "claimCurrencyStatus": "current",
+    "channelFormats": ["hcp", "medical-affairs"],
+    "kolStatus": "approved",
+    "kolApprovedAt": "2026-12-04T09:22:00Z",
+    "kolApprovedBy": "Prof R Ramakrishnan",
+    "maStatus": "approved",
+    "maApprovedAt": "2026-12-06T15:22:00Z",
+    "overallStatus": "approved",
+    "provenance": {
+      "sourceDoc": "SPINE-TB-2 KOL Advisory Board Insights Report v1.0",
+      "sourceDocVersion": "v1.0",
+      "section": "§4.2 Hepatotoxicity",
+      "passage": "Grade 3+ hepatotoxicity 2.1% vs 1.4% — RMP-monitored",
+      "approvalDate": "2026-11-28",
+      "originModule": "C"
+    },
+    "provenanceChain": [
+      "Source: KOL Insights §4.2",
+      "CSR v0.2 · §12 Safety Evaluation",
+      "RMP v1.0 · §5.2 Hepatotoxicity",
+      "Module A · Clinical Writing"
+    ],
+    "title": "Hepatotoxicity Signal & RMP Monitoring",
+    "cardType": "safety"
+  },
+  {
+    "id": "c-tb-004",
+    "ideationArtefactId": "ia-tb-001",
+    "ideationProjectId": "ip-tb-001",
+    "sourceSection": "§5.1 Treatment-Duration Burden",
+    "sourcePassage": "The 9-month regimen reduces treatment duration by 25% compared with the standard 12-month regimen without compromising culture conversion or radiological healing — potentially improving adherence and reducing programme-cost burden in high-TB-endemic settings.",
+    "claimCurrencyStatus": "current",
+    "channelFormats": ["linkedin", "medical-affairs", "hcp"],
+    "kolStatus": "approved",
+    "kolApprovedAt": "2026-12-04T09:22:00Z",
+    "kolApprovedBy": "Prof R Ramakrishnan",
+    "maStatus": "approved",
+    "maApprovedAt": "2026-12-06T15:22:00Z",
+    "overallStatus": "approved",
+    "provenance": {
+      "sourceDoc": "SPINE-TB-2 KOL Advisory Board Insights Report v1.0",
+      "sourceDocVersion": "v1.0",
+      "section": "§5.1 Treatment-Duration Burden",
+      "passage": "9-month regimen — 25% shorter, adherence + cost angle",
+      "approvalDate": "2026-11-28",
+      "originModule": "C"
+    },
+    "provenanceChain": [
+      "Source: KOL Insights §5.1",
+      "CSR v0.2 · Table 11.4 (adherence)",
+      "Module A · Clinical Writing"
+    ],
+    "title": "Shorter Regimen — Adherence & Programme Cost Benefit",
+    "cardType": "positioning"
+  },
+  {
+    "id": "c-tb-005",
+    "ideationArtefactId": "ia-tb-002",
+    "ideationProjectId": "ip-tb-002",
+    "sourceSection": "§2.1 Patient Understanding — 'What is Spine TB?'",
+    "sourcePassage": "Spinal tuberculosis (Pott's disease) is a form of TB that affects the vertebrae — the bones in your spine. It causes back pain, stiffness, and if untreated, can damage the spinal cord. It is treatable with a combination of TB medicines taken for several months.",
+    "claimCurrencyStatus": "current",
+    "channelFormats": ["patient-blog", "advocacy", "infographic"],
+    "kolStatus": "pending",
+    "kolApprovedAt": null,
+    "kolApprovedBy": null,
+    "maStatus": "pending",
+    "maApprovedAt": null,
+    "overallStatus": "under-review",
+    "provenance": {
+      "sourceDoc": "SPINE-TB-2 Disease Dossier v1.2 (Patient-audience extract)",
+      "sourceDocVersion": "v1.2",
+      "section": "§2.1 Patient Understanding",
+      "passage": "Plain-language definition of spinal TB",
+      "approvalDate": "2026-08-20",
+      "originModule": "C"
+    },
+    "provenanceChain": [
+      "Source: Disease Dossier §2.1",
+      "SmPC §4.1 Indication",
+      "Module C · Medical Writing"
+    ],
+    "title": "What is Spine TB? — Patient Explainer",
+    "cardType": "patient-education"
+  },
+  {
+    "id": "c-tb-006",
+    "ideationArtefactId": "ia-tb-002",
+    "ideationProjectId": "ip-tb-002",
+    "sourceSection": "§3.4 Treatment Adherence — Why 9 Months Matters",
+    "sourcePassage": "Completing the full course of TB medicines is essential for cure and to prevent drug-resistant TB. A 9-month course is shorter than the standard 12-month course — this may make it easier for people to complete their treatment.",
+    "claimCurrencyStatus": "current",
+    "channelFormats": ["patient-blog", "advocacy"],
+    "kolStatus": "pending",
+    "kolApprovedAt": null,
+    "kolApprovedBy": null,
+    "maStatus": "pending",
+    "maApprovedAt": null,
+    "overallStatus": "under-review",
+    "provenance": {
+      "sourceDoc": "SPINE-TB-2 Disease Dossier v1.2 (Patient-audience extract)",
+      "sourceDocVersion": "v1.2",
+      "section": "§3.4 Treatment Adherence",
+      "passage": "9-month adherence + drug-resistance prevention angle",
+      "approvalDate": "2026-08-20",
+      "originModule": "C"
+    },
+    "provenanceChain": [
+      "Source: Disease Dossier §3.4",
+      "Module C · Medical Writing"
+    ],
+    "title": "Why Completing Treatment Matters — Patient Adherence",
+    "cardType": "patient-education"
   }
 ]

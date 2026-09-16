@@ -28,5 +28,41 @@
         "comment": "PD-L1 subgroup language — please ensure consistency with current ESMO guidelines."
       }
     ]
+  },
+
+  {
+    "id": "kol-tb-001",
+    "ideationProjectId": "ip-tb-001",
+    "name": "Prof R Ramakrishnan",
+    "title": "Professor of Orthopaedic Surgery · AIIMS New Delhi",
+    "email": "ramakrishnan@aiims.edu",
+    "reviewLinkToken": "kol-tok-tb-001-demo",
+    "reviewLinkExpiry": "2026-12-15T00:00:00Z",
+    "signedOffAt": "2026-12-04T09:22:00Z",
+    "reminder1SentAt": null,
+    "reminder2SentAt": null,
+    "escalatedAt": null,
+    "reviewDecisions": [
+      {
+        "cardId": "c-tb-001",
+        "decision": "approved",
+        "comment": null
+      },
+      {
+        "cardId": "c-tb-002",
+        "decision": "approved",
+        "comment": "Bhojraj grading is well established; consider adding a brief footnote for readers unfamiliar with the classification."
+      },
+      {
+        "cardId": "c-tb-003",
+        "decision": "approved",
+        "comment": "Please explicitly reference the RMP monthly LFT schedule when this card runs in HCP channels."
+      },
+      {
+        "cardId": "c-tb-004",
+        "decision": "approved",
+        "comment": null
+      }
+    ]
   }
 ]

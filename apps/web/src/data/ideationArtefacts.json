@@ -47,5 +47,39 @@
     "masterLibraryPushDate": null,
     "withinNinetyDays": null,
     "claimCurrencyChecked": false
+  },
+
+  {
+    "id": "ia-tb-001",
+    "ideationProjectId": "ip-tb-001",
+    "sourceModule": "C",
+    "sourceDocId": "mc-tb-006",
+    "title": "SPINE-TB-2 KOL Advisory Board Insights Report v1.0",
+    "originalApprovalDate": "2026-11-28",
+    "version": "v1.0",
+    "sourceCurrencyStatus": "current",
+    "approvalStatusCheck": "passed",
+    "approvalStatusNote": "Document status: MLR-approved in Module C. Source gate passed.",
+    "masterLibraryPushDate": "2026-11-28",
+    "withinNinetyDays": true,
+    "claimCurrencyChecked": true,
+    "claimCurrencyCheckedAt": "2026-12-01T09:30:00Z"
+  },
+  {
+    "id": "ia-tb-002",
+    "ideationProjectId": "ip-tb-002",
+    "sourceModule": "C",
+    "sourceDocId": "mc-tb-001",
+    "title": "SPINE-TB-2 Disease Dossier v1.2 (Patient-audience extract)",
+    "originalApprovalDate": "2026-08-20",
+    "version": "v1.2",
+    "sourceCurrencyStatus": "current",
+    "approvalStatusCheck": "passed",
+    "approvalStatusNote": "Document status: MLR-approved in Module C. Source gate passed. Extract limited to patient-audience sections.",
+    "masterLibraryPushDate": "2026-08-20",
+    "withinNinetyDays": false,
+    "withinNinetyDaysNote": "Source approval > 90 days old — MA Team Lead re-attestation required before patient-facing publication.",
+    "claimCurrencyChecked": true,
+    "claimCurrencyCheckedAt": "2026-12-05T09:30:00Z"
   }
 ]

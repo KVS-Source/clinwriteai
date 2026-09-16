@@ -37,5 +37,42 @@
   { "id": "DOC-005", "projectId": "proj-velora-301", "type": "safety-narrative",    "title": "Safety Narrative — SAE-0042",   "status": "in-review",     "stage": "cross-functional-review",   "version": "v0.2", "therapeuticArea": "Oncology", "assigneeId": "user-JO", "updatedAt": "2024-10-18T00:00:00Z",   "sections": [] },
   { "id": "DOC-006", "projectId": "proj-velora-301", "type": "dsur",                "title": "DSUR Year 2 — VELORA-301",      "status": "in-authoring",  "stage": "during-study",              "version": "v0.1", "therapeuticArea": "Oncology", "assigneeId": "user-MW", "updatedAt": "2024-10-10T00:00:00Z",   "sections": [] },
   { "id": "DOC-007", "projectId": "proj-velora-301", "type": "ib",                  "title": "Investigator's Brochure v4",    "status": "signed",        "stage": "final-output",              "version": "v1.0", "therapeuticArea": "Oncology", "assigneeId": "user-EV", "updatedAt": "2024-03-20T00:00:00Z",   "sections": [] },
-  { "id": "DOC-008", "projectId": "proj-velora-301", "type": "icf",                 "title": "Informed Consent Form v2",      "status": "crm-in-progress","stage": "crm",                       "version": "v0.3", "therapeuticArea": "Oncology", "assigneeId": "user-EV", "updatedAt": "2024-10-20T00:00:00Z",   "sections": [] }
+  { "id": "DOC-008", "projectId": "proj-velora-301", "type": "icf",                 "title": "Informed Consent Form v2",      "status": "crm-in-progress","stage": "crm",                       "version": "v0.3", "therapeuticArea": "Oncology", "assigneeId": "user-EV", "updatedAt": "2024-10-20T00:00:00Z",   "sections": [] },
+
+  {
+    "id": "DOC-101",
+    "projectId": "proj-spine-tb-2",
+    "type": "csr-full",
+    "title": "Clinical Study Report — SPINE-TB-2",
+    "status": "in-authoring",
+    "stage": "post-study",
+    "version": "v0.2",
+    "therapeuticArea": "Tuberculosis",
+    "assigneeId": "user-MW",
+    "updatedAt": "2026-08-14T10:22:11Z",
+    "sections": [
+      { "id": "s1",    "number": "§1",    "title": "Title Page",                       "status": "complete" },
+      { "id": "s2",    "number": "§2",    "title": "Synopsis",                          "status": "complete" },
+      { "id": "s3",    "number": "§3",    "title": "Table of Contents",                 "status": "complete" },
+      { "id": "s4",    "number": "§4",    "title": "List of Abbreviations",             "status": "complete" },
+      { "id": "s5",    "number": "§5",    "title": "Ethics",                            "status": "complete" },
+      { "id": "s6",    "number": "§6",    "title": "Investigators & Sites",             "status": "complete" },
+      { "id": "s7",    "number": "§7",    "title": "Introduction",                      "status": "complete" },
+      { "id": "s8",    "number": "§8",    "title": "Study Objectives",                  "status": "complete" },
+      { "id": "s9",    "number": "§9",    "title": "Investigational Plan",              "status": "in-progress", "presenceUserId": "user-MW" },
+      { "id": "s10",   "number": "§10",   "title": "Study Patients",                    "status": "in-progress" },
+      { "id": "s11",   "number": "§11",   "title": "Efficacy Evaluation (culture conversion + radiological healing)", "status": "in-progress", "presenceUserId": "user-MW" },
+      { "id": "s12",   "number": "§12",   "title": "Safety Evaluation (hepatotoxicity focus)", "status": "in-progress", "isLocked": true, "lockedByUserId": "user-JO" },
+      { "id": "s13",   "number": "§13",   "title": "Discussion & Conclusions",          "status": "not-started" },
+      { "id": "s14",   "number": "§14",   "title": "References",                        "status": "not-started" },
+      { "id": "s16_1", "number": "§16.1", "title": "Study Information",                 "status": "not-started" },
+      { "id": "s16_2", "number": "§16.2", "title": "Patient Data Listings",             "status": "warning" }
+    ]
+  },
+  { "id": "DOC-102", "projectId": "proj-spine-tb-2", "type": "csr-synopsis",       "title": "CSR Synopsis — SPINE-TB-2",                              "status": "in-authoring",   "stage": "post-study",              "version": "v0.1", "therapeuticArea": "Tuberculosis", "assigneeId": "user-MW", "updatedAt": "2026-08-12T09:04:11Z", "sections": [] },
+  { "id": "DOC-103", "projectId": "proj-spine-tb-2", "type": "protocol",           "title": "Protocol v2.0 — SPINE-TB-2",                             "status": "signed",         "stage": "final-output",            "version": "v2.0", "therapeuticArea": "Tuberculosis", "assigneeId": "user-SC", "updatedAt": "2024-06-18T00:00:00Z", "sections": [] },
+  { "id": "DOC-104", "projectId": "proj-spine-tb-2", "type": "dsur",               "title": "DSUR Year 2 — SPINE-TB-2",                               "status": "in-authoring",   "stage": "during-study",            "version": "v0.2", "therapeuticArea": "Tuberculosis", "assigneeId": "user-MW", "updatedAt": "2026-07-30T14:18:00Z", "sections": [] },
+  { "id": "DOC-105", "projectId": "proj-spine-tb-2", "type": "safety-narrative",   "title": "Safety Narrative — SAE-0018 (Grade 3 hepatotoxicity)",   "status": "in-review",      "stage": "cross-functional-review", "version": "v0.2", "therapeuticArea": "Tuberculosis", "assigneeId": "user-JO", "updatedAt": "2026-08-05T11:42:00Z", "sections": [] },
+  { "id": "DOC-106", "projectId": "proj-spine-tb-2", "type": "patient-narrative",  "title": "Patient Narrative Compendium — SPINE-TB-2 (all SAEs)",   "status": "in-authoring",   "stage": "post-study",              "version": "v0.1", "therapeuticArea": "Tuberculosis", "assigneeId": "user-MW", "updatedAt": "2026-08-08T16:10:00Z", "sections": [] },
+  { "id": "DOC-107", "projectId": "proj-spine-tb-2", "type": "icf",                "title": "Informed Consent Form v3 (site translation in progress)","status": "crm-in-progress","stage": "crm",                     "version": "v0.4", "therapeuticArea": "Tuberculosis", "assigneeId": "user-EV", "updatedAt": "2026-08-01T08:20:00Z", "sections": [] }
 ]

@@ -18,6 +18,7 @@ const TYPE_LABELS: Record<DocumentType, string> = {
   'safety-narrative':     'Safety Narrative',
   'dsur':                 'DSUR',
   'end-of-study-summary': 'End of Study Summary',
+  'patient-narrative':    'Patient Narrative Compendium',
 }
 
 const STAGE_LABELS: Record<DocumentStage, string> = {

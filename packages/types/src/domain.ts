@@ -16,6 +16,7 @@ export type DocumentStage =
 export type DocumentType =
   | 'csr-full' | 'csr-synopsis' | 'protocol' | 'protocol-amendment'
   | 'ib' | 'icf' | 'safety-narrative' | 'dsur' | 'end-of-study-summary'
+  | 'patient-narrative'
 
 export type RACIRole = 'R' | 'A' | 'C' | 'I'
 

@@ -1,0 +1,25 @@
+{
+  "id": "proj-spine-tb-2",
+  "name": "SPINE-TB-2: Phase III — 9-Month Levofloxacin-Based Regimen vs Standard 12-Month Regimen for Rifampicin-Sensitive Spinal (Pott's) Tuberculosis",
+  "shortTitle": "SPINE-TB-2",
+  "client": "GenBioCa",
+  "therapeuticArea": "Tuberculosis",
+  "indication": "Spinal (Pott's) tuberculosis · rifampicin-sensitive",
+  "phase": "III",
+  "status": "ongoing",
+  "startDate": "2024-08-01",
+  "dataCutoff": "2026-06-30",
+  "activeModules": ["clinical-writing"],
+  "submissionCountries": ["IN", "ZA", "PH", "BR"],
+  "referenceTrial": "MRC Working Party on Tuberculosis of the Spine (1998, J Bone Joint Surg Br 80-B:456-62) — short-course chemotherapy for spinal TB",
+  "team": [
+    { "userId": "user-MW", "name": "Marcus Webb",       "initials": "MW", "role": "Lead Clinical Writer",   "raci": "R", "colourKey": "MW" },
+    { "userId": "user-SC", "name": "Dr. Sarah Chen",    "initials": "SC", "role": "Clinical PM",            "raci": "A", "colourKey": "SC" },
+    { "userId": "user-JO", "name": "Dr. James Okonkwo", "initials": "JO", "role": "PV Lead",                "raci": "C", "colourKey": "JO" },
+    { "userId": "user-EV", "name": "Dr. Elena Vasquez", "initials": "EV", "role": "Regulatory Affairs",     "raci": "C", "colourKey": "EV" },
+    { "userId": "user-PN", "name": "Dr. Priya Nair",    "initials": "PN", "role": "Biostatistician",        "raci": "C", "colourKey": "PN" },
+    { "userId": "user-AH", "name": "Dr. Amir Hossain",  "initials": "AH", "role": "Clinical Data Manager",  "raci": "C", "colourKey": "AH" },
+    { "userId": "user-RT", "name": "Rachel Thorn",      "initials": "RT", "role": "Data Manager",           "raci": "I", "colourKey": "RT" },
+    { "userId": "user-LP", "name": "Dr. Linda Park",    "initials": "LP", "role": "QA Lead",                "raci": "I", "colourKey": "LP" }
+  ]
+}

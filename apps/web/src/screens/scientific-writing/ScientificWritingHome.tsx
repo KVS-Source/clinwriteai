@@ -280,7 +280,7 @@ export function ScientificWritingHome() {
   return (
     <div className="bg-slate-50" data-screen="scientific-writing-home">
       <div
-        className="mx-auto flex flex-col gap-5"
+        className="flex flex-col gap-5"
         style={{ maxWidth: 1180, padding: '20px 32px 48px' }}
       >
 

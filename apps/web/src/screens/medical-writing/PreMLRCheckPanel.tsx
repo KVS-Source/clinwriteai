@@ -83,7 +83,7 @@ export function PreMLRCheckPanel() {
 
   return (
     <div className="bg-slate-50" data-screen="pre-mlr-check-panel">
-      <div className="mx-auto flex flex-col gap-5" style={{ maxWidth: 1180, padding: '20px 32px 48px' }}>
+      <div className="flex flex-col gap-5" style={{ maxWidth: 1180, padding: '20px 32px 48px' }}>
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">

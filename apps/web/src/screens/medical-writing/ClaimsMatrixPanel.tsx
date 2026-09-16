@@ -107,7 +107,7 @@ export function ClaimsMatrixPanel() {
 
   return (
     <div className="bg-slate-50" data-screen="claims-matrix-panel">
-      <div className="mx-auto flex flex-col gap-4" style={{ maxWidth: 1280, padding: '20px 32px 40px' }}>
+      <div className="flex flex-col gap-4" style={{ maxWidth: 1280, padding: '20px 32px 40px' }}>
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">

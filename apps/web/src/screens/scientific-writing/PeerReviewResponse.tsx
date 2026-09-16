@@ -372,7 +372,7 @@ export function PeerReviewResponse() {
 
         {/* Right: response editor */}
         <div className="flex flex-1 min-w-0 flex-col overflow-y-auto" data-response-panel>
-          <div className="mx-auto flex flex-col gap-3" style={{ maxWidth: 780, padding: '24px 32px 48px', width: '100%' }}>
+          <div className="flex flex-col gap-3" style={{ maxWidth: 780, padding: '24px 32px 48px', width: '100%' }}>
 
             {/* Letter header */}
             <div className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-4" data-letter-header>

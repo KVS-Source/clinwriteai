@@ -123,7 +123,7 @@ export function SuperReview() {
 
   return (
     <div className="bg-slate-50" data-screen="super-review">
-      <div className="mx-auto flex flex-col gap-4" style={{ maxWidth: 1440, padding: '16px 24px 24px' }}>
+      <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '16px 24px 24px' }}>
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">

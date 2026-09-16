@@ -138,7 +138,7 @@ export function CTDModule2Editor() {
 
   return (
     <div className="bg-slate-50" data-screen="ctd-module2-editor">
-      <div className="mx-auto flex flex-col" style={{ maxWidth: 1440, padding: '16px 24px 24px' }}>
+      <div className="flex flex-col" style={{ maxWidth: 1440, padding: '16px 24px 24px' }}>
 
         {/* Breadcrumb */}
         <nav className="mb-3 flex items-center gap-2 text-xs text-slate-500">

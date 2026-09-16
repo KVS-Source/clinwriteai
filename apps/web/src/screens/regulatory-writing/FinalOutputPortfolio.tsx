@@ -93,7 +93,7 @@ export function FinalOutputPortfolio() {
 
   return (
     <div className="bg-slate-50" data-screen="final-output-portfolio">
-      <div className="mx-auto flex flex-col gap-4" style={{ maxWidth: 1440, padding: '16px 24px 32px' }}>
+      <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '16px 24px 32px' }}>
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">

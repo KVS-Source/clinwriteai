@@ -166,7 +166,7 @@ export function PortfolioDashboard() {
 
   return (
     <div className="flex h-full flex-col bg-slate-50" data-screen="portfolio-dashboard-b">
-      <div className="mx-auto flex flex-col gap-5" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
+      <div className="flex flex-col gap-5" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
 
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-6">

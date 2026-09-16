@@ -189,7 +189,7 @@ export function JournalSubmissionReadiness() {
 
   return (
     <div className="bg-slate-50" data-screen="submission-readiness">
-      <div className="mx-auto flex flex-col gap-5" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
+      <div className="flex flex-col gap-5" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
 
         {/* Gate banner */}
         <div

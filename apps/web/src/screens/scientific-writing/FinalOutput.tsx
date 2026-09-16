@@ -117,7 +117,7 @@ export function FinalOutput() {
 
       {/* Body */}
       <div className="flex-1 overflow-y-auto">
-        <div className="mx-auto flex flex-col gap-5" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
+        <div className="flex flex-col gap-5" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
 
           {/* Header */}
           <div className="flex flex-wrap items-start justify-between gap-6">

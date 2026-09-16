@@ -93,7 +93,7 @@ export function SlidedeckGenerator() {
 
   return (
     <div className="bg-slate-50" data-screen="slide-deck-generator" data-module-accent={MODULE_B_SB10_ACCENT.primary}>
-      <div className="mx-auto flex flex-col gap-4" style={{ maxWidth: 1600, padding: '20px 24px 48px' }}>
+      <div className="flex flex-col gap-4" style={{ maxWidth: 1600, padding: '20px 24px 48px' }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
           <button onClick={() => navigate(`/projects/${projectId}/scientific-writing`)} className="hover:text-slate-900">Scientific Writing</button>

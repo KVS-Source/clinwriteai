@@ -495,7 +495,7 @@ export function AuthorManagement() {
 
   return (
     <div className="bg-slate-50" data-screen="author-management">
-      <div className="mx-auto" style={{ maxWidth: 1180, padding: '20px 32px 48px' }}>
+      <div style={{ maxWidth: 1180, padding: '20px 32px 48px' }}>
         <div className="flex flex-col gap-5">
 
           {/* Header */}

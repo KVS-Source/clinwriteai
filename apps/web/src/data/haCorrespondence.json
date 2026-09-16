@@ -139,5 +139,99 @@
     "respondedAt": "2026-10-16T14:22:00Z",
     "loqDocId": null,
     "responsePkgDocId": "pkg-001"
+  },
+
+  {
+    "id": "hac-tb-001",
+    "submissionId": "sub-tb-001",
+    "direction": "inbound",
+    "type": "loq",
+    "gateway": "cdsco-in",
+    "contentSummary": "CDSCO India — List of Questions (Round 1) — 14 questions across Clinical (9), CMC (3), Administrative (2)",
+    "receivedAt": "2026-11-28T09:00:00Z",
+    "respondedAt": null,
+    "loqDocId": "loq-doc-tb-001",
+    "loqDocTitle": "CDSCO India LoQ — SPINE-TB-2 MAA (Round 1)",
+    "questionsExtracted": 14,
+    "questionsCategories": {
+      "clinical": 9,
+      "cmc": 3,
+      "administrative": 2
+    },
+    "responsePkgDocId": null,
+    "questions": [
+      {
+        "questionId": "q-tb-001",
+        "number": 1,
+        "category": "clinical",
+        "text": "Please justify the choice of 5-percentage-point non-inferiority margin for culture conversion at 6 months, with reference to the sensitivity-analysis approach recommended in ICH E10.",
+        "assignedTo": "user-ev",
+        "assignedRole": "Clinical Lead",
+        "status": "in-progress",
+        "respondedAt": null,
+        "aiDraftGenerated": true,
+        "aiFootprintPct": 54
+      },
+      {
+        "questionId": "q-tb-002",
+        "number": 2,
+        "category": "clinical",
+        "text": "Provide additional efficacy subgroup analyses for patients with vertebral kyphotic deformity ≥30° at baseline, given the reduced representation of this subgroup in the pivotal trial.",
+        "assignedTo": "user-ev",
+        "assignedRole": "Clinical Lead",
+        "status": "in-progress",
+        "respondedAt": null,
+        "aiDraftGenerated": true,
+        "aiFootprintPct": 61
+      },
+      {
+        "questionId": "q-tb-003",
+        "number": 3,
+        "category": "clinical",
+        "text": "Discuss the observed Grade 3+ hepatotoxicity signal (2.1% in the 9-month arm vs 1.4% in the 12-month arm) including proposed pharmacovigilance and risk-minimisation measures.",
+        "assignedTo": "user-jo",
+        "assignedRole": "PV Lead",
+        "status": "not-started",
+        "respondedAt": null,
+        "aiDraftGenerated": false,
+        "aiFootprintPct": null
+      },
+      {
+        "questionId": "q-tb-004",
+        "number": 4,
+        "category": "cmc",
+        "text": "Confirm compatibility of the proposed fixed-dose combination shelf life (36 months) with monsoon-climate stability data from the Chennai and Kolkata sites.",
+        "assignedTo": "user-ap",
+        "assignedRole": "CMC Lead",
+        "status": "not-started",
+        "respondedAt": null,
+        "aiDraftGenerated": false,
+        "aiFootprintPct": null
+      }
+    ]
+  },
+  {
+    "id": "hac-tb-002",
+    "submissionId": "sub-tb-001",
+    "direction": "inbound",
+    "type": "ack",
+    "gateway": "cdsco-in",
+    "contentSummary": "ACK1 — CDSCO receipt confirmed",
+    "receivedAt": "2026-11-20T11:14:00Z",
+    "respondedAt": null,
+    "loqDocId": null,
+    "responsePkgDocId": null
+  },
+  {
+    "id": "hac-tb-003",
+    "submissionId": "sub-tb-001",
+    "direction": "inbound",
+    "type": "ack",
+    "gateway": "cdsco-in",
+    "contentSummary": "ACK2 — Format validation passed (eCTD 3.2.2)",
+    "receivedAt": "2026-11-20T14:22:00Z",
+    "respondedAt": null,
+    "loqDocId": null,
+    "responsePkgDocId": null
   }
 ]

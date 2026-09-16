@@ -7,6 +7,10 @@ import { ideationPublishingApi } from '../../modules/ideation-publishing/api/ide
 import { useIdeationStore } from '../../modules/ideation-publishing/store'
 import ideationCalendarFixture from '../../data/ideationCalendar.json'
 
+// Stable empty-array fallback for useQuery — see RegulatoryWritingHome comment.
+// A fresh `[]` per render would loop the setProjects effect (React #185).
+const EMPTY_PROJECTS: IdeationProject[] = []
+
 const TA_META: Record<string, { bg: string; fg: string }> = {
   'Oncology':        { bg: '#F0FDFA', fg: '#0F766E' },
   'Cardiometabolic': { bg: '#EFF6FF', fg: '#1D4ED8' },
@@ -142,7 +146,7 @@ export function IdeationPublishingHome() {
   const projects    = useIdeationStore(s => s.projects)
   const setProjects = useIdeationStore(s => s.setProjects)
 
-  const { data: fetched = [] } = useQuery({
+  const { data: fetched = EMPTY_PROJECTS } = useQuery({
     queryKey: ['ideation-projects', projectId],
     queryFn:  () => ideationPublishingApi.listProjects(projectId!),
     enabled:  !!projectId,

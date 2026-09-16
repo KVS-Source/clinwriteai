@@ -25,6 +25,14 @@ const TYPE_META: Record<RegSubmissionType, { label: string; bg: string; fg: stri
 
 const STAGE_COUNT = 6
 
+// Stable empty-array references used as useQuery fallbacks. Declaring them at
+// module scope prevents `const { data = [] }` from allocating a fresh `[]` on
+// every render — that fresh reference would fire a setter useEffect, mutate a
+// Zustand store, re-render, allocate another `[]`, and loop → React #185.
+const EMPTY_SUBS:   RegulatorySubmission[] = []
+const EMPTY_ALERTS: RegulatoryAlert[]      = []
+const EMPTY_NODES:  ECTDNode[]             = []
+
 // --- Helpers ---
 
 function formatDate(iso: string | null | undefined): string {
@@ -228,16 +236,16 @@ export function RegulatoryWritingHome() {
   const nodes            = useECTDStore(s => s.nodes)
   const setNodes         = useECTDStore(s => s.setNodes)
 
-  const { data: fetchedSubs = [] } = useQuery({
+  const { data: fetchedSubs = EMPTY_SUBS } = useQuery({
     queryKey: ['reg-submissions', projectId],
     queryFn:  () => regulatoryWritingApi.listSubmissions(projectId!),
     enabled:  !!projectId,
   })
-  const { data: fetchedAlerts = [] } = useQuery({
+  const { data: fetchedAlerts = EMPTY_ALERTS } = useQuery({
     queryKey: ['regulatory-alerts'],
     queryFn:  () => regulatoryWritingApi.listRegulatoryAlerts(),
   })
-  const { data: fetchedNodes = [] } = useQuery({
+  const { data: fetchedNodes = EMPTY_NODES } = useQuery({
     queryKey: ['reg-ectd-map', 'sub-001'],
     queryFn:  () => regulatoryWritingApi.getECTDMap('sub-001'),
   })

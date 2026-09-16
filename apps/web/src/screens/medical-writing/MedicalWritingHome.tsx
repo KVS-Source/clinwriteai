@@ -7,6 +7,10 @@ import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { useMedContentStore } from '../../modules/medical-writing/store'
 import expiryFixture from '../../data/contentExpiryRecords.json'
 
+// Stable empty-array fallback for useQuery — prevents React #185
+// (setter-in-useEffect loops on the transient `[]` default reference).
+const EMPTY_CONTENTS: MedContentItem[] = []
+
 // --- Static config ---
 
 type StageTab =
@@ -331,7 +335,7 @@ export function MedicalWritingHome() {
   const [typeFilter, setTypeFilter] = useState<MedContentType | 'all'>('all')
   const [toast, setToast]         = useState<string | null>(null)
 
-  const { data: contents = [] } = useQuery({
+  const { data: contents = EMPTY_CONTENTS } = useQuery({
     queryKey: ['medContent', projectId],
     queryFn:  () => medContentApi.list(projectId!),
     enabled:  !!projectId,
@@ -460,6 +464,76 @@ export function MedicalWritingHome() {
               Upload existing
             </button>
           </div>
+        </div>
+
+        {/* Quick access tiles — surface module-level pages that would otherwise
+            only be reachable from the sidebar. Live demo shortcut for showing
+            Claims Matrix + KOL Sessions without leaving the module home. */}
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))' }} data-quick-access>
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${projectId}/medical-writing/claims-matrix`)}
+            data-quick-access-tile="claims-matrix"
+            className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-4 text-left transition-shadow hover:shadow-md"
+          >
+            <div
+              className="flex h-10 w-10 flex-none items-center justify-center rounded-md"
+              style={{ backgroundColor: '#F5F3FF', color: '#7C3AED' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <path d="M10 2L3 5v5c0 4 3 7.5 7 8 4-.5 7-4 7-8V5l-7-3Z" strokeLinejoin="round" />
+                <path d="M7.5 10l2 2 3.5-4" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </div>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <p className="text-[14px] font-semibold text-slate-900">Claims Matrix</p>
+              <p className="text-[12px] text-slate-500">Currency-controlled efficacy &amp; safety claims library.</p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${projectId}/medical-writing/kol-session`)}
+            data-quick-access-tile="kol-session"
+            className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-4 text-left transition-shadow hover:shadow-md"
+          >
+            <div
+              className="flex h-10 w-10 flex-none items-center justify-center rounded-md"
+              style={{ backgroundColor: '#F5F3FF', color: '#7C3AED' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <rect x="2.5" y="3.5" width="15" height="10.5" rx="2" strokeLinejoin="round" />
+                <path d="M2.5 14L6 17.5" strokeLinecap="round" />
+              </svg>
+            </div>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <p className="text-[14px] font-semibold text-slate-900">KOL Advisory Board Session</p>
+              <p className="text-[12px] text-slate-500">Plan, run, and capture KOL ad-board decisions.</p>
+            </div>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${projectId}/medical-writing/portfolio`)}
+            data-quick-access-tile="portfolio"
+            className="flex items-center gap-3 rounded-lg border border-slate-200 bg-white p-4 text-left transition-shadow hover:shadow-md"
+          >
+            <div
+              className="flex h-10 w-10 flex-none items-center justify-center rounded-md"
+              style={{ backgroundColor: '#F5F3FF', color: '#7C3AED' }}
+            >
+              <svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6">
+                <rect x="2.5" y="2.5" width="6" height="6" rx="1" />
+                <rect x="11.5" y="2.5" width="6" height="6" rx="1" />
+                <rect x="2.5" y="11.5" width="6" height="6" rx="1" />
+                <rect x="11.5" y="11.5" width="6" height="6" rx="1" />
+              </svg>
+            </div>
+            <div className="flex min-w-0 flex-col gap-0.5">
+              <p className="text-[14px] font-semibold text-slate-900">Content Portfolio</p>
+              <p className="text-[12px] text-slate-500">Cross-programme view of all Medical Affairs content.</p>
+            </div>
+          </button>
         </div>
 
         {/* Metrics strip — 4 chips with violet left-border accent */}

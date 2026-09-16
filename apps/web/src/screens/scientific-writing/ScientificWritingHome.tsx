@@ -6,6 +6,10 @@ import { publicationsApi } from '../../api'
 import { SourceChip } from '../../components/ui'
 import { usePublicationStore } from '../../modules/scientific-writing/store'
 
+// Stable empty-array fallback for useQuery — prevents React #185
+// (setter-in-useEffect loops on the transient `[]` default reference).
+const EMPTY_PUBS: Publication[] = []
+
 // --- Static config ---
 
 type Tab = 'all' | PublicationStage
@@ -218,7 +222,7 @@ export function ScientificWritingHome() {
   const [showStats]           = useState(true)
   const [showEmptyState]      = useState(false)
 
-  const { data: publications = [] } = useQuery({
+  const { data: publications = EMPTY_PUBS } = useQuery({
     queryKey: ['publications', projectId],
     queryFn:  () => publicationsApi.list(projectId!),
     enabled:  !!projectId,

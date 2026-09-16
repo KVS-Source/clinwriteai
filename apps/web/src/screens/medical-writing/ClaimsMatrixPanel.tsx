@@ -9,6 +9,10 @@ import { useClaimsStore } from '../../modules/medical-writing/store'
 const ACTIVE_CONTENT_ID = 'mc-001'
 const CURRENT_USER_NAME = 'Dr Sarah Chen'
 
+// Stable empty-array fallback for useQuery — prevents React #185
+// (setter-in-useEffect loops on the transient `[]` default reference).
+const EMPTY_CLAIMS: MedClaim[] = []
+
 type FilterTab = 'all' | ClaimStatus
 
 const FILTER_TABS: { id: FilterTab; label: string }[] = [
@@ -45,7 +49,7 @@ export function ClaimsMatrixPanel() {
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3400) }
 
-  const { data: fetched = [] } = useQuery({
+  const { data: fetched = EMPTY_CLAIMS } = useQuery({
     queryKey: ['med-claims', ACTIVE_CONTENT_ID],
     queryFn:  () => medContentApi.getClaims(ACTIVE_CONTENT_ID),
   })

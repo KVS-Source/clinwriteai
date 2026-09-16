@@ -1,7 +1,7 @@
 [
   {
     "id": "DOC-001",
-    "projectId": "PROJ-001",
+    "projectId": "proj-velora-301",
     "type": "csr-full",
     "title": "Clinical Study Report — VELORA-301",
     "status": "in-authoring",
@@ -31,11 +31,11 @@
       { "id": "s16_4", "number": "§16.4", "title": "Individual Patient Data", "status": "warning" }
     ]
   },
-  { "id": "DOC-002", "projectId": "PROJ-001", "type": "csr-synopsis",        "title": "CSR Synopsis — VELORA-301",      "status": "not-started",   "stage": "study-start-up",            "version": "v0.1", "therapeuticArea": "Oncology", "assigneeId": "user-MW", "updatedAt": null,                     "sections": [] },
-  { "id": "DOC-003", "projectId": "PROJ-001", "type": "protocol",            "title": "Protocol v3.2 — VELORA-301",     "status": "signed",        "stage": "final-output",              "version": "v1.0", "therapeuticArea": "Oncology", "assigneeId": "user-SC", "updatedAt": "2023-09-01T00:00:00Z",   "sections": [] },
-  { "id": "DOC-004", "projectId": "PROJ-001", "type": "protocol-amendment",  "title": "Protocol Amendment 1",          "status": "signed",        "stage": "final-output",              "version": "v1.0", "therapeuticArea": "Oncology", "assigneeId": "user-SC", "updatedAt": "2024-01-15T00:00:00Z",   "sections": [] },
-  { "id": "DOC-005", "projectId": "PROJ-001", "type": "safety-narrative",    "title": "Safety Narrative — SAE-0042",   "status": "in-review",     "stage": "cross-functional-review",   "version": "v0.2", "therapeuticArea": "Oncology", "assigneeId": "user-JO", "updatedAt": "2024-10-18T00:00:00Z",   "sections": [] },
-  { "id": "DOC-006", "projectId": "PROJ-001", "type": "dsur",                "title": "DSUR Year 2 — VELORA-301",      "status": "in-authoring",  "stage": "during-study",              "version": "v0.1", "therapeuticArea": "Oncology", "assigneeId": "user-MW", "updatedAt": "2024-10-10T00:00:00Z",   "sections": [] },
-  { "id": "DOC-007", "projectId": "PROJ-001", "type": "ib",                  "title": "Investigator's Brochure v4",    "status": "signed",        "stage": "final-output",              "version": "v1.0", "therapeuticArea": "Oncology", "assigneeId": "user-EV", "updatedAt": "2024-03-20T00:00:00Z",   "sections": [] },
-  { "id": "DOC-008", "projectId": "PROJ-001", "type": "icf",                 "title": "Informed Consent Form v2",      "status": "crm-in-progress","stage": "crm",                       "version": "v0.3", "therapeuticArea": "Oncology", "assigneeId": "user-EV", "updatedAt": "2024-10-20T00:00:00Z",   "sections": [] }
+  { "id": "DOC-002", "projectId": "proj-velora-301", "type": "csr-synopsis",        "title": "CSR Synopsis — VELORA-301",      "status": "not-started",   "stage": "study-start-up",            "version": "v0.1", "therapeuticArea": "Oncology", "assigneeId": "user-MW", "updatedAt": null,                     "sections": [] },
+  { "id": "DOC-003", "projectId": "proj-velora-301", "type": "protocol",            "title": "Protocol v3.2 — VELORA-301",     "status": "signed",        "stage": "final-output",              "version": "v1.0", "therapeuticArea": "Oncology", "assigneeId": "user-SC", "updatedAt": "2023-09-01T00:00:00Z",   "sections": [] },
+  { "id": "DOC-004", "projectId": "proj-velora-301", "type": "protocol-amendment",  "title": "Protocol Amendment 1",          "status": "signed",        "stage": "final-output",              "version": "v1.0", "therapeuticArea": "Oncology", "assigneeId": "user-SC", "updatedAt": "2024-01-15T00:00:00Z",   "sections": [] },
+  { "id": "DOC-005", "projectId": "proj-velora-301", "type": "safety-narrative",    "title": "Safety Narrative — SAE-0042",   "status": "in-review",     "stage": "cross-functional-review",   "version": "v0.2", "therapeuticArea": "Oncology", "assigneeId": "user-JO", "updatedAt": "2024-10-18T00:00:00Z",   "sections": [] },
+  { "id": "DOC-006", "projectId": "proj-velora-301", "type": "dsur",                "title": "DSUR Year 2 — VELORA-301",      "status": "in-authoring",  "stage": "during-study",              "version": "v0.1", "therapeuticArea": "Oncology", "assigneeId": "user-MW", "updatedAt": "2024-10-10T00:00:00Z",   "sections": [] },
+  { "id": "DOC-007", "projectId": "proj-velora-301", "type": "ib",                  "title": "Investigator's Brochure v4",    "status": "signed",        "stage": "final-output",              "version": "v1.0", "therapeuticArea": "Oncology", "assigneeId": "user-EV", "updatedAt": "2024-03-20T00:00:00Z",   "sections": [] },
+  { "id": "DOC-008", "projectId": "proj-velora-301", "type": "icf",                 "title": "Informed Consent Form v2",      "status": "crm-in-progress","stage": "crm",                       "version": "v0.3", "therapeuticArea": "Oncology", "assigneeId": "user-EV", "updatedAt": "2024-10-20T00:00:00Z",   "sections": [] }
 ]

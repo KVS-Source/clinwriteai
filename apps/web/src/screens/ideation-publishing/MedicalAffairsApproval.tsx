@@ -199,7 +199,20 @@ export function MedicalAffairsApproval() {
               style={{ backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }}
               data-kol-review-section
             >
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-600">KOL Review</p>
+              <div className="flex flex-wrap items-start justify-between gap-2">
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-600">KOL Review</p>
+                <a
+                  href={`/kol-review/${kol.reviewLinkToken}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  data-preview-kol-link
+                  className="inline-flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-[11px] font-semibold transition-colors"
+                  style={{ borderColor: '#0D9488', color: '#0F766E', backgroundColor: '#FFFFFF' }}
+                  title="Opens the tokenised KOL review page in a new tab — same URL the KOL would receive by email."
+                >
+                  ↗ Preview KOL review link
+                </a>
+              </div>
               <p className="mt-1 text-[13px] font-semibold text-slate-900">
                 {kol.name} · {kol.title} · {activeDecision?.decision === 'approved' ? '✓ Approved' : activeDecision?.decision === 'rejected' ? '⊘ Rejected' : '○ Pending'} · {formatDateTime(kol.signedOffAt ?? kol.reviewLinkExpiry)}
               </p>

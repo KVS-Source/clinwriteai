@@ -1,0 +1,11 @@
+# SME source documents (PDFs/DOCXs) and nested zip trees are ~10 MB total —
+# not versioned in git. Regenerate by re-extracting OneDrive_3_9-25-2026.zip
+# and its two nested zips into this folder.
+# See README.md for the mapping between these source files and Module D fixtures.
+*.pdf
+*.docx
+*.zip
+*.txt
+*.csv
+HA_Response_Package_Training/
+Mock_eCTD_Submission_Package_0000/

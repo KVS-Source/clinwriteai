@@ -105,7 +105,66 @@
     "cmcReadinessAcknowledged": true,
     "cmcReadinessPct": 92,
     "canonicalJsonIndexed": true,
-    "canonicalJsonDataPoints": 512
+    "canonicalJsonDataPoints": 512,
+    "structureSource": "eCTD package layout — mirrors docs/OneDrive_3_9-25-2026/Mock_eCTD_Submission_Package_0000/ (ICH M4 folder convention)",
+    "guidelineRefs": [
+      "ICH M4Q(R1) — CTD Module 2.3 Quality Overall Summary",
+      "ICH M4S(R2) 2002-12-20 — CTD Module 2.4/2.6 Nonclinical Overview and Summaries",
+      "ICH M4E(R2) 2016-06-15 — CTD Module 2.5 Clinical Overview + Benefit-Risk",
+      "ICH E3 1995-11-30 — Structure and Content of Clinical Study Reports",
+      "ICH E8(R1) 2021-10-06 — General Considerations for Clinical Studies",
+      "ICH E9(R1) 2019-11-20 — Statistical Principles + Estimand Framework"
+    ],
+    "contentStructure": {
+      "type": "ectd-package",
+      "sequenceNumber": "0000",
+      "lifecycleOperation": "new",
+      "namingRules": { "case": "lower", "separator": "hyphen", "example": "m2/23-qos/quality-overall-summary.docx" },
+      "modules": {
+        "m1": [
+          { "folder": "cover-letter",     "leaf": "cover-letter.docx",         "title": "eCTD Cover Letter (EMA + CDSCO + SAHPRA + ANVISA regional variants)" },
+          { "folder": "application-form", "leaf": "application-form.docx",     "title": "Application Form" },
+          { "folder": "labeling",         "leaf": "proposed-labeling.docx",    "title": "Proposed Labeling (SmPC + PIL)" },
+          { "folder": "risk-management",  "leaf": "rmp.docx",                  "title": "Risk Management Plan → cross-ref sub-tb-002" }
+        ],
+        "m2": [
+          { "folder": "21-toc",                    "leaf": "ctd-table-of-contents.docx",             "title": "2.1 CTD Table of Contents" },
+          { "folder": "22-introduction",           "leaf": "ctd-introduction.docx",                  "title": "2.2 CTD Introduction" },
+          { "folder": "23-qos",                    "leaf": "quality-overall-summary.docx",           "title": "2.3 Quality Overall Summary",
+            "sections": ["2.3 Introduction", "2.3.S.1 General Info", "2.3.S.2 Manufacture", "2.3.S.3 Characterisation", "2.3.S.4 Control", "2.3.S.5 Reference Standards", "2.3.S.6 Container Closure", "2.3.S.7 Stability", "2.3.P.1 Description", "2.3.P.2 Development", "2.3.P.3 Manufacture", "2.3.P.4 Excipients", "2.3.P.5 Control", "2.3.P.6 Reference Standards", "2.3.P.7 Container Closure", "2.3.P.8 Stability", "2.3.A Appendices", "2.3.R Regional"] },
+          { "folder": "24-nonclinical-overview",   "leaf": "nonclinical-overview.docx",              "title": "2.4 Nonclinical Overview",
+            "sections": ["Overview of nonclinical testing strategy", "Pharmacology", "Pharmacokinetics", "Toxicology", "Integrated overview and conclusions", "Literature references"] },
+          { "folder": "25-clinical-overview",      "leaf": "clinical-overview.docx",                 "title": "2.5 Clinical Overview",
+            "sections": ["2.5.1 Product Development Rationale", "2.5.2 Overview of Biopharmaceutics", "2.5.3 Overview of Clinical Pharmacology", "2.5.4 Overview of Efficacy (culture conversion NI)", "2.5.5 Overview of Safety (hepatotoxicity + QT)", "2.5.6 Benefits and Risks Conclusions", "2.5.7 Literature References"] },
+          { "folder": "26-nonclinical-summaries",  "leaf": "nonclinical-summaries.docx",             "title": "2.6 Nonclinical Written & Tabulated Summaries",
+            "sections": ["2.6.1 Introduction", "2.6.2 Pharmacology Written", "2.6.3 Pharmacology Tabulated", "2.6.4 PK Written", "2.6.5 PK Tabulated", "2.6.6 Toxicology Written", "2.6.7 Toxicology Tabulated"] },
+          { "folder": "27-clinical-summaries",     "leaf": "clinical-summaries.docx",                "title": "2.7 Clinical Summary" }
+        ],
+        "m3": [
+          { "folder": "32s-drug-substance", "leaf": "drug-substance.docx", "title": "3.2.S Drug Substance (Levofloxacin + RIF + INH + EMB)" },
+          { "folder": "32p-drug-product",   "leaf": "drug-product.docx",   "title": "3.2.P Drug Product (Fixed-Dose Combination)" }
+        ],
+        "m4": [
+          { "folder": "nonclinical-study-reports", "leaf": "nonclinical-study-reports.docx", "title": "4.2 Nonclinical Study Reports" }
+        ],
+        "m5": [
+          { "folder": "clinical-study-reports", "leaf": "spine-tb-2-csr-v0.2.docx",   "title": "5.3.5 SPINE-TB-2 CSR v0.2 (from Module A DOC-101)" },
+          { "folder": "study-synopses",         "leaf": "study-synopsis.docx",        "title": "5.2 Tabular Listing + Synopses" }
+        ]
+      },
+      "publishingChecklist": [
+        "Regional specification selected (EMA + CDSCO + SAHPRA + ANVISA)",
+        "Sequence 0000 lifecycle operation set to 'new'",
+        "eCTD 3.2.2 XML backbone validated",
+        "PDF/A-1b compliance on all leaf documents",
+        "Hyperlink integrity checked",
+        "Bookmarks present at ICH-required granularity",
+        "MD5 checksums generated for all leaves",
+        "index.xml + index-md5.txt regenerated",
+        "regional.xml populated per HA",
+        "Study tagging file present for 5.3.5"
+      ]
+    }
   },
   {
     "id": "sub-tb-002",
@@ -128,7 +187,47 @@
     "project": "SPINE-TB-2",
     "lane": "review",
     "raciSignedCount": 4,
-    "raciTotalCount": 6
+    "raciTotalCount": 6,
+    "structureSource": "EU RMP — mirrors docs/OneDrive_3_9-25-2026/EU_RMP_GVP Module V.pdf (GVP Module V Rev 2)",
+    "guidelineRefs": [
+      "EMA GVP Module V Rev 2 (EMA/838713/2011 Rev 2, 2017-03-28) — Risk management systems"
+    ],
+    "contentStructure": {
+      "type": "rmp",
+      "rmpVersion": "1.0",
+      "guideline": "EMA GVP Module V Rev 2",
+      "parts": {
+        "I":   { "title": "Product(s) overview",                              "content": "SPINE-TB-2 fixed-dose combination — levofloxacin + rifampicin + isoniazid + ethambutol" },
+        "II":  { "title": "Safety specification",
+                 "modules": {
+                   "SI":    "Epidemiology of spinal tuberculosis (indication and target population — global TB burden, drug-sensitive vs MDR)",
+                   "SII":   "Non-clinical part of safety spec (hepatotoxicity signal from repeat-dose tox; QT signal from hERG)",
+                   "SIII":  "Clinical trial exposure (SPINE-TB-2 pivotal + supportive; N = 480 across 9-month arm)",
+                   "SIV":   "Populations not studied (pregnant women, paediatrics <12y, severe hepatic impairment, HIV co-infection)",
+                   "SV":    "Post-authorisation experience (initial submission — no post-auth experience yet)",
+                   "SVI":   "Additional EU requirements (per Annex II B conditions)",
+                   "SVII":  "Identified and potential risks (Identified: Grade 3+ hepatotoxicity, QT prolongation; Potential: peripheral neuropathy, optic neuritis, pregnancy exposure)",
+                   "SVIII": "Summary of the safety concerns"
+                 } },
+        "III": { "title": "Pharmacovigilance plan",         "activities": ["Routine PV", "Additional PV: post-authorisation safety study of hepatotoxicity in real-world programme cohorts (India + South Africa)"] },
+        "IV":  { "title": "Post-authorisation efficacy studies", "activities": ["Real-world radiological healing durability study at 36 and 48 months"] },
+        "V":   { "title": "Risk minimisation measures",
+                 "routine":    ["SmPC section 4.4 hepatotoxicity warning", "PIL patient-friendly LFT reminder"],
+                 "additional": ["HCP prescriber education programme in TB-endemic countries", "Monthly LFT tracking card for patients"] },
+        "VI":  { "title": "Summary of the RMP (public-facing)" },
+        "VII": { "title": "Annexes",
+                 "annexes": [
+                   "Annex 1 — EudraVigilance interface documentation",
+                   "Annex 2 — Tabulated summary of planned/ongoing/completed PV activities",
+                   "Annex 3 — Study protocols (post-auth studies)",
+                   "Annex 4 — Specific AE follow-up forms (hepatotoxicity, QT)",
+                   "Annex 5 — Protocols for Part IV efficacy studies",
+                   "Annex 6 — Details of additional risk-minimisation activities",
+                   "Annex 7 — Supporting data (studies, references)",
+                   "Annex 8 — Summary of changes vs previous RMP version"
+                 ] }
+      }
+    }
   },
   {
     "id": "sub-tb-003",
@@ -149,6 +248,48 @@
     "createdAt": "2026-12-05T09:00:00Z",
     "updatedAt": "2026-12-14T09:00:00Z",
     "project": "SPINE-TB-2",
-    "lane": "authoring"
+    "lane": "authoring",
+    "structureSource": "HA response package — mirrors docs/OneDrive_3_9-25-2026/HA_Response_Package_Training/ (initial submission 0000 → response sequence 0010)",
+    "guidelineRefs": [
+      "ICH M4 CTD Common Technical Document (M4Q, M4S, M4E)",
+      "CDSCO India — Post-submission LoQ response requirements"
+    ],
+    "contentStructure": {
+      "type": "ha-response-package",
+      "sequenceNumber": "0010",
+      "correspondenceRef": "CDSCO India LoQ Round 1 — 14 questions received 28-Nov-2026",
+      "responseLogic": ["Health Authority Question", "Applicant Response", "Rationale and Supporting Evidence", "Dossier Impact", "Documents Updated", "References / Attachments", "Response QC"],
+      "questions": [
+        { "questionId": "Q1", "discipline": "Efficacy", "owner": "user-ev", "dueDate": "2026-12-28", "responseStatus": "Draft",
+          "ctdImpact": ["2.5.4", "5.3.5"], "documentAction": "replace",
+          "qcStatus": "Pending", "aiDraftGenerated": true, "aiFootprintPct": 54,
+          "response": { "direct": "5pp NI margin justified per ICH E10 sensitivity-analysis framework", "rationale": "Historical MRC 1998 spinal-TB trial data supports the margin choice", "dossierImpact": "2.5.4 revised with justification paragraph", "documentsUpdated": ["m2/25-clinical-overview replaced"], "references": ["MRC Working Party 1998 JBJS-Br 80-B:456"] } },
+        { "questionId": "Q2", "discipline": "Efficacy", "owner": "user-ev", "dueDate": "2026-12-28", "responseStatus": "Draft",
+          "ctdImpact": ["2.7.3.4"], "documentAction": "replace",
+          "qcStatus": "Pending", "aiDraftGenerated": true, "aiFootprintPct": 61,
+          "response": { "direct": "Additional post-hoc analysis for kyphotic subgroup ≥30°", "rationale": "Small subgroup n=42 — descriptive analysis only", "dossierImpact": "2.7.3 subgroups section updated", "documentsUpdated": ["m2/27-clinical-summaries replaced"], "references": [] } },
+        { "questionId": "Q3", "discipline": "Safety", "owner": "user-jo", "dueDate": "2027-01-05", "responseStatus": "Not-Started",
+          "ctdImpact": ["2.5.5", "1.8.2"], "documentAction": "replace",
+          "qcStatus": "Pending", "aiDraftGenerated": false,
+          "response": { "direct": "Enhanced hepatotoxicity monitoring proposed; RMP updated", "rationale": "PV signal detection under Risk Management Plan", "dossierImpact": "RMP Part II SVII + Part V additional risk minimisation", "documentsUpdated": ["m1/1.8.2 rmp replaced (cross-ref sub-tb-002)", "m2/25-clinical-overview replaced"], "references": ["RMP v1.0"] } },
+        { "questionId": "Q4", "discipline": "Quality", "owner": "user-ap", "dueDate": "2027-01-10", "responseStatus": "Not-Started",
+          "ctdImpact": ["2.3.P.8", "3.2.P.8"], "documentAction": "replace",
+          "qcStatus": "Pending", "aiDraftGenerated": false,
+          "response": { "direct": "Monsoon-climate stability data — Chennai + Kolkata batches meet ICH Q1A(R2) Zone IVb spec", "rationale": "Zone IVb stability equivalence with primary batches", "dossierImpact": "3.2.P.8 shelf life section updated", "documentsUpdated": ["m3/32p-drug-product replaced"], "references": ["ICH Q1A(R2) Stability Testing of New Drug Substances and Products"] } }
+      ],
+      "folders": {
+        "m1/cover-letter":            [{ "leaf": "ha-response-cover-letter.docx", "title": "Cover letter referencing CDSCO LoQ ref + response scope" }],
+        "m1/response-to-questions":   [{ "leaf": "point-by-point-response.docx", "title": "Full 14-question point-by-point response" },
+                                       { "leaf": "reusable-response-template.docx", "title": "Reusable per-question template applied to each Q" }],
+        "m2/updated-summaries":       [{ "leaf": "updated-clinical-overview.docx", "title": "Updated 2.5 Clinical Overview (Q1, Q2 impact)" }],
+        "m3/quality-responses":       [{ "leaf": "quality-support-monsoon-stability.docx", "title": "Q4 quality support" }],
+        "m4/nonclinical-responses":   [],
+        "m5/clinical-responses":      [{ "leaf": "kyphotic-subgroup-post-hoc.docx", "title": "Q2 post-hoc analysis dataset + report" }],
+        "supporting-documents":       [{ "leaf": "supporting-analysis.docx", "title": "Cross-question supporting rationale" }],
+        "util":                       [{ "leaf": "lifecycle-notes.txt", "title": "0000 → 0010 lifecycle notes" },
+                                       { "leaf": "HA_Response_Tracker.csv", "title": "Q-by-Q tracker: questionId, discipline, owner, dueDate, status, ctdImpact, action, qc" }]
+      },
+      "trackerColumns": ["Question ID", "Discipline", "Owner", "Due Date", "Response Status", "Source Data Verified", "CTD Impact", "Document Action", "QC Status"]
+    }
   }
 ]

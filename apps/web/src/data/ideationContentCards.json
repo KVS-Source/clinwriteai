@@ -125,7 +125,31 @@
       "Module A · Clinical Writing"
     ],
     "title": "Culture Conversion Non-Inferiority at Month 6",
-    "cardType": "efficacy"
+    "cardType": "efficacy",
+    "canonicalCardId": "TB-EFF-001",
+    "schemaFields": {
+      "therapeuticArea": "Tuberculosis",
+      "primaryAudience": "HCP · TB Programme Physician",
+      "lifecycleStatus": "Approved",
+      "scientificObjective": "Establish non-inferiority of the 9-month levofloxacin regimen versus the standard 12-month regimen on the primary efficacy endpoint (culture conversion at month 6)",
+      "coreScientificMessage": "Culture conversion at month 6 was 92.3% vs 91.8% — a +0.5 pp difference (95% CI −3.1 to +4.2), well within the pre-specified 5-pp non-inferiority margin",
+      "supportingEvidence": ["SPINE-TB-2 CSR v0.2 Table 11.1 (primary endpoint)", "SPINE-TB-2 KOL Insights §3.1", "MRC Working Party 1998 historical NI margin justification"],
+      "contextLimitationsFairBalance": "NI margin of 5 pp is justified by MRC 1998 historical data. Does NOT apply to rifampicin-resistant strains, HIV co-infection with CD4<100, or paediatric patients <12 years. Higher Grade 3+ hepatotoxicity signal in the 9-month arm (2.1% vs 1.4%) requires monthly LFT monitoring — see card TB-SAF-001.",
+      "suggestedVisual": "Forest plot: 9-month arm vs 12-month arm point estimates with 95% CI, NI margin line at +5 pp",
+      "potentialApprovedChannels": ["MSL detail aid", "TB Programme HCP portal", "Union World Conference on Lung Health poster", "LinkedIn (World TB Day only)"],
+      "referenceFields": {
+        "primarySource": "SPINE-TB-2 CSR v0.2 §11.1 Table 11.1.1",
+        "secondarySources": ["MRC Working Party on TB of the Spine, JBJS-Br 80-B:456-62 (1998)", "ICH E10 Non-Inferiority Guideline", "ICH E9(R1) Estimand Framework"]
+      },
+      "governanceMetadata": {
+        "approvedBy": "Dr Rebecca Morton",
+        "approvedRole": "MA Team Lead",
+        "approvedAt": "2026-12-06T15:22:00Z",
+        "expiryDate": "2027-06-30",
+        "retiringConditions": ["SmPC indication text updated to a different NI margin", "New pivotal trial supersedes primary endpoint", "Label restriction added for rifampicin-sensitive spinal TB only"],
+        "requiresMaReattestationAfterDays": 90
+      }
+    }
   },
   {
     "id": "c-tb-002",
@@ -155,7 +179,31 @@
       "Module A · Clinical Writing"
     ],
     "title": "Radiological Healing at 24 Months",
-    "cardType": "efficacy"
+    "cardType": "efficacy",
+    "canonicalCardId": "TB-EFF-002",
+    "schemaFields": {
+      "therapeuticArea": "Tuberculosis",
+      "primaryAudience": "HCP · Orthopaedic Surgeon + TB Programme Physician",
+      "lifecycleStatus": "Approved",
+      "scientificObjective": "Demonstrate durable structural spinal recovery under the 9-month regimen consistent with the culture-conversion primary result",
+      "coreScientificMessage": "MRI-confirmed radiological healing (Bhojraj grade ≥ III) was achieved in 87.4% (9-month) vs 88.1% (12-month) at month 24 — consistent with durable structural recovery",
+      "supportingEvidence": ["SPINE-TB-2 CSR v0.2 Table 11.3.2", "SPINE-TB-2 KOL Insights §3.3", "Bhojraj S, 1985 J Bone Joint Surg — grading methodology"],
+      "contextLimitationsFairBalance": "Bhojraj grading requires MRI at 12 and 24 months — not universally available in low-resource TB-endemic programme settings. KOL Prof R Ramakrishnan requested that a brief footnote defining Bhojraj grades be added when this card runs in HCP channels (see kolContacts.json kol-tb-001 review decision).",
+      "suggestedVisual": "Bar chart: % radiological healing at 12 vs 24 months, by arm. Sidebar callout defining Bhojraj grade III/IV.",
+      "potentialApprovedChannels": ["MSL detail aid", "TB Programme HCP portal", "ESCMID Global 2027 poster"],
+      "referenceFields": {
+        "primarySource": "SPINE-TB-2 CSR v0.2 §11.3.2 Table 11.3.2",
+        "secondarySources": ["Bhojraj S, J Bone Joint Surg 1985", "MRC Working Party TB of the Spine JBJS-Br 1998"]
+      },
+      "governanceMetadata": {
+        "approvedBy": "Dr Rebecca Morton",
+        "approvedRole": "MA Team Lead",
+        "approvedAt": "2026-12-06T15:22:00Z",
+        "expiryDate": "2027-12-31",
+        "retiringConditions": ["Longer-term follow-up (36/48 months) supersedes 24-month data"],
+        "requiresMaReattestationAfterDays": 90
+      }
+    }
   },
   {
     "id": "c-tb-003",
@@ -186,7 +234,32 @@
       "Module A · Clinical Writing"
     ],
     "title": "Hepatotoxicity Signal & RMP Monitoring",
-    "cardType": "safety"
+    "cardType": "safety",
+    "canonicalCardId": "TB-SAF-001",
+    "schemaFields": {
+      "therapeuticArea": "Tuberculosis",
+      "primaryAudience": "HCP · TB Programme Physician + MSL",
+      "lifecycleStatus": "Approved",
+      "scientificObjective": "Transparently communicate the Grade 3+ hepatotoxicity signal and mandate monthly LFT monitoring under the RMP",
+      "coreScientificMessage": "Grade 3+ hepatotoxicity was observed in 2.1% (9-month) vs 1.4% (12-month) — signal did not reach statistical significance but IS actively monitored under the SPINE-TB-2 RMP v1.0. Monthly LFT during the intensive phase is required.",
+      "supportingEvidence": ["SPINE-TB-2 CSR v0.2 §12 (Safety Evaluation)", "SPINE-TB-2 RMP v1.0 Part II SVII (Identified Risks) + Part V (Additional Risk Minimisation)", "SPINE-TB-2 KOL Insights §4.2"],
+      "contextLimitationsFairBalance": "Signal is real but numerical difference (+0.7 pp) did not reach statistical significance in the pivotal trial. Monthly LFT is mandatory — pill count alone is insufficient monitoring. KOL Prof R Ramakrishnan required that the RMP monthly LFT schedule be explicitly cited when this card runs in HCP channels (kol-tb-001 review decision).",
+      "suggestedVisual": "Timeline: monthly LFT checkpoints (M1, M2, M3, M4, M5, M6, M9) with hepatotoxicity dose-modification decision tree",
+      "potentialApprovedChannels": ["MSL detail aid", "TB Programme HCP portal", "Medical Affairs Portal (MSL Alert)"],
+      "referenceFields": {
+        "primarySource": "SPINE-TB-2 RMP v1.0 · Part II SVII (Identified Risks)",
+        "secondarySources": ["SPINE-TB-2 CSR v0.2 §12", "EMA GVP Module V Rev 2 (EMA/838713/2011)"]
+      },
+      "governanceMetadata": {
+        "approvedBy": "Dr Rebecca Morton",
+        "approvedRole": "MA Team Lead",
+        "approvedAt": "2026-12-06T15:22:00Z",
+        "expiryDate": "2027-06-30",
+        "retiringConditions": ["RMP updated with new monitoring frequency", "Post-authorisation real-world cohort supersedes signal magnitude"],
+        "requiresMaReattestationAfterDays": 90,
+        "reviewCadence": "quarterly — this is a safety card, elevated re-attestation frequency"
+      }
+    }
   },
   {
     "id": "c-tb-004",
@@ -216,7 +289,31 @@
       "Module A · Clinical Writing"
     ],
     "title": "Shorter Regimen — Adherence & Programme Cost Benefit",
-    "cardType": "positioning"
+    "cardType": "positioning",
+    "canonicalCardId": "TB-POS-001",
+    "schemaFields": {
+      "therapeuticArea": "Tuberculosis",
+      "primaryAudience": "Payer + TB Programme Manager + MSL",
+      "lifecycleStatus": "Approved",
+      "scientificObjective": "Position the 9-month regimen as a programme-level cost-adherence advantage without efficacy trade-off",
+      "coreScientificMessage": "The 9-month regimen reduces treatment duration by 25% versus the standard 12-month regimen without compromising culture conversion or radiological healing — with potential adherence and programme-cost benefits in high-TB-endemic settings",
+      "supportingEvidence": ["SPINE-TB-2 CSR v0.2 Table 11.4 (protocol adherence)", "SPINE-TB-2 KOL Insights §5.1"],
+      "contextLimitationsFairBalance": "Adherence and cost-benefit projections are based on the SPINE-TB-2 trial population. Real-world programme cost varies by country DOTS structure — no formal health-economic analysis performed. Efficacy non-inferiority result (TB-EFF-001) is the direct evidence; the adherence/cost claim is an inference. Not appropriate for individual patient counselling.",
+      "suggestedVisual": "Comparison infographic: 9-month vs 12-month timelines with pill count + programme-touchpoint reduction. Payer-facing chart.",
+      "potentialApprovedChannels": ["Payer detail deck", "TB Programme Manager brief", "LinkedIn (advocacy-focused only)"],
+      "referenceFields": {
+        "primarySource": "SPINE-TB-2 CSR v0.2 §11.4 Table 11.4 (Adherence)",
+        "secondarySources": ["WHO Global TB Programme guidance on shortened regimens", "MRC 1998 spinal TB adherence data"]
+      },
+      "governanceMetadata": {
+        "approvedBy": "Dr Rebecca Morton",
+        "approvedRole": "MA Team Lead",
+        "approvedAt": "2026-12-06T15:22:00Z",
+        "expiryDate": "2027-06-30",
+        "retiringConditions": ["Real-world programme data supersedes projection", "Formal HEOR analysis available"],
+        "requiresMaReattestationAfterDays": 90
+      }
+    }
   },
   {
     "id": "c-tb-005",
@@ -246,7 +343,32 @@
       "Module C · Medical Writing"
     ],
     "title": "What is Spine TB? — Patient Explainer",
-    "cardType": "patient-education"
+    "cardType": "patient-education",
+    "canonicalCardId": "TB-EDU-001",
+    "schemaFields": {
+      "therapeuticArea": "Tuberculosis",
+      "primaryAudience": "Patient + Caregiver",
+      "lifecycleStatus": "Development",
+      "scientificObjective": "Explain what spinal (Pott's) tuberculosis is in plain language so a newly-diagnosed patient can understand their condition and consent process",
+      "coreScientificMessage": "Spinal tuberculosis (Pott's disease) is a form of TB that affects the vertebrae — the bones in your spine. It causes back pain, stiffness, and if untreated, can damage the spinal cord. It is treatable with a combination of TB medicines taken for several months.",
+      "supportingEvidence": ["SPINE-TB-2 Disease Dossier v1.2 §2.1 (Patient Understanding)", "SmPC §4.1 Indication"],
+      "contextLimitationsFairBalance": "Explainer only — does NOT constitute medical advice, does NOT substitute for the treating physician's clinical judgement. Patient must be told treatment length varies with drug sensitivity and clinical response. Reading level target: grade 8 (Flesch-Kincaid 6–8).",
+      "suggestedVisual": "Simple anatomy diagram of vertebral column with affected area highlighted. No jargon labels.",
+      "potentialApprovedChannels": ["Patient blog (advocacy partner)", "Clinic waiting-room infographic (print)", "Advocacy organisation website (WHO Stop TB Partnership channel)"],
+      "referenceFields": {
+        "primarySource": "SPINE-TB-2 Disease Dossier v1.2 · Module C mc-tb-001",
+        "secondarySources": ["WHO End TB Strategy patient education materials", "SmPC §4.1"]
+      },
+      "governanceMetadata": {
+        "approvedBy": null,
+        "approvedRole": null,
+        "approvedAt": null,
+        "expiryDate": null,
+        "retiringConditions": ["Disease Dossier updated with materially different definition"],
+        "requiresMaReattestationAfterDays": 90,
+        "patientFacingReviewNote": "Requires MA Team Lead re-attestation because source Disease Dossier (approved 20 Aug 2026) is > 90 days old at publishing time — see ia-tb-002 withinNinetyDaysNote"
+      }
+    }
   },
   {
     "id": "c-tb-006",
@@ -275,6 +397,31 @@
       "Module C · Medical Writing"
     ],
     "title": "Why Completing Treatment Matters — Patient Adherence",
-    "cardType": "patient-education"
+    "cardType": "patient-education",
+    "canonicalCardId": "TB-EDU-002",
+    "schemaFields": {
+      "therapeuticArea": "Tuberculosis",
+      "primaryAudience": "Patient + Caregiver",
+      "lifecycleStatus": "Development",
+      "scientificObjective": "Motivate treatment completion by explaining why finishing the full course prevents drug-resistant TB",
+      "coreScientificMessage": "Completing the full course of TB medicines is essential for cure and to prevent drug-resistant TB. A 9-month course is shorter than the standard 12-month course — this may make it easier for people to complete their treatment.",
+      "supportingEvidence": ["SPINE-TB-2 Disease Dossier v1.2 §3.4 (Treatment Adherence)", "WHO drug-resistant TB adherence guidance"],
+      "contextLimitationsFairBalance": "Message must not imply the 9-month regimen is 'easier' medically — it is the SAME drugs, just for less time. Do not use language that could be interpreted as 'you can skip doses now that it's shorter'. The 9-month regimen still requires DOT observation and monthly clinic visits.",
+      "suggestedVisual": "Calendar-style timeline showing 9-month completion path vs 12-month, with milestone celebration icons at month 3 / 6 / 9.",
+      "potentialApprovedChannels": ["Patient blog (advocacy partner)", "TB Programme patient portal", "SMS reminder programme (WHO End TB Strategy)"],
+      "referenceFields": {
+        "primarySource": "SPINE-TB-2 Disease Dossier v1.2 · Module C mc-tb-001",
+        "secondarySources": ["WHO End TB Strategy adherence guidance"]
+      },
+      "governanceMetadata": {
+        "approvedBy": null,
+        "approvedRole": null,
+        "approvedAt": null,
+        "expiryDate": null,
+        "retiringConditions": ["Adherence data from real-world programmes materially changes messaging"],
+        "requiresMaReattestationAfterDays": 90,
+        "patientFacingReviewNote": "Requires MA Team Lead re-attestation because source Disease Dossier (approved 20 Aug 2026) is > 90 days old at publishing time"
+      }
+    }
   }
 ]

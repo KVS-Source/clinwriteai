@@ -1,0 +1,91 @@
+{
+  "schemaVersion": "1.0",
+  "sourceDoc": "docs/OneDrive_2_9-25-2026/SCLC_Medical_Affairs_Content_Card_Library.docx",
+  "cardIdConvention": {
+    "pattern": "TA-TOPIC-NNN",
+    "components": [
+      { "part": "TA",    "description": "Therapeutic-area abbreviation (2–6 characters). e.g. SCLC, TB, ONC, CVD, ID" },
+      { "part": "TOPIC", "description": "Topic abbreviation (3–4 characters). e.g. DIS (Disease burden), EFF (Efficacy), SAF (Safety), POS (Positioning), EDU (Patient education), UNM (Unmet need)" },
+      { "part": "NNN",   "description": "Zero-padded 3-digit sequence within TA+TOPIC namespace, e.g. 001, 002, 012" }
+    ],
+    "examples": ["SCLC-DIS-001", "SCLC-EFF-003", "TB-SAF-001", "TB-POS-002", "TB-EDU-001"]
+  },
+  "fields": [
+    { "field": "cardId",                       "required": true,  "type": "string",   "description": "Follows TA-TOPIC-NNN convention. Immutable once approved." },
+    { "field": "therapeuticArea",              "required": true,  "type": "enum",     "description": "Aligned with project taTag" },
+    { "field": "primaryAudience",              "required": true,  "type": "enum",     "description": "HCP | Patient | Caregiver | MSL | Payer | Regulator | Public | Media" },
+    { "field": "lifecycleStatus",              "required": true,  "type": "enum",     "description": "Development | Approved | Superseded | Retired", "values": ["Development", "Approved", "Superseded", "Retired"] },
+    { "field": "scientificObjective",          "required": true,  "type": "string",   "description": "The single scientific point this card exists to communicate" },
+    { "field": "coreScientificMessage",        "required": true,  "type": "string",   "description": "The verbatim message, phrased for the primary audience" },
+    { "field": "supportingEvidence",           "required": true,  "type": "array",    "description": "Data points, tables, figures that substantiate the message" },
+    { "field": "contextLimitationsFairBalance","required": true,  "type": "string",   "description": "Mandatory fair-balance framing (e.g. subgroup restrictions, contraindications, safety trade-offs). Compliance-critical." },
+    { "field": "suggestedVisual",              "required": false, "type": "string",   "description": "Visual asset suggestion (forest plot, Kaplan-Meier, infographic, patient journey diagram)" },
+    { "field": "potentialApprovedChannels",    "required": true,  "type": "array",    "description": "Channels where this card can be deployed (LinkedIn, HCP portal, MSL detail aid, congress poster, patient blog, etc.)" },
+    { "field": "referenceFields",              "required": true,  "type": "object",   "description": "Primary + secondary source citations",
+      "shape": {
+        "primarySource":   { "type": "string", "description": "Definitive source document (e.g. CSR §11.1 Table 11.1.1)" },
+        "secondarySources":{ "type": "array",  "description": "Supporting references (publications, guidelines, historical trials)" }
+      } },
+    { "field": "governanceMetadata",           "required": true,  "type": "object",   "description": "Approval + expiry + retirement triggers",
+      "shape": {
+        "approvedBy":          { "type": "string", "description": "MA Team Lead or delegated approver" },
+        "approvedRole":        { "type": "string" },
+        "approvedAt":          { "type": "iso-datetime" },
+        "expiryDate":          { "type": "iso-date", "description": "Card must be re-attested by this date" },
+        "retiringConditions":  { "type": "array",   "description": "Conditions that would trigger retirement (label change, new evidence supersedes, etc.)" },
+        "requiresMaReattestationAfterDays": { "type": "integer", "default": 90, "description": "Patient-facing cards need MA re-attestation if source approval > N days old" }
+      } }
+  ],
+  "cardTypes": [
+    { "id": "efficacy",         "label": "Efficacy hero result" },
+    { "id": "safety",           "label": "Safety signal / management" },
+    { "id": "subgroup",         "label": "Subgroup consistency" },
+    { "id": "positioning",      "label": "Product positioning / regimen advantage" },
+    { "id": "patient-education","label": "Patient-facing explainer" },
+    { "id": "unmet-need",       "label": "Unmet medical need" },
+    { "id": "disease-burden",   "label": "Epidemiology / burden of disease" },
+    { "id": "emerging-evidence","label": "Emerging trial-level or real-world evidence" }
+  ],
+  "workflow": {
+    "suggested": [
+      "1. Ideation Lead drafts card in Development lifecycle status",
+      "2. KOL review via tokenised link (kolContacts.json)",
+      "3. MA Team Lead approves → lifecycleStatus = Approved",
+      "4. Card enters publishing calendar (ideationCalendar.json)",
+      "5. If source document > 90 days old and card is patient-facing → require MA re-attestation before next publication",
+      "6. If claim currency changes (label update, new evidence) → lifecycleStatus = Superseded, new card issued",
+      "7. If retiring condition met → lifecycleStatus = Retired, removed from publishing calendar"
+    ]
+  },
+  "qcChecklist": [
+    "Card ID follows TA-TOPIC-NNN convention",
+    "Core message + supporting evidence align — no orphan claim",
+    "Fair balance / limitations block is populated (not empty)",
+    "Suggested visual is specified where the message is quantitative",
+    "Primary source cited (CSR / SmPC / peer-reviewed publication)",
+    "Governance metadata complete (approver, date, expiry)",
+    "Reference to lifecycleStatus present",
+    "Channel list matches audience"
+  ],
+  "blankTemplateCard": {
+    "cardId": "TA-TOPIC-NNN",
+    "therapeuticArea": "",
+    "primaryAudience": "",
+    "lifecycleStatus": "Development",
+    "scientificObjective": "",
+    "coreScientificMessage": "",
+    "supportingEvidence": [],
+    "contextLimitationsFairBalance": "",
+    "suggestedVisual": "",
+    "potentialApprovedChannels": [],
+    "referenceFields": { "primarySource": "", "secondarySources": [] },
+    "governanceMetadata": {
+      "approvedBy": null,
+      "approvedRole": null,
+      "approvedAt": null,
+      "expiryDate": null,
+      "retiringConditions": [],
+      "requiresMaReattestationAfterDays": 90
+    }
+  }
+}

@@ -235,7 +235,23 @@
     "createdAt": "2026-05-04T09:00:00Z",
     "updatedAt": "2026-08-20T14:18:00Z",
     "project": "SPINE-TB-2",
-    "lane": "final-output"
+    "lane": "final-output",
+    "structureSource": "IQWiG A19-86 HTA dossier — mirrors docs/OneDrive_2_9-25-2026/Disease dossier sample.pdf",
+    "contentStructure": {
+      "type": "hta-dossier",
+      "regulator": "Internal MA (mirroring IQWiG § 35a SGB V pattern)",
+      "reportNo": "MA-DD-SPINE-TB-2-v1.2",
+      "frontMatter": ["Publishing details", "Table of contents", "List of tables", "List of abbreviations"],
+      "chapters": [
+        { "no": "2.1", "title": "Executive summary of the benefit assessment" },
+        { "no": "2.2", "title": "Research question (population, intervention, comparator, outcomes)" },
+        { "no": "2.3", "title": "Information retrieval and study pool", "subsections": ["2.3.1 Studies included", "2.3.2 Study characteristics"] },
+        { "no": "2.4", "title": "Results on added benefit", "subsections": ["2.4.1 Outcomes included", "2.4.2 Risk of bias", "2.4.3 Results (culture conversion + radiological healing)", "2.4.4 Subgroups & effect modifiers"] },
+        { "no": "2.5", "title": "Probability and extent of added benefit", "subsections": ["2.5.1 Assessment at outcome level", "2.5.2 Overall conclusion"] },
+        { "no": "2.6", "title": "List of included studies (SPINE-TB-2, MRC Working Party reference trials)" }
+      ],
+      "totalPages": 52
+    }
   },
   {
     "id": "mc-tb-002",
@@ -265,7 +281,29 @@
     "createdAt": "2026-11-14T09:00:00Z",
     "updatedAt": "2026-12-12T10:42:00Z",
     "project": "SPINE-TB-2",
-    "lane": "authoring"
+    "lane": "authoring",
+    "structureSource": "HCP multi-module slide deck — mirrors docs/OneDrive_2_9-25-2026/HCP slide deck_Sample.pdf (Hematology/Medical Oncology Best Practices Course pattern)",
+    "contentStructure": {
+      "type": "hcp-slide-deck",
+      "course": "SPINE-TB-2 HCP Educational Programme — 9-Month Regimen Rollout",
+      "sessions": [
+        { "no": 1, "title": "Disease Context & Rationale for a Shorter Regimen" },
+        { "no": 2, "title": "SPINE-TB-2 Trial Design and Primary Outcomes" },
+        { "no": 3, "title": "Safety Management & Real-World Implementation" }
+      ],
+      "modules": [
+        { "title": "Spinal TB Epidemiology (India, ZA, PH, BR)", "startSlide": 3, "endSlide": 10, "intraStructure": ["title", "disclosures", "learning-objectives", "why-important", "epi-data", "unmet-need", "summary"] },
+        { "title": "MRC Working Party (1998) — Foundation for Shorter Regimens", "startSlide": 11, "endSlide": 18 },
+        { "title": "SPINE-TB-2 Study Design (Randomised, Non-Inferiority)", "startSlide": 19, "endSlide": 26 },
+        { "title": "Primary Efficacy — Culture Conversion at Month 6", "startSlide": 27, "endSlide": 34 },
+        { "title": "Radiological Healing at 24 Months (Bhojraj Grading)", "startSlide": 35, "endSlide": 40 },
+        { "title": "Safety — Hepatotoxicity Signal & LFT Monitoring", "startSlide": 41, "endSlide": 48 },
+        { "title": "Programme-Level Adherence & Cost Impact", "startSlide": 49, "endSlide": 54 },
+        { "title": "Case Discussions", "startSlide": 55, "endSlide": 62 }
+      ],
+      "moduleDividerPattern": "Section divider slide with SPINE-TB-2 brand watermark precedes each module",
+      "totalSlides": 64
+    }
   },
   {
     "id": "mc-tb-003",
@@ -295,7 +333,40 @@
     "createdAt": "2026-10-08T09:00:00Z",
     "updatedAt": "2026-12-09T16:04:00Z",
     "project": "SPINE-TB-2",
-    "lane": "review"
+    "lane": "review",
+    "structureSource": "CME single-topic teaching deck — mirrors docs/OneDrive_2_9-25-2026/CME module_Sample.pdf (Combined-modality LS-SCLC teaching pattern)",
+    "contentStructure": {
+      "type": "cme-module",
+      "presenter": { "name": "Prof R Ramakrishnan", "affiliation": "AIIMS New Delhi · Department of Orthopaedic Surgery" },
+      "venue": "ACCME-Accredited Independent CME Provider Portal",
+      "learningObjectives": [
+        "Describe the epidemiology of spinal (Pott's) tuberculosis in high-burden settings",
+        "Interpret the SPINE-TB-2 non-inferiority evidence for a 9-month regimen",
+        "Apply monthly LFT monitoring to detect hepatotoxicity early",
+        "Discuss programme-level implications for adherence and cost"
+      ],
+      "slides": [
+        { "no": 1, "title": "Title & Disclosures", "kind": "front-matter" },
+        { "no": 2, "title": "Learning Objectives", "kind": "learning-objectives" },
+        { "no": 3, "title": "Why Does Regimen Duration Matter?", "kind": "why-important" },
+        { "no": 4, "title": "Spinal TB — Presentation & Diagnosis", "kind": "disease-primer" },
+        { "no": 5, "title": "Historical Regimens for Spinal TB", "kind": "background" },
+        { "no": 6, "title": "MRC Working Party 1998 — Foundational Trial", "kind": "trial-evidence", "trialName": "MRC Spine 1998" },
+        { "no": 7, "title": "SPINE-TB-2 — Study Design", "kind": "trial-evidence", "trialName": "SPINE-TB-2" },
+        { "no": 8, "title": "SPINE-TB-2 — Primary Efficacy Results (Culture Conversion)", "kind": "trial-evidence" },
+        { "no": 9, "title": "SPINE-TB-2 — Radiological Healing (Bhojraj Grade)", "kind": "trial-evidence" },
+        { "no": 10, "title": "Safety — Hepatotoxicity Signal", "kind": "safety" },
+        { "no": 11, "title": "Practical Considerations — Monthly LFT Monitoring", "kind": "practical-guidance" },
+        { "no": 12, "title": "Take-Home Messages", "kind": "take-home" },
+        { "no": 13, "title": "Thank You / Q&A", "kind": "closing" }
+      ],
+      "takeHomeMessages": [
+        "9-month regimen is non-inferior to 12-month for culture conversion and radiological healing",
+        "Hepatotoxicity signal is real (2.1% vs 1.4%) — monthly LFT monitoring is mandatory",
+        "Shorter regimen may improve adherence in TB-endemic programmes"
+      ],
+      "totalSlides": 13
+    }
   },
   {
     "id": "mc-tb-004",
@@ -325,7 +396,71 @@
     "createdAt": "2026-11-02T09:00:00Z",
     "updatedAt": "2026-12-10T11:15:00Z",
     "project": "SPINE-TB-2",
-    "lane": "authoring"
+    "lane": "authoring",
+    "structureSource": "EMA QRD SmPC + Package Leaflet template — mirrors docs/OneDrive_2_9-25-2026/Patient Insert leaflet_Sample.pdf (Tecentriq atezolizumab structure)",
+    "contentStructure": {
+      "type": "spc-leaflet",
+      "productName": "SPINE-TB-2 9-month regimen (Levofloxacin + Rifampicin + Isoniazid + Ethambutol FDC)",
+      "annexes": [
+        {
+          "id": "I",
+          "title": "Summary of Product Characteristics",
+          "sections": [
+            { "no": "1", "title": "NAME OF THE MEDICINAL PRODUCT" },
+            { "no": "2", "title": "QUALITATIVE AND QUANTITATIVE COMPOSITION" },
+            { "no": "3", "title": "PHARMACEUTICAL FORM" },
+            {
+              "no": "4",
+              "title": "CLINICAL PARTICULARS",
+              "sub": [
+                "4.1 Therapeutic indications",
+                "4.2 Posology and method of administration",
+                "4.3 Contraindications",
+                "4.4 Special warnings and precautions for use (Hepatotoxicity, QT prolongation)",
+                "4.5 Interaction with other medicinal products",
+                "4.6 Fertility, pregnancy and lactation",
+                "4.7 Effects on ability to drive and use machines",
+                "4.8 Undesirable effects",
+                "4.9 Overdose"
+              ]
+            },
+            {
+              "no": "5",
+              "title": "PHARMACOLOGICAL PROPERTIES",
+              "sub": ["5.1 Pharmacodynamic properties", "5.2 Pharmacokinetic properties", "5.3 Preclinical safety data"]
+            },
+            {
+              "no": "6",
+              "title": "PHARMACEUTICAL PARTICULARS",
+              "sub": ["6.1 List of excipients", "6.2 Incompatibilities", "6.3 Shelf life", "6.4 Special precautions for storage", "6.5 Nature and contents of container", "6.6 Special precautions for disposal"]
+            },
+            { "no": "7", "title": "MARKETING AUTHORISATION HOLDER" },
+            { "no": "8", "title": "MARKETING AUTHORISATION NUMBERS" },
+            { "no": "9", "title": "DATE OF FIRST AUTHORISATION" },
+            { "no": "10", "title": "DATE OF REVISION" }
+          ]
+        },
+        {
+          "id": "II",
+          "title": "Conditions of the Marketing Authorisation",
+          "sections": [
+            { "id": "A", "title": "Manufacturers" },
+            { "id": "B", "title": "Conditions on supply and use" },
+            { "id": "C", "title": "Other conditions and requirements" },
+            { "id": "D", "title": "Conditions or restrictions on safe & effective use (RMP referenced)" }
+          ]
+        },
+        {
+          "id": "III",
+          "title": "Labelling and Package Leaflet",
+          "sections": [
+            { "id": "A", "title": "Labelling (outer carton, inner carton, blister mandatory fields)" },
+            { "id": "B", "title": "Package Leaflet (patient-facing, translations pending for Hindi, Portuguese, isiZulu, Tagalog)" }
+          ]
+        }
+      ],
+      "totalPages": 42
+    }
   },
   {
     "id": "mc-tb-005",
@@ -355,7 +490,35 @@
     "createdAt": "2026-12-05T09:00:00Z",
     "updatedAt": "2026-12-05T09:00:00Z",
     "project": "SPINE-TB-2",
-    "lane": "briefing"
+    "lane": "briefing",
+    "structureSource": "Peer-reviewed Plain Language Summary — mirrors docs/OneDrive_2_9-25-2026/Plain Language Summary_Sample.pdf (DeLLphi-301 tarlatamab PLS)",
+    "contentStructure": {
+      "type": "plain-language-summary",
+      "audience": "patients",
+      "narrativeArc": ["about", "disease", "purpose", "sponsor", "audience", "treatment-options", "regimen", "study", "participants", "design", "results", "safety", "meaning", "further-reading", "disclosures"],
+      "sections": [
+        { "heading": "What is this summary about?", "kind": "question" },
+        { "heading": "What is spinal tuberculosis (Pott's disease)?", "kind": "question" },
+        { "heading": "What is the purpose of this plain language summary?", "kind": "question" },
+        { "heading": "Who sponsored this research?", "kind": "question" },
+        { "heading": "Who should read this article?", "kind": "question" },
+        { "heading": "What are the current treatments for spinal TB?", "kind": "question" },
+        { "heading": "What is the 9-month regimen being studied?", "kind": "question" },
+        { "heading": "What is the SPINE-TB-2 study about?", "kind": "question" },
+        { "heading": "Who could take part?", "kind": "question" },
+        { "heading": "Who took part?", "kind": "question" },
+        { "heading": "How was the 9-month regimen tested?", "kind": "question" },
+        { "heading": "How was the study carried out?", "kind": "question" },
+        { "heading": "What were the findings?", "kind": "question", "sub": ["Did the TB clear from the sputum?", "How well did the spine heal?", "How long did participants live?"] },
+        { "heading": "What were the most common side effects?", "kind": "question" },
+        { "heading": "What about liver side effects?", "kind": "question" },
+        { "heading": "What do the findings mean?", "kind": "question" },
+        { "heading": "Where can I find more information?", "kind": "question" },
+        { "heading": "Financial disclosure", "kind": "disclosure" }
+      ],
+      "glossaryTerms": ["Pott's disease", "Culture conversion", "Bhojraj grade", "Non-inferiority", "Hepatotoxicity", "LFT (Liver Function Test)", "DOTS"],
+      "totalPages": 8
+    }
   },
   {
     "id": "mc-tb-006",
@@ -385,6 +548,34 @@
     "createdAt": "2026-10-20T09:00:00Z",
     "updatedAt": "2026-11-28T15:44:00Z",
     "project": "SPINE-TB-2",
-    "lane": "final-output"
+    "lane": "final-output",
+    "structureSource": "KOL Insights Report — mirrors docs/OneDrive_2_9-25-2026/SCLC_KOL_Insights_Report_Sample.docx",
+    "contentStructure": {
+      "type": "kol-insights-report",
+      "sections": [
+        { "no": "1", "title": "Executive Summary (Key Takeaways)" },
+        { "no": "2", "title": "Background and Objectives" },
+        { "no": "3", "title": "Methodology and Limitations" },
+        { "no": "4", "title": "KOL Profile (12 KOLs across IN, ZA, PH, BR)" },
+        { "no": "5", "title": "Executive Insight Dashboard" }
+      ],
+      "themes": [
+        { "no": 1, "title": "Regimen-Duration Acceptance & Perceived Barriers", "questionsGenerated": ["Which patient subgroups do KOLs consider ineligible for shorter regimens?", "What monitoring cadence do KOLs recommend for early hepatotoxicity detection?"] },
+        { "no": 2, "title": "Programme-Level Implementation in DOTS Settings", "questionsGenerated": ["How do KOLs see the interaction between shorter regimens and DOT observation frequency?"] },
+        { "no": 3, "title": "Hepatotoxicity Monitoring & Management", "questionsGenerated": ["What is the KOL preferred LFT threshold for regimen modification?"] },
+        { "no": 4, "title": "Adherence Interventions & Patient Education", "questionsGenerated": ["What PIL adaptations do KOLs recommend for low-literacy populations?"] },
+        { "no": 5, "title": "Real-World Evidence Gaps & Future Research", "questionsGenerated": ["Which registry designs would KOLs prioritise for post-approval evidence generation?"] }
+      ],
+      "maImplicationAxes": ["Evidence generation", "Scientific communications", "Medical education", "Field medical", "Publication planning"],
+      "sectionsAfterThemes": [
+        { "no": "11", "title": "Consensus and Divergence" },
+        { "no": "12", "title": "Evidence Gaps" },
+        { "no": "13", "title": "Medical Affairs Implications (per axis)" },
+        { "no": "14", "title": "Recommended Actions and Prioritisation" },
+        { "no": "15", "title": "Sample Insight Statements" },
+        { "no": "16", "title": "Next Steps" }
+      ],
+      "appendices": ["Discussion Guide", "Insight Capture Template"]
+    }
   }
 ]

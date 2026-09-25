@@ -177,6 +177,7 @@
     "status": "in-authoring",
     "version": "v0.3",
     "guideline": "CONSORT",
+    "reportingGuidelineId": "CONSORT-2025",
     "journal": "The Lancet Infectious Diseases",
     "targetSubmissionDate": "2027-03-30",
     "keyMessage": "A 9-month levofloxacin-based regimen was non-inferior to the standard 12-month regimen for culture conversion at 6 months and radiological healing at 24 months in rifampicin-sensitive spinal tuberculosis.",
@@ -193,7 +194,31 @@
     "gpp2022": "progress",
     "aiLabel": "28% AI",
     "warning": null,
-    "due": null
+    "due": null,
+    "structureSource": "IMpower133 JCO 2021 manuscript pattern — mirrors docs/OneDrive_4_9-25-2026/Manuscript_Sample.pdf",
+    "citation": { "volume": null, "issue": null, "pages": null, "year": 2027 },
+    "trialRegistration": { "registry": "ClinicalTrials.gov", "id": "NCT05XXXXXX" },
+    "license": "CC BY-NC-ND 4.0",
+    "contentStructure": {
+      "type": "manuscript",
+      "abstract": {
+        "style": "structured",
+        "headings": ["Background", "Methods", "Results", "Conclusions"],
+        "wordLimit": 300
+      },
+      "contextBox": {
+        "keyObjective": "Establish non-inferiority of a 9-month levofloxacin-based regimen versus the standard 12-month regimen for rifampicin-sensitive spinal tuberculosis",
+        "knowledgeGenerated": "9-month regimen non-inferior for culture conversion at 6 months and radiological healing at 24 months",
+        "relevance": "Shorter regimen may improve adherence and reduce programme cost burden in TB-endemic settings"
+      },
+      "sections": [
+        { "heading": "Introduction", "subsections": [] },
+        { "heading": "Methods", "subsections": ["Study Design and Participants", "Randomisation and Masking", "Procedures (Regimens + Monitoring)", "Outcomes", "Statistical Analysis (Non-Inferiority Framework)"] },
+        { "heading": "Results", "subsections": ["Baseline Characteristics", "Efficacy — Culture Conversion (Primary)", "Efficacy — Radiological Healing (Secondary)", "Safety — Hepatotoxicity Focus", "Adherence and Programme-Level Outcomes"] },
+        { "heading": "Discussion", "subsections": [] }
+      ],
+      "backMatter": ["Affiliations", "Corresponding Author", "Prior Presentation (Union World Conference on Lung Health 2026)", "Support (Funding + Trial Registration)", "References", "Author Disclosures (ICMJE COI)", "Author Contributions (CRediT)", "Acknowledgment"]
+    }
   },
   {
     "id": "pub-tb-002",
@@ -205,6 +230,7 @@
     "status": "under-peer-review",
     "version": "v1.1",
     "guideline": "CONSORT",
+    "reportingGuidelineId": "CONSORT-2025",
     "journal": null,
     "targetSubmissionDate": "2026-11-15",
     "keyMessage": "Culture conversion at month 6 was 92.3% in the 9-month arm vs 91.8% in the 12-month arm (difference +0.5 pp; 95% CI −3.1 to +4.2; non-inferiority margin 5 pp).",
@@ -221,7 +247,15 @@
     "gpp2022": "submitted",
     "aiLabel": null,
     "warning": null,
-    "due": "Decision expected 20 Jan 2027"
+    "due": "Decision expected 20 Jan 2027",
+    "structureSource": "NEJM 2018 IMpower133 structured-abstract pattern — mirrors docs/OneDrive_4_9-25-2026/Abstract_Sample.pdf",
+    "contentStructure": {
+      "type": "abstract",
+      "style": "structured",
+      "headings": ["Background", "Methods", "Results", "Conclusions"],
+      "wordLimit": 250,
+      "trailingDisclosure": "Funded by [Sponsor]; ClinicalTrials.gov NCT05XXXXXX"
+    }
   },
   {
     "id": "pub-tb-003",
@@ -233,6 +267,7 @@
     "status": "in-authoring",
     "version": "v0.2",
     "guideline": "CONSORT",
+    "reportingGuidelineId": "CONSORT-2025",
     "journal": null,
     "targetSubmissionDate": "2027-02-28",
     "keyMessage": "Radiological healing (MRI Bhojraj grade ≥ III) was achieved in 87.4% (9-month arm) vs 88.1% (12-month arm) at month 24.",
@@ -249,7 +284,25 @@
     "gpp2022": "progress",
     "aiLabel": "22% AI",
     "warning": null,
-    "due": null
+    "due": null,
+    "structureSource": "AACR 2018 IMpower133 poster pattern — mirrors docs/OneDrive_4_9-25-2026/Poster presentation_Sample.pdf",
+    "contentStructure": {
+      "type": "poster",
+      "posterNumber": "P-047",
+      "abstractNumber": "ESCMID-2027-1284",
+      "gridLayout": "3x3",
+      "panels": [
+        { "position": "top-banner",    "content": "Title / Authors / Affiliations" },
+        { "position": "col1-row1",     "content": "Background — Spinal TB Burden + Standard Regimen Limitations" },
+        { "position": "col1-row2",     "content": "Methods — Study Design + Bhojraj Radiological Grading" },
+        { "position": "col2-row1",     "content": "Results — Baseline Characteristics (Table 1)" },
+        { "position": "col2-row2",     "content": "Results — Radiological Healing at Month 12 & 24 (Figure 1)" },
+        { "position": "col2-row3",     "content": "Results — Subgroup by Vertebral Level (Figure 2)" },
+        { "position": "col3-row1",     "content": "Safety — Hepatotoxicity Summary (Table 2)" },
+        { "position": "col3-row2",     "content": "Conclusions" },
+        { "position": "bottom-banner", "content": "References + Acknowledgments + Disclosures + QR code" }
+      ]
+    }
   },
   {
     "id": "pub-tb-004",
@@ -261,6 +314,7 @@
     "status": "not-started",
     "version": "—",
     "guideline": "CONSORT",
+    "reportingGuidelineId": "CONSORT-2025",
     "journal": null,
     "targetSubmissionDate": "2027-04-30",
     "keyMessage": "For patients with spinal tuberculosis whose bacteria still respond to standard TB drugs, a shorter 9-month treatment course worked as well as the usual 12-month course.",
@@ -277,6 +331,18 @@
     "gpp2022": "progress",
     "aiLabel": null,
     "warning": null,
-    "due": null
+    "due": null,
+    "structureSource": "PLS — mirrors Module C mc-tb-005 PLS structure (Taylor & Francis DeLLphi-301 pattern)",
+    "contentStructure": {
+      "type": "pls",
+      "readingLevel": "grade-8",
+      "sections": [
+        { "heading": "What was the study about?" },
+        { "heading": "What did we do?" },
+        { "heading": "What did we find?" },
+        { "heading": "What does it mean for me?" }
+      ],
+      "crossReference": "See docs/OneDrive_2_9-25-2026 mc-tb-005 for full 18-heading patient-facing PLS structure"
+    }
   }
 ]

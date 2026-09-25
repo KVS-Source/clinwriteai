@@ -1,0 +1,5 @@
+# SME source documents (PDFs/DOCXs) are ~1.5 MB total — not versioned in git.
+# Regenerate by re-extracting OneDrive_4_9-25-2026.zip into this folder.
+# See README.md for the mapping between these source files and Module B fixtures.
+*.pdf
+*.docx

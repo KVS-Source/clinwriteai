@@ -148,7 +148,31 @@
     ],
     "icmjeAcknowledged": true,
     "icmjeAcknowledgedBy": "Marcus Webb",
-    "icmjeAcknowledgedAt": "2026-12-02T09:04:00Z"
+    "icmjeAcknowledgedAt": "2026-12-02T09:04:00Z",
+    "creditTaxonomy": ["Conception and design", "Data analysis and interpretation", "Manuscript writing", "Final approval", "Accountable for all aspects"],
+    "icmjeCoi": {
+      "formVersion": "ICMJE-2021",
+      "formSource": "docs/OneDrive_4_9-25-2026/coi_disclosure.docx",
+      "completedDate": "2026-12-10",
+      "manuscriptTitle": "Nine-Month Levofloxacin-Based Regimen for Rifampicin-Sensitive Spinal Tuberculosis (SPINE-TB-2)",
+      "manuscriptNumber": "LID-2027-0142",
+      "disclosures": [
+        { "itemNumber": 1,  "category": "Support for the present manuscript",           "timeframe": "no-limit",  "none": false, "entities": [{ "name": "GenBioCa Sciences", "specification": "Sponsor funding + medical writing support + Article Processing Charge", "paidTo": "institution" }] },
+        { "itemNumber": 2,  "category": "Grants or contracts from any entity",          "timeframe": "36-months", "none": true,  "entities": [] },
+        { "itemNumber": 3,  "category": "Royalties or licenses",                        "timeframe": "36-months", "none": true,  "entities": [] },
+        { "itemNumber": 4,  "category": "Consulting fees",                              "timeframe": "36-months", "none": true,  "entities": [] },
+        { "itemNumber": 5,  "category": "Payment/honoraria for lectures/presentations", "timeframe": "36-months", "none": true,  "entities": [] },
+        { "itemNumber": 6,  "category": "Payment for expert testimony",                 "timeframe": "36-months", "none": true,  "entities": [] },
+        { "itemNumber": 7,  "category": "Support for attending meetings and/or travel", "timeframe": "36-months", "none": false, "entities": [{ "name": "Union World Conference on Lung Health", "specification": "Registration + travel for 2026 abstract presentation", "paidTo": "person" }] },
+        { "itemNumber": 8,  "category": "Patents planned, issued, or pending",          "timeframe": "36-months", "none": true,  "entities": [] },
+        { "itemNumber": 9,  "category": "Participation on a DSMB or Advisory Board",    "timeframe": "36-months", "none": true,  "entities": [] },
+        { "itemNumber": 10, "category": "Leadership or fiduciary role",                 "timeframe": "36-months", "none": true,  "entities": [] },
+        { "itemNumber": 11, "category": "Stock or stock options",                       "timeframe": "36-months", "none": true,  "entities": [] },
+        { "itemNumber": 12, "category": "Receipt of equipment/materials/drugs/gifts",   "timeframe": "36-months", "none": true,  "entities": [] },
+        { "itemNumber": 13, "category": "Other financial or non-financial interests",   "timeframe": "36-months", "none": true,  "entities": [] }
+      ],
+      "attestation": { "certified": true, "statement": "I certify that I have answered every question and have not altered the wording of any of the questions on this form.", "signedDate": "2026-12-10" }
+    }
   },
   {
     "id": "author-tb-rr",

@@ -1,0 +1,10 @@
+{
+  // Phase 0 markdown lint config — advisory only.
+  // Lenient on purpose; tighten in Phase 1 once docs are stable.
+  "default": true,
+  "MD013": false,         // line-length — docs have long tables + URLs
+  "MD024": { "siblings_only": true },  // allow duplicate headings in different sections
+  "MD033": false,         // allow inline HTML (used in <details>, badges)
+  "MD041": false,         // not every doc has to start with an h1 (ADRs do, by convention)
+  "MD040": false          // allow unlabelled fenced code blocks for diagrams
+}

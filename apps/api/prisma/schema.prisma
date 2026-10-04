@@ -1,0 +1,49 @@
+// Aurora/ClinWrite — Prisma schema
+// Phase 0: skeleton with datasource + generator only.
+// Phase 1 Week 3: Platform + Project models land here (~20 tables).
+// Phase 3A–3E: per-module models land here.
+//
+// Per ADR 0002: Prisma for app-level data; audit_events uses raw SQL migration.
+// Per ADR 0003: pgvector extension enabled for Claims Matrix similarity (Phase 3C).
+
+generator client {
+  provider = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]  // enabled now; used from Phase 3C
+}
+
+// ============================================================================
+// Phase 1 — Platform layer (users, sessions, projects, audit)
+// ============================================================================
+
+// User model placeholder — replaces apps/web/src/data/users.json shape in Phase 1.
+// Expected columns per data model §3: id, email, name, initials, role,
+// modules[], status, lastActive, createdAt, updatedAt, ssoSubject, mfaSecret.
+// Will be fleshed out when Phase 1 begins.
+
+// Project model placeholder — replaces apps/web/src/data/study.json / studyTB.json
+// shape in Phase 1. State machine (initiated → ongoing → on-hold → re-open → closed)
+// enforced in service layer.
+
+// Audit events — see prisma/migrations/<ts>_audit_trail.sql for the authoritative
+// table definition (hash-chained, append-only, DB-level grants revoked). The Prisma
+// model below is read-only — writes MUST go through the audit repository.
+//
+// model AuditEvent {
+//   id            String   @id @default(cuid())
+//   timestamp     DateTime @default(now())
+//   actorId       String
+//   action        String
+//   entityType    String
+//   entityId      String
+//   details       Json
+//   ipAddress     String?
+//   prevHash      String
+//   rowHash       String
+//   @@map("audit_events")
+// }

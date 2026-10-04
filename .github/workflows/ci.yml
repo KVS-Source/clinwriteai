@@ -1,0 +1,135 @@
+name: CI
+
+# Phase 0 baseline. Runs on every push and PR.
+# Grows as backend services land in apps/api (Phase 1+).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+
+jobs:
+  # ---------------------------------------------------------------
+  # Frontend — apps/web
+  # Already fully implemented; this gate must stay green.
+  # ---------------------------------------------------------------
+  web:
+    name: Web — typecheck + build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Build (tsc && vite build)
+        run: npm --workspace=apps/web run build
+
+      - name: Upload web build artefact
+        if: github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: web-dist-${{ github.sha }}
+          path: apps/web/dist/
+          retention-days: 7
+
+  # ---------------------------------------------------------------
+  # Backend — apps/api
+  # Scaffold-only in Phase 0. Expands in Phase 1 to:
+  #   - typecheck
+  #   - unit tests (vitest)
+  #   - integration tests (vitest + testcontainers postgres)
+  #   - prisma migrate validate
+  # ---------------------------------------------------------------
+  api:
+    name: API — scaffold check
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Typecheck (if tsconfig present)
+        run: |
+          if [ -f apps/api/tsconfig.json ]; then
+            npm --workspace=apps/api run typecheck --if-present
+          else
+            echo "apps/api not yet scaffolded with tsconfig — skipping"
+          fi
+
+  # ---------------------------------------------------------------
+  # Shared types package
+  # ---------------------------------------------------------------
+  types:
+    name: Types — typecheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Typecheck shared types
+        run: |
+          if [ -f packages/types/tsconfig.json ]; then
+            npm --workspace=packages/types run typecheck --if-present || npx -w packages/types tsc --noEmit
+          else
+            echo "packages/types tsconfig not present — skipping"
+          fi
+
+  # ---------------------------------------------------------------
+  # Docs sanity — ensure ADRs, plan, and SME READMEs parse cleanly
+  # (lightweight: just a markdown lint, no link-checking yet)
+  # ---------------------------------------------------------------
+  docs:
+    name: Docs — markdown lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Lint markdown
+        uses: DavidAnson/markdownlint-cli2-action@v16
+        with:
+          globs: |
+            docs/**/*.md
+            !docs/demo/**
+            !docs/wireframe/**
+            !docs/OneDrive_*/**
+          config: '.markdownlint.jsonc'
+        continue-on-error: true  # Phase 0: advisory only; tighten in Phase 1

@@ -40,7 +40,7 @@ jobs:
           SCENARIO="${{ github.event.inputs.scenario || 'baseline' }}"
           k6 run --out json=k6-${SCENARIO}.json apps/api/tests/load/${SCENARIO}.js
         env:
-          E2E_BASE_URL: https://demo-api.clinwrite.ai
+          E2E_BASE_URL: https://api.clinwrite.ai
 
       - name: Upload k6 report
         if: always()

@@ -23,7 +23,7 @@ cd apps/api
 E2E_BASE_URL=http://localhost:3101 k6 run tests/load/smoke.js
 
 # Baseline against staging
-E2E_BASE_URL=https://demo-api.clinwrite.ai k6 run tests/load/baseline.js
+E2E_BASE_URL=https://api.clinwrite.ai k6 run tests/load/baseline.js
 ```
 
 ## Thresholds

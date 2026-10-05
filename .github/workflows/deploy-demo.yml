@@ -4,10 +4,10 @@ name: Deploy to demo
 # Phase 1 — only this one env for now; staging/prod wire in Phase 5+.
 #
 # Required repo secrets (Settings → Secrets and variables → Actions):
-#   DEMO_HOST            e.g. demo-api.clinwrite.ai  (or raw IP)
+#   DEMO_HOST            e.g. api.clinwrite.ai  (or raw IP)
 #   DEMO_SSH_USER        e.g. platform
 #   DEMO_SSH_PRIVATE_KEY an ed25519 key authorised in /home/platform/.ssh/authorized_keys on the VPS
-#   DEMO_SSH_KNOWN_HOSTS output of `ssh-keyscan -t ed25519 demo-api.clinwrite.ai`
+#   DEMO_SSH_KNOWN_HOSTS output of `ssh-keyscan -t ed25519 api.clinwrite.ai`
 
 on:
   push:
@@ -93,7 +93,7 @@ jobs:
 
       - name: Verify health
         env:
-          HEALTH_URL: https://demo-api.clinwrite.ai/health
+          HEALTH_URL: https://api.clinwrite.ai/health
         run: |
           for i in {1..10}; do
             if curl -fsS "${HEALTH_URL}" | tee /dev/stderr | grep -q '"status":"ok"'; then

@@ -35,7 +35,7 @@ else
   log "No /opt/platform/env/web.env found — using defaults (all mocks on)"
   WEB_ENV_VARS=""
 fi
-sudo -u platform env VITE_API_URL=https://demo-api.clinwrite.ai ${WEB_ENV_VARS} \
+sudo -u platform env VITE_API_URL=https://api.clinwrite.ai ${WEB_ENV_VARS} \
   npm --workspace=apps/web run build
 
 # ---------- Copy build artefacts into /opt/platform/apps ----------

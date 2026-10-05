@@ -1,6 +1,6 @@
 # Demo environment — single-server setup runbook
 
-**One hosted VPS**, Postgres + Redis + MinIO + API + worker + web app all on it. Demo users access the app at `https://demo.clinwrite.ai` and the API at `https://demo-api.clinwrite.ai`.
+**One hosted VPS**, Postgres + Redis + MinIO + API + worker + web app all on it. Demo users access the app at `https://demo.clinwrite.ai` and the API at `https://api.clinwrite.ai`.
 
 **Target audience**: DevOps / tech lead running this once. Takes ~90 minutes end-to-end.
 
@@ -16,7 +16,7 @@ Before SSH'ing anywhere, have these ready:
 |---|---|---|
 | Ubuntu 24.04 LTS VPS | Hetzner Cloud CPX31 recommended (€15/mo) | 4 vCPU / 16 GB / 240 GB NVMe |
 | Root SSH access | Provider dashboard | Your SSH public key added at provision time |
-| Domain configured | Cloudflare | Two DNS A records: `demo.clinwrite.ai` and `demo-api.clinwrite.ai` → VPS IP, both proxied |
+| Domain configured | Cloudflare | Two DNS A records: `demo.clinwrite.ai` and `api.clinwrite.ai` → VPS IP, both proxied |
 | Cloudflare origin cert | Cloudflare → SSL/TLS → Origin Server | 15-year cert covering `*.clinwrite.ai`; save the PEM + KEY |
 | age key pair | Generated on your workstation | `age-keygen -o ~/demo-age.key` ; keep private, note the public recipient |
 | Backblaze B2 bucket | B2 dashboard | 1 bucket named `platform-demo-backups` + application key with write access |
@@ -69,7 +69,7 @@ Verify DNS resolves:
 ```bash
 # From your workstation
 dig +short demo.clinwrite.ai      # should return a Cloudflare IP, not your VPS IP (proxied)
-dig +short demo-api.clinwrite.ai  # same
+dig +short api.clinwrite.ai  # same
 ```
 
 ---
@@ -257,7 +257,7 @@ Verify:
 curl -fsS http://127.0.0.1:3001/health | jq
 # Should return: {"status":"ok","service":"platform-api","phase":"Phase 1 scaffold",...}
 
-curl -fsS https://demo-api.clinwrite.ai/health | jq
+curl -fsS https://api.clinwrite.ai/health | jq
 # Same, via Cloudflare
 
 curl -I https://demo.clinwrite.ai/
@@ -291,7 +291,7 @@ journalctl -u platform-backup -f
 ## Step 10 — Smoke tests (5 min)
 
 - Visit `https://demo.clinwrite.ai` in a browser → the Aurora frontend loads
-- Open DevTools Network tab → fire a login → request should hit `https://demo-api.clinwrite.ai/auth/...` with proper CORS headers
+- Open DevTools Network tab → fire a login → request should hit `https://api.clinwrite.ai/auth/...` with proper CORS headers
 - SSH tunnel to Grafana for ops visibility:
   ```bash
   ssh -L 3030:localhost:3030 root@<vps-ip>

@@ -92,7 +92,7 @@ See [architecture-implementation-plan.md](architecture-implementation-plan.md) f
 - ✅ ADR 0009 Standalone deployment stack — **Accepted (2026-10-05)** — Docker Compose + nginx + MinIO + sops + Prom/Grafana/Loki + B2 backup
 - ✅ `infra/standalone/` complete scaffold: docker-compose files, nginx config + snippets, systemd units + timer, bootstrap/deploy/backup/restore/rotate scripts, sops config, observability configs, 3 runbooks (BOOTSTRAP / BACKUP / DEPLOY)
 - ✅ Phase 1 scaffold started on `apps/api`: Prisma multi-file schema layout, initial + audit_trail SQL migrations, `src/config/env.ts` + `src/config/secrets.ts` (SecretsProvider interface), `src/audit/hash.ts` + `src/audit/repository.ts` with InMemory implementation, Vitest unit tests for the hash chain (23 assertions)
-- ✅ demo environment plan — single VPS hosts DB + API + web app: [`docs/demo-environment-setup.md`](demo-environment-setup.md) runbook, [`.github/workflows/deploy-demo.yml`](../.github/workflows/deploy-demo.yml) auto-deploy, nginx config updated for `demo.clinwrite.ai` + `demo-api.clinwrite.ai`, `scripts/deploy.sh` extended to build + rsync the web SPA bundle with `VITE_API_URL=https://demo-api.clinwrite.ai` baked in
+- ✅ demo environment plan — single VPS hosts DB + API + web app: [`docs/demo-environment-setup.md`](demo-environment-setup.md) runbook, [`.github/workflows/deploy-demo.yml`](../.github/workflows/deploy-demo.yml) auto-deploy, nginx config updated for `demo.clinwrite.ai` + `api.clinwrite.ai`, `scripts/deploy.sh` extended to build + rsync the web SPA bundle with `VITE_API_URL=https://api.clinwrite.ai` baked in
 - ✅ This tracker
 
 ## Next in this session (Claude will produce)

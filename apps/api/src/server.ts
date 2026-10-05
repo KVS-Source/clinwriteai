@@ -82,6 +82,9 @@ async function buildServer() {
     await app.register(import('@fastify/swagger-ui'), { routePrefix: '/docs' })
   }
 
+  // ---------- Metrics (before everything else so HTTP metrics catch every route) ----------
+  await app.register(import('./modules/platform/metrics/plugin.js'))
+
   // ---------- Core data + audit plumbing ----------
   await app.register(import('./prisma/plugin.js'))
   await app.register(import('./audit/plugin.js'))

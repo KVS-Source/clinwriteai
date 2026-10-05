@@ -1,0 +1,19 @@
+# Remote state backend template.
+#
+# Copy this to envs/<env>/backend.tf and substitute the per-env values.
+# Never check actual backend configs with credentials into git — these use
+# the AWS provider's standard credential chain (OIDC from GitHub Actions,
+# AWS profile for local DevOps work).
+#
+# State bucket is created once per AWS account via a bootstrap process
+# (see docs — Phase 1 Week 2 bootstrap runbook, TBD).
+
+terraform {
+  backend "s3" {
+    # bucket         = "platform-terraform-state-<env>"
+    # key            = "platform-<env>/terraform.tfstate"
+    # region         = "us-east-1"
+    # dynamodb_table = "platform-terraform-locks"
+    # encrypt        = true
+  }
+}

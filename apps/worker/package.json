@@ -1,0 +1,15 @@
+{
+  "name": "@platform/worker",
+  "version": "0.1.0",
+  "description": "BullMQ worker service — consumes jobs enqueued by apps/api. Per ADR 0008.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "echo 'Worker scaffold — Phase 1 Week 4'",
+    "build": "echo 'Worker scaffold — Phase 1 Week 4'",
+    "typecheck": "echo 'Worker scaffold — Phase 1 Week 4'"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

@@ -24,6 +24,7 @@ export type QueueJobName =
   | 'compliance.retention_purge'
   | 'clinical.restore_version'
   | 'clinical.voice_transcribe'
+  | 'clinical.presence_reaper'
 
 export interface QueueJobOptions {
   /** Delay in milliseconds before the worker picks the job up. */

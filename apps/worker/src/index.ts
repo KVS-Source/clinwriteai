@@ -15,6 +15,7 @@ import { handleRetentionPurge } from './jobs/retention-purge.js'
 import { handleNotificationEmail, handleNotificationSms } from './jobs/notification-delivery.js'
 import { handleRestoreVersion } from './jobs/restore-version.js'
 import { handleVoiceTranscribe } from './jobs/voice-transcribe.js'
+import { handlePresenceReaper } from './jobs/presence-reaper.js'
 
 const log = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -55,6 +56,7 @@ const handlers = {
   'notification.sms': handleNotificationSms,
   'clinical.restore_version': handleRestoreVersion,
   'clinical.voice_transcribe': handleVoiceTranscribe,
+  'clinical.presence_reaper': handlePresenceReaper,
 } as const
 type JobName = keyof typeof handlers
 
@@ -73,6 +75,8 @@ const concurrency: Record<JobName, number> = {
   'clinical.restore_version': 1,
   // Transcription can parallelise safely — each note is independent.
   'clinical.voice_transcribe': 4,
+  // Reaper is a single-UPDATE sweep; concurrency=1 avoids racing schedulers.
+  'clinical.presence_reaper': 1,
 }
 
 const workers: Worker[] = []

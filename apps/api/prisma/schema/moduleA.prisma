@@ -494,3 +494,37 @@ model SignatureRecord {
   @@index([chainId])
   @@index([signerId])
 }
+
+// --------------------------------------------------------------------------
+// §10 Presence sessions — section-level "who's editing what right now"
+// Source: 02-datamodel.md §10. REST-polling layer shipped now; Socket.io
+// push + Redis pub/sub for cross-instance fanout is a follow-up.
+//
+// Lifecycle:
+//   POST   /documents/:id/presence              → create 'active' session
+//   PATCH  /documents/:id/presence/:sid/heartbeat → bump heartbeatAt
+//   DELETE /documents/:id/presence/:sid         → set endedAt (soft-close)
+//
+// A nightly reaper closes rows whose heartbeatAt is older than
+// PRESENCE_STALE_SECONDS (default 90s) — matches the client polling interval.
+// Once Socket.io ships, 'ended' can be set on disconnect instantly.
+// --------------------------------------------------------------------------
+
+model PresenceSession {
+  id             String    @id @default(uuid())
+  documentId     String
+  userId         String
+  sectionId      String
+  status         String    @default("active")                         // active | idle | ended
+  startedAt      DateTime  @default(now())
+  heartbeatAt    DateTime  @default(now())
+  endedAt        DateTime?
+
+  @@map("presence_sessions")
+  @@index([documentId])
+  @@index([documentId, status])
+  @@index([userId])
+  // No UNIQUE(documentId, userId, sectionId) — multiple tabs are allowed;
+  // the reaper closes stale duplicates. The 'who's here' aggregate query
+  // dedupes by (userId, sectionId) at read time.
+}

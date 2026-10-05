@@ -10,15 +10,23 @@ const queryClient = new QueryClient({
 })
 
 async function prepare() {
-  // Prototype build serves data from MSW-intercepted JSON fixtures in both
-  // dev and production. Flip this to `if (import.meta.env.DEV)` once a real
-  // backend is available for production deployments.
-  const { worker } = await import('./mocks/browser')
+  const { anyMocksEnabled, createWorker, activeMockGroups } = await import('./mocks/browser')
+
+  // Fully disabled → skip MSW entirely so the browser doesn't register a
+  // service worker that would then intercept nothing (and briefly flash a
+  // "mocked" badge during cutover).
+  if (!anyMocksEnabled()) {
+    console.info('[cutover] MSW disabled — all requests hit the real API')
+    return
+  }
+
+  const worker = createWorker()
   const swUrl = `${import.meta.env.BASE_URL}mockServiceWorker.js`
   await worker.start({
-    onUnhandledRequest: 'bypass',
+    onUnhandledRequest: 'bypass',   // critical: lets non-mocked routes reach the real API
     serviceWorker: { url: swUrl },
   })
+  console.info('[cutover] MSW active groups:', activeMockGroups().join(', '))
 }
 
 prepare().then(() => {

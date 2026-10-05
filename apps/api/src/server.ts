@@ -133,6 +133,12 @@ async function buildServer() {
 
   const { preMlrRoutes } = await import('./modules/medical-writing/pre-mlr/routes.js')
   await app.register(preMlrRoutes, { prefix: '/med-content' })
+
+  // ---------- Module D — Regulatory Writing ----------
+  const { regSubmissionsProjectScopedRoutes, regSubmissionsRoutes } =
+    await import('./modules/regulatory-writing/submissions/routes.js')
+  await app.register(regSubmissionsProjectScopedRoutes, { prefix: '/projects' })
+  await app.register(regSubmissionsRoutes, { prefix: '/reg-submissions' })
   //
   // // Module route registrations land in Phase 3A-3E:
   // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })

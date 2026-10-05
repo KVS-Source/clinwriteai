@@ -3,7 +3,7 @@ groups:
     interval: 1m
     rules:
       - alert: ApiHighErrorRate
-        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.01
+        expr: sum(rate(http_request_duration_seconds_count{status_code=~"5.."}[5m])) / sum(rate(http_request_duration_seconds_count[5m])) > 0.01
         for: 5m
         labels:
           severity: critical
@@ -43,8 +43,8 @@ groups:
       - alert: ApiErrorBudgetFastBurn
         expr: |
           (
-            sum(rate(http_requests_total{status=~"5.."}[1h]))
-            / sum(rate(http_requests_total[1h]))
+            sum(rate(http_request_duration_seconds_count{status_code=~"5.."}[1h]))
+            / sum(rate(http_request_duration_seconds_count[1h]))
           ) > (14.4 * 0.001)
         for: 5m
         labels:
@@ -56,8 +56,8 @@ groups:
       - alert: ApiErrorBudgetSlowBurn
         expr: |
           (
-            sum(rate(http_requests_total{status=~"5.."}[6h]))
-            / sum(rate(http_requests_total[6h]))
+            sum(rate(http_request_duration_seconds_count{status_code=~"5.."}[6h]))
+            / sum(rate(http_request_duration_seconds_count[6h]))
           ) > 0.001
         for: 1h
         labels:

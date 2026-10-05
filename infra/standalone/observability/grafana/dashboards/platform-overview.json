@@ -40,7 +40,7 @@
       "title": "Error rate (5m)",
       "gridPos": { "x": 8, "y": 0, "w": 4, "h": 4 },
       "targets": [{
-        "expr": "sum(rate(http_requests_total{status=~\"5..\"}[5m])) / sum(rate(http_requests_total[5m]))",
+        "expr": "sum(rate(http_request_duration_seconds_count{status_code=~\"5..\"}[5m])) / sum(rate(http_request_duration_seconds_count[5m]))",
         "refId": "A"
       }],
       "fieldConfig": {
@@ -117,10 +117,10 @@
     },
     {
       "type": "timeseries",
-      "title": "Request rate by status class",
+      "title": "Request rate by status code",
       "gridPos": { "x": 0, "y": 4, "w": 12, "h": 8 },
       "targets": [
-        { "expr": "sum by (status_class) (rate(http_requests_total[1m]))", "refId": "A", "legendFormat": "{{status_class}}" }
+        { "expr": "sum by (status_code) (rate(http_request_duration_seconds_count[1m]))", "refId": "A", "legendFormat": "{{status_code}}" }
       ]
     },
     {

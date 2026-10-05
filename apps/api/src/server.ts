@@ -173,6 +173,10 @@ async function buildServer() {
   const { raciRoutes } = await import('./modules/platform/raci/routes.js')
   await app.register(raciRoutes, { prefix: '/projects' })
 
+  await app.register(import('./modules/platform/ai-gateway/plugin.js'))
+  const { aiGatewayRoutes } = await import('./modules/platform/ai-gateway/routes.js')
+  await app.register(aiGatewayRoutes, { prefix: '/ai' })
+
   return app
 }
 

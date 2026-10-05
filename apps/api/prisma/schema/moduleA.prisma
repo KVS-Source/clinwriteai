@@ -151,6 +151,41 @@ model VersionRestoreJob {
 }
 
 // --------------------------------------------------------------------------
+// --------------------------------------------------------------------------
+// document_uploads — pending uploads awaiting user confirmation
+// --------------------------------------------------------------------------
+//
+// Flow:
+//   POST /projects/:id/documents/upload → row with status='pending_classification'
+//   POST /projects/:id/documents/confirm-classification → status='confirmed',
+//     documentId linked to the new Document created in the same tx.
+// Rejections (user cancels, virus scan fails) end up status='rejected' and
+// are retained for compliance (never hard-deleted; retention cron handles
+// eventual purge).
+
+model DocumentUpload {
+  id                   String   @id @default(uuid())
+  projectId            String
+  uploadedBy           String                                          // User.id
+  blobKey              String                                          // key in the 'documents' BlobStorage bucket
+  fileName             String
+  fileSizeBytes        Int
+  contentType          String
+  virusScanStatus      String   @default("pending")                     // pending | passed | failed
+  classification       Json?                                            // {documentType, typeConfidence, studyTitle, …}
+  status               String   @default("pending_classification")      // pending_classification | confirmed | rejected
+  documentId           String?                                          // set once /confirm-classification creates the Document
+  rejectionReason      String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("document_uploads")
+  @@index([projectId])
+  @@index([status])
+  @@index([documentId])
+}
+
+// --------------------------------------------------------------------------
 // 5.1 checklist_templates
 // --------------------------------------------------------------------------
 

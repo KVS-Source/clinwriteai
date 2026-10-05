@@ -53,6 +53,14 @@ async function buildServer() {
   })
   await app.register(import('@fastify/helmet'), { contentSecurityPolicy: false })
   await app.register(import('@fastify/sensible'))
+  // Multipart used by document upload (Module A). 50MB limit matches
+  // the API contract; buckets live in BlobStorage, not inline in Fastify.
+  await app.register(import('@fastify/multipart'), {
+    limits: {
+      fileSize: 50 * 1024 * 1024,
+      files: 1,
+    },
+  })
   await app.register(import('@fastify/rate-limit'), {
     max: 100,
     timeWindow: '1 minute',
@@ -112,6 +120,9 @@ async function buildServer() {
   // one plugin file so the handlers share the service instance.
   await app.register(documentsProjectScopedRoutes, { prefix: '/projects' })
   await app.register(documentsRoutes, { prefix: '/documents' })
+
+  const { documentsUploadRoutes } = await import('./modules/clinical-writing/documents/upload-routes.js')
+  await app.register(documentsUploadRoutes, { prefix: '/projects' })
 
   const { checklistRoutes } = await import('./modules/clinical-writing/checklist/routes.js')
   await app.register(checklistRoutes, { prefix: '/documents' })

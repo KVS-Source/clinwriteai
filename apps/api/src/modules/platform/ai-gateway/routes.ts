@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { RateLimitedError } from './service.js'
+import { invalidateRateCardCache } from './rate-card.js'
 
 const chatSchema = z.object({
   tenantId: z.string().optional().nullable(),
@@ -168,5 +169,126 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
     const row = await app.prisma.aiTenantQuota.findUnique({ where: { tenantId } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
     return row
+  })
+
+  // --- Rate card admin (hot-reload, Phase 4) ------------------------------
+
+  const rateCardCreateSchema = z.object({
+    version: z.string().min(1).max(64),            // 'v2', 'v2026-11-01'
+    notes: z.string().optional(),
+    entries: z.array(z.object({
+      model: z.string().min(1),
+      inputPer1M: z.number().min(0),
+      outputPer1M: z.number().min(0),
+      cachedInputPer1M: z.number().min(0),
+    })).min(1, 'at least one entry required'),
+  })
+
+  app.get('/rate-cards', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async () => {
+    return app.prisma.rateCardVersion.findMany({
+      orderBy: { publishedAt: 'desc' },
+      include: { _count: { select: { entries: true, aiCallRecords: true } } },
+    })
+  })
+
+  app.get('/rate-cards/active', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (_request, reply) => {
+    const row = await app.prisma.rateCardVersion.findFirst({
+      where: { isActive: true },
+      include: { entries: { orderBy: { model: 'asc' } } },
+    })
+    if (!row) return reply.code(404).send({ error: 'no_active_card' })
+    return row
+  })
+
+  app.get('/rate-cards/:versionId', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+    const { versionId } = request.params as { versionId: string }
+    const row = await app.prisma.rateCardVersion.findUnique({
+      where: { id: versionId },
+      include: { entries: { orderBy: { model: 'asc' } } },
+    })
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    return row
+  })
+
+  app.post('/rate-cards', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+    const parsed = rateCardCreateSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    // Enforce UNIQUE(version) explicitly for a friendlier 409.
+    const dup = await app.prisma.rateCardVersion.findUnique({ where: { version: parsed.data.version } })
+    if (dup) return reply.code(409).send({ error: 'version_exists', version: parsed.data.version })
+
+    // Publish atomically: deactivate current → create new active → insert
+    // entries. Readers see at most one active at a time (DB has no
+    // partial-unique index but the tx + the service cache guard it).
+    const published = await app.prisma.$transaction(async (tx) => {
+      await tx.rateCardVersion.updateMany({
+        where: { isActive: true },
+        data: { isActive: false },
+      })
+      const v = await tx.rateCardVersion.create({
+        data: {
+          version: parsed.data.version,
+          publishedBy: request.user!.id,
+          isActive: true,
+          notes: parsed.data.notes,
+        },
+      })
+      await tx.rateCardEntry.createMany({
+        data: parsed.data.entries.map(e => ({
+          rateCardVersionId: v.id,
+          model: e.model,
+          inputPer1M: e.inputPer1M,
+          outputPer1M: e.outputPer1M,
+          cachedInputPer1M: e.cachedInputPer1M,
+        })),
+      })
+      return v
+    })
+
+    // Flush the service's in-process cache so new calls price from the
+    // new card on the next AI call, not the next 60-second tick.
+    invalidateRateCardCache()
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'rate_card_published',
+      entityType: 'rate_card_version',
+      entityId: published.id,
+      details: { version: published.version, entryCount: parsed.data.entries.length },
+      ipAddress: request.ip ?? null,
+    })
+
+    const withEntries = await app.prisma.rateCardVersion.findUnique({
+      where: { id: published.id },
+      include: { entries: { orderBy: { model: 'asc' } } },
+    })
+    return reply.code(201).send(withEntries)
+  })
+
+  app.patch('/rate-cards/:versionId/activate', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+    const { versionId } = request.params as { versionId: string }
+    const target = await app.prisma.rateCardVersion.findUnique({ where: { id: versionId } })
+    if (!target) return reply.code(404).send({ error: 'not_found' })
+    if (target.isActive) return target
+
+    await app.prisma.$transaction(async (tx) => {
+      await tx.rateCardVersion.updateMany({ where: { isActive: true }, data: { isActive: false } })
+      await tx.rateCardVersion.update({ where: { id: versionId }, data: { isActive: true } })
+    })
+    invalidateRateCardCache()
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'rate_card_activated',
+      entityType: 'rate_card_version',
+      entityId: versionId,
+      details: { version: target.version },
+      ipAddress: request.ip ?? null,
+    })
+
+    return app.prisma.rateCardVersion.findUnique({ where: { id: versionId }, include: { entries: true } })
   })
 }

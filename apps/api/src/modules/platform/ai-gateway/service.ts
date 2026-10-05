@@ -16,7 +16,7 @@
 // a record (with inputTokens=0, errorCode='rate_limited').
 
 import type { PrismaClient } from '@prisma/client'
-import { computeCostUsd } from './rate-card.js'
+import { computeCostUsdWithCard, getActiveRateCard } from './rate-card.js'
 import { scrubPii } from './pii-scrub.js'
 
 export interface ChatArgs {
@@ -81,6 +81,11 @@ export class AiGatewayService {
     const start = Date.now()
     const { scrubbed, piiFound, categories } = scrubPii(args.prompt)
 
+    // Load the active rate card up front (cached). All AiCallRecord writes
+    // in this call tag the row with versionId so the audit trail knows
+    // which rates priced this record.
+    const rateCard = await getActiveRateCard(this.prisma)
+
     // --- Quota check (per-tenant monthly cap) -----------------------------
     const quota = args.tenantId
       ? await this.prisma.aiTenantQuota.findUnique({ where: { tenantId: args.tenantId } })
@@ -124,6 +129,7 @@ export class AiGatewayService {
           limitDecision,
           piiScrubbed: piiFound,
           errorCode: 'rate_limited',
+          rateCardVersionId: rateCard.versionId,
         },
       })
       throw Object.assign(new RateLimitedError('Monthly AI spend cap reached for this tenant'), {
@@ -151,8 +157,10 @@ export class AiGatewayService {
         { errorCode },
       )
     } finally {
-      // Always write the record — success or failure.
-      const cost = computeCostUsd({ model: args.model, inputTokens, outputTokens })
+      // Always write the record — success or failure. Priced from the
+      // active rate card (DB-backed); tagged with its version id so the
+      // audit trail shows which rates applied to this row.
+      const cost = computeCostUsdWithCard(rateCard.rates, { model: args.model, inputTokens, outputTokens })
       const record = await this.prisma.aiCallRecord.create({
         data: {
           tenantId: args.tenantId,
@@ -169,6 +177,7 @@ export class AiGatewayService {
           limitDecision,
           piiScrubbed: piiFound,
           errorCode,
+          rateCardVersionId: rateCard.versionId,
         },
       })
       // Attach record id so callers can log it alongside their own audit.
@@ -181,7 +190,7 @@ export class AiGatewayService {
       model: args.model,
       inputTokens,
       outputTokens,
-      costUsd: computeCostUsd({ model: args.model, inputTokens, outputTokens }),
+      costUsd: computeCostUsdWithCard(rateCard.rates, { model: args.model, inputTokens, outputTokens }),
       limitDecision,
       piiScrubbed: piiFound,
       piiCategories: categories,

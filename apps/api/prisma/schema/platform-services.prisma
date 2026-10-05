@@ -166,13 +166,57 @@ model AiCallRecord {
   limitDecision   String   @default("allowed")
   piiScrubbed     Boolean  @default(false)                            // true if the request had PII that was redacted
   errorCode       String?                                             // null on success; 'rate_limited'|'provider_err'|…
+  // Which rate-card version priced this record. Nullable — historical rows
+  // written before rate-card hot-reload shipped have NULL and stay valid.
+  rateCardVersionId String?
   createdAt       DateTime @default(now())
+
+  rateCardVersion RateCardVersion? @relation(fields: [rateCardVersionId], references: [id])
 
   @@map("ai_call_records")
   @@index([tenantId, createdAt])
   @@index([projectId, createdAt])
   @@index([actorId, createdAt])
   @@index([module, createdAt])
+}
+
+// --------------------------------------------------------------------------
+// Rate cards — DB-backed with version history. Replaces the in-code RATES
+// array for new calls; old AiCallRecord rows stay valid via nullable FK.
+//
+// Invariant: exactly one row with isActive=true at a time (admin routes
+// enforce via tx). Lookups are cached in-process for 60s to avoid a DB
+// round-trip on every AI call.
+// --------------------------------------------------------------------------
+
+model RateCardVersion {
+  id            String   @id @default(uuid())
+  version       String   @unique                                       // 'v1', 'v2026-10-01', ...
+  publishedBy   String
+  publishedAt   DateTime @default(now())
+  isActive      Boolean  @default(true)
+  notes         String?                                                // changelog entry
+
+  entries       RateCardEntry[]
+  aiCallRecords AiCallRecord[]
+
+  @@map("rate_card_versions")
+  @@index([isActive])
+}
+
+model RateCardEntry {
+  id                String   @id @default(uuid())
+  rateCardVersionId String
+  model             String                                              // 'claude-opus-4-7' | ...
+  inputPer1M        Decimal  @db.Decimal(10, 4)                         // USD per 1M input tokens
+  outputPer1M       Decimal  @db.Decimal(10, 4)
+  cachedInputPer1M  Decimal  @db.Decimal(10, 4)
+
+  version           RateCardVersion @relation(fields: [rateCardVersionId], references: [id], onDelete: Cascade)
+
+  @@map("rate_card_entries")
+  @@unique([rateCardVersionId, model])
+  @@index([rateCardVersionId])
 }
 
 // Per-tenant monthly caps so the gateway can enforce "cost control is a real

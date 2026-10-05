@@ -150,6 +150,9 @@ async function buildServer() {
   const { authorsRoutes } = await import('./modules/scientific-writing/authors/routes.js')
   await app.register(authorsRoutes, { prefix: '/publications' })
 
+  const { submissionChecksRoutes } = await import('./modules/scientific-writing/submission-checks/routes.js')
+  await app.register(submissionChecksRoutes, { prefix: '/publications' })
+
   // ---------- Module C — Medical Writing ----------
   const { medContentProjectScopedRoutes, medContentRoutes } =
     await import('./modules/medical-writing/content/routes.js')

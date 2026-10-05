@@ -183,6 +183,12 @@ async function buildServer() {
   const { complianceRoutes } = await import('./modules/platform/compliance/routes.js')
   await app.register(complianceRoutes, { prefix: '/admin/compliance' })
 
+  // Compliance gauge scheduler — keeps the Prometheus gauges the Phase 6
+  // alerts rely on (audit chain intact, last verify, access review, backup
+  // success) fresh. Mounted last so all dependencies (prisma + audit +
+  // metrics) are decorated first.
+  await app.register(import('./modules/platform/compliance/plugin.js'))
+
   return app
 }
 

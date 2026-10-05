@@ -63,7 +63,16 @@ find /var/backups/platform/ -maxdepth 1 -type d -name "20*" | sort -r | tail -n 
 log "Backup complete"
 
 # ---------- Health signal to monitoring ----------
-# Emit a Prometheus pushgateway metric if configured
+# Primary path: write a timestamp file the API's ComplianceGaugeScheduler
+# reads on its 5-min tick to publish `platform_backup_last_success_seconds`.
+# File lives on the host; API reads via bind-mount or shared volume.
+TS_FILE="${PLATFORM_BACKUP_TS_FILE:-/var/lib/platform/backup.last_success}"
+mkdir -p "$(dirname "${TS_FILE}")"
+echo "$(date +%s)" > "${TS_FILE}"
+log "Wrote ${TS_FILE} for Prometheus gauge"
+
+# Fallback: emit a Prometheus pushgateway metric if configured. Useful when
+# the API process is down and the gauge-scheduler can't publish.
 if [[ -n "${PROM_PUSHGATEWAY:-}" ]]; then
   echo "platform_backup_last_success_seconds $(date +%s)" \
     | curl --data-binary @- "${PROM_PUSHGATEWAY}/metrics/job/platform_backup/env/${ENV_NAME:-staging}" || true

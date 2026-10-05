@@ -10,7 +10,7 @@
 // support burden.
 
 import { useState } from 'react'
-import { activeMockGroups } from '../mocks/browser'
+import { activeMockGroups } from '../mocks/toggles'
 import { apiConfig } from '../api/client'
 
 export function CutoverBadge() {

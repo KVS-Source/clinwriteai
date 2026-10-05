@@ -1,9 +1,12 @@
-// Boot smoke — the SPA must render without a runtime error. Also exercises
-// the service worker registration path when MSW is enabled.
+// Boot smoke — the SPA must render without a runtime error and the top-level
+// shell must mount. The prototype currently has BYPASS_AUTH_IN_PROTOTYPE=true
+// (see AuthGuard.tsx) so '/' lands on /projects directly; once that bypass
+// is flipped off during Phase 2 cutover, this test still passes because the
+// AllProjects shell is the authenticated landing route.
 
 import { test, expect } from '@playwright/test'
 
-test('app boots and renders the sign-in screen', async ({ page }) => {
+test('app boots and renders the projects shell', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', e => errors.push(e.message))
   page.on('console', e => {
@@ -11,12 +14,11 @@ test('app boots and renders the sign-in screen', async ({ page }) => {
   })
 
   await page.goto('/')
-  // Un-authenticated users are redirected to /sign-in by the shell.
-  await expect(page).toHaveURL(/\/sign-in$/)
-  await expect(page.locator('[data-screen="sign-in"]')).toBeVisible()
-  await expect(page.getByRole('heading', { name: /sign in to your account/i })).toBeVisible()
+  // index route redirects to /projects
+  await expect(page).toHaveURL(/\/projects(?:$|\?)/)
+  await expect(page.getByRole('link', { name: /all projects/i })).toBeVisible({ timeout: 10_000 })
 
-  // Allow MSW's own console lines but hard-fail on anything else.
+  // Allow MSW's own console noise; fail on anything else.
   const nonMsw = errors.filter(e => !/mocking|service worker|\[MSW\]/i.test(e))
   expect(nonMsw, nonMsw.join('\n')).toEqual([])
 })

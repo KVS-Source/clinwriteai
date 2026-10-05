@@ -4,6 +4,7 @@ import { RouterProvider } from 'react-router-dom'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { router } from './router'
 import { CutoverBadge } from './components/CutoverBadge'
+import { anyMocksEnabled, activeMockGroups } from './mocks/toggles'
 import './index.css'
 
 const queryClient = new QueryClient({
@@ -22,13 +23,15 @@ const RqDevtools = showDevtools
   : null
 
 async function prepare() {
-  const { anyMocksEnabled, createWorker, activeMockGroups } = await import('./mocks/browser')
-
   if (!anyMocksEnabled()) {
     console.info('[cutover] MSW disabled — all requests hit the real API')
     return
   }
 
+  // Dynamic-imported so the handler tree (every MSW handler file + its data
+  // fixtures) stays out of the main chunk when at least one group is active
+  // and the module worker loads on demand.
+  const { createWorker } = await import('./mocks/browser')
   const worker = createWorker()
   const swUrl = `${import.meta.env.BASE_URL}mockServiceWorker.js`
   await worker.start({

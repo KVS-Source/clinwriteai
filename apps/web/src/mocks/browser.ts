@@ -4,21 +4,11 @@
 // cutover can kill one group at a time and have the frontend fall through
 // to the real API without rebuilding the handler file.
 //
-// Flags (default 'on' for backward compat with the prototype demo):
-//   VITE_MOCK_AUTH       — auth
-//   VITE_MOCK_PROJECTS   — projects + platform admin
-//   VITE_MOCK_MODULE_A   — Module A: clinical writing (documents, checklist,
-//                          comments, audit, voice-notes, ai, signatures,
-//                          crm, reference, presence, qa)
-//   VITE_MOCK_MODULE_B   — Module B: scientific writing (publications)
-//   VITE_MOCK_MODULE_C   — Module C: medical writing (medContent)
-//   VITE_MOCK_MODULE_D   — Module D: regulatory writing
-//   VITE_MOCK_MODULE_E   — Module E: ideation + publishing
-//
-// 'off' leaves no handler registered for that group — fetches fall through to
-// the real backend at VITE_API_URL. The special value 'force' means the group
-// stays mocked even when the global VITE_API_URL is set (useful for mixing a
-// real API with a mocked module during cutover).
+// Toggle reads (activeMockGroups, anyMocksEnabled) live in ./toggles.ts so
+// the UI badge can call them without pulling the handlers into the main
+// bundle. This file imports every handler group and must stay dynamic-
+// imported from entry code so Vite can keep it out of the main chunk when
+// mocks are off.
 
 import { setupWorker, type SetupWorker } from 'msw/browser'
 import { authHandlers }      from './handlers/auth'
@@ -39,13 +29,10 @@ import { publicationHandlers } from './handlers/publications'
 import { medContentHandlers }  from './handlers/medContent'
 import { regulatoryWritingHandlers } from './handlers/regulatoryWriting'
 import { ideationPublishingHandlers } from './handlers/ideationPublishing'
+import { activeMockGroups, type ToggleName } from './toggles'
 
-type ToggleName =
-  | 'AUTH' | 'PROJECTS'
-  | 'MODULE_A' | 'MODULE_B' | 'MODULE_C' | 'MODULE_D' | 'MODULE_E'
-
-const GROUPS: Record<ToggleName, ReturnType<typeof setupWorker>['listHandlers'] extends never ? never : unknown[]> = {
-  AUTH: authHandlers,
+const GROUPS: Record<ToggleName, unknown[]> = {
+  AUTH: [...authHandlers],
   PROJECTS: [...projectHandlers, ...platformHandlers],
   MODULE_A: [
     ...documentHandlers, ...checklistHandlers, ...commentHandlers,
@@ -59,26 +46,7 @@ const GROUPS: Record<ToggleName, ReturnType<typeof setupWorker>['listHandlers'] 
   MODULE_E: [...ideationPublishingHandlers],
 }
 
-function flag(name: ToggleName): 'on' | 'off' | 'force' {
-  const raw = (import.meta.env[`VITE_MOCK_${name}`] as string | undefined)?.toLowerCase()
-  if (raw === 'off') return 'off'
-  if (raw === 'force') return 'force'
-  return 'on'
-}
-
-export function activeMockGroups(): ToggleName[] {
-  return (Object.keys(GROUPS) as ToggleName[]).filter(name => flag(name) !== 'off')
-}
-
-export function anyMocksEnabled(): boolean {
-  return activeMockGroups().length > 0
-}
-
 export function createWorker(): SetupWorker {
   const handlers = activeMockGroups().flatMap(name => GROUPS[name] as never[])
   return setupWorker(...handlers)
 }
-
-// Legacy export — kept so existing imports don't break during cutover. The
-// handler list reflects whatever toggles are set at import time.
-export const worker: SetupWorker = createWorker()

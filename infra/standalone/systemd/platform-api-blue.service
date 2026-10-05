@@ -1,0 +1,24 @@
+[Unit]
+Description=ClinWrite Platform API (blue)
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=simple
+User=platform
+Group=platform
+WorkingDirectory=/opt/platform/apps/api-blue
+Environment="NODE_ENV=production"
+Environment="PORT=3001"
+EnvironmentFile=/run/platform/api.env
+ExecStartPre=/opt/platform/scripts/decrypt-env.sh api
+ExecStart=/usr/bin/node dist/server.js
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+# Blue-green sibling. The nginx upstream decides which colour serves user
+# traffic; both are allowed to be running simultaneously during a flip.
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target

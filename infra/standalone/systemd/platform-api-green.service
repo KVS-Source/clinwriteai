@@ -1,0 +1,22 @@
+[Unit]
+Description=ClinWrite Platform API (green)
+After=network.target postgresql.service redis.service
+Wants=postgresql.service redis.service
+
+[Service]
+Type=simple
+User=platform
+Group=platform
+WorkingDirectory=/opt/platform/apps/api-green
+Environment="NODE_ENV=production"
+Environment="PORT=3002"
+EnvironmentFile=/run/platform/api.env
+ExecStartPre=/opt/platform/scripts/decrypt-env.sh api
+ExecStart=/usr/bin/node dist/server.js
+Restart=on-failure
+RestartSec=5s
+LimitNOFILE=65536
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=multi-user.target

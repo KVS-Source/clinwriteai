@@ -1,0 +1,258 @@
+// Module A — Clinical Writing models.
+//
+// Source: docs/demo/02-datamodel.md §4-§6 (documents, checklist, comments).
+// Enum columns are stored as TEXT with Zod validation at the API edge; the
+// architecture decision (plan §2) is to keep enums in app code until Phase 3
+// stabilises, then migrate to Postgres ENUMs.
+//
+// What's HERE in this scaffold:
+//   - documents + document_versions + section_contents + provenance_records
+//   - checklist_templates / checklist_template_items / checklist_instances / items
+//   - comments
+//
+// What's NOT here yet (ships in later Module A sessions):
+//   - voice_notes (needs S3 wiring)
+//   - signatures / signature chains (Part 11 — compliance review required)
+//   - crm_meetings + crm_resolutions (post-review workflow)
+//   - presence_sessions (Socket.io + Redis pub/sub)
+//   - tlf_items (needs CSR fixture modelling)
+//   - meddra_lookup (needs licensing)
+
+// --------------------------------------------------------------------------
+// 4.1 documents
+// --------------------------------------------------------------------------
+
+model Document {
+  id                     String    @id @default(uuid())
+  projectId              String
+  type                   String    // document_type — csr_full | csr_synopsis | protocol | …
+  title                  String
+  status                 String    @default("not_started")  // document_status
+  stage                  String    @default("study_start_up") // document_stage
+  therapeuticArea        String                                // immutable per FR-A-002
+  templateId             String?                               // FK to document_templates (future)
+  assigneeId             String
+  currentVersionId       String?   @unique                     // set after first save
+  targetCompletionDate   DateTime?
+  submittedForReviewAt   DateTime?
+  signedAt               DateTime?
+  watermarked            Boolean   @default(true)              // cleared on final sign-off
+  createdBy              String
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  deletedAt              DateTime?
+
+  versions               DocumentVersion[]   @relation("DocumentVersions")
+  currentVersion         DocumentVersion?    @relation("DocumentCurrentVersion", fields: [currentVersionId], references: [id])
+  checklistInstance      ChecklistInstance?
+  comments               Comment[]
+
+  @@map("documents")
+  @@index([projectId])
+  @@index([status])
+  @@index([stage])
+  @@index([assigneeId])
+}
+
+// --------------------------------------------------------------------------
+// 4.2 document_versions
+// --------------------------------------------------------------------------
+
+model DocumentVersion {
+  id              String   @id @default(uuid())
+  documentId      String
+  versionNumber   String                                       // "v0.1", "v0.2", …
+  label           String                                       // "Draft" | "For Review" | "Final"
+  contentHash     String                                       // sha256 of full document content — binds to e-sig
+  isCurrent       Boolean  @default(true)
+  createdBy       String
+  createdAt       DateTime @default(now())
+  restoreSource   Json?                                        // {fromVersionId, sections[], reason} when restored
+
+  document        Document              @relation("DocumentVersions", fields: [documentId], references: [id], onDelete: Cascade)
+  sections        SectionContent[]
+  provenance      ProvenanceRecord[]
+  currentOf       Document?             @relation("DocumentCurrentVersion")
+
+  @@map("document_versions")
+  @@unique([documentId, versionNumber])
+  @@index([documentId])
+}
+
+// --------------------------------------------------------------------------
+// 4.3 section_contents
+// --------------------------------------------------------------------------
+
+model SectionContent {
+  id                 String   @id @default(uuid())
+  documentVersionId  String
+  sectionId          String                                    // "11.4.1" etc.
+  sectionNumber      String
+  sectionTitle       String
+  contentHtml        String   @default("")
+  ichStatus          String   @default("not_started")           // ich_section_status
+  wordCount          Int      @default(0)
+  aiSpanCount        Int      @default(0)
+  humanSpanCount     Int      @default(0)
+  lastEditedBy       String?
+  lastEditedAt       DateTime?
+
+  version            DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+
+  @@map("section_contents")
+  @@unique([documentVersionId, sectionId])
+  @@index([documentVersionId])
+  @@index([ichStatus])
+}
+
+// --------------------------------------------------------------------------
+// 4.4 provenance_records — immutable Part 11 AI provenance (FR-A-021)
+// --------------------------------------------------------------------------
+
+model ProvenanceRecord {
+  id                 String   @id @default(uuid())
+  documentVersionId  String
+  sectionId          String
+  spanId             String                                     // unique within section
+  spanText           String
+  sourceType         String                                     // ai_draft | human | restored
+  sourceRef          String?                                    // TLF ref, SAP section, etc.
+  aiModel            String?                                    // null if source_type=human
+  aiGeneratedAt      DateTime?
+  acceptedBy         String?
+  acceptedAt         DateTime?
+  createdAt          DateTime @default(now())
+
+  version            DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
+
+  @@map("provenance_records")
+  @@index([documentVersionId])
+  @@index([documentVersionId, sectionId])
+  @@index([spanId])
+}
+
+// --------------------------------------------------------------------------
+// 4.5 version_restore_jobs — async restore workflow
+// --------------------------------------------------------------------------
+
+model VersionRestoreJob {
+  id                 String    @id @default(uuid())
+  sourceDocumentId   String
+  createdVersionId   String?                                    // populated on completion
+  sectionsRestored   Json                                       // [{sectionId, fromVersionId}]
+  reason             String
+  status             String    @default("pending")              // pending | complete | failed
+  createdBy          String
+  createdAt          DateTime  @default(now())
+  completedAt        DateTime?
+
+  @@map("version_restore_jobs")
+  @@index([sourceDocumentId])
+}
+
+// --------------------------------------------------------------------------
+// 5.1 checklist_templates
+// --------------------------------------------------------------------------
+
+model ChecklistTemplate {
+  id              String   @id @default(uuid())
+  deliverableType String                                       // document_type
+  version         Int      @default(1)
+  effectiveDate   DateTime
+  changeReason    String
+  isCurrent       Boolean  @default(true)
+  createdBy       String
+  createdAt       DateTime @default(now())
+
+  items           ChecklistTemplateItem[]
+  instances       ChecklistInstance[]
+
+  @@map("checklist_templates")
+  @@unique([deliverableType, version])
+  @@index([deliverableType])
+}
+
+model ChecklistTemplateItem {
+  id                 String   @id @default(uuid())
+  templateId         String
+  text               String
+  framework          String                                     // "ICH E3", "21 CFR Part 11", …
+  frameworkMandatory Boolean  @default(true)
+  sortOrder          Int      @default(0)
+  createdAt          DateTime @default(now())
+
+  template           ChecklistTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  instanceItems      ChecklistInstanceItem[]
+
+  @@map("checklist_template_items")
+  @@index([templateId])
+}
+
+// --------------------------------------------------------------------------
+// 5.3 checklist_instances
+// --------------------------------------------------------------------------
+
+model ChecklistInstance {
+  id                 String   @id @default(uuid())
+  documentId         String   @unique                           // one instance per document
+  templateId         String
+  templateVersion    Int
+  notificationSentAt DateTime?
+  createdAt          DateTime @default(now())
+
+  document           Document                @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  template           ChecklistTemplate       @relation(fields: [templateId], references: [id])
+  items              ChecklistInstanceItem[]
+
+  @@map("checklist_instances")
+}
+
+model ChecklistInstanceItem {
+  id                 String    @id @default(uuid())
+  instanceId         String
+  templateItemId     String?                                    // null for user-added items
+  text               String
+  framework          String
+  frameworkMandatory Boolean   @default(true)
+  status             String    @default("pending")              // checklist_item_status
+  isUserAdded        Boolean   @default(false)
+  completedBy        String?
+  completedAt        DateTime?
+  waivedBy           String?
+  waivedAt           DateTime?
+  waiverReason       String?                                    // required when status=waived
+  sortOrder          Int       @default(0)
+
+  instance           ChecklistInstance       @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  templateItem       ChecklistTemplateItem?  @relation(fields: [templateItemId], references: [id])
+
+  @@map("checklist_instance_items")
+  @@index([instanceId])
+  @@index([instanceId, status])
+}
+
+// --------------------------------------------------------------------------
+// 6.1 comments
+// --------------------------------------------------------------------------
+
+model Comment {
+  id             String    @id                                   // "CMT-###" application-generated
+  documentId     String
+  sectionRef     String                                          // "§11.4.1"
+  reviewerId     String
+  text           String
+  severity       String                                          // comment_severity — major | minor | query
+  status         String    @default("open")                      // open | resolved
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  resolutionNote String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  document       Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("comments")
+  @@index([documentId])
+  @@index([documentId, status])
+  @@index([documentId, sectionRef])
+}

@@ -167,6 +167,79 @@ model PreMlrCheckResult {
 }
 
 // --------------------------------------------------------------------------
+// 30.1 mlr_reviewers — one row per MLR reviewer per content item
+// --------------------------------------------------------------------------
+
+model MlrReviewer {
+  id              String    @id @default(uuid())
+  contentItemId   String
+  userId          String                                              // User.id
+  role            String                                              // 'MLR Medical Reviewer' | 'MLR Legal Reviewer' | 'MLR Regulatory Reviewer' | 'MLR Lead'
+  assignedAt      DateTime  @default(now())
+  submittedAt     DateTime?
+  decision        String?                                             // mlr_decision: approved | rejected | needs_edit
+  decisionNote    String?
+
+  @@map("mlr_reviewers")
+  @@unique([contentItemId, userId])
+  @@index([contentItemId])
+}
+
+// --------------------------------------------------------------------------
+// 30.2 mlr_comments — MLR review comments
+// Human-readable IDs ('MLR-C-###') per-content; distinct from Module A comments.
+// --------------------------------------------------------------------------
+
+model MlrComment {
+  id                     String    @id                                 // 'MLR-C-###' app-generated
+  contentItemId          String
+  reviewerId             String
+  reviewerName           String                                        // denormalised at write time
+  text                   String
+  tag                    String                                        // Must Fix | Should Fix | Note
+  resolvedAt             DateTime?
+  resolvedBy             String?
+  // Escalation path from the Agentic MLR advisory report (DD-C-xxx — sC06).
+  escalatedFromAgentic   Boolean   @default(false)
+  escalatedBy            String?
+  escalatedAt            DateTime?
+  createdAt              DateTime  @default(now())
+
+  @@map("mlr_comments")
+  @@index([contentItemId])
+  @@index([contentItemId, tag])
+}
+
+// --------------------------------------------------------------------------
+// 30.3 mlr_decision_records — immutable Part 11 record of MLR Lead decision
+// --------------------------------------------------------------------------
+//
+// IMMUTABLE: application never updates existing rows. The e-signature chain
+// binds `document_hash` + `credential_hash` + `meaning` + `timestamp_utc`
+// per 21 CFR Part 11 §11.70. A customer-facing BAA restricts whether the
+// 'rendered PDF' or 'canonical JSON' hash is bound here (open Compliance
+// decision — see docs/compliance/Part11/compliance-assessment.md §Open items).
+
+model MlrDecisionRecord {
+  id                 String    @id @default(uuid())
+  contentItemId      String
+  decision           String                                            // mlr_decision
+  decisionNote       String
+  decidedBy          String
+  decidedByName      String                                            // denormalised
+  decidedByRole      String                                            // denormalised
+  meaning            String                                            // 'I approve this content for external distribution'
+  credentialHash     String                                            // sha256 of password re-auth proof; never plaintext
+  documentHash       String                                            // sha256 of content state at decision time
+  versionAtDecision  String                                            // 'v1.0' etc
+  timestampUtc       DateTime
+  authMethod         String    @default("password re-auth + TOTP")
+
+  @@map("mlr_decision_records")
+  @@index([contentItemId])
+}
+
+// --------------------------------------------------------------------------
 // 29.2 pre_mlr_issues
 // --------------------------------------------------------------------------
 

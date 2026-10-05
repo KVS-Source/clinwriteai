@@ -378,3 +378,58 @@ model Comment {
   @@index([documentId, status])
   @@index([documentId, sectionRef])
 }
+
+// --------------------------------------------------------------------------
+// 12. TLF — Tables / Listings / Figures packages
+// Source: 02-datamodel.md §12. One current package per project (soft
+// invariant: isCurrent=true marks the live one); items are the T/L/F
+// entries; section_links are the citations from doc sections.
+// --------------------------------------------------------------------------
+
+model TlfPackage {
+  id            String    @id @default(uuid())
+  projectId     String
+  version       String                                              // 'v3'
+  validatedBy   String                                              // User.id
+  validatedAt   DateTime
+  isCurrent     Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+
+  items         TlfItem[]
+
+  @@map("tlf_packages")
+  @@unique([projectId, version])
+  @@index([projectId])
+  @@index([projectId, isCurrent])
+}
+
+model TlfItem {
+  id            String    @id @default(uuid())
+  packageId     String
+  itemType      String                                              // 'T' | 'L' | 'F'
+  referenceId   String                                              // 'Table 14.2.1'
+  title         String
+  sortOrder     Int       @default(0)
+
+  package       TlfPackage        @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  sectionLinks  TlfSectionLink[]
+
+  @@map("tlf_items")
+  @@unique([packageId, referenceId])
+  @@index([packageId])
+}
+
+model TlfSectionLink {
+  id              String    @id @default(uuid())
+  tlfItemId       String
+  documentId      String
+  sectionRef      String                                            // '§11.4.1'
+  referenceCount  Int       @default(1)
+
+  tlfItem         TlfItem   @relation(fields: [tlfItemId], references: [id], onDelete: Cascade)
+
+  @@map("tlf_section_links")
+  @@unique([tlfItemId, documentId, sectionRef])
+  @@index([tlfItemId])
+  @@index([documentId, sectionRef])
+}

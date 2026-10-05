@@ -144,6 +144,11 @@ async function buildServer() {
   // the handlers use full paths.
   await app.register(crmRoutes)
 
+  const { tlfRoutes } = await import('./modules/clinical-writing/tlf/routes.js')
+  // Project-scoped, package-scoped, item-scoped and document-scoped paths —
+  // registered at root with full paths, same pattern as peer-review + crm.
+  await app.register(tlfRoutes)
+
   // ---------- Module B — Scientific Writing ----------
   const { publicationsProjectScopedRoutes, publicationsRoutes } =
     await import('./modules/scientific-writing/publications/routes.js')

@@ -162,6 +162,9 @@ async function buildServer() {
   const { preMlrRoutes } = await import('./modules/medical-writing/pre-mlr/routes.js')
   await app.register(preMlrRoutes, { prefix: '/med-content' })
 
+  const { mlrRoutes } = await import('./modules/medical-writing/mlr/routes.js')
+  await app.register(mlrRoutes, { prefix: '/med-content' })
+
   // ---------- Module D — Regulatory Writing ----------
   const { regSubmissionsProjectScopedRoutes, regSubmissionsRoutes } =
     await import('./modules/regulatory-writing/submissions/routes.js')

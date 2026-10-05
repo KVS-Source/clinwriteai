@@ -22,7 +22,23 @@ import type { FastifyPluginAsync } from 'fastify'
 import fp from 'fastify-plugin'
 import fastifySocketIO from 'fastify-socket.io'
 import { Server as SocketServer, type Socket } from 'socket.io'
+import { Redis } from 'ioredis'
 import { SESSION_COOKIE_NAME, type SessionClaims } from '../../../auth/jwt.js'
+
+// Shared channel name — must match apps/worker/src/realtime-publish.ts.
+// Could extract to a shared package when either side grows another consumer.
+const REALTIME_CHANNEL = 'aurora:realtime'
+
+// Worker-side event shapes we expect to forward to Socket.io rooms.
+// Keeping the discriminated union here mirrors what the worker publishes;
+// adding a kind on the worker side needs a matching case here.
+type WorkerRealtimeEvent =
+  | {
+      kind: 'presence_reaped'
+      documentId: string
+      sessionIds: string[]
+      at: string
+    }
 
 /**
  * Minimal cookie-header parser. We only need to find one named cookie;
@@ -132,6 +148,68 @@ const realtimePlugin: FastifyPluginAsync = async (app) => {
   // the snapshot via GET /presence (keeps the DB authoritative).
   app.decorate('emitPresenceChanged', (payload: PresenceChangedPayload) => {
     app.io.to(`doc:${payload.documentId}`).emit('presence:changed', payload)
+  })
+
+  // --- Worker → Socket.io bridge ----------------------------------------
+  // Dedicated Redis subscriber connection (ioredis sub mode is sticky — a
+  // SUBSCRIBE'd connection can't do other commands). Shares the queue
+  // plugin's connection string but opens its own socket.
+  const subscriber = new Redis(app.env.REDIS_URL, {
+    maxRetriesPerRequest: null,
+    enableReadyCheck: true,
+    lazyConnect: false,
+  })
+
+  subscriber.on('error', (err) => {
+    // Ioredis auto-reconnects. One log per error is enough; don't crash
+    // the API if Redis blips.
+    app.log.warn({ err: err.message }, 'realtime subscriber redis error')
+  })
+
+  await subscriber.subscribe(REALTIME_CHANNEL)
+
+  subscriber.on('message', (channel, raw) => {
+    if (channel !== REALTIME_CHANNEL) return
+    let event: WorkerRealtimeEvent
+    try {
+      event = JSON.parse(raw) as WorkerRealtimeEvent
+    } catch {
+      app.log.warn({ raw }, 'realtime subscriber: malformed JSON on channel')
+      return
+    }
+    switch (event.kind) {
+      case 'presence_reaped': {
+        // Fan one emit per reaped session into the doc's room. UIs re-fetch
+        // GET /presence on 'presence:changed' — same contract as the
+        // REST-emitted 'left' event.
+        for (const sid of event.sessionIds) {
+          app.io.to(`doc:${event.documentId}`).emit('presence:changed', {
+            documentId: event.documentId,
+            reason: 'reaped',
+            sessionId: sid,
+            userId: '',
+            sectionId: '',
+            at: event.at,
+          } satisfies PresenceChangedPayload)
+        }
+        break
+      }
+      default: {
+        // Future kinds — exhaustiveness check via never would be nice but
+        // the API ships before the worker on some deploy windows, so
+        // tolerate unknown kinds silently.
+        app.log.debug({ event }, 'realtime subscriber: unknown event kind')
+      }
+    }
+  })
+
+  app.addHook('onClose', async () => {
+    try {
+      await subscriber.unsubscribe(REALTIME_CHANNEL)
+    } catch {
+      // ignore — connection may already be torn down
+    }
+    await subscriber.quit().catch(() => undefined)
   })
 }
 

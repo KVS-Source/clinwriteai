@@ -44,8 +44,9 @@ log.info('Worker: Prisma connected')
 interface JobContext {
   prisma: PrismaClient
   log: typeof log
+  redis: Redis
 }
-const ctx: JobContext = { prisma, log }
+const ctx: JobContext = { prisma, log, redis: connection }
 
 // Map job name → handler. Each handler is invoked with (job, ctx).
 const handlers = {

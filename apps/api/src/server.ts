@@ -115,6 +115,9 @@ async function buildServer() {
     await import('./modules/scientific-writing/publications/routes.js')
   await app.register(publicationsProjectScopedRoutes, { prefix: '/projects' })
   await app.register(publicationsRoutes, { prefix: '/publications' })
+
+  const { citationsRoutes } = await import('./modules/scientific-writing/citations/routes.js')
+  await app.register(citationsRoutes, { prefix: '/publications' })
   //
   // // Module route registrations land in Phase 3A-3E:
   // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })

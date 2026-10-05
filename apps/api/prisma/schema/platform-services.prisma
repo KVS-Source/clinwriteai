@@ -194,3 +194,33 @@ model AiTenantQuota {
 
   @@map("ai_tenant_quotas")
 }
+
+// --------------------------------------------------------------------------
+// Regulatory alerts — cross-module push service (FR-D-024).
+// Source: 02-datamodel.md §53, 03-api-contract.md §53.
+//
+// Framework change notifications (ICH E3 update, FDA guidance revision,
+// EMA SmPC template change) are published here by super-admins and
+// pushed to all five modules. Users acknowledge per-alert; the alert
+// stays visible until the effective_date passes.
+//
+// Lives in platform-services (not moduleD) because every module reads it.
+// --------------------------------------------------------------------------
+
+model RegulatoryAlert {
+  id                  String    @id @default(uuid())
+  frameworkName       String                                           // 'ICH E3', 'FDA Guidance 2026-01', ...
+  changeSummary       String
+  effectiveDate       DateTime  @db.Date
+  affectedModules     String[]  @default([])                           // ['A','B','C','D','E'] subset
+  severity            String    @default("info")                       // 'info' | 'warning' | 'breaking'
+  sourceUrl           String?
+  alertedAt           DateTime  @default(now())
+  acknowledgedByIds   String[]  @default([])                           // User.id list
+  publishedBy         String                                           // super-admin User.id
+  archivedAt          DateTime?
+
+  @@map("regulatory_alerts")
+  @@index([alertedAt(sort: Desc)])
+  @@index([effectiveDate])
+}

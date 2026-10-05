@@ -17,12 +17,12 @@
 // What's NOT here yet (externally blocked or deferred scope):
 //   - gateway_submissions (FDA ESG + CESP onboarding — months, needs vendor
 //     contracts + PGP keys; MHRA apiReady=false in GATEWAY_PRIORITY)
-//   - regulatory_alerts cross-module push service
-//   - aggregate_safety_reports (PSUR/PBRER-specific; needs AE lookup)
-//   - odd_assessments (orphan drug designation path)
 //
 // Added:
 //   - ha_correspondence + ha_loq_questions + ha_response_drafts (§53)
+//   - aggregate_safety_reports (PSUR/PBRER authoring — FR-D-015)
+//   - odd_assessments (orphan drug designation)
+//   - regulatory_alerts lives in platform-services.prisma (cross-module)
 
 model RegulatorySubmission {
   id                        String   @id @default(uuid())
@@ -47,6 +47,8 @@ model RegulatorySubmission {
   redactionRecords          RedactionRecord[]
   validationRuns            EctdValidationResult[]
   haCorrespondence          HaCorrespondence[]
+  aggregateSafetyReports    AggregateSafetyReport[]
+  oddAssessments            OddAssessment[]
 
   @@map("regulatory_submissions")
   @@index([projectId])
@@ -272,4 +274,79 @@ model HaResponseDraft {
   @@unique([questionId, versionNumber])
   @@index([questionId])
   @@index([questionId, status])
+}
+
+// --------------------------------------------------------------------------
+// §54 Aggregate Safety Reports — PSUR / PBRER authoring surface (FR-D-015)
+// Source: 04-acceptance-criteria.md AC-D-015, ICH E2C(R2).
+//
+// Deliberately scoped to the authoring + sign-off record; the AE line-list
+// (ICSRs, line listings per MedDRA PT) lands with the MedDRA lookup when
+// MSSO licensing clears. The signalSummary + benefitRiskSummary columns
+// are the AI-authored sections AC-D-015 flags with the AI Footprint
+// indicator and the PV Lead verification prompt.
+// --------------------------------------------------------------------------
+
+model AggregateSafetyReport {
+  id                      String    @id @default(uuid())
+  submissionId            String
+  reportType              String                                        // 'psur' | 'pbrer'
+  reportingPeriodStart    DateTime  @db.Date
+  reportingPeriodEnd      DateTime  @db.Date
+  dataLockPoint           DateTime  @db.Date
+  status                  String    @default("draft")                   // 'draft' | 'under_review' | 'signed' | 'submitted'
+  // AI-authored body sections. AI Footprint indicator (per AC-D-015) is
+  // rendered by the UI off aiFootprintPct; the two body columns are HTML.
+  signalSummary           String    @default("")
+  benefitRiskSummary      String    @default("")
+  aiFootprintPct          Int?
+  // PV Lead sign-off anchor — the AC-D-015 verification gate. 'signed' can
+  // only be set if pvLeadVerifiedAt is non-null (enforced at route edge).
+  pvLeadVerifiedBy        String?
+  pvLeadVerifiedAt        DateTime?
+  pvLeadVerificationNote  String?
+
+  generatedBy             String
+  generatedAt             DateTime  @default(now())
+  submittedAt             DateTime?
+
+  submission              RegulatorySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("aggregate_safety_reports")
+  @@index([submissionId])
+  @@index([submissionId, reportType])
+  @@index([dataLockPoint])
+}
+
+// --------------------------------------------------------------------------
+// §55 Orphan Drug Designation (ODD) assessments
+// Source: 03-api-contract.md §53 ('odd_assessment_completed' audit event).
+// --------------------------------------------------------------------------
+
+model OddAssessment {
+  id                        String    @id @default(uuid())
+  submissionId              String
+  // Clinical justification columns — authored by regulatory writers,
+  // reviewed by medical lead, approved by the issuing authority.
+  diseaseIndication         String
+  prevalencePer100k         Decimal   @db.Decimal(8, 3)                 // '2.500' per 100k
+  medicalNeedJustification  String
+  significantBenefit        String?                                     // comparative benefit vs. existing
+  status                    String    @default("draft")                 // 'draft' | 'under_review' | 'approved' | 'rejected' | 'withdrawn'
+  // Authority outcome
+  issuingAuthority          String?                                     // 'FDA' | 'EMA' | 'MHRA' | ...
+  designationNumber         String?                                     // e.g. 'ODD-2026-0417'
+  approvalDate              DateTime? @db.Date
+  rejectionReason           String?
+
+  completedBy               String?
+  completedAt               DateTime?
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  submission                RegulatorySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("odd_assessments")
+  @@index([submissionId])
+  @@index([status])
 }

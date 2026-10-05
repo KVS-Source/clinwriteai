@@ -211,6 +211,12 @@ async function buildServer() {
   // /ha-questions/:id + /ha-drafts/:id). Registered at root with full paths.
   await app.register(haCorrespondenceRoutes)
 
+  const { safetyReportsRoutes } = await import('./modules/regulatory-writing/safety-reports/routes.js')
+  await app.register(safetyReportsRoutes)
+
+  const { oddRoutes } = await import('./modules/regulatory-writing/odd/routes.js')
+  await app.register(oddRoutes)
+
   // ---------- Module E — Ideation & Publishing ----------
   const { ideationProjectScopedRoutes, ideationRoutes } =
     await import('./modules/ideation/routes.js')
@@ -244,6 +250,11 @@ async function buildServer() {
 
   const { complianceRoutes } = await import('./modules/platform/compliance/routes.js')
   await app.register(complianceRoutes, { prefix: '/admin/compliance' })
+
+  const { regulatoryAlertsRoutes } = await import('./modules/platform/regulatory-alerts/routes.js')
+  // Cross-module read + per-user ack + super-admin publish. Registered at
+  // root — paths are a mix of /regulatory-alerts/* and /admin/regulatory-alerts/*.
+  await app.register(regulatoryAlertsRoutes)
 
   // Compliance gauge scheduler — keeps the Prometheus gauges the Phase 6
   // alerts rely on (audit chain intact, last verify, access review, backup

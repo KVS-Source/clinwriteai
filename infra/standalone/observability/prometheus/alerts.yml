@@ -9,14 +9,25 @@ groups:
           severity: critical
         annotations:
           summary: "API 5xx error rate > 1% for 5 min"
+          runbook: "docs/compliance/runbooks/incident-response.md#prod-api-5xx-storm-sev1-outage"
 
       - alert: ApiHighLatencyP99
-        expr: histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 1
+        expr: histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 1.5
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "API p99 latency > 1s"
+          summary: "API p99 latency > 1.5s (SLO breach)"
+          runbook: "docs/launch/slo.md#headline-slos"
+
+      - alert: ApiHighLatencyP95
+        expr: histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p95 latency > 500ms (SLO breach)"
+          runbook: "docs/launch/slo.md#headline-slos"
 
       - alert: ApiDown
         expr: up{job="platform-api"} == 0
@@ -25,6 +36,35 @@ groups:
           severity: critical
         annotations:
           summary: "API is not scraping — service down?"
+          runbook: "docs/compliance/runbooks/incident-response.md"
+
+      # Two-threshold burn-rate alerts (Google SRE book) for the error-rate
+      # SLO. 14.4x = burning 2% of monthly budget in 1 hour → page immediately.
+      - alert: ApiErrorBudgetFastBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[1h]))
+            / sum(rate(http_requests_total[1h]))
+          ) > (14.4 * 0.001)
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Error-rate SLO burning fast (14.4x) — budget gone in ~2d at current rate"
+          runbook: "docs/launch/slo.md#error-budget-policy"
+
+      - alert: ApiErrorBudgetSlowBurn
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[6h]))
+            / sum(rate(http_requests_total[6h]))
+          ) > 0.001
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Error-rate SLO above target for 1h+ — budget attrition"
+          runbook: "docs/launch/slo.md#error-budget-policy"
 
   - name: platform-worker
     interval: 1m
@@ -71,6 +111,7 @@ groups:
           severity: critical
         annotations:
           summary: "Backup hasn't succeeded in > 24h"
+          runbook: "docs/compliance/runbooks/disaster-recovery.md#backup-topology"
 
       - alert: BackupDrillStale
         expr: (time() - platform_backup_drill_last_success_seconds) > 2764800   # 32 days
@@ -79,3 +120,69 @@ groups:
           severity: warning
         annotations:
           summary: "Backup restore drill hasn't run in > 32 days"
+          runbook: "docs/compliance/runbooks/disaster-recovery.md#dr-drill-cadence"
+
+  - name: platform-compliance
+    interval: 5m
+    rules:
+      # Audit chain integrity — a break is a Sev1 Part 11 incident.
+      # The gauge is published by the nightly chain-verify cron job
+      # (hits GET /admin/compliance/verify-chain and writes the result
+      # into Prometheus via a sidecar). 0 = broken, 1 = intact.
+      - alert: AuditChainBroken
+        expr: platform_audit_chain_intact == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Audit chain integrity failed — Part 11 incident"
+          runbook: "docs/compliance/runbooks/incident-response.md#audit-chain-break-sev1--part-11-breach"
+
+      - alert: AuditChainVerifyMissing
+        expr: (time() - platform_audit_chain_last_verify_seconds) > 86400 * 2
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Chain verify hasn't run in > 48h — monitoring blind spot"
+
+      - alert: AccessReviewOverdue
+        expr: (time() - platform_access_review_last_export_seconds) > 86400 * 35
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "SOC 2 monthly access review overdue (>35d)"
+
+  - name: platform-ai
+    interval: 1m
+    rules:
+      - alert: AiCostSpike
+        expr: |
+          (
+            sum(rate(platform_ai_cost_usd_total[1h]))
+            / sum(rate(platform_ai_cost_usd_total[24h]))
+          ) > 5
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI cost rate is 5x the 24h baseline — runaway loop?"
+
+      - alert: AiRateLimitedRateHigh
+        expr: |
+          sum(rate(platform_ai_calls_total{limit_decision="rejected_cap"}[15m]))
+          / sum(rate(platform_ai_calls_total[15m])) > 0.1
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: ">10% of AI calls rate-limited for 15m — tenant hitting cap?"
+
+      - alert: AiGatewayLatencyHigh
+        expr: histogram_quantile(0.95, sum by (le) (rate(ai_gateway_overhead_seconds_bucket[5m]))) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "AI gateway overhead p95 > 100ms (SLO breach — excludes provider time)"

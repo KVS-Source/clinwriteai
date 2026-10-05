@@ -1,6 +1,6 @@
 # ADR 0004: LLM provider — Anthropic Claude via direct API (with Azure OpenAI as fallback)
 
-**Status**: Proposed — pending BAA confirmation with Anthropic
+**Status**: Accepted (2026-10-05, after adversarial review) — pending BAA confirmation with Anthropic
 **Date**: 2026-10-05
 **Owner**: Tech lead + Legal
 **Deciders**: Tech lead, Legal, Compliance, 1× BE engineer
@@ -20,9 +20,11 @@ Every AI-mediated feature in the architecture (`docs/demo/01-architecture.md §2
 
 **Primary**: Anthropic Claude via the direct Anthropic API (`claude-opus-4-x` for complex reasoning tasks, `claude-sonnet-4-x` for high-volume tasks, `claude-haiku-4-x` for cheap bulk operations).
 
-**Fallback**: Azure OpenAI (GPT-4o / GPT-4-turbo) with the enterprise-tier BAA, if Anthropic BAA negotiation fails or a specific customer tenant requires it.
+**Fallback / per-tenant alternative**: Azure OpenAI (GPT-4o / GPT-4-turbo) with the enterprise-tier BAA, if Anthropic BAA negotiation fails or a specific customer tenant requires it.
 
-**Pattern**: All LLM calls route through the AI Gateway service (Phase 4). The gateway supports both providers behind a stable internal interface, so switching per-tenant or globally is a config change, not a code change.
+**Hard requirement baked into the decision after adversarial review**: the AI Gateway (Phase 4) **must support per-tenant provider selection as a runtime config flag**, not just a build-time toggle. This matters because the regulated-SaaS buying market in pharma is 60–70% already on Microsoft 365 + Entra ID; those customers may mandate "AI stays inside our Azure estate" as a contract condition. Per-tenant switchability turns that from a lost deal into a config entry.
+
+**Pattern**: All LLM calls route through the AI Gateway service. The gateway supports both providers behind a stable internal interface, exposes per-tenant provider routing, and enforces cost + rate limits per tenant.
 
 ## Options considered
 
@@ -84,7 +86,7 @@ Three decisive factors stack:
 
 ### Neutral / downstream work
 - Phase 0 Week 1: Legal engages Anthropic for BAA; parallel Azure OpenAI BAA as fallback.
-- Phase 4 (AI Gateway) must implement a `LLMProvider` interface with both Anthropic and Azure OpenAI adapters from day one, even if only Anthropic is wired in production. Rules out hard-coding either SDK into feature code.
+- Phase 4 (AI Gateway) must implement a `LLMProvider` interface with both Anthropic and Azure OpenAI adapters from day one, even if only Anthropic is wired in production. **Per-tenant provider selection is a hard requirement** of the gateway, not a nice-to-have. Rules out hard-coding either SDK into feature code.
 - Prompt-cache keys and TTLs are a per-feature design decision; captured in a `prompt-cache-registry.md` created in Phase 3A.
 - Model-version pinning is mandatory for GAMP 5 — PRs that bump a model version must trigger regression testing against the AC suite.
 

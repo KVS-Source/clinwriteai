@@ -1,6 +1,6 @@
 # ADR 0001: Backend framework — Fastify over Express
 
-**Status**: Proposed
+**Status**: Accepted (2026-10-05, after adversarial review)
 **Date**: 2026-10-05
 **Owner**: Tech lead
 **Deciders**: Tech lead, 2× BE engineers
@@ -26,7 +26,7 @@ Used as a single long-running Node process. Each module in `apps/api/src/modules
 ### Option A — Fastify
 - **Pros**
   - Schema-first: handlers declare Zod schemas, Fastify auto-validates request + response, auto-generates OpenAPI. Matches our types-first contract exactly.
-  - ~2× throughput vs Express under identical workloads (published benchmarks).
+  - Measurable throughput advantage vs Express on light workloads (published benchmarks ~2×), narrower on heavy-JSON bodies which is our actual profile. Not the decisive factor.
   - First-class lifecycle hooks (`preHandler`, `preValidation`, `onResponse`, `onError`) that we need for RBAC and audit-trail writes without wrapper middleware spaghetti.
   - Plugin encapsulation model enforces module boundaries at runtime (prefix scoping, decorator isolation) — matches the ESLint-enforced module folders.
   - Active maintenance (OpenJS foundation project).
@@ -53,9 +53,11 @@ Used as a single long-running Node process. Each module in `apps/api/src/modules
 
 ## Rationale
 
-The decisive factor is **schema-first validation + OpenAPI generation from a single Zod source of truth**. Our API contract is already defined (179 endpoints in `03-api-contract.md`); we need handlers that enforce it automatically, not hand-rolled validators that can drift. Fastify's plugin model also gives us a runtime enforcement of module boundaries that complements the ESLint boundaries we already use in `apps/web`.
+The decisive factor is the **audit-trail hook**: Fastify's `onResponse` fires on every request path including errors, with no handler-level opt-in. Express needs a try/catch wrapper on every route or a middleware that only catches 2xx — architecturally bypassable, which is exactly what we cannot afford for a Part 11 audit trail.
 
-Express would work, but the compensating effort to add the missing bits (schema validation, OpenAPI, structured lifecycle for audit) over the project is 1–2 engineer-weeks — enough to justify the small learning curve on Fastify.
+Secondary factor: **schema-first validation + OpenAPI from a single Zod source of truth**. The 179-endpoint API contract (`03-api-contract.md`) wants handlers that enforce it automatically rather than hand-rolled validators that drift. Both frameworks can get there (`express-zod-api` exists); Fastify is native.
+
+Express would work, and the throughput advantage I originally cited is narrower on heavy-JSON workloads than the headline numbers suggest. This is a **55/45 call, not 80/20** — but the audit hook tips it clearly.
 
 ## Consequences
 

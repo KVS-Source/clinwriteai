@@ -1,6 +1,6 @@
 # ADR 0003: Vector store — pgvector on the same Postgres instance
 
-**Status**: Proposed
+**Status**: Accepted (2026-10-05, after adversarial review)
 **Date**: 2026-10-05
 **Owner**: AI engineer (TBD) + Tech lead
 **Deciders**: Tech lead, AI engineer, DevOps
@@ -21,6 +21,8 @@ Options span a continuum from "run it inside Postgres" to "run a dedicated vecto
 ## Decision
 
 **`pgvector` extension on the same PostgreSQL cluster** that hosts the application data. Use HNSW indexes with cosine distance. Keep embeddings in the same tenant-scoped rows as the originating content.
+
+**Hard constraint added after adversarial review**: **vector dimensionality ≤ 1536**. This pins ADR 0012 (Claims Matrix similarity engine / embedding model) to models that output ≤ 1536-dim vectors (e.g. OpenAI `text-embedding-3-small`, Voyage `voyage-3`, Cohere `embed-english-v3`). Rules out `text-embedding-3-large` at 3072 dim because the resulting HNSW index on 500k × 3072 floats is ~6 GB — too memory-hungry for a single-Postgres-cluster model.
 
 Revisit when any single tenant exceeds ~500k vectors or when p99 query latency exceeds 100ms despite tuning.
 
@@ -82,7 +84,7 @@ Decisive factor: **transactional consistency between the semantic row and its em
 - Phase 1 Week 4: add `CREATE EXTENSION pgvector` to the initial migration.
 - Phase 3C: Module C BE owner implements the Claims Matrix similarity service against pgvector.
 - Phase 6: monitoring on `pg_stat_user_indexes` for vector indexes; alert at 500k rows/tenant.
-- Embedding model choice is a separate decision (ADR 0012 — Claims Matrix similarity engine).
+- **Embedding model choice (ADR 0012) is constrained**: vector dim must be ≤ 1536. Rules out `text-embedding-3-large` (3072-dim). Candidates that fit: OpenAI `text-embedding-3-small` (1536), Voyage `voyage-3` (1024), Cohere `embed-english-v3` (1024), `all-mpnet-base-v2` (768).
 
 ## Compliance implications
 

@@ -18,10 +18,10 @@ See [architecture-implementation-plan.md](architecture-implementation-plan.md) f
 
 | # | Decision | Status | Blocking |
 |---|---|---|---|
-| 0001 | [Backend framework → Fastify](adr/0001-backend-framework.md) | 📝 Proposed, needs team review | Phase 1 scaffold |
-| 0002 | [ORM → Prisma + raw SQL for audit trail](adr/0002-orm.md) | 📝 Proposed, needs team review | Phase 1 schema work |
-| 0003 | [Vector store → pgvector on same Postgres](adr/0003-vector-store.md) | 📝 Proposed, needs team review | Phase 3C Claims Matrix |
-| 0004 | [LLM provider → Anthropic Claude (direct API)](adr/0004-llm-provider.md) | 📝 Proposed, needs BAA confirmation | Phase 1 AI Gateway stub, Phase 3A onwards |
+| 0001 | [Backend framework → Fastify](adr/0001-backend-framework.md) | ✅ Accepted (2026-10-05) — amended: throughput claim softened, audit-hook named as decisive | — |
+| 0002 | [ORM → Prisma + raw SQL for audit trail](adr/0002-orm.md) | ✅ Accepted (2026-10-05) — amended: commits to multi-file schema; typed-SQL option documented; Phase 1 W4 checkpoint added | — |
+| 0003 | [Vector store → pgvector on same Postgres](adr/0003-vector-store.md) | ✅ Accepted (2026-10-05) — amended: vector dim ≤ 1536 hard constraint added | — |
+| 0004 | [LLM provider → Anthropic Claude (direct API)](adr/0004-llm-provider.md) | ✅ Accepted (2026-10-05) — amended: per-tenant provider switching in AI Gateway is now a hard requirement, not nice-to-have. Still pending BAA with Anthropic (Legal, 4–8w) | — |
 | 0005 | SSO provider → Entra ID / Okta / Auth0 | ⬜ Not drafted | Phase 1 auth implementation |
 | 0006 | Secrets manager → AWS Secrets vs HashiCorp Vault | ⬜ Not drafted | Phase 1 env config |
 | 0007 | Deployment target → AWS / GCP / Azure | ⬜ Not drafted | Terraform skeleton (below) |
@@ -77,10 +77,11 @@ See [architecture-implementation-plan.md](architecture-implementation-plan.md) f
 
 - ✅ Architecture plan → [`architecture-implementation-plan.md`](architecture-implementation-plan.md)
 - ✅ ADR structure, template, README index → [`adr/README.md`](adr/README.md) + [`adr/template.md`](adr/template.md)
-- ✅ ADR 0001 Backend framework (Fastify) — Proposed
-- ✅ ADR 0002 ORM (Prisma + raw SQL for audit) — Proposed
-- ✅ ADR 0003 Vector store (pgvector) — Proposed
-- ✅ ADR 0004 LLM provider (Anthropic with Azure fallback) — Proposed
+- ✅ ADR 0001 Backend framework (Fastify) — **Accepted (2026-10-05)**
+- ✅ ADR 0002 ORM (Prisma + raw SQL for audit) — **Accepted (2026-10-05)**
+- ✅ ADR 0003 Vector store (pgvector) — **Accepted (2026-10-05)**
+- ✅ ADR 0004 LLM provider (Anthropic with Azure fallback) — **Accepted (2026-10-05)**
+- ✅ Adversarial review on ADRs 0001–0004 → 4 amendments merged
 - ✅ This tracker
 
 ## Next in this session (Claude will produce)
@@ -92,8 +93,8 @@ See [architecture-implementation-plan.md](architecture-implementation-plan.md) f
 ## Needs human action to unblock Phase 1
 
 Before Phase 1 can start:
-1. **Review and Accept ADRs 0001–0004** (team call, 1 hour)
-2. **Draft ADRs 0005–0008** (SSO, Secrets, Deployment target, Job queue — I can draft, team confirms)
+1. ~~**Review and Accept ADRs 0001–0004**~~ ✅ Done 2026-10-05 after adversarial review
+2. **Draft ADRs 0005–0008** (SSO, Secrets, Deployment target, Job queue — Claude to draft, team confirms)
 3. **Kick off FDA ESG + eCTD validator procurement** (long lead time; must start now)
 4. **Engage Legal** on BAAs (Anthropic + cloud provider + customer DPA)
 5. **Agree on cloud provider** (ADR 0007) — unblocks Terraform fleshing-out

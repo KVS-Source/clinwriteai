@@ -43,20 +43,23 @@ async function buildServer() {
     return { ready: true }
   })
 
+  // ---------- Session cookie storage ----------
+  await app.register(import('@fastify/cookie'))
+
   // ---------- Core data + audit plumbing ----------
   await app.register(import('./prisma/plugin.js'))
   await app.register(import('./audit/plugin.js'))
 
+  // ---------- Auth (SSO + JWT session + RBAC) ----------
+  await app.register(import('./auth/plugin.js'))
+
   // ---------- Phase 1 Week 5-6: register remaining plugins + routes ----------
   // await app.register(import('@fastify/cors'),       { origin: env.CORS_ORIGIN, credentials: env.CORS_CREDENTIALS })
   // await app.register(import('@fastify/helmet'))
-  // await app.register(import('@fastify/cookie'))
   // await app.register(import('@fastify/sensible'))
   // await app.register(import('@fastify/rate-limit'), { max: 100, timeWindow: '1 minute' })
   // await app.register(import('@fastify/swagger'),    { ... })      // OpenAPI from Zod schemas
   // await app.register(import('@fastify/swagger-ui'), { routePrefix: '/docs' })
-  //
-  // await app.register(import('./auth/plugin.js'))                  // WorkOS SSO + MFA + JWT session
   //
   // await app.register(import('./modules/platform/routes.js'),      { prefix: '/admin' })
   // await app.register(import('./modules/projects/routes.js'),      { prefix: '/projects' })

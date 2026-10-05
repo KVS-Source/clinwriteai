@@ -17,6 +17,10 @@ const EnvSchema = z.object({
   SECRETS_PROVIDER: z.enum(['env', 'sops', 'aws-secrets-manager']).default('env'),
   SOPS_AGE_KEY_FILE: z.string().optional(),
 
+  // Auth (ADR 0005)
+  SSO_PROVIDER: z.enum(['mock', 'workos']).default('mock'),
+  JWT_EXPIRY: z.string().default('24h'),
+
   // Observability
   OTEL_SERVICE_NAME: z.string().default('platform-api'),
   OTEL_EXPORTER_OTLP_ENDPOINT: z.string().url().optional(),

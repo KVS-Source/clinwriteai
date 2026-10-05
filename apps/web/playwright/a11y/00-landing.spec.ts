@@ -1,17 +1,18 @@
 // WCAG 2.1 AA regression suite — closes the Phase 3C "WCAG test harness"
 // deferral. Uses @axe-core/playwright to assert zero violations on the
-// pages the smoke suite already touches.
+// pages the smoke suite already touches, so coverage expands in lockstep.
 //
 // Tags filter: WCAG 2A + 2AA + 2.1 AA. Best-practice rules (axe default)
 // are disabled here to avoid chasing non-normative recommendations that
 // bind us to opinions axe-core may change between versions.
 //
-// Failure mode: a violation prints the rule id, impact, help URL, and the
-// first 3 offending nodes. Enough to triage without opening the HTML
-// report. For richer debugging run `npx playwright show-report`.
+// Failure mode: a violation prints rule id + impact + help URL + first 3
+// offending nodes. Enough to triage without opening the HTML report.
+// For richer debugging run `npx playwright show-report`.
 
 import { test, expect, type Page } from '@playwright/test'
 import AxeBuilder from '@axe-core/playwright'
+import { PROTOTYPE_PROJECT_ID } from '../helpers/auth.js'
 
 async function assertNoA11yViolations(page: Page, path: string): Promise<void> {
   await page.goto(path)
@@ -35,10 +36,30 @@ async function assertNoA11yViolations(page: Page, path: string): Promise<void> {
   expect(results.violations).toEqual([])
 }
 
+// Each page listed below mirrors a page covered by the smoke suite so
+// coverage expands as modules land real UI. Order mirrors apps/web/playwright/smoke/.
+const PROJECT_PATH = `/projects/${PROTOTYPE_PROJECT_ID}`
+
 test('landing (/projects) has no WCAG 2.1 AA violations', async ({ page }) => {
   await assertNoA11yViolations(page, '/projects')
 })
 
 test('clinical writing home has no WCAG 2.1 AA violations', async ({ page }) => {
-  await assertNoA11yViolations(page, '/projects/velora-301/clinical-writing')
+  await assertNoA11yViolations(page, `${PROJECT_PATH}/clinical-writing`)
+})
+
+test('scientific writing home has no WCAG 2.1 AA violations', async ({ page }) => {
+  await assertNoA11yViolations(page, `${PROJECT_PATH}/scientific-writing`)
+})
+
+test('medical writing home has no WCAG 2.1 AA violations', async ({ page }) => {
+  await assertNoA11yViolations(page, `${PROJECT_PATH}/medical-writing`)
+})
+
+test('regulatory writing home has no WCAG 2.1 AA violations', async ({ page }) => {
+  await assertNoA11yViolations(page, `${PROJECT_PATH}/regulatory-writing`)
+})
+
+test('ideation home has no WCAG 2.1 AA violations', async ({ page }) => {
+  await assertNoA11yViolations(page, `${PROJECT_PATH}/ideation`)
 })

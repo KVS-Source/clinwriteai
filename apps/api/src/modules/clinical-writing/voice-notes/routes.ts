@@ -134,6 +134,25 @@ export const voiceNotesRoutes: FastifyPluginAsync = async (app) => {
     if (!note) return reply.code(404).send({ error: 'not_found' })
 
     const url = await app.blob.presignDownload('voice', note.audioBlobKey, { expiresInSeconds: 300 })
+
+    // PHI access: voice notes typically contain dictated clinical content —
+    // the audio itself is PHI even before transcription. Tagged the same
+    // as the document-body read so the audit trail is uniform.
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'phi_voice_note_accessed',
+      entityType: 'voice_note',
+      entityId: noteId,
+      details: {
+        module: 'A',
+        documentId,
+        sectionRef: note.sectionRef,
+        durationSeconds: note.durationSeconds,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
     return { url, expiresInSeconds: 300 }
   })
 }

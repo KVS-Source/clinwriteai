@@ -118,6 +118,26 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await svc.getWithSections(documentId)
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    // HIPAA minimum-necessary logging: tag every full-body document read
+    // as PHI access. The list route (/projects/:id/documents) is NOT tagged
+    // because it returns metadata only — no section content. Audit volume
+    // trade-off: a user opening 50 docs/day generates 50 phi_document_accessed
+    // events; retention policy (indefinite for audit_events) catches these.
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'phi_document_accessed',
+      entityType: 'document',
+      entityId: documentId,
+      details: {
+        module: 'A',
+        documentType: doc.type,
+        sectionCount: doc.currentVersion?.sections.length ?? 0,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
     return doc
   })
 

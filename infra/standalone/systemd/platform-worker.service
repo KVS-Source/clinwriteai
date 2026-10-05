@@ -16,7 +16,14 @@ WorkingDirectory=/opt/platform/apps/worker
 ExecStartPre=/opt/platform/scripts/decrypt-env.sh worker
 EnvironmentFile=/run/platform/worker.env
 
-ExecStart=/usr/bin/node dist/worker.js
+# Health HTTP server port (Batch 27). External orchestrators probe
+# /health (liveness) and /ready (Postgres + Redis dependency checks) here.
+Environment="WORKER_HEALTH_PORT=3002"
+
+# Entry point is apps/worker/dist/index.js (tsc --build output).
+# The earlier dist/worker.js filename didn't match the build output
+# and would fail with ENOENT — caught during Batch 27 health wiring review.
+ExecStart=/usr/bin/node dist/index.js
 
 Restart=always
 RestartSec=5

@@ -159,8 +159,13 @@ async function buildServer() {
   await app.register(publishingRoutes, { prefix: '/ideation' })
 
   // ---------- Phase 4 shared platform services ----------
+  await app.register(import('./modules/platform/notifications/plugin.js'))
+
   const { libraryRoutes } = await import('./modules/platform/library/routes.js')
   await app.register(libraryRoutes, { prefix: '/library' })
+
+  const { notificationsRoutes } = await import('./modules/platform/notifications/routes.js')
+  await app.register(notificationsRoutes, { prefix: '/notifications' })
 
   return app
 }

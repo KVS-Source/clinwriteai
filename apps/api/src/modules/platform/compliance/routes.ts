@@ -12,6 +12,8 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { PostgresAuditRepository } from '../../../audit/postgres-repository.js'
+import { buildComplianceReport } from './report/builder.js'
+import { renderComplianceReportPdf } from './report/pdf-renderer.js'
 
 const windowQuery = z.object({
   from: z.string().datetime().optional(),
@@ -95,58 +97,50 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
     const from = q.data.from ? new Date(q.data.from) : defaultFrom
     const to = q.data.to ? new Date(q.data.to) : new Date()
 
-    const [auditTotal, auditByAction, aiSummary, userCount, activeSessionCount, chainResult] = await Promise.all([
-      app.prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
-        'SELECT COUNT(*)::bigint AS count FROM audit_events WHERE "timestamp" BETWEEN $1 AND $2',
-        from, to,
-      ),
-      app.prisma.$queryRawUnsafe<Array<{ action: string; count: bigint }>>(
-        'SELECT action, COUNT(*)::bigint AS count FROM audit_events WHERE "timestamp" BETWEEN $1 AND $2 GROUP BY action ORDER BY count DESC',
-        from, to,
-      ),
-      app.prisma.aiCallRecord.aggregate({
-        where: { createdAt: { gte: from, lte: to } },
-        _sum: { costUsd: true, inputTokens: true, outputTokens: true },
-        _count: { _all: true },
-      }),
-      app.prisma.user.count(),
-      app.prisma.session.count({ where: { revokedAt: null, expiresAt: { gt: new Date() } } }),
-      // Reuse the chain-verify helper rather than duplicating the logic.
-      (async () => {
-        const auditSecret = await app.secrets.getSecret('AUDIT_HASH_SECRET')
-        const repo = new PostgresAuditRepository(app.prisma, auditSecret)
-        return repo.verifyChain()
-      })(),
-    ])
+    const auditSecret = await app.secrets.getSecret('AUDIT_HASH_SECRET')
+    const report = await buildComplianceReport(app.prisma, auditSecret, { from, to }, request.log)
 
     await app.audit.append({
-      timestamp: new Date().toISOString(),
+      timestamp: report.generatedAt,
       actorId: request.user!.id,
       action: 'compliance_report_requested',
       entityType: 'compliance',
       entityId: 'report',
-      details: { from: from.toISOString(), to: to.toISOString() },
+      details: { from: from.toISOString(), to: to.toISOString(), format: 'json' },
       ipAddress: request.ip ?? null,
     })
 
-    return {
-      window: { from, to },
-      audit: {
-        totalEvents: Number(auditTotal[0]?.count ?? 0),
-        byAction: auditByAction.map(r => ({ action: r.action, count: Number(r.count) })),
-        chainIntegrity: chainResult,
-      },
-      ai: {
-        totalCalls: aiSummary._count._all,
-        totalCostUsd: Number(aiSummary._sum.costUsd ?? 0),
-        totalInputTokens: aiSummary._sum.inputTokens ?? 0,
-        totalOutputTokens: aiSummary._sum.outputTokens ?? 0,
-      },
-      identity: {
-        userCount,
-        activeSessionCount,
-      },
-    }
+    return report
+  })
+
+  // PDF variant — same builder, pdfkit-rendered. Attestable artefact for
+  // auditor binders. Streams application/pdf with a dated filename.
+  app.get('/report.pdf', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+    const q = windowQuery.safeParse(request.query)
+    if (!q.success) return reply.code(400).send({ error: 'validation', issues: q.error.issues })
+
+    const defaultFrom = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    const from = q.data.from ? new Date(q.data.from) : defaultFrom
+    const to = q.data.to ? new Date(q.data.to) : new Date()
+
+    const auditSecret = await app.secrets.getSecret('AUDIT_HASH_SECRET')
+    const report = await buildComplianceReport(app.prisma, auditSecret, { from, to }, request.log)
+
+    await app.audit.append({
+      timestamp: report.generatedAt,
+      actorId: request.user!.id,
+      action: 'compliance_report_requested',
+      entityType: 'compliance',
+      entityId: 'report',
+      details: { from: from.toISOString(), to: to.toISOString(), format: 'pdf' },
+      ipAddress: request.ip ?? null,
+    })
+
+    const filename = `compliance-report-${from.toISOString().slice(0, 10)}-to-${to.toISOString().slice(0, 10)}.pdf`
+    reply
+      .type('application/pdf')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+    return reply.send(renderComplianceReportPdf(report))
   })
 
   // --- Retention report ----------------------------------------------------
@@ -229,5 +223,134 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
       activeSessionCount: u.sessions.length,
       ssoSubject: u.ssoSubject,
     }))
+  })
+
+  // --- GDPR Art. 17 subject-request anonymisation ------------------------
+  //
+  // "Right to erasure" — a data subject requests their personal data be
+  // removed. We can't hard-delete the User row because historical FKs
+  // (publication authors, signatures, audit actors) depend on it; instead
+  // we overwrite PII fields with deterministic anonymised placeholders
+  // and flip status to 'anonymised'. The audit trail integrity story
+  // stays intact — all historical actions still point at a user row,
+  // just one that no longer carries personal data.
+  //
+  // Fields scrubbed:
+  //   - email → 'anonymised-<id>@removed.local' (unique, parseable)
+  //   - name → 'Anonymised User'
+  //   - initials → 'AU'
+  //   - ssoSubject → null (breaks SCIM link so the IdP can't rehydrate)
+  //   - lastActiveAt → null
+  //   - status → 'anonymised' (new terminal state)
+  //
+  // Side effects:
+  //   - Revoke all active sessions (user can no longer log in)
+  //   - Scrub mobile/email on any KolContact or MaContact where userId
+  //     matches (Module E contact directory also stores PII)
+  //
+  // What this does NOT do (deliberate):
+  //   - Delete historical audit events naming the actor (Part 11 forbids
+  //     mutating audit chain; the chain rows just now point at an
+  //     anonymised user id — same shape auditors expect)
+  //   - Scrub denormalised author names on PublicationAuthor rows (that
+  //     would break historical publication records; alternative is to
+  //     mark the author row with an 'anonymised: true' flag — scope-later)
+
+  const anonymiseSchema = z.object({
+    userId: z.string().min(1),
+    reason: z.string().min(1, 'reason required for the audit record'),
+    // Confirmation to prevent fat-finger: operator types the user's email.
+    confirmEmail: z.string().email(),
+  })
+
+  app.post('/gdpr-anonymise', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+    const parsed = anonymiseSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const target = await app.prisma.user.findUnique({ where: { id: parsed.data.userId } })
+    if (!target) return reply.code(404).send({ error: 'not_found' })
+    if (target.status === 'anonymised') return reply.code(409).send({ error: 'already_anonymised' })
+    if (target.email !== parsed.data.confirmEmail) {
+      return reply.code(400).send({ error: 'confirm_email_mismatch', message: 'confirmEmail must match the target user\'s current email' })
+    }
+    // Protect against anonymising the last super-admin — would lock out
+    // the entire control plane.
+    if (target.role === 'super-admin') {
+      const otherSuperAdmins = await app.prisma.user.count({
+        where: {
+          role: 'super-admin',
+          status: 'active',
+          id: { not: target.id },
+        },
+      })
+      if (otherSuperAdmins === 0) {
+        return reply.code(409).send({
+          error: 'last_super_admin',
+          message: 'Cannot anonymise the last active super-admin — promote another user first',
+        })
+      }
+    }
+
+    const anonymisedEmail = `anonymised-${target.id}@removed.local`
+    const now = new Date()
+
+    const result = await app.prisma.$transaction(async (tx) => {
+      // 1. Scrub User row.
+      const updated = await tx.user.update({
+        where: { id: target.id },
+        data: {
+          email: anonymisedEmail,
+          name: 'Anonymised User',
+          initials: 'AU',
+          ssoSubject: null,
+          lastActiveAt: null,
+          status: 'anonymised',
+        },
+      })
+
+      // 2. Revoke all active sessions.
+      // Session table has no revokeReason column; reason stays in the
+      // audit event payload. Rows just get revokedAt set.
+      const sessionResult = await tx.session.updateMany({
+        where: { userId: target.id, revokedAt: null },
+        data: { revokedAt: now },
+      })
+
+      // 3. Scrub Module E contact directory rows that reference this user
+      // by email (contacts can be externals; we match on inviteEmail to
+      // catch both).
+      const kolResult = await tx.kolContact.updateMany({
+        where: { email: target.email },
+        data: { email: anonymisedEmail, mobileEncrypted: null, name: 'Anonymised Contact' },
+      })
+      const maResult = await tx.maContact.updateMany({
+        where: { email: target.email },
+        data: { email: anonymisedEmail, mobileEncrypted: null, name: 'Anonymised Contact' },
+      })
+
+      return {
+        userId: updated.id,
+        revokedSessions: sessionResult.count,
+        kolContactsScrubbed: kolResult.count,
+        maContactsScrubbed: maResult.count,
+      }
+    })
+
+    await app.audit.append({
+      timestamp: now.toISOString(),
+      actorId: request.user!.id,
+      action: 'gdpr_anonymisation_executed',
+      entityType: 'user',
+      entityId: target.id,
+      details: {
+        reason: parsed.data.reason,
+        revokedSessions: result.revokedSessions,
+        kolContactsScrubbed: result.kolContactsScrubbed,
+        maContactsScrubbed: result.maContactsScrubbed,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return result
   })
 }

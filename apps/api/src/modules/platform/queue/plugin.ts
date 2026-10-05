@@ -7,7 +7,10 @@
 import type { FastifyPluginAsync } from 'fastify'
 import fp from 'fastify-plugin'
 import { BullMqProducer, createRedisConnection } from './bullmq-producer.js'
+import { QueueMetricsScheduler } from './metrics.js'
 import type { QueueProducer } from './producer.js'
+
+const QUEUE_METRICS_TICK_MS = 30_000  // every 30s so alert windows evaluate fast enough
 
 const queuePlugin: FastifyPluginAsync = async (app) => {
   const connection = createRedisConnection(app.env.REDIS_URL)
@@ -37,7 +40,21 @@ const queuePlugin: FastifyPluginAsync = async (app) => {
   // / audit indefinite).
   await producer.schedule('compliance.retention_purge', {}, '0 3 * * *')
 
+  // Queue metrics — polls every 30s so Phase 6 alerts
+  // (QueueBacklogGrowing, DeadLetterQueueGrowing) have fresh gauges.
+  const metricsScheduler = new QueueMetricsScheduler({
+    queues: producer.getQueues(),
+    waiting: app.platformMetrics.bullmqQueueWaiting,
+    active: app.platformMetrics.bullmqQueueActive,
+    failed: app.platformMetrics.bullmqQueueFailed,
+    delayed: app.platformMetrics.bullmqQueueDelayed,
+    tickMs: QUEUE_METRICS_TICK_MS,
+    logger: app.log,
+  })
+  metricsScheduler.start()
+
   app.addHook('onClose', async () => {
+    metricsScheduler.stop()
     await producer.close()
     await connection.quit()
   })
@@ -49,4 +66,7 @@ declare module 'fastify' {
   }
 }
 
-export default fp(queuePlugin, { name: 'queue' })
+export default fp(queuePlugin, {
+  name: 'queue',
+  dependencies: ['platform-metrics'],
+})

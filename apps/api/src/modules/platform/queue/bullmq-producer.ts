@@ -14,6 +14,11 @@ export class BullMqProducer implements QueueProducer {
 
   constructor(private readonly connection: Redis) {}
 
+  /** Exposed for the metrics scheduler (./metrics.ts). */
+  getQueues(): Map<string, Queue> {
+    return this.queues as unknown as Map<string, Queue>
+  }
+
   private getQueue(name: QueueJobName): Queue {
     const existing = this.queues.get(name)
     if (existing) return existing

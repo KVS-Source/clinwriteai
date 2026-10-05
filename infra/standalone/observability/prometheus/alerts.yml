@@ -70,20 +70,39 @@ groups:
     interval: 1m
     rules:
       - alert: QueueBacklogGrowing
-        expr: bullmq_queue_waiting{job="platform-worker"} > 500
+        # Any single queue >500 jobs for 10m. `sum by (name)` collapses the
+        # job label so this fires once per queue, not once per name×job pair.
+        expr: sum by (name) (bullmq_queue_waiting{job="platform-worker"}) > 500
         for: 10m
         labels:
           severity: warning
         annotations:
-          summary: "BullMQ queue backlog > 500 jobs for 10 min"
+          summary: "BullMQ queue backlog > 500 jobs for 10 min ({{ $labels.name }})"
+          runbook: "docs/compliance/runbooks/incident-response.md"
 
+      # Failed is a GAUGE (BullMQ reports current count, not a counter).
+      # delta() gives the change over the window — fires when failed count
+      # climbs >10 in an hour. Different signature from increase() which
+      # requires a counter.
       - alert: DeadLetterQueueGrowing
-        expr: increase(bullmq_queue_failed{job="platform-worker"}[1h]) > 10
+        expr: delta(bullmq_queue_failed{job="platform-worker"}[1h]) > 10
         for: 5m
         labels:
           severity: critical
         annotations:
-          summary: "Dead-letter queue growing > 10 jobs/hour"
+          summary: "Dead-letter queue grew by >10 in last hour ({{ $labels.name }})"
+          runbook: "docs/compliance/runbooks/incident-response.md"
+
+      # Floor alert: absolute failed count >50 in any queue for 15m.
+      # Catches sustained issues the delta-based alert misses (steady-state
+      # failures without growth).
+      - alert: QueueFailedHigh
+        expr: bullmq_queue_failed{job="platform-worker"} > 50
+        for: 15m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BullMQ failed job count > 50 ({{ $labels.name }})"
 
   - name: platform-infra
     interval: 1m

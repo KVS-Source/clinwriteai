@@ -27,6 +27,13 @@ export interface PlatformMetrics {
   accessReviewLastExport: Gauge<never>
   backupLastSuccess: Gauge<never>
   backupDrillLastSuccess: Gauge<never>
+  // BullMQ queue depth gauges — polled every tick by the queue metrics
+  // scheduler. The `job` label is pinned to 'platform-worker' so the
+  // Phase 6 alerts can filter on it (QueueBacklogGrowing, DeadLetterQueueGrowing).
+  bullmqQueueWaiting: Gauge<'name' | 'job'>
+  bullmqQueueActive: Gauge<'name' | 'job'>
+  bullmqQueueFailed: Gauge<'name' | 'job'>
+  bullmqQueueDelayed: Gauge<'name' | 'job'>
 }
 
 const metricsPlugin: FastifyPluginAsync = async (app) => {
@@ -99,6 +106,32 @@ const metricsPlugin: FastifyPluginAsync = async (app) => {
     registers: [registry],
   })
 
+  // BullMQ queue depth gauges — labels match the Phase 6 alert expressions.
+  const bullmqQueueWaiting = new app.metrics.client.Gauge({
+    name: 'bullmq_queue_waiting',
+    help: 'Number of jobs waiting in a BullMQ queue.',
+    labelNames: ['name', 'job'] as const,
+    registers: [registry],
+  })
+  const bullmqQueueActive = new app.metrics.client.Gauge({
+    name: 'bullmq_queue_active',
+    help: 'Number of jobs currently being processed in a BullMQ queue.',
+    labelNames: ['name', 'job'] as const,
+    registers: [registry],
+  })
+  const bullmqQueueFailed = new app.metrics.client.Gauge({
+    name: 'bullmq_queue_failed',
+    help: 'Number of failed jobs in a BullMQ queue (dead letter proxy).',
+    labelNames: ['name', 'job'] as const,
+    registers: [registry],
+  })
+  const bullmqQueueDelayed = new app.metrics.client.Gauge({
+    name: 'bullmq_queue_delayed',
+    help: 'Number of delayed jobs in a BullMQ queue (scheduled for future execution).',
+    labelNames: ['name', 'job'] as const,
+    registers: [registry],
+  })
+
   app.decorate('platformMetrics', {
     registry,
     auditEventsTotal,
@@ -109,6 +142,10 @@ const metricsPlugin: FastifyPluginAsync = async (app) => {
     accessReviewLastExport,
     backupLastSuccess,
     backupDrillLastSuccess,
+    bullmqQueueWaiting,
+    bullmqQueueActive,
+    bullmqQueueFailed,
+    bullmqQueueDelayed,
   } satisfies PlatformMetrics)
 }
 

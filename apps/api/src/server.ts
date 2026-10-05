@@ -103,6 +103,9 @@ async function buildServer() {
   // one plugin file so the handlers share the service instance.
   await app.register(documentsProjectScopedRoutes, { prefix: '/projects' })
   await app.register(documentsRoutes, { prefix: '/documents' })
+
+  const { checklistRoutes } = await import('./modules/clinical-writing/checklist/routes.js')
+  await app.register(checklistRoutes, { prefix: '/documents' })
   //
   // // Module route registrations land in Phase 3A-3E:
   // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })

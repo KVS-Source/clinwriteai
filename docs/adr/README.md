@@ -27,9 +27,10 @@ Each ADR captures **one decision**, the context that forced it, the options cons
 | 0003 | [Vector store — pgvector (dim ≤ 1536)](0003-vector-store.md) | ✅ Accepted (2026-10-05) | AI engineer |
 | 0004 | [LLM provider — Anthropic primary, Azure fallback](0004-llm-provider.md) | ✅ Accepted (2026-10-05) | Tech lead + Legal |
 | 0005 | [SSO — WorkOS for B2B federation](0005-sso-provider.md) | ✅ Accepted (2026-10-05) | Security |
-| 0006 | [Secrets — AWS Secrets Manager + Parameter Store](0006-secrets-manager.md) | ✅ Accepted (2026-10-05) | DevOps |
-| 0007 | [Deployment target — AWS primary, cells per region](0007-deployment-target.md) | ✅ Accepted (2026-10-05) | DevOps + Tech lead |
-| 0008 | [Job queue — BullMQ on ElastiCache Redis](0008-job-queue.md) | ✅ Accepted (2026-10-05) | Tech lead |
+| 0006 | [Secrets — SecretsProvider interface; sops+age standalone, Secrets Manager cloud](0006-secrets-manager.md) | ✅ Accepted (2026-10-05, revised same day for standalone-first) | DevOps |
+| 0007 | [Deployment target — Standalone VPS year 1, AWS/Azure year 2](0007-deployment-target.md) | ✅ Accepted (2026-10-05, revised same day for standalone-first) | DevOps + Tech lead |
+| 0008 | [Job queue — BullMQ on Redis (standalone + cloud)](0008-job-queue.md) | ✅ Accepted (2026-10-05) | Tech lead |
+| 0009 | [Standalone deployment stack — Compose + nginx + MinIO + Prom/Grafana/Loki + sops + B2 backup](0009-standalone-deployment-stack.md) | ✅ Accepted (2026-10-05, follows ADR 0007 revision) | DevOps + Tech lead |
 | 0009 | Diff algorithm scope | Pending | Module A owner |
 | 0010 | E-signature hash scope | Pending | Compliance + Tech lead |
 | 0011 | Canonical JSON indexing approach | Pending | Module D owner |

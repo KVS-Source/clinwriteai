@@ -1,128 +1,141 @@
-# ADR 0007: Deployment target — AWS primary, cells per region for data residency
+# ADR 0007: Deployment target — Standalone VPS year 1 with cloud-portable architecture; AWS/Azure year 2
 
-**Status**: Accepted (2026-10-05, defaults policy)
-**Date**: 2026-10-05
+**Status**: Accepted (2026-10-05, revised to standalone-first on user direction)
+**Date**: 2026-10-05 (revised same day)
 **Owner**: Tech lead + DevOps
 **Deciders**: Tech lead, DevOps, Security, Compliance
-**Supersedes**: —
+**Supersedes**: Prior "AWS primary" draft of this ADR (same ADR number; revision in-place)
 **Superseded by**: —
 
 ## Context
 
 The architecture doc (`01-architecture.md`) is silent on cloud target. This decision gates:
 
-- All infra-as-code (ADR 0007 directly drives Terraform providers)
+- All infrastructure-as-code tooling (Terraform providers)
 - Secrets manager choice (ADR 0006)
-- Managed Postgres flavour (RDS Aurora vs Cloud SQL vs Flexible Server)
-- Container platform choice (EKS / GKE / AKS / Fargate / Cloud Run / Container Apps)
-- Object storage SDK (S3 / GCS / Blob)
+- Managed vs self-hosted Postgres and Redis
+- Container orchestration platform
+- Object storage SDK
 - Observability stack
+- Operational posture (managed-service HA vs single-VPS discipline)
 
-Primary customers are regulated pharma. Three real cloud candidates:
+**Primary funding stance in year 1**: pre-revenue; AWS spend of $1.5–3k/month is a budget line item not justified until paying customers arrive. **Regulatory stance**: 21 CFR Part 11, GAMP 5, HIPAA, SOC 2 all work on a well-run standalone deployment — AWS is a convenience, not a regulator requirement.
 
-- **AWS** — most mature regulated-SaaS story; standard in pharma for 15+ years
-- **Azure** — easiest for M365/Entra-heavy pharma (same buyers who may require Azure OpenAI per ADR 0004)
-- **GCP** — best data/ML tooling, cleaner multi-tenant primitives, uncommon in regulated pharma deployments
-
-On-prem is a possibility only if a specific customer contract requires it; not the default architecture.
+The product's customers (regulated pharma) will eventually require managed-cloud hosting with the attestations only AWS/Azure/GCP can carry at scale. That migration must stay cheap.
 
 ## Decision
 
-**AWS as primary cloud**. Single-tenant architecture per region, with per-region cells for data residency.
+**Year 1 (through first ~5 paying customers): standalone VPS** running the full stack via Docker Compose + nginx + systemd. Mirrors the existing `proto.clinwrite.ai` deployment pattern (dedicated Ubuntu VPS, nginx TLS termination, Cloudflare in front for WAF/DDoS, pm2/systemd for Node processes).
 
-- **Compute**: AWS Fargate (ECS) for the Fastify API — avoids EKS control-plane cost + complexity at Phase 1 scale. Flip to EKS later if we need pod-level primitives.
-- **Database**: RDS for PostgreSQL (not Aurora initially — pgvector support on Aurora lags upstream Postgres; revisit at Phase 6 scale).
-- **Cache / queue backend**: ElastiCache for Redis (for BullMQ per ADR 0008 and for Fastify session store).
-- **Object storage**: S3 (document binaries, voice audio).
-- **Secrets**: AWS Secrets Manager (ADR 0006).
-- **Observability**: CloudWatch Logs + Managed Grafana + Managed Prometheus; OTel collector sidecar.
-- **CDN / WAF**: CloudFront + AWS WAF (critical for public KOL guest route per Phase 3E).
-- **Regions**: `us-east-1` default; `eu-west-1` for EU-data-residency tenants from GA. Add `ap-south-1` or `ap-southeast-1` when the first APAC customer signs.
-- **IaC**: Terraform with S3+DynamoDB state backend; three separate root modules per env (dev / staging / prod) — not workspaces.
+**Year 2 onwards (triggered by paying-customer requirement or SOC 2 Type II customer demand): migrate to AWS** per the prior "AWS primary" plan — Fargate + RDS + ElastiCache + S3 + CloudFront+WAF + Secrets Manager.
 
-**Azure-first customers** (per ADR 0004 context) do not get a parallel Azure deployment in year 1. If a customer contractually requires Azure-only data residency, we extend the Terraform modules to Azure in year 2.
+**Non-negotiable principle: the application code is architecturally cloud-portable from day one.** Three interfaces enforce this:
+
+1. **`SecretsProvider`** interface — standalone implementation reads from sops-encrypted `.env`; AWS implementation calls Secrets Manager; Azure implementation calls Key Vault. Feature code never imports an SDK directly.
+2. **`BlobStorage`** interface against the **S3 API** — standalone uses MinIO at `http://localhost:9000` (S3-API-compatible); AWS uses S3; Azure uses Blob via S3-gateway or an Azure SDK adapter. Feature code uses the AWS SDK's `S3Client` throughout; only the endpoint URL changes.
+3. **`QueueProducer`** interface over BullMQ — portable regardless of hosting since BullMQ runs on any Redis.
+
+Everything else (Postgres, Anthropic, WorkOS, SendGrid, Twilio) is already vendor-SDK-based and portable without an abstraction — only connection strings change.
+
+## Standalone deployment stack (year 1)
+
+Per the new [ADR 0009 — Standalone deployment stack](0009-standalone-deployment-stack.md):
+
+| Concern | Standalone (year 1) | Cloud (year 2 target) |
+|---|---|---|
+| Host | Dedicated Ubuntu 24.04 VPS (new, not the proto.clinwrite.ai box) | AWS Fargate |
+| Process supervision | systemd units for `apps/api` and `apps/worker` | ECS task definitions |
+| Database | Self-hosted PostgreSQL 16 + pgvector | RDS for Postgres 16 + pgvector |
+| Queue broker | Self-hosted Redis 7 (same VPS or dedicated DB VPS) | ElastiCache for Redis |
+| Object storage | **MinIO** (S3-API, self-hosted) | S3 |
+| TLS termination | nginx + Let's Encrypt (certbot) + Cloudflare in front | CloudFront + ACM + AWS WAF |
+| Secrets | sops-encrypted `.env` files + `SOPS_AGE_KEY` on host | Secrets Manager |
+| Observability | Prometheus + Grafana + Loki self-hosted via Docker Compose | CloudWatch + Managed Grafana + Managed Prometheus |
+| Backup | `pg_dump` + rclone to Backblaze B2 (off-site) | AWS Backup + cross-region replication |
+| Supervision | systemd + Docker Compose for data services | ECS + managed services |
 
 ## Options considered
 
-### Option A — AWS primary *(chosen)*
+### Option A — AWS primary from day one *(previous decision)*
+- **Pros**: Managed HA, familiar to pharma procurement, migration path well-trodden.
+- **Cons at pre-revenue stage**: $1.5–3k/month baseline burn without customer-funded ROI; AWS org setup takes 2 weeks that aren't on the critical path; forces the team into AWS specifics before any product has shipped.
+- **Rejected now, revived year 2.**
+
+### Option B — Standalone VPS year 1 with cloud-portable architecture *(chosen)*
 - **Pros**
-  - Strongest regulated-SaaS track record; pharma procurement teams never blink at AWS.
-  - FDA ESG integrations have been shipped on AWS by many vendors (Veeva, IQVIA, etc.) — well-trodden ground.
-  - eCTD validators (Extedo, Lorenz) all publish AWS deployment guides.
-  - HIPAA BAA is standard; signed as part of org account setup.
-  - Richest service catalogue — Fargate, RDS, ElastiCache, S3, Secrets Manager, WAF, Shield, Macie, GuardDuty, CloudTrail all map onto architectural needs without reinventing.
-  - Terraform AWS provider is the most mature; HashiCorp Registry has quality modules for everything we need.
+  - Zero cloud bill until revenue justifies it.
+  - Matches the operational posture of your existing `proto.clinwrite.ai` deployment — team already knows this operational model.
+  - Simpler mental model for a 4–6 person team: one VPS to administer, not an AWS Organization.
+  - All compliance frameworks (Part 11, GAMP 5, HIPAA, SOC 2) achievable on a well-run standalone — regulators do not require AWS.
+  - **The cloud-portability interfaces are good software hygiene regardless** — not throw-away work.
 - **Cons**
-  - Vendor lock-in — AWS SDKs sprinkle through the codebase. Mitigate by owning the storage/queue/secrets abstractions behind thin interfaces so a future Azure parallel deploy swaps implementations without touching business logic.
-  - Cost at scale requires active optimisation (reserved instances, savings plans) — a Phase 6 concern.
+  - No managed HA — single VPS failure means downtime. Mitigated by: automated off-site backups with documented restore RTO, Cloudflare in front for DDoS/edge caching, and a documented "promote standby VPS" runbook if we go to warm-standby in year 1.5.
+  - Patching + security monitoring is on us (vs AWS Shared Responsibility model).
+  - Larger first customers may push back on standalone hosting as a diligence red flag — gating event that forces the AWS migration.
+- **Rough effort / cost**: ~1 engineer-week to stand up the VPS + Docker Compose + nginx + backup. $50–150/month hosting (vs AWS $1.5–3k/month).
 
-### Option B — Azure primary
-- **Pros**
-  - Natural fit for M365-first pharma customers.
-  - Azure OpenAI integration is tighter (ADR 0004 Azure fallback path).
-  - Entra ID integration is first-class (relevant to ADR 0005).
-- **Cons**
-  - Smaller ecosystem of regulated-pharma deployment guides than AWS.
-  - Azure's "US Government" regions have more compliance posture but are different accounts — complicates operations.
-  - Managed Postgres on Azure (Flexible Server) is good but pgvector support trails AWS RDS.
-- **Rejected** as primary because customer-mandate flexibility is handled at the LLM layer (ADR 0004 per-tenant switching), not by picking the hosting cloud. Hosting cloud doesn't move the needle for most buyers — they ask about SOC 2 and HIPAA, not AWS vs Azure.
+### Option C — Standalone first, no cloud-portability (direct VPS-coupled code)
+- **Pros**: Simpler Phase 1 scaffold (no interfaces).
+- **Cons**: Year 2 AWS migration becomes a code rewrite rather than an infra swap. Burns 4–6 engineer-weeks later vs ~1 engineer-week of up-front interface work now.
+- **Rejected** — the up-front abstraction cost is small and the downstream saving is real.
 
-### Option C — GCP primary
-- **Pros**: Best-in-class data/ML tooling; Cloud SQL for Postgres is excellent; BigQuery for analytics.
-- **Cons**: Rare in regulated pharma; procurement teams ask harder questions; fewer third-party integration recipes.
-- **Rejected** — ecosystem fit > technical merit for this market.
-
-### Option D — Multi-cloud from day one (AWS + Azure)
-- **Pros**: Customer-choice flexibility.
-- **Cons**: 2× the DevOps burden, 2× the compliance paperwork, 2× the integration-testing matrix, 2× the on-call runbooks. In year 1 we don't have the team to carry both.
-- **Rejected** for year 1. Year 2 extension to Azure (for Azure-mandate customers) is in scope if demand materialises.
-
-### Option E — On-prem (customer-hosted)
-- **Pros**: Bypasses customer cloud-residency objections entirely.
-- **Cons**: Requires Helm charts + a customer-side ops team + a very different update/support model. Only pursued if a specific contract requires it; not the default.
-- **Deferred** — build cloud-first, extend to on-prem if revenue justifies.
+### Option D — Hybrid (frontend on CDN, backend on standalone VPS)
+- **Pros**: Static web stays on Cloudflare/Vercel (free); only backend is on-VPS.
+- **Cons**: Already how the prototype is deployed; applies naturally. Not a separate decision.
+- **Already in effect**: `apps/web` builds to a static bundle served by nginx on the same VPS (or Cloudflare Pages if we want to split later). No change needed.
 
 ## Rationale
 
-Decisive factors:
+Three decisive factors:
 
-1. **Pharma procurement familiarity.** Procurement teams at Pfizer / Novartis / Roche / Merck / Lilly all have standing AWS enterprise agreements and tested data-processing addenda. Signing an AWS-hosted SaaS is a shorter path than Azure-hosted for most of them.
-2. **Regulated-vendor ecosystem.** FDA ESG / eCTD validator / MedDRA MSSO / PubMed / CrossRef all have AWS reference deployments. Azure requires reinventing some of them.
-3. **Fargate over EKS at Phase 1.** We don't need Kubernetes primitives at year-1 scale; the ops burden of EKS is not justified. Fargate gives us container isolation without a control plane to patch.
+1. **No paying customers yet.** AWS's advantages (managed services, HA, compliance attestations) are advantages for *production customers*, not for *shipping product*. Spending AWS money without customer-funded ROI is premature optimisation.
+2. **The cloud migration is primarily an infra swap, not a code rewrite** — provided we write the three portability interfaces (secrets / blob / queue) from day one. This ADR mandates them.
+3. **Operational pattern already exists.** Your existing `proto.clinwrite.ai` + `b2b.moringa-ai.com` + `genrac` + others on the same Ubuntu VPS prove the standalone operational model works for your team. Reuse the pattern.
 
-The Azure argument is real for a subset of customers; it is addressed by the AI Gateway per-tenant provider switching (ADR 0004) and the Terraform-modules-can-be-extended structure (we don't rebuild from scratch when adding Azure).
+The "when do we migrate to AWS" trigger is explicit:
+- First paying customer with contractual data-residency requirement, OR
+- SOC 2 Type II audit kickoff (needs 6-month evidence window on managed infra), OR
+- Hitting a scale ceiling on the VPS (sustained >70% CPU/RAM or Postgres >70% of instance capacity), OR
+- Customer diligence red-flags standalone hosting
+
+Whichever comes first.
 
 ## Consequences
 
 ### Positive
-- Terraform skeleton in `infra/terraform/` can now be fleshed out with AWS provider modules (RDS, Fargate, ElastiCache, S3, Secrets Manager, WAF).
-- Compliance narrative inherits AWS's SOC 2, HITRUST, HIPAA attestations — reduces our own audit scope.
-- One cloud account per environment (dev/staging/prod) + one per region per env for data residency.
-- `.env.example` can be AWS-flavoured (specific resource ARNs, regions).
+- $1.5–3k/month saved through year 1 → ~$18–36k that funds another month of engineering runway.
+- Faster Phase 0 → Phase 1 handoff (no AWS org setup on the critical path).
+- Team keeps the operational muscle memory from the prototype deployment.
+- Cloud migration becomes a well-scoped Year-2 project rather than permanent AWS-coupling.
+- Compliance posture is unchanged — Part 11 / GAMP 5 / HIPAA / SOC 2 all work.
 
 ### Negative
-- Vendor lock-in on AWS. Mitigate by owning thin abstractions over storage / queue / secrets / email sending so a future Azure extension doesn't require rewriting feature code.
-- Azure-mandate customers in year 1 get rejected or go-slow. Known trade-off; revisit at year-2 planning.
-- RDS Postgres major-version upgrades require coordinating pgvector extension compatibility — minor friction every 1–2 years.
+- **Single point of failure**: VPS downtime = full product downtime. Backup/restore drills become a critical operational discipline. Document monthly test-restore.
+- **Patching + security monitoring is manual**: Ubuntu unattended-upgrades + Falco for intrusion detection + weekly review of security logs. More work than AWS GuardDuty giving you alerts for free.
+- **Larger first customer may force the migration earlier than planned** — accept this; have the migration ADR ready.
+- **The team must enforce the cloud-portability discipline** — a lint rule or review checklist that blocks direct `@aws-sdk/*` or standalone-specific imports from feature code; everything goes through the interfaces.
 
 ### Neutral / downstream work
-- Phase 0 Week 2: AWS org account created; three sub-accounts for dev/staging/prod; cross-account IAM roles for CI deploys.
-- Phase 0 Week 2: Terraform skeleton under `infra/terraform/` populated with AWS modules (network, compute, database, object-storage, secrets, observability, waf).
-- Phase 0 Week 2: Legal confirms AWS HIPAA BAA signed.
-- Phase 1 Week 3: GitHub Actions `deploy-staging` job uses AWS OIDC federation (no long-lived AWS keys in CI).
-- Phase 6 Week 36: cost optimisation pass (reserved instances, savings plans).
-- Year-2 revisit: Azure parallel deploy if customer demand justifies.
+- ADR 0006 (secrets) revised: adds sops-encrypted `.env` as the standalone implementation; `SecretsProvider` interface mandatory from day one.
+- **New ADR 0009** — Standalone deployment stack (Docker Compose + nginx + MinIO + Prometheus/Grafana/Loki + sops + backup to Backblaze B2).
+- `infra/terraform/` **stays** — it is the AWS migration target, not deleted. Flagged as "year 2".
+- **New** `infra/standalone/` — Docker Compose files, nginx configs, systemd units, backup scripts, bootstrap runbook.
+- `apps/api/.env.example` updated for standalone-first defaults.
+- Phase 1 scaffold begins immediately: the application code is identical to the AWS plan; only the deployment target changes.
 
 ## Compliance implications
 
-- **HIPAA**: AWS BAA covers all services we're using (confirmed on https://aws.amazon.com/compliance/hipaa-eligible-services-reference/).
-- **GDPR**: EU-tenant data stays in `eu-west-1`. Cross-region replication for DR is explicitly disabled for EU tenants' data (per-tenant config in the data model).
-- **SOC 2**: AWS SOC 2 Type II attestations inherited for infrastructure controls; our scope is application + process controls.
-- **FDA 21 CFR Part 11**: AWS services used are documented in the GAMP 5 Configuration Specification (Phase 5).
+- **21 CFR Part 11**: Part 11 does not mandate cloud hosting. Standalone VPS satisfies §11.10 provided we deliver on access controls, audit trail, backup, and change control — all handled in-application.
+- **HIPAA**: BAA required with the VPS provider (most reputable VPS providers — Hetzner, Vultr, DigitalOcean Business tier, Linode-Akamai — offer BAAs; pick one that does).
+- **SOC 2**: Standalone is a disadvantage for SOC 2 Type II because the "operating effectiveness over 6+ months" window is harder to evidence without managed-service logs. Plan: start SOC 2 evidence collection on managed infra (post-migration), not on the standalone.
+- **GDPR**: EU-tenant data residency is a VPS-region choice. Pick an EU-based VPS provider for EU customers (Hetzner Germany/Finland or OVH France are the obvious options).
+- **GAMP 5**: Standalone deployment is a Configurable Item documented in the Hardware/Software Specification (Phase 5).
 
 ## References
 
-- AWS HIPAA eligible services: https://aws.amazon.com/compliance/hipaa-eligible-services-reference/
-- AWS Fargate pricing: https://aws.amazon.com/fargate/pricing/
-- RDS pgvector support announcement: https://aws.amazon.com/about-aws/whats-new/2023/05/amazon-rds-postgresql-pgvector-ml-model-integration/
-- Terraform AWS provider: https://registry.terraform.io/providers/hashicorp/aws/latest/docs
+- `proto.clinwrite.ai` existing deployment runbook: [`deploy/nginx/README.md`](../../deploy/nginx/README.md)
+- MinIO (S3-compatible self-hosted): https://min.io/
+- sops: https://github.com/getsops/sops
+- Backblaze B2 (off-site backup target): https://www.backblaze.com/cloud-storage
+- Hetzner Cloud (EU VPS): https://www.hetzner.com/cloud/
+- Previous version of this ADR (AWS primary) preserved in git history pre-2026-10-05 evening.

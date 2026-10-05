@@ -1,0 +1,81 @@
+groups:
+  - name: platform-api
+    interval: 1m
+    rules:
+      - alert: ApiHighErrorRate
+        expr: sum(rate(http_requests_total{status=~"5.."}[5m])) / sum(rate(http_requests_total[5m])) > 0.01
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API 5xx error rate > 1% for 5 min"
+
+      - alert: ApiHighLatencyP99
+        expr: histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "API p99 latency > 1s"
+
+      - alert: ApiDown
+        expr: up{job="platform-api"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "API is not scraping — service down?"
+
+  - name: platform-worker
+    interval: 1m
+    rules:
+      - alert: QueueBacklogGrowing
+        expr: bullmq_queue_waiting{job="platform-worker"} > 500
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "BullMQ queue backlog > 500 jobs for 10 min"
+
+      - alert: DeadLetterQueueGrowing
+        expr: increase(bullmq_queue_failed{job="platform-worker"}[1h]) > 10
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Dead-letter queue growing > 10 jobs/hour"
+
+  - name: platform-infra
+    interval: 1m
+    rules:
+      - alert: DiskSpaceLow
+        expr: (node_filesystem_free_bytes / node_filesystem_size_bytes) < 0.15
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Disk < 15% free"
+
+      - alert: MemoryHigh
+        expr: (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes) < 0.10
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "VPS memory < 10% available"
+
+      - alert: BackupStale
+        expr: (time() - platform_backup_last_success_seconds) > 86400
+        for: 10m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Backup hasn't succeeded in > 24h"
+
+      - alert: BackupDrillStale
+        expr: (time() - platform_backup_drill_last_success_seconds) > 2764800   # 32 days
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: "Backup restore drill hasn't run in > 32 days"

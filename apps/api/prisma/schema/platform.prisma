@@ -1,0 +1,92 @@
+// Platform-layer models — users, sessions, projects, tenants.
+// Lands fully in Phase 1 Week 3. Stub shapes here so Prisma generates
+// a client the API scaffold can import.
+//
+// Source of truth for the full model set: docs/demo/02-datamodel.md
+
+// --------------------------------------------------------------------------
+// Users + sessions (Phase 1 Week 3 — real)
+// --------------------------------------------------------------------------
+
+model User {
+  id            String   @id @default(cuid())
+  email         String   @unique
+  name          String
+  initials      String?
+  role          String   // 'super-admin' | 'admin' | module-specific roles
+  modules       String[] @default([])    // ['A', 'B', 'C', 'D', 'E']
+  status        String   @default("invited")  // invited | active | suspended | deprovisioned
+  lastActiveAt  DateTime?
+  ssoSubject    String?  @unique            // from WorkOS SCIM
+  tenantId      String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  sessions      Session[]
+
+  @@map("users")
+  @@index([tenantId])
+  @@index([status])
+}
+
+model Session {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id])
+  token      String   @unique
+  issuedAt   DateTime @default(now())
+  expiresAt  DateTime
+  ipAddress  String?
+  userAgent  String?
+  revokedAt  DateTime?
+
+  @@map("sessions")
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+// --------------------------------------------------------------------------
+// Projects (Phase 1 Week 3 — real)
+// Mirrors apps/web/src/data/study.json + studyTB.json shape
+// --------------------------------------------------------------------------
+
+model Project {
+  id                   String    @id
+  tenantId             String?
+  name                 String
+  shortTitle           String
+  client               String
+  therapeuticArea      String
+  indication           String?
+  phase                String
+  status               String    // initiated | ongoing | on-hold | re-open | closed
+  startDate            DateTime
+  dataCutoff           DateTime?
+  activeModules        String[]  @default([])
+  submissionCountries  String[]  @default([])
+  referenceTrial       String?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  teamMembers          ProjectTeamMember[]
+
+  @@map("projects")
+  @@index([tenantId])
+  @@index([status])
+  @@index([therapeuticArea])
+}
+
+model ProjectTeamMember {
+  id          String  @id @default(cuid())
+  projectId   String
+  project     Project @relation(fields: [projectId], references: [id])
+  userId      String
+  role        String  // 'Lead Clinical Writer' etc.
+  raci        String  // 'R' | 'A' | 'C' | 'I'
+  colourKey   String?
+  initials    String?
+  name        String  // denormalised for display without a join
+
+  @@map("project_team_members")
+  @@unique([projectId, userId])
+}

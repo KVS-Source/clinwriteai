@@ -1,0 +1,22 @@
+# Oneshot service invoked by platform-backup.timer. Not enabled on its own.
+# Install path on VPS: /etc/systemd/system/platform-backup.service
+
+[Unit]
+Description=Platform backup (invoked by platform-backup.timer)
+After=network.target platform-data.target
+Requires=platform-data.target
+
+[Service]
+Type=oneshot
+User=platform
+Group=platform
+WorkingDirectory=/opt/platform
+
+ExecStart=/opt/platform/scripts/backup.sh
+
+# Backup can take tens of minutes on large databases
+TimeoutStartSec=1h
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=platform-backup

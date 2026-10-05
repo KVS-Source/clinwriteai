@@ -1,0 +1,63 @@
+# Local dev data services. Run alongside `npm --workspace=apps/api run dev`
+# on the host. Pins the same images as prod but with dev-friendly defaults.
+#
+# Start:  docker compose -f infra/standalone/docker-compose.local.yml up -d
+# Stop:   docker compose -f infra/standalone/docker-compose.local.yml down
+# Reset:  docker compose -f infra/standalone/docker-compose.local.yml down -v
+
+name: platform-local
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: platform
+      POSTGRES_DB: platform_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    command: redis-server --appendonly yes --requirepass local-redis-password
+    ports:
+      - "6379:6379"
+    volumes:
+      - redisdata:/data
+
+  minio:
+    image: minio/minio:latest
+    environment:
+      MINIO_ROOT_USER: minio-local
+      MINIO_ROOT_PASSWORD: minio-local-password
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    command: server /data --console-address ":9001"
+    volumes:
+      - miniodata:/data
+
+  # Observability deliberately omitted from local dev to keep boot fast.
+  # Enable via `--profile observability` if debugging a metrics issue.
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./observability/prometheus:/etc/prometheus:ro
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana-oss:latest
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    ports:
+      - "3030:3000"
+
+volumes:
+  pgdata:
+  redisdata:
+  miniodata:

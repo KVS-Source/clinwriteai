@@ -31,17 +31,17 @@ The prototype is more complete than the architecture doc assumes. It already con
 
 Phases 0–2 run strictly sequentially. Phases 3A–3E (per-module backends) parallelise across BE engineers once Phase 2 is green.
 
-### Phase 0 — Prerequisites & Decisions · Weeks 1–2
+### Phase 0 — Prerequisites & Decisions · Weeks 1–2 ✅ COMPLETE (2026-10-05)
 
 | | |
 |---|---|
 | **Goal** | Unblock build: finalise stack ambiguities, legal/compliance paperwork started, environments provisioned. |
-| **Deliverables** | Stack ADRs merged (Fastify vs Express, Prisma vs Drizzle, pgvector vs Postgres-only, LLM gateway choice); AWS/GCP account + VPC + 3 envs (dev/staging/prod) stubbed; Terraform skeleton; GitHub Actions base CI (lint + typecheck + build on `apps/web` which already passes); SSO provider chosen (Entra ID / Okta); legal engagement with DPA/BAA counsel kicked off; secrets manager chosen (AWS Secrets Manager / Vault); **FDA ESG onboarding kicked off** (months-long lead time). |
-| **Dependencies** | None internal. External: cloud account funding, legal counsel engagement. |
+| **Deliverables** | 9 ADRs Accepted (0001 Fastify, 0002 Prisma + raw SQL for audit, 0003 pgvector, 0004 Anthropic + Azure fallback, 0005 WorkOS, 0006 SecretsProvider interface with sops+age / Secrets Manager impls, 0007 **Standalone VPS year 1, AWS/Azure year 2**, 0008 BullMQ on Redis, 0009 Standalone deployment stack); `infra/standalone/` complete scaffold (Docker Compose + nginx + systemd + MinIO + sops + Prom/Grafana/Loki + B2 backup); `infra/terraform/` AWS year-2 skeleton; GitHub Actions base CI (web build green); FDA ESG onboarding noted — team will proceed with placeholders in Module D until licence lands. |
+| **Dependencies** | None internal. External: VPS provider BAA, legal counsel engagement for Anthropic/WorkOS BAAs. |
 | **Who** | DevOps (lead), Tech lead, Security, Compliance. |
-| **Effort** | 2–4 person-weeks. |
-| **Risks** | DPA/BAA negotiation drags (external); cloud procurement delays if customer requires their tenancy; LLM vendor BAA (Anthropic / Azure OpenAI) terms. |
-| **Exit criteria** | Signed ADR set; three empty envs reachable with IaC; CI green on `main`. |
+| **Effort** | ~1 person-week actual (vs 2–4 estimated). |
+| **Risks resolved** | Cloud spend eliminated for year 1; team already knows the standalone operational model from `proto.clinwrite.ai`. |
+| **Exit criteria met** | 9 ADRs Accepted; standalone + cloud scaffolds in place; CI green on `main`; Phase 1 scaffold already begun. |
 
 ### Phase 1 — Backend Foundation & Platform APIs · Weeks 3–8
 

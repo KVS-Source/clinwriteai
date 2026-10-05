@@ -1,0 +1,16 @@
+# sops config for the standalone deployment.
+# Checked into git. The private age key is NOT.
+#
+# Rotation: when a team member leaves or an age key is suspected compromised,
+# generate new recipient(s), update this file, re-encrypt all .env.enc files
+# with `sops updatekeys`, commit, deploy, and revoke the old key.
+
+creation_rules:
+  # All .env.enc files in /opt/platform/env/ (prod + staging + dev VPSes)
+  - path_regex: \.env\.enc$
+    age: >-
+      age1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    # Add additional recipients here as team grows:
+    # age: >-
+    #   age1aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa,
+    #   age1bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb

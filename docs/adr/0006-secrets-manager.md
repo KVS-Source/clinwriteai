@@ -1,11 +1,11 @@
-# ADR 0006: Secrets manager — AWS Secrets Manager (native), Parameter Store for low-sensitivity config
+# ADR 0006: Secrets management — SecretsProvider interface; sops-encrypted .env for standalone, AWS Secrets Manager for cloud
 
-**Status**: Accepted (2026-10-05, defaults policy)
-**Date**: 2026-10-05
+**Status**: Accepted (2026-10-05, revised same day for standalone-first per ADR 0007)
+**Date**: 2026-10-05 (revised same day)
 **Owner**: DevOps + Security
 **Deciders**: DevOps, Security, Tech lead
-**Supersedes**: —
-**Superseded by**: ADR 0007 (deployment target → AWS) bounds this decision
+**Supersedes**: Prior "AWS Secrets Manager only" draft of this ADR
+**Superseded by**: —
 
 ## Context
 
@@ -31,17 +31,22 @@ ADR 0007 picks AWS as the cloud. That bounds the natural options.
 
 ## Decision
 
-**AWS Secrets Manager for actual secrets** (anything that would compromise security if leaked).
+**A `SecretsProvider` interface in `apps/api/src/config/secrets.ts`** with two concrete implementations shipped from day one:
 
-**AWS Systems Manager Parameter Store** (standard tier, SecureString) **for low-sensitivity config** that doesn't need rotation or cross-region replication (feature flags, non-sensitive URLs, bucket names).
+1. **`SopsEnvSecretsProvider`** — reads sops-encrypted `.env.enc` files on the host, decrypts with an age key kept in `/etc/platform/age.key` (owned by the service user, mode 0400). Used on the standalone VPS.
+2. **`AwsSecretsManagerProvider`** — reads from AWS Secrets Manager via the AWS SDK. Used after the AWS migration.
 
-Fastify boots by fetching secrets from Secrets Manager via the AWS SDK at startup; secrets are cached in memory with a TTL that aligns with rotation cadence. The `.env.example` file documents the secret **names**; it never contains values.
+Feature code never imports an SDK or reads `process.env` directly for secrets. The provider is injected via Fastify's dependency decoration.
 
-HashiCorp Vault explicitly rejected — not needed at our scale, and adds a service to run.
+Fastify boots by fetching required secrets through the provider; secrets are cached in memory with a TTL (default 15 min on standalone — the `.env.enc` is re-read on cache miss; default aligned with Secrets Manager rotation cadence in cloud).
+
+**For low-sensitivity config** (feature flags, non-sensitive URLs, bucket names) a sibling `ConfigProvider` interface reads from unencrypted `.env` on standalone and from Parameter Store on AWS. Not security-critical; separated so secrets stay small and audit-tracked.
+
+HashiCorp Vault explicitly rejected on both deployment profiles — not needed at our scale, and adds a service to run on standalone where it would compete with the simplicity we're buying.
 
 ## Options considered
 
-### Option A — AWS Secrets Manager + Parameter Store split *(chosen)*
+### Option A — AWS Secrets Manager + Parameter Store split *(chosen for cloud deployment per ADR 0007 year 2)*
 - **Pros**
   - **Native rotation** for RDS passwords with Lambda rotators (built-in).
   - **IAM-based access control** at per-secret granularity. Fargate task role scopes to only the ARNs it reads.
@@ -79,11 +84,24 @@ HashiCorp Vault explicitly rejected — not needed at our scale, and adds a serv
 - **Cons**: Young project; still requires us to run and secure it. Same Vault-outage-kills-us-at-boot problem.
 - **Rejected**.
 
+### Option F — sops-encrypted `.env` files on the standalone VPS *(chosen for year 1 per ADR 0007)*
+- **Pros**
+  - **Zero infrastructure**: file-based; works offline; survives Secrets Manager API outages trivially (there is no API).
+  - **Age-encryption** keys are small files that fit in a password manager; team rotation is easy.
+  - **Git-safe**: `.env.enc` files are encrypted on disk and in version control; only decryption keys live outside git.
+  - **Audit trail**: file-system-level access logs via auditd; combined with the app's secret-fetch logging gives full access history.
+  - **Same provider interface** as AWS Secrets Manager — swap at migration time without touching feature code.
+- **Cons**
+  - **No automated rotation**: DB password rotations are a manual (scripted) operation. Mitigated by a `scripts/rotate-db-password.sh` runbook in `infra/standalone/`.
+  - **Key compromise is catastrophic**: anyone with `/etc/platform/age.key` reads every secret. Mitigated by strict file permissions + root-owned + full-disk encryption on the VPS + a documented key-rotation runbook.
+  - **No cross-region replication**: not needed at single-VPS scale; relevant only after cloud migration.
+- **Rough effort / cost**: ~0.5 engineer-week to set up sops + age + the `SopsEnvSecretsProvider` + the rotation runbooks. $0 ongoing.
+
 ## Rationale
 
-Decisive factor: **we are already on AWS (ADR 0007); AWS Secrets Manager + Parameter Store cover every requirement without running another service**. Vault's advantages (dynamic secrets, cross-cloud) are not advantages for a single-cloud, single-tenant-per-region architecture at Phase 1.
+Two deployment profiles → two implementations → one interface. The decisive factor is the **interface**: once `SecretsProvider` is in place, the actual storage backend is a swap. That lets year 1 run on a sops-encrypted file with zero infrastructure, and year 2 run on AWS Secrets Manager with zero code changes.
 
-Running Vault is a project. Running AWS Secrets Manager is a config file.
+Running Vault is a project. Running sops-decrypted `.env` is a file. Running AWS Secrets Manager (when we migrate) is an SDK call.
 
 ## Consequences
 
@@ -98,11 +116,11 @@ Running Vault is a project. Running AWS Secrets Manager is a config file.
 - Secret caching TTL vs rotation cadence requires discipline; a 90-day DB password rotation with a 1-hour cache means a 1-hour window where some instances have the old password. Acceptable — RDS supports both the old and new password briefly during rotation.
 
 ### Neutral / downstream work
-- Phase 0 Week 2: Terraform modules under `infra/terraform/modules/secrets/` create the Secrets Manager + Parameter Store resources + IAM policies for the Fargate task role.
-- Phase 1 Week 3: `apps/api/src/config/secrets.ts` — thin interface over AWS SDK; cached in memory; refreshes on rotation signal.
-- Phase 1 Week 3: `.env.example` updated to reference secret **names** (e.g. `DATABASE_URL_SECRET_NAME=platform/dev/db-url`) rather than secret **values**.
-- Phase 1 Week 4: Lambda-based rotator template for RDS password rotation every 90 days.
-- Phase 6: cross-region replication for secrets that back the EU residency tenant.
+- **Phase 1 Week 3 (standalone)**: `apps/api/src/config/secrets.ts` — `SecretsProvider` interface + `SopsEnvSecretsProvider` implementation. Lint rule blocks any `process.env.<SECRET_NAME>` or direct `@aws-sdk/*` imports from feature code.
+- **Phase 1 Week 3 (standalone)**: `infra/standalone/sops/` with age key management runbook + rotation scripts.
+- **Phase 1 Week 3 (standalone)**: `.env.example` documents sops-managed secret names (not values); separate `.env` file documents low-sensitivity config.
+- **Cloud migration (year 2)**: add `AwsSecretsManagerProvider` implementation + Terraform modules under `infra/terraform/modules/secrets/`; swap the DI binding; delete the sops-encrypted `.env.enc`.
+- **Phase 6+**: Lambda-based rotator template for RDS password rotation every 90 days (cloud only).
 
 ## Compliance implications
 

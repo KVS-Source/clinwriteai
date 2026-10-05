@@ -1,0 +1,46 @@
+# systemd unit for the BullMQ worker service (ADR 0008).
+# Install path on VPS: /etc/systemd/system/platform-worker.service
+
+[Unit]
+Description=Platform Worker (BullMQ) — Aurora/ClinWrite
+Documentation=https://github.com/KVS-Source/clinwriteai
+After=network.target platform-data.target
+Requires=platform-data.target
+
+[Service]
+Type=simple
+User=platform
+Group=platform
+WorkingDirectory=/opt/platform/apps/worker
+
+ExecStartPre=/opt/platform/scripts/decrypt-env.sh worker
+EnvironmentFile=/run/platform/worker.env
+
+ExecStart=/usr/bin/node dist/worker.js
+
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=5
+
+# Graceful shutdown — worker drains in-flight jobs on SIGTERM
+KillSignal=SIGTERM
+TimeoutStopSec=120
+
+# Hardening (same posture as API)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/log/platform /run/platform
+
+LimitNOFILE=65536
+MemoryMax=8G       # workers run heavier (AI calls hold context in memory)
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=platform-worker
+
+[Install]
+WantedBy=multi-user.target

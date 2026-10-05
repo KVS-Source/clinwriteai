@@ -1,0 +1,17 @@
+# systemd timer that runs the backup script every 6 hours.
+# Install path on VPS: /etc/systemd/system/platform-backup.timer
+# Enable: systemctl enable --now platform-backup.timer
+# Status: systemctl list-timers platform-backup
+
+[Unit]
+Description=Platform backup — pg_dump + MinIO sync → Backblaze B2
+Documentation=file:///opt/platform/infra/standalone/BACKUP.md
+
+[Timer]
+OnCalendar=*-*-* 00/6:00:00
+RandomizedDelaySec=10m
+Persistent=true
+Unit=platform-backup.service
+
+[Install]
+WantedBy=timers.target

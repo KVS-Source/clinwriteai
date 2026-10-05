@@ -1,0 +1,40 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Journald — picks up systemd services (platform-api, platform-worker, etc.)
+  - job_name: journal
+    journal:
+      max_age: 12h
+      labels:
+        job: systemd-journal
+    relabel_configs:
+      - source_labels: ["__journal__systemd_unit"]
+        target_label: unit
+      - source_labels: ["__journal__hostname"]
+        target_label: host
+      - source_labels: ["__journal_syslog_identifier"]
+        target_label: syslog_identifier
+
+  # Nginx access + error logs
+  - job_name: nginx
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: nginx
+          __path__: /var/log/nginx/*.log
+
+  # Platform app logs if they write to /var/log/platform/ (fallback — journald is primary)
+  - job_name: platform-app
+    static_configs:
+      - targets: [localhost]
+        labels:
+          job: platform-app
+          __path__: /var/log/platform/*.log

@@ -1,0 +1,21 @@
+// Prisma schema — multi-file layout per ADR 0002 (amended).
+//
+// This file holds generator + datasource; per-module models live in
+// sibling .prisma files in this folder. Prisma's `prismaSchemaFolder`
+// preview feature stitches them all together.
+//
+// Audit trail (audit_events) is NOT modelled in Prisma — it lives in
+// a raw SQL migration under prisma/migrations/ with append-only grants.
+// Writes go through src/audit/repository.ts, NOT prisma.auditEvent.*
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions", "prismaSchemaFolder"]
+  binaryTargets   = ["native", "linux-musl-openssl-3.0.x"]  // native for dev + Alpine for container
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pgvector(map: "vector")]
+}

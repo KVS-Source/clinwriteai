@@ -1,0 +1,63 @@
+# systemd unit for the Fastify API service.
+# Install path on VPS: /etc/systemd/system/platform-api.service
+# Enable + start:
+#   systemctl daemon-reload
+#   systemctl enable --now platform-api
+#
+# Logs:
+#   journalctl -u platform-api -f
+
+[Unit]
+Description=Platform API (Fastify) — Aurora/ClinWrite
+Documentation=https://github.com/KVS-Source/clinwriteai
+After=network.target docker.service
+Wants=docker.service
+# Depends on Postgres + Redis being up (via Compose)
+Requires=platform-data.target
+After=platform-data.target
+
+[Service]
+Type=simple
+User=platform
+Group=platform
+WorkingDirectory=/opt/platform/apps/api
+
+# Resolve envs from the sops-decrypted + plain .env files
+# (scripts/decrypt-env.sh runs via ExecStartPre and writes a tmpfs file)
+ExecStartPre=/opt/platform/scripts/decrypt-env.sh api
+EnvironmentFile=/run/platform/api.env
+
+ExecStart=/usr/bin/node dist/server.js
+
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=5
+
+# Graceful shutdown — Fastify handles SIGTERM
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Health check gate before marking service as ready
+ExecStartPost=/opt/platform/scripts/wait-for-health.sh http://127.0.0.1:3001/health 60
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/log/platform /run/platform
+# Allow network for API calls (Anthropic, WorkOS, SendGrid, etc.)
+RestrictNetworkInterfaces=
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=4G
+
+# Logging — stdout/stderr to journald → shipped to Loki by promtail
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=platform-api
+
+[Install]
+WantedBy=multi-user.target

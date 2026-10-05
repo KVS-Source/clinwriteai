@@ -242,4 +242,114 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
 
     return created
   })
+
+  // --- Agentic MLR report (stub) ----------------------------------------
+  // API contract §34. The real report is AI-authored and lands when the
+  // Anthropic connector ships. Until then this returns a deterministic
+  // advisory derived from the pre-MLR issues + claims matrix state so the
+  // UI can render the Agentic Report tab in sC06 without an empty state.
+  //
+  // Gate: latest pre_mlr_check_results.passed must be true (DD-C-002 —
+  // agentic report is only generated after pre-MLR passes).
+
+  app.get('/:contentId/agentic-report', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId } = request.params as { contentId: string }
+
+    const content = await app.prisma.medContentItem.findUnique({
+      where: { id: contentId },
+      include: {
+        claims: true,
+        preMlrRuns: {
+          orderBy: { runAt: 'desc' },
+          take: 1,
+          include: { issues: true },
+        },
+      },
+    })
+    if (!content) return reply.code(404).send({ error: 'not_found' })
+
+    const latest = content.preMlrRuns[0]
+    if (!latest) {
+      return reply.code(422).send({
+        error: 'pre_mlr_required',
+        message: 'Run pre-MLR before requesting the agentic report',
+      })
+    }
+    if (!latest.passed) {
+      return reply.code(422).send({
+        error: 'pre_mlr_failed',
+        message: `Pre-MLR has ${latest.mustFixCount} must-fix issue(s); fix them before requesting the agentic report`,
+      })
+    }
+
+    // Deterministic advisory. Scored 0-100 based on claim-reuse proportion
+    // minus issue weight. Real AI replaces this body when the connector
+    // lands; shape stays identical.
+    const totalClaims = content.claims.length
+    const approvedCount = content.claims.filter(c => c.approvalStatus === 'approved' || c.approvalStatus === 'library_adopted').length
+    const rejectedCount = content.claims.filter(c => c.approvalStatus === 'rejected').length
+    const needsEditCount = content.claims.filter(c => c.approvalStatus === 'needs_edit').length
+
+    const reuseScore = totalClaims > 0 ? Math.round((approvedCount / totalClaims) * 100) : 0
+    const issueWeight = latest.shouldFixCount * 3 + latest.noteCount * 1
+    const overallScore = Math.max(0, Math.min(100, reuseScore - issueWeight))
+
+    const findings: Array<{ category: string; severity: 'advisory' | 'suggestion'; message: string }> = []
+    if (rejectedCount > 0) findings.push({
+      category: 'Claims hygiene',
+      severity: 'advisory',
+      message: `${rejectedCount} claim(s) rejected. Confirm removal from this piece before MLR submission.`,
+    })
+    if (needsEditCount > 0) findings.push({
+      category: 'Claims hygiene',
+      severity: 'advisory',
+      message: `${needsEditCount} claim(s) marked needs_edit. Resolve edits before MLR submission.`,
+    })
+    if (latest.shouldFixCount > 0) findings.push({
+      category: 'Editorial',
+      severity: 'suggestion',
+      message: `${latest.shouldFixCount} should-fix editorial note(s) in the latest pre-MLR run. Review before escalating to MLR.`,
+    })
+    if (reuseScore < 50 && totalClaims > 0) findings.push({
+      category: 'Master Library reuse',
+      severity: 'suggestion',
+      message: `Claim reuse at ${reuseScore}% — below the 50% target. Consider adopting more Master Library claims to reduce MLR cycle time.`,
+    })
+    if (findings.length === 0) findings.push({
+      category: 'Overall',
+      severity: 'suggestion',
+      message: 'No material findings. Content ready for MLR review.',
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'agentic_report_generated',
+      entityType: 'med_content',
+      entityId: contentId,
+      details: { preMlrRunId: latest.id, overallScore, findingCount: findings.length, model: 'stub-advisor-v1' },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      contentId,
+      model: 'stub-advisor-v1',
+      advisoryOnly: true,
+      generatedAt: new Date().toISOString(),
+      preMlrRunId: latest.id,
+      scores: {
+        overall: overallScore,
+        claimReusePct: reuseScore,
+      },
+      stats: {
+        totalClaims,
+        approvedClaims: approvedCount,
+        rejectedClaims: rejectedCount,
+        needsEditClaims: needsEditCount,
+        preMlrShouldFixCount: latest.shouldFixCount,
+        preMlrNoteCount: latest.noteCount,
+      },
+      findings,
+    }
+  })
 }

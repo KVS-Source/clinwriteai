@@ -25,8 +25,18 @@ sudo -u platform npm ci --prefer-offline --no-audit --no-fund
 log "Building workspaces (api + worker + web)"
 sudo -u platform npm --workspace=apps/api    run build
 sudo -u platform npm --workspace=apps/worker run build
-# Web bundle is built with QA API endpoint baked in via VITE_API_URL
-sudo -u platform env VITE_API_URL=https://qa-api.clinwrite.ai npm --workspace=apps/web run build
+# Web bundle is built with QA API endpoint baked in. Phase 2 cutover flags
+# live in /opt/platform/env/web.env (plain, non-secret). Defaults: everything
+# still mocked. Flip VITE_MOCK_<group>=off per the implementation plan.
+if [[ -f /opt/platform/env/web.env ]]; then
+  log "Loading web build env from /opt/platform/env/web.env"
+  WEB_ENV_VARS=$(grep -v '^#' /opt/platform/env/web.env | xargs)
+else
+  log "No /opt/platform/env/web.env found — using defaults (all mocks on)"
+  WEB_ENV_VARS=""
+fi
+sudo -u platform env VITE_API_URL=https://qa-api.clinwrite.ai ${WEB_ENV_VARS} \
+  npm --workspace=apps/web run build
 
 # ---------- Copy build artefacts into /opt/platform/apps ----------
 log "Syncing api + worker build artefacts"

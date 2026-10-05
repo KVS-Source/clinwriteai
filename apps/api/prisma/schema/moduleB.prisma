@@ -225,7 +225,7 @@ model SubmissionCheck {
 }
 
 // --------------------------------------------------------------------------
-// 23.1 peer_review_rounds — scaffold (comments table lands next session)
+// 23.1 peer_review_rounds
 // --------------------------------------------------------------------------
 
 model PeerReviewRound {
@@ -234,11 +234,64 @@ model PeerReviewRound {
   roundNumber            Int      @default(1)
   journalSubmissionRef   String                                     // e.g. 'NEJM-2026-28471'
   reviewerCount          Int      @default(3)
+  submittedAt            DateTime?                                   // response letter submitted — round locked
   createdAt              DateTime @default(now())
 
-  publication            Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  publication            Publication                @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  comments               ReviewerComment[]
+  letterVersions         ResponseLetterVersion[]
 
   @@map("peer_review_rounds")
   @@unique([publicationId, roundNumber])
   @@index([publicationId])
+}
+
+// --------------------------------------------------------------------------
+// 23.2 reviewer_comments — one row per reviewer or editor comment
+// --------------------------------------------------------------------------
+
+model ReviewerComment {
+  id                   String    @id @default(uuid())
+  roundId              String
+  reviewerTab          String                                          // r1 | r2 | r3 | ed
+  commentNumber        Int                                             // 1-based within reviewerTab
+  commentText          String
+  responseText         String    @default("")
+  status               String    @default("not_started")                // not_started | drafting | responded
+  // AI provenance when the response was AI-drafted + accepted. Match
+  // the Part 11 shape in Module A ProvenanceRecord.
+  aiDrafted            Boolean   @default(false)
+  aiModel              String?
+  aiGeneratedAt        DateTime?
+  aiAcceptedBy         String?
+  aiAcceptedAt         DateTime?
+  respondedBy          String?
+  respondedAt          DateTime?
+
+  round                PeerReviewRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@map("reviewer_comments")
+  @@unique([roundId, reviewerTab, commentNumber])
+  @@index([roundId])
+  @@index([roundId, status])
+}
+
+// --------------------------------------------------------------------------
+// 23.3 response_letter_versions — immutable snapshot per save
+// --------------------------------------------------------------------------
+
+model ResponseLetterVersion {
+  id              String   @id @default(uuid())
+  roundId         String
+  letterVersion   String                                              // 'v1.N' — N = responded_count
+  respondedCount  Int
+  totalCount      Int
+  contentHash     String                                              // sha256 of the assembled letter text
+  createdBy       String
+  createdAt       DateTime @default(now())
+
+  round           PeerReviewRound @relation(fields: [roundId], references: [id], onDelete: Cascade)
+
+  @@map("response_letter_versions")
+  @@index([roundId])
 }

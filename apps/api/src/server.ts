@@ -153,6 +153,12 @@ async function buildServer() {
   const { submissionChecksRoutes } = await import('./modules/scientific-writing/submission-checks/routes.js')
   await app.register(submissionChecksRoutes, { prefix: '/publications' })
 
+  const { peerReviewRoutes } = await import('./modules/scientific-writing/peer-review/routes.js')
+  // Mixed path shapes (/publications/:id/review-rounds and /round-comments/:id)
+  // kept in one plugin so handlers share snapshotLetterVersion. Registered
+  // at root — the handlers use full paths.
+  await app.register(peerReviewRoutes)
+
   // ---------- Module C — Medical Writing ----------
   const { medContentProjectScopedRoutes, medContentRoutes } =
     await import('./modules/medical-writing/content/routes.js')

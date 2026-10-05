@@ -30,7 +30,28 @@ const auditPlugin: FastifyPluginAsync = async (app) => {
     throw new Error('AUDIT_HASH_SECRET must be at least 32 characters; chain integrity depends on it')
   }
 
-  const repo = new PostgresAuditRepository(app.prisma, auditSecret)
+  const underlying = new PostgresAuditRepository(app.prisma, auditSecret)
+
+  // Instrumented wrapper — bumps platform_audit_events_total on every
+  // successful append so Prometheus sees the full business audit stream
+  // (not just the HTTP-request level audits from the onResponse hook).
+  // On failure the counter does NOT increment; the alert on "audit append
+  // failed" fires via the log line below.
+  const repo: AuditRepository = {
+    append: async (event) => {
+      const result = await underlying.append(event)
+      try {
+        app.platformMetrics.auditEventsTotal.inc({
+          action: event.action,
+          entity_type: event.entityType,
+          actor_id: event.actorId,
+        })
+      } catch { /* metrics never breaks the write path */ }
+      return result
+    },
+    listForEntity: (entityType, entityId, limit) => underlying.listForEntity(entityType, entityId, limit),
+    verifyChain: (fromId, toId) => underlying.verifyChain(fromId, toId),
+  }
   app.decorate('audit', repo)
 
   app.addHook('onResponse', async (request, reply) => {
@@ -82,5 +103,5 @@ declare module 'fastify' {
 
 export default fp(auditPlugin, {
   name: 'audit',
-  dependencies: ['prisma'],
+  dependencies: ['prisma', 'platform-metrics'],
 })

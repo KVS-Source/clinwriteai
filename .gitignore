@@ -24,6 +24,14 @@ out/
 .env.*.local
 !.env.example
 
+# docs/.env.example here is a per-env reference template dropped by the user
+# (from GenRAC); it's not the Aurora/ClinWrite template. Keep both reference
+# copies local; the authoritative Aurora template lives at apps/api/.env.example.
+docs/.env
+docs/.env.example
+docs/.*.local.md
+docs/*.local.md
+
 # Editors
 .vscode/*
 !.vscode/settings.json.example

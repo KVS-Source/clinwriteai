@@ -15,7 +15,10 @@ generator client {
 }
 
 datasource db {
-  provider   = "postgresql"
-  url        = env("DATABASE_URL")
-  extensions = [pgvector(map: "vector")]
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+  // pgvector extension DEFERRED to Phase 3C — requires `sudo apt-get install
+  // postgresql-16-pgvector` on the host first. When ready, restore:
+  //   extensions = [pgvector(map: "vector")]
+  // (Preview feature `postgresqlExtensions` is already enabled in generator.)
 }

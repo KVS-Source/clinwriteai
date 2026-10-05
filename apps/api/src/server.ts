@@ -89,6 +89,9 @@ async function buildServer() {
   await app.register(import('./prisma/plugin.js'))
   await app.register(import('./audit/plugin.js'))
 
+  // ---------- Queue (BullMQ producer side; worker runs in apps/worker) ----------
+  await app.register(import('./modules/platform/queue/plugin.js'))
+
   // ---------- Auth (SSO + JWT session + RBAC) ----------
   await app.register(import('./auth/plugin.js'))
 

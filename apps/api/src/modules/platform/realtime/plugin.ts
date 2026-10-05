@@ -22,6 +22,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import fp from 'fastify-plugin'
 import fastifySocketIO from 'fastify-socket.io'
 import { Server as SocketServer, type Socket } from 'socket.io'
+import { createAdapter } from '@socket.io/redis-adapter'
 import { Redis } from 'ioredis'
 import { SESSION_COOKIE_NAME, type SessionClaims } from '../../../auth/jwt.js'
 
@@ -90,6 +91,22 @@ const realtimePlugin: FastifyPluginAsync = async (app) => {
     pingInterval: 25_000,
     pingTimeout: 60_000,
   })
+
+  // Cross-instance fanout via @socket.io/redis-adapter. On a single VPS
+  // this is a no-op (one process = one adapter sees all its own emits).
+  // When horizontal scale lands (N replicas behind a sticky LB), the
+  // adapter publishes every emit onto a Redis pub/sub channel so other
+  // replicas can forward it to their own connected sockets.
+  //
+  // Needs two separate Redis connections (pub + sub) because ioredis sub
+  // mode is sticky. Both share the same URL as the queue plugin's main
+  // connection but open their own sockets. Fire-and-forget — if Redis is
+  // cold at boot, ioredis buffers and the adapter attaches on reconnect.
+  const pubClient = new Redis(app.env.REDIS_URL, { maxRetriesPerRequest: null, lazyConnect: false })
+  const subClient = pubClient.duplicate()
+  pubClient.on('error', (err) => app.log.warn({ err: err.message }, 'socket.io adapter pub redis error'))
+  subClient.on('error', (err) => app.log.warn({ err: err.message }, 'socket.io adapter sub redis error'))
+  app.io.adapter(createAdapter(pubClient, subClient))
 
   app.io.use(async (socket: Socket, next) => {
     try {
@@ -218,6 +235,10 @@ const realtimePlugin: FastifyPluginAsync = async (app) => {
       // ignore — connection may already be torn down
     }
     await subscriber.quit().catch(() => undefined)
+    // Adapter pub/sub clients too — otherwise the process hangs waiting
+    // for the ioredis sockets to close.
+    await pubClient.quit().catch(() => undefined)
+    await subClient.quit().catch(() => undefined)
   })
 }
 

@@ -74,17 +74,15 @@ Not platform scope but gate GA.
 Lower priority than everything else because they don't block GA or
 compliance, but worth a session when there's capacity.
 
-- `@socket.io/redis-adapter` for cross-instance presence fanout (one-plugin-line
-  change; needed before horizontal scale)
 - `prisma $extends` middleware so new routes auto-wrap in `withTenantScope`
   (opt-in → opt-out pattern)
 - Expand WCAG a11y suite to deep screens (currently covers 5 module home pages;
   per-screen specs land as UI stabilises)
 - OpenAPI schema per route (currently auto-generated from route handlers;
   explicit `schema:` definitions would make `/docs` richer)
-- Hard-delete cron for session + ai_call_records (retention report is dry-run;
-  purge job spec'd in Phase 5 memory)
 - Audit chain nightly verify + fail PR check if verify-chain returns false
+- Expand `withTenantScope` adoption + flip one table's RLS policy to strict
+  as proof-of-concept (ADR 0010 follow-up)
 
 ---
 
@@ -116,9 +114,11 @@ notifications, worker health endpoint.
 
 **Infrastructure**: Postgres RLS infrastructure (permissive-by-default),
 `withTenantScope` helper, Redis-backed rate limit, realtime bridge
-(worker → Redis → API → Socket.io), rate-card version history,
-gitleaks pre-commit + CI gate, real `/ready` health check, WCAG axe-core
-regression suite, PDF renderer smoke tests.
+(worker → Redis → API → Socket.io), `@socket.io/redis-adapter` for
+cross-instance fanout, rate-card version history, gitleaks pre-commit +
+CI gate, real `/ready` health check, WCAG axe-core regression suite,
+PDF renderer smoke tests, retention purge cron (deletes expired
+sessions / 2y+ notifications / 7y+ ai_call_records).
 
 **Compliance**: GDPR Art. 17 anonymisation, access review cron,
 compliance report PDF, audit log JSONL export, PHI access audit tags,

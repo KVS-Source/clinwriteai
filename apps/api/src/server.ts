@@ -206,6 +206,11 @@ async function buildServer() {
   const { consistencyRoutes } = await import('./modules/regulatory-writing/consistency/routes.js')
   await app.register(consistencyRoutes, { prefix: '/reg-submissions' })
 
+  const { haCorrespondenceRoutes } = await import('./modules/regulatory-writing/ha-correspondence/routes.js')
+  // Mixed path shapes (/regulatory-submissions/:id/... + /ha-correspondence/:id +
+  // /ha-questions/:id + /ha-drafts/:id). Registered at root with full paths.
+  await app.register(haCorrespondenceRoutes)
+
   // ---------- Module E — Ideation & Publishing ----------
   const { ideationProjectScopedRoutes, ideationRoutes } =
     await import('./modules/ideation/routes.js')

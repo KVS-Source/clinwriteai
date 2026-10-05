@@ -17,10 +17,12 @@
 // What's NOT here yet (externally blocked or deferred scope):
 //   - gateway_submissions (FDA ESG + CESP onboarding — months, needs vendor
 //     contracts + PGP keys; MHRA apiReady=false in GATEWAY_PRIORITY)
-//   - ha_correspondence + ha_response_drafts (post-submission workflow)
 //   - regulatory_alerts cross-module push service
 //   - aggregate_safety_reports (PSUR/PBRER-specific; needs AE lookup)
 //   - odd_assessments (orphan drug designation path)
+//
+// Added:
+//   - ha_correspondence + ha_loq_questions + ha_response_drafts (§53)
 
 model RegulatorySubmission {
   id                        String   @id @default(uuid())
@@ -44,6 +46,7 @@ model RegulatorySubmission {
   consistencyRuns           ConsistencyCheckResult[]
   redactionRecords          RedactionRecord[]
   validationRuns            EctdValidationResult[]
+  haCorrespondence          HaCorrespondence[]
 
   @@map("regulatory_submissions")
   @@index([projectId])
@@ -188,4 +191,85 @@ model EctdValidationResult {
 
   @@map("ectd_validation_results")
   @@index([submissionId])
+}
+
+// --------------------------------------------------------------------------
+// §53 HA Correspondence — post-submission authority round-trip
+// Source: 02-datamodel.md §53, 03-api-contract.md §52.
+//
+// Lifecycle: inbound LoQ (direction=inbound, type=loq) arrives after a
+// submission reaches stage 6. Questions are extracted into ha_loq_questions.
+// Writers draft responses (ha_response_drafts, versioned per question).
+// When all questions have an 'approved' draft, an outbound 'response' row
+// closes the loop + stamps responded_at. ack / approval / nack are terminal
+// authority replies.
+// --------------------------------------------------------------------------
+
+model HaCorrespondence {
+  id              String   @id @default(uuid())
+  submissionId    String
+  direction       String                                                  // 'inbound' | 'outbound'
+  type            String                                                  // 'loq' | 'response' | 'ack' | 'approval' | 'nack'
+  contentSummary  String
+  receivedAt      DateTime?
+  respondedAt     DateTime?
+  // Blob keys — point into BlobStorage. loq_doc_id anchors the uploaded LoQ
+  // (PRD D v0.2 V-05 fix); response_doc_id anchors the compiled response.
+  loqDocId        String?
+  responseDocId   String?
+  createdAt       DateTime @default(now())
+
+  submission      RegulatorySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  questions       HaLoqQuestion[]
+
+  @@map("ha_correspondence")
+  @@index([submissionId])
+  @@index([submissionId, type])
+}
+
+// Extracted per-question list from an inbound LoQ. Parse pipeline deferred —
+// the POST /loq route currently accepts the questions in the request body
+// (stub for the real DD-D-004 auto-parser).
+model HaLoqQuestion {
+  id                  String   @id @default(uuid())
+  correspondenceId    String
+  questionRef         String                                              // 'Q1', 'Q2.1' etc.
+  questionText        String
+  category            String?                                             // 'cmc' | 'clinical' | 'nonclinical' | 'labeling' | ...
+  status              String   @default("open")                           // 'open' | 'drafting' | 'approved' | 'closed'
+  sourceModuleRef     String?                                             // e.g. 'Module 3.2.P.3'
+  dueDate             DateTime?
+  responseAt          DateTime?
+
+  correspondence      HaCorrespondence   @relation(fields: [correspondenceId], references: [id], onDelete: Cascade)
+  drafts              HaResponseDraft[]
+
+  @@map("ha_loq_questions")
+  @@unique([correspondenceId, questionRef])
+  @@index([correspondenceId])
+  @@index([correspondenceId, status])
+}
+
+// Versioned response drafts per question. Each generate call creates a new
+// row; the latest approved draft wins for the compiled response letter.
+model HaResponseDraft {
+  id                  String   @id @default(uuid())
+  questionId          String
+  versionNumber       Int                                                 // monotonic per question
+  draftText           String
+  sourceRefs          String[] @default([])                               // canonical JSON refs
+  aiFootprintPct      Int?
+  status              String   @default("draft")                          // 'draft' | 'review' | 'approved' | 'rejected'
+  reviewedBy          String?
+  reviewedAt          DateTime?
+  reviewNote          String?
+  createdBy           String
+  createdAt           DateTime @default(now())
+
+  question            HaLoqQuestion @relation(fields: [questionId], references: [id], onDelete: Cascade)
+
+  @@map("ha_response_drafts")
+  @@unique([questionId, versionNumber])
+  @@index([questionId])
+  @@index([questionId, status])
 }

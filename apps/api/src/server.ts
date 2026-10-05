@@ -43,8 +43,44 @@ async function buildServer() {
     return { ready: true }
   })
 
-  // ---------- Session cookie storage ----------
+  // ---------- Security + utility plugins ----------
+  // Order matters: cookie before auth, cors + helmet before any routes, rate-limit
+  // before heavy handlers. Sensible gives us app.httpErrors.* for consistent 4xx.
   await app.register(import('@fastify/cookie'))
+  await app.register(import('@fastify/cors'), {
+    origin: env.CORS_ORIGIN,
+    credentials: env.CORS_CREDENTIALS,
+  })
+  await app.register(import('@fastify/helmet'), { contentSecurityPolicy: false })
+  await app.register(import('@fastify/sensible'))
+  await app.register(import('@fastify/rate-limit'), {
+    max: 100,
+    timeWindow: '1 minute',
+    // SSO callback is exempt — being redirected from the IdP shouldn't ever
+    // produce enough traffic to trip the limit, and users getting rate-limited
+    // mid-login is a bad experience worth avoiding.
+    allowList: (req) => req.url.startsWith('/auth/callback'),
+  })
+
+  // ---------- OpenAPI docs ----------
+  if (env.NODE_ENV !== 'production' || env.FEATURE_OPENAPI_DOCS) {
+    await app.register(import('@fastify/swagger'), {
+      openapi: {
+        info: {
+          title: 'Aurora/ClinWrite Platform API',
+          description: 'Phase 1 scaffold. Routes defined by Fastify; schemas added route-by-route.',
+          version: process.env.npm_package_version ?? '0.1.0',
+        },
+        servers: [{ url: `http://${env.HOST}:${env.PORT}` }],
+        components: {
+          securitySchemes: {
+            sessionCookie: { type: 'apiKey', in: 'cookie', name: 'aurora_session' },
+          },
+        },
+      },
+    })
+    await app.register(import('@fastify/swagger-ui'), { routePrefix: '/docs' })
+  }
 
   // ---------- Core data + audit plumbing ----------
   await app.register(import('./prisma/plugin.js'))
@@ -58,14 +94,6 @@ async function buildServer() {
   const { userRoutes } = await import('./modules/platform/users/routes.js')
   await app.register(projectRoutes, { prefix: '/projects' })
   await app.register(userRoutes, { prefix: '/admin/users' })
-
-  // ---------- Phase 1 Week 5-6: register remaining plugins + routes ----------
-  // await app.register(import('@fastify/cors'),       { origin: env.CORS_ORIGIN, credentials: env.CORS_CREDENTIALS })
-  // await app.register(import('@fastify/helmet'))
-  // await app.register(import('@fastify/sensible'))
-  // await app.register(import('@fastify/rate-limit'), { max: 100, timeWindow: '1 minute' })
-  // await app.register(import('@fastify/swagger'),    { ... })      // OpenAPI from Zod schemas
-  // await app.register(import('@fastify/swagger-ui'), { routePrefix: '/docs' })
   //
   // // Module route registrations land in Phase 3A-3E:
   // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })

@@ -28,6 +28,8 @@ const EnvSchema = z.object({
   // Feature flags
   FEATURE_AI_GATEWAY: z.coerce.boolean().default(true),
   FEATURE_PRESENCE: z.coerce.boolean().default(true),
+  // Expose /docs in production too (off by default — enable per environment).
+  FEATURE_OPENAPI_DOCS: z.coerce.boolean().default(false),
 
   // CORS
   CORS_ORIGIN: z.string().default('http://localhost:5173'),

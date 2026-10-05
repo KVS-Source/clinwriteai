@@ -276,6 +276,49 @@ jobs:
           fi
 
   # ---------------------------------------------------------------
+  # Web a11y — WCAG 2.1 AA regression via @axe-core/playwright.
+  # Runs the built static bundle under vite preview + axe-core probes.
+  # Failing a11y violations here means the module's UI leaked a WCAG
+  # issue; fix in the component before merging.
+  # ---------------------------------------------------------------
+  a11y:
+    name: Web — WCAG 2.1 AA (axe-core)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    needs: [web]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Install Playwright browsers (chromium only)
+        run: npx --workspace=apps/web playwright install --with-deps chromium
+
+      - name: Build web bundle
+        run: npm --workspace=apps/web run build
+
+      - name: Run axe-core WCAG suite
+        run: npx --workspace=apps/web playwright test playwright/a11y
+        env:
+          CI: 'true'
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-a11y-report-${{ github.sha }}
+          path: apps/web/playwright-report/
+          retention-days: 7
+
+  # ---------------------------------------------------------------
   # Docs sanity — ensure ADRs, plan, and SME READMEs parse cleanly
   # (lightweight: just a markdown lint, no link-checking yet)
   # ---------------------------------------------------------------

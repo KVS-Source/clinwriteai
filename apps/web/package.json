@@ -13,6 +13,7 @@
   "dependencies": {
     "@platform/types": "*",
     "@tanstack/react-query": "^5.59.0",
+    "@tanstack/react-query-devtools": "^5.59.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-router-dom": "^6.28.0",

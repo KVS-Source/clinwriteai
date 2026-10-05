@@ -22,6 +22,11 @@ async function buildServer() {
     },
     requestIdHeader: 'x-request-id',
     disableRequestLogging: false,
+    // Default is 100; raise it so base64url-encoded blob keys fit as a
+    // single :keyB64 path param (/blob/local/:bucket/:keyB64). Our keys
+    // encode <projectId>/<prefix>/<date>/<rand>.<ext> which decodes to
+    // ~70-90 bytes but base64-encodes to ~100-130 chars.
+    maxParamLength: 512,
   })
 
   // ---- Decorate with providers (DI pattern) ----

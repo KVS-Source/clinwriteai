@@ -92,6 +92,9 @@ async function buildServer() {
   // ---------- Queue (BullMQ producer side; worker runs in apps/worker) ----------
   await app.register(import('./modules/platform/queue/plugin.js'))
 
+  // ---------- Blob storage (local filesystem for dev; S3-compatible for prod) ----------
+  await app.register(import('./modules/platform/blob/plugin.js'))
+
   // ---------- Auth (SSO + JWT session + RBAC) ----------
   await app.register(import('./auth/plugin.js'))
 

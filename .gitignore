@@ -57,3 +57,6 @@ coverage/
 .nyc_output/
 apps/web/test-results/
 apps/web/playwright-report/
+
+# Local filesystem BlobStorage (dev)
+var/

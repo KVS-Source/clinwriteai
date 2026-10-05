@@ -109,6 +109,12 @@ async function buildServer() {
 
   const { commentsRoutes } = await import('./modules/clinical-writing/comments/routes.js')
   await app.register(commentsRoutes, { prefix: '/documents' })
+
+  // ---------- Module B — Scientific Writing ----------
+  const { publicationsProjectScopedRoutes, publicationsRoutes } =
+    await import('./modules/scientific-writing/publications/routes.js')
+  await app.register(publicationsProjectScopedRoutes, { prefix: '/projects' })
+  await app.register(publicationsRoutes, { prefix: '/publications' })
   //
   // // Module route registrations land in Phase 3A-3E:
   // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })

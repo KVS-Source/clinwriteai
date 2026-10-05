@@ -256,6 +256,11 @@ async function buildServer() {
   // root — paths are a mix of /regulatory-alerts/* and /admin/regulatory-alerts/*.
   await app.register(regulatoryAlertsRoutes)
 
+  const { reportsRoutes } = await import('./modules/platform/reports/routes.js')
+  // Read-only aggregation layer across all 5 modules. Project dashboard
+  // open to any module member; tenant + AI spend + audit activity gated to admins.
+  await app.register(reportsRoutes)
+
   // Compliance gauge scheduler — keeps the Prometheus gauges the Phase 6
   // alerts rely on (audit chain intact, last verify, access review, backup
   // success) fresh. Mounted last so all dependencies (prisma + audit +

@@ -23,6 +23,7 @@ export type QueueJobName =
   | 'ideation.calendar_overdue'
   | 'compliance.retention_purge'
   | 'clinical.restore_version'
+  | 'clinical.voice_transcribe'
 
 export interface QueueJobOptions {
   /** Delay in milliseconds before the worker picks the job up. */

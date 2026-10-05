@@ -14,6 +14,7 @@ import { handleCalendarOverdue } from './jobs/calendar-overdue.js'
 import { handleRetentionPurge } from './jobs/retention-purge.js'
 import { handleNotificationEmail, handleNotificationSms } from './jobs/notification-delivery.js'
 import { handleRestoreVersion } from './jobs/restore-version.js'
+import { handleVoiceTranscribe } from './jobs/voice-transcribe.js'
 
 const log = pino({
   level: process.env.LOG_LEVEL ?? 'info',
@@ -53,6 +54,7 @@ const handlers = {
   'notification.email': handleNotificationEmail,
   'notification.sms': handleNotificationSms,
   'clinical.restore_version': handleRestoreVersion,
+  'clinical.voice_transcribe': handleVoiceTranscribe,
 } as const
 type JobName = keyof typeof handlers
 
@@ -69,6 +71,8 @@ const concurrency: Record<JobName, number> = {
   // concurrency=1 for restores — avoids racing concurrent version creations
   // for the same document; the audit chain is strictly ordered per-doc.
   'clinical.restore_version': 1,
+  // Transcription can parallelise safely — each note is independent.
+  'clinical.voice_transcribe': 4,
 }
 
 const workers: Worker[] = []

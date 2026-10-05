@@ -91,9 +91,21 @@ export const voiceNotesRoutes: FastifyPluginAsync = async (app) => {
       },
     })
 
-    // TODO: enqueue a transcription job once the audio-to-text provider
-    // ships. For now the note just sits in pending status.
-    // app.queue.enqueue('voice.transcribe', { noteId: note.id, blobKey })
+    // Enqueue the transcription job. Worker lives in apps/worker and
+    // currently writes a deterministic stub transcript — swap to Whisper /
+    // Anthropic audio when the provider lands (handler shape stays the same).
+    try {
+      await app.queue.enqueue('clinical.voice_transcribe', {
+        noteId: note.id,
+        documentId,
+        blobKey,
+        actorId: request.user!.id,
+      }, { jobId: `voice-transcribe-${note.id}` })
+    } catch (err) {
+      // Fire-and-forget semantics: Redis down shouldn't 500 the upload.
+      // transcriptStatus=pending stays and can be retried later.
+      app.log.warn({ err, noteId: note.id }, 'voice transcription enqueue failed — note remains pending')
+    }
 
     await app.audit.append({
       timestamp: new Date().toISOString(),

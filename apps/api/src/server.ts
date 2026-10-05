@@ -154,6 +154,9 @@ async function buildServer() {
 
   const { atomisedRoutes } = await import('./modules/ideation/atomised/routes.js')
   await app.register(atomisedRoutes, { prefix: '/ideation' })
+
+  const { publishingRoutes } = await import('./modules/ideation/publishing/routes.js')
+  await app.register(publishingRoutes, { prefix: '/ideation' })
   //
   // // Module route registrations land in Phase 3A-3E:
   // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })

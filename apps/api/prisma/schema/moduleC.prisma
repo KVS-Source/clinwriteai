@@ -1,0 +1,189 @@
+// Module C — Medical Writing models.
+//
+// Source: docs/demo/02-datamodel.md §28-§29 (content items, claims matrix,
+// review tier, FK score, pre-MLR). Enum columns stored as TEXT with Zod
+// validation at the route edge, same convention as Modules A and B.
+//
+// What's HERE:
+//   - med_content_items (6-stage lifecycle, cross-module source FKs)
+//   - claims_matrix_items
+//   - review_tier_records (tier override log)
+//   - fk_score_records (patient-facing readability)
+//   - pre_mlr_check_results + pre_mlr_issues
+//
+// What's NOT here yet (externally blocked or scope-later):
+//   - Claims similarity vector column (needs pgvector apt install — Phase 3C
+//     plan risk; defer the column + similarity engine until pgvector is live)
+//   - Agentic report tables (needs Anthropic key)
+//   - MLR comments + decision tables (bigger scope — mini CRM)
+//   - WCAG test records (axe-core + custom contrast checker not wired yet)
+//   - ACCME CME compliance tables
+//   - Content expiry scheduler state (BullMQ cron)
+
+model MedContentItem {
+  id                        String   @id @default(uuid())
+  projectId                 String
+
+  // Cross-module source links. sourceModuleAProjectId = originating clinical
+  // project; sourceModuleBPubId optional link to the manuscript this piece
+  // derives from. Both are read-only once set (DD-C-002).
+  sourceModuleAProjectId    String
+  sourceModuleBPubId        String?
+
+  type                      String                                    // med_content_type (hcp_deck|mi_letter|pil|cme_module|…)
+  title                     String
+  status                    String   @default("briefing")              // med_content_status
+  stage                     Int      @default(1)                       // 1..6
+  complianceTrack           String                                     // compliance_track (promotional|non_promotional|cme|advisory)
+  taTag                     String                                     // mandatory TA tag inherited at creation
+  version                   String   @default("v0.1")
+  channels                  String[] @default([])
+  targetAudience            String[] @default([])
+
+  // Derived fields (updated by routes/workers)
+  reviewTier                String?                                    // review_tier (A|B|C)
+  tierOverriddenBy          String?
+  fkScore                   Decimal? @db.Decimal(4, 1)                 // most recent FK score (patient-facing)
+  fkPassed                  Boolean?
+  aiFootprintPct            Int?
+  expiryDate                DateTime? @db.Date
+  approvedAt                DateTime?
+  medicalAffairsPlanId      String?
+  publicationPlanId         String?
+
+  ownerId                   String
+  createdBy                 String
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+  archivedAt                DateTime?
+  archiveReason             String?
+
+  claims                    ClaimsMatrixItem[]
+  reviewTiers               ReviewTierRecord[]
+  fkScores                  FkScoreRecord[]
+  preMlrRuns                PreMlrCheckResult[]
+
+  @@map("med_content_items")
+  @@index([projectId])
+  @@index([status])
+  @@index([type])
+  @@index([taTag])
+  @@index([expiryDate])
+  @@index([sourceModuleAProjectId])
+  @@index([sourceModuleBPubId])
+}
+
+// --------------------------------------------------------------------------
+// 28.2 claims_matrix_items
+// --------------------------------------------------------------------------
+
+model ClaimsMatrixItem {
+  id                   String    @id @default(uuid())
+  contentItemId        String
+  claimText            String
+  sourceRef            String                                          // 'CSR v1.0 Table 14.2.1'
+  sourceType           String                                          // smpc|csr|publication|label
+  location             String                                          // 'Slide 12'
+  approvalStatus       String    @default("new")                       // claim_status (new|approved|rejected|needs_edit|library_adopted)
+  reviewerId           String?
+  // similarity_pct will come from pgvector embeddings once that extension is
+  // live. Phase 3C scaffold stores a plain Int so the harvest stub can seed
+  // mock similarity values without blocking on pgvector.
+  similarityPct        Int?
+  approvedLibraryText  String?
+  adoptedAt            DateTime?
+  harvestedAt          DateTime?
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+
+  contentItem          MedContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  @@map("claims_matrix_items")
+  @@index([contentItemId])
+  @@index([contentItemId, approvalStatus])
+  @@index([contentItemId, similarityPct])
+}
+
+// --------------------------------------------------------------------------
+// 28.3 review_tier_records — tier history + override log
+// --------------------------------------------------------------------------
+
+model ReviewTierRecord {
+  id                String   @id @default(uuid())
+  contentItemId     String
+  tier              String                                            // review_tier
+  reusePct          Int                                               // % approved+adopted claims
+  calculatedAt      DateTime @default(now())
+  overriddenBy      String?                                           // MLR Lead only
+  overrideReason    String?
+
+  contentItem       MedContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  @@map("review_tier_records")
+  @@index([contentItemId])
+}
+
+// --------------------------------------------------------------------------
+// 28.4 fk_score_records — Flesch-Kincaid readability
+// --------------------------------------------------------------------------
+
+model FkScoreRecord {
+  id                String   @id @default(uuid())
+  contentItemId     String
+  score             Decimal  @db.Decimal(4, 1)
+  // passed is computed at the service layer (score <= 8.0). Prisma can't
+  // express a GENERATED column; a stored Boolean mirrors the computation.
+  passed            Boolean
+  calculatedAt      DateTime @default(now())
+  bySection         Json     @default("[]")                            // [{sectionId, sectionLabel, score}]
+
+  contentItem       MedContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+
+  @@map("fk_score_records")
+  @@index([contentItemId])
+  @@index([contentItemId, calculatedAt])
+}
+
+// --------------------------------------------------------------------------
+// 29.1 pre_mlr_check_results
+// --------------------------------------------------------------------------
+
+model PreMlrCheckResult {
+  id                String   @id @default(uuid())
+  contentItemId     String
+  runAt             DateTime @default(now())
+  mustFixCount      Int      @default(0)
+  shouldFixCount    Int      @default(0)
+  noteCount         Int      @default(0)
+  passed            Boolean  @default(true)                            // service-level computed from mustFixCount
+  runBy             String
+
+  contentItem       MedContentItem @relation(fields: [contentItemId], references: [id], onDelete: Cascade)
+  issues            PreMlrIssue[]
+
+  @@map("pre_mlr_check_results")
+  @@index([contentItemId])
+  @@index([contentItemId, runAt])
+}
+
+// --------------------------------------------------------------------------
+// 29.2 pre_mlr_issues
+// --------------------------------------------------------------------------
+
+model PreMlrIssue {
+  id                String   @id @default(uuid())
+  checkResultId     String
+  severity          String                                             // pre_mlr_severity (must_fix|should_fix|note)
+  slide             String?                                            // 'Slide 12' (null for editorial)
+  title             String
+  detail            String
+  suggestedFix      String?
+  acknowledged      Boolean  @default(false)
+  acknowledgedBy    String?
+  acknowledgedAt    DateTime?
+
+  checkResult       PreMlrCheckResult @relation(fields: [checkResultId], references: [id], onDelete: Cascade)
+
+  @@map("pre_mlr_issues")
+  @@index([checkResultId])
+}

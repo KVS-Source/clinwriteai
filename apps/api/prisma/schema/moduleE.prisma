@@ -1,0 +1,253 @@
+// Module E — Ideation & Publishing models.
+//
+// Source: docs/demo/02-datamodel.md §45-§48 (ideation projects, artefacts,
+// content cards, atomised content, claim currency, contacts, calendar,
+// publish records, DOI, Dublin Core).
+//
+// Enum columns stored as TEXT with Zod validation at route edge, same
+// convention as earlier modules.
+//
+// What's HERE:
+//   - ideation_projects, ideation_artefacts, ideation_content_cards
+//   - atomised_content (UNIQUE per card+channel)
+//   - claim_currency_checks
+//   - kol_contacts, ma_contacts (mobile_encrypted deferred — see below)
+//   - calendar_entries, publish_records (1-1 with calendar)
+//   - doi_records, dublin_core_metadata
+//
+// What's NOT here yet (externally blocked or scope-later):
+//   - social_listening_alerts (needs real listening wiring)
+//   - mobile_encrypted field encryption (needs key management decision —
+//     column is a plain TEXT for now with a comment flagging the TODO)
+//   - Public KOL guest JWT route (threat model + WAF rules required)
+//   - CrossRef DOI minting integration (same procurement blocker as Module B)
+
+model IdeationProject {
+  id              String   @id @default(uuid())
+  projectId       String
+  sourceType      String                                          // master_library | upload | external
+  taTag           String
+  status          String   @default("uploaded")                    // ideation_stage
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  artefacts       IdeationArtefact[]
+  kolContacts     KolContact[]
+  maContacts      MaContact[]
+
+  @@map("ideation_projects")
+  @@index([projectId])
+}
+
+model IdeationArtefact {
+  id                     String   @id @default(uuid())
+  ideationProjectId      String
+  sourceModule           String?                                   // A|B|C|D|external
+  sourceDocId            String?
+  filePath               String?
+  title                  String
+  originalApprovalDate   DateTime @db.Date
+  version                String
+  sourceCurrencyStatus   String   @default("current")              // source_currency_status
+  approvalStatusCheck    String   @default("pending")              // passed|blocked|confirmed_external|pending
+  masterLibraryPushDate  DateTime? @db.Date                        // null for uploads; set for Master Library pulls
+
+  ideationProject        IdeationProject       @relation(fields: [ideationProjectId], references: [id], onDelete: Cascade)
+  cards                  IdeationContentCard[]
+  currencyChecks         ClaimCurrencyCheck[]
+
+  @@map("ideation_artefacts")
+  @@index([ideationProjectId])
+}
+
+// --------------------------------------------------------------------------
+// ideation_content_cards — overall_status is denormalised from
+// kol_status + ma_status (service-layer derivation on every write).
+// --------------------------------------------------------------------------
+
+model IdeationContentCard {
+  id                   String   @id @default(uuid())
+  ideationArtefactId   String
+  sourceSection        String
+  sourcePassage        String
+  claimCurrencyStatus  String   @default("current")                // claim_currency_status
+  channelFormats       String[] @default([])
+  kolStatus            String   @default("pending")                 // pending | approved | rejected
+  maStatus             String   @default("pending")                 // pending | approved | rejected
+  overallStatus        String   @default("uploaded")                // derived — content_card_status
+  provenance           Json     @default("{}")
+  createdAt            DateTime @default(now())
+
+  artefact             IdeationArtefact       @relation(fields: [ideationArtefactId], references: [id], onDelete: Cascade)
+  atomised             AtomisedContent[]
+  calendarEntries      CalendarEntry[]
+  doiRecord            DoiRecord?
+  dublinCoreMetadata   DublinCoreMetadata?
+
+  @@map("ideation_content_cards")
+  @@index([ideationArtefactId])
+  @@index([overallStatus])
+}
+
+// --------------------------------------------------------------------------
+// atomised_content — one row per channel adaptation of a card
+// --------------------------------------------------------------------------
+
+model AtomisedContent {
+  id                        String   @id @default(uuid())
+  ideationContentCardId     String
+  channel                   String                                 // channel_format
+  contentText               String
+  aiGenerated               Boolean  @default(true)
+  aiFootprintHash           String
+  brandScreenPassed         Boolean  @default(false)
+  complianceScreenPassed    Boolean  @default(false)
+  createdAt                 DateTime @default(now())
+
+  card                      IdeationContentCard @relation(fields: [ideationContentCardId], references: [id], onDelete: Cascade)
+
+  @@map("atomised_content")
+  @@unique([ideationContentCardId, channel])
+  @@index([ideationContentCardId])
+}
+
+// --------------------------------------------------------------------------
+// claim_currency_checks — ran against the artefact (not the cards)
+// --------------------------------------------------------------------------
+
+model ClaimCurrencyCheck {
+  id                   String    @id @default(uuid())
+  ideationArtefactId   String
+  runAt                DateTime  @default(now())
+  claimsExtracted      Json      @default("[]")
+  supersededClaims     Json      @default("[]")
+  conflictingClaims    Json      @default("[]")
+  acknowledgedBy       String?
+  acknowledgedAt       DateTime?
+
+  artefact             IdeationArtefact @relation(fields: [ideationArtefactId], references: [id], onDelete: Cascade)
+
+  @@map("claim_currency_checks")
+  @@index([ideationArtefactId])
+}
+
+// --------------------------------------------------------------------------
+// kol_contacts / ma_contacts — external reviewer directory
+// mobile_encrypted is PLAIN TEXT in the scaffold with a TODO for the
+// key-management decision (see memory project_phase_3e_deferrals).
+// --------------------------------------------------------------------------
+
+model KolContact {
+  id                     String    @id @default(uuid())
+  ideationProjectId      String
+  name                   String
+  email                  String
+  // TODO(encrypt): rotate to envelope-encrypted TEXT once KMS strategy picked.
+  mobileEncrypted        String?
+  reviewLinkToken        String                                    // one-time JWT, 7-day expiry
+  reviewLinkExpiry       DateTime
+  signedOffAt            DateTime?
+  reminder1SentAt        DateTime?
+  reminder2SentAt        DateTime?
+  escalatedAt            DateTime?
+
+  ideationProject        IdeationProject @relation(fields: [ideationProjectId], references: [id], onDelete: Cascade)
+
+  @@map("kol_contacts")
+  @@index([ideationProjectId])
+}
+
+model MaContact {
+  id                     String   @id @default(uuid())
+  ideationProjectId      String
+  role                   String                                    // lead | member
+  name                   String
+  email                  String
+  // TODO(encrypt): same as KolContact.
+  mobileEncrypted        String?
+  notificationPreference String   @default("email_sms")
+
+  ideationProject        IdeationProject @relation(fields: [ideationProjectId], references: [id], onDelete: Cascade)
+
+  @@map("ma_contacts")
+  @@index([ideationProjectId])
+}
+
+// --------------------------------------------------------------------------
+// calendar_entries + publish_records
+// --------------------------------------------------------------------------
+
+model CalendarEntry {
+  id                       String    @id @default(uuid())
+  ideationContentCardId    String
+  channel                  String                                  // channel_format
+  scheduledDate            DateTime  @db.Date
+  assignedCreativeId       String?
+  status                   String    @default("scheduled")          // scheduled|published|overdue|cancelled
+  publishedAt              DateTime?
+  publishedBy              String?
+
+  card                     IdeationContentCard @relation(fields: [ideationContentCardId], references: [id], onDelete: Cascade)
+  publishRecord            PublishRecord?
+
+  @@map("calendar_entries")
+  @@index([scheduledDate])
+}
+
+model PublishRecord {
+  id                  String   @id @default(uuid())
+  calendarEntryId     String   @unique
+  channel             String
+  publishedAt         DateTime
+  publishedBy         String
+  utmParams           String?
+  seoMetadata         Json     @default("{}")
+  sentimentScore      Decimal? @db.Decimal(4, 2)
+  sentimentAlertSent  Boolean  @default(false)
+
+  calendarEntry       CalendarEntry @relation(fields: [calendarEntryId], references: [id], onDelete: Cascade)
+
+  @@map("publish_records")
+}
+
+// --------------------------------------------------------------------------
+// doi_records + dublin_core_metadata — one row per card
+// --------------------------------------------------------------------------
+
+model DoiRecord {
+  id                       String   @id @default(uuid())
+  ideationContentCardId    String   @unique
+  doi                      String
+  registeredAt             DateTime @default(now())
+  crossrefResponse         Json     @default("{}")
+
+  card                     IdeationContentCard @relation(fields: [ideationContentCardId], references: [id], onDelete: Cascade)
+
+  @@map("doi_records")
+}
+
+model DublinCoreMetadata {
+  id                       String   @id @default(uuid())
+  ideationContentCardId    String   @unique
+  dcTitle                  String
+  dcCreator                String
+  dcSubject                String
+  dcDescription            String
+  dcDate                   DateTime @db.Date
+  dcType                   String
+  dcFormat                 String
+  dcIdentifier             String?                                 // DOI if registered
+  dcRights                 String
+  dcLanguage               String   @default("en")
+  dcSource                 String?
+  dcRelation               String?
+  dcCoverage               String?
+  dcPublisher              String?
+  dcContributor            String?
+  taggedAt                 DateTime @default(now())
+
+  card                     IdeationContentCard @relation(fields: [ideationContentCardId], references: [id], onDelete: Cascade)
+
+  @@map("dublin_core_metadata")
+}

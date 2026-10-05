@@ -276,6 +276,133 @@ jobs:
           fi
 
   # ---------------------------------------------------------------
+  # Web ↔ API integration smoke — Phase 2 cutover gate.
+  # Spins up the API against the postgres+redis service containers from
+  # the `api` job, seeds the DB, then runs a thin Playwright suite with
+  # MSW DISABLED (VITE_MOCK_*=off) so every request walks the real API.
+  # Catches cutover-time regressions (CORS, cookie Domain, 401 handling,
+  # error-shape drift) before they land in demo.
+  # ---------------------------------------------------------------
+  web-integration:
+    name: Web ↔ API — live integration smoke
+    runs-on: ubuntu-latest
+    needs: [web, api]
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+          POSTGRES_DB: platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d platform_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://platform:platform@localhost:5432/platform_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      JWT_SECRET: ci-jwt-secret-at-least-32-characters-long
+      AUDIT_HASH_SECRET: ci-audit-hash-secret-32-chars-long
+      S3_DOCUMENTS_BUCKET: ci-documents
+      BLOB_PROVIDER: local
+      BLOB_LOCAL_ROOT_DIR: /tmp/blob-ci
+      BLOB_LOCAL_SIGNING_KEY: ci-local-blob-signing-key-at-least-32
+      CORS_ORIGIN: http://localhost:4173
+      SECRETS_PROVIDER: env
+      PORT: '3001'
+      HOST: '127.0.0.1'
+      NODE_ENV: production
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Install Playwright chromium
+        run: npx --workspace=apps/web playwright install --with-deps chromium
+
+      - name: Prisma generate + migrate + seed
+        run: |
+          npm --workspace=apps/api run db:generate
+          npm --workspace=apps/api run db:migrate
+          npm --workspace=apps/api run db:seed
+
+      - name: Build API + worker
+        run: |
+          npm --workspace=apps/api run build
+
+      - name: Build web bundle with MSW off
+        env:
+          VITE_API_URL: http://127.0.0.1:3001
+          VITE_BYPASS_AUTH: 'true'   # CI env has no IdP; keep bypass on for now
+          VITE_MOCK_AUTH: off
+          VITE_MOCK_PROJECTS: off
+          VITE_MOCK_MODULE_A: off
+          VITE_MOCK_MODULE_B: off
+          VITE_MOCK_MODULE_C: off
+          VITE_MOCK_MODULE_D: off
+          VITE_MOCK_MODULE_E: off
+        run: npm --workspace=apps/web run build
+
+      - name: Start API in background
+        run: |
+          cd apps/api
+          nohup node dist/server.js > /tmp/api.log 2>&1 &
+          echo $! > /tmp/api.pid
+          # Wait for /ready to return 200 (Postgres + Redis checks pass).
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/ready || true)
+            if [ "$code" = "200" ]; then echo "API ready"; exit 0; fi
+            echo "API not ready yet (code=$code), retry $i/30"
+            sleep 2
+          done
+          echo "API failed to become ready — tail of log:"
+          tail -100 /tmp/api.log
+          exit 1
+
+      - name: Run smoke suite against live API
+        env:
+          E2E_BASE_URL: http://localhost:4173
+        run: npx --workspace=apps/web playwright test playwright/smoke
+
+      - name: Dump API log on failure
+        if: failure()
+        run: tail -200 /tmp/api.log || true
+
+      - name: Shutdown API
+        if: always()
+        run: |
+          if [ -f /tmp/api.pid ]; then kill -TERM "$(cat /tmp/api.pid)" || true; fi
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-integration-report-${{ github.sha }}
+          path: apps/web/playwright-report/
+          retention-days: 7
+
+  # ---------------------------------------------------------------
   # Web a11y — WCAG 2.1 AA regression via @axe-core/playwright.
   # Runs the built static bundle under vite preview + axe-core probes.
   # Failing a11y violations here means the module's UI leaked a WCAG

@@ -100,7 +100,13 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     reply.setCookie(SESSION_COOKIE_NAME, token, {
       httpOnly: true,
       secure: app.env.NODE_ENV !== 'development',
+      // SameSite=lax works for the single-origin dev case (localhost:5173 →
+      // localhost:3001 is same-site under the eTLD+1 rule). For prod/demo
+      // where web + API live on different subdomains (demo.clinwrite.ai +
+      // api.clinwrite.ai), the Domain attribute below widens the cookie to
+      // both subdomains so SameSite=lax still delivers it.
       sameSite: 'lax',
+      ...(app.env.SESSION_COOKIE_DOMAIN && { domain: app.env.SESSION_COOKIE_DOMAIN }),
       path: '/',
       maxAge: 24 * 60 * 60,
     })
@@ -127,7 +133,12 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
         data: { revokedAt: new Date() },
       }).catch(() => undefined)  // Session may already be revoked; idempotent.
     }
-    reply.clearCookie(SESSION_COOKIE_NAME, { path: '/' })
+    // ClearCookie must match the attrs we set — otherwise the browser
+    // keeps a residual cookie with the Domain set.
+    reply.clearCookie(SESSION_COOKIE_NAME, {
+      path: '/',
+      ...(app.env.SESSION_COOKIE_DOMAIN && { domain: app.env.SESSION_COOKIE_DOMAIN }),
+    })
 
     await app.audit.append({
       timestamp: new Date().toISOString(),

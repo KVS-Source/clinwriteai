@@ -107,11 +107,184 @@ async function main() {
     }
   }
 
+  // ----------------------------------------------------------------------
+  // Per-module minimal fixtures — one entity each so cutover screens
+  // render something instead of empty state. All upserts, so re-runs
+  // leave existing data alone + just add anything missing.
+  // ----------------------------------------------------------------------
+
+  console.log('→ Seeding Module A — document + current version + sections...')
+  const document = await prisma.document.upsert({
+    where: { id: 'DOC-VELORA-CSR-001' },
+    create: {
+      id: 'DOC-VELORA-CSR-001',
+      projectId: velora.id,
+      type: 'csr_full',
+      title: 'VELORA-301 Clinical Study Report',
+      status: 'in_authoring',
+      stage: 'reporting',
+      therapeuticArea: velora.therapeuticArea,
+      assigneeId: writer.id,
+      targetCompletionDate: new Date('2027-01-15'),
+      createdBy: writer.id,
+    },
+    update: {},
+  })
+  const docVersion = await prisma.documentVersion.upsert({
+    where: { documentId_versionNumber: { documentId: document.id, versionNumber: 'v0.1' } },
+    create: {
+      documentId: document.id,
+      versionNumber: 'v0.1',
+      label: 'Draft',
+      contentHash: 'seed-placeholder-hash',
+      isCurrent: true,
+      createdBy: writer.id,
+    },
+    update: {},
+  })
+  await prisma.document.update({
+    where: { id: document.id },
+    data: { currentVersionId: docVersion.id },
+  }).catch(() => undefined)
+  for (const [sectionId, title, content] of [
+    ['11.1', 'Study design', '<p>Randomised, double-blind, placebo-controlled Phase III trial.</p>'],
+    ['11.2', 'Patient population', '<p>Adults aged 18-75 with advanced NSCLC.</p>'],
+    ['11.3', 'Primary endpoint', '<p>Overall survival at 24 months.</p>'],
+  ] as const) {
+    await prisma.sectionContent.upsert({
+      where: { id: `SEC-${sectionId}-SEED` },
+      create: {
+        id: `SEC-${sectionId}-SEED`,
+        documentVersionId: docVersion.id,
+        sectionId,
+        sectionNumber: sectionId,
+        sectionTitle: title,
+        contentHtml: content,
+        ichStatus: 'in_progress',
+      },
+      update: {},
+    })
+  }
+
+  console.log('→ Seeding Module B — publication + author...')
+  const publication = await prisma.publication.upsert({
+    where: { id: 'PUB-VELORA-PRIMARY' },
+    create: {
+      id: 'PUB-VELORA-PRIMARY',
+      projectId: velora.id,
+      type: 'manuscript',
+      subtype: 'primary_results',
+      title: 'VELORA-301: Primary analysis of overall survival',
+      stage: 'in_authoring',
+      status: 'draft',
+      version: 'v0.1',
+      guideline: 'CONSORT',
+      journal: 'NEJM',
+      targetSubmissionDate: new Date('2027-03-01'),
+      keyMessage: 'Novel therapy significantly improves OS over SoC in advanced NSCLC.',
+      baaStatus: 'not_applicable',
+      sourceDocumentId: document.id,
+      sourceDocumentLabel: `${document.title} v0.1`,
+      ownerId: writer.id,
+      createdBy: writer.id,
+    },
+    update: {},
+  })
+  const author = await prisma.publicationAuthor.upsert({
+    where: { publicationId_userId: { publicationId: publication.id, userId: writer.id } },
+    create: {
+      publicationId: publication.id,
+      userId: writer.id,
+      name: writer.name,
+      initials: writer.initials ?? 'CW',
+      role: 'Lead medical writer',
+      raci: 'R',
+      isExternal: false,
+      addedBy: writer.id,
+    },
+    update: {},
+  })
+  // ICMJE: four criterion rows per author per spec.
+  for (const i of [0, 1, 2, 3]) {
+    await prisma.pubIcmjeCriterion.upsert({
+      where: { authorId_criterionIndex: { authorId: author.id, criterionIndex: i } },
+      create: { authorId: author.id, criterionIndex: i },
+      update: {},
+    })
+  }
+
+  console.log('→ Seeding Module C — med content item...')
+  await prisma.medContentItem.upsert({
+    where: { id: 'MED-VELORA-HCP-DECK' },
+    create: {
+      id: 'MED-VELORA-HCP-DECK',
+      projectId: velora.id,
+      sourceModuleAProjectId: velora.id,
+      sourceModuleBPubId: publication.id,
+      type: 'hcp_deck',
+      title: 'VELORA-301 HCP presentation',
+      status: 'briefing',
+      stage: 1,
+      complianceTrack: 'promotional',
+      taTag: velora.therapeuticArea,
+      channels: ['field_force', 'congress'],
+      targetAudience: ['oncologist'],
+      ownerId: writer.id,
+      createdBy: writer.id,
+    },
+    update: {},
+  })
+
+  console.log('→ Seeding Module D — regulatory submission...')
+  await prisma.regulatorySubmission.upsert({
+    where: { id: 'SUB-VELORA-NDA' },
+    create: {
+      id: 'SUB-VELORA-NDA',
+      projectId: velora.id,
+      sourceModuleAProjectId: velora.id,
+      submissionType: 'nda_maa',
+      stage: 1,
+      status: 'source_gathering',
+      taTag: velora.therapeuticArea,
+      targetHas: ['FDA', 'EMA'],
+      ownerId: writer.id,
+    },
+    update: {},
+  })
+
+  console.log('→ Seeding Module E — ideation project + artefact...')
+  const ideation = await prisma.ideationProject.upsert({
+    where: { id: 'IDE-VELORA' },
+    create: {
+      id: 'IDE-VELORA',
+      projectId: velora.id,
+      sourceType: 'master_library',
+      taTag: velora.therapeuticArea,
+      status: 'uploaded',
+      createdBy: writer.id,
+    },
+    update: {},
+  })
+  await prisma.ideationArtefact.upsert({
+    where: { id: 'IDE-ART-VELORA-01' },
+    create: {
+      id: 'IDE-ART-VELORA-01',
+      ideationProjectId: ideation.id,
+      sourceModule: 'B',
+      sourceDocId: publication.id,
+      title: 'VELORA-301 lay summary — primary results',
+      originalApprovalDate: new Date('2026-10-01'),
+      version: 'v1.0',
+    },
+    update: {},
+  })
+
   console.log('✔ Seed complete.')
   console.log(`   Admin:    ${admin.email}`)
   console.log(`   Writer:   ${writer.email}`)
   console.log(`   Reviewer: ${reviewer.email}`)
   console.log(`   Projects: ${velora.id}, ${atlas.id}`)
+  console.log(`   Fixtures: 1 doc + 1 pub + 1 med-content + 1 submission + 1 ideation artefact (all under VELORA)`)
 }
 
 main()

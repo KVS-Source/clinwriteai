@@ -35,6 +35,13 @@ const EnvSchema = z.object({
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   CORS_CREDENTIALS: z.coerce.boolean().default(true),
 
+  // Session cookie Domain attribute. Needed when the web app and API live
+  // on different subdomains (demo.clinwrite.ai + api.clinwrite.ai) — set
+  // to '.clinwrite.ai' so the cookie set by the API is sent back on
+  // requests from the web app. Leave unset for single-origin dev
+  // (localhost:5173 → localhost:3001 works via SameSite=Lax).
+  SESSION_COOKIE_DOMAIN: z.string().optional(),
+
   // S3-API (ADR 0007 — MinIO on standalone, S3 on cloud)
   S3_ENDPOINT: z.string().url().optional(),
   S3_REGION: z.string().default('us-east-1'),

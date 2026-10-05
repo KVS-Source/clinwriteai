@@ -52,16 +52,35 @@ jobs:
 
   # ---------------------------------------------------------------
   # Backend — apps/api
-  # Scaffold-only in Phase 0. Expands in Phase 1 to:
-  #   - typecheck
-  #   - unit tests (vitest)
-  #   - integration tests (vitest + testcontainers postgres)
-  #   - prisma migrate validate
+  # Phase 1: typecheck + prisma generate + unit tests + integration tests
+  # against a real Postgres service container.
   # ---------------------------------------------------------------
   api:
-    name: API — scaffold check
+    name: API — typecheck + tests
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+          POSTGRES_DB: platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d platform_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      # Integration tests still spin up their own Testcontainers Postgres per
+      # test file; the service above is for prisma validate / seed smoke only.
+      DATABASE_URL: postgresql://platform:platform@localhost:5432/platform_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      S3_DOCUMENTS_BUCKET: platform-documents
+      JWT_SECRET: ci-jwt-secret-at-least-32-characters-long
+      AUDIT_HASH_SECRET: ci-audit-hash-secret-32-chars-long
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -75,13 +94,20 @@ jobs:
       - name: Install dependencies
         run: npm ci --prefer-offline --no-audit --no-fund
 
-      - name: Typecheck (if tsconfig present)
-        run: |
-          if [ -f apps/api/tsconfig.json ]; then
-            npm --workspace=apps/api run typecheck --if-present
-          else
-            echo "apps/api not yet scaffolded with tsconfig — skipping"
-          fi
+      - name: Prisma generate
+        run: npm --workspace=apps/api run db:generate
+
+      - name: Prisma migrate deploy (sanity)
+        run: npm --workspace=apps/api run db:migrate
+
+      - name: Typecheck
+        run: npm --workspace=apps/api run typecheck
+
+      - name: Unit tests (vitest)
+        run: npm --workspace=apps/api test
+
+      - name: Integration tests (testcontainers postgres)
+        run: npm --workspace=apps/api run test:integration
 
   # ---------------------------------------------------------------
   # Shared types package

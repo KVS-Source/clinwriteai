@@ -132,7 +132,10 @@ declare module 'fastify' {
 // Export buildServer for integration tests
 export { buildServer }
 
-// Boot when run directly (not when imported)
-if (import.meta.url === `file://${process.argv[1]}`) {
+// Boot when run directly (not when imported). pathToFileURL normalises
+// Windows-style process.argv[1] ('C:\...') to the triple-slash file URL
+// shape import.meta.url produces ('file:///C:/...').
+import { pathToFileURL } from 'node:url'
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   main()
 }

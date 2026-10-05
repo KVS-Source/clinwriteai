@@ -26,6 +26,7 @@ const CRON_JOBS: ReadonlyArray<{ name: QueueJobName; cron: string; description: 
   { name: 'ideation.calendar_overdue',  cron: '30 * * * *', description: 'hourly — flip scheduled → overdue' },
   { name: 'compliance.retention_purge', cron: '0 3 * * *',  description: 'daily 03:00 UTC — Phase 5 retention policy' },
   { name: 'clinical.presence_reaper',   cron: '*/2 * * * *', description: 'every 2 min — close stale presence sessions' },
+  { name: 'compliance.access_review',   cron: '30 2 1 * *',  description: 'monthly 1st 02:30 UTC — notify super-admins of access review' },
 ]
 
 const queuePlugin: FastifyPluginAsync = async (app) => {

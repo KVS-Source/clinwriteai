@@ -40,4 +40,43 @@ describe('scrubPii', () => {
     expect(r.piiFound).toBe(true)
     expect(r.categories).toEqual(expect.arrayContaining(['email', 'phone']))
   })
+
+  it('redacts MRN with label anchor', () => {
+    const r = scrubPii('Patient MRN 1234567 flagged for review.')
+    expect(r.scrubbed).toContain('[REDACTED_MRN]')
+    expect(r.scrubbed).not.toContain('1234567')
+    expect(r.categories).toContain('mrn')
+  })
+
+  it('redacts MRN with alternate labels', () => {
+    const r1 = scrubPii('See MR# 9876543 in chart.')
+    expect(r1.categories).toContain('mrn')
+    const r2 = scrubPii('Medical Record Number: 1234567890')
+    expect(r2.categories).toContain('mrn')
+  })
+
+  it('does NOT false-positive bare 7-digit runs without MRN label', () => {
+    const r = scrubPii('Study identifier 1234567 — randomisation record.')
+    expect(r.categories).not.toContain('mrn')
+  })
+
+  it('redacts NHS numbers (3-3-4 grouping)', () => {
+    const r = scrubPii('NHS number 123 456 7890 on referral.')
+    expect(r.scrubbed).toContain('[REDACTED_NHS]')
+    expect(r.scrubbed).not.toContain('123 456 7890')
+    expect(r.categories).toContain('nhs')
+  })
+
+  it('redacts DEA numbers', () => {
+    const r = scrubPii('Prescriber DEA AB1234567 verified.')
+    expect(r.scrubbed).toContain('[REDACTED_DEA]')
+    expect(r.scrubbed).not.toContain('AB1234567')
+    expect(r.categories).toContain('dea')
+  })
+
+  it('does NOT match DEA shape with wrong first-letter class', () => {
+    // 'C' is not in the first-char class [ABFGMPRX]; must not match.
+    const r = scrubPii('Reference code CZ1234567 is non-DEA.')
+    expect(r.categories).not.toContain('dea')
+  })
 })

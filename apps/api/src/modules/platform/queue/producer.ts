@@ -22,6 +22,7 @@ export type QueueJobName =
   | 'ideation.kol_reminder'
   | 'ideation.calendar_overdue'
   | 'compliance.retention_purge'
+  | 'clinical.restore_version'
 
 export interface QueueJobOptions {
   /** Delay in milliseconds before the worker picks the job up. */

@@ -180,8 +180,6 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const parsed = restoreSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
-    // Phase 3A scaffold: record the job + mark pending. The actual section
-    // copy + new version creation lands with the diff-engine integration.
     const job = await app.prisma.versionRestoreJob.create({
       data: {
         sourceDocumentId: documentId,
@@ -190,6 +188,19 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         status: 'pending',
         createdBy: request.user!.id,
       },
+    })
+
+    // Enqueue to the worker. Keeps the HTTP response fast + lets the
+    // worker reason about chain-of-section-copies without racing other
+    // writers (one worker concurrency on this queue).
+    await app.queue.enqueue('clinical.restore_version', {
+      jobId: job.id,
+      documentId,
+      actorId: request.user!.id,
+    }).catch(err => {
+      // Queue unavailable (dev — no Redis). Job stays 'pending'; a manual
+      // retry via the admin API can poke it later.
+      app.log.warn({ err, jobId: job.id }, 'restore_version enqueue failed — job stays pending')
     })
 
     await app.audit.append({

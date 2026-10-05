@@ -145,6 +145,12 @@ async function buildServer() {
 
   const { consistencyRoutes } = await import('./modules/regulatory-writing/consistency/routes.js')
   await app.register(consistencyRoutes, { prefix: '/reg-submissions' })
+
+  // ---------- Module E — Ideation & Publishing ----------
+  const { ideationProjectScopedRoutes, ideationRoutes } =
+    await import('./modules/ideation/routes.js')
+  await app.register(ideationProjectScopedRoutes, { prefix: '/projects' })
+  await app.register(ideationRoutes, { prefix: '/ideation' })
   //
   // // Module route registrations land in Phase 3A-3E:
   // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })

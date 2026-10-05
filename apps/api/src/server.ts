@@ -177,6 +177,9 @@ async function buildServer() {
   const { aiGatewayRoutes } = await import('./modules/platform/ai-gateway/routes.js')
   await app.register(aiGatewayRoutes, { prefix: '/ai' })
 
+  const { complianceRoutes } = await import('./modules/platform/compliance/routes.js')
+  await app.register(complianceRoutes, { prefix: '/admin/compliance' })
+
   return app
 }
 

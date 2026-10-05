@@ -19,6 +19,8 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { buildGppReport } from './gpp/builder.js'
+import { renderGppReportPdf } from './gpp/pdf-renderer.js'
 import {
   canAdvancePublication,
   InvalidPublicationStageError,
@@ -235,87 +237,45 @@ export const publicationsProjectScopedRoutes: FastifyPluginAsync = async (app) =
 
   app.post('/:projectId/publications/gpp-report', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
-    const project = await app.prisma.project.findUnique({ where: { id: projectId } })
-    if (!project) return reply.code(404).send({ error: 'project_not_found' })
-
-    const pubs = await app.prisma.publication.findMany({
-      where: { projectId, deletedAt: null },
-      include: {
-        authors: {
-          include: {
-            icmjeCriteria: true,
-            icmjeAcknowledgements: true,
-          },
-        },
-        debarmentChecks: { orderBy: { runAt: 'desc' }, take: 1 },
-      },
-      orderBy: { updatedAt: 'desc' },
-    })
-
-    const perPub = pubs.map(p => {
-      const authors = p.authors
-      const icmjeComplete = authors.length > 0 && authors.every(a => {
-        // ICMJE requires all four criteria + an acknowledgement signed.
-        const met = a.icmjeCriteria.filter(c => c.met).length
-        const ack = a.icmjeAcknowledgements.some(x => x.acknowledgedAt != null)
-        return met === 4 && ack
-      })
-      const latestDebarment = p.debarmentChecks[0]
-      // Debarment run is "clear" when it ran AND found no matches.
-      const debarmentClear = latestDebarment ? latestDebarment.matchesFound === 0 : false
-      // Each pillar is a boolean the UI colour-codes green/red.
-      const pillars = {
-        authorship_icmje: icmjeComplete,
-        writing_assistance_disclosed: authors.some(a => a.role.toLowerCase().includes('writer')),
-        trial_registration: !!p.sourceDocumentId,                    // sourced from a Module A doc
-        data_sharing_statement: !!p.keyMessage,                       // placeholder — real: dedicated field
-        coi_disclosure: debarmentClear,
-        timely_publication: !!p.targetSubmissionDate,
-        reporting_guideline: !!p.guideline,
-        baa_in_place: p.baaStatus === 'in_place' || p.baaStatus === 'not_applicable',
-      }
-      const passedCount = Object.values(pillars).filter(Boolean).length
-      return {
-        id: p.id,
-        title: p.title,
-        type: p.type,
-        stage: p.stage,
-        status: p.status,
-        guideline: p.guideline,
-        journal: p.journal,
-        pillars,
-        passedCount,
-        passedPct: Math.round((passedCount / 8) * 100),
-      }
-    })
-
-    const totalPillars = perPub.length * 8
-    const totalPassed = perPub.reduce((a, p) => a + p.passedCount, 0)
-    const overallPct = totalPillars > 0 ? Math.round((totalPassed / totalPillars) * 100) : 0
+    const report = await buildGppReport(app.prisma, projectId)
+    if (!report) return reply.code(404).send({ error: 'project_not_found' })
 
     await app.audit.append({
-      timestamp: new Date().toISOString(),
+      timestamp: report.generatedAt,
       actorId: request.user!.id,
       action: 'gpp_report_generated',
       entityType: 'project',
       entityId: projectId,
-      details: { publicationCount: pubs.length, overallPct },
+      details: { publicationCount: report.scope.publicationCount, overallPct: report.scope.overallPct, format: 'json' },
       ipAddress: request.ip ?? null,
     })
 
-    return {
-      project: { id: project.id, name: project.name, therapeuticArea: project.therapeuticArea },
-      standard: 'GPP-2022',
-      scope: {
-        publicationCount: pubs.length,
-        totalPillars,
-        totalPassed,
-        overallPct,
-      },
-      publications: perPub,
-      generatedAt: new Date().toISOString(),
-      note: 'JSON report. Client renders to PDF (print-to-PDF or future server-side worker).',
-    }
+    return report
+  })
+
+  // Same report, PDF-rendered server-side via pdfkit. Streams bytes with
+  // Content-Disposition set so the browser triggers a download. Same audit
+  // event with `format: 'pdf'` so the two surfaces are distinguishable.
+  app.post('/:projectId/publications/gpp-report.pdf', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { projectId } = request.params as { projectId: string }
+    const report = await buildGppReport(app.prisma, projectId)
+    if (!report) return reply.code(404).send({ error: 'project_not_found' })
+
+    await app.audit.append({
+      timestamp: report.generatedAt,
+      actorId: request.user!.id,
+      action: 'gpp_report_generated',
+      entityType: 'project',
+      entityId: projectId,
+      details: { publicationCount: report.scope.publicationCount, overallPct: report.scope.overallPct, format: 'pdf' },
+      ipAddress: request.ip ?? null,
+    })
+
+    const filename = `gpp-2022-${report.project.name.toLowerCase().replace(/[^a-z0-9]+/g, '-')}-${report.generatedAt.slice(0, 10)}.pdf`
+    reply
+      .type('application/pdf')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+    return reply.send(renderGppReportPdf(report))
   })
 }
 

@@ -152,6 +152,29 @@ model VersionRestoreJob {
 
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
+// 7.1 voice_notes — audio notes attached to a document section
+// --------------------------------------------------------------------------
+
+model VoiceNote {
+  id                   String    @id @default(uuid())
+  documentId           String
+  sectionRef           String
+  authorId             String
+  audioBlobKey         String                                          // key in BlobStorage 'voice' bucket
+  audioRegion          String    @default("us-east-1")                   // GDPR data residency (FR NFR §8.3)
+  transcript           String    @default("")
+  transcriptStatus     String    @default("pending")                     // pending | complete | failed
+  durationSeconds      Int?
+  transcriptionEngine  String?                                           // claude-audio | whisper | google-stt
+  insertedAt           DateTime?                                         // when transcript inserted into document
+  createdAt            DateTime  @default(now())
+
+  @@map("voice_notes")
+  @@index([documentId])
+  @@index([documentId, sectionRef])
+}
+
+// --------------------------------------------------------------------------
 // document_uploads — pending uploads awaiting user confirmation
 // --------------------------------------------------------------------------
 //

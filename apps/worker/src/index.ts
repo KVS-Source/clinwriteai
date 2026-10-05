@@ -107,10 +107,65 @@ for (const name of Object.keys(handlers) as JobName[]) {
   log.info({ name, concurrency: concurrency[name] }, 'worker started')
 }
 
+// --- Health HTTP server ---------------------------------------------------
+// Container orchestrators (k8s/compose/systemd) need a probe to decide if
+// the worker process is alive. Tiny built-in http.Server avoids pulling
+// in Fastify just for this; no external deps. Default port 3002 (API is
+// 3001). Set WORKER_HEALTH_PORT=0 to disable.
+
+import { createServer } from 'node:http'
+const healthPort = Number(process.env.WORKER_HEALTH_PORT ?? 3002)
+const healthServer = healthPort > 0 ? createServer(async (req, res) => {
+  if (req.url === '/health') {
+    res.writeHead(200, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({
+      status: 'ok',
+      service: 'platform-worker',
+      queues: Object.keys(handlers),
+      uptime: process.uptime(),
+    }))
+    return
+  }
+  if (req.url === '/ready') {
+    const started = Date.now()
+    const checks: Record<string, { ok: boolean; latencyMs: number; error?: string }> = {}
+    async function check<T>(name: string, fn: () => Promise<T>, timeoutMs = 2000): Promise<void> {
+      const t0 = Date.now()
+      try {
+        await Promise.race([
+          fn(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
+        ])
+        checks[name] = { ok: true, latencyMs: Date.now() - t0 }
+      } catch (err) {
+        checks[name] = { ok: false, latencyMs: Date.now() - t0, error: err instanceof Error ? err.message : String(err) }
+      }
+    }
+    await check('postgres', async () => { await prisma.$queryRaw`SELECT 1` })
+    await check('redis', async () => {
+      const r = await connection.ping()
+      if (r !== 'PONG') throw new Error(`unexpected ping: ${r}`)
+    })
+    const allOk = Object.values(checks).every(c => c.ok)
+    res.writeHead(allOk ? 200 : 503, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ ready: allOk, totalMs: Date.now() - started, checks }))
+    return
+  }
+  res.writeHead(404, { 'content-type': 'application/json' })
+  res.end(JSON.stringify({ error: 'not_found' }))
+}) : null
+
+if (healthServer) {
+  healthServer.listen(healthPort, () => {
+    log.info({ port: healthPort }, 'worker health server listening')
+  })
+}
+
 // --- Graceful shutdown ----------------------------------------------------
 
 const shutdown = async (signal: NodeJS.Signals) => {
   log.info({ signal }, 'shutting down')
+  if (healthServer) await new Promise<void>(resolve => healthServer.close(() => resolve()))
   await Promise.all(workers.map(w => w.close()))
   await connection.quit()
   await prisma.$disconnect()

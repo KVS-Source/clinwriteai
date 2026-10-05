@@ -112,14 +112,10 @@ async function buildServer() {
       files: 1,
     },
   })
-  await app.register(import('@fastify/rate-limit'), {
-    max: 100,
-    timeWindow: '1 minute',
-    // SSO callback is exempt — being redirected from the IdP shouldn't ever
-    // produce enough traffic to trip the limit, and users getting rate-limited
-    // mid-login is a bad experience worth avoiding.
-    allowList: (req) => req.url.startsWith('/auth/callback'),
-  })
+  // Rate limit registration moved below queue so we can pass the shared
+  // Redis connection as the backing store (see "Rate limit (Redis-backed)"
+  // section). In-memory fallback persisted here if queue plugin failed
+  // to decorate app.redis — e.g. test contexts that bypass queue entirely.
 
   // ---------- OpenAPI docs ----------
   if (env.NODE_ENV !== 'production' || env.FEATURE_OPENAPI_DOCS) {
@@ -150,6 +146,28 @@ async function buildServer() {
 
   // ---------- Queue (BullMQ producer side; worker runs in apps/worker) ----------
   await app.register(import('./modules/platform/queue/plugin.js'))
+
+  // ---------- Rate limit (Redis-backed) ----------
+  // Shares the queue plugin's ioredis connection via app.redis so multi-
+  // instance deployments converge on a single counter per key. Without
+  // this, running N replicas effectively lets a client make N*100 req/min
+  // because each instance tracks its own counter.
+  await app.register(import('@fastify/rate-limit'), {
+    max: 100,
+    timeWindow: '1 minute',
+    redis: app.redis,
+    // Namespace in Redis so the counter keys are distinguishable from
+    // BullMQ job keys (both use the same connection).
+    nameSpace: 'ratelimit:',
+    // SSO callback is exempt — being redirected from the IdP shouldn't ever
+    // produce enough traffic to trip the limit, and users getting rate-limited
+    // mid-login is a bad experience worth avoiding.
+    allowList: (req) => req.url.startsWith('/auth/callback'),
+    // If Redis is unreachable at request time, don't 500 — fall back to the
+    // in-memory counter per instance. Alert fires via BullMQ queue-depth
+    // metric which proxies for Redis liveness.
+    continueExceeding: true,
+  })
 
   // ---------- Blob storage (local filesystem for dev; S3-compatible for prod) ----------
   await app.register(import('./modules/platform/blob/plugin.js'))

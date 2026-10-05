@@ -1,0 +1,50 @@
+# gitleaks config — tuned for this repo.
+#
+# Covers the usual suspects plus platform-specific patterns:
+#   - AWS / GCP / Azure keys
+#   - Anthropic API keys (sk-ant-*)
+#   - Postgres connection strings with inline passwords
+#   - Private keys (SSH, age, PGP)
+#   - JWT bearer tokens committed as test fixtures
+#
+# Local hook: .githooks/pre-commit (gitleaks protect --staged)
+# CI check:   .github/workflows/secret-scan.yml (gitleaks detect)
+
+title = "Aurora / ClinWrite — gitleaks config"
+
+[extend]
+# Start from the gitleaks default rule set, then add project-specific rules.
+useDefault = true
+
+[[rules]]
+id = "anthropic-api-key"
+description = "Anthropic API key"
+regex = '''sk-ant-[a-zA-Z0-9_-]{80,}'''
+tags = ["key", "anthropic"]
+
+[[rules]]
+id = "pg-connection-string-with-password"
+description = "Postgres connection string with inline password"
+regex = '''postgres(?:ql)?:\/\/[^:\/\s]+:[^@\/\s]+@[^\/\s]+'''
+tags = ["db", "credentials"]
+
+[[rules]]
+id = "jwt-looking-token"
+description = "JWT-looking bearer token (3 base64url segments)"
+regex = '''eyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}'''
+tags = ["token", "jwt"]
+
+[allowlist]
+description = "Globally allowlisted paths — docs, examples, lockfiles."
+paths = [
+  '''\.env\.example$''',
+  '''package-lock\.json$''',
+  '''docs\/demo\/\d{2}-.+\.md$''',          # datamodel / API contract have example strings
+  '''gitleaks\.toml$''',                     # self-reference
+  '''\.githooks\/pre-commit$''',             # the hook itself
+  '''docs\/compliance\/.*\.md$''',           # compliance docs often illustrate secret shapes
+]
+
+# NOTE: `docs/.env` is gitignored and must NEVER be allowlisted. Real
+# production secrets live there and in the sops-encrypted .env.enc on
+# the VPS; both are confined to this engineer's workstation.

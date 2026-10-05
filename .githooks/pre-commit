@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Pre-commit secret scanner.
+#
+# Called out in docs/compliance/incident-response.md ("Secret in public
+# commit" procedure) and Phase 6 launch checklist. Catches API keys,
+# tokens, and private keys before they ever land on main.
+#
+# Mechanism: gitleaks protect --staged. --staged means "scan only what
+# `git diff --cached` would commit" so unrelated untracked files don't
+# make the hook noisy.
+#
+# Falling back when gitleaks isn't installed: a hard-fail would make the
+# repo unusable for new contributors on day one. Instead we warn once
+# and continue — CI (.github/workflows/secret-scan.yml) is the second
+# line of defence that cannot be skipped.
+#
+# To activate on your local clone: git config core.hooksPath .githooks
+
+set -euo pipefail
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "[pre-commit] gitleaks not installed — skipping local secret scan."
+  echo "[pre-commit] Install from https://github.com/gitleaks/gitleaks/releases"
+  echo "[pre-commit] CI will still enforce; this is a convenience hook."
+  exit 0
+fi
+
+echo "[pre-commit] Running gitleaks on staged changes..."
+if ! gitleaks protect --staged --no-banner --redact --exit-code 1 \
+       --config "${GITLEAKS_CONFIG:-.gitleaks.toml}"; then
+  echo ""
+  echo "[pre-commit] 🚫 Secrets detected in staged changes."
+  echo "[pre-commit] If this is a false positive, add it to .gitleaks.toml allowlist"
+  echo "[pre-commit] with a brief justification. NEVER bypass with --no-verify."
+  exit 1
+fi
+
+echo "[pre-commit] ✓ No secrets found."

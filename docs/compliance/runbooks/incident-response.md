@@ -77,7 +77,10 @@ Secret appeared in a public commit?                  → Sev1 + rotate immediate
    mandatory. File incident; new chain begins at rotation point; old chain
    is archived with its own verification artefact.
 4. Scrub access logs; who had read access to this secret?
-5. Review how it ended up in the commit; add a pre-commit hook if missing.
+5. Review how it ended up in the commit. Pre-commit hook + CI gate exist
+   (`.githooks/pre-commit` + `.github/workflows/secret-scan.yml`); confirm
+   the author's local hook was active (`git config core.hooksPath` →
+   `.githooks`) and check whether `--no-verify` was used.
 
 ### Data breach / unauthorised access (Sev1)
 

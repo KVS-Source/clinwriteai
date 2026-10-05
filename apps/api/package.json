@@ -41,12 +41,14 @@
     "fastify": "^4.28.0",
     "fastify-metrics": "^11.0.0",
     "fastify-plugin": "^4.5.1",
+    "fastify-socket.io": "^5.1.0",
     "fastify-type-provider-zod": "^1.2.0",
     "ioredis": "^5.4.1",
     "pdfkit": "^0.20.2",
     "pino": "^9.3.2",
     "pino-pretty": "^11.2.1",
     "prom-client": "^15.1.0",
+    "socket.io": "^4.8.4",
     "zod": "^3.23.8"
   },
   "devDependencies": {

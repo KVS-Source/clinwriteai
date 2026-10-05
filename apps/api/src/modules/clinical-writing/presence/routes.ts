@@ -57,6 +57,14 @@ export const presenceRoutes: FastifyPluginAsync = async (app) => {
         heartbeatAt: now,
       },
     })
+    app.emitPresenceChanged({
+      documentId,
+      reason: 'joined',
+      sessionId: session.id,
+      userId: session.userId,
+      sectionId: session.sectionId,
+      at: now.toISOString(),
+    })
     return reply.code(201).send(session)
   })
 
@@ -81,6 +89,18 @@ export const presenceRoutes: FastifyPluginAsync = async (app) => {
         ...(parsed.data.sectionId && { sectionId: parsed.data.sectionId }),
       },
     })
+    // Only emit if the section changed — raw heartbeats don't change what
+    // the UI shows, so skip them to avoid thrashing every socket in the room.
+    if (parsed.data.sectionId && parsed.data.sectionId !== session.sectionId) {
+      app.emitPresenceChanged({
+        documentId,
+        reason: 'heartbeat',
+        sessionId: updated.id,
+        userId: updated.userId,
+        sectionId: updated.sectionId,
+        at: updated.heartbeatAt.toISOString(),
+      })
+    }
     return updated
   })
 
@@ -96,10 +116,19 @@ export const presenceRoutes: FastifyPluginAsync = async (app) => {
     }
     if (session.endedAt) return session  // idempotent
 
-    return app.prisma.presenceSession.update({
+    const ended = await app.prisma.presenceSession.update({
       where: { id: sessionId },
       data: { endedAt: new Date(), status: 'ended' },
     })
+    app.emitPresenceChanged({
+      documentId,
+      reason: 'left',
+      sessionId: ended.id,
+      userId: ended.userId,
+      sectionId: ended.sectionId,
+      at: (ended.endedAt ?? new Date()).toISOString(),
+    })
+    return ended
   })
 
   // --- Snapshot (who's here now) ------------------------------------------

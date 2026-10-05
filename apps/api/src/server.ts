@@ -111,6 +111,9 @@ async function buildServer() {
   // ---------- Auth (SSO + JWT session + RBAC) ----------
   await app.register(import('./auth/plugin.js'))
 
+  // ---------- Realtime (Socket.io presence channel) ----------
+  await app.register(import('./modules/platform/realtime/plugin.js'))
+
   // ---------- Platform routes ----------
   const { projectRoutes } = await import('./modules/projects/routes.js')
   const { userRoutes } = await import('./modules/platform/users/routes.js')

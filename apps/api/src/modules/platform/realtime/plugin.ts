@@ -1,0 +1,141 @@
+// Realtime Socket.io plugin — push channel for presence (and future
+// collaboration features). Scope limited to presence for now; the
+// surface is designed so additional event namespaces can land without
+// a plugin rewrite.
+//
+// Authentication: on connect, verify the same JWT session cookie Fastify
+// uses for REST. Rejected sockets never reach a room. The verified user
+// is attached to socket.data so emits can filter per-user if needed.
+//
+// Multi-instance scaling: deferred. Single-instance only until the
+// @socket.io/redis-adapter is wired. In practice this means a user
+// connected to instance A won't see presence updates emitted from
+// instance B. Fine for the single-VPS QA deployment; must land before
+// prod horizontal scale.
+//
+// Rooms: 'doc:<documentId>' — joined on request from the client. No
+// server-side ACL on join: the REST GET /documents/:id/presence already
+// enforces who can see what; Socket.io is purely a push channel for the
+// same payload. Documented inline so the gap is explicit.
+
+import type { FastifyPluginAsync } from 'fastify'
+import fp from 'fastify-plugin'
+import fastifySocketIO from 'fastify-socket.io'
+import { Server as SocketServer, type Socket } from 'socket.io'
+import { SESSION_COOKIE_NAME, type SessionClaims } from '../../../auth/jwt.js'
+
+/**
+ * Minimal cookie-header parser. We only need to find one named cookie;
+ * pulling in the full `cookie` or `@fastify/cookie` package would be the
+ * same ~5 lines plus a type-definitions mismatch (parse isn't exported
+ * from @fastify/cookie's .d.ts even though it exists at runtime).
+ */
+function readCookie(header: string | undefined, name: string): string | undefined {
+  if (!header) return undefined
+  for (const part of header.split(';')) {
+    const eq = part.indexOf('=')
+    if (eq < 0) continue
+    const k = part.slice(0, eq).trim()
+    if (k === name) return decodeURIComponent(part.slice(eq + 1).trim())
+  }
+  return undefined
+}
+
+export interface PresenceChangedPayload {
+  documentId: string
+  // When the REST route finishes a write, we broadcast one of these so
+  // clients know to re-fetch the authoritative snapshot via GET /presence.
+  // Keeping the payload a bare pointer (not the full snapshot) avoids a
+  // consistency gap between the socket event and the DB — clients always
+  // pull from the DB on cue.
+  reason: 'joined' | 'heartbeat' | 'left' | 'reaped'
+  sessionId: string
+  userId: string
+  sectionId: string
+  at: string
+}
+
+declare module 'fastify' {
+  interface FastifyInstance {
+    io: SocketServer
+    emitPresenceChanged: (payload: PresenceChangedPayload) => void
+  }
+}
+
+const realtimePlugin: FastifyPluginAsync = async (app) => {
+  await app.register(fastifySocketIO, {
+    cors: {
+      origin: app.env.CORS_ORIGIN,
+      credentials: app.env.CORS_CREDENTIALS,
+    },
+    // Keep ping interval generous enough that mobile browsers aren't
+    // reconnecting during normal use, but short enough that a dead
+    // connection is detected within ~a minute.
+    pingInterval: 25_000,
+    pingTimeout: 60_000,
+  })
+
+  app.io.use(async (socket: Socket, next) => {
+    try {
+      const token = readCookie(socket.handshake.headers.cookie, SESSION_COOKIE_NAME)
+      if (!token) return next(new Error('no session cookie'))
+
+      // Use the same @fastify/jwt verifier the REST layer uses so a
+      // token revocation / expiry here matches REST behaviour.
+      const claims = app.jwt.verify<SessionClaims>(token)
+      const session = await app.prisma.session.findUnique({ where: { id: claims.jti } })
+      if (!session || session.revokedAt || session.expiresAt < new Date()) {
+        return next(new Error('session invalid'))
+      }
+      const user = await app.prisma.user.findUnique({ where: { id: claims.sub } })
+      if (!user || user.status !== 'active') return next(new Error('user inactive'))
+
+      socket.data.userId = user.id
+      socket.data.role = user.role
+      next()
+    } catch (err) {
+      next(err instanceof Error ? err : new Error('auth failed'))
+    }
+  })
+
+  app.io.on('connection', (socket) => {
+    const userId = socket.data.userId as string
+    app.log.debug({ socketId: socket.id, userId }, 'socket connected')
+
+    // Client calls this when the user opens a document. No server-side
+    // ACL — mirroring the REST GET /presence check happens there, not here.
+    socket.on('presence:join', (documentId: string, ack?: (ok: boolean) => void) => {
+      if (typeof documentId !== 'string' || !documentId) {
+        ack?.(false)
+        return
+      }
+      void socket.join(`doc:${documentId}`)
+      ack?.(true)
+    })
+
+    socket.on('presence:leave', (documentId: string, ack?: (ok: boolean) => void) => {
+      if (typeof documentId !== 'string' || !documentId) {
+        ack?.(false)
+        return
+      }
+      void socket.leave(`doc:${documentId}`)
+      ack?.(true)
+    })
+
+    socket.on('disconnect', (reason) => {
+      app.log.debug({ socketId: socket.id, userId, reason }, 'socket disconnected')
+    })
+  })
+
+  // Decorator the REST routes call after a presence write. Broadcasts to
+  // every socket currently in the doc's room; recipients then re-fetch
+  // the snapshot via GET /presence (keeps the DB authoritative).
+  app.decorate('emitPresenceChanged', (payload: PresenceChangedPayload) => {
+    app.io.to(`doc:${payload.documentId}`).emit('presence:changed', payload)
+  })
+}
+
+export default fp(realtimePlugin, {
+  name: 'realtime',
+  dependencies: ['prisma', 'auth'],
+})

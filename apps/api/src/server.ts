@@ -94,6 +94,15 @@ async function buildServer() {
   const { userRoutes } = await import('./modules/platform/users/routes.js')
   await app.register(projectRoutes, { prefix: '/projects' })
   await app.register(userRoutes, { prefix: '/admin/users' })
+
+  // ---------- Module A — Clinical Writing ----------
+  const { documentsProjectScopedRoutes, documentsRoutes } =
+    await import('./modules/clinical-writing/documents/routes.js')
+  // documentsProjectScopedRoutes handles /projects/:projectId/documents paths;
+  // documentsRoutes handles /documents/:documentId paths. Two mount points,
+  // one plugin file so the handlers share the service instance.
+  await app.register(documentsProjectScopedRoutes, { prefix: '/projects' })
+  await app.register(documentsRoutes, { prefix: '/documents' })
   //
   // // Module route registrations land in Phase 3A-3E:
   // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })

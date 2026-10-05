@@ -1,6 +1,6 @@
 # Terraform — Infrastructure as Code
 
-Phase 0 skeleton. Provider-agnostic structure; fills in once [ADR 0007 — Deployment target](../../docs/adr/0007-deployment-target.md) is Accepted.
+Phase 0 skeleton. Provider-agnostic structure; fills in once ADR 0007 (Deployment target — AWS vs GCP vs Azure vs on-prem) is drafted and Accepted. See the [Phase 0 tracker](../../docs/phase-0-tracker.md) for ADR status.
 
 ## Layout
 

@@ -76,7 +76,7 @@ See [architecture-implementation-plan.md](architecture-implementation-plan.md) f
 ## Done this session (what Claude has produced)
 
 - ✅ Architecture plan → [`architecture-implementation-plan.md`](architecture-implementation-plan.md)
-- ✅ ADR structure, template, README index → [`adr/`](adr/)
+- ✅ ADR structure, template, README index → [`adr/README.md`](adr/README.md) + [`adr/template.md`](adr/template.md)
 - ✅ ADR 0001 Backend framework (Fastify) — Proposed
 - ✅ ADR 0002 ORM (Prisma + raw SQL for audit) — Proposed
 - ✅ ADR 0003 Vector store (pgvector) — Proposed

@@ -1,0 +1,244 @@
+// Module B — Scientific Writing models.
+//
+// Source: docs/demo/02-datamodel.md §18-§23 (publications, citations, authors
+// + ICMJE, submission readiness, peer review). Enum columns are TEXT with
+// Zod validation at the route edge, same convention as Module A.
+//
+// What's HERE:
+//   - publications, ai_footprint_spans
+//   - citations (soft-deleted via removedAt; Vancouver labels computed on read)
+//   - publication_authors + pub_icmje_criteria + pub_icmje_acknowledgements
+//   - debarment_check_runs
+//   - submission_checks
+//   - peer_review_rounds (scaffold — the comments table lands next session)
+//
+// What's NOT here yet (ships in later Module B sessions):
+//   - congress_submissions (OQ-B-004 — no live portal API)
+//   - peer_review_comments (needs reviewer-blind workflow)
+//   - portfolio + master_library (admin-only, Phase 4 overlap)
+//   - PubMed / CrossRef / ORCID connectors (external procurement — see memory)
+
+model Publication {
+  id                   String    @id @default(uuid())
+  projectId            String
+  type                 String                                       // publication_type
+  subtype              String?                                      // manuscript_subtype (non-null when type=manuscript)
+  title                String
+  stage                String    @default("planning")                // publication_stage
+  status               String    @default("not_started")             // publication_status
+  version              String    @default("v0.1")
+  guideline            String                                       // equator_guideline (CONSORT, STROBE, …)
+  journal              String?
+  targetSubmissionDate DateTime?
+  keyMessage           String?
+  baaStatus            String    @default("not_applicable")          // baa_status (FR-B-025 case_report)
+
+  // Cross-module link to the Module A CSR (OQ-B-001). Nullable because
+  // not every publication starts from a CSR (editorials, PLSs can originate
+  // from external source material).
+  sourceDocumentId     String?
+  sourceDocumentLabel  String?                                      // denormalised at link time
+
+  ownerId              String
+  createdBy            String
+  createdAt            DateTime  @default(now())
+  updatedAt            DateTime  @updatedAt
+  deletedAt            DateTime?
+
+  aiFootprintSpans     AiFootprintSpan[]
+  citations            Citation[]
+  authors              PublicationAuthor[]
+  debarmentChecks      DebarmentCheckRun[]
+  submissionChecks     SubmissionCheck[]
+  reviewRounds         PeerReviewRound[]
+
+  @@map("publications")
+  @@index([projectId])
+  @@index([stage])
+  @@index([status])
+  @@index([type])
+  @@index([sourceDocumentId])
+}
+
+// --------------------------------------------------------------------------
+// 18.2 ai_footprint_spans — immutable AI provenance (FR-B-009)
+// --------------------------------------------------------------------------
+
+model AiFootprintSpan {
+  id             String   @id @default(uuid())
+  publicationId  String
+  sectionId      String                                             // 'methods' | 'results' | 'discussion' | …
+  startOffset    Int
+  endOffset      Int
+  // charCount lives as a derived read in the service layer rather than as a
+  // Postgres GENERATED column — Prisma can't express that constraint, and
+  // the trade-off (one less column vs. an extra 10 lines of code) is tiny.
+  model          String                                             // 'claude-sonnet-4-6' etc.
+  generatedAt    DateTime
+  acceptedBy     String
+  acceptedAt     DateTime @default(now())
+
+  publication    Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  @@map("ai_footprint_spans")
+  @@index([publicationId])
+  @@index([publicationId, sectionId])
+}
+
+// --------------------------------------------------------------------------
+// 19.1 citations — soft-delete; Vancouver labels computed on read
+// --------------------------------------------------------------------------
+
+model Citation {
+  id                String    @id @default(uuid())
+  publicationId     String
+  pmid              String?                                         // null for project source documents
+  title             String
+  shortRef          String                                          // 'Gandhi L et al., NEJM 2018'
+  fullRef           String                                          // full Vancouver-formatted
+  locus             String                                          // '§Results ¶1'
+  isSourceDocument  Boolean   @default(false)                        // true = CSR citation, cannot soft-remove
+  insertedBy        String
+  insertedAt        DateTime  @default(now())
+  removedBy         String?
+  removedAt         DateTime?
+
+  publication       Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  @@map("citations")
+  @@index([publicationId])
+  @@index([pmid])
+}
+
+// --------------------------------------------------------------------------
+// 20.1 publication_authors
+// --------------------------------------------------------------------------
+
+model PublicationAuthor {
+  id                   String    @id @default(uuid())
+  publicationId        String
+  userId               String?                                      // null for external KOLs
+  name                 String                                       // denormalised (externals have no User row)
+  initials             String
+  role                 String                                       // 'Medical writer / publication lead'
+  raci                 String                                       // raci_role
+  isExternal           Boolean   @default(false)
+  coiStatus            String    @default("pending")                 // pending | submitted
+  coiSubmittedAt       DateTime?
+  debarmentStatus      String    @default("unchecked")               // unchecked | clear | flagged
+  debarmentCheckedAt   DateTime?
+  invitedAt            DateTime?
+  inviteEmail          String?                                      // for external KOLs
+  addedBy              String
+  addedAt              DateTime  @default(now())
+  removedAt            DateTime?
+
+  publication          Publication                   @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  icmjeCriteria        PubIcmjeCriterion[]
+  icmjeAcknowledgements PubIcmjeAcknowledgement[]
+
+  @@map("publication_authors")
+  @@unique([publicationId, userId])                                 // one role per user per publication
+  @@index([publicationId])
+  @@index([userId])
+}
+
+// --------------------------------------------------------------------------
+// 20.2 pub_icmje_criteria — exactly 4 rows per author (indices 0-3)
+// --------------------------------------------------------------------------
+
+model PubIcmjeCriterion {
+  id              String    @id @default(uuid())
+  authorId        String
+  criterionIndex  Int                                               // 0..3
+  met             Boolean   @default(false)
+  confirmedBy     String?
+  confirmedAt     DateTime?
+  updatedAt       DateTime  @updatedAt
+
+  author          PublicationAuthor @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("pub_icmje_criteria")
+  @@unique([authorId, criterionIndex])
+  @@index([authorId])
+}
+
+// --------------------------------------------------------------------------
+// 20.3 pub_icmje_acknowledgements — OQ-B-003 soft-gate override log
+// --------------------------------------------------------------------------
+
+model PubIcmjeAcknowledgement {
+  id              String   @id @default(uuid())
+  authorId        String
+  acknowledgedBy  String
+  acknowledgedAt  DateTime @default(now())
+  missingCriteria Int[]                                             // e.g. [2, 3]
+
+  author          PublicationAuthor @relation(fields: [authorId], references: [id], onDelete: Cascade)
+
+  @@map("pub_icmje_acknowledgements")
+  @@unique([authorId, acknowledgedAt])
+  @@index([authorId])
+}
+
+// --------------------------------------------------------------------------
+// 20.4 debarment_check_runs — FR-B-016
+// --------------------------------------------------------------------------
+
+model DebarmentCheckRun {
+  id              String   @id @default(uuid())
+  publicationId   String
+  runBy           String
+  runAt           DateTime @default(now())
+  authorsChecked  Int
+  matchesFound    Int      @default(0)
+  sourcesQueried  String[] @default(["FDA debarment list", "OIG exclusions"])
+  results         Json                                              // [{authorId, authorName, status}]
+
+  publication     Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  @@map("debarment_check_runs")
+  @@index([publicationId])
+}
+
+// --------------------------------------------------------------------------
+// 21.1 submission_checks — persisted so acknowledgements survive reload
+// --------------------------------------------------------------------------
+
+model SubmissionCheck {
+  id              String    @id @default(uuid())
+  publicationId   String
+  groupId         String                                            // format|words|equator|figures|statements|plagiarism|refs
+  label           String
+  state           String    @default("pass")                         // check_state — pass|warn|ack|block|fail
+  note            String    @default("")
+  lastRunAt       DateTime?
+  resolvedBy      String?
+  resolvedAt      DateTime?
+
+  publication     Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  @@map("submission_checks")
+  @@unique([publicationId, groupId, label])
+  @@index([publicationId])
+  @@index([publicationId, state])
+}
+
+// --------------------------------------------------------------------------
+// 23.1 peer_review_rounds — scaffold (comments table lands next session)
+// --------------------------------------------------------------------------
+
+model PeerReviewRound {
+  id                     String   @id @default(uuid())
+  publicationId          String
+  roundNumber            Int      @default(1)
+  journalSubmissionRef   String                                     // e.g. 'NEJM-2026-28471'
+  reviewerCount          Int      @default(3)
+  createdAt              DateTime @default(now())
+
+  publication            Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  @@map("peer_review_rounds")
+  @@unique([publicationId, roundNumber])
+  @@index([publicationId])
+}

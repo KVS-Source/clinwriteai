@@ -87,6 +87,28 @@ model AiFootprintSpan {
 }
 
 // --------------------------------------------------------------------------
+// publication_section_totals — denominator for the AI footprint %age.
+//
+// The manuscript editor reports per-section total char counts here (PUT
+// /publications/:id/section-totals). GET /:id/footprint uses these totals
+// to compute real percentages; if no totals are recorded for a section
+// yet, the route falls back to the historical "100% if any AI" approx.
+// --------------------------------------------------------------------------
+
+model PublicationSectionTotal {
+  id             String   @id @default(uuid())
+  publicationId  String
+  sectionId      String                                             // matches AiFootprintSpan.sectionId
+  totalChars     Int                                                // from the editor
+  updatedAt      DateTime @updatedAt
+  createdAt      DateTime @default(now())
+
+  @@map("publication_section_totals")
+  @@unique([publicationId, sectionId])
+  @@index([publicationId])
+}
+
+// --------------------------------------------------------------------------
 // 19.1 citations — soft-delete; Vancouver labels computed on read
 // --------------------------------------------------------------------------
 

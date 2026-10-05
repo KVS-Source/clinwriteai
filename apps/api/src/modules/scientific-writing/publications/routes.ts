@@ -249,15 +249,20 @@ export const publicationsRoutes: FastifyPluginAsync = async (app) => {
 
   // AI footprint summary — computed, not stored.
   // Sum of (end-start) char spans per section → percent of total content.
-  // Total chars comes from the citations/content tables once they land;
-  // for now we approximate with span sum as the whole denominator (all spans
-  // counted) which still yields a usable 0-100 per section.
+  // Denominator comes from publication_section_totals (populated by the
+  // manuscript editor via PUT /:id/section-totals). Sections without a
+  // recorded total fall back to the "100% if any AI" approximation for
+  // backwards compat; the response marks them with `estimated: true`.
   app.get('/:publicationId/footprint', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
     const { publicationId } = request.params as { publicationId: string }
     const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
     if (!pub) return reply.code(404).send({ error: 'not_found' })
 
-    const spans = await app.prisma.aiFootprintSpan.findMany({ where: { publicationId } })
+    const [spans, totals] = await Promise.all([
+      app.prisma.aiFootprintSpan.findMany({ where: { publicationId } }),
+      app.prisma.publicationSectionTotal.findMany({ where: { publicationId } }),
+    ])
+
     const bySection = new Map<string, number>()
     let aiChars = 0
     for (const s of spans) {
@@ -266,22 +271,82 @@ export const publicationsRoutes: FastifyPluginAsync = async (app) => {
       bySection.set(s.sectionId, (bySection.get(s.sectionId) ?? 0) + len)
     }
 
-    // Phase 3B placeholder: the content-char total belongs to the manuscript
-    // editor payload. Until that lands we report aiChars as the denominator
-    // so clients see 100% in sections with any AI content — the real
-    // percentages replace this when the editor stores section lengths.
-    return {
-      publicationId,
-      totalChars: aiChars,
-      aiChars,
-      humanChars: 0,
-      aiPercent: aiChars > 0 ? 100 : 0,
-      bySection: Array.from(bySection.entries()).map(([sectionId, chars]) => ({
+    const totalByCode = new Map(totals.map(t => [t.sectionId, t.totalChars]))
+    // Include sections that have a total but no spans so the UI shows them
+    // at 0% AI (useful for the editor's progress overview).
+    for (const t of totals) {
+      if (!bySection.has(t.sectionId)) bySection.set(t.sectionId, 0)
+    }
+
+    const sections = Array.from(bySection.entries()).map(([sectionId, aiCharsHere]) => {
+      const totalHere = totalByCode.get(sectionId)
+      if (totalHere && totalHere > 0) {
+        const pct = Math.min(100, Math.round((aiCharsHere / totalHere) * 100))
+        return {
+          sectionId,
+          sectionLabel: sectionId,
+          aiChars: aiCharsHere,
+          totalChars: totalHere,
+          aiPercent: pct,
+          estimated: false,
+        }
+      }
+      return {
         sectionId,
         sectionLabel: sectionId,
-        aiPercent: 100,
-        aiChars: chars,
-      })),
+        aiChars: aiCharsHere,
+        totalChars: aiCharsHere,
+        aiPercent: aiCharsHere > 0 ? 100 : 0,
+        estimated: true,
+      }
+    })
+
+    const totalChars = Array.from(totalByCode.values()).reduce((a, b) => a + b, 0) || aiChars
+    const aiPercent = totalChars > 0 ? Math.min(100, Math.round((aiChars / totalChars) * 100)) : 0
+
+    return {
+      publicationId,
+      totalChars,
+      aiChars,
+      humanChars: Math.max(0, totalChars - aiChars),
+      aiPercent,
+      hasAnyRecordedTotals: totals.length > 0,
+      bySection: sections,
     }
+  })
+
+  // Manuscript editor reports per-section char totals here. Idempotent
+  // upsert per sectionId; UNIQUE(publicationId, sectionId) is the backstop.
+  app.put('/:publicationId/section-totals', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { publicationId } = request.params as { publicationId: string }
+    const bodySchema = z.object({
+      totals: z.array(z.object({
+        sectionId: z.string().min(1),
+        totalChars: z.number().int().min(0),
+      })).min(1),
+    })
+    const parsed = bodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
+    if (!pub) return reply.code(404).send({ error: 'not_found' })
+
+    // Dedupe at input layer — if the caller sends two entries for the same
+    // sectionId we take the last-write-wins without eating an opaque unique
+    // violation.
+    const dedup = new Map<string, number>()
+    for (const t of parsed.data.totals) dedup.set(t.sectionId, t.totalChars)
+
+    const results = await app.prisma.$transaction(
+      Array.from(dedup.entries()).map(([sectionId, totalChars]) =>
+        app.prisma.publicationSectionTotal.upsert({
+          where: { publicationId_sectionId: { publicationId, sectionId } },
+          create: { publicationId, sectionId, totalChars },
+          update: { totalChars },
+        }),
+      ),
+    )
+
+    return { publicationId, updated: results.length, totals: results }
   })
 }

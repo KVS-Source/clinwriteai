@@ -159,6 +159,9 @@ async function buildServer() {
   // at root — the handlers use full paths.
   await app.register(peerReviewRoutes)
 
+  const { congressRoutes } = await import('./modules/scientific-writing/congress/routes.js')
+  await app.register(congressRoutes, { prefix: '/publications' })
+
   // ---------- Module C — Medical Writing ----------
   const { medContentProjectScopedRoutes, medContentRoutes } =
     await import('./modules/medical-writing/content/routes.js')

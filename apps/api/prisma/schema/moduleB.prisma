@@ -51,6 +51,7 @@ model Publication {
   debarmentChecks      DebarmentCheckRun[]
   submissionChecks     SubmissionCheck[]
   reviewRounds         PeerReviewRound[]
+  congressSubmissions  CongressSubmission[]
 
   @@map("publications")
   @@index([projectId])
@@ -222,6 +223,34 @@ model SubmissionCheck {
   @@unique([publicationId, groupId, label])
   @@index([publicationId])
   @@index([publicationId, state])
+}
+
+// --------------------------------------------------------------------------
+// 22.1 congress_submissions — one row per congress export per publication
+// (OQ-B-004: no live portal API; status transitions are manual flags).
+// --------------------------------------------------------------------------
+
+model CongressSubmission {
+  id                 String    @id @default(uuid())
+  publicationId      String
+  congressId         String                                          // congress_id enum (ESMO, ASCO, …)
+  congressName       String                                          // denormalised snapshot
+  characterLimit     Int
+  keywordsRequired   Int
+  keywordsEntered    Int       @default(0)
+  deadline           DateTime  @db.Date
+  portalUrl          String
+  characterCount     Int       @default(0)                            // computed from content at export time; frozen on this record
+  status             String    @default("draft")                      // draft | exported | submitted | accepted | rejected
+  exportedAt         DateTime?
+  exportedBy         String?
+  createdAt          DateTime  @default(now())
+
+  publication        Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+
+  @@map("congress_submissions")
+  @@index([publicationId])
+  @@index([publicationId, status])
 }
 
 // --------------------------------------------------------------------------

@@ -1,21 +1,20 @@
 // Notification service — the one place to call for fan-out.
 //
 // Delivery model:
-//   - A Notification row is created first (append-only). Each requested
-//     channel gets a NotificationDelivery child row.
-//   - 'in_app' deliveries are considered "delivered" the moment the row
-//     is created (the client polls or subscribes to the notifications feed).
-//   - 'email' and 'sms' deliveries are stubs that record the attempt and
-//     mark delivered immediately in dev. The real adapters (SES/SendGrid,
-//     Twilio) are plugged in via NotificationChannelAdapter interface
-//     below — swap the no-op implementations when procurement lands.
-//
-// Fan-out is NOT yet queue-backed. BullMQ wiring lands in a future session
-// (same queue infra as the Module C expiry scheduler); until then, email +
-// sms attempts happen inline. Keeping this in-process in dev is fine; prod
-// should move to the queue before scale testing.
+//   - A Notification row is created first (append-only). In-app deliveries
+//     are inserted synchronously in the same transaction so the client's
+//     unread-count reflects reality immediately.
+//   - 'email' and 'sms' channels enqueue a BullMQ job per channel; the
+//     worker (apps/worker/src/jobs/notification-delivery.ts) consumes the
+//     job and writes a NotificationDelivery row on success/failure. This
+//     keeps the API request fast + decouples provider latency from the
+//     caller's experience.
+//   - If the queue enqueue fails (Redis down), we fall back to writing a
+//     'queued' delivery row with error='enqueue_failed'. The API never
+//     silently drops a notification request.
 
 import type { PrismaClient } from '@prisma/client'
+import type { QueueProducer } from '../queue/producer.js'
 
 export type NotificationChannel = 'in_app' | 'email' | 'sms'
 
@@ -30,40 +29,10 @@ export interface SendNotificationArgs {
   payload?: Record<string, unknown>
 }
 
-export interface NotificationChannelAdapter {
-  send(args: {
-    recipientId: string
-    title: string
-    body: string
-    linkPath?: string
-    payload: Record<string, unknown>
-  }): Promise<{ providerRef: string | null }>
-  readonly providerName: string
-}
-
-// --- no-op adapters (stubs) ----------------------------------------------
-
-class NoopEmailAdapter implements NotificationChannelAdapter {
-  readonly providerName = 'noop-email'
-  async send(): Promise<{ providerRef: string | null }> {
-    return { providerRef: null }
-  }
-}
-
-class NoopSmsAdapter implements NotificationChannelAdapter {
-  readonly providerName = 'noop-sms'
-  async send(): Promise<{ providerRef: string | null }> {
-    return { providerRef: null }
-  }
-}
-
 export class NotificationService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly adapters: {
-      email: NotificationChannelAdapter
-      sms: NotificationChannelAdapter
-    } = { email: new NoopEmailAdapter(), sms: new NoopSmsAdapter() },
+    private readonly queue?: QueueProducer,
   ) {}
 
   async send(args: SendNotificationArgs) {
@@ -84,7 +53,6 @@ export class NotificationService {
       },
     })
 
-    // In-app: insert a delivered row immediately.
     if (channels.includes('in_app')) {
       await this.prisma.notificationDelivery.create({
         data: {
@@ -96,33 +64,40 @@ export class NotificationService {
       })
     }
 
+    // Enqueue each off-platform channel. If the queue is unavailable
+    // (test env, Redis down), we skip enqueueing but still record a
+    // placeholder NotificationDelivery so an operator can see "this
+    // notification was requested but not dispatched".
     for (const ch of channels) {
       if (ch === 'in_app') continue
-      const adapter = ch === 'email' ? this.adapters.email : this.adapters.sms
-      try {
-        const { providerRef } = await adapter.send({
-          recipientId: args.recipientId,
-          title: args.title,
-          body: args.body,
-          linkPath: args.linkPath,
-          payload: args.payload ?? {},
-        })
+      if (!this.queue) {
         await this.prisma.notificationDelivery.create({
           data: {
             notificationId: notification.id,
             channel: ch,
-            deliveredAt: new Date(),
-            provider: adapter.providerName,
-            providerRef,
+            provider: 'none-configured',
+            error: 'notification queue not configured',
           },
+        })
+        continue
+      }
+      try {
+        const jobName = ch === 'email' ? 'notification.email' : 'notification.sms'
+        await this.queue.enqueue(jobName, {
+          notificationId: notification.id,
+          recipientId: args.recipientId,
+          title: args.title,
+          body: args.body,
+          linkPath: args.linkPath ?? null,
+          payload: args.payload ?? {},
         })
       } catch (err) {
         await this.prisma.notificationDelivery.create({
           data: {
             notificationId: notification.id,
             channel: ch,
-            provider: adapter.providerName,
-            error: err instanceof Error ? err.message : String(err),
+            provider: 'queue',
+            error: `enqueue_failed: ${err instanceof Error ? err.message : String(err)}`,
           },
         })
       }

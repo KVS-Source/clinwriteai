@@ -207,6 +207,39 @@ model AiTenantQuota {
 // Lives in platform-services (not moduleD) because every module reads it.
 // --------------------------------------------------------------------------
 
+// --------------------------------------------------------------------------
+// Taxonomy — therapeutic areas (TA tags) normalised.
+//
+// Free-text TA strings are scattered across projects.therapeuticArea,
+// library_sections.taTag, med_content_items.taTag, regulatory_submissions.taTag,
+// ideation_projects.taTag etc. This table is the canonical list; writers
+// are encouraged (not forced) to use its `code` values. Existing free-text
+// columns stay in place for backwards compat — a bulk reconciliation lands
+// when the TA catalogue is signed off by the medical writing lead.
+//
+// Hierarchy: parentCode is nullable so we can model 'Oncology' > 'Haematologic
+// Malignancies' > 'MDS'. Admins own CRUD; every authed user can read.
+// --------------------------------------------------------------------------
+
+model TherapeuticArea {
+  code          String   @id                                       // 'ONC', 'ONC-HAEM', 'CARD', ...
+  label         String                                             // 'Oncology', 'Haematologic malignancies'
+  parentCode    String?                                            // null for top-level TAs
+  status        String   @default("active")                        // 'active' | 'archived'
+  description   String?
+  createdBy     String
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  archivedAt    DateTime?
+
+  parent        TherapeuticArea?   @relation("TaParent", fields: [parentCode], references: [code])
+  children      TherapeuticArea[]  @relation("TaParent")
+
+  @@map("therapeutic_areas")
+  @@index([parentCode])
+  @@index([status])
+}
+
 model RegulatoryAlert {
   id                  String    @id @default(uuid())
   frameworkName       String                                           // 'ICH E3', 'FDA Guidance 2026-01', ...

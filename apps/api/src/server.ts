@@ -261,6 +261,10 @@ async function buildServer() {
   // open to any module member; tenant + AI spend + audit activity gated to admins.
   await app.register(reportsRoutes)
 
+  const { taxonomyRoutes } = await import('./modules/platform/taxonomy/routes.js')
+  // Therapeutic-areas catalogue — read for every authed user, CRUD for super-admin.
+  await app.register(taxonomyRoutes)
+
   // Compliance gauge scheduler — keeps the Prometheus gauges the Phase 6
   // alerts rely on (audit chain intact, last verify, access review, backup
   // success) fresh. Mounted last so all dependencies (prisma + audit +

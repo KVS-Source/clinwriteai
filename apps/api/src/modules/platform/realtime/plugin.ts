@@ -166,7 +166,15 @@ const realtimePlugin: FastifyPluginAsync = async (app) => {
     app.log.warn({ err: err.message }, 'realtime subscriber redis error')
   })
 
-  await subscriber.subscribe(REALTIME_CHANNEL)
+  // Fire-and-forget the SUBSCRIBE — mirrors the queue plugin's cron
+  // registration pattern. Awaiting the subscribe would block plugin
+  // boot past Fastify's 10s plugin-timeout window when Redis is cold.
+  // ioredis buffers the subscribe command and replays it on reconnect,
+  // so a late Redis startup still lands the subscription without a
+  // plugin restart.
+  void subscriber.subscribe(REALTIME_CHANNEL).catch((err) => {
+    app.log.warn({ err: err?.message ?? String(err) }, 'realtime: SUBSCRIBE failed, will retry on reconnect')
+  })
 
   subscriber.on('message', (channel, raw) => {
     if (channel !== REALTIME_CHANNEL) return

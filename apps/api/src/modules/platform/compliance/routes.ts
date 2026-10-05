@@ -143,6 +143,92 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(renderComplianceReportPdf(report))
   })
 
+  // --- Audit log export (JSONL) ------------------------------------------
+  // SOC 2 CC7.3 / Part 11 §11.10(e) evidence surface: streams the full
+  // audit chain (optionally windowed) as JSON Lines. Streaming avoids
+  // loading millions of rows into memory for prod-scale exports. JSONL
+  // (one object per line) is the universal auditor-tool format.
+  //
+  // The export is itself audited as 'audit_log_exported' so there's a
+  // trail of who pulled evidence when.
+
+  app.get('/audit-events.jsonl', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+    const q = windowQuery.safeParse(request.query)
+    if (!q.success) return reply.code(400).send({ error: 'validation', issues: q.error.issues })
+
+    const from = q.data.from ? new Date(q.data.from) : new Date(0)
+    const to = q.data.to ? new Date(q.data.to) : new Date()
+
+    // Count first for the audit event's details — cheap, uses the same
+    // index as the stream below.
+    const countRow = await app.prisma.$queryRawUnsafe<Array<{ count: bigint }>>(
+      'SELECT COUNT(*)::bigint AS count FROM audit_events WHERE "timestamp" BETWEEN $1 AND $2',
+      from, to,
+    )
+    const rowCount = Number(countRow[0]?.count ?? 0)
+
+    const filename = `audit-events-${from.toISOString().slice(0, 10)}-to-${to.toISOString().slice(0, 10)}.jsonl`
+    reply
+      .type('application/x-ndjson')
+      .header('Content-Disposition', `attachment; filename="${filename}"`)
+      .header('X-Row-Count', String(rowCount))
+
+    // Fastify streams the async-iterator body directly. We page through
+    // rows in chunks of 1000 to keep the memory profile flat regardless
+    // of export size.
+    async function* iter() {
+      const PAGE = 1000
+      let cursor: Date = from
+      let cursorRow = 0
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const batch = await app.prisma.$queryRawUnsafe<Array<{
+          id: string
+          timestamp: Date
+          actorId: string
+          action: string
+          entityType: string
+          entityId: string
+          details: unknown
+          ipAddress: string | null
+          prevHash: string | null
+          rowHash: string
+        }>>(
+          `SELECT id, "timestamp", "actorId", action, "entityType", "entityId", details, "ipAddress", "prevHash", "rowHash"
+           FROM audit_events
+           WHERE "timestamp" BETWEEN $1 AND $2
+           ORDER BY "timestamp" ASC, id ASC
+           OFFSET $3 LIMIT $4`,
+          from, to, cursorRow, PAGE,
+        )
+        if (batch.length === 0) break
+        for (const row of batch) yield JSON.stringify(row) + '\n'
+        cursorRow += batch.length
+        if (batch.length < PAGE) break
+        void cursor
+      }
+    }
+
+    // Audit the export BEFORE streaming (the actor needs to be on record
+    // even if the stream fails mid-flight). Follow-up write below if the
+    // row count or stream status is useful.
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'audit_log_exported',
+      entityType: 'compliance',
+      entityId: 'audit-events',
+      details: {
+        from: from.toISOString(),
+        to: to.toISOString(),
+        rowCount,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.send(iter())
+  })
+
   // --- Retention report ----------------------------------------------------
   //
   // Doesn't delete anything. Reports counts that WOULD be deleted under the

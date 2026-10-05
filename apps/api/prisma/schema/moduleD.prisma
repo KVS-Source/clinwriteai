@@ -1,0 +1,191 @@
+// Module D — Regulatory Writing models.
+//
+// Source: docs/demo/02-datamodel.md §37-§39 (core submission + consistency +
+// redaction + validation). Enum columns stored as TEXT with Zod validation
+// at route edge, same convention as earlier modules.
+//
+// What's HERE:
+//   - regulatory_submissions (6-stage lifecycle; cross-module source link)
+//   - ectd_granularity_nodes (DD-D-001 — Module 5 read-only)
+//   - canonical_json_entries (indexed data points from Module A sources)
+//   - cmc_readiness_reports
+//   - consistency_check_results + consistency_contradictions
+//     (DD-D-002 — major contradictions require resolution_note)
+//   - redaction_records (DD-D-003 — immutable after stage 5)
+//   - ectd_validation_results (stub; real Extedo/Lorenz integration later)
+//
+// What's NOT here yet (externally blocked or deferred scope):
+//   - gateway_submissions (FDA ESG + CESP onboarding — months, needs vendor
+//     contracts + PGP keys; MHRA apiReady=false in GATEWAY_PRIORITY)
+//   - ha_correspondence + ha_response_drafts (post-submission workflow)
+//   - regulatory_alerts cross-module push service
+//   - aggregate_safety_reports (PSUR/PBRER-specific; needs AE lookup)
+//   - odd_assessments (orphan drug designation path)
+
+model RegulatorySubmission {
+  id                        String   @id @default(uuid())
+  projectId                 String
+  // Cross-module read-only link to the originating Module A project.
+  sourceModuleAProjectId    String
+  submissionType            String                                       // reg_submission_type (ind|nda_maa|psur_pbrer|rmp_rems|ha_response|cer|orphan_drug)
+  status                    String   @default("source_gathering")        // submission_status
+  stage                     Int      @default(1)                          // 1..6
+  targetHas                 String[] @default([])                         // target health authorities
+  ectdVersion               String   @default("3.2.2")
+  taTag                     String
+  validatorEngine           String   @default("extedo")                   // validator_engine
+  ownerId                   String
+  createdAt                 DateTime @default(now())
+  updatedAt                 DateTime @updatedAt
+
+  ectdNodes                 EctdGranularityNode[]
+  canonicalEntries          CanonicalJsonEntry[]
+  cmcReport                 CmcReadinessReport?
+  consistencyRuns           ConsistencyCheckResult[]
+  redactionRecords          RedactionRecord[]
+  validationRuns            EctdValidationResult[]
+
+  @@map("regulatory_submissions")
+  @@index([projectId])
+  @@index([status])
+}
+
+// --------------------------------------------------------------------------
+// eCTD granularity nodes — real-time section status
+// --------------------------------------------------------------------------
+
+model EctdGranularityNode {
+  id                 String   @id @default(uuid())
+  submissionId       String
+  moduleSection      String                                              // '2.5' | '3.2.S' | …
+  sectionTitle       String
+  status             String   @default("not_started")                     // ctd_module_status
+  documentId         String?
+  aiFootprintPct     Int?
+  isReadOnly         Boolean  @default(false)                             // DD-D-001 — Module 5 nodes
+  isSystemGenerated  Boolean  @default(false)                             // 2.1, 2.2, auto-generated
+  lastUpdated        DateTime @default(now()) @updatedAt
+
+  submission         RegulatorySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("ectd_granularity_nodes")
+  @@unique([submissionId, moduleSection])
+  @@index([submissionId])
+}
+
+// --------------------------------------------------------------------------
+// Canonical JSON — indexed data points from Module A source documents
+// --------------------------------------------------------------------------
+
+model CanonicalJsonEntry {
+  id              String   @id @default(uuid())
+  submissionId    String
+  sourceDocId     String
+  sourceType      String                                                 // csr|ib|sap|tlf|cmc|nonclin
+  content         Json
+  version         String
+  indexedAt       DateTime @default(now())
+
+  submission      RegulatorySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("canonical_json_entries")
+  @@index([submissionId])
+}
+
+// --------------------------------------------------------------------------
+// CMC readiness — one row per submission (unique)
+// --------------------------------------------------------------------------
+
+model CmcReadinessReport {
+  id                 String    @id @default(uuid())
+  submissionId       String    @unique
+  completenessPct    Int                                                  // 0..100
+  missingItems       Json      @default("[]")
+  generatedAt        DateTime  @default(now())
+  acknowledgedBy     String?
+  acknowledgedAt     DateTime?
+  riskNote           String?
+
+  submission         RegulatorySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("cmc_readiness_reports")
+}
+
+// --------------------------------------------------------------------------
+// Consistency check — cross-module/section contradiction detection
+// --------------------------------------------------------------------------
+
+model ConsistencyCheckResult {
+  id              String   @id @default(uuid())
+  submissionId    String
+  runAt           DateTime @default(now())
+  model           String                                                 // the AI engine or algorithm label
+  // passed is service-computed (no unresolved major contradictions).
+  passed          Boolean  @default(true)
+
+  submission      RegulatorySubmission     @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+  contradictions  ConsistencyContradiction[]
+
+  @@map("consistency_check_results")
+  @@index([submissionId])
+}
+
+model ConsistencyContradiction {
+  id              String   @id @default(uuid())
+  resultId        String
+  sourceSection   String                                                 // 'Module 2.5 §3.1'
+  targetSection   String                                                 // 'Module 5 §14.2.1'
+  sourceValue     String
+  targetValue     String
+  severity        String                                                 // consistency_severity (major|minor)
+  resolved        Boolean  @default(false)
+  resolvedBy      String?
+  resolvedAt      DateTime?
+  resolutionNote  String?                                                // DD-D-002: required when resolving a major
+
+  result          ConsistencyCheckResult @relation(fields: [resultId], references: [id], onDelete: Cascade)
+
+  @@map("consistency_contradictions")
+  @@index([resultId])
+  @@index([resultId, resolved])
+}
+
+// --------------------------------------------------------------------------
+// Redaction records — DD-D-003 immutable after stage 5
+// --------------------------------------------------------------------------
+
+model RedactionRecord {
+  id                String   @id @default(uuid())
+  submissionId      String
+  documentId        String
+  ppdItems          Json     @default("[]")                               // [{id, location, text, confirmed, confirmedBy}]
+  cciItems          Json     @default("[]")
+  stageAtCreation   Int                                                   // enforced-at-API layer immutability snapshot
+  createdAt         DateTime @default(now())
+
+  submission        RegulatorySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("redaction_records")
+  @@index([submissionId])
+}
+
+// --------------------------------------------------------------------------
+// eCTD validation — stub for Extedo/Lorenz integration
+// --------------------------------------------------------------------------
+
+model EctdValidationResult {
+  id              String   @id @default(uuid())
+  submissionId    String
+  runAt           DateTime @default(now())
+  validator       String                                                 // validator_engine
+  criticalCount   Int      @default(0)
+  majorCount      Int      @default(0)
+  minorCount      Int      @default(0)
+  passed          Boolean  @default(true)                                 // service-computed: critical==0 && major==0
+  errors          Json     @default("[]")
+
+  submission      RegulatorySubmission @relation(fields: [submissionId], references: [id], onDelete: Cascade)
+
+  @@map("ectd_validation_results")
+  @@index([submissionId])
+}

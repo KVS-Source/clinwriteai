@@ -167,6 +167,12 @@ async function buildServer() {
   const { notificationsRoutes } = await import('./modules/platform/notifications/routes.js')
   await app.register(notificationsRoutes, { prefix: '/notifications' })
 
+  const { frameworksRoutes } = await import('./modules/platform/frameworks/routes.js')
+  await app.register(frameworksRoutes, { prefix: '/admin/frameworks' })
+
+  const { raciRoutes } = await import('./modules/platform/raci/routes.js')
+  await app.register(raciRoutes, { prefix: '/projects' })
+
   return app
 }
 

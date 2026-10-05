@@ -43,7 +43,11 @@ async function buildServer() {
     return { ready: true }
   })
 
-  // ---------- Phase 1 Week 3-5: register plugins + routes ----------
+  // ---------- Core data + audit plumbing ----------
+  await app.register(import('./prisma/plugin.js'))
+  await app.register(import('./audit/plugin.js'))
+
+  // ---------- Phase 1 Week 5-6: register remaining plugins + routes ----------
   // await app.register(import('@fastify/cors'),       { origin: env.CORS_ORIGIN, credentials: env.CORS_CREDENTIALS })
   // await app.register(import('@fastify/helmet'))
   // await app.register(import('@fastify/cookie'))
@@ -52,8 +56,6 @@ async function buildServer() {
   // await app.register(import('@fastify/swagger'),    { ... })      // OpenAPI from Zod schemas
   // await app.register(import('@fastify/swagger-ui'), { routePrefix: '/docs' })
   //
-  // await app.register(import('./prisma/plugin.js'))                // Prisma client as decorator
-  // await app.register(import('./audit/plugin.js'))                 // onResponse hook writes audit events
   // await app.register(import('./auth/plugin.js'))                  // WorkOS SSO + MFA + JWT session
   //
   // await app.register(import('./modules/platform/routes.js'),      { prefix: '/admin' })

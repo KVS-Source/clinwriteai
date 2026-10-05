@@ -56,11 +56,24 @@ export function findChainBreak(
     const row = rows[i]
     if (!row) continue
     if (row.prevHash !== expectedPrev) return i
-    const expectedRowHash = computeRowHash(expectedPrev, row, auditSecret)
+    const expectedRowHash = computeRowHash(expectedPrev, plainShape(row), auditSecret)
     if (row.rowHash !== expectedRowHash) return i
     expectedPrev = row.rowHash
   }
   return -1
+}
+
+/** Strip the hash-chain fields so an enriched row can be re-hashed deterministically. */
+export function plainShape(row: AuditEventShape): AuditEventShape {
+  return {
+    timestamp: row.timestamp,
+    actorId: row.actorId,
+    action: row.action,
+    entityType: row.entityType,
+    entityId: row.entityId,
+    details: row.details,
+    ipAddress: row.ipAddress,
+  }
 }
 
 /** Stable JSON stringification with sorted keys at every level. */

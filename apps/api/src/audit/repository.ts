@@ -7,7 +7,7 @@
 // actual Postgres connection from Prisma. The shape + interface are stable.
 
 import type { AuditEventShape } from './hash.js'
-import { computeRowHash } from './hash.js'
+import { computeRowHash, plainShape } from './hash.js'
 
 export interface AuditRepository {
   /** Append a new audit event. Computes prev_hash + row_hash atomically. */
@@ -49,7 +49,7 @@ export class InMemoryAuditRepository implements AuditRepository {
     let expectedPrev = ''
     for (const row of this.rows) {
       if (row.prevHash !== expectedPrev) return { intact: false, firstBreakAt: row.id }
-      const expectedRowHash = computeRowHash(expectedPrev, row, this.auditSecret)
+      const expectedRowHash = computeRowHash(expectedPrev, plainShape(row), this.auditSecret)
       if (row.rowHash !== expectedRowHash) return { intact: false, firstBreakAt: row.id }
       expectedPrev = row.rowHash
     }
@@ -57,15 +57,5 @@ export class InMemoryAuditRepository implements AuditRepository {
   }
 }
 
-// Postgres-backed implementation stubbed; lands Phase 1 Week 4.
-export class PostgresAuditRepository implements AuditRepository {
-  async append(_event: AuditEventShape): Promise<{ id: string; rowHash: string }> {
-    throw new Error('PostgresAuditRepository.append: not yet implemented — Phase 1 Week 4')
-  }
-  async listForEntity() {
-    throw new Error('PostgresAuditRepository.listForEntity: not yet implemented — Phase 1 Week 4')
-  }
-  async verifyChain() {
-    throw new Error('PostgresAuditRepository.verifyChain: not yet implemented — Phase 1 Week 4')
-  }
-}
+// PostgresAuditRepository lives in ./postgres-repository.ts so this file stays
+// Prisma-free and safe to import from pure unit tests.

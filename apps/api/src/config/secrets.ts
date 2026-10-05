@@ -39,11 +39,12 @@ export class EnvSecretsProvider implements SecretsProvider {
 export class SopsEnvSecretsProvider implements SecretsProvider {
   private cache: Map<string, string> | null = null
   private cacheExpiresAt = 0
-  private readonly ttlMs = 15 * 60 * 1000  // 15 minutes
+  // 15-minute TTL; used by ensureCache() when the sops decrypt path lands.
+  protected readonly ttlMs = 15 * 60 * 1000
 
   constructor(
-    private readonly encFilePath: string,
-    private readonly ageKeyFile: string,
+    protected readonly encFilePath: string,
+    protected readonly ageKeyFile: string,
   ) {}
 
   async getSecret(name: string): Promise<string> {

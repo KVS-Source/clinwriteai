@@ -231,6 +231,99 @@ export const peerReviewRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
+  // --- Assembled point-by-point response letter --------------------------
+  // Reconstructs the full response letter from the current reviewerComment
+  // rows, grouped per reviewer tab, in commentNumber order. The returned
+  // body includes a plain-text rendering + a structured per-point array
+  // the UI can style. contentHash matches the latest ResponseLetterVersion
+  // (both run the same deterministic assembly).
+
+  app.get('/publications/:publicationId/review-rounds/:roundId/response-letter', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { publicationId, roundId } = request.params as { publicationId: string; roundId: string }
+    const round = await app.prisma.peerReviewRound.findFirst({
+      where: { id: roundId, publicationId },
+      include: {
+        publication: { select: { id: true, title: true } },
+        comments: { orderBy: [{ reviewerTab: 'asc' }, { commentNumber: 'asc' }] },
+      },
+    })
+    if (!round) return reply.code(404).send({ error: 'not_found' })
+
+    const comments = round.comments
+    const total = comments.length
+    const responded = comments.filter(c => c.status === 'responded').length
+
+    // Group comments by reviewer tab. Preserving insertion order so the
+    // same reviewer order the UI shows is the order the letter uses.
+    const byTab = new Map<string, typeof comments>()
+    for (const c of comments) {
+      const existing = byTab.get(c.reviewerTab)
+      if (existing) existing.push(c)
+      else byTab.set(c.reviewerTab, [c])
+    }
+
+    const sections = Array.from(byTab.entries()).map(([tab, items]) => ({
+      reviewer: tab,
+      points: items.map(c => ({
+        commentId: c.id,
+        commentNumber: c.commentNumber,
+        reviewerComment: c.commentText,
+        authorResponse: c.responseText,
+        responded: c.status === 'responded',
+        aiDrafted: c.aiDrafted,
+      })),
+    }))
+
+    // Plain-text rendering — same shape as the committee-style response letters
+    // the Vancouver authoring guide shows.
+    const letterLines: string[] = [
+      `Response to peer review — ${round.publication.title}`,
+      `Round ${round.roundNumber} — ${responded}/${total} point(s) addressed`,
+      '',
+      'We thank the reviewers for their constructive comments. Our point-by-point responses follow below.',
+      '',
+    ]
+    for (const s of sections) {
+      letterLines.push(`## ${s.reviewer}`, '')
+      for (const p of s.points) {
+        letterLines.push(`**Comment ${p.commentNumber}**`)
+        letterLines.push(`Reviewer: ${p.reviewerComment}`)
+        letterLines.push(`Response: ${p.authorResponse || '[pending — not yet responded]'}`)
+        letterLines.push('')
+      }
+    }
+    const bodyText = letterLines.join('\n')
+
+    // Deterministic content hash — must match snapshotLetterVersion() so
+    // the UI can line up this live assembly with the latest version row.
+    const h = createHash('sha256')
+    for (const c of comments) {
+      h.update(c.reviewerTab, 'utf8'); h.update('|', 'utf8')
+      h.update(String(c.commentNumber), 'utf8'); h.update('|', 'utf8')
+      h.update(c.commentText, 'utf8'); h.update('|', 'utf8')
+      h.update(c.responseText, 'utf8'); h.update('|', 'utf8')
+    }
+    const contentHash = h.digest('hex')
+
+    const latestVersion = await app.prisma.responseLetterVersion.findFirst({
+      where: { roundId },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    return {
+      publicationId,
+      roundId,
+      roundNumber: round.roundNumber,
+      submittedAt: round.submittedAt,
+      counts: { total, responded, pending: total - responded },
+      contentHash,
+      matchesLatestVersion: latestVersion?.contentHash === contentHash,
+      latestVersionId: latestVersion?.id ?? null,
+      sections,
+      bodyText,
+    }
+  })
+
   // --- Submit round ------------------------------------------------------
 
   app.post('/publications/:publicationId/review-rounds/:roundId/submit', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {

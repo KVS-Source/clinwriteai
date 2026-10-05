@@ -1,0 +1,193 @@
+// Platform-wide services (Phase 4) — Master Library, Notifications,
+// Framework registry, RACI matrix, AI gateway accounting.
+//
+// All feature modules consume these; no module owns them.
+
+// --------------------------------------------------------------------------
+// Master Library — reusable approved content
+// --------------------------------------------------------------------------
+//
+// The Master Library stores approved snippets of text (claims, boilerplate,
+// safety language, best practices) that modules B, C, D, E reference. Each
+// row is a "section" tagged by TA + framework + status. Modules query by
+// similarity (handled at the service layer; the DB stores plain text here
+// and gets a pgvector embedding column once that extension is live).
+
+model LibrarySection {
+  id              String   @id @default(uuid())
+  tenantId        String?                                            // null = platform-wide
+  title           String
+  body            String                                             // the approved text
+  taTag           String                                             // mandatory TA (Oncology, etc.)
+  framework       String                                             // 'ICH E3' | 'FDA Label' | 'Custom'
+  category        String                                             // claim | safety | boilerplate | best_practice
+  version         Int      @default(1)
+  isCurrent       Boolean  @default(true)
+  usageCount      Int      @default(0)                                // bumped on adoption via /library/sections/:id/adopt
+  approvedBy      String                                             // user id
+  approvedAt      DateTime @default(now())
+  supersededBy    String?                                            // FK to the newer section id (nullable)
+  retiredAt       DateTime?
+  tags            String[] @default([])
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("library_sections")
+  @@index([taTag])
+  @@index([framework])
+  @@index([category])
+  @@index([tenantId, isCurrent])
+}
+
+model LibraryAdoptionRecord {
+  id              String   @id @default(uuid())
+  libraryId       String                                             // FK to LibrarySection.id (loose — allows retirements)
+  adoptingModule  String                                             // 'B' | 'C' | 'D' | 'E'
+  adoptingEntity  String                                             // publication id | content item id | …
+  adoptedBy       String
+  adoptedAt       DateTime @default(now())
+
+  @@map("library_adoption_records")
+  @@index([libraryId])
+  @@index([adoptingModule, adoptingEntity])
+}
+
+// --------------------------------------------------------------------------
+// Notifications — in-app + email + SMS fan-out
+// --------------------------------------------------------------------------
+
+model Notification {
+  id              String    @id @default(uuid())
+  recipientId     String                                             // User.id of the human recipient
+  kind            String                                             // 'review_assigned' | 'comment_added' | 'stage_advanced' | …
+  severity        String    @default("info")                         // info | warning | critical
+  title           String
+  body            String
+  linkPath        String?                                            // '/projects/X/documents/Y' — opens the thing in app
+  channels        String[]  @default(["in_app"])                     // in_app | email | sms (any combination)
+  payload         Json      @default("{}")
+  readAt          DateTime?
+  dismissedAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  deliveries      NotificationDelivery[]
+
+  @@map("notifications")
+  @@index([recipientId, readAt])
+  @@index([recipientId, createdAt])
+}
+
+model NotificationDelivery {
+  id             String    @id @default(uuid())
+  notificationId String
+  channel        String                                             // in_app | email | sms
+  attemptedAt    DateTime  @default(now())
+  deliveredAt    DateTime?
+  provider       String?                                            // 'ses' | 'sendgrid' | 'twilio' | 'internal'
+  providerRef    String?                                            // message id from the provider
+  error          String?
+
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+
+  @@map("notification_deliveries")
+  @@index([notificationId])
+  @@index([channel, deliveredAt])
+}
+
+// --------------------------------------------------------------------------
+// Framework registry (Admin + Super Admin)
+// --------------------------------------------------------------------------
+
+model RegulatoryFramework {
+  id              String   @id @default(uuid())
+  name            String   @unique                                   // 'ICH E3' | 'FDA Label' | 'EU CTR Art 37' | …
+  version         String                                             // 'r1 2016' | '2024-05' | …
+  jurisdiction    String                                             // 'ICH' | 'US' | 'EU' | 'UK' | …
+  category        String                                             // clinical | regulatory | compliance | …
+  effectiveDate   DateTime @db.Date
+  retiredAt       DateTime?
+  description     String?
+  // Human-maintained reference URL — used by the UI to open the spec. Not
+  // a canonical source of truth (contract compliance teams own that).
+  sourceUrl       String?
+
+  createdBy       String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("regulatory_frameworks")
+  @@index([jurisdiction])
+  @@index([category])
+}
+
+// --------------------------------------------------------------------------
+// RACI matrix — platform-wide RACI role definitions per project activity
+// --------------------------------------------------------------------------
+
+model RaciAssignment {
+  id              String   @id @default(uuid())
+  projectId       String
+  activity        String                                             // 'clinical_writing.draft' | 'regulatory.publish' | …
+  responsibleId   String?
+  accountableId   String?
+  consultedIds    String[] @default([])
+  informedIds     String[] @default([])
+  notes           String?
+  updatedBy       String
+  updatedAt       DateTime @updatedAt
+  createdAt       DateTime @default(now())
+
+  @@map("raci_assignments")
+  @@unique([projectId, activity])
+  @@index([projectId])
+}
+
+// --------------------------------------------------------------------------
+// AI Gateway accounting (central Anthropic wrapper)
+// --------------------------------------------------------------------------
+
+model AiCallRecord {
+  id              String   @id @default(uuid())
+  tenantId        String?
+  projectId       String?
+  actorId         String
+  module          String                                             // 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
+  intent          String                                             // 'draft_section' | 'claims_harvest' | 'atomise' | …
+  model           String                                             // claude-opus-4-7 | claude-sonnet-4-6 | …
+  inputTokens     Int                                                 // reported by the SDK
+  outputTokens    Int
+  cachedTokens    Int      @default(0)                                // prompt-caching discount
+  // USD cost rolled up at write time from a per-model rate card; stable
+  // across rate-card changes so historical totals don't shift.
+  costUsd         Decimal  @db.Decimal(10, 6)
+  latencyMs       Int
+  // Rate-limit outcome: 'allowed' | 'allowed_approaching_cap' | 'rejected_cap'
+  limitDecision   String   @default("allowed")
+  piiScrubbed     Boolean  @default(false)                            // true if the request had PII that was redacted
+  errorCode       String?                                             // null on success; 'rate_limited'|'provider_err'|…
+  createdAt       DateTime @default(now())
+
+  @@map("ai_call_records")
+  @@index([tenantId, createdAt])
+  @@index([projectId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([module, createdAt])
+}
+
+// Per-tenant monthly caps so the gateway can enforce "cost control is a real
+// line item at scale" (plan §4). Phase 4 ships hard caps; soft-cap
+// notifications (80%, 95%) land with the Notification engine (Batch 2).
+model AiTenantQuota {
+  id              String   @id @default(uuid())
+  tenantId        String   @unique
+  monthlyCapUsd   Decimal  @db.Decimal(10, 2)
+  warnAtPct       Int      @default(80)
+  rejectAtPct     Int      @default(100)
+  rolloverDay     Int      @default(1)                                // day of month quota resets
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@map("ai_tenant_quotas")
+}

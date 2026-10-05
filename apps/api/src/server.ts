@@ -157,13 +157,10 @@ async function buildServer() {
 
   const { publishingRoutes } = await import('./modules/ideation/publishing/routes.js')
   await app.register(publishingRoutes, { prefix: '/ideation' })
-  //
-  // // Module route registrations land in Phase 3A-3E:
-  // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })
-  // // await app.register(import('./modules/scientific-writing/routes.js'), { prefix: '/publications' })
-  // // await app.register(import('./modules/medical-writing/routes.js'),    { prefix: '/med-content' })
-  // // await app.register(import('./modules/regulatory-writing/routes.js'), { prefix: '/reg-submissions' })
-  // // await app.register(import('./modules/ideation/routes.js'),           { prefix: '/ideation' })
+
+  // ---------- Phase 4 shared platform services ----------
+  const { libraryRoutes } = await import('./modules/platform/library/routes.js')
+  await app.register(libraryRoutes, { prefix: '/library' })
 
   return app
 }

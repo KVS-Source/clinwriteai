@@ -404,4 +404,125 @@ export const publishingRoutes: FastifyPluginAsync = async (app) => {
     if (!row) return reply.code(404).send({ error: 'not_found' })
     return row
   })
+
+  // --- Dublin Core auto-populate ------------------------------------------
+  // Builds a DC metadata record from the card + its artefact + the first
+  // atomised channel content. Does NOT upsert; returns the proposed values
+  // so the UI can let the user edit before PUT /dublin-core. Alternative
+  // ?commit=true saves directly.
+
+  app.post('/cards/:cardId/dublin-core/auto-populate', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
+    const { cardId } = request.params as { cardId: string }
+    const { commit } = request.query as { commit?: string }
+
+    const card = await app.prisma.ideationContentCard.findUnique({
+      where: { id: cardId },
+      include: {
+        artefact: { include: { ideationProject: true } },
+        atomised: { orderBy: { createdAt: 'asc' }, take: 1 },
+        doiRecord: true,
+      },
+    })
+    if (!card) return reply.code(404).send({ error: 'not_found' })
+
+    // Derivation rules — all deterministic from existing data:
+    //   dcTitle       — artefact.title + ' — ' + first atomised channel
+    //   dcCreator     — ideationProject.createdBy (user id; the UI can
+    //                    resolve to a display name)
+    //   dcSubject     — ideationProject.taTag
+    //   dcDescription — card.sourcePassage trimmed to 500 chars
+    //   dcDate        — today (publication intent date)
+    //   dcType        — 'Text' (fixed; adjust when card.channelFormats has
+    //                    image/video intents)
+    //   dcFormat      — first atomised channel if present, else 'text/html'
+    //   dcIdentifier  — DOI if registered; otherwise the card.id as urn
+    //   dcRights      — 'Copyright holder — all rights reserved; see licence terms'
+    //   dcLanguage    — 'en'
+    //   dcSource      — artefact.title ' v' + artefact.version
+    const firstChannel = card.atomised[0]?.channel ?? null
+    const draft = {
+      ideationContentCardId: cardId,
+      dcTitle: `${card.artefact.title}${firstChannel ? ` — ${firstChannel}` : ''}`,
+      dcCreator: card.artefact.ideationProject.createdBy,
+      dcSubject: card.artefact.ideationProject.taTag,
+      dcDescription: card.sourcePassage.slice(0, 500),
+      dcDate: new Date(),
+      dcType: 'Text',
+      dcFormat: firstChannel ? `text/${firstChannel}` : 'text/html',
+      dcIdentifier: card.doiRecord?.doi ?? `urn:aurora:card:${card.id}`,
+      dcRights: 'Copyright holder — all rights reserved; see licence terms',
+      dcLanguage: 'en',
+      dcSource: `${card.artefact.title} v${card.artefact.version}`,
+      dcPublisher: card.artefact.ideationProject.taTag,
+    }
+
+    if (commit !== 'true') {
+      return { draft, committed: false }
+    }
+
+    const row = await app.prisma.dublinCoreMetadata.upsert({
+      where: { ideationContentCardId: cardId },
+      create: draft,
+      update: { ...draft, dcDate: draft.dcDate },
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'dublin_core_auto_populated',
+      entityType: 'ideation_card',
+      entityId: cardId,
+      details: { metadataId: row.id, dcIdentifier: draft.dcIdentifier },
+      ipAddress: request.ip ?? null,
+    })
+
+    return { draft: row, committed: true }
+  })
+
+  // --- UTM parameter generator --------------------------------------------
+  // Builds per-channel UTM params from card + channel + campaign tag.
+  // Deterministic + urlencoded; callers typically pass to publishRecord.utmParams.
+
+  app.post('/cards/:cardId/utm/generate', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
+    const { cardId } = request.params as { cardId: string }
+    const bodySchema = z.object({
+      channel: CHANNEL_ENUM,
+      campaign: z.string().min(1).max(64).optional(),
+      content: z.string().min(1).max(64).optional(),
+    })
+    const parsed = bodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const card = await app.prisma.ideationContentCard.findUnique({
+      where: { id: cardId },
+      include: { artefact: { include: { ideationProject: true } } },
+    })
+    if (!card) return reply.code(404).send({ error: 'not_found' })
+
+    // UTM source = channel; medium = card.id short slice; campaign = TA tag
+    // or user override; content = optional variant tag. See
+    // https://support.google.com/analytics/answer/1033863 for the fields.
+    const campaign = parsed.data.campaign ?? card.artefact.ideationProject.taTag
+    const utmShortId = card.id.slice(0, 8)
+    const params = new URLSearchParams({
+      utm_source: parsed.data.channel,
+      utm_medium: 'content_card',
+      utm_campaign: campaign.toLowerCase().replace(/\s+/g, '_'),
+      utm_term: utmShortId,
+      ...(parsed.data.content ? { utm_content: parsed.data.content } : {}),
+    })
+
+    return {
+      cardId,
+      channel: parsed.data.channel,
+      utmParams: params.toString(),
+      components: {
+        utm_source: parsed.data.channel,
+        utm_medium: 'content_card',
+        utm_campaign: campaign.toLowerCase().replace(/\s+/g, '_'),
+        utm_term: utmShortId,
+        utm_content: parsed.data.content ?? null,
+      },
+    }
+  })
 }

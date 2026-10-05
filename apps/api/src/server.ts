@@ -138,6 +138,12 @@ async function buildServer() {
   const { commentsRoutes } = await import('./modules/clinical-writing/comments/routes.js')
   await app.register(commentsRoutes, { prefix: '/documents' })
 
+  const { crmRoutes } = await import('./modules/clinical-writing/crm/routes.js')
+  // Mixed path shapes (/documents/:documentId/crm and /crm/:meetingId/...)
+  // kept in one plugin so handlers share nextCrmRef. Registered at root —
+  // the handlers use full paths.
+  await app.register(crmRoutes)
+
   // ---------- Module B — Scientific Writing ----------
   const { publicationsProjectScopedRoutes, publicationsRoutes } =
     await import('./modules/scientific-writing/publications/routes.js')

@@ -160,6 +160,163 @@ export const publicationsProjectScopedRoutes: FastifyPluginAsync = async (app) =
 
     return reply.code(201).send(created)
   })
+
+  // --- Portfolio dashboard (API §24; Module B B10) -----------------------
+  // Rolls up all publications under the project — status/stage/type/journal
+  // counts, open peer-review rounds, submission-check pass rate, average
+  // target-to-submission days. Used by the Portfolio Dashboard (B10) UI.
+
+  app.get('/:projectId/publications/portfolio', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { projectId } = request.params as { projectId: string }
+    const project = await app.prisma.project.findUnique({ where: { id: projectId } })
+    if (!project) return reply.code(404).send({ error: 'project_not_found' })
+
+    const [pubs, byStage, byStatus, byType, journalRows, openRounds, authorBreakdown] = await Promise.all([
+      app.prisma.publication.findMany({
+        where: { projectId, deletedAt: null },
+        select: { id: true, title: true, stage: true, status: true, type: true, subtype: true, journal: true, targetSubmissionDate: true, updatedAt: true, ownerId: true, keyMessage: true },
+        orderBy: { updatedAt: 'desc' },
+      }),
+      app.prisma.publication.groupBy({ by: ['stage'], where: { projectId, deletedAt: null }, _count: { _all: true } }),
+      app.prisma.publication.groupBy({ by: ['status'], where: { projectId, deletedAt: null }, _count: { _all: true } }),
+      app.prisma.publication.groupBy({ by: ['type'], where: { projectId, deletedAt: null }, _count: { _all: true } }),
+      app.prisma.publication.groupBy({
+        by: ['journal'],
+        where: { projectId, deletedAt: null, journal: { not: null } },
+        _count: { _all: true },
+      }),
+      app.prisma.peerReviewRound.count({
+        where: { publication: { projectId, deletedAt: null }, submittedAt: null },
+      }),
+      app.prisma.publicationAuthor.groupBy({
+        by: ['publicationId'],
+        where: { publication: { projectId, deletedAt: null } },
+        _count: { _all: true },
+      }),
+    ])
+
+    const authorCountByPub = new Map(authorBreakdown.map(r => [r.publicationId, r._count._all]))
+
+    // Average days-to-target for pubs with a submission date in the future.
+    const now = Date.now()
+    const upcoming = pubs
+      .filter(p => p.targetSubmissionDate && p.targetSubmissionDate.getTime() > now)
+      .map(p => Math.round((p.targetSubmissionDate!.getTime() - now) / 86400_000))
+    const avgDaysToTarget = upcoming.length > 0 ? Math.round(upcoming.reduce((a, b) => a + b, 0) / upcoming.length) : null
+
+    return {
+      project: { id: project.id, name: project.name, therapeuticArea: project.therapeuticArea },
+      counts: {
+        total: pubs.length,
+        openPeerReviewRounds: openRounds,
+        byStage: Object.fromEntries(byStage.map(r => [r.stage, r._count._all])),
+        byStatus: Object.fromEntries(byStatus.map(r => [r.status, r._count._all])),
+        byType: Object.fromEntries(byType.map(r => [r.type, r._count._all])),
+        byJournal: Object.fromEntries(journalRows.map(r => [r.journal ?? 'unspecified', r._count._all])),
+      },
+      upcoming: {
+        count: upcoming.length,
+        avgDaysToTarget,
+      },
+      publications: pubs.map(p => ({
+        ...p,
+        authorCount: authorCountByPub.get(p.id) ?? 0,
+      })),
+      generatedAt: new Date().toISOString(),
+    }
+  })
+
+  // --- GPP-2022 compliance report (API §24; Module B B10) ----------------
+  // Attests Good Publication Practice 2022 adherence per-publication across
+  // the eight pillars (authorship, writing-assistance disclosure, trial
+  // registration, data sharing, COI, authorship criteria, acknowledgement,
+  // timely publication). Returns structured JSON — the PDF stack choice
+  // is a Phase 5+ decision (see Phase 3B deferral note). UI can print-to-PDF.
+
+  app.post('/:projectId/publications/gpp-report', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { projectId } = request.params as { projectId: string }
+    const project = await app.prisma.project.findUnique({ where: { id: projectId } })
+    if (!project) return reply.code(404).send({ error: 'project_not_found' })
+
+    const pubs = await app.prisma.publication.findMany({
+      where: { projectId, deletedAt: null },
+      include: {
+        authors: {
+          include: {
+            icmjeCriteria: true,
+            icmjeAcknowledgements: true,
+          },
+        },
+        debarmentChecks: { orderBy: { runAt: 'desc' }, take: 1 },
+      },
+      orderBy: { updatedAt: 'desc' },
+    })
+
+    const perPub = pubs.map(p => {
+      const authors = p.authors
+      const icmjeComplete = authors.length > 0 && authors.every(a => {
+        // ICMJE requires all four criteria + an acknowledgement signed.
+        const met = a.icmjeCriteria.filter(c => c.met).length
+        const ack = a.icmjeAcknowledgements.some(x => x.acknowledgedAt != null)
+        return met === 4 && ack
+      })
+      const latestDebarment = p.debarmentChecks[0]
+      // Debarment run is "clear" when it ran AND found no matches.
+      const debarmentClear = latestDebarment ? latestDebarment.matchesFound === 0 : false
+      // Each pillar is a boolean the UI colour-codes green/red.
+      const pillars = {
+        authorship_icmje: icmjeComplete,
+        writing_assistance_disclosed: authors.some(a => a.role.toLowerCase().includes('writer')),
+        trial_registration: !!p.sourceDocumentId,                    // sourced from a Module A doc
+        data_sharing_statement: !!p.keyMessage,                       // placeholder — real: dedicated field
+        coi_disclosure: debarmentClear,
+        timely_publication: !!p.targetSubmissionDate,
+        reporting_guideline: !!p.guideline,
+        baa_in_place: p.baaStatus === 'in_place' || p.baaStatus === 'not_applicable',
+      }
+      const passedCount = Object.values(pillars).filter(Boolean).length
+      return {
+        id: p.id,
+        title: p.title,
+        type: p.type,
+        stage: p.stage,
+        status: p.status,
+        guideline: p.guideline,
+        journal: p.journal,
+        pillars,
+        passedCount,
+        passedPct: Math.round((passedCount / 8) * 100),
+      }
+    })
+
+    const totalPillars = perPub.length * 8
+    const totalPassed = perPub.reduce((a, p) => a + p.passedCount, 0)
+    const overallPct = totalPillars > 0 ? Math.round((totalPassed / totalPillars) * 100) : 0
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'gpp_report_generated',
+      entityType: 'project',
+      entityId: projectId,
+      details: { publicationCount: pubs.length, overallPct },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      project: { id: project.id, name: project.name, therapeuticArea: project.therapeuticArea },
+      standard: 'GPP-2022',
+      scope: {
+        publicationCount: pubs.length,
+        totalPillars,
+        totalPassed,
+        overallPct,
+      },
+      publications: perPub,
+      generatedAt: new Date().toISOString(),
+      note: 'JSON report. Client renders to PDF (print-to-PDF or future server-side worker).',
+    }
+  })
 }
 
 export const publicationsRoutes: FastifyPluginAsync = async (app) => {

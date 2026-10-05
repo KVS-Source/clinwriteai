@@ -33,6 +33,10 @@ const queuePlugin: FastifyPluginAsync = async (app) => {
   const connection = createRedisConnection(app.env.REDIS_URL)
   const producer = new BullMqProducer(connection)
   app.decorate('queue', producer)
+  // Expose the raw Redis connection so /ready can ping it. Also allows
+  // other plugins (future rate-limit backend swap, pub/sub bridge) to
+  // reuse the single connection pool rather than opening a second one.
+  app.decorate('redis', connection)
 
   // Fire-and-forget cron registration. Blocking on this at boot would
   // couple API startup to Redis availability (BullMQ.add waits for the
@@ -74,6 +78,7 @@ const queuePlugin: FastifyPluginAsync = async (app) => {
 declare module 'fastify' {
   interface FastifyInstance {
     queue: QueueProducer
+    redis: import('ioredis').Redis
   }
 }
 

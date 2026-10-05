@@ -43,9 +43,55 @@ async function buildServer() {
     phase: 'Phase 1 scaffold',
   }))
 
-  app.get('/ready', async () => {
-    // Phase 1 Week 3: check Postgres + Redis + secrets backend liveness here
-    return { ready: true }
+  app.get('/ready', async (_request, reply) => {
+    // Readiness probe: all backing services reachable? Container orchestrators
+    // use this to decide if traffic can route; k8s/nginx won't forward requests
+    // until this returns 200. Each check has a short per-call timeout so a
+    // hung dependency doesn't hold the probe open past the orchestrator's
+    // own timeout (typically 5s).
+    //
+    // The probe deliberately does NOT fail on blob backend errors in local
+    // mode — the local filesystem check is trivially always-up, and a disk
+    // full / permissions issue surfaces through the blob metrics instead.
+    const started = Date.now()
+    const checks: Record<string, { ok: boolean; latencyMs: number; error?: string }> = {}
+
+    async function check<T>(name: string, fn: () => Promise<T>, timeoutMs = 2000): Promise<void> {
+      const t0 = Date.now()
+      try {
+        await Promise.race([
+          fn(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), timeoutMs)),
+        ])
+        checks[name] = { ok: true, latencyMs: Date.now() - t0 }
+      } catch (err) {
+        checks[name] = {
+          ok: false,
+          latencyMs: Date.now() - t0,
+          error: err instanceof Error ? err.message : String(err),
+        }
+      }
+    }
+
+    // Postgres — a cheap SELECT 1 confirms the connection pool is live.
+    await check('postgres', async () => {
+      await app.prisma.$queryRaw`SELECT 1`
+    })
+
+    // Redis — ping. If the queue plugin's connection has been severed
+    // (Redis restart), ioredis auto-reconnects; a successful ping means
+    // the reconnect has settled.
+    await check('redis', async () => {
+      const result = await app.redis.ping()
+      if (result !== 'PONG') throw new Error(`unexpected ping response: ${result}`)
+    })
+
+    const allOk = Object.values(checks).every(c => c.ok)
+    const totalMs = Date.now() - started
+    if (!allOk) {
+      return reply.code(503).send({ ready: false, totalMs, checks })
+    }
+    return { ready: true, totalMs, checks }
   })
 
   // ---------- Security + utility plugins ----------

@@ -139,6 +139,9 @@ async function buildServer() {
     await import('./modules/regulatory-writing/submissions/routes.js')
   await app.register(regSubmissionsProjectScopedRoutes, { prefix: '/projects' })
   await app.register(regSubmissionsRoutes, { prefix: '/reg-submissions' })
+
+  const { canonicalRoutes } = await import('./modules/regulatory-writing/canonical/routes.js')
+  await app.register(canonicalRoutes, { prefix: '/reg-submissions' })
   //
   // // Module route registrations land in Phase 3A-3E:
   // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })

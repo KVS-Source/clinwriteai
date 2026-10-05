@@ -152,6 +152,70 @@ model VersionRestoreJob {
 
 // --------------------------------------------------------------------------
 // --------------------------------------------------------------------------
+// 11.1 crm_meetings — Cross-functional Review Meetings
+// --------------------------------------------------------------------------
+//
+// Flow:
+//   doc.status='in_review' → schedule a CRM meeting
+//   meeting status: scheduled → in_progress (chair starts) → complete (chair ends)
+//   on 'in_progress': doc.status flips to 'crm_in_progress' atomically
+//   on 'complete' (with all comments resolved): doc.status → 'pending_signature'
+//
+// meeting_ref 'CRM-###' is human-readable + application-generated, same
+// pattern as Module A comments.
+
+model CrmMeeting {
+  id              String   @id @default(uuid())
+  documentId      String
+  meetingRef      String   @unique                                  // 'CRM-###'
+  chairId         String                                           // User.id
+  status          String   @default("scheduled")                     // scheduled | in_progress | complete | cancelled
+  scheduledDate   DateTime @db.Date
+  startTime       String                                           // '14:00 UTC' (human-readable)
+  endTime         String                                           // '15:30 UTC'
+  startedAt       DateTime?
+  endedAt         DateTime?
+  createdAt       DateTime @default(now())
+
+  attendees       CrmAttendee[]
+  resolutions    CrmResolution[]
+
+  @@map("crm_meetings")
+  @@index([documentId])
+}
+
+model CrmAttendee {
+  id          String    @id @default(uuid())
+  meetingId   String
+  userId      String
+  roleInCrm   String                                                // Chair | Author | Reviewer | Observer
+  joinedAt    DateTime?
+
+  meeting     CrmMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@map("crm_attendees")
+  @@unique([meetingId, userId])
+  @@index([meetingId])
+}
+
+model CrmResolution {
+  id              String   @id @default(uuid())
+  meetingId       String
+  commentId       String                                            // FK to comments.id — human-readable CMT-###
+  resolutionType  String                                            // accept | accept_with_modification | reject
+  resolutionNote  String
+  resolvedBy      String
+  resolvedAt      DateTime @default(now())
+
+  meeting         CrmMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@map("crm_resolutions")
+  @@unique([meetingId, commentId])                                  // one resolution per comment per meeting
+  @@index([meetingId])
+  @@index([commentId])
+}
+
+// --------------------------------------------------------------------------
 // 7.1 voice_notes — audio notes attached to a document section
 // --------------------------------------------------------------------------
 

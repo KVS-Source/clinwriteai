@@ -53,6 +53,12 @@ async function buildServer() {
   // ---------- Auth (SSO + JWT session + RBAC) ----------
   await app.register(import('./auth/plugin.js'))
 
+  // ---------- Platform routes ----------
+  const { projectRoutes } = await import('./modules/projects/routes.js')
+  const { userRoutes } = await import('./modules/platform/users/routes.js')
+  await app.register(projectRoutes, { prefix: '/projects' })
+  await app.register(userRoutes, { prefix: '/admin/users' })
+
   // ---------- Phase 1 Week 5-6: register remaining plugins + routes ----------
   // await app.register(import('@fastify/cors'),       { origin: env.CORS_ORIGIN, credentials: env.CORS_CREDENTIALS })
   // await app.register(import('@fastify/helmet'))
@@ -60,9 +66,6 @@ async function buildServer() {
   // await app.register(import('@fastify/rate-limit'), { max: 100, timeWindow: '1 minute' })
   // await app.register(import('@fastify/swagger'),    { ... })      // OpenAPI from Zod schemas
   // await app.register(import('@fastify/swagger-ui'), { routePrefix: '/docs' })
-  //
-  // await app.register(import('./modules/platform/routes.js'),      { prefix: '/admin' })
-  // await app.register(import('./modules/projects/routes.js'),      { prefix: '/projects' })
   //
   // // Module route registrations land in Phase 3A-3E:
   // // await app.register(import('./modules/clinical-writing/routes.js'),   { prefix: '/documents' })

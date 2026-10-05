@@ -1,0 +1,103 @@
+name: Deploy to QA
+
+# Auto-deploys to the QA VPS on every push to main that passes CI.
+# Phase 1 — only this one env for now; staging/prod wire in Phase 5+.
+#
+# Required repo secrets (Settings → Secrets and variables → Actions):
+#   QA_HOST            e.g. qa-api.clinwrite.ai  (or raw IP)
+#   QA_SSH_USER        e.g. platform
+#   QA_SSH_PRIVATE_KEY an ed25519 key authorised in /home/platform/.ssh/authorized_keys on the VPS
+#   QA_SSH_KNOWN_HOSTS output of `ssh-keyscan -t ed25519 qa-api.clinwrite.ai`
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      skip_tests:
+        description: 'Skip CI dependency (manual force-deploy)'
+        type: boolean
+        default: false
+
+concurrency:
+  group: deploy-qa
+  cancel-in-progress: false   # don't kill an in-progress deploy
+
+jobs:
+  wait-for-ci:
+    name: Wait for CI
+    runs-on: ubuntu-latest
+    if: ${{ !inputs.skip_tests }}
+    steps:
+      - name: Wait for the CI workflow to succeed on this commit
+        uses: lewagon/wait-on-check-action@v1.3.4
+        with:
+          ref: ${{ github.sha }}
+          check-name: 'Web — typecheck + build'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          wait-interval: 15
+          allowed-conclusions: success
+
+  deploy:
+    name: Deploy to QA VPS
+    runs-on: ubuntu-latest
+    needs: [wait-for-ci]
+    if: ${{ always() && (needs.wait-for-ci.result == 'success' || inputs.skip_tests) }}
+    environment:
+      name: qa
+      url: https://qa.clinwrite.ai
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (for context in logs — the actual pull happens on the VPS)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Set up SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.QA_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          echo "${{ secrets.QA_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          chmod 600 ~/.ssh/known_hosts
+
+      - name: Run deploy script on QA VPS
+        env:
+          HOST: ${{ secrets.QA_HOST }}
+          USER: ${{ secrets.QA_SSH_USER }}
+          COMMIT: ${{ github.sha }}
+        run: |
+          ssh -o StrictHostKeyChecking=yes "${USER}@${HOST}" <<EOF
+            set -euo pipefail
+            echo "Deploying commit ${COMMIT} to QA"
+            sudo /opt/platform/repo/infra/standalone/scripts/deploy.sh
+          EOF
+
+      - name: Verify health
+        env:
+          HEALTH_URL: https://qa-api.clinwrite.ai/health
+        run: |
+          for i in {1..10}; do
+            if curl -fsS "${HEALTH_URL}" | tee /dev/stderr | grep -q '"status":"ok"'; then
+              echo "✓ QA healthy at ${HEALTH_URL}"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "✗ QA health check failed after 10 attempts"
+          exit 1
+
+      - name: Smoke test — frontend reachable
+        run: |
+          code=$(curl -s -o /dev/null -w '%{http_code}' https://qa.clinwrite.ai/)
+          if [[ "$code" != "200" ]]; then
+            echo "✗ Frontend returned $code"
+            exit 1
+          fi
+          echo "✓ Frontend returned 200"
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          # Hook up Slack / Discord / email later; for now just log
+          echo "DEPLOY TO QA FAILED — manual intervention needed. SSH to the VPS and run scripts/deploy.sh with the last-known-good commit to roll back."

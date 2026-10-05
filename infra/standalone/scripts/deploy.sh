@@ -22,14 +22,22 @@ log "At commit ${HEAD_SHA}"
 log "npm ci (API + worker + types)"
 sudo -u platform npm ci --prefer-offline --no-audit --no-fund
 
-log "Building workspaces"
+log "Building workspaces (api + worker + web)"
 sudo -u platform npm --workspace=apps/api    run build
 sudo -u platform npm --workspace=apps/worker run build
+# Web bundle is built with QA API endpoint baked in via VITE_API_URL
+sudo -u platform env VITE_API_URL=https://qa-api.clinwrite.ai npm --workspace=apps/web run build
 
 # ---------- Copy build artefacts into /opt/platform/apps ----------
-log "Syncing build artefacts"
+log "Syncing api + worker build artefacts"
 sudo -u platform rsync -a --delete apps/api/dist/    /opt/platform/apps/api/dist/
 sudo -u platform rsync -a --delete apps/worker/dist/ /opt/platform/apps/worker/dist/
+
+# ---------- Copy web SPA bundle to nginx docroot ----------
+log "Syncing web bundle to /var/www/platform/dist/"
+mkdir -p /var/www/platform
+rsync -a --delete apps/web/dist/ /var/www/platform/dist/
+chown -R www-data:www-data /var/www/platform
 # node_modules are deployed via npm ci --omit=dev into /opt/platform/apps/
 sudo -u platform cp apps/api/package.json    /opt/platform/apps/api/
 sudo -u platform cp apps/worker/package.json /opt/platform/apps/worker/

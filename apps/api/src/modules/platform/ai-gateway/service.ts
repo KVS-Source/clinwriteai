@@ -95,10 +95,15 @@ export class AiGatewayService {
       })
       const spentUsd = Number(agg._sum.costUsd ?? 0)
       const cap = Number(quota.monthlyCapUsd)
-      const pct = cap === 0 ? 0 : (spentUsd / cap) * 100
-
-      if (pct >= quota.rejectAtPct) limitDecision = 'rejected_cap'
-      else if (pct >= quota.warnAtPct) limitDecision = 'allowed_approaching_cap'
+      // cap=0 means "no AI allowed" — reject every call. Keeps the semantic
+      // intuitive: setting a $0 cap disables AI for the tenant.
+      if (cap === 0) {
+        limitDecision = 'rejected_cap'
+      } else {
+        const pct = (spentUsd / cap) * 100
+        if (pct >= quota.rejectAtPct) limitDecision = 'rejected_cap'
+        else if (pct >= quota.warnAtPct) limitDecision = 'allowed_approaching_cap'
+      }
     }
 
     if (limitDecision === 'rejected_cap') {

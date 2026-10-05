@@ -181,7 +181,10 @@ model AiCallRecord {
 model AiTenantQuota {
   id              String   @id @default(uuid())
   tenantId        String   @unique
-  monthlyCapUsd   Decimal  @db.Decimal(10, 2)
+  // 6-decimal precision matches AiCallRecord.costUsd so sub-cent caps don't
+  // silently round to zero (previously flipped quota semantic from "tiny
+  // cap" to "cap off" — now cap=0 explicitly means "no AI allowed").
+  monthlyCapUsd   Decimal  @db.Decimal(14, 6)
   warnAtPct       Int      @default(80)
   rejectAtPct     Int      @default(100)
   rolloverDay     Int      @default(1)                                // day of month quota resets

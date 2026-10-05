@@ -149,6 +149,12 @@ async function buildServer() {
   // registered at root with full paths, same pattern as peer-review + crm.
   await app.register(tlfRoutes)
 
+  const { signatureRoutes } = await import('./modules/clinical-writing/signatures/routes.js')
+  // Part 11 e-sig: /documents/:id/signature-chains, /signature-chains/:id,
+  // /signature-records/:id/sign — mixed shapes, registered at root with
+  // full paths.
+  await app.register(signatureRoutes)
+
   // ---------- Module B — Scientific Writing ----------
   const { publicationsProjectScopedRoutes, publicationsRoutes } =
     await import('./modules/scientific-writing/publications/routes.js')

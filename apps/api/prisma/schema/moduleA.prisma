@@ -433,3 +433,64 @@ model TlfSectionLink {
   @@index([tlfItemId])
   @@index([documentId, sectionRef])
 }
+
+// --------------------------------------------------------------------------
+// 9. E-Signatures — Part 11 chain + per-signer records
+// Source: 02-datamodel.md §9, docs/compliance/Part11/compliance-assessment.md.
+//
+// Compliance decisions baked in (defaults, revisit when Compliance signs off):
+//   - §11.70 artefact bound to canonical JSON hash (hashSections() of
+//     DocumentVersion content; see service.ts). Deterministic + machine-
+//     verifiable. If Compliance later wants PDF binding, we add a second
+//     hash column, not swap this one.
+//   - §11.200 two-component: password re-auth + TOTP per signature.
+//     credentialHash is sha256 of the auth proof — never plaintext.
+//   - Signed records are IMMUTABLE at the app layer (routes refuse update).
+//     DB trigger lifting deferred to Phase 2 per datamodel §9.2 notes.
+// --------------------------------------------------------------------------
+
+model SignatureChain {
+  id              String    @id @default(uuid())
+  documentId      String
+  chainType       String    @default("sequential")                   // sequential | parallel
+  status          String    @default("initiated")                    // initiated | in_progress | complete | cancelled
+  initiatedBy     String
+  initiatedAt     DateTime  @default(now())
+  completedAt     DateTime?
+  cancelledAt     DateTime?
+  cancelReason    String?
+
+  records         SignatureRecord[]
+
+  @@map("signature_chains")
+  @@index([documentId])
+  @@index([status])
+}
+
+model SignatureRecord {
+  id                String    @id                                    // 'SIG-####-##' app-generated
+  chainId           String
+  signerId          String
+  signerName        String                                           // denormalised
+  signerRole        String                                           // denormalised
+  step              Int
+  meaning           String                                           // authored | reviewed | approved
+  status            String    @default("queued")                     // queued | awaiting | signed
+  scopeSections     String[]  @default([])                           // empty = whole doc
+  documentHash      String?                                          // sha256 bound at sign time (§11.70)
+  versionAtSigning  String?                                          // 'v0.4'
+  credentialHash    String?                                          // sha256(password proof); never plaintext
+  timestampUtc      DateTime?                                        // set on signing
+  localTime         String?                                          // '16:32 CET'
+  timeSource        String?                                          // 'Aurora time server, NTP stratum 2'
+  authMethod        String?                                          // 'password re-auth + TOTP'
+  deviceInfo        String?
+  networkInfo       String?
+
+  chain             SignatureChain @relation(fields: [chainId], references: [id], onDelete: Cascade)
+
+  @@map("signature_records")
+  @@unique([chainId, step])
+  @@index([chainId])
+  @@index([signerId])
+}

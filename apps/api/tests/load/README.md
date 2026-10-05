@@ -6,7 +6,7 @@ Phase 6 load testing targets the SLOs defined in
 - `smoke.js` — 1 VU, 30s. Sanity check that the harness talks to the API
   and the k6-metrics format is consumable. Runs in CI on every PR.
 - `baseline.js` — 50 VU ramp over 2m, hold 3m, ramp down 1m. Validates
-  p95 ≤500ms under moderate load. Runs nightly against QA.
+  p95 ≤500ms under moderate load. Runs nightly against demo.
 - `peak.js` — 500 VU ramp over 10m, hold 20m, ramp down 5m. Validates
   the plan's "500 concurrent authors" scale target. Runs quarterly or
   before major release.
@@ -23,7 +23,7 @@ cd apps/api
 E2E_BASE_URL=http://localhost:3101 k6 run tests/load/smoke.js
 
 # Baseline against staging
-E2E_BASE_URL=https://qa-api.clinwrite.ai k6 run tests/load/baseline.js
+E2E_BASE_URL=https://demo-api.clinwrite.ai k6 run tests/load/baseline.js
 ```
 
 ## Thresholds

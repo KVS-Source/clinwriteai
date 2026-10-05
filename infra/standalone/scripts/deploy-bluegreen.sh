@@ -56,7 +56,7 @@ if [[ -f /opt/platform/env/web.env ]]; then
 else
   WEB_ENV_VARS=""
 fi
-sudo -u platform env VITE_API_URL=https://qa-api.clinwrite.ai ${WEB_ENV_VARS} \
+sudo -u platform env VITE_API_URL=https://demo-api.clinwrite.ai ${WEB_ENV_VARS} \
   npm --workspace=apps/web run build
 
 # ---------- Sync build artefacts into the inactive colour tree ----------

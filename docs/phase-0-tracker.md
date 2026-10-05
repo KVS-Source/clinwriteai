@@ -55,7 +55,7 @@ See [architecture-implementation-plan.md](architecture-implementation-plan.md) f
 |---|---|---|---|
 | Deployment decision (ADR 0007) | Tech lead + DevOps | ✅ Standalone VPS year 1 (per user direction) | — |
 | ~~AWS org account + billing + sub-accounts~~ | ~~Finance + DevOps~~ | ⏸ Deferred to year 2 cloud migration | — |
-| **Provision 1 dedicated Ubuntu 24.04 VPS for QA + bootstrap** | DevOps | ⬜ | Phase 1 deploy. See [`qa-environment-setup.md`](qa-environment-setup.md) runbook. Target spec: Hetzner CPX31 (€15/mo). Hosts DB + API + web app together. |
+| **Provision 1 dedicated Ubuntu 24.04 VPS for demo + bootstrap** | DevOps | ⬜ | Phase 1 deploy. See [`demo-environment-setup.md`](demo-environment-setup.md) runbook. Target spec: Hetzner CPX31 (€15/mo). Hosts DB + API + web app together. |
 | Terraform skeleton — AWS year 2 target | DevOps | ✅ Preserved; shells exist in `infra/terraform/` | Year 2 cloud migration |
 | **Standalone infra scaffold** — Docker Compose + nginx + systemd + MinIO + Prom/Grafana/Loki + sops + B2 backup | DevOps | ✅ Added this session under `infra/standalone/` | Phase 1 Week 2 provisions real VPS |
 | sops age key generation + Backblaze B2 bucket + VPS BAA | DevOps + Security | ⬜ | Phase 1 Week 2 |
@@ -92,7 +92,7 @@ See [architecture-implementation-plan.md](architecture-implementation-plan.md) f
 - ✅ ADR 0009 Standalone deployment stack — **Accepted (2026-10-05)** — Docker Compose + nginx + MinIO + sops + Prom/Grafana/Loki + B2 backup
 - ✅ `infra/standalone/` complete scaffold: docker-compose files, nginx config + snippets, systemd units + timer, bootstrap/deploy/backup/restore/rotate scripts, sops config, observability configs, 3 runbooks (BOOTSTRAP / BACKUP / DEPLOY)
 - ✅ Phase 1 scaffold started on `apps/api`: Prisma multi-file schema layout, initial + audit_trail SQL migrations, `src/config/env.ts` + `src/config/secrets.ts` (SecretsProvider interface), `src/audit/hash.ts` + `src/audit/repository.ts` with InMemory implementation, Vitest unit tests for the hash chain (23 assertions)
-- ✅ QA environment plan — single VPS hosts DB + API + web app: [`docs/qa-environment-setup.md`](qa-environment-setup.md) runbook, [`.github/workflows/deploy-qa.yml`](../.github/workflows/deploy-qa.yml) auto-deploy, nginx config updated for `qa.clinwrite.ai` + `qa-api.clinwrite.ai`, `scripts/deploy.sh` extended to build + rsync the web SPA bundle with `VITE_API_URL=https://qa-api.clinwrite.ai` baked in
+- ✅ demo environment plan — single VPS hosts DB + API + web app: [`docs/demo-environment-setup.md`](demo-environment-setup.md) runbook, [`.github/workflows/deploy-demo.yml`](../.github/workflows/deploy-demo.yml) auto-deploy, nginx config updated for `demo.clinwrite.ai` + `demo-api.clinwrite.ai`, `scripts/deploy.sh` extended to build + rsync the web SPA bundle with `VITE_API_URL=https://demo-api.clinwrite.ai` baked in
 - ✅ This tracker
 
 ## Next in this session (Claude will produce)

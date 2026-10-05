@@ -1,13 +1,13 @@
-name: Deploy to QA
+name: Deploy to demo
 
-# Auto-deploys to the QA VPS on every push to main that passes CI.
+# Auto-deploys to the demo VPS on every push to main that passes CI.
 # Phase 1 — only this one env for now; staging/prod wire in Phase 5+.
 #
 # Required repo secrets (Settings → Secrets and variables → Actions):
-#   QA_HOST            e.g. qa-api.clinwrite.ai  (or raw IP)
-#   QA_SSH_USER        e.g. platform
-#   QA_SSH_PRIVATE_KEY an ed25519 key authorised in /home/platform/.ssh/authorized_keys on the VPS
-#   QA_SSH_KNOWN_HOSTS output of `ssh-keyscan -t ed25519 qa-api.clinwrite.ai`
+#   DEMO_HOST            e.g. demo-api.clinwrite.ai  (or raw IP)
+#   DEMO_SSH_USER        e.g. platform
+#   DEMO_SSH_PRIVATE_KEY an ed25519 key authorised in /home/platform/.ssh/authorized_keys on the VPS
+#   DEMO_SSH_KNOWN_HOSTS output of `ssh-keyscan -t ed25519 demo-api.clinwrite.ai`
 
 on:
   push:
@@ -20,7 +20,7 @@ on:
         default: false
 
 concurrency:
-  group: deploy-qa
+  group: deploy-demo
   cancel-in-progress: false   # don't kill an in-progress deploy
 
 jobs:
@@ -57,13 +57,13 @@ jobs:
           allowed-conclusions: success
 
   deploy:
-    name: Deploy to QA VPS
+    name: Deploy to demo VPS
     runs-on: ubuntu-latest
     needs: [wait-for-ci]
     if: ${{ always() && (needs.wait-for-ci.result == 'success' || inputs.skip_tests) }}
     environment:
-      name: qa
-      url: https://qa.clinwrite.ai
+      name: demo
+      url: https://demo.clinwrite.ai
     timeout-minutes: 15
     steps:
       - name: Checkout (for context in logs — the actual pull happens on the VPS)
@@ -74,40 +74,40 @@ jobs:
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
-          echo "${{ secrets.QA_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
+          echo "${{ secrets.DEMO_SSH_PRIVATE_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          echo "${{ secrets.QA_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
+          echo "${{ secrets.DEMO_SSH_KNOWN_HOSTS }}" > ~/.ssh/known_hosts
           chmod 600 ~/.ssh/known_hosts
 
-      - name: Run deploy script on QA VPS
+      - name: Run deploy script on demo VPS
         env:
-          HOST: ${{ secrets.QA_HOST }}
-          USER: ${{ secrets.QA_SSH_USER }}
+          HOST: ${{ secrets.DEMO_HOST }}
+          USER: ${{ secrets.DEMO_SSH_USER }}
           COMMIT: ${{ github.sha }}
         run: |
           ssh -o StrictHostKeyChecking=yes "${USER}@${HOST}" <<EOF
             set -euo pipefail
-            echo "Deploying commit ${COMMIT} to QA"
+            echo "Deploying commit ${COMMIT} to demo"
             sudo /opt/platform/repo/infra/standalone/scripts/deploy.sh
           EOF
 
       - name: Verify health
         env:
-          HEALTH_URL: https://qa-api.clinwrite.ai/health
+          HEALTH_URL: https://demo-api.clinwrite.ai/health
         run: |
           for i in {1..10}; do
             if curl -fsS "${HEALTH_URL}" | tee /dev/stderr | grep -q '"status":"ok"'; then
-              echo "✓ QA healthy at ${HEALTH_URL}"
+              echo "✓ demo environment healthy at ${HEALTH_URL}"
               exit 0
             fi
             sleep 5
           done
-          echo "✗ QA health check failed after 10 attempts"
+          echo "✗ demo environment health check failed after 10 attempts"
           exit 1
 
       - name: Smoke test — frontend reachable
         run: |
-          code=$(curl -s -o /dev/null -w '%{http_code}' https://qa.clinwrite.ai/)
+          code=$(curl -s -o /dev/null -w '%{http_code}' https://demo.clinwrite.ai/)
           if [[ "$code" != "200" ]]; then
             echo "✗ Frontend returned $code"
             exit 1
@@ -118,4 +118,4 @@ jobs:
         if: failure()
         run: |
           # Hook up Slack / Discord / email later; for now just log
-          echo "DEPLOY TO QA FAILED — manual intervention needed. SSH to the VPS and run scripts/deploy.sh with the last-known-good commit to roll back."
+          echo "DEPLOY TO DEMO FAILED — manual intervention needed. SSH to the VPS and run scripts/deploy.sh with the last-known-good commit to roll back."

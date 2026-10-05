@@ -1,7 +1,7 @@
 // Fetch wrapper used by every data hook.
 //
 // Base URL:
-//   VITE_API_URL points at the real API (e.g. https://qa-api.clinwrite.ai).
+//   VITE_API_URL points at the real API (e.g. https://demo-api.clinwrite.ai).
 //   When unset, we fall back to the same origin so MSW can intercept — the
 //   prototype dev experience is unchanged.
 //

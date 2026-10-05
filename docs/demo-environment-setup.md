@@ -1,6 +1,6 @@
-# QA environment — single-server setup runbook
+# Demo environment — single-server setup runbook
 
-**One hosted VPS**, Postgres + Redis + MinIO + API + worker + web app all on it. QA accesses the app at `https://qa.clinwrite.ai` and the API at `https://qa-api.clinwrite.ai`.
+**One hosted VPS**, Postgres + Redis + MinIO + API + worker + web app all on it. Demo users access the app at `https://demo.clinwrite.ai` and the API at `https://demo-api.clinwrite.ai`.
 
 **Target audience**: DevOps / tech lead running this once. Takes ~90 minutes end-to-end.
 
@@ -16,12 +16,12 @@ Before SSH'ing anywhere, have these ready:
 |---|---|---|
 | Ubuntu 24.04 LTS VPS | Hetzner Cloud CPX31 recommended (€15/mo) | 4 vCPU / 16 GB / 240 GB NVMe |
 | Root SSH access | Provider dashboard | Your SSH public key added at provision time |
-| Domain configured | Cloudflare | Two DNS A records: `qa.clinwrite.ai` and `qa-api.clinwrite.ai` → VPS IP, both proxied |
+| Domain configured | Cloudflare | Two DNS A records: `demo.clinwrite.ai` and `demo-api.clinwrite.ai` → VPS IP, both proxied |
 | Cloudflare origin cert | Cloudflare → SSL/TLS → Origin Server | 15-year cert covering `*.clinwrite.ai`; save the PEM + KEY |
-| age key pair | Generated on your workstation | `age-keygen -o ~/qa-age.key` ; keep private, note the public recipient |
-| Backblaze B2 bucket | B2 dashboard | 1 bucket named `platform-qa-backups` + application key with write access |
-| Anthropic API key | console.anthropic.com | For Phase 3 AI features; QA can use test tier |
-| WorkOS account | workos.com | Create a project; QA env; grab API key + client ID |
+| age key pair | Generated on your workstation | `age-keygen -o ~/demo-age.key` ; keep private, note the public recipient |
+| Backblaze B2 bucket | B2 dashboard | 1 bucket named `platform-demo-backups` + application key with write access |
+| Anthropic API key | console.anthropic.com | For Phase 3 AI features; demo tier can use test key |
+| WorkOS account | workos.com | Create a project; demo env; grab API key + client ID |
 
 If any of these aren't ready, do the next section first.
 
@@ -33,12 +33,12 @@ If any of these aren't ready, do the next section first.
 
 - Project: create or pick existing
 - Server → Add
-  - Location: Falkenstein (DE) or Ashburn (US) depending on QA team location
+  - Location: Falkenstein (DE) or Ashburn (US) depending on primary user location
   - Image: Ubuntu 24.04
   - Type: Shared vCPU · CPX31
   - SSH key: your workstation's public key
   - Firewall: block everything except 22, 80, 443
-  - Name: `qa-aurora-01`
+  - Name: `demo-aurora-01`
 - Create
 
 Note the public IP. Then:
@@ -58,8 +58,8 @@ apt-get update && apt-get install -y curl git
 In Cloudflare dashboard for `clinwrite.ai`:
 
 - DNS → add two **proxied** A records:
-  - `qa` → `<vps-ip>`
-  - `qa-api` → `<vps-ip>`
+  - `demo` → `<vps-ip>`
+  - `demo-api` → `<vps-ip>`
 - SSL/TLS → Overview → set to **Full (strict)**
 - SSL/TLS → Origin Server → **Create Certificate** for `*.clinwrite.ai`, 15 years; save PEM + KEY
 - Security → WAF → enable the "Cloudflare Managed Ruleset" (free tier)
@@ -68,8 +68,8 @@ In Cloudflare dashboard for `clinwrite.ai`:
 Verify DNS resolves:
 ```bash
 # From your workstation
-dig +short qa.clinwrite.ai      # should return a Cloudflare IP, not your VPS IP (proxied)
-dig +short qa-api.clinwrite.ai  # same
+dig +short demo.clinwrite.ai      # should return a Cloudflare IP, not your VPS IP (proxied)
+dig +short demo-api.clinwrite.ai  # same
 ```
 
 ---
@@ -83,7 +83,7 @@ curl -fsSL https://raw.githubusercontent.com/KVS-Source/clinwriteai/main/infra/s
 
 This installs Docker, Node 20, nginx, sops, age, rclone, certbot, fail2ban, UFW. Creates `platform` service user. Clones the repo into `/opt/platform/repo`. Takes ~15 min on a fresh VPS.
 
-**At the end you'll see "== Bootstrap complete ==" with 9 next-step prompts. Follow them (or follow Steps 4–8 below which cover the same ground with QA-specific values).**
+**At the end you'll see "== Bootstrap complete ==" with 9 next-step prompts. Follow them (or follow Steps 4–8 below which cover the same ground with demo-specific values).**
 
 ---
 
@@ -91,7 +91,7 @@ This installs Docker, Node 20, nginx, sops, age, rclone, certbot, fail2ban, UFW.
 
 ```bash
 # On your workstation
-scp ~/qa-age.key root@<vps-ip>:/tmp/age.key
+scp ~/demo-age.key root@<vps-ip>:/tmp/age.key
 
 # On the VPS
 install -m 0400 -o root -g root /tmp/age.key /etc/platform/age.key
@@ -120,9 +120,9 @@ sudo -u platform nano /opt/platform/env/.env
 # Set:
 #   POSTGRES_USER=platform
 #   POSTGRES_PASSWORD=<generate: openssl rand -base64 32 | tr -d '/+=' | head -c 32>
-#   POSTGRES_DB=platform_qa
+#   POSTGRES_DB=platform_demo
 #   REDIS_PASSWORD=<another generated password>
-#   MINIO_ROOT_USER=platform-qa
+#   MINIO_ROOT_USER=platform-demo
 #   MINIO_ROOT_PASSWORD=<another generated password>
 #   GRAFANA_ADMIN_PASSWORD=<another generated password>
 
@@ -131,7 +131,7 @@ sudo -u platform cp /opt/platform/repo/apps/api/.env.example /tmp/api.env
 sudo -u platform nano /tmp/api.env
 # Fill in:
 #   NODE_ENV=production
-#   DATABASE_URL=postgresql://platform:<same POSTGRES_PASSWORD as above>@127.0.0.1:5432/platform_qa?schema=public
+#   DATABASE_URL=postgresql://platform:<same POSTGRES_PASSWORD as above>@127.0.0.1:5432/platform_demo?schema=public
 #   SECRETS_PROVIDER=sops
 #   SOPS_AGE_KEY_FILE=/etc/platform/age.key
 #   REDIS_URL=redis://:<same REDIS_PASSWORD>@127.0.0.1:6379
@@ -143,7 +143,7 @@ sudo -u platform nano /tmp/api.env
 #   S3_ENDPOINT=http://127.0.0.1:9000
 #   S3_ACCESS_KEY_ID=<same MINIO_ROOT_USER>
 #   S3_SECRET_ACCESS_KEY=<same MINIO_ROOT_PASSWORD>
-#   CORS_ORIGIN=https://qa.clinwrite.ai
+#   CORS_ORIGIN=https://demo.clinwrite.ai
 
 export SOPS_AGE_KEY_FILE=/etc/platform/age.key
 sudo -E -u platform sops --encrypt /tmp/api.env > /opt/platform/env/api.env.enc
@@ -175,10 +175,10 @@ cp /opt/platform/repo/infra/standalone/nginx/snippets/security-headers.conf /etc
 cp /opt/platform/repo/infra/standalone/nginx/snippets/cloudflare-allowlist.conf /etc/nginx/snippets/platform-cloudflare-allowlist.conf
 cp /opt/platform/repo/infra/standalone/nginx/snippets/proxy-headers.conf /etc/nginx/snippets/platform-proxy-headers.conf
 
-# Install the QA-flavoured platform.conf
+# Install the demo-flavoured platform.conf
 cp /opt/platform/repo/infra/standalone/nginx/platform.conf /etc/nginx/sites-available/platform
-# Edit to replace `staging.clinwrite.ai` with `qa.clinwrite.ai`
-sed -i 's/staging\.clinwrite\.ai/qa.clinwrite.ai/g' /etc/nginx/sites-available/platform
+# Edit to replace `staging.clinwrite.ai` with `demo.clinwrite.ai`
+sed -i 's/staging\.clinwrite\.ai/demo.clinwrite.ai/g' /etc/nginx/sites-available/platform
 
 # Add rate-limit zones to nginx.conf http{} block
 cat >> /etc/nginx/conf.d/platform-rate-limits.conf <<'EOF'
@@ -257,10 +257,10 @@ Verify:
 curl -fsS http://127.0.0.1:3001/health | jq
 # Should return: {"status":"ok","service":"platform-api","phase":"Phase 1 scaffold",...}
 
-curl -fsS https://qa-api.clinwrite.ai/health | jq
+curl -fsS https://demo-api.clinwrite.ai/health | jq
 # Same, via Cloudflare
 
-curl -I https://qa.clinwrite.ai/
+curl -I https://demo.clinwrite.ai/
 # Should return HTTP/2 200 (nginx serving the SPA)
 ```
 
@@ -290,8 +290,8 @@ journalctl -u platform-backup -f
 
 ## Step 10 — Smoke tests (5 min)
 
-- Visit `https://qa.clinwrite.ai` in a browser → the Aurora frontend loads
-- Open DevTools Network tab → fire a login → request should hit `https://qa-api.clinwrite.ai/auth/...` with proper CORS headers
+- Visit `https://demo.clinwrite.ai` in a browser → the Aurora frontend loads
+- Open DevTools Network tab → fire a login → request should hit `https://demo-api.clinwrite.ai/auth/...` with proper CORS headers
 - SSH tunnel to Grafana for ops visibility:
   ```bash
   ssh -L 3030:localhost:3030 root@<vps-ip>
@@ -300,7 +300,7 @@ journalctl -u platform-backup -f
   ```
 - Verify Postgres from psql:
   ```bash
-  PGPASSWORD=<POSTGRES_PASSWORD> psql -h 127.0.0.1 -U platform -d platform_qa -c "\dt"
+  PGPASSWORD=<POSTGRES_PASSWORD> psql -h 127.0.0.1 -U platform -d platform_demo -c "\dt"
   # Should list: users, sessions, projects, project_team_members, audit_events, _prisma_migrations
   ```
 
@@ -308,13 +308,13 @@ journalctl -u platform-backup -f
 
 ## Done
 
-QA environment is live. Hand `https://qa.clinwrite.ai` to the QA team.
+Demo environment is live. Hand `https://demo.clinwrite.ai` to the demo team.
 
 ## Ongoing operations
 
 | Task | Cadence | How |
 |---|---|---|
-| Deploy new code | Per PR to main | Auto via `.github/workflows/deploy-qa.yml` (next phase) or manual `scripts/deploy.sh` |
+| Deploy new code | Per PR to main | Auto via `.github/workflows/deploy-demo.yml` (next phase) or manual `scripts/deploy.sh` |
 | Monitor backups succeeding | Weekly | Grafana alert fires if `platform_backup_last_success_seconds` is stale > 24h |
 | Restore drill | Monthly | `scripts/restore.sh --drill` |
 | Review access logs | Weekly | `journalctl -u nginx` + Grafana Loki query |
@@ -325,7 +325,7 @@ QA environment is live. Hand `https://qa.clinwrite.ai` to the QA team.
 
 - Hetzner CPX31 VPS: ~€15
 - Backblaze B2 (expected 5 GB with turnover): ~$1
-- Cloudflare Pro (if upgraded): $20 (free tier is fine for QA)
+- Cloudflare Pro (if upgraded): $20 (free tier is fine for demo)
 - Domain: ~$12/year
 - **Total: ~€16–40/month depending on Cloudflare tier**
 
@@ -335,7 +335,7 @@ QA environment is live. Hand `https://qa.clinwrite.ai` to the QA team.
 |---|---|
 | `curl /health` returns 502 | `systemctl status platform-api` + `journalctl -u platform-api -n 100` |
 | `curl /health` connects but 500 | API probably can't reach Postgres; `docker compose logs postgres` |
-| Can't reach `qa.clinwrite.ai` from browser | Cloudflare DNS not proxied, or VPS firewall blocking 443; `curl -I https://qa.clinwrite.ai` from your workstation to see the hop |
+| Can't reach `demo.clinwrite.ai` from browser | Cloudflare DNS not proxied, or VPS firewall blocking 443; `curl -I https://demo.clinwrite.ai` from your workstation to see the hop |
 | Deploy fails on `prisma migrate deploy` | Usually a schema conflict with an existing dev DB; check `/opt/platform/apps/api/prisma/migrations/` has all migrations committed; `psql ... -c "SELECT * FROM _prisma_migrations ORDER BY started_at DESC LIMIT 5"` |
 | Backup fails | `journalctl -u platform-backup -n 100`; usually bad rclone config or B2 credentials expired |
-| MinIO buckets missing | First run: `mc alias set qa http://127.0.0.1:9000 <USER> <PASS> && mc mb qa/platform-documents qa/platform-voice qa/platform-exports qa/platform-ectd` |
+| MinIO buckets missing | First run: `mc alias set demo http://127.0.0.1:9000 <USER> <PASS> && mc mb demo/platform-documents demo/platform-voice demo/platform-exports demo/platform-ectd` |

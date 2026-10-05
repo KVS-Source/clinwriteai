@@ -1,6 +1,6 @@
 name: Load (nightly baseline)
 
-# Baseline load against QA every night at 03:00 UTC. Fails loudly on SLO
+# Baseline load against demo every night at 03:00 UTC. Fails loudly on SLO
 # threshold breaches so overnight regressions surface before Americas start.
 
 on:
@@ -20,7 +20,7 @@ concurrency:
 
 jobs:
   load:
-    name: k6 ${{ github.event.inputs.scenario || 'baseline' }} vs QA
+    name: k6 ${{ github.event.inputs.scenario || 'baseline' }} vs demo
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
@@ -40,7 +40,7 @@ jobs:
           SCENARIO="${{ github.event.inputs.scenario || 'baseline' }}"
           k6 run --out json=k6-${SCENARIO}.json apps/api/tests/load/${SCENARIO}.js
         env:
-          E2E_BASE_URL: https://qa-api.clinwrite.ai
+          E2E_BASE_URL: https://demo-api.clinwrite.ai
 
       - name: Upload k6 report
         if: always()
@@ -53,5 +53,5 @@ jobs:
       - name: Notify on failure
         if: failure()
         run: |
-          echo "⚠ Load scenario failed. Investigate before QA testers arrive."
+          echo "⚠ Load scenario failed. Investigate before demo users arrive."
           # Slack/Discord/email hook lands with the on-call setup — Phase 6 Batch 4.

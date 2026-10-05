@@ -1,0 +1,57 @@
+name: Load (nightly baseline)
+
+# Baseline load against QA every night at 03:00 UTC. Fails loudly on SLO
+# threshold breaches so overnight regressions surface before Americas start.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'k6 scenario to run (baseline or peak)'
+        type: choice
+        options: [baseline, peak]
+        default: baseline
+
+concurrency:
+  group: load-nightly
+  cancel-in-progress: false
+
+jobs:
+  load:
+    name: k6 ${{ github.event.inputs.scenario || 'baseline' }} vs QA
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Run k6 ${{ github.event.inputs.scenario || 'baseline' }}
+        run: |
+          SCENARIO="${{ github.event.inputs.scenario || 'baseline' }}"
+          k6 run --out json=k6-${SCENARIO}.json apps/api/tests/load/${SCENARIO}.js
+        env:
+          E2E_BASE_URL: https://qa-api.clinwrite.ai
+
+      - name: Upload k6 report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-${{ github.event.inputs.scenario || 'baseline' }}-${{ github.run_id }}
+          path: 'k6-*.json'
+          retention-days: 30
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "⚠ Load scenario failed. Investigate before QA testers arrive."
+          # Slack/Discord/email hook lands with the on-call setup — Phase 6 Batch 4.

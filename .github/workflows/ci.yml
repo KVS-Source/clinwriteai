@@ -154,6 +154,100 @@ jobs:
           retention-days: 7
 
   # ---------------------------------------------------------------
+  # Load smoke — k6 against a self-hosted api service container.
+  # Validates the SLO thresholds encoded in tests/load/smoke.js on every
+  # push. Baseline + peak scenarios run on cron (see .github/workflows/
+  # load-nightly.yml) rather than per-PR to stay inside Actions minutes.
+  # ---------------------------------------------------------------
+  load-smoke:
+    name: Load — k6 smoke
+    runs-on: ubuntu-latest
+    needs: api
+    timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: platform
+          POSTGRES_PASSWORD: platform
+          POSTGRES_DB: platform_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U platform -d platform_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://platform:platform@localhost:5432/platform_test?schema=public
+      REDIS_URL: redis://localhost:6379
+      S3_DOCUMENTS_BUCKET: platform-documents
+      JWT_SECRET: ci-jwt-secret-at-least-32-characters-long
+      AUDIT_HASH_SECRET: ci-audit-hash-secret-32-chars-long
+      SECRETS_PROVIDER: env
+      PORT: '3101'
+      NODE_ENV: development
+      CORS_ORIGIN: http://localhost:3101
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node ${{ env.NODE_VERSION }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci --prefer-offline --no-audit --no-fund
+
+      - name: Prisma generate + migrate deploy
+        run: |
+          npm --workspace=apps/api run db:generate
+          npm --workspace=apps/api run db:migrate
+
+      - name: Install k6
+        run: |
+          sudo gpg -k
+          sudo gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+          echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" | sudo tee /etc/apt/sources.list.d/k6.list
+          sudo apt-get update
+          sudo apt-get install -y k6
+
+      - name: Start API in background
+        working-directory: apps/api
+        run: |
+          npx tsx src/server.ts &
+          echo $! > /tmp/api.pid
+          for i in {1..30}; do
+            if curl -fsS http://localhost:3101/health >/dev/null 2>&1; then
+              echo "API up"; break
+            fi
+            sleep 1
+          done
+
+      - name: Run k6 smoke
+        run: k6 run --out json=k6-smoke.json apps/api/tests/load/smoke.js
+        env:
+          E2E_BASE_URL: http://localhost:3101
+
+      - name: Stop API
+        if: always()
+        run: |
+          if [ -f /tmp/api.pid ]; then
+            kill $(cat /tmp/api.pid) 2>/dev/null || true
+          fi
+
+      - name: Upload k6 artefacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: k6-smoke-${{ github.sha }}
+          path: |
+            k6-smoke.json
+          retention-days: 7
+
+  # ---------------------------------------------------------------
   # Shared types package
   # ---------------------------------------------------------------
   types:

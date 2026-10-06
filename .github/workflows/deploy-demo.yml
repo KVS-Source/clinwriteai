@@ -91,23 +91,30 @@ jobs:
           # the normal update loop. Bootstrap short-circuits in ~1s on
           # already-provisioned hosts.
           #
-          # We fetch the bootstrap script via curl from GitHub rather
-          # than from the (not-yet-cloned) repo, since on a true first
-          # run there's nothing on disk. The script's own first job is
-          # to git clone the repo, after which deploy.sh is available.
-          ssh -o StrictHostKeyChecking=yes "${USER}@${HOST}" bash <<EOF
-            set -euo pipefail
+          # Uses `sudo -n` so the deploy fails with a readable error
+          # if passwordless sudo isn't configured for the deploy user
+          # (instead of hanging on the password prompt until SSH times
+          # out with the maddeningly opaque exit code 255).
+          #
+          # `ssh -tt` forces a pseudo-TTY so sudo's error messages
+          # make it back to the Actions log instead of being dropped.
+          # `set -x` makes each command print before execution so we
+          # can see exactly where a first-time deploy died.
+          ssh -o StrictHostKeyChecking=yes -tt "${USER}@${HOST}" bash <<EOF
+            set -euxo pipefail
             echo "=== deploy for commit ${COMMIT} ==="
+            whoami
+            sudo -n true || { echo "FATAL: passwordless sudo not configured for \$(whoami)"; exit 2; }
 
             # Phase 1 — bootstrap (idempotent; short-circuits on second run)
             BOOTSTRAP_URL="https://raw.githubusercontent.com/KVS-Source/clinwriteai/${COMMIT}/infra/standalone/scripts/first-run-bootstrap.sh"
             TMP=\$(mktemp)
             curl -fsSL "\${BOOTSTRAP_URL}" -o "\${TMP}"
-            sudo bash "\${TMP}"
+            sudo -n bash "\${TMP}" 2>&1 | tail -200
             rm -f "\${TMP}"
 
             # Phase 2 — standard deploy (git pull + build + migrate + seed + restart)
-            sudo /opt/platform/repo/infra/standalone/scripts/deploy.sh
+            sudo -n /opt/platform/repo/infra/standalone/scripts/deploy.sh 2>&1 | tail -300
           EOF
 
       - name: Verify health

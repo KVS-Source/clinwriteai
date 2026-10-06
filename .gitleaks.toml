@@ -43,6 +43,7 @@ paths = [
   '''gitleaks\.toml$''',                     # self-reference
   '''\.githooks\/pre-commit$''',             # the hook itself
   '''docs\/compliance\/.*\.md$''',           # compliance docs often illustrate secret shapes
+  '''infra\/standalone\/scripts\/first-run-bootstrap\.sh$''',  # shell-variable DB URLs trip the pg-URL rule
 ]
 
 # NOTE: `docs/.env` is gitignored and must NEVER be allowlisted. Real

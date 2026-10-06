@@ -45,6 +45,78 @@ const submitRoundSchema = z.object({
   journalMessageId: z.string().optional(),
 })
 
+// Shape ReviewerComment rows for the UI's packages/types ReviewComment
+// interface. Two differences from the Prisma row:
+//   1. status vocab: Prisma uses 'not_started'/'drafting'/'responded';
+//      UI's ReviewCommentStatus is 'not-started'/'in-progress'/'responded'
+//      /'accepted'. 'drafting' maps to 'in-progress'; 'accepted' is UI-only
+//      future state (currently nothing produces it server-side).
+//   2. auditEntryId: UI carries a pointer to the audit log entry for this
+//      comment's last mutation. We don't currently thread the audit id back
+//      — null is accurate until that wiring lands.
+const STATUS_TO_UI: Record<string, 'not-started' | 'in-progress' | 'responded' | 'accepted'> = {
+  not_started: 'not-started',
+  drafting: 'in-progress',
+  responded: 'responded',
+}
+
+function reviewerCommentShape(c: {
+  id: string
+  roundId: string
+  reviewerTab: string
+  commentNumber: number
+  commentText: string
+  responseText: string
+  status: string
+  aiDrafted: boolean
+  aiModel: string | null
+  aiGeneratedAt: Date | null
+  aiAcceptedBy: string | null
+  aiAcceptedAt: Date | null
+  respondedBy: string | null
+  respondedAt: Date | null
+}) {
+  return {
+    id: c.id,
+    roundId: c.roundId,
+    reviewerTab: c.reviewerTab as 'r1' | 'r2' | 'r3' | 'ed',
+    commentNumber: c.commentNumber,
+    commentText: c.commentText,
+    responseText: c.responseText,
+    status: STATUS_TO_UI[c.status] ?? 'not-started',
+    aiDrafted: c.aiDrafted,
+    aiModel: c.aiModel,
+    aiGeneratedAt: c.aiGeneratedAt ? c.aiGeneratedAt.toISOString() : null,
+    aiAcceptedBy: c.aiAcceptedBy,
+    aiAcceptedAt: c.aiAcceptedAt ? c.aiAcceptedAt.toISOString() : null,
+    respondedBy: c.respondedBy,
+    respondedAt: c.respondedAt ? c.respondedAt.toISOString() : null,
+    auditEntryId: null as string | null,
+  }
+}
+
+// ReviewRound: Prisma shape is a near-superset of the UI type (extra
+// submittedAt/relations are additive). Only coercion needed is Date → ISO.
+function reviewRoundShape(r: {
+  id: string
+  publicationId: string
+  roundNumber: number
+  journalSubmissionRef: string
+  reviewerCount: number
+  submittedAt: Date | null
+  createdAt: Date
+}) {
+  return {
+    id: r.id,
+    publicationId: r.publicationId,
+    roundNumber: r.roundNumber,
+    journalSubmissionRef: r.journalSubmissionRef,
+    reviewerCount: r.reviewerCount,
+    submittedAt: r.submittedAt ? r.submittedAt.toISOString() : null,
+    createdAt: r.createdAt.toISOString(),
+  }
+}
+
 export const peerReviewRoutes: FastifyPluginAsync = async (app) => {
   // --- Rounds ---------------------------------------------------------------
 
@@ -52,10 +124,11 @@ export const peerReviewRoutes: FastifyPluginAsync = async (app) => {
     const { publicationId } = request.params as { publicationId: string }
     const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
     if (!pub) return reply.code(404).send({ error: 'not_found' })
-    return app.prisma.peerReviewRound.findMany({
+    const rounds = await app.prisma.peerReviewRound.findMany({
       where: { publicationId },
       orderBy: { roundNumber: 'asc' },
     })
+    return rounds.map(reviewRoundShape)
   })
 
   app.post('/publications/:publicationId/review-rounds', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
@@ -99,7 +172,7 @@ export const peerReviewRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    return reply.code(201).send(reviewRoundShape(created))
   })
 
   // --- Comments -----------------------------------------------------------
@@ -108,10 +181,11 @@ export const peerReviewRoutes: FastifyPluginAsync = async (app) => {
     const { publicationId, roundId } = request.params as { publicationId: string; roundId: string }
     const round = await app.prisma.peerReviewRound.findFirst({ where: { id: roundId, publicationId } })
     if (!round) return reply.code(404).send({ error: 'not_found' })
-    return app.prisma.reviewerComment.findMany({
+    const comments = await app.prisma.reviewerComment.findMany({
       where: { roundId },
       orderBy: [{ reviewerTab: 'asc' }, { commentNumber: 'asc' }],
     })
+    return comments.map(reviewerCommentShape)
   })
 
   app.post('/publications/:publicationId/review-rounds/:roundId/comments', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
@@ -189,7 +263,7 @@ export const peerReviewRoutes: FastifyPluginAsync = async (app) => {
       }),
     }
 
-    const updated = await app.prisma.reviewerComment.update({
+    const updatedRow = await app.prisma.reviewerComment.update({
       where: { id: commentId },
       data: updateData,
     })
@@ -216,7 +290,7 @@ export const peerReviewRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    return reviewerCommentShape(updatedRow)
   })
 
   // --- Letter versions ---------------------------------------------------

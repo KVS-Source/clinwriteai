@@ -138,6 +138,14 @@ jobs:
         run: npm --workspace=apps/web run test:e2e:install
 
       - name: Build web
+        env:
+          # Playwright smoke runs against `vite preview` (production
+          # bundle) with MSW handling the API calls. The SPA's AuthGuard
+          # defaults BYPASS_AUTH=false in production MODE, which would
+          # redirect every test to /sign-in. Set it explicitly here so
+          # tests see the authenticated shell. web-integration already
+          # does the same (search `VITE_BYPASS_AUTH` further down).
+          VITE_BYPASS_AUTH: 'true'
         run: npm --workspace=apps/web run build
 
       - name: Run Playwright smoke
@@ -438,6 +446,11 @@ jobs:
         run: npx --workspace=apps/web playwright install --with-deps chromium
 
       - name: Build web bundle
+        env:
+          # Same reason as web-smoke: without BYPASS_AUTH, every axe
+          # probe lands on /sign-in and reports contrast violations
+          # from the login screen rather than the module home.
+          VITE_BYPASS_AUTH: 'true'
         run: npm --workspace=apps/web run build
 
       - name: Run axe-core WCAG suite

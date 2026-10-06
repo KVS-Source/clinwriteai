@@ -40,15 +40,46 @@ function computeFootprintHash(cardId: string, channel: string, text: string, mod
     .digest('hex')
 }
 
+// Shape AtomisedContent rows for the UI's packages/types interface. Adds
+// derived display fields the Prisma row doesn't carry:
+//   - channelLabel: human-readable channel ('linkedin' → 'LinkedIn')
+//   - characterCount / wordCount: computed from contentText (UI shows
+//     these in the atomised list header; UI could compute client-side
+//     but server-computed keeps the display consistent across clients)
+//   - complianceFixes: [] placeholder (future: structured fix suggestions
+//     from the compliance screen)
+const CHANNEL_LABELS: Record<string, string> = {
+  linkedin: 'LinkedIn',
+  twitter: 'X / Twitter',
+  blog: 'Blog',
+  email: 'Email',
+  hcp: 'HCP',
+  medical_affairs: 'Medical Affairs',
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+}
+
+function atomisedShape(a: { channel: string; contentText: string } & Record<string, unknown>) {
+  const text = a.contentText ?? ''
+  return {
+    ...a,
+    channelLabel: CHANNEL_LABELS[a.channel] ?? a.channel,
+    characterCount: text.length,
+    wordCount: text.trim() ? text.trim().split(/\s+/).length : 0,
+    complianceFixes: [] as unknown[],
+  }
+}
+
 export const atomisedRoutes: FastifyPluginAsync = async (app) => {
   app.get('/cards/:cardId/atomised', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
     const { cardId } = request.params as { cardId: string }
     const card = await app.prisma.ideationContentCard.findUnique({ where: { id: cardId } })
     if (!card) return reply.code(404).send({ error: 'not_found' })
-    return app.prisma.atomisedContent.findMany({
+    const rows = await app.prisma.atomisedContent.findMany({
       where: { ideationContentCardId: cardId },
       orderBy: { createdAt: 'asc' },
     })
+    return rows.map(atomisedShape)
   })
 
   app.post('/cards/:cardId/atomised', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
@@ -98,7 +129,7 @@ export const atomisedRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    return reply.code(201).send(atomisedShape(created))
   })
 
   app.put('/cards/:cardId/atomised/:channel', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {

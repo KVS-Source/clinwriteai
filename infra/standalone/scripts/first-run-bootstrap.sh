@@ -322,14 +322,14 @@ cd "${REPO_DIR}"
 set -a; . "${DOTENV_FILE}"; set +a
 # Bring services up one at a time so a failure in one doesn't abort
 # the other (previous runs had redis-port-in-use kill postgres too).
-docker compose -f infra/standalone/docker-compose.yml up -d postgres 2>&1 | tail -10 || \
+docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml up -d postgres 2>&1 | tail -10 || \
   log "L. WARN: postgres failed to start"
-docker compose -f infra/standalone/docker-compose.yml up -d redis 2>&1 | tail -10 || \
+docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml up -d redis 2>&1 | tail -10 || \
   log "L. WARN: redis failed to start"
 
 # Wait up to 60s for postgres to be ready for DDL.
 for i in $(seq 1 30); do
-  if docker compose -f infra/standalone/docker-compose.yml exec -T postgres \
+  if docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml exec -T postgres \
        pg_isready -U platform -d platform >/dev/null 2>&1; then
     log "L. postgres ready"
     break
@@ -341,14 +341,14 @@ done
 # previous bootstrap attempt (we regenerated .env after that attempt
 # but postgres only honors POSTGRES_PASSWORD on first init), auth will
 # fail. Detect + wipe + re-up.
-if ! docker compose -f infra/standalone/docker-compose.yml exec -T postgres \
+if ! docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml exec -T postgres \
      psql -U platform -d platform -c 'SELECT 1' >/dev/null 2>&1; then
   log "L. stale postgres credentials detected — wiping data dir + re-initialising"
-  docker compose -f infra/standalone/docker-compose.yml down postgres >/dev/null 2>&1 || true
+  docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml down postgres >/dev/null 2>&1 || true
   rm -rf /opt/platform/data/postgres/*
-  docker compose -f infra/standalone/docker-compose.yml up -d postgres 2>&1 | tail -10
+  docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml up -d postgres 2>&1 | tail -10
   for i in $(seq 1 30); do
-    if docker compose -f infra/standalone/docker-compose.yml exec -T postgres \
+    if docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml exec -T postgres \
          pg_isready -U platform -d platform >/dev/null 2>&1; then
       log "L. postgres re-initialised + ready"
       break
@@ -361,16 +361,16 @@ fi
 # M. Postgres role + database
 # ================================================================
 log "M. postgres role + database"
-docker compose -f infra/standalone/docker-compose.yml exec -T postgres \
+docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml exec -T postgres \
   psql -U postgres -tc "SELECT 1 FROM pg_roles WHERE rolname='platform'" 2>/dev/null | grep -q 1 \
-  || docker compose -f infra/standalone/docker-compose.yml exec -T postgres \
+  || docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml exec -T postgres \
        psql -U postgres -c "CREATE ROLE platform WITH LOGIN PASSWORD '${POSTGRES_PASSWORD}'" >/dev/null 2>&1 || true
-docker compose -f infra/standalone/docker-compose.yml exec -T postgres \
+docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml exec -T postgres \
   psql -U postgres -tc "SELECT 1 FROM pg_database WHERE datname='platform'" 2>/dev/null | grep -q 1 \
-  || docker compose -f infra/standalone/docker-compose.yml exec -T postgres \
+  || docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml exec -T postgres \
        createdb -U postgres -O platform platform >/dev/null 2>&1 || true
 
 log "✓ bootstrap complete"
 log "  repo:    ${REPO_DIR} ($(sudo -u platform git rev-parse --short HEAD))"
 log "  env:     ${ENV_FILE}"
-log "  compose: $(cd ${REPO_DIR} && docker compose -f infra/standalone/docker-compose.yml ps --format 'table {{.Service}}\t{{.State}}' 2>/dev/null | tail -n +2 | head -5 | tr '\n' '|')"
+log "  compose: $(cd ${REPO_DIR} && docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml ps --format 'table {{.Service}}\t{{.State}}' 2>/dev/null | tail -n +2 | head -5 | tr '\n' '|')"

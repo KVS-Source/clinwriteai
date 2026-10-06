@@ -36,9 +36,9 @@ step "Deploy (git pull → npm ci → prisma generate → build → migrate → 
   # Source the env so compose doesn't report fake "missing var" errors
   # for services we don't actually run (grafana, minio etc).
   cd /opt/platform/repo && set -a && . /opt/platform/env/.env 2>/dev/null && set +a && \
-    docker compose -f infra/standalone/docker-compose.yml ps postgres redis 2>&1 | head -10
+    docker compose -f infra/standalone/docker-compose.yml -f infra/standalone/docker-compose.override.yml ps postgres redis 2>&1 | head -10
   echo "--- postgres container logs (tail) ---"
-  docker compose -f /opt/platform/repo/infra/standalone/docker-compose.yml logs --tail=20 postgres 2>&1 | tail -20
+  docker compose -f /opt/platform/repo/infra/standalone/docker-compose.yml -f /opt/platform/repo/infra/standalone/docker-compose.override.yml logs --tail=20 postgres 2>&1 | tail -20
   fail "deploy.sh failed — see diagnostics above"
 }
 

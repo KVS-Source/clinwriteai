@@ -262,12 +262,18 @@ ufw allow 443/tcp comment "HTTPS" >/dev/null 2>&1 || true
 ufw --force enable >/dev/null 2>&1 || true
 
 # ================================================================
-# L. docker compose up (idempotent — brings up anything down)
+# L. docker compose up — only the services the demo actually needs
 # ================================================================
-log "L. docker compose up"
+# The full compose file includes minio (BLOB_PROVIDER=local avoids
+# needing it), prometheus, grafana, loki, promtail (observability —
+# nice-to-have, not required). minio's Docker Hub pulls have been
+# flaky from this VPS (rate limit / repo access denied), and docker
+# compose aborts ALL pulls in a batch when one fails, which was
+# knocking Postgres over too. Explicitly start just pg + redis.
+log "L. docker compose up postgres + redis"
 cd "${REPO_DIR}"
 set -a; . "${DOTENV_FILE}"; set +a
-if ! docker compose -f infra/standalone/docker-compose.yml up -d 2>&1 | tail -20; then
+if ! docker compose -f infra/standalone/docker-compose.yml up -d postgres redis 2>&1 | tail -20; then
   log "L. WARN: docker compose up had errors; attempting to continue"
 fi
 

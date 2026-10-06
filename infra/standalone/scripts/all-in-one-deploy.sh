@@ -32,8 +32,13 @@ step "Deploy (git pull → npm ci → prisma generate → build → migrate → 
   systemctl status platform-api --no-pager --lines=20 2>&1 | head -30
   echo "--- last 50 lines of API journal ---"
   journalctl -u platform-api --no-pager -n 50 2>&1 | tail -50
-  echo "--- docker compose ps ---"
-  cd /opt/platform/repo && docker compose -f infra/standalone/docker-compose.yml ps 2>&1 | head -10
+  echo "--- docker compose ps (postgres + redis) ---"
+  # Source the env so compose doesn't report fake "missing var" errors
+  # for services we don't actually run (grafana, minio etc).
+  cd /opt/platform/repo && set -a && . /opt/platform/env/.env 2>/dev/null && set +a && \
+    docker compose -f infra/standalone/docker-compose.yml ps postgres redis 2>&1 | head -10
+  echo "--- postgres container logs (tail) ---"
+  docker compose -f /opt/platform/repo/infra/standalone/docker-compose.yml logs --tail=20 postgres 2>&1 | tail -20
   fail "deploy.sh failed — see diagnostics above"
 }
 

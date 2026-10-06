@@ -239,6 +239,29 @@ if [[ -L /etc/nginx/sites-enabled/clinwrite-proto ]] || [[ -f /etc/nginx/sites-e
   mv /etc/nginx/sites-enabled/clinwrite-proto /etc/nginx/sites-enabled/clinwrite-proto.bak 2>/dev/null || \
     rm -f /etc/nginx/sites-enabled/clinwrite-proto
 fi
+
+# Scan for ANY other sites-enabled file (not our `platform`) that
+# claims a clinwrite domain. On a shared VPS with prior deployment
+# attempts there may be multiple:
+#   - /etc/nginx/sites-enabled/demo.clinwrite.ai → old static site
+#   - /etc/nginx/sites-enabled/clinwrite.ai → old root-domain static
+#   - /etc/nginx/sites-enabled/proto.clinwrite.ai → prior demo iteration
+# Each one with server_name demo.clinwrite.ai gets alphabetical
+# priority over ours and intercepts the demo. Disable them all by
+# renaming to .bak (restorable; unlink doesn't lose data).
+for f in /etc/nginx/sites-enabled/*; do
+  name=$(basename "${f}")
+  # Keep our file + anything already backed up
+  [[ "${name}" == "platform" ]] && continue
+  [[ "${name}" == *.bak ]] && continue
+  # Check if this file references any clinwrite hostname in its
+  # server_name directive. grep -E on the whole file is sufficient
+  # for the common case of simple nginx configs.
+  if grep -qE 'server_name[[:space:]]+[^;]*clinwrite' "${f}" 2>/dev/null; then
+    log "I. disabling conflicting ${f} (claims clinwrite hostname — backed up to .bak)"
+    mv "${f}" "${f}.bak"
+  fi
+done
 # Validate — if invalid, log and continue (deploy.sh will try cert
 # issuance which may fix a path-not-found error).
 if ! nginx -t 2>&1 | tail -5; then

@@ -20,7 +20,12 @@ After=platform-data.target
 Type=simple
 User=platform
 Group=platform
-WorkingDirectory=/opt/platform/apps/api
+# Run directly out of the repo tree. The monorepo's hoisted
+# node_modules sit at /opt/platform/repo/node_modules; node's
+# require resolution walks up from apps/api/dist and finds them.
+# Keeps us out of the npm-ci-with-no-lockfile trap that comes from
+# trying to re-install into a separate /opt/platform/apps/api dir.
+WorkingDirectory=/opt/platform/repo/apps/api
 
 # Resolve envs from the sops-decrypted + plain .env files
 # (scripts/decrypt-env.sh runs via ExecStartPre and writes a tmpfs file)

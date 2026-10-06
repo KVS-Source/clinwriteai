@@ -95,28 +95,24 @@ sudo -u platform bash -c "
   npm --workspace=apps/web run build
 "
 
-# ---------- Copy build artefacts into /opt/platform/apps ----------
-log "Syncing api + worker build artefacts"
-sudo -u platform rsync -a --delete apps/api/dist/    /opt/platform/apps/api/dist/
-sudo -u platform rsync -a --delete apps/worker/dist/ /opt/platform/apps/worker/dist/
-
 # ---------- Copy web SPA bundle to nginx docroot ----------
 log "Syncing web bundle to /var/www/platform/dist/"
 mkdir -p /var/www/platform
 rsync -a --delete apps/web/dist/ /var/www/platform/dist/
 chown -R www-data:www-data /var/www/platform
-# node_modules are deployed via npm ci --omit=dev into /opt/platform/apps/
-sudo -u platform cp apps/api/package.json    /opt/platform/apps/api/
-sudo -u platform cp apps/worker/package.json /opt/platform/apps/worker/
-(cd /opt/platform/apps/api    && sudo -u platform npm ci --omit=dev --prefer-offline --no-audit --no-fund)
-(cd /opt/platform/apps/worker && sudo -u platform npm ci --omit=dev --prefer-offline --no-audit --no-fund)
+
+# No separate rsync + npm-ci-prod into /opt/platform/apps anymore.
+# systemd units point at /opt/platform/repo/apps/{api,worker} directly
+# and resolve node_modules via the monorepo's hoisted install at
+# /opt/platform/repo/node_modules. Simpler + avoids the "no lockfile
+# in the workspace dir" trap npm ci --omit=dev kept hitting.
 
 # ---------- Database migrations ----------
 log "Running Prisma migrations"
-cd /opt/platform/apps/api
+cd /opt/platform/repo/apps/api
 sudo -u platform /opt/platform/scripts/decrypt-env.sh api
-export $(grep -v '^#' /run/platform/api.env | xargs)
-sudo -u platform npx prisma migrate deploy
+set -a; . /run/platform/api.env; set +a
+sudo -u platform --preserve-env=DATABASE_URL npx prisma migrate deploy
 
 # ---------- Seed data ----------
 # Loads fixtures from apps/web/src/data/* into the DB. Idempotent via

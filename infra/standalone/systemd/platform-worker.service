@@ -11,7 +11,7 @@ Requires=platform-data.target
 Type=simple
 User=platform
 Group=platform
-WorkingDirectory=/opt/platform/apps/worker
+WorkingDirectory=/opt/platform/repo/apps/worker
 
 ExecStartPre=/opt/platform/scripts/decrypt-env.sh worker
 EnvironmentFile=/run/platform/worker.env

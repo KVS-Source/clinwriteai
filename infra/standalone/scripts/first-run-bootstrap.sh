@@ -145,13 +145,22 @@ DOTENV
   sed -i "s|^REDIS_URL=.*|REDIS_URL=redis://:${REDIS_PWD}@127.0.0.1:6379|" "${ENV_FILE}"
 fi
 
-# Place a plaintext copy at /run/platform/api.env for deploy.sh (which
-# normally runs decrypt-env.sh to materialise it from the sops-encrypted
-# version). Mimic the same path so deploy.sh works unchanged.
+# The worker shares the same env as the API (same DB, Redis, blob
+# backend). Symlink worker.env to api.env so platform-worker.service's
+# EnvironmentFile=/run/platform/worker.env resolves.
+WORKER_ENV_FILE=/opt/platform/env/worker.env
+if [[ ! -f "${WORKER_ENV_FILE}" ]]; then
+  ln -sf api.env "${WORKER_ENV_FILE}"
+fi
+
+# Place plaintext copies at /run/platform/ for deploy.sh (which
+# normally runs decrypt-env.sh to materialise them from the sops-
+# encrypted versions). Mimic the same path so deploy.sh works unchanged.
 mkdir -p /run/platform
 cp "${ENV_FILE}" /run/platform/api.env
-chmod 600 /run/platform/api.env
-chown platform:platform /run/platform/api.env
+cp "${ENV_FILE}" /run/platform/worker.env
+chmod 600 /run/platform/api.env /run/platform/worker.env
+chown platform:platform /run/platform/api.env /run/platform/worker.env
 
 # Shim decrypt-env.sh if the real one (sops-based) isn't present yet,
 # so deploy.sh's `sudo -u platform /opt/platform/scripts/decrypt-env.sh api`

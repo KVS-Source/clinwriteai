@@ -27,11 +27,29 @@ REPO_DIR=/opt/platform/repo
 
 # -------- 1. Idempotence check --------
 # If the deploy.sh is already present under /opt/platform/repo AND the
-# key systemd units are installed, assume bootstrap is complete.
+# key systemd units are installed, skip the heavy apt-install / docker-
+# compose work. BUT always re-sync nginx + systemd configs from the
+# repo so a committed config change (e.g. systemd WorkingDirectory
+# update) takes effect on the next deploy.
 if [[ -x "${REPO_DIR}/infra/standalone/scripts/deploy.sh" ]] \
    && [[ -f /etc/systemd/system/platform-api.service ]] \
    && [[ -f /etc/nginx/sites-enabled/platform ]]; then
-  log "already bootstrapped (deploy.sh + platform-api.service + nginx symlink present) — skipping"
+  log "already bootstrapped — refreshing nginx + systemd configs from repo"
+  # Re-sync nginx snippets + site config
+  for snip in "${REPO_DIR}/infra/standalone/nginx/snippets/"*.conf; do
+    install -m 644 "${snip}" "/etc/nginx/snippets/platform-$(basename "${snip}")"
+  done
+  install -m 644 "${REPO_DIR}/infra/standalone/nginx/platform.conf" /etc/nginx/sites-available/platform
+  # Re-sync systemd units
+  for unit in "${REPO_DIR}/infra/standalone/systemd/platform-"*.service \
+              "${REPO_DIR}/infra/standalone/systemd/platform-"*.timer; do
+    [[ -f "${unit}" ]] && install -m 644 "${unit}" /etc/systemd/system/
+  done
+  systemctl daemon-reload
+  # Validate + reload nginx. Non-fatal (deploy.sh will try cert issuance
+  # later if the error is cert-path-not-found).
+  nginx -t 2>&1 | tail -5 || log "WARN: nginx -t failed; continuing"
+  systemctl reload nginx 2>&1 || log "WARN: nginx reload failed; continuing"
   exit 0
 fi
 

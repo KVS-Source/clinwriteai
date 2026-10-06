@@ -75,6 +75,16 @@ sudo -u platform /opt/platform/scripts/decrypt-env.sh api
 export $(grep -v '^#' /run/platform/api.env | xargs)
 sudo -u platform npx prisma migrate deploy
 
+# ---------- Seed data ----------
+# Loads fixtures from apps/web/src/data/* into the DB. Idempotent via
+# upserts, safe to run every deploy. We run from the repo path rather
+# than the /opt/platform/apps/api copy because the seed uses `tsx`
+# (a devDep) which only exists in the repo's node_modules.
+log "Seeding fixtures (tenants + users + projects + documents)"
+cd /opt/platform/repo
+sudo -u platform env $(grep -v '^#' /run/platform/api.env | xargs) \
+  npm --workspace=apps/api run db:seed
+
 # ---------- Restart services ----------
 log "Restarting platform-api"
 systemctl restart platform-api

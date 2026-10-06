@@ -1,16 +1,159 @@
-// Development seed — minimal baseline so a fresh DB is immediately usable.
+// Development seed — loads the full fixture set so a fresh demo DB
+// has realistic data on first boot. Reads the JSONs at
+// apps/web/src/data/* that drive the UI's mock mode and projects
+// them into Prisma rows.
 //
-//   - Three users spanning the RBAC spectrum (admin, writer, reviewer).
-//   - Two projects mirroring the prototype's study.json + studyTB.json shape.
+// Decisions:
+//   - **Preserve mock IDs** (user-admin, proj-velora-301, DOC-001).
+//     The fixture-import memory called for cuid regen; preserving IDs
+//     is simpler + idempotent + keeps any UI test that hard-codes an
+//     id working. Revisit when the demo flow doesn't need the stable
+//     ids anymore.
+//   - **Idempotent via upsert** — safe to re-run on every deploy.
+//   - **Scope under the pivot** — tenants/users/projects/Module A
+//     documents. B/C/D/E fixtures stay in apps/web/src/data for the
+//     eventual Arc 7 resume but aren't projected to the DB here (the
+//     modules return 503 at runtime anyway, so loading data would
+//     only be wasted bytes).
 //
-// Run via `npm run db:seed`. Safe to re-run — uses upserts.
+// Run via `npm --workspace=apps/api run db:seed`. Called from
+// deploy.sh after `prisma migrate deploy`.
 
 import { PrismaClient } from '@prisma/client'
+import { readFileSync } from 'node:fs'
+import { fileURLToPath } from 'node:url'
+import { dirname, join } from 'node:path'
 
 const prisma = new PrismaClient()
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = dirname(__filename)
+// seed.ts lives at apps/api/prisma — fixtures at apps/web/src/data.
+const DATA_DIR = join(__dirname, '..', '..', 'web', 'src', 'data')
+
+function readFixture<T>(name: string): T {
+  return JSON.parse(readFileSync(join(DATA_DIR, name), 'utf8')) as T
+}
+
+// ---------- Fixture types (subset used by the seed) ----------
+
+interface FixtureUser {
+  id: string
+  name: string
+  email: string
+  role: string
+  modules: string[]
+  status: string
+  lastActive?: string
+}
+
+interface FixtureTeamMember {
+  userId: string
+  name: string
+  initials: string
+  role: string
+  raci: string
+  colourKey?: string
+}
+
+interface FixtureProject {
+  id: string
+  name: string
+  shortTitle: string
+  client: string
+  therapeuticArea: string
+  indication?: string
+  phase: string
+  status: string
+  startDate: string
+  dataCutoff?: string
+  activeModules: string[]
+  submissionCountries: string[]
+  referenceTrial?: string
+  team?: FixtureTeamMember[]
+}
+
+interface FixtureSection {
+  id: string
+  number: string
+  title: string
+  status: string
+}
+
+interface FixtureDocument {
+  id: string
+  projectId: string
+  type: string
+  title: string
+  status: string
+  stage: string
+  version: string
+  therapeuticArea: string
+  assigneeId: string
+  updatedAt?: string
+  sections?: FixtureSection[]
+}
+
+// ---------- Vocab maps ----------
+
+// users.json uses role names that no longer live in the current
+// rbac.Role enum. Map them to the closest active role so the invite
+// schema's z.enum() doesn't reject these users on re-save.
+const ROLE_MAP: Record<string, string> = {
+  'admin':                     'admin',
+  'super-admin':               'super-admin',
+  'clinical-writer':           'clinical-writer',
+  'scientific-writer':         'scientific-writer',
+  'medical-writer':            'medical-writer',
+  'regulatory-writer':         'regulatory-writer',
+  'ideation-lead':             'ideation-lead',
+  'reviewer':                  'reviewer',
+  'read-only':                 'read-only',
+  // Legacy fixture-only roles — map to closest active equivalent.
+  'ma-team-lead':              'reviewer',
+  'content-calendar-manager':  'ideation-lead',
+  'clinical-lead':             'reviewer',
+  'cmc-lead':                  'regulatory-writer',
+  'author':                    'clinical-writer',
+}
+function mapRole(fixtureRole: string): string {
+  return ROLE_MAP[fixtureRole] ?? 'read-only'
+}
+
+// Hyphenated → underscored (both document.type and document.status
+// use this convention; the Prisma strings mirror the Postgres enums).
+function underscored(v: string): string {
+  return v.replace(/-/g, '_')
+}
+
+// Membership role is a separate vocab from User.role — writers get
+// 'writer', reviewers get 'reviewer', one anchor gets 'owner'. Rough
+// mapping; refined by the UI role picker if the operator cares.
+function membershipRoleFor(user: FixtureUser): 'owner' | 'admin' | 'writer' | 'reviewer' | 'viewer' {
+  if (user.role === 'admin' || user.role === 'super-admin') return 'admin'
+  if (user.role === 'reviewer' || user.role === 'clinical-lead' || user.role === 'ma-team-lead') return 'reviewer'
+  if (user.role.endsWith('-writer') || user.role === 'author' || user.role === 'cmc-lead' || user.role === 'ideation-lead' || user.role === 'content-calendar-manager') return 'writer'
+  return 'viewer'
+}
+
+function initialsFor(name: string): string {
+  return name.split(/\s+/).slice(0, 2).map(w => (w[0] ?? '').toUpperCase()).join('')
+}
+
+// ---------- Main ----------
 
 async function main() {
-  console.log('→ Seeding tenant (Acme Oncology)...')
+  console.log('→ Loading fixtures from', DATA_DIR)
+  const users    = readFixture<FixtureUser[]>('users.json')
+  const study    = readFixture<FixtureProject>('study.json')
+  const studyTB  = readFixture<FixtureProject>('studyTB.json')
+  const docs     = readFixture<FixtureDocument[]>('documents.json')
+  console.log(`   ${users.length} users, 2 projects, ${docs.length} documents`)
+
+  // --------------------------------------------------------------
+  // 1. Tenant — Acme Oncology (one tenant for the demo environment).
+  //    All non-platform-admin users belong to it.
+  // --------------------------------------------------------------
+  console.log('→ Seeding tenant...')
   const acme = await prisma.tenant.upsert({
     where: { slug: 'acme-oncology' },
     create: {
@@ -18,87 +161,84 @@ async function main() {
       slug: 'acme-oncology',
       name: 'Acme Oncology',
       status: 'active',
-      // Post 2026-10-06 pivot: tenant has Module A only. Intersected
-      // at runtime with FEATURE_MODULES_ENABLED (also 'A').
       modulesEnabled: ['A'],
     },
     update: {},
   })
 
+  // --------------------------------------------------------------
+  // 2. Users — 9 personas from users.json.
+  //    Admins (role=admin / super-admin) are cross-tenant so get no
+  //    tenantId. Everyone else lands in Acme.
+  // --------------------------------------------------------------
   console.log('→ Seeding users...')
-  // Super-admin crosses tenants — no tenantId, retains all modules for
-  // platform-level work. Day-to-day users belong to Acme.
-  const admin = await prisma.user.upsert({
-    where: { email: 'admin@clinwrite.ai' },
-    create: {
-      email: 'admin@clinwrite.ai',
-      name: 'Platform Admin',
-      initials: 'PA',
-      role: 'super-admin',
-      modules: ['A', 'B', 'C', 'D', 'E'],
-      status: 'active',
-    },
-    update: {},
-  })
+  const upsertedUsers: Record<string, Awaited<ReturnType<typeof prisma.user.upsert>>> = {}
+  for (const u of users) {
+    const role = mapRole(u.role)
+    const isPlatformAdmin = role === 'admin' || role === 'super-admin'
+    const row = await prisma.user.upsert({
+      where: { email: u.email },
+      create: {
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        initials: initialsFor(u.name),
+        role,
+        modules: u.modules,
+        status: u.status,
+        tenantId: isPlatformAdmin ? null : acme.id,
+        lastActiveAt: u.lastActive ? new Date(u.lastActive) : null,
+      },
+      update: {
+        name: u.name,
+        role,
+        modules: u.modules,
+        status: u.status,
+        tenantId: isPlatformAdmin ? null : acme.id,
+      },
+    })
+    upsertedUsers[u.id] = row
+  }
 
-  const writer = await prisma.user.upsert({
-    where: { email: 'writer@clinwrite.ai' },
-    create: {
-      email: 'writer@clinwrite.ai',
-      name: 'Clinical Writer',
-      initials: 'CW',
-      role: 'clinical-writer',
-      modules: ['A'],
-      status: 'active',
-      tenantId: acme.id,
-    },
-    update: { tenantId: acme.id },
-  })
-
-  // Second writer per Arc 2.7 plan — exercises multi-writer flows.
-  const writer2 = await prisma.user.upsert({
-    where: { email: 'writer2@clinwrite.ai' },
-    create: {
-      email: 'writer2@clinwrite.ai',
-      name: 'Second Clinical Writer',
-      initials: 'SW',
-      role: 'clinical-writer',
-      modules: ['A'],
-      status: 'active',
-      tenantId: acme.id,
-    },
-    update: { tenantId: acme.id },
-  })
-
-  const reviewer = await prisma.user.upsert({
-    where: { email: 'reviewer@clinwrite.ai' },
-    create: {
-      email: 'reviewer@clinwrite.ai',
-      name: 'Medical Reviewer',
-      initials: 'MR',
-      role: 'reviewer',
-      modules: ['A'],
-      status: 'active',
-      tenantId: acme.id,
-    },
-    update: { tenantId: acme.id },
-  })
-
-  console.log('→ Seeding memberships...')
-  // Per-tenant roles: an owner at the top, writers + reviewer below.
-  // Platform-level super-admin stays off memberships; they operate
-  // cross-tenant via their User.role.
-  for (const [user, role] of [
-    [writer,   'owner']    as const,  // writer doubles as Acme owner for seed sanity
-    [writer2,  'writer']   as const,
-    [reviewer, 'reviewer'] as const,
+  // Legacy admin accounts from the original minimal seed. Keep around
+  // so operators who memorised admin@/writer@/reviewer@ still have
+  // working logins alongside the richer fixture users.
+  for (const legacy of [
+    { email: 'admin@clinwrite.ai',    name: 'Platform Admin',    role: 'super-admin',     modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
+    { email: 'writer@clinwrite.ai',   name: 'Clinical Writer',   role: 'clinical-writer', modules: ['A'],                     tenantId: acme.id },
+    { email: 'reviewer@clinwrite.ai', name: 'Medical Reviewer',  role: 'reviewer',        modules: ['A'],                     tenantId: acme.id },
   ]) {
+    await prisma.user.upsert({
+      where: { email: legacy.email },
+      create: {
+        email: legacy.email,
+        name: legacy.name,
+        initials: initialsFor(legacy.name),
+        role: legacy.role,
+        modules: legacy.modules,
+        status: 'active',
+        tenantId: legacy.tenantId,
+      },
+      update: {},
+    })
+  }
+
+  // --------------------------------------------------------------
+  // 3. Memberships — one per Acme user. Platform admins stay off
+  //    memberships (their cross-tenant role is on User.role).
+  // --------------------------------------------------------------
+  console.log('→ Seeding memberships...')
+  for (const u of users) {
+    const row = upsertedUsers[u.id]
+    if (!row) continue
+    const role = mapRole(u.role)
+    if (role === 'admin' || role === 'super-admin') continue
     await prisma.membership.upsert({
-      where: { tenantId_userId: { tenantId: acme.id, userId: user.id } },
+      where: { tenantId_userId: { tenantId: acme.id, userId: row.id } },
       create: {
         tenantId: acme.id,
-        userId: user.id,
-        role,
+        userId: row.id,
+        role: membershipRoleFor(u),
         status: 'active',
         activatedAt: new Date(),
       },
@@ -106,245 +246,166 @@ async function main() {
     })
   }
 
+  // --------------------------------------------------------------
+  // 4. Projects — from study.json + studyTB.json. Shape is close to
+  //    the Prisma Project model; two fields need mapping:
+  //      - phase: 'III' → 'Phase III'
+  //      - activeModules: ['clinical-writing'] → ['A'] under the pivot
+  // --------------------------------------------------------------
   console.log('→ Seeding projects...')
-  const velora = await prisma.project.upsert({
-    where: { id: 'PROJ-VELORA' },
-    create: {
-      id: 'PROJ-VELORA',
-      tenantId: acme.id,
-      name: 'VELORA — Advanced NSCLC Trial',
-      shortTitle: 'VELORA',
-      client: 'Oncotype Biosciences',
-      therapeuticArea: 'Oncology',
-      indication: 'Non-small-cell lung cancer (advanced)',
-      phase: 'Phase III',
-      status: 'ongoing',
-      startDate: new Date('2025-04-01'),
-      dataCutoff: new Date('2026-09-15'),
-      activeModules: ['A'],
-      submissionCountries: ['US', 'EU', 'JP'],
-      referenceTrial: 'VELORA-301',
-    },
-    update: { tenantId: acme.id },
-  })
+  function phaseLabel(fixturePhase: string): string {
+    const map: Record<string, string> = { 'I': 'Phase I', 'II': 'Phase II', 'III': 'Phase III', 'IV': 'Phase IV' }
+    return map[fixturePhase] ?? fixturePhase
+  }
+  const projects: FixtureProject[] = [study, studyTB]
+  for (const p of projects) {
+    await prisma.project.upsert({
+      where: { id: p.id },
+      create: {
+        id: p.id,
+        tenantId: acme.id,
+        name: p.name,
+        shortTitle: p.shortTitle,
+        client: p.client,
+        therapeuticArea: p.therapeuticArea,
+        indication: p.indication ?? null,
+        phase: phaseLabel(p.phase),
+        status: p.status,
+        startDate: new Date(p.startDate),
+        dataCutoff: p.dataCutoff ? new Date(p.dataCutoff) : null,
+        activeModules: ['A'],  // pivot — only Module A is active at runtime
+        submissionCountries: p.submissionCountries,
+        referenceTrial: p.referenceTrial ?? null,
+      },
+      update: {
+        tenantId: acme.id,
+        activeModules: ['A'],
+      },
+    })
 
-  const atlas = await prisma.project.upsert({
-    where: { id: 'PROJ-ATLAS-TB' },
-    create: {
-      id: 'PROJ-ATLAS-TB',
-      tenantId: acme.id,
-      name: 'ATLAS-TB — Rifampicin-resistant TB',
-      shortTitle: 'ATLAS-TB',
-      client: 'GHRC Consortium',
-      therapeuticArea: 'Infectious Disease',
-      indication: 'Multidrug-resistant tuberculosis',
-      phase: 'Phase II',
-      status: 'ongoing',
-      startDate: new Date('2025-11-01'),
-      activeModules: ['A'],
-      submissionCountries: ['IN', 'ZA', 'US'],
-    },
-    update: { tenantId: acme.id },
-  })
-
-  console.log('→ Seeding team assignments...')
-  for (const projectId of [velora.id, atlas.id]) {
-    for (const u of [admin, writer, writer2, reviewer]) {
+    // Team members per project. userId values in study.team sometimes
+    // reference personas not present in users.json (user-MW, user-SC,
+    // etc. — fixture-only placeholders). ProjectTeamMember.userId has
+    // no FK so these insert fine as denorm display rows.
+    for (const t of p.team ?? []) {
       await prisma.projectTeamMember.upsert({
-        where: { projectId_userId: { projectId, userId: u.id } },
+        where: { projectId_userId: { projectId: p.id, userId: t.userId } },
         create: {
-          projectId,
-          userId: u.id,
-          role: u.role === 'super-admin' ? 'Platform Admin' : u.role === 'clinical-writer' ? 'Lead Clinical Writer' : 'Medical Reviewer',
-          raci: u.role === 'super-admin' ? 'A' : u.role === 'clinical-writer' ? 'R' : 'C',
-          initials: u.initials,
-          name: u.name,
+          projectId: p.id,
+          userId: t.userId,
+          role: t.role,
+          raci: t.raci,
+          colourKey: t.colourKey ?? null,
+          initials: t.initials,
+          name: t.name,
         },
         update: {},
       })
     }
   }
 
-  // ----------------------------------------------------------------------
-  // Per-module minimal fixtures — one entity each so cutover screens
-  // render something instead of empty state. All upserts, so re-runs
-  // leave existing data alone + just add anything missing.
-  // ----------------------------------------------------------------------
-
-  console.log('→ Seeding Module A — document + current version + sections...')
-  const document = await prisma.document.upsert({
-    where: { id: 'DOC-VELORA-CSR-001' },
-    create: {
-      id: 'DOC-VELORA-CSR-001',
-      projectId: velora.id,
-      type: 'csr_full',
-      title: 'VELORA-301 Clinical Study Report',
-      status: 'in_authoring',
-      stage: 'reporting',
-      therapeuticArea: velora.therapeuticArea,
-      assigneeId: writer.id,
-      targetCompletionDate: new Date('2027-01-15'),
-      createdBy: writer.id,
-    },
-    update: {},
-  })
-  const docVersion = await prisma.documentVersion.upsert({
-    where: { documentId_versionNumber: { documentId: document.id, versionNumber: 'v0.1' } },
-    create: {
-      documentId: document.id,
-      versionNumber: 'v0.1',
-      label: 'Draft',
-      contentHash: 'seed-placeholder-hash',
-      isCurrent: true,
-      createdBy: writer.id,
-    },
-    update: {},
-  })
-  await prisma.document.update({
-    where: { id: document.id },
-    data: { currentVersionId: docVersion.id },
-  }).catch(() => undefined)
-  for (const [sectionId, title, content] of [
-    ['11.1', 'Study design', '<p>Randomised, double-blind, placebo-controlled Phase III trial.</p>'],
-    ['11.2', 'Patient population', '<p>Adults aged 18-75 with advanced NSCLC.</p>'],
-    ['11.3', 'Primary endpoint', '<p>Overall survival at 24 months.</p>'],
-  ] as const) {
-    await prisma.sectionContent.upsert({
-      where: { id: `SEC-${sectionId}-SEED` },
+  // --------------------------------------------------------------
+  // 5. Documents + current version + sections — from documents.json.
+  //    One DocumentVersion per Document; sections hang off the
+  //    current version. Status / type values get hyphen→underscore
+  //    mapped to match the Postgres enum conventions.
+  // --------------------------------------------------------------
+  console.log('→ Seeding documents + versions + sections...')
+  // Stage vocab map: UI uses 'post-study' / 'reporting' etc.
+  const STAGE_MAP: Record<string, string> = {
+    'post-study':   'reporting',
+    'reporting':    'reporting',
+    'study-start-up': 'study_start_up',
+    'study-conduct':  'study_conduct',
+    'crm-in-progress': 'crm_in_progress',
+    'submitted':      'submitted',
+  }
+  function mapStage(fixtureStage: string): string {
+    return STAGE_MAP[fixtureStage] ?? underscored(fixtureStage)
+  }
+  // Pick a fallback assignee when the fixture refers to a user id
+  // that isn't in our User table (e.g. 'user-MW'). The second writer
+  // from users.json works as a safe default.
+  const fallbackAssignee = upsertedUsers['user-cl'] ?? upsertedUsers['user-admin']
+  for (const d of docs) {
+    const assignee = upsertedUsers[d.assigneeId] ?? fallbackAssignee
+    if (!assignee) {
+      console.warn(`  skipping ${d.id} — no assignee available`)
+      continue
+    }
+    const doc = await prisma.document.upsert({
+      where: { id: d.id },
       create: {
-        id: `SEC-${sectionId}-SEED`,
-        documentVersionId: docVersion.id,
-        sectionId,
-        sectionNumber: sectionId,
-        sectionTitle: title,
-        contentHtml: content,
-        ichStatus: 'in_progress',
+        id: d.id,
+        projectId: d.projectId,
+        type: underscored(d.type),
+        title: d.title,
+        status: underscored(d.status),
+        stage: mapStage(d.stage),
+        therapeuticArea: d.therapeuticArea,
+        assigneeId: assignee.id,
+        createdBy: assignee.id,
+      },
+      update: {
+        status: underscored(d.status),
+        stage: mapStage(d.stage),
+      },
+    })
+
+    // One current version per document. contentHash is placeholder
+    // until a real editor save happens; a stable value makes the
+    // row satisfy the NOT NULL constraint on the column.
+    const version = await prisma.documentVersion.upsert({
+      where: { documentId_versionNumber: { documentId: doc.id, versionNumber: d.version } },
+      create: {
+        documentId: doc.id,
+        versionNumber: d.version,
+        label: d.status === 'signed' ? 'Final' : 'Working',
+        contentHash: `seed-${d.id}-${d.version}`,
+        isCurrent: true,
+        createdBy: assignee.id,
       },
       update: {},
     })
+    await prisma.document.update({ where: { id: doc.id }, data: { currentVersionId: version.id } }).catch(() => undefined)
+
+    // Section rows — one per fixture section. The number field often
+    // carries a '§' prefix in the fixture; keep as-is so the UI
+    // renders what the author sees.
+    for (const s of d.sections ?? []) {
+      await prisma.sectionContent.upsert({
+        where: { documentVersionId_sectionId: { documentVersionId: version.id, sectionId: s.id } },
+        create: {
+          documentVersionId: version.id,
+          sectionId: s.id,
+          sectionNumber: s.number,
+          sectionTitle: s.title,
+          contentHtml: '',
+          ichStatus: underscored(s.status),
+        },
+        update: {
+          sectionTitle: s.title,
+          ichStatus: underscored(s.status),
+        },
+      })
+    }
   }
 
-  console.log('→ Seeding Module B — publication + author...')
-  const publication = await prisma.publication.upsert({
-    where: { id: 'PUB-VELORA-PRIMARY' },
-    create: {
-      id: 'PUB-VELORA-PRIMARY',
-      projectId: velora.id,
-      type: 'manuscript',
-      subtype: 'primary_results',
-      title: 'VELORA-301: Primary analysis of overall survival',
-      stage: 'in_authoring',
-      status: 'draft',
-      version: 'v0.1',
-      guideline: 'CONSORT',
-      journal: 'NEJM',
-      targetSubmissionDate: new Date('2027-03-01'),
-      keyMessage: 'Novel therapy significantly improves OS over SoC in advanced NSCLC.',
-      baaStatus: 'not_applicable',
-      sourceDocumentId: document.id,
-      sourceDocumentLabel: `${document.title} v0.1`,
-      ownerId: writer.id,
-      createdBy: writer.id,
-    },
-    update: {},
-  })
-  const author = await prisma.publicationAuthor.upsert({
-    where: { publicationId_userId: { publicationId: publication.id, userId: writer.id } },
-    create: {
-      publicationId: publication.id,
-      userId: writer.id,
-      name: writer.name,
-      initials: writer.initials ?? 'CW',
-      role: 'Lead medical writer',
-      raci: 'R',
-      isExternal: false,
-      addedBy: writer.id,
-    },
-    update: {},
-  })
-  // ICMJE: four criterion rows per author per spec.
-  for (const i of [0, 1, 2, 3]) {
-    await prisma.pubIcmjeCriterion.upsert({
-      where: { authorId_criterionIndex: { authorId: author.id, criterionIndex: i } },
-      create: { authorId: author.id, criterionIndex: i },
-      update: {},
-    })
+  // --------------------------------------------------------------
+  // Done.
+  // --------------------------------------------------------------
+  const counts = {
+    tenants:    await prisma.tenant.count(),
+    users:      await prisma.user.count(),
+    memberships: await prisma.membership.count(),
+    projects:   await prisma.project.count(),
+    teamMembers: await prisma.projectTeamMember.count(),
+    documents:  await prisma.document.count(),
+    versions:   await prisma.documentVersion.count(),
+    sections:   await prisma.sectionContent.count(),
   }
-
-  console.log('→ Seeding Module C — med content item...')
-  await prisma.medContentItem.upsert({
-    where: { id: 'MED-VELORA-HCP-DECK' },
-    create: {
-      id: 'MED-VELORA-HCP-DECK',
-      projectId: velora.id,
-      sourceModuleAProjectId: velora.id,
-      sourceModuleBPubId: publication.id,
-      type: 'hcp_deck',
-      title: 'VELORA-301 HCP presentation',
-      status: 'briefing',
-      stage: 1,
-      complianceTrack: 'promotional',
-      taTag: velora.therapeuticArea,
-      channels: ['field_force', 'congress'],
-      targetAudience: ['oncologist'],
-      ownerId: writer.id,
-      createdBy: writer.id,
-    },
-    update: {},
-  })
-
-  console.log('→ Seeding Module D — regulatory submission...')
-  await prisma.regulatorySubmission.upsert({
-    where: { id: 'SUB-VELORA-NDA' },
-    create: {
-      id: 'SUB-VELORA-NDA',
-      projectId: velora.id,
-      sourceModuleAProjectId: velora.id,
-      submissionType: 'nda_maa',
-      stage: 1,
-      status: 'source_gathering',
-      taTag: velora.therapeuticArea,
-      targetHas: ['FDA', 'EMA'],
-      ownerId: writer.id,
-    },
-    update: {},
-  })
-
-  console.log('→ Seeding Module E — ideation project + artefact...')
-  const ideation = await prisma.ideationProject.upsert({
-    where: { id: 'IDE-VELORA' },
-    create: {
-      id: 'IDE-VELORA',
-      projectId: velora.id,
-      sourceType: 'master_library',
-      taTag: velora.therapeuticArea,
-      status: 'uploaded',
-      createdBy: writer.id,
-    },
-    update: {},
-  })
-  await prisma.ideationArtefact.upsert({
-    where: { id: 'IDE-ART-VELORA-01' },
-    create: {
-      id: 'IDE-ART-VELORA-01',
-      ideationProjectId: ideation.id,
-      sourceModule: 'B',
-      sourceDocId: publication.id,
-      title: 'VELORA-301 lay summary — primary results',
-      originalApprovalDate: new Date('2026-10-01'),
-      version: 'v1.0',
-    },
-    update: {},
-  })
-
   console.log('✔ Seed complete.')
-  console.log(`   Tenant:   ${acme.slug} (${acme.id})`)
-  console.log(`   Admin:    ${admin.email} (super-admin, cross-tenant)`)
-  console.log(`   Writer:   ${writer.email} (Acme owner + writer)`)
-  console.log(`   Writer2:  ${writer2.email} (Acme writer)`)
-  console.log(`   Reviewer: ${reviewer.email} (Acme reviewer)`)
-  console.log(`   Projects: ${velora.id}, ${atlas.id} (both under ${acme.slug})`)
-  console.log(`   Fixtures: 1 doc + 1 pub + 1 med-content + 1 submission + 1 ideation artefact (all under VELORA)`)
+  console.table(counts)
 }
 
 main()

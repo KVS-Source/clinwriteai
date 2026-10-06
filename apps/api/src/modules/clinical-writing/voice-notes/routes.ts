@@ -33,15 +33,41 @@ const uploadQuerySchema = z.object({
   durationSeconds: z.coerce.number().int().positive().optional(),
 })
 
+// Shape voice note rows for the UI's packages/types `VoiceNote` interface.
+// Field renames + 1 derivation:
+//   Prisma authorId         → UI actorId (+ actorName from User lookup)
+//   Prisma audioBlobKey     → UI audioRef
+//   Prisma durationSeconds  → UI duration
+// UI's `duration: number` is seconds; Prisma stores as Int?, default 0.
+function voiceNoteShape(v: { authorId: string; audioBlobKey: string; durationSeconds: number | null } & Record<string, unknown>, author: { name: string } | null) {
+  const { authorId, audioBlobKey, durationSeconds, ...rest } = v
+  return {
+    ...rest,
+    actorId: authorId,
+    actorName: author?.name ?? authorId,
+    audioRef: audioBlobKey,
+    duration: durationSeconds ?? 0,
+  }
+}
+
+async function fetchVoiceAuthors(prisma: import('@prisma/client').PrismaClient, rows: Array<{ authorId: string }>) {
+  if (rows.length === 0) return new Map<string, { name: string }>()
+  const ids = Array.from(new Set(rows.map(r => r.authorId)))
+  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
+  return new Map(users.map(u => [u.id, { name: u.name }]))
+}
+
 export const voiceNotesRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:documentId/voice-notes', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
-    return app.prisma.voiceNote.findMany({
+    const rows = await app.prisma.voiceNote.findMany({
       where: { documentId },
       orderBy: { createdAt: 'desc' },
     })
+    const authors = await fetchVoiceAuthors(app.prisma, rows)
+    return rows.map(r => voiceNoteShape(r, authors.get(r.authorId) ?? null))
   })
 
   app.post('/:documentId/voice-notes', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -123,7 +149,8 @@ export const voiceNotesRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(note)
+    const author = await app.prisma.user.findUnique({ where: { id: note.authorId }, select: { name: true } })
+    return reply.code(201).send(voiceNoteShape(note, author))
   })
 
   // Return a short-lived presigned download URL. Clients call this once per

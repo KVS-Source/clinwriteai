@@ -51,12 +51,158 @@ const reviewCardSchema = z.object({
   message: 'At least one of kolStatus or maStatus must be provided',
 })
 
+// Shape ideation project rows for the UI's packages/types IdeationProject
+// interface. UI expects enum variant 'master-library' (hyphen), Prisma stores
+// 'master_library' (underscore). UI also wants synthesised fields (title,
+// compound, indication, createdByName, createdByRole) + aggregate counts
+// (contentCardCount, approvedCardCount, scheduledCount, publishedCount).
+//
+// Status → stage number mapping — UI shows stage pill 1-5 derived from the
+// ideation_stage enum:
+//   uploaded          → 1
+//   content_cards     → 2
+//   atomised          → 3
+//   under_review      → 4
+//   calendar_approved → 5
+//   published         → 5
+function stageOfStatus(status: string): number {
+  switch (status) {
+    case 'uploaded':          return 1
+    case 'content_cards':     return 2
+    case 'atomised':          return 3
+    case 'under_review':      return 4
+    case 'calendar_approved': return 5
+    case 'published':         return 5
+    default:                  return 1
+  }
+}
+
+interface IdeationCounts {
+  contentCardCount: number
+  approvedCardCount: number
+  scheduledCount: number
+  publishedCount: number
+}
+
+async function fetchIdeationCounts(
+  prisma: import('@prisma/client').PrismaClient,
+  ideationIds: string[],
+): Promise<Map<string, IdeationCounts>> {
+  if (ideationIds.length === 0) return new Map()
+  // Nested count via raw aggregation: cards belong to artefacts which belong to
+  // ideation projects. Three group-bys in parallel. Returns zeros for projects
+  // with no cards.
+  const [cards, approved, scheduled, published] = await Promise.all([
+    prisma.ideationContentCard.groupBy({
+      by: ['ideationArtefactId'],
+      where: { artefact: { ideationProjectId: { in: ideationIds } } },
+      _count: { _all: true },
+    }),
+    prisma.ideationContentCard.groupBy({
+      by: ['ideationArtefactId'],
+      where: { artefact: { ideationProjectId: { in: ideationIds } }, overallStatus: 'approved' },
+      _count: { _all: true },
+    }),
+    prisma.calendarEntry.groupBy({
+      by: ['ideationContentCardId'],
+      where: { card: { artefact: { ideationProjectId: { in: ideationIds } } }, status: 'scheduled' },
+      _count: { _all: true },
+    }),
+    prisma.calendarEntry.groupBy({
+      by: ['ideationContentCardId'],
+      where: { card: { artefact: { ideationProjectId: { in: ideationIds } } }, status: 'published' },
+      _count: { _all: true },
+    }),
+  ])
+  // We asked groupBy by artefactId/cardId, not ideationProjectId directly, so
+  // we need the artefact → ideationProjectId map to aggregate. Second query
+  // in exchange for not doing N project-level counts.
+  const artefactMap = ideationIds.length === 0 ? new Map() : new Map(
+    (await prisma.ideationArtefact.findMany({
+      where: { ideationProjectId: { in: ideationIds } },
+      select: { id: true, ideationProjectId: true },
+    })).map(a => [a.id, a.ideationProjectId]),
+  )
+  const cardMap = new Map(
+    (await prisma.ideationContentCard.findMany({
+      where: { artefact: { ideationProjectId: { in: ideationIds } } },
+      select: { id: true, ideationArtefactId: true },
+    })).map(c => [c.id, c.ideationArtefactId]),
+  )
+
+  const out = new Map<string, IdeationCounts>()
+  for (const id of ideationIds) out.set(id, { contentCardCount: 0, approvedCardCount: 0, scheduledCount: 0, publishedCount: 0 })
+  for (const r of cards) {
+    const ip = artefactMap.get(r.ideationArtefactId); if (!ip) continue
+    out.get(ip)!.contentCardCount += r._count._all
+  }
+  for (const r of approved) {
+    const ip = artefactMap.get(r.ideationArtefactId); if (!ip) continue
+    out.get(ip)!.approvedCardCount += r._count._all
+  }
+  for (const r of scheduled) {
+    const ar = cardMap.get(r.ideationContentCardId); if (!ar) continue
+    const ip = artefactMap.get(ar); if (!ip) continue
+    out.get(ip)!.scheduledCount += r._count._all
+  }
+  for (const r of published) {
+    const ar = cardMap.get(r.ideationContentCardId); if (!ar) continue
+    const ip = artefactMap.get(ar); if (!ip) continue
+    out.get(ip)!.publishedCount += r._count._all
+  }
+  return out
+}
+
+function ideationShape(
+  r: { id: string; sourceType: string; status: string; createdBy: string; projectId: string } & Record<string, unknown>,
+  parent: { name: string; indication: string | null } | null,
+  creator: { name: string; role: string } | null,
+  counts: IdeationCounts,
+) {
+  return {
+    ...r,
+    sourceType: r.sourceType === 'master_library' ? 'master-library' : r.sourceType,
+    stage: stageOfStatus(r.status),
+    title: parent?.name ?? r.projectId,
+    compound: parent?.indication ?? '',
+    indication: parent?.indication ?? '',
+    createdByName: creator?.name ?? r.createdBy,
+    createdByRole: creator?.role ?? '',
+    ...counts,
+  }
+}
+
+async function fetchIdeationContext(
+  prisma: import('@prisma/client').PrismaClient,
+  rows: Array<{ id: string; projectId: string; createdBy: string }>,
+) {
+  const parentIds = Array.from(new Set(rows.map(r => r.projectId)))
+  const creatorIds = Array.from(new Set(rows.map(r => r.createdBy)))
+  const [parents, creators, counts] = await Promise.all([
+    prisma.project.findMany({ where: { id: { in: parentIds } }, select: { id: true, name: true, indication: true } }),
+    prisma.user.findMany({ where: { id: { in: creatorIds } }, select: { id: true, name: true, role: true } }),
+    fetchIdeationCounts(prisma, rows.map(r => r.id)),
+  ])
+  return {
+    parentMap: new Map(parents.map(p => [p.id, { name: p.name, indication: p.indication }])),
+    creatorMap: new Map(creators.map(c => [c.id, { name: c.name, role: c.role }])),
+    countsMap: counts,
+  }
+}
+
 export const ideationProjectScopedRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:projectId/ideation', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
-    const project = await app.prisma.project.findUnique({ where: { id: projectId } })
+    const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
-    return app.prisma.ideationProject.findMany({ where: { projectId }, orderBy: { updatedAt: 'desc' } })
+    const rows = await app.prisma.ideationProject.findMany({ where: { projectId }, orderBy: { updatedAt: 'desc' } })
+    const ctx = await fetchIdeationContext(app.prisma, rows)
+    return rows.map(r => ideationShape(
+      r,
+      ctx.parentMap.get(r.projectId) ?? null,
+      ctx.creatorMap.get(r.createdBy) ?? null,
+      ctx.countsMap.get(r.id) ?? { contentCardCount: 0, approvedCardCount: 0, scheduledCount: 0, publishedCount: 0 },
+    ))
   })
 
   app.post('/:projectId/ideation', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
@@ -85,7 +231,13 @@ export const ideationProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       details: { projectId, sourceType: parsed.data.sourceType, taTag: parsed.data.taTag },
       ipAddress: request.ip ?? null,
     })
-    return reply.code(201).send(created)
+    const ctx = await fetchIdeationContext(app.prisma, [created])
+    return reply.code(201).send(ideationShape(
+      created,
+      ctx.parentMap.get(created.projectId) ?? null,
+      ctx.creatorMap.get(created.createdBy) ?? null,
+      ctx.countsMap.get(created.id) ?? { contentCardCount: 0, approvedCardCount: 0, scheduledCount: 0, publishedCount: 0 },
+    ))
   })
 }
 
@@ -94,7 +246,13 @@ export const ideationRoutes: FastifyPluginAsync = async (app) => {
     const { ideationProjectId } = request.params as { ideationProjectId: string }
     const row = await app.prisma.ideationProject.findUnique({ where: { id: ideationProjectId } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
-    return row
+    const ctx = await fetchIdeationContext(app.prisma, [row])
+    return ideationShape(
+      row,
+      ctx.parentMap.get(row.projectId) ?? null,
+      ctx.creatorMap.get(row.createdBy) ?? null,
+      ctx.countsMap.get(row.id) ?? { contentCardCount: 0, approvedCardCount: 0, scheduledCount: 0, publishedCount: 0 },
+    )
   })
 
   app.get('/:ideationProjectId/artefacts', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {

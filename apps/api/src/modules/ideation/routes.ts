@@ -316,15 +316,32 @@ export const ideationRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // --- Content cards (mounted under /ideation/artefacts/:artefactId) ------
+  //
+  // UI's IdeationContentCard interface expects `ideationProjectId` on each
+  // card for breadcrumb nav + routing. Prisma stores it only via the parent
+  // artefact relation, so cardShape() fills it from the artefact lookup.
+  // Also fills kolApprovedAt / kolApprovedBy / maApprovedAt as nulls — those
+  // live in the audit trail, not the card row, so return null for now; UI
+  // null-checks.
 
   app.get('/artefacts/:artefactId/cards', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
     const { artefactId } = request.params as { artefactId: string }
-    const art = await app.prisma.ideationArtefact.findUnique({ where: { id: artefactId } })
+    const art = await app.prisma.ideationArtefact.findUnique({
+      where: { id: artefactId },
+      select: { id: true, ideationProjectId: true },
+    })
     if (!art) return reply.code(404).send({ error: 'not_found' })
-    return app.prisma.ideationContentCard.findMany({
+    const rows = await app.prisma.ideationContentCard.findMany({
       where: { ideationArtefactId: artefactId },
       orderBy: { createdAt: 'asc' },
     })
+    return rows.map(r => ({
+      ...r,
+      ideationProjectId: art.ideationProjectId,
+      kolApprovedAt: null as string | null,
+      kolApprovedBy: null as string | null,
+      maApprovedAt: null as string | null,
+    }))
   })
 
   app.post('/artefacts/:artefactId/cards', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
@@ -356,7 +373,13 @@ export const ideationRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    return reply.code(201).send({
+      ...created,
+      ideationProjectId: art.ideationProjectId,
+      kolApprovedAt: null,
+      kolApprovedBy: null,
+      maApprovedAt: null,
+    })
   })
 
   app.patch('/cards/:cardId/review', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {

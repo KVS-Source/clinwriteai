@@ -48,8 +48,12 @@ step "Deploy (git pull → npm ci → prisma generate → build → migrate → 
 }
 
 step "Verify local API health"
+# Read PORT from api.env since bootstrap may have remapped 3001 → 3011
+# when the default was in use by another project on the shared VPS.
+API_PORT=$(grep -oP '(?<=^PORT=)\d+' /opt/platform/env/api.env 2>/dev/null || echo 3001)
+log "probing http://127.0.0.1:${API_PORT}/health"
 for i in $(seq 1 30); do
-  code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/health || true)
+  code=$(curl -s -o /dev/null -w '%{http_code}' "http://127.0.0.1:${API_PORT}/health" || true)
   if [[ "$code" == "200" ]]; then
     log "✓ local API /health returns 200"
     break

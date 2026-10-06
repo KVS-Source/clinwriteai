@@ -294,6 +294,7 @@ ufw --force enable >/dev/null 2>&1 || true
 log "L. detecting port conflicts"
 PG_PORT=5432
 REDIS_PORT=6379
+API_PORT=3001
 if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE ":${PG_PORT}\$"; then
   log "L. port 5432 in use — remapping postgres to 15432"
   PG_PORT=15432
@@ -301,6 +302,19 @@ fi
 if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE ":${REDIS_PORT}\$"; then
   log "L. port 6379 in use — remapping redis to 16379"
   REDIS_PORT=16379
+fi
+if ss -tln 2>/dev/null | awk '{print $4}' | grep -qE ":${API_PORT}\$"; then
+  log "L. port 3001 in use — remapping API to 3011"
+  API_PORT=3011
+  # Patch api.env's PORT (Fastify's listen port) + nginx upstream +
+  # systemd health-check URL so the whole chain agrees on the new port.
+  sed -i "s|^PORT=.*|PORT=${API_PORT}|" "${ENV_FILE}"
+  install -o platform -g platform -m 600 "${ENV_FILE}" /run/platform/api.env
+  install -o platform -g platform -m 600 "${ENV_FILE}" /run/platform/worker.env
+  sed -i "s|127.0.0.1:3001|127.0.0.1:${API_PORT}|g" /etc/nginx/sites-available/platform
+  sed -i "s|127.0.0.1:3001/health|127.0.0.1:${API_PORT}/health|g" /etc/systemd/system/platform-api.service
+  nginx -t 2>&1 | tail -3 && systemctl reload nginx 2>&1 || log "L. WARN: nginx reload failed after port patch"
+  systemctl daemon-reload
 fi
 
 # Write with quoted delimiter so bash does NO expansion — otherwise

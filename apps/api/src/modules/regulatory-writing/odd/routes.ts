@@ -42,15 +42,136 @@ const outcomeSchema = z.discriminatedUnion('decision', [
   }),
 ])
 
+// --- Shape helpers --------------------------------------------------------
+//
+// The UI's ODDAssessment is a composite view: it blends the clinical
+// authoring data on OddAssessment with per-region prevalence calculations
+// and parent-submission context (compound, taTag). The Prisma row stores
+// only the raw clinical fields — everything else is derived.
+//
+// Region threshold math (standard definitions):
+//   EU — orphan if prevalence ≤ 5 per 10,000 (= 50 per 100,000).
+//        Patient estimate uses EU-27 population ~448M.
+//   US — orphan if fewer than 200,000 patients in the US (~331M population).
+//        Equivalent to prevalence < ~60.4 per 100,000.
+// prevalenceScore (0-100) is clamped from prevalencePer100k so lower
+// (rarer) numbers score higher; eligibilityScore combines EU + US
+// eligibility into a 0-100 scalar for the dashboard chip.
+
+const EU_POP = 448_000_000
+const US_POP = 331_000_000
+const EU_THRESHOLD_PER_100K = 50     // 5 per 10,000
+const US_PATIENT_CAP = 200_000
+
+function oddAssessmentShape(
+  a: {
+    id: string
+    submissionId: string
+    diseaseIndication: string
+    prevalencePer100k: import('@prisma/client/runtime/library').Decimal
+    medicalNeedJustification: string
+    significantBenefit: string | null
+    status: string
+    completedAt: Date | null
+    createdAt: Date
+  },
+  context: { projectId: string; compound: string; taTag: string },
+) {
+  const prevalence = Number(a.prevalencePer100k.toString())
+  const euPatients = Math.round(prevalence * (EU_POP / 100_000))
+  const usPatients = Math.round(prevalence * (US_POP / 100_000))
+  const euMeets = prevalence <= EU_THRESHOLD_PER_100K
+  const usMeets = usPatients < US_PATIENT_CAP
+
+  // prevalenceScore: 100 when prevalencePer100k ≤ 1, 0 when ≥ 100.
+  // Linear in between — a quick-to-read rarity bar.
+  const prevalenceScore = Math.max(0, Math.min(100, Math.round(100 - prevalence)))
+
+  const eligibilityScore = (euMeets ? 50 : 0) + (usMeets ? 50 : 0)
+  const eligibilityLabel =
+    eligibilityScore === 100 ? 'Both regions eligible'
+      : eligibilityScore === 50 ? 'Partial eligibility'
+        : 'Not eligible'
+
+  const benefitDraftStatus: 'clinical-lead-pending' | 'clinical-lead-signed' =
+    a.status === 'approved' ? 'clinical-lead-signed' : 'clinical-lead-pending'
+
+  // benefitDraft is the human-authored narrative — join medicalNeed with
+  // the optional significantBenefit paragraph when present.
+  const benefitDraft = a.significantBenefit
+    ? `${a.medicalNeedJustification}\n\n${a.significantBenefit}`
+    : a.medicalNeedJustification
+
+  return {
+    id: a.id,
+    submissionId: a.submissionId,
+    projectId: context.projectId,
+    compound: context.compound,
+    indication: a.diseaseIndication,
+    taTag: context.taTag,
+    prevalenceScore,
+    eu: {
+      prevalence: `${prevalence.toFixed(2)} per 100,000`,
+      threshold: '≤ 5 per 10,000 (= 50 per 100,000)',
+      meetsThreshold: euMeets,
+      patientEstimate: `~${euPatients.toLocaleString('en-US')} patients (EU-27)`,
+      status: euMeets ? 'Eligible for EU orphan designation' : 'Above EU prevalence threshold',
+    },
+    us: {
+      prevalencePatients: usPatients,
+      threshold: `< ${US_PATIENT_CAP.toLocaleString('en-US')} US patients`,
+      meetsThreshold: usMeets,
+      status: usMeets ? 'Eligible for US orphan designation' : 'Above US patient cap',
+    },
+    eligibilityScore,
+    eligibilityLabel,
+    benefitDraft,
+    benefitDraftStatus,
+    clinicalLeadSignedAt: a.status === 'approved' && a.completedAt ? a.completedAt.toISOString() : null,
+    generatedAt: a.createdAt.toISOString(),
+  }
+}
+
+// Batch fetch submission → source project context. The compound field
+// isn't a column on RegulatorySubmission (same situation as Batch 40's
+// submissionShape); we synthesise it from the source Module A project's
+// `indication`. Two queries total regardless of list size.
+async function fetchOddContext(
+  prisma: import('@prisma/client').PrismaClient,
+  submissionIds: ReadonlyArray<string>,
+): Promise<Map<string, { projectId: string; compound: string; taTag: string }>> {
+  if (submissionIds.length === 0) return new Map()
+  const subs = await prisma.regulatorySubmission.findMany({
+    where: { id: { in: Array.from(new Set(submissionIds)) } },
+    select: { id: true, projectId: true, sourceModuleAProjectId: true, taTag: true },
+  })
+  const srcProjectIds = Array.from(new Set(subs.map(s => s.sourceModuleAProjectId).filter(Boolean)))
+  const srcProjects = srcProjectIds.length > 0
+    ? await prisma.project.findMany({
+      where: { id: { in: srcProjectIds } },
+      select: { id: true, indication: true },
+    })
+    : []
+  const indicationById = new Map(srcProjects.map(p => [p.id, p.indication ?? '']))
+  return new Map(subs.map(s => [s.id, {
+    projectId: s.projectId,
+    compound: indicationById.get(s.sourceModuleAProjectId) ?? '',
+    taTag: s.taTag,
+  }]))
+}
+
 export const oddRoutes: FastifyPluginAsync = async (app) => {
   app.get('/regulatory-submissions/:submissionId/odd', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
     const { submissionId } = request.params as { submissionId: string }
     const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
     if (!sub) return reply.code(404).send({ error: 'not_found' })
-    return app.prisma.oddAssessment.findMany({
+    const rows = await app.prisma.oddAssessment.findMany({
       where: { submissionId },
       orderBy: { createdAt: 'desc' },
     })
+    const context = await fetchOddContext(app.prisma, [submissionId])
+    const ctx = context.get(submissionId) ?? { projectId: sub.projectId, compound: '', taTag: sub.taTag }
+    return rows.map(r => oddAssessmentShape(r, ctx))
   })
 
   app.post('/regulatory-submissions/:submissionId/odd', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
@@ -69,14 +190,18 @@ export const oddRoutes: FastifyPluginAsync = async (app) => {
         significantBenefit: parsed.data.significantBenefit,
       },
     })
-    return reply.code(201).send(created)
+    const context = await fetchOddContext(app.prisma, [submissionId])
+    const ctx = context.get(submissionId) ?? { projectId: sub.projectId, compound: '', taTag: sub.taTag }
+    return reply.code(201).send(oddAssessmentShape(created, ctx))
   })
 
   app.get('/odd/:assessmentId', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
     const { assessmentId } = request.params as { assessmentId: string }
     const a = await app.prisma.oddAssessment.findUnique({ where: { id: assessmentId } })
     if (!a) return reply.code(404).send({ error: 'not_found' })
-    return a
+    const context = await fetchOddContext(app.prisma, [a.submissionId])
+    const ctx = context.get(a.submissionId) ?? { projectId: '', compound: '', taTag: '' }
+    return oddAssessmentShape(a, ctx)
   })
 
   app.patch('/odd/:assessmentId', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
@@ -88,7 +213,10 @@ export const oddRoutes: FastifyPluginAsync = async (app) => {
     if (['approved', 'rejected', 'withdrawn'].includes(a.status)) {
       return reply.code(409).send({ error: 'frozen', message: `Cannot edit ${a.status} assessment` })
     }
-    return app.prisma.oddAssessment.update({ where: { id: assessmentId }, data: parsed.data })
+    const updated = await app.prisma.oddAssessment.update({ where: { id: assessmentId }, data: parsed.data })
+    const context = await fetchOddContext(app.prisma, [a.submissionId])
+    const ctx = context.get(a.submissionId) ?? { projectId: '', compound: '', taTag: '' }
+    return oddAssessmentShape(updated, ctx)
   })
 
   app.post('/odd/:assessmentId/submit-for-review', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
@@ -98,7 +226,10 @@ export const oddRoutes: FastifyPluginAsync = async (app) => {
     if (a.status !== 'draft') {
       return reply.code(409).send({ error: 'wrong_status' })
     }
-    return app.prisma.oddAssessment.update({ where: { id: assessmentId }, data: { status: 'under_review' } })
+    const updated = await app.prisma.oddAssessment.update({ where: { id: assessmentId }, data: { status: 'under_review' } })
+    const context = await fetchOddContext(app.prisma, [a.submissionId])
+    const ctx = context.get(a.submissionId) ?? { projectId: '', compound: '', taTag: '' }
+    return oddAssessmentShape(updated, ctx)
   })
 
   app.post('/odd/:assessmentId/outcome', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
@@ -147,6 +278,8 @@ export const oddRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    const context = await fetchOddContext(app.prisma, [a.submissionId])
+    const ctx = context.get(a.submissionId) ?? { projectId: '', compound: '', taTag: '' }
+    return oddAssessmentShape(updated, ctx)
   })
 }

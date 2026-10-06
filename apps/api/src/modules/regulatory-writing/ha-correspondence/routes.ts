@@ -50,6 +50,130 @@ const authorityReplySchema = z.object({
   receivedAt: z.string().datetime(),
 })
 
+// --- Shape helpers --------------------------------------------------------
+//
+// UI vs Prisma divergence for the Module D HA correspondence trio is wide
+// enough that each sub-resource needs its own helper.
+//
+// HAQuestion: Prisma stores a richer question row (questionRef, category
+// including nonclinical/labeling/other, status open/drafting/approved/closed)
+// than the UI consumes. The UI's HAQuestion collapses:
+//   - category → {clinical | cmc | administrative} (anything that isn't
+//     clinical or cmc becomes 'administrative' for display grouping)
+//   - status   → {not-started | in-progress | responded} (open=not-started,
+//     drafting=in-progress, approved/closed=responded)
+//   - number   → parsed from questionRef ('Q1' → 1, 'Q2.3' → 2)
+//   - aiDraftGenerated + aiFootprintPct → derived from the latest draft row
+//   - assignedTo / assignedRole → not persisted; defaulted ('', '')
+//
+// HACorrespondence: UI expects a `gateway` field that isn't stored on the
+// correspondence row — it's a submission-wide property. We pull the parent
+// submission's first targetHAs entry as the display gateway. loqDocTitle
+// stays undefined (would need a BlobStorage metadata lookup to populate).
+// questionsExtracted + questionsCategories come from the already-loaded
+// questions relation when present.
+
+const HA_STATUS_TO_UI: Record<string, 'not-started' | 'in-progress' | 'responded'> = {
+  open: 'not-started',
+  drafting: 'in-progress',
+  approved: 'responded',
+  closed: 'responded',
+}
+
+const HA_CATEGORY_TO_UI = (prismaCat: string | null): 'clinical' | 'cmc' | 'administrative' => {
+  if (prismaCat === 'clinical') return 'clinical'
+  if (prismaCat === 'cmc') return 'cmc'
+  return 'administrative'
+}
+
+type HaQuestionShapeInput = {
+  id: string
+  questionRef: string
+  questionText: string
+  category: string | null
+  status: string
+  responseAt: Date | null
+  drafts?: Array<{ aiFootprintPct: number | null; versionNumber: number }>
+}
+
+function haQuestionShape(q: HaQuestionShapeInput) {
+  // Parse the leading integer out of 'Q1', 'Q2.3', '12', etc. Falls back
+  // to 0 so sorting in the UI stays stable even for odd refs.
+  const numMatch = q.questionRef.match(/\d+/)
+  const number = numMatch ? Number(numMatch[0]) : 0
+  // Latest draft wins (drafts list is newest-first when provided).
+  const latestDraft = q.drafts?.[0] ?? null
+  return {
+    questionId: q.id,
+    number,
+    category: HA_CATEGORY_TO_UI(q.category),
+    text: q.questionText,
+    assignedTo: '',
+    assignedRole: '',
+    status: HA_STATUS_TO_UI[q.status] ?? 'not-started',
+    respondedAt: q.responseAt ? q.responseAt.toISOString() : null,
+    aiDraftGenerated: !!latestDraft,
+    aiFootprintPct: latestDraft?.aiFootprintPct ?? null,
+  }
+}
+
+type HaCorrespondenceShapeInput = {
+  id: string
+  submissionId: string
+  direction: string
+  type: string
+  contentSummary: string
+  receivedAt: Date | null
+  respondedAt: Date | null
+  loqDocId: string | null
+  responseDocId: string | null
+  questions?: HaQuestionShapeInput[]
+}
+
+function haCorrespondenceShape(
+  c: HaCorrespondenceShapeInput,
+  gateway: string,
+) {
+  const questions = c.questions ? c.questions.map(haQuestionShape) : undefined
+  // Categorical breakdown — only computed when the questions list is loaded.
+  const questionsCategories = questions ? questions.reduce(
+    (acc, q) => {
+      acc[q.category]++
+      return acc
+    },
+    { clinical: 0, cmc: 0, administrative: 0 } as { clinical: number; cmc: number; administrative: number },
+  ) : undefined
+  return {
+    id: c.id,
+    submissionId: c.submissionId,
+    direction: c.direction as 'inbound' | 'outbound',
+    type: c.type as 'loq' | 'response' | 'ack' | 'approval' | 'nack',
+    gateway,
+    contentSummary: c.contentSummary,
+    receivedAt: c.receivedAt ? c.receivedAt.toISOString() : null,
+    respondedAt: c.respondedAt ? c.respondedAt.toISOString() : null,
+    loqDocId: c.loqDocId,
+    responsePkgDocId: c.responseDocId,
+    questionsExtracted: questions?.length,
+    questionsCategories,
+    questions,
+  }
+}
+
+// Resolve display gateway for a submission (first targetHAs entry, or
+// 'fda-esg' as a safe default). Batched for list routes.
+async function fetchSubmissionGateways(
+  prisma: import('@prisma/client').PrismaClient,
+  submissionIds: ReadonlyArray<string>,
+): Promise<Map<string, string>> {
+  if (submissionIds.length === 0) return new Map()
+  const rows = await prisma.regulatorySubmission.findMany({
+    where: { id: { in: Array.from(new Set(submissionIds)) } },
+    select: { id: true, targetHas: true },
+  })
+  return new Map(rows.map(r => [r.id, (r.targetHas?.[0] ?? 'fda-esg')]))
+}
+
 export const haCorrespondenceRoutes: FastifyPluginAsync = async (app) => {
   // --- LoQ ingest (inbound) -----------------------------------------------
 
@@ -115,11 +239,12 @@ export const haCorrespondenceRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    const withQuestions = await app.prisma.haCorrespondence.findUnique({
+    const withQuestions = await app.prisma.haCorrespondence.findUniqueOrThrow({
       where: { id: created.id },
       include: { questions: { orderBy: { questionRef: 'asc' } } },
     })
-    return reply.code(201).send(withQuestions)
+    const gateway = sub.targetHas?.[0] ?? 'fda-esg'
+    return reply.code(201).send(haCorrespondenceShape(withQuestions, gateway))
   })
 
   // --- Listing + detail --------------------------------------------------
@@ -128,11 +253,13 @@ export const haCorrespondenceRoutes: FastifyPluginAsync = async (app) => {
     const { submissionId } = request.params as { submissionId: string }
     const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
     if (!sub) return reply.code(404).send({ error: 'not_found' })
-    return app.prisma.haCorrespondence.findMany({
+    const rows = await app.prisma.haCorrespondence.findMany({
       where: { submissionId },
       orderBy: { createdAt: 'desc' },
       include: { questions: { orderBy: { questionRef: 'asc' } } },
     })
+    const gateway = sub.targetHas?.[0] ?? 'fda-esg'
+    return rows.map(r => haCorrespondenceShape(r, gateway))
   })
 
   app.get('/ha-correspondence/:correspondenceId', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
@@ -147,7 +274,8 @@ export const haCorrespondenceRoutes: FastifyPluginAsync = async (app) => {
       },
     })
     if (!corr) return reply.code(404).send({ error: 'not_found' })
-    return corr
+    const gateways = await fetchSubmissionGateways(app.prisma, [corr.submissionId])
+    return haCorrespondenceShape(corr, gateways.get(corr.submissionId) ?? 'fda-esg')
   })
 
   // --- Draft response for a question -------------------------------------
@@ -314,7 +442,8 @@ export const haCorrespondenceRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(response)
+    const gateways = await fetchSubmissionGateways(app.prisma, [submissionId])
+    return reply.code(201).send(haCorrespondenceShape(response, gateways.get(submissionId) ?? 'fda-esg'))
   })
 
   // --- Authority reply (ack / approval / nack) ---------------------------
@@ -347,6 +476,7 @@ export const haCorrespondenceRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    const gateway = sub.targetHas?.[0] ?? 'fda-esg'
+    return reply.code(201).send(haCorrespondenceShape(created, gateway))
   })
 }

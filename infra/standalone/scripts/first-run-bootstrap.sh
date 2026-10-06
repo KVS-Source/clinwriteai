@@ -298,12 +298,18 @@ cat > "${REPO_DIR}/infra/standalone/docker-compose.override.yml" <<OVERRIDE
 # conflicting host ports when 5432 / 6379 are already in use by other
 # projects on the same VPS. api.env's DATABASE_URL / REDIS_URL point
 # at these same ports.
+#
+# `!override` forces complete replacement of the base ports list.
+# Without it, docker compose APPENDS (so you'd end up with BOTH 5432
+# and 15432 trying to bind — and 5432 is exactly the port that's
+# already in use elsewhere, hence the whole reason for this override).
+# Requires Compose spec v1.28+ (docker compose 2.24+). We're on 29.8.
 services:
   postgres:
-    ports:
+    ports: !override
       - "127.0.0.1:${PG_PORT}:5432"
   redis:
-    ports:
+    ports: !override
       - "127.0.0.1:${REDIS_PORT}:6379"
 OVERRIDE
 chown platform:platform "${REPO_DIR}/infra/standalone/docker-compose.override.yml" 2>/dev/null || true

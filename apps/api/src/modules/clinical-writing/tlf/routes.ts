@@ -209,6 +209,17 @@ export const tlfRoutes: FastifyPluginAsync = async (app) => {
       refCountByItem.set(l.tlfItemId, (refCountByItem.get(l.tlfItemId) ?? 0) + l.referenceCount)
     }
 
+    // UI's packages/types TLFItem interface:
+    //   type (not itemType), id, title, linkedSections[], referenceCount?
+    // linkedSections is the list of sectionRefs that cite this item on
+    // THIS document — grouped per-item below.
+    const sectionsByItem = new Map<string, string[]>()
+    for (const l of links) {
+      const arr = sectionsByItem.get(l.tlfItemId) ?? []
+      if (!arr.includes(l.sectionRef)) arr.push(l.sectionRef)
+      sectionsByItem.set(l.tlfItemId, arr)
+    }
+
     return {
       package: {
         version: pkg.version,
@@ -216,11 +227,10 @@ export const tlfRoutes: FastifyPluginAsync = async (app) => {
         validatedDate: pkg.validatedAt.toISOString(),
       },
       items: pkg.items.map(it => ({
-        id: it.id,
-        itemType: it.itemType,
-        referenceId: it.referenceId,
+        type: it.itemType,
+        id: it.referenceId,          // UI uses the human-readable ref as its id
         title: it.title,
-        sortOrder: it.sortOrder,
+        linkedSections: sectionsByItem.get(it.id) ?? [],
         referenceCount: refCountByItem.get(it.id) ?? 0,
       })),
     }

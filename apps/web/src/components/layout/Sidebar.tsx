@@ -2,6 +2,7 @@ import type { ReactNode } from 'react'
 import { NavLink, useNavigate, useParams } from 'react-router-dom'
 import { MonoLabel } from '../ui'
 import { usePlatformStore } from '../../platform/store'
+import { MODULE_LABELS, MODULE_SLUG_TO_KEY, isModuleEnabled, type ModuleSlug } from '../../config/modules'
 
 // Module accent colours — design-system.md Decision 10 (Platform = navy per PM00 §7 rule 1)
 const MODULE_COLOURS: Record<string, string> = {
@@ -34,14 +35,6 @@ const SUPER_ADMIN_NAV: PlatformNavItem[] = [
   { label: 'Framework Registry',  href: '/super-admin/frameworks', roles: ['super-admin'] as const },
   { label: 'Rate Card',           href: '/super-admin/rate-card',  roles: ['super-admin'] as const },
 ]
-
-const MODULE_LABELS: Record<string, string> = {
-  'clinical-writing':    'Clinical Writing',
-  'scientific-writing':  'Scientific Writing',
-  'medical-writing':     'Medical Writing',
-  'regulatory-writing':  'Regulatory Writing',
-  'ideation-publishing': 'Ideation & Publishing',
-}
 
 function HomeIcon()   { return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 6.5L8 2l6 4.5V14H2V6.5Z"/></svg> }
 function FolderIcon() { return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M1.5 4.5h4l1.5 2h7.5v7h-13V4.5Z"/></svg> }
@@ -88,17 +81,15 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
   const showSuperAdmin = superAdminItems.length > 0
 
   // Module access — admin/super-admin see all 5 modules; module users see only
-  // the modules listed in their profile (`currentUser.modules`).
-  const MODULE_SLUG_TO_KEY: Record<string, 'A' | 'B' | 'C' | 'D' | 'E'> = {
-    'clinical-writing':    'A',
-    'scientific-writing':  'B',
-    'medical-writing':     'C',
-    'regulatory-writing':  'D',
-    'ideation-publishing': 'E',
-  }
+  // the modules listed in their profile (`currentUser.modules`). Deployment
+  // kill-switch (VITE_MODULES_ENABLED) is applied first — frozen modules are
+  // hidden from everyone, including super-admins. See docs/pivot-plan.md Arc 1.
   const userModuleKeys = new Set(currentUser.modules)
-  const canSeeModule = (slug: string) =>
-    isAdmin || userModuleKeys.has(MODULE_SLUG_TO_KEY[slug])
+  const canSeeModule = (slug: string) => {
+    const key = MODULE_SLUG_TO_KEY[slug as ModuleSlug]
+    if (!key || !isModuleEnabled(key)) return false
+    return isAdmin || userModuleKeys.has(key)
+  }
   const visibleModules = Object.entries(MODULE_LABELS).filter(([slug]) => canSeeModule(slug))
   const hasCurrentModuleAccess = canSeeModule(activeModule)
 
@@ -159,7 +150,7 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
         <div className="mt-4 px-3" data-sidebar-section="module-current">
           <div className="mb-2 px-2.5">
             <MonoLabel className="text-slate-500">
-              {MODULE_LABELS[activeModule]}
+              {MODULE_LABELS[activeModule as ModuleSlug]}
             </MonoLabel>
           </div>
 

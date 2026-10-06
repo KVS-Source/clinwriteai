@@ -1,5 +1,13 @@
 # Phase 2 cutover — current status
 
+> **Status after the 2026-10-06 pivot (see [docs/pivot-plan.md](pivot-plan.md)):**
+> this document reflects the state of **shape-mapper work only**.
+> Modules B/C/D/E are **frozen at runtime** by the
+> `FEATURE_MODULES_ENABLED` + `VITE_MODULES_ENABLED` kill-switches
+> landed in Arc 1. The code below stays merged — no revert — but no
+> further B/C/D/E work ships until Arc 7. Treat this doc as the
+> historical record of what was done, not the live roadmap.
+
 As of 2026-10-06. Status snapshot — single source of truth lives in
 `apps/web/.env.demo` and `git log`.
 

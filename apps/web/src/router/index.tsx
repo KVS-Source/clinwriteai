@@ -2,6 +2,7 @@ import { createBrowserRouter, Navigate } from 'react-router-dom'
 import { AppShell } from '../components/layout/AppShell'
 import { AuthGuard } from '../components/layout/AuthGuard'
 import { PlaceholderScreen } from '../components/layout/PlaceholderScreen'
+import { ModuleGate } from '../components/layout/ModuleGate'
 import { SignIn }               from '../screens/shell/SignIn'
 import { MFAVerify }            from '../screens/shell/MFAVerify'
 import { TCGate }               from '../screens/shell/TCGate'
@@ -138,6 +139,7 @@ export const router = createBrowserRouter([
           },
           {
             path: 'scientific-writing',
+            element: <ModuleGate slug="scientific-writing" />,
             children: [
               { index: true,                                element: <ScientificWritingHome /> },
               { path: 'new',                                element: <NewPublicationWizard /> },
@@ -161,6 +163,7 @@ export const router = createBrowserRouter([
           },
           {
             path: 'medical-writing',
+            element: <ModuleGate slug="medical-writing" />,
             children: [
               { index: true,           element: <MedicalWritingHome /> },
               { path: 'kol-session',   element: <KOLAdvisoryBoardSession /> },
@@ -182,6 +185,7 @@ export const router = createBrowserRouter([
           },
           {
             path: 'regulatory-writing',
+            element: <ModuleGate slug="regulatory-writing" />,
             children: [
               { index: true,                        element: <RegulatoryWritingHome /> },
               { path: 'intelligence',               element: <RegulatoryIntelligence /> },
@@ -205,6 +209,7 @@ export const router = createBrowserRouter([
           },
           {
             path: 'ideation-publishing',
+            element: <ModuleGate slug="ideation-publishing" />,
             children: [
               { index: true,             element: <IdeationPublishingHome /> },
               { path: 'calendar',        element: <ContentCalendar /> },

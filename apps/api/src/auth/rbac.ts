@@ -28,6 +28,7 @@ export type Role =
 export type ModuleKey = 'A' | 'B' | 'C' | 'D' | 'E'
 
 const ADMIN_ROLES: ReadonlySet<Role> = new Set(['super-admin', 'admin'])
+const ALL_MODULES: ReadonlyArray<ModuleKey> = ['A', 'B', 'C', 'D', 'E']
 
 export interface AuthenticatedUser {
   id: string
@@ -48,6 +49,36 @@ export function hasRole(user: AuthenticatedUser, roles: Role[]): boolean {
   return roles.includes(user.role)
 }
 
+// Deployment-wide module kill-switch. Reads FEATURE_MODULES_ENABLED
+// lazily and caches the parsed set. A route whose required-modules list
+// doesn't intersect this set returns 503 before any auth check — the
+// enablement is a deployment property, not sensitive, so leaking it
+// pre-auth is fine and keeps auth-failure logs clean when a module is
+// off. See docs/pivot-plan.md Arc 1.
+let enabledModulesCache: Set<ModuleKey> | null = null
+
+export function enabledModules(): Set<ModuleKey> {
+  if (enabledModulesCache) return enabledModulesCache
+  const raw = process.env.FEATURE_MODULES_ENABLED ?? 'A'
+  const parsed = raw
+    .split(',')
+    .map(s => s.trim().toUpperCase())
+    .filter((s): s is ModuleKey => (ALL_MODULES as readonly string[]).includes(s))
+  enabledModulesCache = new Set(parsed.length > 0 ? parsed : ['A'])
+  return enabledModulesCache
+}
+
+export function isModuleEnabled(required: ModuleKey[]): boolean {
+  if (required.length === 0) return true
+  const enabled = enabledModules()
+  return required.some(m => enabled.has(m))
+}
+
+// Test-only reset — do not call from production code.
+export function _resetEnabledModulesCache(): void {
+  enabledModulesCache = null
+}
+
 /**
  * preHandler factory — returns a Fastify hook that 401s if unauthenticated and
  * 403s if the user doesn't satisfy both the role + module gates.
@@ -61,6 +92,17 @@ export function requireAuth(opts: { roles?: Role[]; modules?: ModuleKey[] } = {}
   const requiredModules = opts.modules ?? []
 
   return async (request: FastifyRequest, reply: FastifyReply) => {
+    // Deployment-level kill-switch runs before auth so disabled modules
+    // return 503 regardless of whether the caller is signed in.
+    if (!isModuleEnabled(requiredModules)) {
+      reply.code(503).send({
+        error: 'module_disabled',
+        message: `Module(s) ${requiredModules.join(',')} are not enabled on this deployment`,
+        enabledModules: Array.from(enabledModules()).sort(),
+      })
+      return reply
+    }
+
     const user = request.user
     if (!user) {
       reply.code(401).send({ error: 'unauthenticated', message: 'Authentication required' })

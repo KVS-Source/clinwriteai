@@ -31,6 +31,12 @@ const EnvSchema = z.object({
   // Expose /docs in production too (off by default — enable per environment).
   FEATURE_OPENAPI_DOCS: z.coerce.boolean().default(false),
 
+  // Comma-separated list of enabled business modules (A|B|C|D|E).
+  // Default 'A' reflects the 2026-10-06 pivot — Clinical Writing + Tenant
+  // Admin only. Routes whose required-modules list doesn't intersect this
+  // set return 503 module_disabled. See docs/pivot-plan.md Arc 1.1.
+  FEATURE_MODULES_ENABLED: z.string().default('A'),
+
   // CORS
   CORS_ORIGIN: z.string().default('http://localhost:5173'),
   CORS_CREDENTIALS: z.coerce.boolean().default(true),

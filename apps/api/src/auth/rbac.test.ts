@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { hasModuleAccess, hasRole, type AuthenticatedUser } from './rbac.js'
+import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { _resetEnabledModulesCache, enabledModules, hasModuleAccess, hasRole, isModuleEnabled, type AuthenticatedUser } from './rbac.js'
 
 const base: AuthenticatedUser = {
   id: 'u-1',
@@ -49,5 +49,50 @@ describe('hasRole', () => {
     // admins should route through admin-specific endpoints, not elbow into
     // reviewer flows. If we ever change this, update this test deliberately.
     expect(hasRole({ ...base, role: 'admin' }, ['reviewer'])).toBe(false)
+  })
+})
+
+describe('isModuleEnabled (deployment kill-switch)', () => {
+  const original = process.env.FEATURE_MODULES_ENABLED
+
+  beforeEach(() => { _resetEnabledModulesCache() })
+  afterEach(() => {
+    if (original === undefined) delete process.env.FEATURE_MODULES_ENABLED
+    else process.env.FEATURE_MODULES_ENABLED = original
+    _resetEnabledModulesCache()
+  })
+
+  it('defaults to Module A when env is unset', () => {
+    delete process.env.FEATURE_MODULES_ENABLED
+    _resetEnabledModulesCache()
+    expect(Array.from(enabledModules())).toEqual(['A'])
+    expect(isModuleEnabled(['A'])).toBe(true)
+    expect(isModuleEnabled(['B'])).toBe(false)
+  })
+
+  it('parses comma-separated list, upper-casing and trimming', () => {
+    process.env.FEATURE_MODULES_ENABLED = ' a, c ,E '
+    _resetEnabledModulesCache()
+    expect(new Set(Array.from(enabledModules()))).toEqual(new Set(['A', 'C', 'E']))
+    expect(isModuleEnabled(['C'])).toBe(true)
+    expect(isModuleEnabled(['B'])).toBe(false)
+  })
+
+  it('ignores unknown module keys, falling back to A if list ends empty', () => {
+    process.env.FEATURE_MODULES_ENABLED = 'X,Y,Z'
+    _resetEnabledModulesCache()
+    expect(Array.from(enabledModules())).toEqual(['A'])
+  })
+
+  it('treats an empty required list as always enabled (route is not module-scoped)', () => {
+    process.env.FEATURE_MODULES_ENABLED = 'A'
+    _resetEnabledModulesCache()
+    expect(isModuleEnabled([])).toBe(true)
+  })
+
+  it('passes when any required module is enabled', () => {
+    process.env.FEATURE_MODULES_ENABLED = 'A,D'
+    _resetEnabledModulesCache()
+    expect(isModuleEnabled(['B', 'D'])).toBe(true)
   })
 })

@@ -8,8 +8,8 @@ First-time provisioning of a new Ubuntu 24.04 VPS for the platform. Run this onc
 
 - An Ubuntu 24.04 LTS VPS (Hetzner Cloud CPX31 recommended for staging/prod, CPX21 for dev)
 - Root SSH access
-- A domain name configured in Cloudflare pointing at the VPS IP (DNS A record)
-- A Cloudflare origin cert generated for the domain
+- A domain name pointing at the VPS IP (DNS A record). Must resolve on the public internet so Let's Encrypt's HTTP-01 challenge can reach port 80.
+- Port 80 + 443 open to the public internet (ufw rules installed by bootstrap).
 - A Backblaze B2 bucket + application key with write access
 - An age key pair (public recipient added to `sops/.sops.yaml`, private key available)
 
@@ -71,19 +71,27 @@ chmod 0400 /opt/platform/env/api.env.enc
 # Repeat for the worker
 ```
 
-### 5. Install nginx config (10 min)
+### 5. Install nginx config + issue Let's Encrypt cert (10 min)
 
 ```bash
-# Install Cloudflare origin cert
-mkdir -p /etc/ssl/cloudflare
-install -m 0644 /tmp/origin.pem /etc/ssl/cloudflare/origin.pem
-install -m 0400 /tmp/origin.key /etc/ssl/cloudflare/origin.key
-
-# Install nginx config
+# Install nginx config (points at /etc/letsencrypt/live/demo.clinwrite.ai/*)
 cp /opt/platform/repo/infra/standalone/nginx/snippets/*.conf /etc/nginx/snippets/
 cp /opt/platform/repo/infra/standalone/nginx/platform.conf /etc/nginx/sites-available/platform
-ln -s /etc/nginx/sites-available/platform /etc/nginx/sites-enabled/
-nginx -t && systemctl reload nginx
+ln -sf ../sites-available/platform /etc/nginx/sites-enabled/
+
+# Issue the Let's Encrypt multi-domain cert (demo + api). The script
+# briefly stops nginx (if running) to let certbot bind :80 for the ACME
+# challenge, then starts nginx with the real cert in place.
+#
+# Set LETSENCRYPT_EMAIL first — Let's Encrypt uses it for expiry
+# warnings (default ops@clinwrite.ai is fine for a prototype env).
+export LETSENCRYPT_EMAIL=ops@clinwrite.ai
+sudo /opt/platform/repo/infra/standalone/scripts/setup-letsencrypt.sh
+
+# nginx is left running on 443 with the real cert. Routine redeploys
+# re-run the script via deploy.sh and it short-circuits in milliseconds
+# when the current cert still covers both domains with >30 days left.
+# Auto-renewal is handled by certbot.timer (twice-daily).
 ```
 
 ### 6. Install systemd units (5 min)

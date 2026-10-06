@@ -18,6 +18,20 @@ sudo -u platform git checkout -q origin/main
 HEAD_SHA=$(sudo -u platform git rev-parse --short HEAD)
 log "At commit ${HEAD_SHA}"
 
+# ---------- TLS cert — first-run provisioning ----------
+# nginx config in infra/standalone/nginx/platform.conf references
+# /etc/letsencrypt/live/demo.clinwrite.ai/fullchain.pem. If that file
+# doesn't exist yet (first deploy to a fresh VPS), run the Let's
+# Encrypt setup script before nginx tries to serve TLS.
+#
+# The script is idempotent — on routine redeploys where a valid cert
+# already covers both demo + api domains, it short-circuits in a few ms.
+CERT_PATH=/etc/letsencrypt/live/demo.clinwrite.ai/fullchain.pem
+if [[ ! -f "${CERT_PATH}" ]]; then
+  log "No Let's Encrypt cert found at ${CERT_PATH} — running setup-letsencrypt.sh"
+  bash /opt/platform/repo/infra/standalone/scripts/setup-letsencrypt.sh
+fi
+
 # ---------- Install + build ----------
 log "npm ci (API + worker + types)"
 sudo -u platform npm ci --prefer-offline --no-audit --no-fund

@@ -43,6 +43,9 @@ CERT_PATH=/etc/letsencrypt/live/demo.clinwrite.ai/fullchain.pem
 if [[ ! -f "${CERT_PATH}" ]]; then
   log "No Let's Encrypt cert found at ${CERT_PATH} — running setup-letsencrypt.sh"
   bash /opt/platform/repo/infra/standalone/scripts/setup-letsencrypt.sh
+elif ! openssl x509 -in "${CERT_PATH}" -noout -ext subjectAltName 2>/dev/null | grep -q "DNS:api.clinwrite.ai"; then
+  log "Existing cert doesn't cover api.clinwrite.ai — expanding SAN via setup-letsencrypt.sh"
+  bash /opt/platform/repo/infra/standalone/scripts/setup-letsencrypt.sh
 fi
 
 # ---------- Install + build ----------

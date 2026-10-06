@@ -62,16 +62,66 @@ const transitionSchema = z.object({
   reason: z.string().max(500).optional(),
 })
 
+// Shape pub rows for the UI's packages/types `Publication` interface.
+// Fills derived display fields the DB doesn't store directly:
+//   - ownerInitials: looked up from User.initials when owner is in DB
+//   - project: Project.name (not Project.id — UI uses this as a display label)
+//   - due: aliased from targetSubmissionDate (UI's "due" column header)
+//   - doi / gpp2022 / aiLabel / warning: nulls here — computed server-side
+//     by their respective dedicated routes (/doi, /gpp-report, /footprint).
+//     UI null-checks these; filling them inline would N+1-query the list.
+type PubWithRels = {
+  id: string; projectId: string; type: string; subtype: string | null; title: string
+  stage: string; status: string; version: string; guideline: string; journal: string | null
+  targetSubmissionDate: Date | null; keyMessage: string | null; baaStatus: string
+  sourceDocumentId: string | null; sourceDocumentLabel: string | null; ownerId: string
+  createdBy: string; createdAt: Date; updatedAt: Date
+  owner?: { initials: string | null } | null
+  project?: { name: string } | null
+}
+function publicationShape(p: PubWithRels & Record<string, unknown>) {
+  return {
+    ...p,
+    ownerInitials: p.owner?.initials ?? '',
+    project: p.project?.name ?? p.projectId,
+    due: p.targetSubmissionDate?.toISOString() ?? null,
+    doi: null as string | null,
+    gpp2022: 'not_scored' as const,
+    aiLabel: null as string | null,
+    warning: null as string | null,
+    // Internal join artifacts stripped from the wire.
+    owner: undefined,
+  }
+}
+
+// The publication's owner is a User row — Prisma relation lookup requires
+// a scoping on the User model side. Since Publication.ownerId is a plain
+// String (not a FK with explicit relation in the schema), we fetch owners
+// separately. Done in a single query so the list route stays O(1) DB calls.
+async function withOwnerInitials<T extends { ownerId: string }>(
+  prisma: import('@prisma/client').PrismaClient,
+  rows: T[],
+): Promise<Array<T & { owner: { initials: string | null } | null }>> {
+  if (rows.length === 0) return []
+  const ownerIds = Array.from(new Set(rows.map(r => r.ownerId)))
+  const owners = await prisma.user.findMany({
+    where: { id: { in: ownerIds } },
+    select: { id: true, initials: true },
+  })
+  const byId = new Map(owners.map(o => [o.id, o]))
+  return rows.map(r => ({ ...r, owner: byId.get(r.ownerId) ?? null }))
+}
+
 export const publicationsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:projectId/publications', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = listQuerySchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
-    const project = await app.prisma.project.findUnique({ where: { id: projectId } })
+    const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true, name: true } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
-    return app.prisma.publication.findMany({
+    const rows = await app.prisma.publication.findMany({
       where: {
         projectId,
         deletedAt: null,
@@ -81,6 +131,9 @@ export const publicationsProjectScopedRoutes: FastifyPluginAsync = async (app) =
       },
       orderBy: { updatedAt: 'desc' },
     })
+
+    const withOwners = await withOwnerInitials(app.prisma, rows)
+    return withOwners.map(r => publicationShape({ ...r, project }))
   })
 
   app.post('/:projectId/publications', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
@@ -284,7 +337,18 @@ export const publicationsRoutes: FastifyPluginAsync = async (app) => {
     const { publicationId } = request.params as { publicationId: string }
     const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
     if (!pub || pub.deletedAt) return reply.code(404).send({ error: 'not_found' })
-    return pub
+
+    // Publication.projectId is a plain-string FK (no Prisma relation
+    // defined), so project is a separate fetch. Owner initials ditto.
+    // Same shape mapping as the list — Fastify auto-serialises Date →
+    // ISO string on the wire.
+    const [withOwner] = await withOwnerInitials(app.prisma, [pub])
+    if (!withOwner) return reply.code(404).send({ error: 'not_found' })
+    const project = await app.prisma.project.findUnique({
+      where: { id: pub.projectId },
+      select: { name: true },
+    })
+    return publicationShape({ ...withOwner, project })
   })
 
   app.post('/:publicationId/advance-stage', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {

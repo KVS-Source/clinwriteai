@@ -69,15 +69,53 @@ const DEFAULT_ECTD_NODES: ReadonlyArray<{ section: string; title: string; readOn
   { section: '5.3.5.3', title: 'Reports of Analyses of Data from More Than One Study', readOnly: true }, // Module 5
 ]
 
+// Shape reg-submission rows for the UI's packages/types RegulatorySubmission
+// interface. Gaps caught during Phase 2 shape audit (Batch 40):
+//   - Prisma `targetHas` → UI `targetHAs` (casing)
+//   - Missing title/compound/indication: synthesized from the Module A source
+//     project (title = `<srcProjectName> — <submissionType>`, compound +
+//     indication fall through to srcProject.indication / srcProject.name)
+//   - project? (UI display): resolved from the owning project's name
+//   - Optional derived display fields (consistencyFlagged, cmcReadinessPct,
+//     etc.) returned as undefined — UI null-checks; dedicated endpoints
+//     compute them on demand (/consistency, /cmc-readiness, /canonical-json).
+function submissionShape(
+  s: { targetHas: string[]; submissionType: string; projectId: string; sourceModuleAProjectId: string } & Record<string, unknown>,
+  srcProject: { name: string; indication: string | null } | null,
+  owningProject: { name: string } | null,
+) {
+  const { targetHas, ...rest } = s
+  const srcName = srcProject?.name ?? s.sourceModuleAProjectId
+  return {
+    ...rest,
+    targetHAs: targetHas,
+    title: `${srcName} — ${s.submissionType.toUpperCase().replace('_', '/')}`,
+    compound: srcProject?.indication ?? '',
+    indication: srcProject?.indication ?? '',
+    project: owningProject?.name ?? s.projectId,
+  }
+}
+
+async function fetchSrcProjects(prisma: import('@prisma/client').PrismaClient, srcIds: string[]) {
+  if (srcIds.length === 0) return new Map<string, { name: string; indication: string | null }>()
+  const rows = await prisma.project.findMany({
+    where: { id: { in: Array.from(new Set(srcIds)) } },
+    select: { id: true, name: true, indication: true },
+  })
+  return new Map(rows.map(r => [r.id, { name: r.name, indication: r.indication }]))
+}
+
 export const regSubmissionsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:projectId/reg-submissions', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
-    const project = await app.prisma.project.findUnique({ where: { id: projectId } })
+    const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { name: true } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
-    return app.prisma.regulatorySubmission.findMany({
+    const rows = await app.prisma.regulatorySubmission.findMany({
       where: { projectId },
       orderBy: { updatedAt: 'desc' },
     })
+    const srcMap = await fetchSrcProjects(app.prisma, rows.map(r => r.sourceModuleAProjectId))
+    return rows.map(r => submissionShape(r, srcMap.get(r.sourceModuleAProjectId) ?? null, project))
   })
 
   app.post('/:projectId/reg-submissions', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
@@ -132,7 +170,8 @@ export const regSubmissionsProjectScopedRoutes: FastifyPluginAsync = async (app)
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    const srcMap = await fetchSrcProjects(app.prisma, [created.sourceModuleAProjectId])
+    return reply.code(201).send(submissionShape(created, srcMap.get(created.sourceModuleAProjectId) ?? null, project))
   })
 }
 
@@ -141,7 +180,11 @@ export const regSubmissionsRoutes: FastifyPluginAsync = async (app) => {
     const { submissionId } = request.params as { submissionId: string }
     const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
     if (!sub) return reply.code(404).send({ error: 'not_found' })
-    return sub
+    const [srcMap, owning] = await Promise.all([
+      fetchSrcProjects(app.prisma, [sub.sourceModuleAProjectId]),
+      app.prisma.project.findUnique({ where: { id: sub.projectId }, select: { name: true } }),
+    ])
+    return submissionShape(sub, srcMap.get(sub.sourceModuleAProjectId) ?? null, owning)
   })
 
   app.patch('/:submissionId', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {

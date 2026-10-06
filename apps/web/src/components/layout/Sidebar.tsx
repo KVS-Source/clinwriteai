@@ -32,6 +32,7 @@ const PLATFORM_NAV: PlatformNavItem[] = [
 ]
 const SUPER_ADMIN_NAV: PlatformNavItem[] = [
   { label: 'Super Admin Panel',   href: '/super-admin',            roles: ['super-admin'] as const },
+  { label: 'Tenants',             href: '/super-admin/tenants',    roles: ['super-admin'] as const },
   { label: 'Framework Registry',  href: '/super-admin/frameworks', roles: ['super-admin'] as const },
   { label: 'Rate Card',           href: '/super-admin/rate-card',  roles: ['super-admin'] as const },
 ]

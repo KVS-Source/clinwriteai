@@ -64,6 +64,11 @@ import { AdminPanel }                   from '../platform/screens/AdminPanel'
 import { SuperAdminPanel }              from '../platform/screens/SuperAdminPanel'
 import { UserManagement }               from '../platform/screens/UserManagement'
 import { AuditTrailViewer }             from '../platform/screens/AuditTrailViewer'
+import { TenantDirectory }              from '../platform/screens/tenant-admin/TenantDirectory'
+import { TenantDetail }                 from '../platform/screens/tenant-admin/TenantDetail'
+import { SsoConnectionConfig }          from '../platform/screens/tenant-admin/SsoConnectionConfig'
+import { UserManagementLive }           from '../platform/screens/tenant-admin/UserManagementLive'
+import { AuditTrailViewerLive }         from '../platform/screens/tenant-admin/AuditTrailViewerLive'
 import { TATagConfiguration }           from '../platform/screens/TATagConfiguration'
 import { RACIMatrix }                   from '../platform/screens/RACIMatrix'
 import { OnboardingWizard }             from '../platform/screens/OnboardingWizard'
@@ -97,8 +102,16 @@ export const router = createBrowserRouter([
       { path: 'projects/new', element: <PlaceholderScreen name="New Project (04)" /> },
       { path: 'admin',        element: <AdminGuard><AdminPanel /></AdminGuard> },
       { path: 'super-admin',  element: <SuperAdminGuard><SuperAdminPanel /></SuperAdminGuard> },
-      { path: 'admin/users',  element: <AdminGuard><UserManagement /></AdminGuard> },
-      { path: 'admin/audit',  element: <AdminGuard><AuditTrailViewer /></AdminGuard> },
+      // Tenant admin (Arc 4). Live screens use the real API; the legacy
+      // mock-driven ones stay mounted at /admin/users-mock + /admin/audit-mock
+      // for the handover demo until Dev + QA sign off.
+      { path: 'admin/users',       element: <AdminGuard><UserManagementLive /></AdminGuard> },
+      { path: 'admin/users-mock',  element: <AdminGuard><UserManagement /></AdminGuard> },
+      { path: 'admin/audit',       element: <AdminGuard><AuditTrailViewerLive /></AdminGuard> },
+      { path: 'admin/audit-mock',  element: <AdminGuard><AuditTrailViewer /></AdminGuard> },
+      { path: 'super-admin/tenants',                  element: <SuperAdminGuard><TenantDirectory /></SuperAdminGuard> },
+      { path: 'super-admin/tenants/:tenantId',        element: <SuperAdminGuard><TenantDetail /></SuperAdminGuard> },
+      { path: 'super-admin/tenants/:tenantId/sso',    element: <SuperAdminGuard><SsoConnectionConfig /></SuperAdminGuard> },
       { path: 'admin/taxonomy', element: <AdminGuard><TATagConfiguration /></AdminGuard> },
       { path: 'admin/raci',     element: <AdminGuard><RACIMatrix /></AdminGuard> },
       { path: 'notifications',  element: <NotificationCentre /> },

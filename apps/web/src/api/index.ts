@@ -17,5 +17,11 @@ export type { ProjectDashboard, TenantOverview, AiSpendReport, AuditActivityRepo
 export { taxonomyApi }     from './taxonomy'
 export type { TherapeuticArea, TherapeuticAreaNode, ValidateResponse } from './taxonomy'
 
+export { tenantsApi, membershipsApi, ssoApi, auditApi } from './tenantAdmin'
+export type {
+  Tenant, Membership, SsoConnection, AuditEntry, AuditPage,
+  AuditVerifyResult, AuditQuery, ModuleKey,
+} from './tenantAdmin'
+
 export { ApiError }        from './client'
 export { describeApiError, type DescribedError, type ErrorSeverity } from './error-handling'

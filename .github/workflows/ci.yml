@@ -149,7 +149,11 @@ jobs:
         run: npm --workspace=apps/web run build
 
       - name: Run Playwright smoke
-        run: npm --workspace=apps/web run test:e2e
+        # Scope to playwright/smoke/ so a11y failures (which have their
+        # own dedicated job) don't block the deploy gate here. The
+        # smoke suite is a boot-level sanity check; WCAG regressions
+        # surface in the Web — WCAG 2.1 AA job.
+        run: npx --workspace=apps/web playwright test playwright/smoke
 
       - name: Upload Playwright report
         if: always()
@@ -394,6 +398,25 @@ jobs:
           done
           echo "API failed to become ready — tail of log:"
           tail -100 /tmp/api.log
+          exit 1
+
+      - name: Start web preview server in background
+        # Setting E2E_BASE_URL below tells playwright.config.ts NOT to
+        # launch its own webServer — meaning we have to start one here.
+        # Previously missing → every Playwright nav got
+        # ERR_CONNECTION_REFUSED on :4173.
+        run: |
+          cd apps/web
+          nohup npx vite preview --port 4173 --strictPort > /tmp/vite.log 2>&1 &
+          echo $! > /tmp/vite.pid
+          for i in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://localhost:4173/ || true)
+            if [ "$code" = "200" ]; then echo "vite preview ready"; exit 0; fi
+            echo "vite not ready yet (code=$code), retry $i/30"
+            sleep 2
+          done
+          echo "vite preview failed to start — tail of log:"
+          tail -100 /tmp/vite.log
           exit 1
 
       - name: Run smoke suite against live API

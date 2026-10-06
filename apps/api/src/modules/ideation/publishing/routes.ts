@@ -97,6 +97,115 @@ function kolContactShape(k: {
 // serialises as-is. If/when the UI adds a MAContact type we can wrap this
 // in a shape helper for consistency.
 
+// Shape CalendarEntry rows for the UI's packages/types CalendarEntry
+// interface. The UI pulls together card/artefact/user context + the
+// optional PublishRecord relation into a single row:
+//   - channelLabel: lookup via CHANNEL_LABELS (same table used in
+//     atomised/routes.ts; duplicated locally to keep both self-contained)
+//   - cardTitle + ideationProjectId: from card → artefact (artefact.title
+//     + artefact.ideationProjectId)
+//   - assignedCreativeName: User.name batched lookup
+//   - utmParams / seoMetadata / sentimentScore / sentimentAlertSent: from
+//     the publishRecord relation when present; defaults otherwise
+//   - isOverdue + overdueHours: computed vs now when the entry hasn't
+//     been published and the scheduledDate has passed
+// Fields not currently persisted (overdueAlertSentAt, maAdvanceNotification*)
+// are left undefined — the UI treats them as optional.
+
+const CALENDAR_CHANNEL_LABELS: Record<string, string> = {
+  linkedin: 'LinkedIn',
+  twitter: 'X / Twitter',
+  blog: 'Blog',
+  email: 'Email',
+  hcp: 'HCP',
+  medical_affairs: 'Medical Affairs',
+  instagram: 'Instagram',
+  facebook: 'Facebook',
+}
+
+type CalendarEntryShapeInput = {
+  id: string
+  ideationContentCardId: string
+  channel: string
+  scheduledDate: Date
+  assignedCreativeId: string | null
+  status: string
+  publishedAt: Date | null
+  publishedBy: string | null
+  publishRecord?: {
+    utmParams: string | null
+    seoMetadata: unknown
+    sentimentScore: import('@prisma/client/runtime/library').Decimal | null
+    sentimentAlertSent: boolean
+  } | null
+}
+
+function calendarEntryShape(
+  e: CalendarEntryShapeInput,
+  context: {
+    cardTitle: string
+    ideationProjectId: string
+    assignedCreativeName: string
+  },
+  now: Date = new Date(),
+) {
+  const isScheduledOverdue = e.status === 'scheduled' && e.scheduledDate < now
+  const overdueHours = isScheduledOverdue
+    ? Math.floor((now.getTime() - e.scheduledDate.getTime()) / (1000 * 60 * 60))
+    : undefined
+  const pr = e.publishRecord ?? null
+  return {
+    id: e.id,
+    ideationContentCardId: e.ideationContentCardId,
+    ideationProjectId: context.ideationProjectId,
+    channel: e.channel,
+    channelLabel: CALENDAR_CHANNEL_LABELS[e.channel] ?? e.channel,
+    cardTitle: context.cardTitle,
+    scheduledDate: e.scheduledDate.toISOString(),
+    assignedCreativeId: e.assignedCreativeId ?? '',
+    assignedCreativeName: context.assignedCreativeName,
+    status: e.status as 'scheduled' | 'published' | 'overdue' | 'cancelled',
+    publishedAt: e.publishedAt ? e.publishedAt.toISOString() : null,
+    publishedBy: e.publishedBy,
+    utmParams: pr?.utmParams ?? null,
+    seoMetadata: (pr?.seoMetadata as Record<string, unknown>) ?? {},
+    sentimentScore: pr?.sentimentScore != null ? Number(pr.sentimentScore.toString()) : null,
+    sentimentAlertSent: pr?.sentimentAlertSent ?? false,
+    isOverdue: isScheduledOverdue,
+    overdueHours,
+  }
+}
+
+async function fetchCalendarContext(
+  prisma: import('@prisma/client').PrismaClient,
+  entries: ReadonlyArray<{ ideationContentCardId: string; assignedCreativeId: string | null }>,
+): Promise<{
+  cardCtx: Map<string, { cardTitle: string; ideationProjectId: string }>
+  userCtx: Map<string, string>
+}> {
+  const cardIds = Array.from(new Set(entries.map(e => e.ideationContentCardId)))
+  const userIds = Array.from(new Set(entries.map(e => e.assignedCreativeId).filter((x): x is string => !!x)))
+
+  const [cards, users] = await Promise.all([
+    cardIds.length > 0
+      ? prisma.ideationContentCard.findMany({
+        where: { id: { in: cardIds } },
+        select: { id: true, sourceSection: true, artefact: { select: { title: true, ideationProjectId: true } } },
+      })
+      : Promise.resolve([]),
+    userIds.length > 0
+      ? prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+      : Promise.resolve([]),
+  ])
+
+  const cardCtx = new Map(cards.map(c => [c.id, {
+    cardTitle: c.artefact?.title ? `${c.artefact.title} — ${c.sourceSection}` : c.sourceSection,
+    ideationProjectId: c.artefact?.ideationProjectId ?? '',
+  }]))
+  const userCtx = new Map(users.map(u => [u.id, u.name]))
+  return { cardCtx, userCtx }
+}
+
 const dublinCoreSchema = z.object({
   dcTitle: z.string().min(1),
   dcCreator: z.string().min(1),
@@ -212,11 +321,17 @@ export const publishingRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/cards/:cardId/calendar', { preHandler: requireAuth({ modules: ['E'] }) }, async (request) => {
     const { cardId } = request.params as { cardId: string }
-    return app.prisma.calendarEntry.findMany({
+    const rows = await app.prisma.calendarEntry.findMany({
       where: { ideationContentCardId: cardId },
       orderBy: { scheduledDate: 'asc' },
       include: { publishRecord: true },
     })
+    const { cardCtx, userCtx } = await fetchCalendarContext(app.prisma, rows)
+    return rows.map(r => calendarEntryShape(r, {
+      cardTitle: cardCtx.get(r.ideationContentCardId)?.cardTitle ?? '',
+      ideationProjectId: cardCtx.get(r.ideationContentCardId)?.ideationProjectId ?? '',
+      assignedCreativeName: r.assignedCreativeId ? userCtx.get(r.assignedCreativeId) ?? '' : '',
+    }))
   })
 
   app.post('/cards/:cardId/calendar', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
@@ -259,7 +374,12 @@ export const publishingRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    const { cardCtx, userCtx } = await fetchCalendarContext(app.prisma, [created])
+    return reply.code(201).send(calendarEntryShape({ ...created, publishRecord: null }, {
+      cardTitle: cardCtx.get(cardId)?.cardTitle ?? '',
+      ideationProjectId: cardCtx.get(cardId)?.ideationProjectId ?? '',
+      assignedCreativeName: created.assignedCreativeId ? userCtx.get(created.assignedCreativeId) ?? '' : '',
+    }))
   })
 
   app.post('/calendar/:entryId/publish', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
@@ -310,7 +430,19 @@ export const publishingRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return result
+    // Return the updated calendar entry (shape) rather than the raw
+    // publish record — the UI consumes CalendarEntry, which already
+    // carries the publish-record fields denormed on it.
+    const updatedEntry = await app.prisma.calendarEntry.findUniqueOrThrow({
+      where: { id: entryId },
+      include: { publishRecord: true },
+    })
+    const { cardCtx, userCtx } = await fetchCalendarContext(app.prisma, [updatedEntry])
+    return calendarEntryShape(updatedEntry, {
+      cardTitle: cardCtx.get(updatedEntry.ideationContentCardId)?.cardTitle ?? '',
+      ideationProjectId: cardCtx.get(updatedEntry.ideationContentCardId)?.ideationProjectId ?? '',
+      assignedCreativeName: updatedEntry.assignedCreativeId ? userCtx.get(updatedEntry.assignedCreativeId) ?? '' : '',
+    })
   })
 
   app.post('/calendar/:entryId/cancel', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
@@ -320,7 +452,7 @@ export const publishingRoutes: FastifyPluginAsync = async (app) => {
     if (entry.status === 'published') {
       return reply.code(422).send({ error: 'already_published', message: 'Published entries cannot be cancelled; create a retraction record instead.' })
     }
-    const updated = await app.prisma.calendarEntry.update({
+    await app.prisma.calendarEntry.update({
       where: { id: entryId },
       data: { status: 'cancelled' },
     })
@@ -335,7 +467,16 @@ export const publishingRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    const withRecord = await app.prisma.calendarEntry.findUniqueOrThrow({
+      where: { id: entryId },
+      include: { publishRecord: true },
+    })
+    const { cardCtx, userCtx } = await fetchCalendarContext(app.prisma, [withRecord])
+    return calendarEntryShape(withRecord, {
+      cardTitle: cardCtx.get(withRecord.ideationContentCardId)?.cardTitle ?? '',
+      ideationProjectId: cardCtx.get(withRecord.ideationContentCardId)?.ideationProjectId ?? '',
+      assignedCreativeName: withRecord.assignedCreativeId ? userCtx.get(withRecord.assignedCreativeId) ?? '' : '',
+    })
   })
 
   // --- DOI + Dublin Core -------------------------------------------------

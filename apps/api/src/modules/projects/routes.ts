@@ -38,18 +38,53 @@ const transitionSchema = z.object({
   reason: z.string().max(500).optional(),
 })
 
+// Shape rows for the UI's `Project` interface in packages/types. Flattens
+// the Prisma teamMembers relation into the `team` array the UI consumes.
+// Pulled into a helper so list + detail routes stay 1:1 aligned.
+type ProjectWithTeam = Awaited<ReturnType<typeof import('@prisma/client').PrismaClient.prototype.project.findFirst>> extends infer P
+  ? P & { teamMembers: Array<{ userId: string; name: string; initials: string | null; role: string; raci: string; colourKey: string | null }> }
+  : never
+
+function projectShape(p: ProjectWithTeam) {
+  if (!p) return p
+  return {
+    ...p,
+    team: p.teamMembers.map(m => ({
+      userId: m.userId,
+      name: m.name,
+      initials: m.initials ?? '',
+      role: m.role,
+      raci: m.raci,
+      colourKey: m.colourKey ?? undefined,
+    })),
+    // Keep teamMembers off the serialised wire so clients don't see both.
+    teamMembers: undefined,
+  }
+}
+
 export const projectRoutes: FastifyPluginAsync = async (app) => {
   // List — all authenticated users see the full set. Tenant scoping (per-user
   // visibility) lands when multi-tenant goes live in Phase 2.
+  //
+  // Response shape: Prisma Project rows + a `team` array matching the UI's
+  // packages/types `TeamMember` interface. Team is included so the UI's
+  // Project.team access doesn't 500 the browser after cutover.
   app.get('/', { preHandler: requireAuth() }, async () => {
-    return app.prisma.project.findMany({ orderBy: { createdAt: 'desc' } })
+    const rows = await app.prisma.project.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: { teamMembers: true },
+    })
+    return rows.map(projectShape)
   })
 
   app.get('/:id', { preHandler: requireAuth() }, async (request, reply) => {
     const { id } = request.params as { id: string }
-    const project = await app.prisma.project.findUnique({ where: { id } })
+    const project = await app.prisma.project.findUnique({
+      where: { id },
+      include: { teamMembers: true },
+    })
     if (!project) return reply.code(404).send({ error: 'not_found' })
-    return project
+    return projectShape(project)
   })
 
   app.post('/', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {

@@ -13,10 +13,23 @@ log() { echo "[deploy $(date +'%H:%M:%S')] $*"; }
 
 # ---------- Pull latest ----------
 log "git fetch + checkout"
+PREV_SHA=$(sudo -u platform git rev-parse --short HEAD 2>/dev/null || echo "none")
 sudo -u platform git fetch origin main --quiet
 sudo -u platform git checkout -q origin/main
 HEAD_SHA=$(sudo -u platform git rev-parse --short HEAD)
 log "At commit ${HEAD_SHA}"
+
+# Self re-exec guard. bash reads scripts as it executes them; if
+# deploy.sh itself changed between PREV_SHA and HEAD_SHA, the running
+# bash is still executing the pre-pull version — any new logic added to
+# deploy.sh (like a Prisma generate step) silently gets skipped. Re-exec
+# once with a marker env so the fresh version takes over.
+if [[ "${PREV_SHA}" != "${HEAD_SHA}" ]] && [[ "${DEPLOY_RELOADED:-0}" != "1" ]]; then
+  if ! sudo -u platform git diff --quiet "${PREV_SHA}" "${HEAD_SHA}" -- infra/standalone/scripts/deploy.sh 2>/dev/null; then
+    log "deploy.sh itself changed between ${PREV_SHA} and ${HEAD_SHA} — re-exec'ing"
+    DEPLOY_RELOADED=1 exec bash /opt/platform/repo/infra/standalone/scripts/deploy.sh
+  fi
+fi
 
 # ---------- TLS cert — first-run provisioning ----------
 # nginx config in infra/standalone/nginx/platform.conf references

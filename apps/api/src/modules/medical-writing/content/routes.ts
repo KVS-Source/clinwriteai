@@ -62,6 +62,22 @@ const listQuerySchema = z.object({
   taTag: z.string().optional(),
 })
 
+// Shape med-content rows for the UI's packages/types `MedContentItem`
+// interface. Two name mismatches between Prisma + UI need aliasing:
+//   - Prisma `tierOverriddenBy`        → UI `reviewTierOverriddenBy`
+//   - Prisma `sourceModuleBPubId`      → UI `sourceModuleBPublicationId`
+// UI also expects aiFootprintPct as number-not-null; Prisma stores Int?,
+// so we default to 0 when null (matches "no AI assist" semantics).
+function medContentShape(m: { tierOverriddenBy: string | null; sourceModuleBPubId: string | null; aiFootprintPct: number | null } & Record<string, unknown>) {
+  const { tierOverriddenBy, sourceModuleBPubId, aiFootprintPct, ...rest } = m
+  return {
+    ...rest,
+    reviewTierOverriddenBy: tierOverriddenBy,
+    sourceModuleBPublicationId: sourceModuleBPubId,
+    aiFootprintPct: aiFootprintPct ?? 0,
+  }
+}
+
 export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:projectId/med-content', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
@@ -71,7 +87,7 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
-    return app.prisma.medContentItem.findMany({
+    const rows = await app.prisma.medContentItem.findMany({
       where: {
         projectId,
         archivedAt: null,
@@ -81,6 +97,7 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
       },
       orderBy: { updatedAt: 'desc' },
     })
+    return rows.map(medContentShape)
   })
 
   app.post('/:projectId/med-content', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
@@ -134,7 +151,7 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    return reply.code(201).send(medContentShape(created))
   })
 }
 
@@ -143,7 +160,7 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
     const { contentId } = request.params as { contentId: string }
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item || item.archivedAt) return reply.code(404).send({ error: 'not_found' })
-    return item
+    return medContentShape(item)
   })
 
   app.patch('/:contentId', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {

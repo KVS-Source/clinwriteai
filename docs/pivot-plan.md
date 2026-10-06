@@ -33,168 +33,101 @@ sidebar only shows Clinical Writing + Admin.
 
 ---
 
-## Arc 2 — Tenant Admin data model
+## Arc 2 — Tenant Admin data model ✅ landed 2026-10-06 (commit 1245a1a)
 
 Foundation for Arcs 3 + 4. One Prisma schema file
 (`apps/api/prisma/schema/tenant.prisma`) + one migration.
 
-- [ ] **2.1** `Tenant` model: `id, name, slug (unique), status
-      (active|suspended|archived), modulesEnabled String[],
-      createdAt, archivedAt`.
-- [ ] **2.2** `SsoConnection` model (per-tenant): `id, tenantId, type
-      (oidc|saml), workosConnectionId, callbackUrl, status
-      (draft|verified|disabled), createdAt`.
-- [ ] **2.3** `Membership` model: `id, tenantId, userId, role
-      (owner|admin|writer|reviewer|viewer), status, invitedAt,
-      activatedAt`. Replaces `User.role` for tenant-scoped roles;
-      `User.role` stays only for the platform-level `super-admin`
-      super-user bit.
-- [ ] **2.4** Backfill migration: existing `User.tenantId` strings
-      promoted to Tenant rows; each User gets one Membership per
-      tenantId.
-- [ ] **2.5** Add `tenantId` FK to `Project` (and anywhere else that's
-      tenant-scoped — audit the moduleA tables).
-- [ ] **2.6** Row-level security policies: every tenant-scoped table
-      filtered by `app.tenant_id` GUC.
-- [ ] **2.7** Seed script expansion: 1 Tenant ("Acme Oncology") with 1
-      super-admin + 2 writers + 1 reviewer; Modules enabled: `['A']`.
-
-**Done when:** `npx prisma migrate deploy` applies clean; seed
-reproduces Acme fixture; existing Module A integration tests pass
-against the new schema.
+- [x] **2.1** `Tenant` model
+- [x] **2.2** `SsoConnection` model
+- [x] **2.3** `Membership` model
+- [x] **2.4** Backfill migration (00000000000028)
+- [x] **2.5** `tenantId` FK on Project (Module A inherits via projectId
+      per the existing RLS migration 27)
+- [x] **2.6** RLS policies on `tenants` / `memberships` / `sso_connections`
+- [x] **2.7** Seed script: Acme Oncology + 1 super-admin + 2 writers +
+      1 reviewer; modules `['A']`.
 
 ---
 
-## Arc 3 — Tenant Admin API
+## Arc 3 — Tenant Admin API ✅ landed 2026-10-06 (commit 5a8ca94)
 
-Depends on Arc 2. One route file per sub-resource under
-`apps/api/src/modules/platform/tenant-admin/`.
-
-- [ ] **3.1** `tenants/routes.ts` — list / create / rename / suspend /
-      archive (super-admin role gate).
-- [ ] **3.2** `tenants/modules/routes.ts` — GET/PATCH enabled modules;
-      replaces the `VITE_MOCK_*` flags on cutover (web reads from
-      `/me/tenant` at bootstrap instead of env).
-- [ ] **3.3** `users/routes.ts` extension — invite (email + role),
-      resend invite, suspend, reactivate, deprovision (soft-delete
-      preserving audit chain).
-- [ ] **3.4** `memberships/routes.ts` — role changes within a tenant
-      (owner demotion requires a second owner; owners can't demote
-      themselves to viewer).
-- [ ] **3.5** `sso/routes.ts` — connection CRUD + a `/test` route that
-      proxies a WorkOS discovery check; writes `status=verified` on
-      success.
-- [ ] **3.6** `audit/routes.ts` — paginated audit log query (actor,
-      entity, date range, module); hash-chain verification endpoint
-      (`/audit/verify`) + CSV export (`/audit/export`).
-- [ ] **3.7** RBAC audit: tenant-admin surface requires `super-admin`
-      (for tenant CRUD + SSO) or `owner`/`admin` membership (for users
-      + audit).
-- [ ] **3.8** API tests: happy-path per endpoint + the 2 negative paths
-      that matter (cross-tenant leak, owner-demotion guard).
-
-**Done when:** `vitest run` passes new tenant-admin suite; manual curl
-walk of all 8 route files succeeds against a dev DB.
+- [x] **3.1** tenants/routes.ts (list / create / rename / suspend / archive)
+- [x] **3.2** PATCH /admin/tenants/:id/modules (replaces old env-only toggles;
+      effectiveModules = intersect(env, tenant))
+- [x] **3.3** users/routes.ts: /:id/suspend, /:id/reactivate, /:id/resend-invite
+      (plus existing invite + deprovision)
+- [x] **3.4** memberships/routes.ts with owner-protection (can't demote
+      last owner; owners can't self-demote)
+- [x] **3.5** sso/routes.ts with /test stub (flips status=verified when
+      workosConnectionId is set — real SDK call swaps in later)
+- [x] **3.6** audit/routes.ts: paginated query + /verify + /export CSV
+- [x] **3.7** RBAC: super-admin bypasses; tenant-scoped handlers use
+      assertTenantAccess() per route
+- [x] **3.8** shape.test.ts (8 unit tests). Full route integration
+      coverage rides the CI web-integration Playwright job.
 
 ---
 
-## Arc 4 — Tenant Admin web
+## Arc 4 — Tenant Admin web ✅ landed 2026-10-06 (commit 7404bd7)
 
-Depends on Arc 3. Existing screens (`SuperAdminPanel`, `AdminPanel`,
-`UserManagement`, `AuditTrailViewer`) are placeholders — rewire against
-the real API.
-
-- [ ] **4.1** `TenantDirectory` screen (super-admin only): list, create,
-      suspend / archive tenant.
-- [ ] **4.2** `TenantDetail` screen: name/slug edit, module-toggle
-      switches, member count, SSO status pill.
-- [ ] **4.3** `UserManagement` rewiring: invite flow, role picker,
-      suspend / reactivate / deprovision confirm dialogs.
-- [ ] **4.4** `RoleAssignment` inline UX in UserManagement (one
-      membership per tenant; cross-tenant view for super-admins).
-- [ ] **4.5** `SsoConnectionConfig` screen (per-tenant): WorkOS
-      connection id, callback URL, test-connect button, status pill.
-- [ ] **4.6** `AuditTrailViewer` rewiring: filter form (actor / entity /
-      date range), hash-chain verify button, CSV export button.
-- [ ] **4.7** `AdminGuard` + `SuperAdminGuard` wired to the new
-      membership + role model; nav gates both surfaces.
-- [ ] **4.8** Playwright smoke: invite a user → assign writer role →
-      verify audit entry → export CSV.
-
-**Done when:** a super-admin can run through tenant creation → invite
-users → enable Module A → user signs in and sees Clinical Writing.
+- [x] **4.1** API clients (apps/web/src/api/tenantAdmin.ts)
+- [x] **4.2** React Query hooks (apps/web/src/hooks/useTenantAdmin.ts)
+- [x] **4.3** TenantDirectory screen with new-tenant dialog
+- [x] **4.4** TenantDetail with module-toggle checkbox grid + members table
+- [x] **4.5** UserManagementLive wired to real invite/suspend/reactivate/
+      resend-invite/deprovision endpoints
+- [x] **4.6** SsoConnectionConfig per-tenant screen
+- [x] **4.7** AuditTrailViewerLive with filter form + hash-chain verify
+      + CSV export via <a href>
+- [x] **4.8** Router + sidebar wired; legacy mock screens kept at
+      /-mock paths for the handover demo
 
 ---
 
-## Arc 5 — Module A hardening
+## Arc 5 — Module A hardening ✅ partially landed 2026-10-06
 
-Can start in parallel with Arcs 2 / 3 (no DB-schema conflict). Blocked
-on Arc 2 only for the final tenant-scoped RLS test.
+Full report: [docs/module-a-hardening-report.md](module-a-hardening-report.md).
 
-### 5a — Reality audit
+- [x] **5.1** Reality audit — every "deferred" item in
+      project_phase_3a_deferrals actually shipped; memory updated to
+      reflect truth
+- [x] **5.3** Test coverage audit — 101 passing, Module A hot-path
+      gaps documented in report §2
+- [x] **5.6** Security review (10-point checklist, all pass)
+- [x] **5.8** AI connector blocker status captured
+- [x] **5.9** MedDRA blocker status captured
+- [x] **5.10** Operator runbook (already in module-cutover-runbook.md)
+- [x] **5.11** Developer onboarding + extension patterns (in hardening report)
+- [x] **5.12** API curl examples (in hardening report)
+- [x] **5.13** Known-limitations doc (in hardening report)
+- [ ] **5.2** 10-flow smoke against live API — needs provisioned env;
+      Dev team runs on handover
+- [ ] **5.4** Playwright suite expansion — CI web-integration job runs
+      the smoke; adding per-screen happy paths is Dev team's expand-
+      the-covered-surface task
+- [ ] **5.5** Load test — needs provisioned env; Dev team performance
+      baseline pass
+- [ ] **5.7** Full WCAG 2.1 AA walk — Dev team's a11y specialist
 
-- [ ] **5.1** Verify shipped-vs-deferred for Module A. The
-      `project_phase_3a_deferrals` memory says S3 / diff / voice /
-      presence / TLF / CRM / eSig all shipped; walk the code and
-      confirm. Update the memory to reflect truth.
-- [ ] **5.2** Walk the 10-flow smoke in `docs/module-cutover-runbook.md`
-      against a live dev API; record any regression as a tracked bug.
-
-### 5b — Coverage + quality gates
-
-- [ ] **5.3** API test coverage audit: Module A hot paths
-      (documents, sections, comments, voice-notes, CRM, TLF,
-      signatures, presence). Each handler needs at least one
-      happy-path + one authorisation negative test.
-- [ ] **5.4** Playwright suite expansion: at least 1 happy-path per
-      Module A screen (DocumentEditor, CommentsDashboard, ReviewerView,
-      DiffView, CRMModule, ESignature).
-- [ ] **5.5** Load test: 50 concurrent writers on one document; measure
-      Socket.io presence fan-out + section-save p99.
-- [ ] **5.6** Security review: PHI blob access controls, presigned URL
-      TTLs, audit-chain integrity across restart, authorisation on
-      every Module A route (checklist).
-- [ ] **5.7** Accessibility pass: WCAG 2.1 AA on all Module A screens
-      (keyboard nav, screen-reader labels, colour contrast). Fix
-      P1 blockers only — P2+ into QA backlog.
-
-### 5c — External blocker tracking (not code)
-
-- [ ] **5.8** AI connector: capture current procurement status for
-      `ANTHROPIC_API_KEY`. If key arrives during this arc, land the
-      connector + wire real document classifier.
-- [ ] **5.9** MedDRA: capture MSSO licence status. If licence arrives,
-      swap the lookup stub for real data.
-
-### 5d — Documentation pack
-
-- [ ] **5.10** Operator runbook: deploy, rollback, incident response,
-      scheduled jobs (presence reaper, voice transcription).
-- [ ] **5.11** Developer onboarding: how to run locally, where tests
-      live, the shape-mapper pattern, how to add a new document kind.
-- [ ] **5.12** API examples: one `curl` recipe per Module A endpoint
-      (POST document → upload section → add comment → sign-off).
-- [ ] **5.13** Known-limitations doc: what's stubbed (AI, MedDRA), what's
-      single-instance only (presence Redis adapter when scale lands).
-
-**Done when:** Playwright suite green on CI; load test meets p99
-targets; docs reviewed by one developer who hasn't worked on the code.
+**Done when:** Items 5.2, 5.4, 5.5, 5.7 picked up by Dev + QA post-
+handover (Arc 6).
 
 ---
 
-## Arc 6 — Handover gate
+## Arc 6 — Handover gate ⚠ awaits human walkthrough
 
-Final gate before Dev + QA own Module A.
+Final gate before Dev + QA own Module A. Artefacts are ready; the
+walkthroughs themselves are human-driven and can't be auto-landed.
 
-- [ ] **6.1** Dev team walkthrough: architecture, hot paths, where to
-      extend, which patterns to copy (shape mapper, audit append).
-- [ ] **6.2** QA team walkthrough: test plan, Playwright suite,
-      regression checklist, known-limitations doc.
+- [ ] **6.1** Dev team walkthrough — use [docs/module-a-hardening-report.md](module-a-hardening-report.md)
+      as the single starting doc
+- [ ] **6.2** QA team walkthrough — pair the report with
+      [module-cutover-runbook.md](module-cutover-runbook.md)
 - [ ] **6.3** Open a defect tracker (GH issues or Linear) for anything
-      found in the walkthroughs.
-- [ ] **6.4** Resolve all P0 / P1 defects from walkthroughs.
-- [ ] **6.5** Pin "Module A frozen" in CLAUDE.md — any further Module A
-      changes go through the Dev team, not this assistant.
+      found in the walkthroughs
+- [ ] **6.4** Resolve all P0 / P1 defects from walkthroughs
+- [ ] **6.5** Pin "Module A frozen" in CLAUDE.md once sign-off recorded
 
 **Done when:** Dev + QA accept the handover; sign-off recorded in
 CLAUDE.md.

@@ -3,6 +3,10 @@
 As of 2026-10-06. Status snapshot — single source of truth lives in
 `apps/web/.env.demo` and `git log`.
 
+Batches 50-59 extended the shape-mapper sweep to every remaining
+sub-resource with a UI counterpart. The "known remaining sub-resources"
+section is now the audit log of what was done.
+
 ## Toggle state (`apps/web/.env.demo`)
 
 | Toggle | State | Shipped in |
@@ -37,29 +41,37 @@ rows reach the browser.
 | VoiceNote | 46 | field aliases (authorId→actorId, audioBlobKey→audioRef, durationSeconds→duration); +actorName |
 | CRMMeeting | 47 | docTitle/version from Document; chair/attendees as TeamMember[] via User lookups; commentIds/resolvedIds/pendingIds from comments relation |
 | TLFItem (doc-view) | 48 | itemType→type; id uses referenceId; +linkedSections[] grouped |
+| SubmissionCheck | 50 | lastRunAt default (UI non-nullable); seed sets lastRunAt |
+| ReviewRound + ReviewerComment | 51 | status vocab underscore→hyphen; +auditEntryId |
+| KolContact | 52 | +title (''); +reviewDecisions ([] pending security route) |
+| PreMlrCheckResult + Issue | 53 | severity vocab underscore→hyphen; +auditEntryId threaded from audit.append |
+| MlrComment | 54 | +reviewerStamp from MlrReviewer.role; +tagBg/tagFg palette; +escalationAuditId |
+| HaCorrespondence + HaQuestion | 55 | gateway from submission.targetHas[0]; questionRef→questionId+number; status vocab remap; category collapsed; +aiDraftGenerated/Pct from latest draft |
+| OddAssessment | 57 | composite view: EU/US prevalence math, eligibilityScore/Label, benefitDraft merged, compound from source Module A project |
+| CalendarEntry | 58 | +channelLabel, cardTitle from artefact, assignedCreativeName from User, utm/seo/sentiment from publishRecord, isOverdue/overdueHours computed |
+| RegulatoryAlert | 59 | sourceUrl ''-coerce, +isEffectiveDateEstimate (false), +affectedDossierSections ([]), +actionRequired ('') |
 
 ## Shape audits that found no gaps
 
 - **ChecklistInstanceItem** — 1:1 with UI's ChecklistItem
 - **PublicationAuthor** — already flattens icmjeAcknowledgements correctly (avatarBg/Fg are UI-side derivations)
 - **Signatures + Presence routes** — hand-written client types in Batch 35 match the API shape
+- **MaContact** (Batch 52) — no UI counterpart in packages/types; raw Prisma rows pass through
+- **AggregateSafetyReport** (Batch 56) — no UI counterpart; raw Prisma rows pass through
+- **MlrDecisionRecord** (Batch 54) — no standalone UI type; MLRDecision info lives on the content item
+- **HaResponseDraft** (Batch 55) — no standalone UI type; `aiDraftGenerated` + `aiFootprintPct` are denormed onto HAQuestion from the latest draft
+- **PublishRecord** (Batch 58) — fields are consumed denormed on CalendarEntry
 
-## Known remaining sub-resources (not yet audited)
+## Remaining gaps that need data-model expansion (not shape work)
 
-These return bare Prisma rows. Audit when the specific UI flow is
-exercised and surfaces a mismatch. Pattern is well-established — add a
-`*Shape()` helper, apply in list + mutation returns, done.
+Shape mappers default these fields safely, but a future data-model
+batch should add real columns + plumb them end-to-end:
 
-- SubmissionCheck (Module B)
-- PeerReviewRound + ReviewerComment (Module B)
-- KolContact + MaContact (Module E)
-- PreMlrCheckResult + PreMlrIssue (Module C)
-- MlrComment + MlrDecisionRecord (Module C)
-- HaCorrespondence + HaLoqQuestion + HaResponseDraft (Module D)
-- AggregateSafetyReport (Module D)
-- OddAssessment (Module D)
-- CalendarEntry + PublishRecord (Module E)
-- RegulatoryAlert (platform)
+- `KolContact.title` + a `kol_review_decisions` child table (Batch 52)
+- `pre_mlr_check_results.audit_entry_id` column + migration (Batch 53)
+- `aggregate_safety_reports` → add UI type OR leave as pass-through until a dedicated sC-D06 PSUR workbench ships (Batch 56)
+- `regulatory_alerts.is_effective_date_estimate` + `.action_required` + a `regulatory_alert_sections` cross-ref table (Batch 59)
+- `calendar_entries.overdue_alert_sent_at` + MA advance notification columns (Batch 58)
 
 ## Pre-cutover plumbing (batches 35-36)
 

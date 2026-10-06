@@ -27,23 +27,61 @@ const createSchema = z.object({
   sourceUrl: z.string().url().optional(),
 })
 
+// Shape RegulatoryAlert rows for the UI's packages/types RegulatoryAlert
+// interface. Date → ISO coercion for the two timestamp fields, plus three
+// Prisma-side gaps the UI treats as present:
+//   - isEffectiveDateEstimate: boolean — not stored; defaults to false
+//     until a flag column lands (publishers that know the date is firm
+//     will stay accurate; estimated-date flows can set it when the data
+//     model expands).
+//   - affectedDossierSections: UI expects a cross-reference to CTD
+//     sections impacted by the alert. No table for this today — [].
+//   - actionRequired: author-written guidance ("re-run CMC consistency",
+//     "update label section 5.1", etc). Not persisted — ''.
+//   - sourceUrl: UI treats this non-nullable; coerce null → ''.
+function regulatoryAlertShape(a: {
+  id: string
+  frameworkName: string
+  changeSummary: string
+  effectiveDate: Date
+  affectedModules: string[]
+  sourceUrl: string | null
+  alertedAt: Date
+  acknowledgedByIds: string[]
+}) {
+  return {
+    id: a.id,
+    frameworkName: a.frameworkName,
+    changeSummary: a.changeSummary,
+    effectiveDate: a.effectiveDate.toISOString(),
+    isEffectiveDateEstimate: false,
+    affectedModules: a.affectedModules,
+    alertedAt: a.alertedAt.toISOString(),
+    acknowledgedByIds: a.acknowledgedByIds,
+    affectedDossierSections: [] as string[],
+    actionRequired: '',
+    sourceUrl: a.sourceUrl ?? '',
+  }
+}
+
 export const regulatoryAlertsRoutes: FastifyPluginAsync = async (app) => {
   app.get('/regulatory-alerts', { preHandler: requireAuth({ modules: ['A', 'B', 'C', 'D', 'E'] }) }, async (request) => {
     const { module } = request.query as { module?: string }
-    return app.prisma.regulatoryAlert.findMany({
+    const rows = await app.prisma.regulatoryAlert.findMany({
       where: {
         archivedAt: null,
         ...(module ? { affectedModules: { has: module } } : {}),
       },
       orderBy: { alertedAt: 'desc' },
     })
+    return rows.map(regulatoryAlertShape)
   })
 
   app.get('/regulatory-alerts/:alertId', { preHandler: requireAuth({ modules: ['A', 'B', 'C', 'D', 'E'] }) }, async (request, reply) => {
     const { alertId } = request.params as { alertId: string }
     const alert = await app.prisma.regulatoryAlert.findUnique({ where: { id: alertId } })
     if (!alert) return reply.code(404).send({ error: 'not_found' })
-    return alert
+    return regulatoryAlertShape(alert)
   })
 
   app.post('/admin/regulatory-alerts', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
@@ -76,7 +114,7 @@ export const regulatoryAlertsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(alert)
+    return reply.code(201).send(regulatoryAlertShape(alert))
   })
 
   app.patch('/regulatory-alerts/:alertId/acknowledge', { preHandler: requireAuth({ modules: ['A', 'B', 'C', 'D', 'E'] }) }, async (request, reply) => {
@@ -85,7 +123,7 @@ export const regulatoryAlertsRoutes: FastifyPluginAsync = async (app) => {
     if (!alert) return reply.code(404).send({ error: 'not_found' })
     const userId = request.user!.id
     if (alert.acknowledgedByIds.includes(userId)) {
-      return alert  // idempotent — already acknowledged
+      return regulatoryAlertShape(alert)  // idempotent — already acknowledged
     }
 
     const updated = await app.prisma.regulatoryAlert.update({
@@ -103,7 +141,7 @@ export const regulatoryAlertsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    return regulatoryAlertShape(updated)
   })
 
   app.delete('/admin/regulatory-alerts/:alertId', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
@@ -115,6 +153,6 @@ export const regulatoryAlertsRoutes: FastifyPluginAsync = async (app) => {
       where: { id: alertId },
       data: { archivedAt: new Date() },
     })
-    return archived
+    return regulatoryAlertShape(archived)
   })
 }

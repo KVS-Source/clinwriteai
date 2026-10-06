@@ -29,6 +29,40 @@ const listQuerySchema = z.object({
   severity: z.enum(['major', 'minor', 'query']).optional(),
 })
 
+// Shape comments for the UI's packages/types `Comment` interface. UI
+// expects reviewerName + reviewerInitials (looked up from User) + age
+// ("3 days ago"-style display string). Prisma stores only reviewerId
+// + createdAt.
+function formatAge(createdAt: Date): string {
+  const diffMs = Date.now() - createdAt.getTime()
+  const minutes = Math.floor(diffMs / 60_000)
+  if (minutes < 1) return 'just now'
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`
+  return `${Math.floor(months / 12)} year${Math.floor(months / 12) === 1 ? '' : 's'} ago`
+}
+
+function commentShape(c: { reviewerId: string; createdAt: Date } & Record<string, unknown>, reviewer: { name: string; initials: string | null } | null) {
+  return {
+    ...c,
+    reviewerName: reviewer?.name ?? c.reviewerId,
+    reviewerInitials: reviewer?.initials ?? '',
+    age: formatAge(c.createdAt),
+  }
+}
+
+async function fetchCommentReviewers(prisma: import('@prisma/client').PrismaClient, rows: Array<{ reviewerId: string }>) {
+  if (rows.length === 0) return new Map<string, { name: string; initials: string | null }>()
+  const ids = Array.from(new Set(rows.map(r => r.reviewerId)))
+  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, initials: true } })
+  return new Map(users.map(u => [u.id, { name: u.name, initials: u.initials }]))
+}
+
 export const commentsRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
@@ -38,7 +72,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
-    return app.prisma.comment.findMany({
+    const rows = await app.prisma.comment.findMany({
       where: {
         documentId,
         ...(parsed.data.status && { status: parsed.data.status }),
@@ -47,6 +81,8 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       },
       orderBy: { createdAt: 'desc' },
     })
+    const reviewers = await fetchCommentReviewers(app.prisma, rows)
+    return rows.map(r => commentShape(r, reviewers.get(r.reviewerId) ?? null))
   })
 
   app.post('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -84,7 +120,10 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    const [reviewer] = await Promise.all([
+      app.prisma.user.findUnique({ where: { id: created.reviewerId }, select: { name: true, initials: true } }),
+    ])
+    return reply.code(201).send(commentShape(created, reviewer))
   })
 
   app.patch('/:documentId/comments/:commentId/resolve', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -122,7 +161,8 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    const reviewer = await app.prisma.user.findUnique({ where: { id: updated.reviewerId }, select: { name: true, initials: true } })
+    return commentShape(updated, reviewer)
   })
 
   // Document audit trail — reads from the hash-chained audit_events table

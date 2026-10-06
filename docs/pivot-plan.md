@@ -10,22 +10,22 @@ as commits land. "Done" definition is at the end of each Arc.
 
 ---
 
-## Arc 1 — Pivot setup
+## Arc 1 — Pivot setup ✅ landed 2026-10-06 (commit 8ca9bd1)
 
 Low-risk housekeeping that locks in the pivot. One batch of commits.
 
-- [ ] **1.1** Add a `FEATURE_MODULES_ENABLED` env var on API; default to
+- [x] **1.1** Add a `FEATURE_MODULES_ENABLED` env var on API; default to
       `['A']`. Any route whose `requireAuth({ modules: [...] })` list
       doesn't intersect the enabled set returns `503 module_disabled`.
-- [ ] **1.2** Hide B / C / D / E entries in the web nav
+- [x] **1.2** Hide B / C / D / E entries in the web nav
       (`apps/web/src/components/layout/Sidebar.tsx`); keep the route
       files mounted so deep links show a "module disabled" screen rather
       than 404.
-- [ ] **1.3** Add a `/CLAUDE.md` section documenting the pivot (focus
+- [x] **1.3** Add a `/CLAUDE.md` section documenting the pivot (focus
       modules, frozen modules, how to re-enable).
-- [ ] **1.4** Save a `project_focus_pivot` memory so future sessions see
+- [x] **1.4** Save a `project_focus_pivot` memory so future sessions see
       the strategy change.
-- [ ] **1.5** Mark Phase 2 cutover doc with a banner: shape-mapper work
+- [x] **1.5** Mark Phase 2 cutover doc with a banner: shape-mapper work
       for B/C/D/E stays merged but is on ice.
 
 **Done when:** `curl /publications` on a dev instance returns 503;

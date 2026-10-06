@@ -78,8 +78,9 @@ mkdir -p \
   /opt/platform/data/{postgres,redis,blob} \
   /var/www/platform/dist \
   /var/www/acme \
+  /var/log/platform \
   /run/platform
-chown -R platform:platform /opt/platform /run/platform
+chown -R platform:platform /opt/platform /run/platform /var/log/platform
 chown www-data:www-data /var/www/platform /var/www/acme
 
 # ================================================================

@@ -85,9 +85,28 @@ jobs:
           USER: ${{ secrets.DEMO_SSH_USER }}
           COMMIT: ${{ github.sha }}
         run: |
-          ssh -o StrictHostKeyChecking=yes "${USER}@${HOST}" <<EOF
+          # Two-phase: (1) bootstrap — idempotent one-off system setup
+          # that runs even on first-ever deploy against a fresh/shared
+          # VPS where /opt/platform doesn't exist yet; (2) deploy.sh —
+          # the normal update loop. Bootstrap short-circuits in ~1s on
+          # already-provisioned hosts.
+          #
+          # We fetch the bootstrap script via curl from GitHub rather
+          # than from the (not-yet-cloned) repo, since on a true first
+          # run there's nothing on disk. The script's own first job is
+          # to git clone the repo, after which deploy.sh is available.
+          ssh -o StrictHostKeyChecking=yes "${USER}@${HOST}" bash <<EOF
             set -euo pipefail
-            echo "Deploying commit ${COMMIT} to demo"
+            echo "=== deploy for commit ${COMMIT} ==="
+
+            # Phase 1 — bootstrap (idempotent; short-circuits on second run)
+            BOOTSTRAP_URL="https://raw.githubusercontent.com/KVS-Source/clinwriteai/${COMMIT}/infra/standalone/scripts/first-run-bootstrap.sh"
+            TMP=\$(mktemp)
+            curl -fsSL "\${BOOTSTRAP_URL}" -o "\${TMP}"
+            sudo bash "\${TMP}"
+            rm -f "\${TMP}"
+
+            # Phase 2 — standard deploy (git pull + build + migrate + seed + restart)
             sudo /opt/platform/repo/infra/standalone/scripts/deploy.sh
           EOF
 

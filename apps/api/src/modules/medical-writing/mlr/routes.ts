@@ -47,6 +47,79 @@ const leadDecideSchema = z.object({
   credentialProof: z.string().min(1, 'credentialProof token (password re-auth + MFA) required'),
 })
 
+// Shape MlrComment rows for the UI's packages/types MLRComment interface.
+// Four Prisma-side gaps to fill:
+//   - reviewerStamp: UI shows the reviewer's committee seat (e.g. "MLR
+//     Medical Reviewer"). Pulled from MlrReviewer.role via a batched
+//     lookup keyed by (contentItemId, reviewerId).
+//   - tagBg/tagFg: display colour palette matching the Module C mock
+//     fixtures (apps/web/src/data/medMLRComments.json). Must-fix is the
+//     Module C steel-blue, should-fix amber, note/advisory slate/green.
+//   - escalationAuditId: UI expects a nullable pointer to the audit log
+//     entry created when a comment was escalated from the agentic report.
+//     Captured in the POST handler and threaded back; null elsewhere.
+const TAG_META: Record<string, { bg: string; fg: string }> = {
+  'Must Fix':  { bg: '#EFF6FF', fg: '#005F8E' },
+  'Should Fix':{ bg: '#FFFBEB', fg: '#B45309' },
+  'Note':      { bg: '#F1F5F9', fg: '#475569' },
+  'Advisory':  { bg: '#F0FDF4', fg: '#15803D' },
+}
+
+async function fetchMlrReviewerStamps(
+  prisma: import('@prisma/client').PrismaClient,
+  contentItemId: string,
+  reviewerIds: ReadonlyArray<string>,
+): Promise<Map<string, string>> {
+  if (reviewerIds.length === 0) return new Map()
+  const rows = await prisma.mlrReviewer.findMany({
+    where: { contentItemId, userId: { in: Array.from(new Set(reviewerIds)) } },
+    select: { userId: true, role: true },
+  })
+  return new Map(rows.map(r => [r.userId, r.role]))
+}
+
+type MlrCommentRow = {
+  id: string
+  contentItemId: string
+  reviewerId: string
+  reviewerName: string
+  text: string
+  tag: string
+  createdAt: Date
+  resolvedAt: Date | null
+  resolvedBy: string | null
+  escalatedFromAgentic: boolean
+  escalatedBy: string | null
+  escalatedAt: Date | null
+}
+
+function mlrCommentShape(
+  c: MlrCommentRow,
+  reviewerStamp: string,
+  escalationAuditId: string | null = null,
+) {
+  const tagMeta = TAG_META[c.tag] ?? { bg: '#F1F5F9', fg: '#475569' }
+  const tag = (c.tag as 'Must Fix' | 'Should Fix' | 'Note' | 'Advisory')
+  return {
+    id: c.id,
+    contentItemId: c.contentItemId,
+    reviewerId: c.reviewerId,
+    reviewerName: c.reviewerName,
+    reviewerStamp,
+    text: c.text,
+    tag,
+    tagBg: tagMeta.bg,
+    tagFg: tagMeta.fg,
+    createdAt: c.createdAt.toISOString(),
+    resolvedAt: c.resolvedAt ? c.resolvedAt.toISOString() : null,
+    resolvedBy: c.resolvedBy,
+    escalatedFromAgentic: c.escalatedFromAgentic,
+    escalatedBy: c.escalatedBy,
+    escalatedAt: c.escalatedAt ? c.escalatedAt.toISOString() : null,
+    escalationAuditId,
+  }
+}
+
 export const mlrRoutes: FastifyPluginAsync = async (app) => {
   // --- Submit to MLR ------------------------------------------------------
 
@@ -178,10 +251,12 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
     const { contentId } = request.params as { contentId: string }
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
-    return app.prisma.mlrComment.findMany({
+    const rows = await app.prisma.mlrComment.findMany({
       where: { contentItemId: contentId },
       orderBy: { createdAt: 'asc' },
     })
+    const stamps = await fetchMlrReviewerStamps(app.prisma, contentId, rows.map(r => r.reviewerId))
+    return rows.map(r => mlrCommentShape(r, stamps.get(r.reviewerId) ?? 'MLR Reviewer'))
   })
 
   app.post('/:contentId/mlr-comments', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
@@ -218,7 +293,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
       },
     })
 
-    await app.audit.append({
+    const auditEntry = await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: parsed.data.escalatedFromAgentic ? 'mlr_agentic_finding_escalated' : 'mlr_comment_added',
@@ -228,7 +303,11 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    // escalationAuditId only meaningful when the comment was escalated from
+    // the agentic report — otherwise the audit entry describes an ordinary
+    // comment add, which doesn't belong in the escalation-id field.
+    const escalationAuditId = parsed.data.escalatedFromAgentic ? auditEntry.id : null
+    return reply.code(201).send(mlrCommentShape(created, reviewer.role, escalationAuditId))
   })
 
   app.patch('/:contentId/mlr-comments/:commentId/resolve', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
@@ -252,7 +331,13 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    // Resolve preserves the comment's reviewer stamp — look it up fresh so
+    // the response matches the GET /mlr-comments shape.
+    const reviewerStamp = (await app.prisma.mlrReviewer.findUnique({
+      where: { contentItemId_userId: { contentItemId: contentId, userId: row.reviewerId } },
+      select: { role: true },
+    }))?.role ?? 'MLR Reviewer'
+    return mlrCommentShape(updated, reviewerStamp)
   })
 
   // --- MLR Lead final decision -------------------------------------------

@@ -55,12 +55,40 @@ const resolveSchema = z.object({
   note: z.string().min(1, 'resolution note is required for Part 11 audit trail'),
 })
 
+// Shape SubmissionCheck rows for the UI's packages/types SubmissionCheck
+// interface. The one meaningful mismatch is lastRunAt: UI declares it as
+// non-nullable string; Prisma stores it as DateTime?. The seed below sets
+// lastRunAt on first materialisation, so null should not reach this shape
+// in practice — fallback here guards against row-level nulls.
+function submissionCheckShape(c: {
+  id: string
+  groupId: string
+  label: string
+  state: string
+  note: string
+  lastRunAt: Date | null
+  resolvedBy: string | null
+  resolvedAt: Date | null
+}) {
+  return {
+    id: c.id,
+    groupId: c.groupId,
+    label: c.label,
+    state: c.state,
+    note: c.note,
+    lastRunAt: (c.lastRunAt ?? new Date()).toISOString(),
+    resolvedBy: c.resolvedBy,
+    resolvedAt: c.resolvedAt ? c.resolvedAt.toISOString() : null,
+  }
+}
+
 export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
   // Materialise the default check set lazily on first GET so the UI has
   // something to render without an explicit "seed" admin action.
   async function ensureSeeded(publicationId: string): Promise<void> {
     const count = await app.prisma.submissionCheck.count({ where: { publicationId } })
     if (count > 0) return
+    const seedTime = new Date()
     await app.prisma.submissionCheck.createMany({
       data: DEFAULT_CHECKS.map(c => ({
         publicationId,
@@ -68,6 +96,7 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
         label: c.label,
         state: c.state,
         note: '',
+        lastRunAt: seedTime,
       })),
     })
   }
@@ -78,10 +107,11 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
     if (!pub) return reply.code(404).send({ error: 'not_found' })
 
     await ensureSeeded(publicationId)
-    return app.prisma.submissionCheck.findMany({
+    const rows = await app.prisma.submissionCheck.findMany({
       where: { publicationId },
       orderBy: [{ groupId: 'asc' }, { label: 'asc' }],
     })
+    return rows.map(submissionCheckShape)
   })
 
   // Re-run all checks. Real check engine lands separately; this stub
@@ -109,10 +139,11 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return app.prisma.submissionCheck.findMany({
+    const rows = await app.prisma.submissionCheck.findMany({
       where: { publicationId },
       orderBy: [{ groupId: 'asc' }, { label: 'asc' }],
     })
+    return rows.map(submissionCheckShape)
   })
 
   // Acknowledge a 'warn' check. Advisory → ack transition. Soft gate.
@@ -153,7 +184,7 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    return submissionCheckShape(updated)
   })
 
   // Resolve a 'block' check. Hard gate — a resolution means the author
@@ -194,6 +225,6 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    return submissionCheckShape(updated)
   })
 }

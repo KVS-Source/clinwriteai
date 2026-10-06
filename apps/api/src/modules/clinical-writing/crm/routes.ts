@@ -40,18 +40,103 @@ const resolveSchema = z.object({
   resolutionNote: z.string().min(1, 'resolution note required (Part 11 audit)'),
 })
 
+// Shape CRM meetings for the UI's packages/types `CRMMeeting` interface.
+// Derivations:
+//   - documentTitle: resolved from parent Document
+//   - version: Document.currentVersion.versionNumber
+//   - date: alias of scheduledDate (ISO date → ISO datetime)
+//   - chair / attendees: User lookups resolved to TeamMember shape
+//   - commentIds: all comment ids on the document
+//   - resolvedIds: comment ids resolved in THIS meeting (from CrmResolution)
+//   - pendingIds: openComments ∖ resolvedIds (open on doc minus resolved here)
+//   - activeId: null — "currently being discussed" state isn't tracked server-side
+async function fetchCrmContext(
+  prisma: import('@prisma/client').PrismaClient,
+  documentId: string,
+) {
+  const [doc, comments] = await Promise.all([
+    prisma.document.findUnique({
+      where: { id: documentId },
+      select: { title: true, currentVersion: { select: { versionNumber: true } } },
+    }),
+    prisma.comment.findMany({
+      where: { documentId },
+      select: { id: true, status: true },
+    }),
+  ])
+  return {
+    documentTitle: doc?.title ?? documentId,
+    version: doc?.currentVersion?.versionNumber ?? 'v0.0',
+    allCommentIds: comments.map(c => c.id),
+    openCommentIds: new Set(comments.filter(c => c.status === 'open').map(c => c.id)),
+  }
+}
+
+function toTeamMember(userId: string, u: { name: string; initials: string | null; role: string } | null, raci: string) {
+  return {
+    userId,
+    name: u?.name ?? userId,
+    initials: u?.initials ?? '',
+    role: u?.role ?? '',
+    raci,
+  }
+}
+
+async function crmMeetingShape(
+  prisma: import('@prisma/client').PrismaClient,
+  meeting: {
+    id: string; documentId: string; meetingRef: string; chairId: string
+    status: string; scheduledDate: Date; startTime: string; endTime: string
+    startedAt: Date | null; endedAt: Date | null; createdAt: Date
+    attendees: Array<{ userId: string; roleInCrm: string }>
+    resolutions: Array<{ commentId: string }>
+  },
+  ctx: { documentTitle: string; version: string; openCommentIds: Set<string>; allCommentIds: string[] },
+) {
+  const userIds = Array.from(new Set([meeting.chairId, ...meeting.attendees.map(a => a.userId)]))
+  const users = await prisma.user.findMany({
+    where: { id: { in: userIds } },
+    select: { id: true, name: true, initials: true, role: true },
+  })
+  const byId = new Map(users.map(u => [u.id, u]))
+  const resolvedIds = meeting.resolutions.map(r => r.commentId)
+  const resolvedSet = new Set(resolvedIds)
+  const pendingIds = Array.from(ctx.openCommentIds).filter(id => !resolvedSet.has(id))
+  return {
+    id: meeting.id,
+    documentId: meeting.documentId,
+    documentTitle: ctx.documentTitle,
+    meetingRef: meeting.meetingRef,
+    version: ctx.version,
+    date: meeting.scheduledDate.toISOString(),
+    startTime: meeting.startTime,
+    endTime: meeting.endTime,
+    startedAt: meeting.startedAt?.toISOString(),
+    chair: toTeamMember(meeting.chairId, byId.get(meeting.chairId) ?? null, 'A'),
+    attendees: meeting.attendees.map(a => toTeamMember(a.userId, byId.get(a.userId) ?? null, a.roleInCrm === 'Chair' ? 'A' : a.roleInCrm === 'Author' ? 'R' : 'C')),
+    commentIds: ctx.allCommentIds,
+    resolvedIds,
+    activeId: null as string | null,
+    pendingIds,
+  }
+}
+
 export const crmRoutes: FastifyPluginAsync = async (app) => {
   // --- Meetings -----------------------------------------------------------
 
   app.get('/documents/:documentId/crm', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
-    const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
-    return app.prisma.crmMeeting.findMany({
-      where: { documentId },
-      orderBy: { scheduledDate: 'asc' },
-      include: { attendees: true, resolutions: true },
-    })
+    const [meetings, ctx] = await Promise.all([
+      app.prisma.crmMeeting.findMany({
+        where: { documentId },
+        orderBy: { scheduledDate: 'asc' },
+        include: { attendees: true, resolutions: true },
+      }),
+      fetchCrmContext(app.prisma, documentId),
+    ])
+    return Promise.all(meetings.map(m => crmMeetingShape(app.prisma, m, ctx)))
   })
 
   app.post('/documents/:documentId/crm', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {

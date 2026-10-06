@@ -55,6 +55,48 @@ const doiSchema = z.object({
   crossrefResponse: z.record(z.unknown()).optional(),
 })
 
+// Shape KolContact rows for the UI's packages/types KOLContact interface.
+// Two gaps vs the current Prisma schema:
+//   - title: UI expects the KOL's professional title ("Prof. of Oncology,
+//     Mayo") for display. Not yet in the Prisma model — defaulted to ''
+//     until the data model lands the column.
+//   - reviewDecisions: UI expects a per-card decision list captured when
+//     the KOL opens their review link. The decision table hasn't shipped
+//     (lives in the public /kol-review/ scope — see security-focused
+//     follow-up noted at the top of this file). Defaulted to [].
+// Also: Date → ISO coercion for the timestamp fields.
+function kolContactShape(k: {
+  id: string
+  ideationProjectId: string
+  name: string
+  email: string
+  reviewLinkToken: string
+  reviewLinkExpiry: Date
+  signedOffAt: Date | null
+  reminder1SentAt: Date | null
+  reminder2SentAt: Date | null
+  escalatedAt: Date | null
+}) {
+  return {
+    id: k.id,
+    ideationProjectId: k.ideationProjectId,
+    name: k.name,
+    title: '',
+    email: k.email,
+    reviewLinkToken: k.reviewLinkToken,
+    reviewLinkExpiry: k.reviewLinkExpiry.toISOString(),
+    signedOffAt: k.signedOffAt ? k.signedOffAt.toISOString() : null,
+    reminder1SentAt: k.reminder1SentAt ? k.reminder1SentAt.toISOString() : null,
+    reminder2SentAt: k.reminder2SentAt ? k.reminder2SentAt.toISOString() : null,
+    escalatedAt: k.escalatedAt ? k.escalatedAt.toISOString() : null,
+    reviewDecisions: [] as Array<{ cardId: string; decision: 'approved' | 'rejected' | 'pending'; comment: string | null }>,
+  }
+}
+
+// MaContact has no UI counterpart in packages/types yet — the Prisma row
+// serialises as-is. If/when the UI adds a MAContact type we can wrap this
+// in a shape helper for consistency.
+
 const dublinCoreSchema = z.object({
   dcTitle: z.string().min(1),
   dcCreator: z.string().min(1),
@@ -114,15 +156,16 @@ export const publishingRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    return reply.code(201).send(kolContactShape(created))
   })
 
   app.get('/:ideationProjectId/kol-contacts', { preHandler: requireAuth({ modules: ['E'] }) }, async (request) => {
     const { ideationProjectId } = request.params as { ideationProjectId: string }
-    return app.prisma.kolContact.findMany({
+    const rows = await app.prisma.kolContact.findMany({
       where: { ideationProjectId },
       orderBy: { name: 'asc' },
     })
+    return rows.map(kolContactShape)
   })
 
   app.post('/:ideationProjectId/ma-contacts', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {

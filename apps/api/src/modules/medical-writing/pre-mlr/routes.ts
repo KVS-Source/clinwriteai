@@ -43,6 +43,73 @@ const fkScoreSchema = z.object({
   })).default([]),
 })
 
+// Shape helpers for the UI's packages/types PreMLRResult + PreMLRIssue.
+// Two vocab/shape differences to reconcile:
+//   - severity: Prisma uses must_fix / should_fix / note (underscore);
+//     UI's PreMLRSeverity is 'must-fix' / 'should-fix' / 'note' (hyphen).
+//   - auditEntryId: UI treats it as a required string field on PreMLRResult
+//     (not nullable). The audit module's append() returns { id }, so when
+//     the run handler emits a fresh result it threads that id back on the
+//     response. For reads where the id wasn't captured at insert time, we
+//     fall back to '' — the UI treats empty as "no linked audit entry".
+const SEVERITY_TO_UI: Record<string, 'must-fix' | 'should-fix' | 'note'> = {
+  must_fix: 'must-fix',
+  should_fix: 'should-fix',
+  note: 'note',
+}
+
+function preMlrIssueShape(i: {
+  id: string
+  severity: string
+  slide: string | null
+  title: string
+  detail: string
+  suggestedFix: string | null
+  acknowledged: boolean
+  acknowledgedBy: string | null
+  acknowledgedAt: Date | null
+}) {
+  return {
+    id: i.id,
+    severity: SEVERITY_TO_UI[i.severity] ?? 'note',
+    slide: i.slide,
+    title: i.title,
+    detail: i.detail,
+    suggestedFix: i.suggestedFix,
+    acknowledged: i.acknowledged,
+    acknowledgedBy: i.acknowledgedBy,
+    acknowledgedAt: i.acknowledgedAt ? i.acknowledgedAt.toISOString() : null,
+  }
+}
+
+function preMlrResultShape(
+  r: {
+    id: string
+    contentItemId: string
+    runAt: Date
+    mustFixCount: number
+    shouldFixCount: number
+    noteCount: number
+    passed: boolean
+    runBy: string
+    issues: Parameters<typeof preMlrIssueShape>[0][]
+  },
+  auditEntryId: string,
+) {
+  return {
+    id: r.id,
+    contentItemId: r.contentItemId,
+    runAt: r.runAt.toISOString(),
+    mustFixCount: r.mustFixCount,
+    shouldFixCount: r.shouldFixCount,
+    noteCount: r.noteCount,
+    passed: r.passed,
+    runBy: r.runBy,
+    auditEntryId,
+    issues: r.issues.map(preMlrIssueShape),
+  }
+}
+
 export const preMlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/pre-mlr/run', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
@@ -102,7 +169,7 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
       return created
     })
 
-    await app.audit.append({
+    const auditEntry = await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'pre_mlr_check_run',
@@ -116,10 +183,11 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return app.prisma.preMlrCheckResult.findUnique({
+    const full = await app.prisma.preMlrCheckResult.findUniqueOrThrow({
       where: { id: run.id },
       include: { issues: true },
     })
+    return preMlrResultShape(full, auditEntry.id)
   })
 
   app.get('/:contentId/pre-mlr/latest', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
@@ -130,7 +198,9 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
       include: { issues: true },
     })
     if (!latest) return reply.code(404).send({ error: 'no_pre_mlr_run_yet' })
-    return latest
+    // auditEntryId not persisted on the row; empty string is the UI's
+    // "no linked audit entry" sentinel until we land a column for it.
+    return preMlrResultShape(latest, '')
   })
 
   app.patch('/:contentId/pre-mlr/issues/:issueId/acknowledge', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
@@ -173,7 +243,7 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    return preMlrIssueShape(updated)
   })
 
   // --- FK score (API contract §33) ----------------------------------------

@@ -324,7 +324,10 @@ jobs:
       SECRETS_PROVIDER: env
       PORT: '3001'
       HOST: '127.0.0.1'
-      NODE_ENV: production
+      # NODE_ENV=production is NOT set at the job level because it would
+      # make `npm ci` skip devDependencies, which breaks `db:seed` (needs
+      # `tsx`) and the Playwright install. Set it only on the "Start API"
+      # step below so the API itself runs in prod mode.
       # Expose /docs + /docs/json so openapi-typescript codegen can target
       # the API from CI in a future codegen step.
       FEATURE_OPENAPI_DOCS: 'true'
@@ -368,6 +371,8 @@ jobs:
         run: npm --workspace=apps/web run build
 
       - name: Start API in background
+        env:
+          NODE_ENV: production
         run: |
           cd apps/api
           nohup node dist/server.js > /tmp/api.log 2>&1 &

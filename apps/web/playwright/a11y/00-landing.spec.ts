@@ -48,18 +48,23 @@ test('clinical writing home has no WCAG 2.1 AA violations', async ({ page }) => 
   await assertNoA11yViolations(page, `${PROJECT_PATH}/clinical-writing`)
 })
 
-test('scientific writing home has no WCAG 2.1 AA violations', async ({ page }) => {
+// Modules B/C/D/E are frozen under the 2026-10-06 pivot (docs/pivot-plan.md
+// Arc 1) and render ModuleDisabledScreen. That screen is tiny + semantic;
+// it still gets a WCAG check so we don't regress accessibility on it, but
+// the real per-module home checks resume when the modules unfreeze (Arc 7).
+test('scientific writing (frozen) has no WCAG 2.1 AA violations', async ({ page }) => {
   await assertNoA11yViolations(page, `${PROJECT_PATH}/scientific-writing`)
 })
 
-test('medical writing home has no WCAG 2.1 AA violations', async ({ page }) => {
+test('medical writing (frozen) has no WCAG 2.1 AA violations', async ({ page }) => {
   await assertNoA11yViolations(page, `${PROJECT_PATH}/medical-writing`)
 })
 
-test('regulatory writing home has no WCAG 2.1 AA violations', async ({ page }) => {
+test('regulatory writing (frozen) has no WCAG 2.1 AA violations', async ({ page }) => {
   await assertNoA11yViolations(page, `${PROJECT_PATH}/regulatory-writing`)
 })
 
-test('ideation home has no WCAG 2.1 AA violations', async ({ page }) => {
-  await assertNoA11yViolations(page, `${PROJECT_PATH}/ideation`)
+test('ideation-publishing (frozen) has no WCAG 2.1 AA violations', async ({ page }) => {
+  // Prototype router mounts the module at 'ideation-publishing', not 'ideation'.
+  await assertNoA11yViolations(page, `${PROJECT_PATH}/ideation-publishing`)
 })

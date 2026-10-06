@@ -325,6 +325,9 @@ jobs:
       PORT: '3001'
       HOST: '127.0.0.1'
       NODE_ENV: production
+      # Expose /docs + /docs/json so openapi-typescript codegen can target
+      # the API from CI in a future codegen step.
+      FEATURE_OPENAPI_DOCS: 'true'
     steps:
       - name: Checkout
         uses: actions/checkout@v4

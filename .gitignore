@@ -60,3 +60,7 @@ apps/web/playwright-report/
 
 # Local filesystem BlobStorage (dev)
 var/
+
+# Generated OpenAPI types — produced by `npm run generate:api-types`
+# against a running API. Not checked in — regenerate on cutover.
+apps/web/src/api/openapi-types.ts

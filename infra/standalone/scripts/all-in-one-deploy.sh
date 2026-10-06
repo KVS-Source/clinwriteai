@@ -21,11 +21,16 @@ step() { STEP=$((STEP+1)); echo; echo "═════════════�
 step "Bootstrap (installs prereqs, clones repo, creates env, nginx + systemd configs)"
 curl -fsSL https://raw.githubusercontent.com/KVS-Source/clinwriteai/main/infra/standalone/scripts/first-run-bootstrap.sh \
   -o /tmp/bootstrap.sh
-bash /tmp/bootstrap.sh || fail "bootstrap failed"
+# `</dev/null` isolates the child from our stdin — otherwise any
+# descendent that reads stdin (apt dpkg conffile prompts, docker
+# compose exec, etc.) can accidentally consume the rest of the
+# parent script when we're invoked via `curl | sudo bash`, causing
+# this script to silently exit after bootstrap.
+bash /tmp/bootstrap.sh </dev/null || fail "bootstrap failed"
 rm -f /tmp/bootstrap.sh
 
 step "Deploy (git pull → npm ci → prisma generate → build → migrate → seed → restart)"
-/opt/platform/repo/infra/standalone/scripts/deploy.sh || {
+/opt/platform/repo/infra/standalone/scripts/deploy.sh </dev/null || {
   echo
   log "deploy.sh exited non-zero — collecting diagnostics:"
   echo "--- systemd platform-api status ---"

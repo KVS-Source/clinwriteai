@@ -83,6 +83,11 @@ fi
 cd "${REPO_DIR}"
 sudo -u platform git fetch --quiet origin main
 sudo -u platform git checkout -q origin/main
+# Defensive: ensure all shell scripts in infra/standalone/scripts are
+# executable regardless of git mode-tracking. A stale clone from before
+# the chmod +x commit landed would otherwise fail with "command not
+# found" on the next deploy.sh invocation.
+chmod +x "${REPO_DIR}/infra/standalone/scripts/"*.sh
 log "repo at $(sudo -u platform git rev-parse --short HEAD)"
 
 # -------- 5. Env file (minimal defaults; operator can replace later) --------
@@ -118,12 +123,26 @@ FEATURE_OPENAPI_DOCS=false
 ENV
   chmod 600 "${ENV_FILE}"
   chown platform:platform "${ENV_FILE}"
-  # Also drop the Postgres password into /opt/platform/env/.env so
-  # docker-compose can pick it up for POSTGRES_PASSWORD.
-  echo "POSTGRES_PASSWORD=${PG_PASSWORD}" > /opt/platform/env/.env
-  echo "REDIS_PASSWORD=unused" >> /opt/platform/env/.env
+  # Also drop all vars docker-compose needs into /opt/platform/env/.env.
+  # The compose file validates with the `${X:?...}` pattern, so missing
+  # keys abort `docker compose up` before any service starts.
+  REDIS_PWD=$(openssl rand -hex 16)
+  MINIO_PWD=$(openssl rand -hex 16)
+  GRAFANA_PWD=$(openssl rand -hex 16)
+  cat > /opt/platform/env/.env <<DOTENV
+POSTGRES_USER=platform
+POSTGRES_PASSWORD=${PG_PASSWORD}
+POSTGRES_DB=platform
+REDIS_PASSWORD=${REDIS_PWD}
+MINIO_ROOT_USER=platform
+MINIO_ROOT_PASSWORD=${MINIO_PWD}
+GRAFANA_ADMIN_PASSWORD=${GRAFANA_PWD}
+DOTENV
   chmod 600 /opt/platform/env/.env
   chown platform:platform /opt/platform/env/.env
+  # Update api.env's REDIS_URL to include the password since compose
+  # starts redis with --requirepass.
+  sed -i "s|^REDIS_URL=.*|REDIS_URL=redis://:${REDIS_PWD}@127.0.0.1:6379|" "${ENV_FILE}"
 fi
 
 # Place a plaintext copy at /run/platform/api.env for deploy.sh (which

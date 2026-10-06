@@ -10,7 +10,24 @@ import { PrismaClient } from '@prisma/client'
 const prisma = new PrismaClient()
 
 async function main() {
+  console.log('→ Seeding tenant (Acme Oncology)...')
+  const acme = await prisma.tenant.upsert({
+    where: { slug: 'acme-oncology' },
+    create: {
+      id: 'TENANT-ACME',
+      slug: 'acme-oncology',
+      name: 'Acme Oncology',
+      status: 'active',
+      // Post 2026-10-06 pivot: tenant has Module A only. Intersected
+      // at runtime with FEATURE_MODULES_ENABLED (also 'A').
+      modulesEnabled: ['A'],
+    },
+    update: {},
+  })
+
   console.log('→ Seeding users...')
+  // Super-admin crosses tenants — no tenantId, retains all modules for
+  // platform-level work. Day-to-day users belong to Acme.
   const admin = await prisma.user.upsert({
     where: { email: 'admin@clinwrite.ai' },
     create: {
@@ -31,10 +48,26 @@ async function main() {
       name: 'Clinical Writer',
       initials: 'CW',
       role: 'clinical-writer',
-      modules: ['A', 'C'],
+      modules: ['A'],
       status: 'active',
+      tenantId: acme.id,
     },
-    update: {},
+    update: { tenantId: acme.id },
+  })
+
+  // Second writer per Arc 2.7 plan — exercises multi-writer flows.
+  const writer2 = await prisma.user.upsert({
+    where: { email: 'writer2@clinwrite.ai' },
+    create: {
+      email: 'writer2@clinwrite.ai',
+      name: 'Second Clinical Writer',
+      initials: 'SW',
+      role: 'clinical-writer',
+      modules: ['A'],
+      status: 'active',
+      tenantId: acme.id,
+    },
+    update: { tenantId: acme.id },
   })
 
   const reviewer = await prisma.user.upsert({
@@ -44,17 +77,41 @@ async function main() {
       name: 'Medical Reviewer',
       initials: 'MR',
       role: 'reviewer',
-      modules: ['A', 'B', 'C', 'D'],
+      modules: ['A'],
       status: 'active',
+      tenantId: acme.id,
     },
-    update: {},
+    update: { tenantId: acme.id },
   })
+
+  console.log('→ Seeding memberships...')
+  // Per-tenant roles: an owner at the top, writers + reviewer below.
+  // Platform-level super-admin stays off memberships; they operate
+  // cross-tenant via their User.role.
+  for (const [user, role] of [
+    [writer,   'owner']    as const,  // writer doubles as Acme owner for seed sanity
+    [writer2,  'writer']   as const,
+    [reviewer, 'reviewer'] as const,
+  ]) {
+    await prisma.membership.upsert({
+      where: { tenantId_userId: { tenantId: acme.id, userId: user.id } },
+      create: {
+        tenantId: acme.id,
+        userId: user.id,
+        role,
+        status: 'active',
+        activatedAt: new Date(),
+      },
+      update: {},
+    })
+  }
 
   console.log('→ Seeding projects...')
   const velora = await prisma.project.upsert({
     where: { id: 'PROJ-VELORA' },
     create: {
       id: 'PROJ-VELORA',
+      tenantId: acme.id,
       name: 'VELORA — Advanced NSCLC Trial',
       shortTitle: 'VELORA',
       client: 'Oncotype Biosciences',
@@ -64,17 +121,18 @@ async function main() {
       status: 'ongoing',
       startDate: new Date('2025-04-01'),
       dataCutoff: new Date('2026-09-15'),
-      activeModules: ['A', 'B', 'C', 'D'],
+      activeModules: ['A'],
       submissionCountries: ['US', 'EU', 'JP'],
       referenceTrial: 'VELORA-301',
     },
-    update: {},
+    update: { tenantId: acme.id },
   })
 
   const atlas = await prisma.project.upsert({
     where: { id: 'PROJ-ATLAS-TB' },
     create: {
       id: 'PROJ-ATLAS-TB',
+      tenantId: acme.id,
       name: 'ATLAS-TB — Rifampicin-resistant TB',
       shortTitle: 'ATLAS-TB',
       client: 'GHRC Consortium',
@@ -83,15 +141,15 @@ async function main() {
       phase: 'Phase II',
       status: 'ongoing',
       startDate: new Date('2025-11-01'),
-      activeModules: ['A', 'B', 'E'],
+      activeModules: ['A'],
       submissionCountries: ['IN', 'ZA', 'US'],
     },
-    update: {},
+    update: { tenantId: acme.id },
   })
 
   console.log('→ Seeding team assignments...')
   for (const projectId of [velora.id, atlas.id]) {
-    for (const u of [admin, writer, reviewer]) {
+    for (const u of [admin, writer, writer2, reviewer]) {
       await prisma.projectTeamMember.upsert({
         where: { projectId_userId: { projectId, userId: u.id } },
         create: {
@@ -280,10 +338,12 @@ async function main() {
   })
 
   console.log('✔ Seed complete.')
-  console.log(`   Admin:    ${admin.email}`)
-  console.log(`   Writer:   ${writer.email}`)
-  console.log(`   Reviewer: ${reviewer.email}`)
-  console.log(`   Projects: ${velora.id}, ${atlas.id}`)
+  console.log(`   Tenant:   ${acme.slug} (${acme.id})`)
+  console.log(`   Admin:    ${admin.email} (super-admin, cross-tenant)`)
+  console.log(`   Writer:   ${writer.email} (Acme owner + writer)`)
+  console.log(`   Writer2:  ${writer2.email} (Acme writer)`)
+  console.log(`   Reviewer: ${reviewer.email} (Acme reviewer)`)
+  console.log(`   Projects: ${velora.id}, ${atlas.id} (both under ${acme.slug})`)
   console.log(`   Fixtures: 1 doc + 1 pub + 1 med-content + 1 submission + 1 ideation artefact (all under VELORA)`)
 }
 

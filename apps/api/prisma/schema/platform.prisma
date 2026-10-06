@@ -13,16 +13,25 @@ model User {
   email         String   @unique
   name          String
   initials      String?
+  // Platform-level role. 'super-admin' crosses tenant boundaries;
+  // everything else (admin, module-specific) is now scoped per-tenant
+  // via Membership.role. The field stays on User for the super-admin bit
+  // and for legacy single-tenant flows.
   role          String   // 'super-admin' | 'admin' | module-specific roles
   modules       String[] @default([])    // ['A', 'B', 'C', 'D', 'E']
   status        String   @default("invited")  // invited | active | suspended | deprovisioned
   lastActiveAt  DateTime?
   ssoSubject    String?  @unique            // from WorkOS SCIM
+  // User's primary (home) tenant. Multi-tenant users have additional
+  // memberships; this is just where they land on sign-in by default.
+  // Nullable because super-admins at the platform level don't need one.
   tenantId      String?
+  tenant        Tenant?  @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
   sessions      Session[]
+  memberships   Membership[]
 
   @@map("users")
   @@index([tenantId])
@@ -52,7 +61,12 @@ model Session {
 
 model Project {
   id                   String    @id
+  // Tenant scoping. Nullable through the FK transition — the Arc 2
+  // backfill migration promotes legacy String values into real Tenant
+  // rows + rewrites the FK target. Post-backfill, new rows should
+  // always carry a tenantId.
   tenantId             String?
+  tenant               Tenant?   @relation(fields: [tenantId], references: [id], onDelete: SetNull)
   name                 String
   shortTitle           String
   client               String

@@ -1,0 +1,91 @@
+// Tenant Administrative models — Arc 2 of docs/pivot-plan.md.
+//
+// Before this file, `User.tenantId` was a free-form String with no FK
+// and no first-class Tenant row. The pivot promotes tenancy to a real
+// entity so the Tenant Admin surface (Arc 3 + 4) has somewhere to hang
+// module toggles, SSO config, and member CRUD.
+//
+// Design notes:
+//
+// - `Membership` is the join between User + Tenant. A platform-level
+//   `super-admin` User (Alex Thornton) still carries their role on the
+//   User row and can act across tenants; day-to-day tenant users get
+//   per-tenant roles via Memberships. This gives us multi-tenant users
+//   (one person belongs to two orgs) without duplicating the User row.
+//
+// - `Tenant.modulesEnabled` is persisted here *in addition to* the
+//   deployment-wide FEATURE_MODULES_ENABLED env flag landed in Arc 1.
+//   Both must grant: a tenant can't opt into a module the deployment
+//   has disabled, and the deployment can't force a module on a tenant
+//   that hasn't paid for it. Runtime check: `intersect(env, tenant)`.
+//
+// - `SsoConnection` stores the WorkOS connection id + status, not the
+//   secrets. Secrets live in `/opt/platform/env/api.env.enc`
+//   (per [[reference_server_endpoints]]).
+
+model Tenant {
+  id              String    @id @default(cuid())
+  // URL-safe slug used in subdomain-style routing (acme.clinwrite.ai)
+  // if we ever go per-tenant subdomains. Also handy for stable UI
+  // routing keys.
+  slug            String    @unique
+  name            String
+  status          String    @default("active")        // active | suspended | archived
+  // Modules this tenant has access to. Intersected at runtime with the
+  // deployment-wide FEATURE_MODULES_ENABLED env flag.
+  modulesEnabled  String[]  @default(["A"])
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  archivedAt      DateTime?
+
+  memberships     Membership[]
+  ssoConnections  SsoConnection[]
+  users           User[]
+  projects        Project[]
+
+  @@map("tenants")
+  @@index([status])
+}
+
+// Per-tenant OIDC / SAML config. WorkOS owns the IdP relationship; this
+// table records the connection id + status so the admin UI can show
+// "Verified / Draft / Disabled" without round-tripping to WorkOS.
+model SsoConnection {
+  id                  String    @id @default(cuid())
+  tenantId            String
+  tenant              Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  type                String                             // 'oidc' | 'saml'
+  workosConnectionId  String?                            // null until verified
+  callbackUrl         String
+  status              String    @default("draft")        // draft | verified | disabled
+  verifiedAt          DateTime?
+  disabledAt          DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("sso_connections")
+  @@index([tenantId])
+  @@index([tenantId, status])
+}
+
+// Join between User and Tenant with a per-tenant role. See file-level
+// comment for why this isn't collapsed onto User.
+model Membership {
+  id            String    @id @default(cuid())
+  tenantId      String
+  tenant        Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role          String                             // owner | admin | writer | reviewer | viewer
+  status        String    @default("invited")      // invited | active | suspended
+  invitedAt     DateTime  @default(now())
+  activatedAt   DateTime?
+  suspendedAt   DateTime?
+  invitedBy     String?                            // User.id of inviter
+
+  @@map("memberships")
+  @@unique([tenantId, userId])
+  @@index([tenantId])
+  @@index([userId])
+  @@index([tenantId, role])
+}

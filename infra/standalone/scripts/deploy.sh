@@ -36,6 +36,15 @@ fi
 log "npm ci (API + worker + types)"
 sudo -u platform npm ci --prefer-offline --no-audit --no-fund
 
+# Prisma client must be generated BEFORE tsc runs — the API tsc build
+# imports types from @prisma/client (TransactionIsolationLevel, model
+# shapes, $transaction overloads). On a fresh npm ci we need to regen
+# explicitly because the Prisma client is a build artefact of the
+# schema, not a plain dep. CI picks this up via `npm run db:generate`;
+# the deploy script was missing the equivalent.
+log "Generating Prisma client"
+sudo -u platform npm --workspace=apps/api run db:generate
+
 log "Building workspaces (api + worker + web)"
 sudo -u platform npm --workspace=apps/api    run build
 sudo -u platform npm --workspace=apps/worker run build

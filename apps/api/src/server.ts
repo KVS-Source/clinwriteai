@@ -184,6 +184,18 @@ async function buildServer() {
   await app.register(projectRoutes, { prefix: '/projects' })
   await app.register(userRoutes, { prefix: '/admin/users' })
 
+  // ---------- Tenant Admin (Arc 3 of docs/pivot-plan.md) ----------
+  // Four plugins, all mounted at root — path shapes mix /admin/tenants/*,
+  // /admin/memberships/*, /admin/sso-connections/*, /admin/audit*.
+  const { tenantsRoutes } = await import('./modules/platform/tenant-admin/tenants/routes.js')
+  const { membershipsRoutes } = await import('./modules/platform/tenant-admin/memberships/routes.js')
+  const { ssoRoutes } = await import('./modules/platform/tenant-admin/sso/routes.js')
+  const { auditViewerRoutes } = await import('./modules/platform/tenant-admin/audit/routes.js')
+  await app.register(tenantsRoutes)
+  await app.register(membershipsRoutes)
+  await app.register(ssoRoutes)
+  await app.register(auditViewerRoutes)
+
   // ---------- Module A — Clinical Writing ----------
   const { documentsProjectScopedRoutes, documentsRoutes } =
     await import('./modules/clinical-writing/documents/routes.js')

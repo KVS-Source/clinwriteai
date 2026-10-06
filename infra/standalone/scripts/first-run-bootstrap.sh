@@ -175,6 +175,15 @@ fi
 # G. decrypt-env.sh shim-v2
 # ================================================================
 SHIM=/opt/platform/scripts/decrypt-env.sh
+# Copy the health-check helper that platform-api.service references
+# via ExecStartPost. Without this, systemd fails the whole service
+# with status=203/EXEC (program not found) and kills the Fastify
+# process immediately after boot.
+install -m 755 -o platform -g platform \
+  "${REPO_DIR}/infra/standalone/scripts/wait-for-health.sh" \
+  /opt/platform/scripts/wait-for-health.sh 2>/dev/null || \
+  log "G. WARN: wait-for-health.sh not found in repo"
+
 if [[ ! -x "${SHIM}" ]] || ! grep -q "shim-v2" "${SHIM}"; then
   log "G. installing shim-v2 at ${SHIM}"
   cat > "${SHIM}" <<'SHIMEOF'

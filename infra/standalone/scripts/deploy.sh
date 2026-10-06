@@ -73,19 +73,27 @@ sudo -u platform npm --workspace=apps/worker run build
 # per environment without a commit.
 WEB_ENV_FILE_REPO=/opt/platform/repo/apps/web/.env.demo
 WEB_ENV_FILE_LOCAL=/opt/platform/env/web.env
-WEB_ENV_VARS=""
+# Build via a nested subshell that sources the env files cleanly —
+# `source` preserves values with spaces (e.g. VITE_APP_NAME="ClinWrite.AI (Demo)")
+# that the previous `xargs` pipeline split and corrupted. `set -a`
+# auto-exports every subsequent assignment so the npm child process
+# sees them. Overrides from /opt/platform/env/web.env load last so
+# they win over the repo defaults (bash variable assignment is
+# left-to-right: last assignment wins).
 if [[ -f "${WEB_ENV_FILE_REPO}" ]]; then
   log "Loading web build defaults from ${WEB_ENV_FILE_REPO}"
-  WEB_ENV_VARS+=" $(grep -v '^#' "${WEB_ENV_FILE_REPO}" | grep -v '^$' | xargs)"
 fi
 if [[ -f "${WEB_ENV_FILE_LOCAL}" ]]; then
   log "Loading web build overrides from ${WEB_ENV_FILE_LOCAL}"
-  # Operator overrides come last so they take precedence (env var
-  # assignment is left-to-right; later wins).
-  WEB_ENV_VARS+=" $(grep -v '^#' "${WEB_ENV_FILE_LOCAL}" | grep -v '^$' | xargs)"
 fi
-sudo -u platform env VITE_API_URL=https://api.clinwrite.ai ${WEB_ENV_VARS} \
+sudo -u platform bash -c "
+  set -a
+  export VITE_API_URL=https://api.clinwrite.ai
+  [[ -f '${WEB_ENV_FILE_REPO}' ]] && source '${WEB_ENV_FILE_REPO}'
+  [[ -f '${WEB_ENV_FILE_LOCAL}' ]] && source '${WEB_ENV_FILE_LOCAL}'
+  set +a
   npm --workspace=apps/web run build
+"
 
 # ---------- Copy build artefacts into /opt/platform/apps ----------
 log "Syncing api + worker build artefacts"

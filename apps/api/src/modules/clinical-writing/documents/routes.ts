@@ -48,6 +48,38 @@ const sectionUpdateSchema = z.object({
   { message: 'aiModel is required when aiDrafted is true (Part 11 provenance)' },
 )
 
+// Shape doc rows for the UI's packages/types `Document` interface.
+// Prisma stores version + sections on currentVersion; UI flattens them
+// onto the document itself with aliased section field names:
+//   Prisma sectionNumber → UI Section.number
+//   Prisma sectionTitle  → UI Section.title
+//   Prisma ichStatus     → UI Section.status
+// List-shape excludes sections (UI's list view only wants metadata); detail
+// shape includes them.
+function sectionShape(s: { id: string; sectionNumber: string; sectionTitle: string; ichStatus: string }) {
+  return { id: s.id, number: s.sectionNumber, title: s.sectionTitle, status: s.ichStatus }
+}
+
+function documentShapeMeta(d: { version?: string } & Record<string, unknown>) {
+  // Metadata-only shape for list views. version is already a column on
+  // Document? No — version lives on DocumentVersion. For list view, we
+  // return 'v0.0' when no current version is set. Detail route overrides.
+  return {
+    ...d,
+    version: d.version ?? 'v0.0',
+    sections: [] as Array<ReturnType<typeof sectionShape>>,
+  }
+}
+
+function documentShapeFull(d: { currentVersion?: { versionNumber: string; sections: Array<Parameters<typeof sectionShape>[0]> } | null } & Record<string, unknown>) {
+  const { currentVersion, ...rest } = d
+  return {
+    ...rest,
+    version: currentVersion?.versionNumber ?? 'v0.0',
+    sections: (currentVersion?.sections ?? []).map(sectionShape),
+  }
+}
+
 const restoreSchema = z.object({
   sections: z.array(z.object({
     sectionId: z.string(),
@@ -65,15 +97,20 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
   const svc = new DocumentService(app.prisma)
 
   // List all documents under a project.
+  // Returns metadata-only shape — section bodies are too heavy for a list.
+  // UI's Document interface expects `sections: []` + `version: string`;
+  // documentShapeMeta fills both with defaults the UI can live with.
   app.get('/:projectId/documents', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
-    const project = await app.prisma.project.findUnique({ where: { id: projectId } })
+    const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
-    return app.prisma.document.findMany({
+    const rows = await app.prisma.document.findMany({
       where: { projectId, deletedAt: null },
       orderBy: { updatedAt: 'desc' },
+      include: { currentVersion: { select: { versionNumber: true } } },
     })
+    return rows.map(r => documentShapeMeta({ ...r, version: r.currentVersion?.versionNumber }))
   })
 
   // Create a new document for a project.
@@ -107,7 +144,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(document)
+    return reply.code(201).send(documentShapeMeta({ ...document, version: version.versionNumber }))
   })
 }
 
@@ -138,7 +175,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return doc
+    return documentShapeFull(doc)
   })
 
   app.patch('/:documentId/sections/:sectionId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {

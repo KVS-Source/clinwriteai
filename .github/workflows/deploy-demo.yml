@@ -96,11 +96,13 @@ jobs:
           # (instead of hanging on the password prompt until SSH times
           # out with the maddeningly opaque exit code 255).
           #
-          # `ssh -tt` forces a pseudo-TTY so sudo's error messages
-          # make it back to the Actions log instead of being dropped.
+          # NO `-tt` — forcing a TTY causes stderr to vanish into the
+          # controlling terminal instead of landing in the Actions log.
+          # Earlier runs failed silently because of this.
+          #
           # `set -x` makes each command print before execution so we
           # can see exactly where a first-time deploy died.
-          ssh -o StrictHostKeyChecking=yes -tt "${USER}@${HOST}" bash <<EOF
+          ssh -o StrictHostKeyChecking=yes "${USER}@${HOST}" bash <<EOF
             set -euxo pipefail
             echo "=== deploy for commit ${COMMIT} ==="
             whoami

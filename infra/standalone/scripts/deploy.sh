@@ -39,15 +39,28 @@ sudo -u platform npm ci --prefer-offline --no-audit --no-fund
 log "Building workspaces (api + worker + web)"
 sudo -u platform npm --workspace=apps/api    run build
 sudo -u platform npm --workspace=apps/worker run build
-# Web bundle is built with demo API endpoint baked in. Phase 2 cutover flags
-# live in /opt/platform/env/web.env (plain, non-secret). Defaults: everything
-# still mocked. Flip VITE_MOCK_<group>=off per the implementation plan.
-if [[ -f /opt/platform/env/web.env ]]; then
-  log "Loading web build env from /opt/platform/env/web.env"
-  WEB_ENV_VARS=$(grep -v '^#' /opt/platform/env/web.env | xargs)
-else
-  log "No /opt/platform/env/web.env found — using defaults (all mocks on)"
-  WEB_ENV_VARS=""
+# Web bundle is built with demo API endpoint baked in.
+#
+# Env resolution order (first wins per key):
+#   1. /opt/platform/env/web.env  — operator-managed, VPS-local overrides
+#   2. apps/web/.env.demo         — version-controlled demo defaults
+#
+# .env.demo in the repo is the source of truth for the demo prototype's
+# web build (BYPASS_AUTH=true until WorkOS lands, module kill-switch,
+# MSW cutover flags). The operator-local file lets us override anything
+# per environment without a commit.
+WEB_ENV_FILE_REPO=/opt/platform/repo/apps/web/.env.demo
+WEB_ENV_FILE_LOCAL=/opt/platform/env/web.env
+WEB_ENV_VARS=""
+if [[ -f "${WEB_ENV_FILE_REPO}" ]]; then
+  log "Loading web build defaults from ${WEB_ENV_FILE_REPO}"
+  WEB_ENV_VARS+=" $(grep -v '^#' "${WEB_ENV_FILE_REPO}" | grep -v '^$' | xargs)"
+fi
+if [[ -f "${WEB_ENV_FILE_LOCAL}" ]]; then
+  log "Loading web build overrides from ${WEB_ENV_FILE_LOCAL}"
+  # Operator overrides come last so they take precedence (env var
+  # assignment is left-to-right; later wins).
+  WEB_ENV_VARS+=" $(grep -v '^#' "${WEB_ENV_FILE_LOCAL}" | grep -v '^$' | xargs)"
 fi
 sudo -u platform env VITE_API_URL=https://api.clinwrite.ai ${WEB_ENV_VARS} \
   npm --workspace=apps/web run build

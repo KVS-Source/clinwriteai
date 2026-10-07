@@ -36,35 +36,75 @@ const authPlugin: FastifyPluginAsync = async (app) => {
   })
   app.decorate('sso', sso)
 
+  // AUTH_BYPASS_EMAIL (demo + dev only) — mirrors the SPA's VITE_BYPASS_AUTH
+  // flag on the server side. When set, any request without a valid session
+  // cookie is treated as the named user. Keeps the demo prototype usable
+  // without the SSO roundtrip (which requires an IdP that we don't have
+  // provisioned yet). MUST be unset once WorkOS lands.
+  const BYPASS_EMAIL = (process.env.AUTH_BYPASS_EMAIL ?? '').trim().toLowerCase() || null
+  if (BYPASS_EMAIL) {
+    app.log.warn(
+      { bypassEmail: BYPASS_EMAIL },
+      'AUTH_BYPASS_EMAIL is set — all unauthenticated requests resolve as this user. Do NOT use in production.',
+    )
+  }
+
   // Decode the session cookie on every request (silent — unauth routes stay
   // open). requireAuth() enforces the gate for protected routes.
   app.addHook('onRequest', async (request) => {
     try {
       const token = request.cookies[SESSION_COOKIE_NAME]
-      if (!token) return
-      const claims = await request.jwtVerify<SessionClaims>()
+      if (token) {
+        const claims = await request.jwtVerify<SessionClaims>()
 
-      // Re-load the user so revocations and role changes propagate without
-      // waiting for token expiry. If the Session row is gone or revoked,
-      // treat the request as anonymous.
-      const session = await app.prisma.session.findUnique({ where: { id: claims.jti } })
-      if (!session || session.revokedAt || session.expiresAt < new Date()) return
-
-      const dbUser = await app.prisma.user.findUnique({ where: { id: claims.sub } })
-      if (!dbUser || dbUser.status !== 'active') return
-
-      const user: AuthenticatedUser = {
-        id: dbUser.id,
-        email: dbUser.email,
-        role: dbUser.role as Role,
-        modules: dbUser.modules as ModuleKey[],
-        tenantId: dbUser.tenantId ?? null,
+        // Re-load the user so revocations and role changes propagate without
+        // waiting for token expiry. If the Session row is gone or revoked,
+        // treat the request as anonymous.
+        const session = await app.prisma.session.findUnique({ where: { id: claims.jti } })
+        if (session && !session.revokedAt && session.expiresAt >= new Date()) {
+          const dbUser = await app.prisma.user.findUnique({ where: { id: claims.sub } })
+          if (dbUser && dbUser.status === 'active') {
+            request.user = {
+              id: dbUser.id,
+              email: dbUser.email,
+              role: dbUser.role as Role,
+              modules: dbUser.modules as ModuleKey[],
+              tenantId: dbUser.tenantId ?? null,
+            }
+            request.authClaims = claims
+            return
+          }
+        }
       }
-      request.user = user
-      request.authClaims = claims
+
+      // Fallback — demo bypass. Only engages if no valid session was
+      // established above AND AUTH_BYPASS_EMAIL is set.
+      if (BYPASS_EMAIL && !request.user) {
+        const dbUser = await app.prisma.user.findUnique({ where: { email: BYPASS_EMAIL } })
+        if (dbUser && dbUser.status === 'active') {
+          request.user = {
+            id: dbUser.id,
+            email: dbUser.email,
+            role: dbUser.role as Role,
+            modules: dbUser.modules as ModuleKey[],
+            tenantId: dbUser.tenantId ?? null,
+          }
+        }
+      }
     } catch {
-      // Invalid/expired token → request stays anonymous; requireAuth gates
-      // decide whether that's acceptable per-route.
+      // Invalid/expired token → fall through to bypass if configured.
+      if (BYPASS_EMAIL && !request.user) {
+        const dbUser = await app.prisma.user.findUnique({ where: { email: BYPASS_EMAIL } })
+        if (dbUser && dbUser.status === 'active') {
+          request.user = {
+            id: dbUser.id,
+            email: dbUser.email,
+            role: dbUser.role as Role,
+            modules: dbUser.modules as ModuleKey[],
+            tenantId: dbUser.tenantId ?? null,
+          }
+        }
+      }
     }
   })
 

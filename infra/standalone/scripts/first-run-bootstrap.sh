@@ -147,6 +147,10 @@ LOG_LEVEL=info
 SECRETS_PROVIDER=env
 FEATURE_MODULES_ENABLED=A
 FEATURE_OPENAPI_DOCS=false
+# Server-side auth bypass — mirrors VITE_BYPASS_AUTH in apps/web/.env.demo.
+# Any request without a session cookie is served as this user. Unset once
+# WorkOS lands + the SSO E2E runbook is complete.
+AUTH_BYPASS_EMAIL=admin@clinwrite.ai
 ENV
 
   cat > "${DOTENV_FILE}" <<DOTENV

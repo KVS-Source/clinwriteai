@@ -25,9 +25,7 @@ const callbackQuerySchema = z.object({
 })
 
 export const authRoutes: FastifyPluginAsync = async (app) => {
-  const redirectUri = resolveRedirectUri(app.env.CORS_ORIGIN)
-
-  app.get('/auth/login', async (_request, reply) => {
+  app.get('/auth/login', async (request, reply) => {
     const state = randomBytes(16).toString('hex')
     reply.setCookie(SSO_STATE_COOKIE, state, {
       httpOnly: true,
@@ -36,6 +34,14 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       path: '/',
       maxAge: SSO_STATE_TTL_SECONDS,
     })
+    // Callback must land on THIS host (the API) — /auth/callback is a
+    // Fastify route, not a SPA route. Earlier incarnations constructed
+    // this from CORS_ORIGIN (the frontend host) which caused the mock
+    // SSO to redirect to demo.clinwrite.ai/auth/callback → SPA 404
+    // fallthrough to / → fetch /projects → 401 → /auth/login → infinite
+    // bounce (observed in prod as a flashing refresh + /projects 429s
+    // from rate-limit tripping on the retry storm).
+    const redirectUri = resolveRedirectUri(request)
     const url = await app.sso.getAuthorizationUrl({ state, redirectUri })
     return reply.redirect(url)
   })
@@ -53,7 +59,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     }
     reply.clearCookie(SSO_STATE_COOKIE, { path: '/' })
 
-    const identity = await app.sso.exchangeCode({ code, state, redirectUri })
+    const identity = await app.sso.exchangeCode({ code, state, redirectUri: resolveRedirectUri(request) })
 
     // Upsert the user. On first login we create as 'read-only' with no module
     // access — an admin must grant modules/role explicitly. Keeps zero-trust:
@@ -158,8 +164,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   })
 }
 
-function resolveRedirectUri(corsOrigin: string): string {
-  // SSO callback happens on the API host; the frontend origin only matters
-  // for the post-login redirect. Rebuild with the API's own origin.
-  return process.env.WORKOS_REDIRECT_URI ?? `${corsOrigin.replace(/\/$/, '')}/auth/callback`
+function resolveRedirectUri(request: { protocol: string; hostname: string; headers: Record<string, unknown> }): string {
+  // SSO callback happens on the API host (/auth/callback is a Fastify
+  // route). Build from the request's own origin so the mock SSO returns
+  // to the API, not the frontend. Honour X-Forwarded-Proto when behind
+  // nginx-tls so we don't downgrade to http.
+  if (process.env.WORKOS_REDIRECT_URI) return process.env.WORKOS_REDIRECT_URI
+  const forwardedProto = (request.headers['x-forwarded-proto'] as string | undefined)?.split(',')[0]?.trim()
+  const forwardedHost = (request.headers['x-forwarded-host'] as string | undefined)?.split(',')[0]?.trim()
+  const proto = forwardedProto ?? request.protocol
+  const host = forwardedHost ?? request.hostname
+  return `${proto}://${host}/auth/callback`
 }

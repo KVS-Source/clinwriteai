@@ -225,43 +225,62 @@ install -o platform -g platform -m 600 "${ENV_FILE}" /run/platform/worker.env
 # ================================================================
 log "I. nginx config"
 mkdir -p /etc/nginx/snippets /etc/nginx/sites-available /etc/nginx/sites-enabled
+# Where we park conflicting configs. Kept outside sites-enabled so
+# nginx's `include /etc/nginx/sites-enabled/*` glob doesn't pick them
+# up — the previous `.bak` rename failed on this because nginx's
+# default include has no file-extension filter.
+mkdir -p /etc/nginx/sites-disabled-by-platform
+
 for snip in "${REPO_DIR}/infra/standalone/nginx/snippets/"*.conf; do
   install -m 644 "${snip}" "/etc/nginx/snippets/platform-$(basename "${snip}")"
 done
 install -m 644 "${REPO_DIR}/infra/standalone/nginx/platform.conf" /etc/nginx/sites-available/platform
 ln -sfn /etc/nginx/sites-available/platform /etc/nginx/sites-enabled/platform
-# Older demo setup (/etc/nginx/sites-enabled/clinwrite-proto) also
-# claims server_name demo.clinwrite.ai. nginx keeps whichever file
-# loads first (alphabetical) → ours gets ignored. Back it up + disable
-# so our server block wins.
-if [[ -L /etc/nginx/sites-enabled/clinwrite-proto ]] || [[ -f /etc/nginx/sites-enabled/clinwrite-proto ]]; then
-  log "I. disabling conflicting /etc/nginx/sites-enabled/clinwrite-proto (backed up to .bak)"
-  mv /etc/nginx/sites-enabled/clinwrite-proto /etc/nginx/sites-enabled/clinwrite-proto.bak 2>/dev/null || \
-    rm -f /etc/nginx/sites-enabled/clinwrite-proto
-fi
 
-# Scan for ANY other sites-enabled file (not our `platform`) that
-# claims a clinwrite domain. On a shared VPS with prior deployment
-# attempts there may be multiple:
-#   - /etc/nginx/sites-enabled/demo.clinwrite.ai → old static site
-#   - /etc/nginx/sites-enabled/clinwrite.ai → old root-domain static
-#   - /etc/nginx/sites-enabled/proto.clinwrite.ai → prior demo iteration
-# Each one with server_name demo.clinwrite.ai gets alphabetical
-# priority over ours and intercepts the demo. Disable them all by
-# renaming to .bak (restorable; unlink doesn't lose data).
+# Sweep .bak files that prior versions of this script created in
+# sites-enabled. nginx loads them (its glob has no extension filter)
+# which still triggers "protocol options redefined" + "conflicting
+# server name" warnings. Move them out.
+shopt -s nullglob
+for f in /etc/nginx/sites-enabled/*.bak; do
+  log "I. moving stale ${f} out of sites-enabled → /etc/nginx/sites-disabled-by-platform/"
+  mv "${f}" "/etc/nginx/sites-disabled-by-platform/$(basename ${f})"
+done
+shopt -u nullglob
+
+# Scan for ANY sites-enabled file (not our `platform`) that claims a
+# clinwrite domain and move it OUT of sites-enabled. On a shared VPS
+# with prior deployment attempts there may be multiple:
+#   - clinwrite-proto, demo.clinwrite.ai, clinwrite.ai, *.conf variants
+#
+# Previously we renamed to .bak, but nginx's default
+# `include /etc/nginx/sites-enabled/*` has no extension filter so
+# .bak files were still being loaded (observed in prod: "protocol
+# options redefined for [::]:443 in sites-enabled/clinwrite-proto.bak").
+# Moving the file out of sites-enabled entirely is the correct fix.
+shopt -s nullglob
 for f in /etc/nginx/sites-enabled/*; do
   name=$(basename "${f}")
-  # Keep our file + anything already backed up
   [[ "${name}" == "platform" ]] && continue
-  [[ "${name}" == *.bak ]] && continue
-  # Check if this file references any clinwrite hostname in its
-  # server_name directive. grep -E on the whole file is sufficient
-  # for the common case of simple nginx configs.
-  if grep -qE 'server_name[[:space:]]+[^;]*clinwrite' "${f}" 2>/dev/null; then
-    log "I. disabling conflicting ${f} (claims clinwrite hostname — backed up to .bak)"
-    mv "${f}" "${f}.bak"
+  # If filename contains clinwrite OR file content claims a clinwrite
+  # hostname in a server_name directive, disable it. Catches both
+  # named-by-domain files and configs that just happen to proxy demo.
+  if [[ "${name}" == *clinwrite* ]] || grep -qE 'server_name[[:space:]]+[^;]*clinwrite' "${f}" 2>/dev/null; then
+    log "I. disabling conflicting ${f} → /etc/nginx/sites-disabled-by-platform/"
+    # Resolve symlink target before move so we don't leave a dangling
+    # symlink. If it's a regular file, just move it.
+    if [[ -L "${f}" ]]; then
+      target=$(readlink -f "${f}")
+      rm -f "${f}"
+      # Preserve the original source file in sites-available (don't
+      # delete it) — just record what was pointing at it.
+      echo "${target}" > "/etc/nginx/sites-disabled-by-platform/${name}.symlink-was"
+    else
+      mv "${f}" "/etc/nginx/sites-disabled-by-platform/${name}"
+    fi
   fi
 done
+shopt -u nullglob
 # Validate — if invalid, log and continue (deploy.sh will try cert
 # issuance which may fix a path-not-found error).
 if ! nginx -t 2>&1 | tail -5; then

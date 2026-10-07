@@ -1,4 +1,4 @@
-// Data objectivity flag for CTD Module 2 editor (Module D).
+// Data objectivity flag for CTD Module 2 editor (Regulatory Writing).
 // Purple dashed underline over a piece of text that trips the objectivity check (superlatives,
 // unsupported comparators). Hovering shows the suggested rewrite. Advisory only — never blocking.
 import { useState, type ReactNode } from 'react'

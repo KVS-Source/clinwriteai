@@ -16,8 +16,8 @@
   {
     "id": "notif-002",
     "eventType": "review_assigned",
-    "title": "New assignment \u2014 VELORA-302 Module D",
-    "body": "You have been assigned as Regulatory Writer on VELORA-302 \u00b7 Module D.",
+    "title": "New assignment \u2014 VELORA-302 Regulatory Writing",
+    "body": "You have been assigned as Regulatory Writer on VELORA-302 \u00b7 Regulatory Writing.",
     "module": "D",
     "projectId": "proj-velora-302",
     "entityRef": null,

@@ -315,7 +315,7 @@ export function ContentEditor() {
             <p className="mt-2 text-[13px] text-slate-600">Randomised, Double-Blind, Placebo-Controlled</p>
 
             <div className="mt-4 rounded-md border border-dashed border-slate-300 p-4" data-figure-placeholder>
-              <p className="font-mono text-[11px]" style={{ color: '#64748B' }}>Study schema diagram (TLF Fig 1.1 · Module A) · Replace figure · <span style={{ color: '#B45309' }}>alt text missing</span></p>
+              <p className="font-mono text-[11px]" style={{ color: '#64748B' }}>Study schema diagram (TLF Fig 1.1 · Clinical Writing) · Replace figure · <span style={{ color: '#B45309' }}>alt text missing</span></p>
             </div>
 
             <p className="mt-4 text-[14px] leading-[1.7] text-slate-800">
@@ -327,7 +327,7 @@ export function ContentEditor() {
             <p className="mt-2 font-mono text-[11px] text-slate-500">Dr Arjun Patel is editing this block</p>
 
             <p className="mt-4 font-mono text-[11px]" style={{ color: '#64748B' }} data-provenance-line>
-              Grounded in SmPC v2.1 §4.2 and CSR v1.0 §6.1.1 · Module A
+              Grounded in SmPC v2.1 §4.2 and CSR v1.0 §6.1.1 · Clinical Writing
             </p>
 
             <span

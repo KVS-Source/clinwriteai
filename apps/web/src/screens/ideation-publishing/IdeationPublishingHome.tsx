@@ -130,7 +130,7 @@ function ProjectCard({ project: p, onOpen }: ProjectCardProps) {
               style={{ backgroundColor: '#FFF1F2', color: '#BE123C', border: '1px solid #FDA4AF' }}
               data-block-reason
             >
-              Source gate failed — document 'In Authoring' in Module A
+              Source gate failed — document 'In Authoring' in Clinical Writing
             </span>
           )}
         </div>
@@ -180,13 +180,13 @@ export function IdeationPublishingHome() {
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900">VELORA-301</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">Ideation &amp; Publishing</span>
+          <span className="font-semibold text-slate-900">Ideation & Publishing</span>
         </nav>
 
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="flex min-w-0 flex-col gap-1.5">
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Ideation &amp; Publishing</h1>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Ideation & Publishing</h1>
             <p className="font-mono text-xs" style={{ color: '#64748B' }}>
               Content repurposing & channel calendar · Sourced from Master Library (Modules A/B/C/D)
             </p>

@@ -1,4 +1,4 @@
-// Review tier badge — Tier 1 green, Tier 2 amber, Tier 3 steel blue (#005F8E — no red in Module C).
+// Review tier badge — Tier 1 green, Tier 2 amber, Tier 3 steel blue (#005F8E — no red in Medical Writing).
 // Shows override marker when MLR Lead has overridden the auto-computed tier.
 import type { ReviewTier } from '@platform/types'
 

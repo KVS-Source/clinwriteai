@@ -1,4 +1,4 @@
-// Platform & Admin Module (sPM04–sPM18) + Module B Slide Deck (sB10) — MSW handlers.
+// Platform & Admin Module (sPM04–sPM18) + Scientific Writing Slide Deck (sB10) — MSW handlers.
 // Registered in browser.ts as ...platformHandlers.
 import { http, HttpResponse, delay } from 'msw'
 import platformConfig  from '../../data/platformConfig.json'
@@ -290,7 +290,7 @@ export const platformHandlers = [
     )
   }),
 
-  // --- sB10 Slide Deck Generator (Module B) ---
+  // --- sB10 Slide Deck Generator (Scientific Writing) ---
   http.get(`${BASE}/publications/:pubId/slides/:jobId`, async () => {
     await delay(150)
     return HttpResponse.json(slidedeckJobState)

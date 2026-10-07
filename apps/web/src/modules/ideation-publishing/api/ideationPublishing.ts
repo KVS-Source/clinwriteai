@@ -1,4 +1,4 @@
-// Module E — Ideation & Publishing API client (21 endpoints).
+// Ideation & Publishing — Ideation & Publishing API client (21 endpoints).
 // KOL review submission uses raw fetch (no auth header) per DD-E rule 5.
 import { api } from '../../../api/client'
 import type {

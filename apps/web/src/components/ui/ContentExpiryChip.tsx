@@ -1,5 +1,5 @@
-// Content expiry chip — Green >6 months, amber ≤60 days, red ≤30 days (Module C).
-// Note: expiry is the only place red-tinted styling is permitted in Module C per design rule §13.1.
+// Content expiry chip — Green >6 months, amber ≤60 days, red ≤30 days (Medical Writing).
+// Note: expiry is the only place red-tinted styling is permitted in Medical Writing per design rule §13.1.
 
 interface Props {
   expiryDate: string

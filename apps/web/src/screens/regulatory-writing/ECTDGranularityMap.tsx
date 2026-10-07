@@ -51,7 +51,7 @@ function TreeRow({ node, active, onClick, flagged }: TreeRowProps) {
         >⚠</span>
       )}
       <ECTDStatusDot status={node.status} />
-      {node.isReadOnly && <span title="Read-only · Module A">🔒</span>}
+      {node.isReadOnly && <span title="Read-only · Clinical Writing">🔒</span>}
     </button>
   )
 }
@@ -235,7 +235,7 @@ export function ECTDGranularityMap() {
                   <span className="mt-1 inline-flex items-center gap-1.5 rounded-md px-2 py-0.5 text-[11px] font-semibold"
                         style={{ backgroundColor: '#EFF6FF', color: '#005F8E', border: '1px solid #93C5FD' }}>
                     <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#005F8E' }} />
-                    Drafted from: VELORA-301 CSR v1.0 · Module A
+                    Drafted from: VELORA-301 CSR v1.0 · Clinical Writing
                   </span>
                   <p className="mt-2 font-mono text-[11px] text-slate-500">214 data points from canonical JSON layer · Indexed 12 Oct 2026.</p>
                 </div>
@@ -278,7 +278,7 @@ export function ECTDGranularityMap() {
                 <p className="font-mono text-[11px] uppercase text-slate-500" style={{ letterSpacing: '0.08em' }}>{selected.moduleSection}</p>
                 <h2 className="text-[18px] font-bold text-slate-900">{selected.sectionTitle}</h2>
                 <p className="mt-3 text-[13px] text-slate-600">
-                  Module 5 sections are managed in Module A. To modify this CSR, open the source project in Module A and create a new CSR version.
+                  Module 5 sections are managed in Clinical Writing. To modify this CSR, open the source project in Clinical Writing and create a new CSR version.
                 </p>
               </div>
             )}

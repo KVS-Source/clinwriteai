@@ -129,7 +129,7 @@ export function ArtefactUploadSourceCheck() {
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900">VELORA-301</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing`)} className="hover:text-slate-900">Ideation &amp; Publishing</button>
+          <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing`)} className="hover:text-slate-900">Ideation & Publishing</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <span className="font-semibold text-slate-900">{project.title}</span>
         </nav>
@@ -338,7 +338,7 @@ export function ArtefactUploadSourceCheck() {
                 Discontinuation due to AEs occurred in 12% versus 8%.
               </p>
               <p className="mt-4 rounded-md px-3 py-2 text-[11px]" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>
-                Click any passage to preview the tag affordance. No cursor. No edit mode. All edits happen at source in Module C.
+                Click any passage to preview the tag affordance. No cursor. No edit mode. All edits happen at source in Medical Writing.
               </p>
             </div>
           </aside>

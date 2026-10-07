@@ -110,7 +110,7 @@ export function ContentBriefing() {
   const [channels,    setChannels]    = useState<string[]>(['Congress', 'Digital'])
   const [targetDate,  setTargetDate]  = useState('')
 
-  // Source documents — Module A read-only. All three linked by default for the demo.
+  // Source documents — Clinical Writing read-only. All three linked by default for the demo.
   const [sourceDocs] = useState({ csr: true, smpc: true, ib: true })
   const [mapLinked] = useState(true)
   const [ppLinked]  = useState(false)
@@ -226,7 +226,7 @@ export function ContentBriefing() {
               <header className="mb-3 flex items-center justify-between">
                 <div>
                   <h2 className="text-[14px] font-bold text-slate-900">Source Documents</h2>
-                  <p className="font-mono text-[11px] text-slate-500">Module A · VELORA-301 · Read-only</p>
+                  <p className="font-mono text-[11px] text-slate-500">Clinical Writing · VELORA-301 · Read-only</p>
                 </div>
               </header>
               <div className="flex flex-wrap gap-2">
@@ -235,12 +235,12 @@ export function ContentBriefing() {
                 <Pill text="IB ✓" active />
               </div>
               <div className="mt-3 flex items-center gap-2" data-module-b-link>
-                <span className="text-[13px] text-slate-500">Module B publication:</span>
+                <span className="text-[13px] text-slate-500">Scientific Writing publication:</span>
                 <span className="inline-flex items-center gap-1 text-[13px] text-slate-400">Not linked</span>
               </div>
               <div className="mt-3 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[12px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8', border: '1px solid #93C5FD' }}>
                 <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#2563EB' }} />
-                VELORA-301 CSR v1.0 · Module A
+                VELORA-301 CSR v1.0 · Clinical Writing
               </div>
             </section>
 
@@ -406,7 +406,7 @@ export function ContentBriefing() {
 
               <div className="mb-3 grid gap-1">
                 <p className="text-[11px] font-mono uppercase" style={{ color: '#64748B', letterSpacing: '0.1em' }}>Source</p>
-                <p className="text-[13px] text-slate-800">VELORA-301 CSR v1.0 · Module A</p>
+                <p className="text-[13px] text-slate-800">VELORA-301 CSR v1.0 · Clinical Writing</p>
               </div>
 
               <div className="mb-3">

@@ -1,4 +1,4 @@
-// 21 CFR Part 11 inline confirmation — expands in place, never a modal (Module D design rule 4).
+// 21 CFR Part 11 inline confirmation — expands in place, never a modal (Regulatory Writing design rule 4).
 // Setting confirmingTransmission = true in the gatewayStore is a separate concern of the caller
 // via onConfirm; this component is presentational and controls only its own local expand state.
 import { useState } from 'react'

@@ -1,5 +1,5 @@
-// Flesch-Kincaid gauge badge — patient-facing content readability score (Module C).
-// Green ≤8 (pass), amber 8–10 (caution), steel-blue >10 (fail — no red in Module C).
+// Flesch-Kincaid gauge badge — patient-facing content readability score (Medical Writing).
+// Green ≤8 (pass), amber 8–10 (caution), steel-blue >10 (fail — no red in Medical Writing).
 
 interface Props {
   score:  number

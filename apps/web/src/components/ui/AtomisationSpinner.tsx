@@ -1,4 +1,4 @@
-// Per-channel atomisation spinner (Module E DD-E-004).
+// Per-channel atomisation spinner (Ideation & Publishing DD-E-004).
 // Never a single shared spinner — each channel resolves independently.
 import type { ChannelFormat } from '@platform/types'
 import { CHANNEL_META } from '@platform/types'

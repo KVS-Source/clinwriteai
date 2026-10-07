@@ -1,4 +1,4 @@
-// MLR comment card — shows MLR-C-### id, reviewer stamp, tag, and escalation chip (Module C).
+// MLR comment card — shows MLR-C-### id, reviewer stamp, tag, and escalation chip (Medical Writing).
 import type { MLRComment } from '@platform/types'
 
 interface Props {

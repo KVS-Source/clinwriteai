@@ -142,7 +142,7 @@ export function FinalOutput() {
           <p className="text-[11px]" style={{ color: '#64748B' }}>Cross-module 21 CFR Part 11 audit chain</p>
 
           <div className="mt-3 rounded-md bg-slate-50 p-3">
-            <p className="font-mono text-[11px] uppercase" style={{ color: '#1D4ED8', letterSpacing: '0.08em' }}>Clinical Writing · Module A</p>
+            <p className="font-mono text-[11px] uppercase" style={{ color: '#1D4ED8', letterSpacing: '0.08em' }}>Clinical Writing · Clinical Writing</p>
             <ul className="mt-1 text-[12px]">
               {CLINICAL_SOURCE.map(r => <li key={r.label} className="text-slate-700"><strong>{r.label}</strong> · {r.when}</li>)}
               <li className="mt-1 font-mono text-[10px] text-slate-500">Audit references: AE-006 → AE-012</li>
@@ -150,7 +150,7 @@ export function FinalOutput() {
           </div>
 
           <div className="mt-3 rounded-md bg-slate-50 p-3">
-            <p className="font-mono text-[11px] uppercase" style={{ color: '#7C3AED', letterSpacing: '0.08em' }}>Medical Writing · Module C</p>
+            <p className="font-mono text-[11px] uppercase" style={{ color: '#7C3AED', letterSpacing: '0.08em' }}>Medical Writing · Medical Writing</p>
             <ol className="mt-2 flex flex-col gap-2" data-provenance-timeline>
               {MODULE_C_MILESTONES.map((m, i) => (
                 <li key={m.label} className="flex items-start gap-2" data-milestone={i + 1}>

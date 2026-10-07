@@ -1,4 +1,4 @@
-// Regulatory Writing (Module D) API client — 32 endpoints per API Contracts v4.0 §44–§55.
+// Regulatory Writing (Regulatory Writing) API client — 32 endpoints per API Contracts v4.0 §44–§55.
 import { api } from '../../../api/client'
 import type {
   RegulatorySubmission,

@@ -67,7 +67,7 @@
     "scheduledCount": 0,
     "publishedCount": 0,
     "sourceGateStatus": "blocked",
-    "sourceGateReason": "Source document status is 'In Authoring' in Module A. Only Signed / Final Output / Submitted documents may enter the ideation pipeline.",
+    "sourceGateReason": "Source document status is 'In Authoring' in Clinical Writing. Only Signed / Final Output / Submitted documents may enter the ideation pipeline.",
     "maApprovedAt": null,
     "maApprovedBy": null
   },

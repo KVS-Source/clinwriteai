@@ -85,8 +85,8 @@ function NewTenantDialog({ onClose }: { onClose: () => void }) {
       <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
         <h3 className="text-[16px] font-bold text-slate-900">New tenant</h3>
         <p className="mt-1 text-[12px] text-slate-500">
-          Slug is lowercase alphanumeric + hyphens; shown in URLs. Only Module A is
-          enabled by default — adjust after creation.
+          Slug is lowercase alphanumeric + hyphens; shown in URLs. Only Clinical
+          Writing is enabled by default — adjust after creation.
         </p>
         <div className="mt-4 flex flex-col gap-3">
           <label className="flex flex-col gap-1 text-[12px] text-slate-700">

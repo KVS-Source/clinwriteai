@@ -147,7 +147,7 @@ function ContentRow({ item, onOpen }: ContentRowProps) {
   const expiryDate = EXPIRY_MAP[item.id] ?? item.expiryDate ?? null
   const showExpiry = expiryDate !== null
   const overdue    = item.mlrOverdue === true
-  const sourceLabel = item.sourceModuleAProjectId ? 'Module A ✓' : null
+  const sourceLabel = item.sourceModuleAProjectId ? 'Clinical Writing ✓' : null
 
   const fkLabel = showFk
     ? `FK ${item.fkScore!.toFixed(1)}${item.fkPassed ? ' ✓' : ''}`

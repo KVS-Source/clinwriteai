@@ -1,4 +1,4 @@
-// Channel adaptation card (Module E).
+// Channel adaptation card (Ideation & Publishing).
 // Source doc is always read-only (DD-E-001) — this card's text IS editable via onEdit.
 import type { AtomisedContent } from '@platform/types'
 

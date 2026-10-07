@@ -148,7 +148,7 @@
           { "folder": "nonclinical-study-reports", "leaf": "nonclinical-study-reports.docx", "title": "4.2 Nonclinical Study Reports" }
         ],
         "m5": [
-          { "folder": "clinical-study-reports", "leaf": "spine-tb-2-csr-v0.2.docx",   "title": "5.3.5 SPINE-TB-2 CSR v0.2 (from Module A DOC-101)" },
+          { "folder": "clinical-study-reports", "leaf": "spine-tb-2-csr-v0.2.docx",   "title": "5.3.5 SPINE-TB-2 CSR v0.2 (from Clinical Writing DOC-101)" },
           { "folder": "study-synopses",         "leaf": "study-synopsis.docx",        "title": "5.2 Tabular Listing + Synopses" }
         ]
       },

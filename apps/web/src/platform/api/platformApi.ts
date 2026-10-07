@@ -142,7 +142,7 @@ export const platformApi = {
   updateFramework: (frameworkId: string, patch: UpdateFrameworkBody) =>
     api.patch<RegulatoryFramework>(`/regulatory-frameworks/${frameworkId}`, patch),
 
-  // sB10 — Slide Deck (Module B)
+  // sB10 — Slide Deck (Scientific Writing)
   getSlideDeckJob: (publicationId: string, jobId: string) =>
     api.get<SlideDeckJob>(`/publications/${publicationId}/slides/${jobId}`),
   updateSlide: (publicationId: string, jobId: string, slideId: string, patch: Partial<Slide>) =>

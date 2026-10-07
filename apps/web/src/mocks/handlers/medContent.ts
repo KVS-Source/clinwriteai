@@ -34,7 +34,7 @@ export const medContentHandlers = [
   // --- Content list + CRUD ---
   http.get(`${BASE}/projects/:projectId/med-content`, async () => {
     await delay(150)
-    // Module C home is a cross-project view rooted at the current project context.
+    // Medical Writing home is a cross-project view rooted at the current project context.
     return HttpResponse.json(medContent)
   }),
   http.get(`${BASE}/med-content/:contentId`, async ({ params }) => {

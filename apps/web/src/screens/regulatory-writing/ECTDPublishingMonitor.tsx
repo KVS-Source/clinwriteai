@@ -11,7 +11,7 @@ const PUBLISHING_LOG: LogEntry[] = [
   { at: '15 Oct 2026 16:22 UTC', text: '2.5-clinical-overview v0.4 → compiling',      done: false },
   { at: '15 Oct 2026 16:20 UTC', text: '2.7-clinical-summaries v0.3 → compiled ✓',    done: true },
   { at: '15 Oct 2026 16:18 UTC', text: '3.2.P v1.0 → compiled ✓',                     done: true },
-  { at: '15 Oct 2026 14:03 UTC', text: '5.3.1 CSR import → compiled ✓ [Module A]',    done: true },
+  { at: '15 Oct 2026 14:03 UTC', text: '5.3.1 CSR import → compiled ✓ [Clinical Writing]',    done: true },
 ]
 
 // Which nodes get the animated crimson pulse (visual proof of continuous publishing)
@@ -54,7 +54,7 @@ function TreeRow({ node, pulsing, amber }: TreeRowProps) {
       <span className="font-mono text-[10px] text-slate-500 w-14 flex-none">{node.moduleSection}</span>
       <span className="flex-1 truncate font-mono text-[11px] text-slate-700">{fileName}</span>
       {isSysGen && <span className="font-mono text-[10px]" style={{ color: '#005F8E' }}>[auto]</span>}
-      {node.isReadOnly && <span title="Read-only · Module A" className="text-[10px]" style={{ color: '#005F8E' }}>🔒</span>}
+      {node.isReadOnly && <span title="Read-only · Clinical Writing" className="text-[10px]" style={{ color: '#005F8E' }}>🔒</span>}
       <span className="font-mono text-[11px]" style={{ color: dotColor }}>{dot}</span>
     </div>
   )

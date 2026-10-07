@@ -1,4 +1,4 @@
-// Module D — Regulatory Writing MSW handlers (32 endpoints).
+// Regulatory Writing — Regulatory Writing MSW handlers (32 endpoints).
 import { http, HttpResponse, delay } from 'msw'
 import regulatorySubmissions   from '../../data/regulatorySubmissions.json'
 import ectdGranularityMap      from '../../data/ectdGranularityMap.json'

@@ -114,7 +114,7 @@ export function PublishingMonitor() {
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing`)} className="hover:text-slate-900">Ideation &amp; Publishing</button>
+          <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing`)} className="hover:text-slate-900">Ideation & Publishing</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <span className="font-semibold text-slate-900">Publishing Monitor</span>
         </nav>

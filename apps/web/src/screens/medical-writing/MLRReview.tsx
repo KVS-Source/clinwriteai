@@ -208,7 +208,7 @@ export function MLRReview() {
                     (HR 0.61; 95% CI 0.48–0.77; p&lt;0.001).
                   </p>
                   <div className="mt-4 flex h-40 items-center justify-center rounded-md bg-slate-50 text-[12px]" style={{ color: '#64748B' }}>
-                    Kaplan-Meier curve (TLF Fig 14.2.1 · Module A)
+                    Kaplan-Meier curve (TLF Fig 14.2.1 · Clinical Writing)
                   </div>
                 </section>
 

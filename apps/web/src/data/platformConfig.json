@@ -137,7 +137,7 @@
       "label": "CrossRef / ORCID",
       "status": "connected",
       "lastTested": "2026-09-09T00:00:00Z",
-      "owner": "Module E"
+      "owner": "Ideation & Publishing"
     },
     {
       "id": "pubmed",
@@ -173,7 +173,7 @@
   "featureFlags": [
     {
       "id": "module-e-localisation",
-      "label": "Module E Localisation",
+      "label": "Ideation & Publishing Localisation",
       "status": "enabled"
     },
     {

@@ -1,4 +1,4 @@
-// Source gate block — Module E design rule 1 + DD-E-002.
+// Source gate block — Ideation & Publishing design rule 1 + DD-E-002.
 // Full-width, rose-tinted block. No bypass path — this component is the wall.
 
 interface Props {

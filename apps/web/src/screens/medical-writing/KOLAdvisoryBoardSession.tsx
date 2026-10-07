@@ -141,7 +141,7 @@ export function KOLAdvisoryBoardSession() {
             <span className="font-mono text-[11px] uppercase" style={{ letterSpacing: '0.1em', color: '#7C3AED' }}>Stage 2 of 6</span>
             <button
               type="button"
-              onClick={() => flash('Voice recorder — Module A VoiceNotePanel')}
+              onClick={() => flash('Voice recorder — Clinical Writing VoiceNotePanel')}
               data-add-voice-note
               className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
             >Add voice note</button>

@@ -108,7 +108,7 @@ export function RegulatoryIntelligence() {
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Regulatory Intelligence · Live Monitoring</h1>
-            <p className="font-mono text-xs" style={{ color: '#64748B' }}>DD-D-005: shared cross-module service · Module D primary owner</p>
+            <p className="font-mono text-xs" style={{ color: '#64748B' }}>DD-D-005: shared cross-module service · Regulatory Writing primary owner</p>
           </div>
           <div className="flex flex-none items-center gap-2">
             {unread > 0 && (
@@ -251,7 +251,7 @@ export function RegulatoryIntelligence() {
               <h3 className="mb-2 text-[13px] font-bold text-slate-900">Cross-Functional Triggers · Active</h3>
               <div className="flex flex-col gap-2">
                 <article className="rounded-md border border-slate-200 p-3" data-trigger="csr-update">
-                  <p className="text-[13px] font-semibold text-slate-800">Module A CSR updated — VELORA-301 CSR v1.1 (interim OS data added)</p>
+                  <p className="text-[13px] font-semibold text-slate-800">Clinical Writing CSR updated — VELORA-301 CSR v1.1 (interim OS data added)</p>
                   <p className="mt-1 font-mono text-[11px] text-slate-500">Triggered: 10 Oct 2026</p>
                   <p className="mt-1 text-[12px] text-slate-700">Affected: Module 2.5 §2.5.4 · Module 2.7 §2.7.2.1 · 3 cross-references</p>
                   <p className="mt-1 text-[12px]" style={{ color: '#B45309' }}>⚠ Review sign-off required — Dr Sarah Chen</p>
@@ -265,7 +265,7 @@ export function RegulatoryIntelligence() {
                 </article>
 
                 <article className="rounded-md border border-slate-200 p-3" data-trigger="new-publication">
-                  <p className="text-[13px] font-semibold text-slate-800">Module B publication — new manuscript from VELORA-301 source project</p>
+                  <p className="text-[13px] font-semibold text-slate-800">Scientific Writing publication — new manuscript from VELORA-301 source project</p>
                   <p className="mt-1 font-mono text-[11px] text-slate-500">Triggered: 08 Oct 2026</p>
                   <p className="mt-1 text-[12px]" style={{ color: '#166534' }}>✓ Acknowledged — Dr J. Hartley · 09 Oct</p>
                 </article>

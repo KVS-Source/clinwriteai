@@ -73,7 +73,7 @@ export function StandardsMetadataDOI() {
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing`)} className="hover:text-slate-900">Ideation &amp; Publishing</button>
+          <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing`)} className="hover:text-slate-900">Ideation & Publishing</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing/projects/${ideationProjectId}`)} className="hover:text-slate-900">{project.title}</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
@@ -84,7 +84,7 @@ export function StandardsMetadataDOI() {
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Standards, Metadata &amp; DOI</h1>
-            <p className="mt-1 font-mono text-xs text-slate-500">{project.title} · Module E owns CrossRef/ORCID shared service (OQ-E-006)</p>
+            <p className="mt-1 font-mono text-xs text-slate-500">{project.title} · Ideation & Publishing owns CrossRef/ORCID shared service (OQ-E-006)</p>
           </div>
         </div>
 
@@ -152,7 +152,7 @@ export function StandardsMetadataDOI() {
             style={{ backgroundColor: '#F1F5F9', color: '#475569' }}
             data-shared-service-note
           >
-            CrossRef/ORCID API: Module E owns this shared service. Module B publications use the same service. (AC-E-020)
+            CrossRef/ORCID API: Ideation & Publishing owns this shared service. Scientific Writing publications use the same service. (AC-E-020)
           </p>
         </section>
 
@@ -175,7 +175,7 @@ export function StandardsMetadataDOI() {
             >Verify →</button>
           </div>
           <p className="mt-2 text-[12px]" style={{ color: '#475569' }} data-orcid-optional-note>
-            ORCID verification is optional for KOL contributors. Module E owns the ORCID API used by both this module and Module B.
+            ORCID verification is optional for KOL contributors. Ideation & Publishing owns the ORCID API used by both this module and Scientific Writing.
           </p>
           <p className="mt-1 font-mono text-[11px]" style={{ color: '#B45309' }} data-orcid-status>
             {ORCID_KOL.orcid} · {ORCID_KOL.status}
@@ -229,7 +229,7 @@ export function StandardsMetadataDOI() {
             WCAG 2.1 AA applies to published content outputs. The ClinWrite.AI platform UI targets WCAG 2.2 AA — these are separate standards. (AC-E-019)
           </p>
           <p className="mt-2 font-mono text-[11px] text-slate-500">
-            Same engine as the Medical Writing accessibility check (Module C).
+            Same engine as the Medical Writing accessibility check (Medical Writing).
           </p>
 
           <div className="mt-3 flex flex-wrap items-center gap-2">

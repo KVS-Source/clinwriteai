@@ -117,7 +117,7 @@ export function ContentCardTagging() {
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing`)} className="hover:text-slate-900">Ideation &amp; Publishing</button>
+          <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing`)} className="hover:text-slate-900">Ideation & Publishing</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing/projects/${ideationProjectId}`)} className="hover:text-slate-900">{project.title}</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
@@ -159,7 +159,7 @@ export function ContentCardTagging() {
             <header className="flex flex-col gap-1 border-b border-slate-200 px-4 py-3">
               <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Source document — read-only</span>
               <p className="text-[13px] font-semibold text-slate-900">VELORA-301 KOL Advisory Board Summary v1.0</p>
-              <p className="font-mono text-[10px] text-slate-500">DD-E-001 · edits at source in Module C only</p>
+              <p className="font-mono text-[10px] text-slate-500">DD-E-001 · edits at source in Medical Writing only</p>
             </header>
             <div
               className="flex-1 overflow-auto px-4 py-3 text-[12px] leading-relaxed text-slate-700"

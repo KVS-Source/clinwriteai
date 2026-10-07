@@ -191,7 +191,7 @@ function SubmissionCard({ submission: s, onOpen }: SubmissionCardProps) {
               data-source-chip
             >
               <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#005F8E' }} />
-              Source: {s.project ?? s.projectId} CSR v1.0 · Module A ✓
+              Source: {s.project ?? s.projectId} CSR v1.0 · Clinical Writing ✓
             </span>
           ) : null}
         </div>

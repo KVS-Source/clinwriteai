@@ -1,4 +1,4 @@
-// Gateway ACK timeline — receipt / format-validation / acceptance milestones with elapsed time (Module D).
+// Gateway ACK timeline — receipt / format-validation / acceptance milestones with elapsed time (Regulatory Writing).
 import type { GatewaySubmissionRecord } from '@platform/types'
 
 interface Props {

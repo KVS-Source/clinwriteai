@@ -1,5 +1,5 @@
 // AI Footprint chip — displays AI/human authoring ratio for a document/publication.
-// Used in the editor toolbar (Module A + Module B).
+// Used in the editor toolbar (Clinical Writing + Scientific Writing).
 // Colour tokens are shared across modules per design-system §B-DS-3.
 
 interface Props {

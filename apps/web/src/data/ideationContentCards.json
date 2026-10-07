@@ -24,7 +24,7 @@
     "provenanceChain": [
       "Source: KOL Summary §3.2",
       "CSR v1.0 · Table 14.2.1",
-      "Module A · Clinical Writing"
+      "Clinical Writing · Clinical Writing"
     ],
     "title": "Primary PFS Efficacy Result",
     "cardType": "efficacy"
@@ -54,7 +54,7 @@
     "provenanceChain": [
       "Source: KOL Summary §4.1",
       "CSR v1.0 · Table 12.2.4",
-      "Module A · Clinical Writing"
+      "Clinical Writing · Clinical Writing"
     ],
     "title": "Safety Profile — Grade 3+ AEs",
     "cardType": "safety"
@@ -91,7 +91,7 @@
     "provenanceChain": [
       "Source: KOL Summary §3.4",
       "CSR v1.0 · Table 14.2.7.1",
-      "Module A · Clinical Writing"
+      "Clinical Writing · Clinical Writing"
     ],
     "title": "Subgroup Consistency",
     "cardType": "subgroup"
@@ -122,7 +122,7 @@
     "provenanceChain": [
       "Source: KOL Insights §3.1",
       "CSR v0.2 · Table 11.1 (primary efficacy)",
-      "Module A · Clinical Writing"
+      "Clinical Writing · Clinical Writing"
     ],
     "title": "Culture Conversion Non-Inferiority at Month 6",
     "cardType": "efficacy",
@@ -176,7 +176,7 @@
     "provenanceChain": [
       "Source: KOL Insights §3.3",
       "CSR v0.2 · Table 11.3.2 (radiological)",
-      "Module A · Clinical Writing"
+      "Clinical Writing · Clinical Writing"
     ],
     "title": "Radiological Healing at 24 Months",
     "cardType": "efficacy",
@@ -231,7 +231,7 @@
       "Source: KOL Insights §4.2",
       "CSR v0.2 · §12 Safety Evaluation",
       "RMP v1.0 · §5.2 Hepatotoxicity",
-      "Module A · Clinical Writing"
+      "Clinical Writing · Clinical Writing"
     ],
     "title": "Hepatotoxicity Signal & RMP Monitoring",
     "cardType": "safety",
@@ -286,7 +286,7 @@
     "provenanceChain": [
       "Source: KOL Insights §5.1",
       "CSR v0.2 · Table 11.4 (adherence)",
-      "Module A · Clinical Writing"
+      "Clinical Writing · Clinical Writing"
     ],
     "title": "Shorter Regimen — Adherence & Programme Cost Benefit",
     "cardType": "positioning",
@@ -340,7 +340,7 @@
     "provenanceChain": [
       "Source: Disease Dossier §2.1",
       "SmPC §4.1 Indication",
-      "Module C · Medical Writing"
+      "Medical Writing · Medical Writing"
     ],
     "title": "What is Spine TB? — Patient Explainer",
     "cardType": "patient-education",
@@ -356,7 +356,7 @@
       "suggestedVisual": "Simple anatomy diagram of vertebral column with affected area highlighted. No jargon labels.",
       "potentialApprovedChannels": ["Patient blog (advocacy partner)", "Clinic waiting-room infographic (print)", "Advocacy organisation website (WHO Stop TB Partnership channel)"],
       "referenceFields": {
-        "primarySource": "SPINE-TB-2 Disease Dossier v1.2 · Module C mc-tb-001",
+        "primarySource": "SPINE-TB-2 Disease Dossier v1.2 · Medical Writing mc-tb-001",
         "secondarySources": ["WHO End TB Strategy patient education materials", "SmPC §4.1"]
       },
       "governanceMetadata": {
@@ -394,7 +394,7 @@
     },
     "provenanceChain": [
       "Source: Disease Dossier §3.4",
-      "Module C · Medical Writing"
+      "Medical Writing · Medical Writing"
     ],
     "title": "Why Completing Treatment Matters — Patient Adherence",
     "cardType": "patient-education",
@@ -410,7 +410,7 @@
       "suggestedVisual": "Calendar-style timeline showing 9-month completion path vs 12-month, with milestone celebration icons at month 3 / 6 / 9.",
       "potentialApprovedChannels": ["Patient blog (advocacy partner)", "TB Programme patient portal", "SMS reminder programme (WHO End TB Strategy)"],
       "referenceFields": {
-        "primarySource": "SPINE-TB-2 Disease Dossier v1.2 · Module C mc-tb-001",
+        "primarySource": "SPINE-TB-2 Disease Dossier v1.2 · Medical Writing mc-tb-001",
         "secondarySources": ["WHO End TB Strategy adherence guidance"]
       },
       "governanceMetadata": {

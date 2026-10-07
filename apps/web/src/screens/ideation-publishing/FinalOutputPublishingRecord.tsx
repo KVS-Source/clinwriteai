@@ -54,7 +54,7 @@ export function FinalOutputPublishingRecord() {
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing`)} className="hover:text-slate-900">Ideation &amp; Publishing</button>
+          <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing`)} className="hover:text-slate-900">Ideation & Publishing</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <button onClick={() => navigate(`/projects/${projectId}/ideation-publishing/projects/${ideationProjectId}`)} className="hover:text-slate-900">{project.title}</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
@@ -170,7 +170,7 @@ export function FinalOutputPublishingRecord() {
                   style={{ backgroundColor: '#0D9488' }}
                 >Push approved cards →</button>
               </div>
-              <p className="font-mono text-[10px] text-slate-500">Reference — Module D handles the underlying Master Library service.</p>
+              <p className="font-mono text-[10px] text-slate-500">Reference — Regulatory Writing handles the underlying Master Library service.</p>
             </section>
 
             {/* Compliance provenance */}
@@ -178,7 +178,7 @@ export function FinalOutputPublishingRecord() {
               <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Compliance provenance</p>
               <ol className="mt-3 flex flex-col gap-2 text-[13px] text-slate-800">
                 <li data-provenance-step="source">
-                  <strong>Source</strong> · VELORA-301 KOL Advisory Board Summary v1.0 · Module C · Final Output
+                  <strong>Source</strong> · VELORA-301 KOL Advisory Board Summary v1.0 · Medical Writing · Final Output
                 </li>
                 <li data-provenance-step="source-gate">
                   <strong>Source gate</strong> · ✓ Passed · 18 Oct 2026
@@ -198,7 +198,7 @@ export function FinalOutputPublishingRecord() {
                 style={{ backgroundColor: '#F0FDFA', color: '#0F766E' }}
                 data-part-eleven-note
               >
-                All events above are logged to the 21 CFR Part 11 compliant platform audit trail. The KOL and Medical Affairs sign-offs are <strong>digital approval stamps</strong>, not full Part 11 e-signatures, per the Ideation &amp; Publishing compliance posture.
+                All events above are logged to the 21 CFR Part 11 compliant platform audit trail. The KOL and Medical Affairs sign-offs are <strong>digital approval stamps</strong>, not full Part 11 e-signatures, per the Ideation & Publishing compliance posture.
               </p>
               <p
                 className="mt-2 font-mono text-[11px] text-slate-500"

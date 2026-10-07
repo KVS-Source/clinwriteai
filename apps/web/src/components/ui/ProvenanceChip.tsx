@@ -1,4 +1,4 @@
-// Provenance chip — always visible without interaction (Module E rule 3, FR-E-009).
+// Provenance chip — always visible without interaction (Ideation & Publishing rule 3, FR-E-009).
 // Renders the full provenance chain inline; never collapsible.
 
 interface Props {

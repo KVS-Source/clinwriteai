@@ -63,7 +63,7 @@
     "id": "rpt-006",
     "type": "publishing-performance",
     "label": "Publishing Performance Report",
-    "description": "Module E \u2014 content published, sentiment scores, overdue rates, calendar adherence",
+    "description": "Ideation & Publishing \u2014 content published, sentiment scores, overdue rates, calendar adherence",
     "availableFormats": [
       "pdf",
       "csv"

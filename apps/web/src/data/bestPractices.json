@@ -70,7 +70,7 @@
     "module": "E",
     "category": "Claim Currency",
     "name": "Module-E-ClaimCurrency-v1.0-2026-03",
-    "guidance": "All artefacts entering Module E must pass the claim currency check before content cards are tagged. Conflicting claims (status: conflicting) block tagging at the passage level. Potentially-superseded claims require acknowledgement with a written rationale before proceeding. DD-E-003.",
+    "guidance": "All artefacts entering Ideation & Publishing must pass the claim currency check before content cards are tagged. Conflicting claims (status: conflicting) block tagging at the passage level. Potentially-superseded claims require acknowledgement with a written rationale before proceeding. DD-E-003.",
     "applicableDocTypes": [
       "KOL Summary",
       "Clinical Brief",

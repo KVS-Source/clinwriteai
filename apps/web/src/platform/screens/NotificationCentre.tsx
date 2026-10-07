@@ -33,11 +33,11 @@ const EVENT_TYPE_LABEL: Record<string, string> = {
 }
 
 const MODULE_META: Record<string, { label: string; colour: string }> = {
-  A: { label: 'Module A · Clinical Writing',      colour: '#2563EB' },
-  B: { label: 'Module B · Scientific Writing',    colour: '#0D9488' },
-  C: { label: 'Module C · Medical Writing',       colour: '#7C3AED' },
-  D: { label: 'Module D · Regulatory Writing',    colour: '#B0200D' },
-  E: { label: 'Module E · Ideation & Publishing', colour: '#0D9488' },
+  A: { label: 'Clinical Writing',      colour: '#2563EB' },
+  B: { label: 'Scientific Writing',    colour: '#0D9488' },
+  C: { label: 'Medical Writing',       colour: '#7C3AED' },
+  D: { label: 'Regulatory Writing',    colour: '#B0200D' },
+  E: { label: 'Ideation & Publishing', colour: '#0D9488' },
   platform: { label: 'Platform',                  colour: PLATFORM_ACCENT.primary },
 }
 

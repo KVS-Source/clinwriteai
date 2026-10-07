@@ -1,4 +1,4 @@
-// Compliance track chip — MLR (blue) or ACCME (green), with optional lock icon (Module C).
+// Compliance track chip — MLR (blue) or ACCME (green), with optional lock icon (Medical Writing).
 import type { ComplianceTrack } from '@platform/types'
 
 interface Props {

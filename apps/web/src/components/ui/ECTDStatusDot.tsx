@@ -1,4 +1,4 @@
-// eCTD node status dot — symbol + colour from CTD_STATUS_META (Module D).
+// eCTD node status dot — symbol + colour from CTD_STATUS_META (Regulatory Writing).
 import type { CTDModuleStatus } from '@platform/types'
 import { CTD_STATUS_META } from '@platform/types'
 

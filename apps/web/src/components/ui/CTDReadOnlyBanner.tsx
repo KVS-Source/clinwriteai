@@ -1,4 +1,4 @@
-// Full-width read-only banner shown on every Module 5 CTD node (Module D DD-D-001).
+// Full-width read-only banner shown on every Module 5 CTD node (Regulatory Writing DD-D-001).
 // Steel blue #005F8E — blocking styling that is deliberately not red.
 
 export function CTDReadOnlyBanner() {
@@ -12,9 +12,9 @@ export function CTDReadOnlyBanner() {
         <path d="M4 6V4.5a3 3 0 116 0V6" stroke="#005F8E" strokeWidth="1.4" fill="none" strokeLinecap="round" />
         <rect x="3" y="6" width="8" height="6" rx="1" stroke="#005F8E" strokeWidth="1.4" fill="none" />
       </svg>
-      <span className="font-semibold">Read-only · Module A</span>
+      <span className="font-semibold">Read-only · Clinical Writing</span>
       <span>·</span>
-      <span>Module 5 CSRs are imported from Module A. Any change requires a new CSR version in Module A (DD-D-001).</span>
+      <span>Module 5 CSRs are imported from Clinical Writing. Any change requires a new CSR version in Clinical Writing (DD-D-001).</span>
     </div>
   )
 }

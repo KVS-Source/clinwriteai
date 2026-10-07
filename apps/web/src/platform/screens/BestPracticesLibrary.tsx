@@ -9,11 +9,11 @@ type TabKey = 'all' | 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
 
 const TAB_META: { key: TabKey; label: string }[] = [
   { key: 'all',      label: 'All' },
-  { key: 'A',        label: 'Module A' },
-  { key: 'B',        label: 'Module B' },
-  { key: 'C',        label: 'Module C' },
-  { key: 'D',        label: 'Module D' },
-  { key: 'E',        label: 'Module E' },
+  { key: 'A',        label: 'Clinical Writing' },
+  { key: 'B',        label: 'Scientific Writing' },
+  { key: 'C',        label: 'Medical Writing' },
+  { key: 'D',        label: 'Regulatory Writing' },
+  { key: 'E',        label: 'Ideation & Publishing' },
   { key: 'platform', label: 'Platform-Wide' },
 ]
 

@@ -1,4 +1,4 @@
-// Module E — Ideation & Publishing MSW handlers (21 endpoints).
+// Ideation & Publishing — Ideation & Publishing MSW handlers (21 endpoints).
 // KOL routes (/kol-review/:token/*) are PUBLIC — no auth required (DD-E rule 5).
 import { http, HttpResponse, delay } from 'msw'
 import ideationProjects   from '../../data/ideationProjects.json'

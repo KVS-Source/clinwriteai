@@ -22,8 +22,8 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module A \u00b7 VELORA-301 CSR v1.0",
-      "Module D \u00b7 Regulatory Writing Stage 6",
+      "Clinical Writing \u00b7 VELORA-301 CSR v1.0",
+      "Regulatory Writing \u00b7 Regulatory Writing Stage 6",
       "Master Library 16 Oct 2026"
     ]
   },
@@ -48,8 +48,8 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module A \u00b7 VELORA-301 CSR v1.0",
-      "Module D \u00b7 Stage 6"
+      "Clinical Writing \u00b7 VELORA-301 CSR v1.0",
+      "Regulatory Writing \u00b7 Stage 6"
     ]
   },
   {
@@ -75,7 +75,7 @@
     "isArchived": true,
     "archivedReason": "Project closed",
     "provenanceChain": [
-      "Module A \u00b7 Clinical Writing \u00b7 Final Output"
+      "Clinical Writing \u00b7 Clinical Writing \u00b7 Final Output"
     ]
   },
   {
@@ -100,7 +100,7 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module D \u00b7 Regulatory Writing Stage 6"
+      "Regulatory Writing \u00b7 Regulatory Writing Stage 6"
     ]
   },
   {
@@ -124,7 +124,7 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module C \u00b7 Medical Writing \u00b7 Final Output"
+      "Medical Writing \u00b7 Medical Writing \u00b7 Final Output"
     ]
   },
   {
@@ -149,7 +149,7 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module E \u00b7 Ideation & Publishing \u00b7 Final Output"
+      "Ideation & Publishing \u00b7 Ideation & Publishing \u00b7 Final Output"
     ]
   },
   {
@@ -173,7 +173,7 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module D \u00b7 Stage 6"
+      "Regulatory Writing \u00b7 Stage 6"
     ]
   },
   {
@@ -197,7 +197,7 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module B \u00b7 Scientific Writing \u00b7 Final Output"
+      "Scientific Writing \u00b7 Scientific Writing \u00b7 Final Output"
     ]
   },
   {
@@ -222,7 +222,7 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module D \u00b7 HA Response Drafting \u00b7 sD10"
+      "Regulatory Writing \u00b7 HA Response Drafting \u00b7 sD10"
     ]
   },
   {
@@ -247,7 +247,7 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module B \u00b7 Scientific Writing \u00b7 Final Output"
+      "Scientific Writing \u00b7 Scientific Writing \u00b7 Final Output"
     ]
   },
   {
@@ -272,7 +272,7 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module D \u00b7 Regulatory Writing"
+      "Regulatory Writing \u00b7 Regulatory Writing"
     ]
   },
   {
@@ -297,7 +297,7 @@
     ],
     "isArchived": false,
     "provenanceChain": [
-      "Module D \u00b7 Stage 6 \u00b7 EMA ACK3"
+      "Regulatory Writing \u00b7 Stage 6 \u00b7 EMA ACK3"
     ]
   }
 ]

@@ -5,7 +5,7 @@ import type {
   ContentExpiryRecord, MedContentType, ComplianceTrack, ReviewTier, ClaimStatus,
 } from '@platform/types'
 
-// --- Request body types (local to Module C) ---
+// --- Request body types (local to Medical Writing) ---
 
 export interface CreateMedContentBody {
   type:                  MedContentType

@@ -187,7 +187,7 @@ export function NewPublicationWizard({ onClose }: WizardProps = {}) {
         targetSubmissionDate:   targetDate,
         keyMessage:             keyMessage || null,
         sourceDocumentId:       'doc-velora-csr',
-        sourceDocumentLabel:    'VELORA-301 CSR v1.0 · Module A',
+        sourceDocumentLabel:    'VELORA-301 CSR v1.0 · Clinical Writing',
         ownerId:                'user-mw',
       }
       return publicationsApi.create(body)

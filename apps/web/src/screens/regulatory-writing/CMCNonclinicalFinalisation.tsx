@@ -242,9 +242,9 @@ export function CMCNonclinicalFinalisation() {
                 {module5Nodes.map(n => (
                   <li key={n.id} className="flex items-center gap-2 rounded-md bg-slate-50 px-3 py-2" data-module5-doc={n.id}>
                     <span className="font-mono text-[11px] text-slate-500 w-14 flex-none">{n.moduleSection}</span>
-                    <span className="flex-1 text-slate-700">{n.sectionTitle} · Signed 28 Oct 2026 · Module A</span>
+                    <span className="flex-1 text-slate-700">{n.sectionTitle} · Signed 28 Oct 2026 · Clinical Writing</span>
                     <a href="#" className="rounded-md px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#005F8E', border: '1px solid #93C5FD' }}>
-                      View in Module A →
+                      View in Clinical Writing →
                     </a>
                   </li>
                 ))}
@@ -277,7 +277,7 @@ export function CMCNonclinicalFinalisation() {
           </div>
           <div className="rounded-md border p-3" style={{ borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' }} data-strip-module5>
             <p className="text-[11px] font-mono uppercase text-slate-500">Module 5</p>
-            <p className="mt-1 text-[13px] font-semibold" style={{ color: '#166534' }}>✓ Imported from Module A</p>
+            <p className="mt-1 text-[13px] font-semibold" style={{ color: '#166534' }}>✓ Imported from Clinical Writing</p>
           </div>
         </div>
 

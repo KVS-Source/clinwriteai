@@ -1,4 +1,4 @@
-// Claim currency badge — Module E (FR-E-004).
+// Claim currency badge — Ideation & Publishing (FR-E-004).
 // Current = green · Potentially-superseded = amber · Conflicting = steel blue #005F8E (blocking, not red).
 import type { ClaimCurrencyStatus } from '@platform/types'
 

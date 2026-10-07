@@ -242,7 +242,7 @@ function EctdTab({ config }: { config: PlatformConfig }) {
       <SectionHeader
         eyebrow="eCTD Configuration"
         title="Regulatory publishing engine and validation tool"
-        subtitle="Applies to Module D submissions."
+        subtitle="Applies to Regulatory Writing submissions."
       />
 
       <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }} data-ectd-versions>

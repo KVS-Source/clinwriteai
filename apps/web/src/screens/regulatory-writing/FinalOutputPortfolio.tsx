@@ -24,7 +24,7 @@ function formatDateTime(iso: string | null | undefined): string {
   return `${day} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()} ${hh}:${mm} UTC`
 }
 
-// Static Module D milestone list — factual record derived from sub-001 fixture context
+// Static Regulatory Writing milestone list — factual record derived from sub-001 fixture context
 const MODULE_D_MILESTONES = [
   { label: 'Stage 1 briefing — 01 Oct 2026 · Dr S. Chen' },
   { label: 'Stage 2 Module 2 authoring — 01–15 Oct 2026' },
@@ -168,7 +168,7 @@ export function FinalOutputPortfolio() {
                   <p className="mt-1 font-mono text-[11px] text-slate-500">Cross-module 21 CFR Part 11 audit chain</p>
 
                   <div className="mt-3 rounded-md bg-slate-50 p-3" data-module-a-source>
-                    <p className="font-mono text-[11px] uppercase" style={{ color: '#1D4ED8', letterSpacing: '0.06em' }}>Module A — Clinical Writing (Source)</p>
+                    <p className="font-mono text-[11px] uppercase" style={{ color: '#1D4ED8', letterSpacing: '0.06em' }}>Clinical Writing — Clinical Writing (Source)</p>
                     <ul className="mt-1 text-[12px] text-slate-700">
                       <li>VELORA-301 CSR v1.0 · Signed 28 Oct 2026</li>
                       <li>IB v3.0 · Signed 15 Sept 2026</li>
@@ -177,7 +177,7 @@ export function FinalOutputPortfolio() {
                   </div>
 
                   <div className="mt-3 rounded-md bg-slate-50 p-3" data-module-d-milestones>
-                    <p className="font-mono text-[11px] uppercase" style={{ color: '#B0200D', letterSpacing: '0.06em' }}>Module D — Regulatory Writing (Submission)</p>
+                    <p className="font-mono text-[11px] uppercase" style={{ color: '#B0200D', letterSpacing: '0.06em' }}>Regulatory Writing — Regulatory Writing (Submission)</p>
                     <ol className="mt-2 flex flex-col gap-1">
                       {MODULE_D_MILESTONES.map((m, i) => (
                         <li key={i} className="flex items-start gap-2 text-[12px] text-slate-800" data-milestone={i + 1}>

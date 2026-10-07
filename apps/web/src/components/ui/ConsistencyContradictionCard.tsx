@@ -1,4 +1,4 @@
-// Consistency contradiction card — source vs target values as a diff (Module D).
+// Consistency contradiction card — source vs target values as a diff (Regulatory Writing).
 // Major severity uses steel blue (blocking), never red (design rule 1).
 import type { ConsistencyContradiction } from '@platform/types'
 

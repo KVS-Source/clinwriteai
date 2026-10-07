@@ -93,7 +93,7 @@ export function CTDModule2Editor() {
 
   const handleNodeNav = (node: ECTDNode) => {
     if (node.isReadOnly) {
-      setInlineMessage('Module 5 — read-only · Module A')
+      setInlineMessage('Module 5 — read-only · Clinical Writing')
       setTimeout(() => setInlineMessage(null), 3200)
       return
     }
@@ -157,7 +157,7 @@ export function CTDModule2Editor() {
             data-source-chip
           >
             <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#005F8E' }} />
-            Drafted from: VELORA-301 CSR v1.0 · Module A
+            Drafted from: VELORA-301 CSR v1.0 · Clinical Writing
           </span>
           <span
             className="inline-flex items-center rounded-md px-2 py-1 text-[11px] font-semibold"
@@ -221,7 +221,7 @@ export function CTDModule2Editor() {
                     {n.isSystemGenerated && <span title="System-generated" style={{ color: '#005F8E' }} className="text-[11px]">◉</span>}
                     {flagged && <span data-nav-flag className="text-[11px]" style={{ color: '#B45309' }}>⚠</span>}
                     <ECTDStatusDot status={n.status} />
-                    {n.isReadOnly && <span title="Read-only · Module A" className="text-[11px]" style={{ color: '#005F8E' }}>🔒</span>}
+                    {n.isReadOnly && <span title="Read-only · Clinical Writing" className="text-[11px]" style={{ color: '#005F8E' }}>🔒</span>}
                   </button>
                 )
               })}

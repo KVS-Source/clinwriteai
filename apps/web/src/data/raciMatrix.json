@@ -3,7 +3,7 @@
   "effectiveDate": "2026-01-01",
   "modules": {
     "D": {
-      "label": "Module D \u2014 Regulatory Writing",
+      "label": "Regulatory Writing \u2014 Regulatory Writing",
       "tasks": [
         {
           "id": "d-t1",
@@ -104,7 +104,7 @@
       ]
     },
     "E": {
-      "label": "Module E \u2014 Ideation & Publishing",
+      "label": "Ideation & Publishing \u2014 Ideation & Publishing",
       "tasks": [
         {
           "id": "e-t1",

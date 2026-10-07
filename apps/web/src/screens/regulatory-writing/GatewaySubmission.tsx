@@ -318,7 +318,7 @@ export function GatewaySubmission() {
                       <p className="font-mono text-[10px] text-slate-500">{c.tags}</p>
                       <div className="mt-1 flex flex-wrap gap-1">
                         <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#FFF5F5', color: '#B0200D' }}>Regulatory Writing · D</span>
-                        <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#005F8E' }}>Ideation &amp; Publishing · E</span>
+                        <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#005F8E' }}>Ideation & Publishing · E</span>
                       </div>
                     </li>
                   ))}

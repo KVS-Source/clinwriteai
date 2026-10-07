@@ -97,7 +97,7 @@ export function SubmissionSetupStrategy() {
   const cmcAcknowledged = !!cmc?.acknowledgedBy
 
   const checks = useMemo(() => ([
-    { label: 'Module A source project linked',        passed: !!currentSub?.sourceModuleAProjectId },
+    { label: 'Clinical Writing source project linked',        passed: !!currentSub?.sourceModuleAProjectId },
     { label: 'External CMC/nonclinical data uploaded', passed: true },
     { label: 'Submission type selected',              passed: !!selectedType },
     { label: 'Target HA(s) selected',                 passed: selectedHAs.size > 0 },
@@ -175,10 +175,10 @@ export function SubmissionSetupStrategy() {
 
             {/* Source Documents */}
             <section className="rounded-lg border border-slate-200 bg-white p-5" data-panel="source-documents">
-              <h2 className="mb-2 text-[14px] font-bold text-slate-900">Source Documents · Module A</h2>
+              <h2 className="mb-2 text-[14px] font-bold text-slate-900">Source Documents · Clinical Writing</h2>
               <span className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0' }} data-source-module-a>
                 <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#16A34A' }} />
-                {currentSub?.project ?? 'VELORA-301'} · Module A ✓
+                {currentSub?.project ?? 'VELORA-301'} · Clinical Writing ✓
               </span>
               <div className="mt-3 flex flex-wrap gap-2" data-linked-docs>
                 {['CSR v1.0 ✓', 'IB v3.0 ✓', 'SAP v1.1 ✓', 'TLF Package v1.0 ✓'].map(d => (

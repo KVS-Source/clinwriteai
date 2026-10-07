@@ -30,6 +30,16 @@ export const MODULE_LABELS: Record<ModuleSlug, string> = {
   'ideation-publishing': 'Ideation & Publishing',
 }
 
+// Key → display label. Mirrors MODULE_LABELS keyed by the single-letter
+// identifier that appears in API payloads and filter UI.
+export const MODULE_KEY_TO_LABEL: Record<ModuleKey, string> = {
+  A: 'Clinical Writing',
+  B: 'Scientific Writing',
+  C: 'Medical Writing',
+  D: 'Regulatory Writing',
+  E: 'Ideation & Publishing',
+}
+
 function parseEnabled(): Set<ModuleKey> {
   const raw = (import.meta.env.VITE_MODULES_ENABLED as string | undefined) ?? 'A'
   const parsed = raw

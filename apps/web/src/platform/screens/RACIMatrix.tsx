@@ -131,7 +131,7 @@ export function RACIMatrix() {
               <div>
                 <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Matrix</p>
                 <p className="mt-1 text-[16px] font-bold text-slate-900" data-heading>
-                  Module {activeModule} — {moduleLabel} · VELORA-301 Efficacy Suite
+                  {moduleLabel} · VELORA-301 Efficacy Suite
                 </p>
                 <p className="mt-1 text-[12px] text-slate-600">
                   Default RACI template applied. Adjustments are project-specific and do not affect other projects.

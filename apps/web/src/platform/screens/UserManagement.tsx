@@ -344,7 +344,7 @@ export function UserManagement() {
           <select value={moduleFilter} onChange={(e) => setModuleFilter(e.currentTarget.value as 'all' | ModuleKey)} data-filter-module
             className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
             <option value="all">All modules</option>
-            {ALL_MODULES.map(m => <option key={m} value={m}>Module {m}</option>)}
+            {ALL_MODULES.map(m => <option key={m} value={m}>{MODULE_META[m].label}</option>)}
           </select>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.currentTarget.value as 'all' | 'active' | 'invited' | 'suspended')} data-filter-status
             className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">

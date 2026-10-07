@@ -158,8 +158,8 @@ export function TenantDetail() {
                     style={{ accentColor: meta.colour }}
                   />
                   <div>
-                    <p className="text-[13px] font-semibold" style={{ color: meta.colour }}>Module {m}</p>
-                    <p className="text-[12px] text-slate-700">{meta.label}</p>
+                    <p className="text-[13px] font-semibold" style={{ color: meta.colour }}>{meta.label}</p>
+                    <p className="text-[12px] font-mono text-slate-500">Module {m}</p>
                     {checked && !effective && (
                       <p className="mt-1 text-[11px] font-mono text-amber-700">deployment-capped (reserve)</p>
                     )}

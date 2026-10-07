@@ -155,7 +155,7 @@ export function ServicesDashboard() {
             <tbody>
               {sub.moduleBreakdown.map(r => (
                 <tr key={r.module} className="border-t border-slate-200" data-breakdown-row={r.module} data-breakdown-status={r.status}>
-                  <td className="px-4 py-3 font-semibold text-slate-900">Module {r.module} · {r.label}</td>
+                  <td className="px-4 py-3 font-semibold text-slate-900">{r.label}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{r.tokensConsumed.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{formatUSD(r.cost)}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{r.pctOfTotal}%</td>

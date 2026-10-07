@@ -4,6 +4,17 @@ import type { MasterLibraryItem, ModuleKey } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 
+// Business-module display labels. Keyed only on A..E (the writing
+// disciplines); the 'platform' value from @platform/types.ModuleKey
+// isn't a discipline so it's intentionally excluded from this map.
+const DISCIPLINE_LABEL: Record<'A' | 'B' | 'C' | 'D' | 'E', string> = {
+  A: 'Clinical Writing',
+  B: 'Scientific Writing',
+  C: 'Medical Writing',
+  D: 'Regulatory Writing',
+  E: 'Ideation & Publishing',
+}
+
 const MODULE_COLOURS: Record<ModuleKey, string> = {
   A: '#2563EB', B: '#0D9488', C: '#7C3AED', D: '#B0200D', E: '#0D9488', platform: PLATFORM_ACCENT.primary,
 }
@@ -95,7 +106,7 @@ export function MasterLibrary() {
                     <input type="checkbox" checked={disciplines.includes(m)} onChange={() => toggleFrom(disciplines, m, setDisciplines)}
                       data-discipline={m} style={{ accentColor: MODULE_COLOURS[m] }} />
                     <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: MODULE_COLOURS[m] }} />
-                    Module {m}
+                    {DISCIPLINE_LABEL[m as 'A' | 'B' | 'C' | 'D' | 'E']}
                   </label>
                 ))}
               </div>

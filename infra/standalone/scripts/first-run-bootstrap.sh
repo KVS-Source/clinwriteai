@@ -290,18 +290,30 @@ shopt -u nullglob
 # configs for domains we don't own (proto.clinwrite.ai, clinwrite.ai,
 # etc.), restore them. This fires once per re-run until the leftover
 # is gone — operator doesn't have to manually mv anything.
+#
+# IMPORTANT: `.bak` files MUST be handled here. The earliest bootstrap
+# incarnation renamed conflicting configs in-place to add .bak (which
+# didn't actually disable them since nginx's include glob has no
+# extension filter — this is why we later switched to moving them
+# out). Those .bak files were then swept into sites-disabled-by-platform
+# by the stale-.bak sweep above. If this repair skipped .bak files,
+# a mis-disabled proto.clinwrite.ai (now proto.clinwrite.ai.bak in
+# the disabled dir) could never be restored by re-running the script.
 if [[ -d /etc/nginx/sites-disabled-by-platform ]]; then
   shopt -s nullglob
   for f in /etc/nginx/sites-disabled-by-platform/*; do
     name=$(basename "${f}")
-    # Skip the symlink markers themselves + anything already a .bak
+    # Skip the symlink markers themselves
     [[ "${name}" == *.symlink-was ]] && continue
-    [[ "${name}" == *.bak ]] && continue
     # If this file does NOT claim demo./api.clinwrite.ai, it was
-    # mis-disabled by the earlier aggressive match. Put it back.
+    # mis-disabled by an earlier aggressive match. Put it back.
     if ! grep -qE "${OUR_HOSTS_RE}" "${f}" 2>/dev/null; then
-      log "I. restoring mis-disabled ${f} → /etc/nginx/sites-enabled/${name} (doesn't claim our hostnames)"
-      mv "${f}" "/etc/nginx/sites-enabled/${name}"
+      # Strip trailing .bak when restoring — otherwise nginx would
+      # still load it (its include has no extension filter) but the
+      # ".bak" in the filename implies "disabled" to a human reader.
+      restored_name="${name%.bak}"
+      log "I. restoring mis-disabled ${f} → /etc/nginx/sites-enabled/${restored_name} (doesn't claim our hostnames)"
+      mv "${f}" "/etc/nginx/sites-enabled/${restored_name}"
       # Clean up any companion symlink-was marker
       rm -f "/etc/nginx/sites-disabled-by-platform/${name}.symlink-was"
     fi

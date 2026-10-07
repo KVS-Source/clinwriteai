@@ -252,32 +252,32 @@ for f in /etc/nginx/sites-enabled/*.bak; do
 done
 shopt -u nullglob
 
-# Scan for ANY sites-enabled file (not our `platform`) that claims a
-# clinwrite domain and move it OUT of sites-enabled. On a shared VPS
-# with prior deployment attempts there may be multiple:
-#   - clinwrite-proto, demo.clinwrite.ai, clinwrite.ai, *.conf variants
+# Scan for ANY sites-enabled file (not our `platform`) that explicitly
+# claims one of OUR hostnames in a server_name directive. On a shared
+# VPS with prior deployment attempts there may be a stale demo.clinwrite.ai
+# or api.clinwrite.ai server block from an earlier iteration.
+#
+# IMPORTANT: match ONLY the exact hostnames we own. Earlier revisions
+# matched "*clinwrite*" which incorrectly disabled proto.clinwrite.ai
+# and clinwrite.ai (separate sites owned by the operator, not us).
+# server_name uses space-separated hostnames so we assert word-boundary
+# via (^|[[:space:]]) and ($|[[:space:];]) around each target.
 #
 # Previously we renamed to .bak, but nginx's default
 # `include /etc/nginx/sites-enabled/*` has no extension filter so
 # .bak files were still being loaded (observed in prod: "protocol
 # options redefined for [::]:443 in sites-enabled/clinwrite-proto.bak").
 # Moving the file out of sites-enabled entirely is the correct fix.
+OUR_HOSTS_RE='server_name[[:space:]]+[^;]*(^|[[:space:]])(demo|api)\.clinwrite\.ai($|[[:space:];])'
 shopt -s nullglob
 for f in /etc/nginx/sites-enabled/*; do
   name=$(basename "${f}")
   [[ "${name}" == "platform" ]] && continue
-  # If filename contains clinwrite OR file content claims a clinwrite
-  # hostname in a server_name directive, disable it. Catches both
-  # named-by-domain files and configs that just happen to proxy demo.
-  if [[ "${name}" == *clinwrite* ]] || grep -qE 'server_name[[:space:]]+[^;]*clinwrite' "${f}" 2>/dev/null; then
-    log "I. disabling conflicting ${f} → /etc/nginx/sites-disabled-by-platform/"
-    # Resolve symlink target before move so we don't leave a dangling
-    # symlink. If it's a regular file, just move it.
+  if grep -qE "${OUR_HOSTS_RE}" "${f}" 2>/dev/null; then
+    log "I. disabling conflicting ${f} (claims demo./api.clinwrite.ai) → /etc/nginx/sites-disabled-by-platform/"
     if [[ -L "${f}" ]]; then
       target=$(readlink -f "${f}")
       rm -f "${f}"
-      # Preserve the original source file in sites-available (don't
-      # delete it) — just record what was pointing at it.
       echo "${target}" > "/etc/nginx/sites-disabled-by-platform/${name}.symlink-was"
     else
       mv "${f}" "/etc/nginx/sites-disabled-by-platform/${name}"
@@ -285,6 +285,29 @@ for f in /etc/nginx/sites-enabled/*; do
   fi
 done
 shopt -u nullglob
+
+# Repair pass: if a previous (overly-broad) bootstrap run moved
+# configs for domains we don't own (proto.clinwrite.ai, clinwrite.ai,
+# etc.), restore them. This fires once per re-run until the leftover
+# is gone — operator doesn't have to manually mv anything.
+if [[ -d /etc/nginx/sites-disabled-by-platform ]]; then
+  shopt -s nullglob
+  for f in /etc/nginx/sites-disabled-by-platform/*; do
+    name=$(basename "${f}")
+    # Skip the symlink markers themselves + anything already a .bak
+    [[ "${name}" == *.symlink-was ]] && continue
+    [[ "${name}" == *.bak ]] && continue
+    # If this file does NOT claim demo./api.clinwrite.ai, it was
+    # mis-disabled by the earlier aggressive match. Put it back.
+    if ! grep -qE "${OUR_HOSTS_RE}" "${f}" 2>/dev/null; then
+      log "I. restoring mis-disabled ${f} → /etc/nginx/sites-enabled/${name} (doesn't claim our hostnames)"
+      mv "${f}" "/etc/nginx/sites-enabled/${name}"
+      # Clean up any companion symlink-was marker
+      rm -f "/etc/nginx/sites-disabled-by-platform/${name}.symlink-was"
+    fi
+  done
+  shopt -u nullglob
+fi
 # Validate — if invalid, log and continue (deploy.sh will try cert
 # issuance which may fix a path-not-found error).
 if ! nginx -t 2>&1 | tail -5; then

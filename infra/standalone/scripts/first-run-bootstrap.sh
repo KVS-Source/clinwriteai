@@ -260,20 +260,31 @@ shopt -u nullglob
 # IMPORTANT: match ONLY the exact hostnames we own. Earlier revisions
 # matched "*clinwrite*" which incorrectly disabled proto.clinwrite.ai
 # and clinwrite.ai (separate sites owned by the operator, not us).
-# server_name uses space-separated hostnames so we assert word-boundary
-# via (^|[[:space:]]) and ($|[[:space:];]) around each target.
+#
+# Detection is two-pass to work around POSIX ERE lacking lookbehind:
+#   1. Select lines containing `server_name`.
+#   2. Among those, match our hostname as a token — bounded on both
+#      sides by non-domain chars `[^a-zA-Z0-9.-]` (or line end).
+# This correctly rejects `xdemo.clinwrite.ai` and `demo.clinwrite.ai.foo`
+# while accepting `server_name demo.clinwrite.ai;` and
+# `server_name demo.clinwrite.ai api.clinwrite.ai;`.
 #
 # Previously we renamed to .bak, but nginx's default
 # `include /etc/nginx/sites-enabled/*` has no extension filter so
 # .bak files were still being loaded (observed in prod: "protocol
 # options redefined for [::]:443 in sites-enabled/clinwrite-proto.bak").
 # Moving the file out of sites-enabled entirely is the correct fix.
-OUR_HOSTS_RE='server_name[[:space:]]+[^;]*(^|[[:space:]])(demo|api)\.clinwrite\.ai($|[[:space:];])'
+claims_our_hostnames() {
+  local file=$1
+  grep -E '^[[:space:]]*server_name[[:space:]]' "${file}" 2>/dev/null | \
+    grep -qE '[^a-zA-Z0-9.-](demo|api)\.clinwrite\.ai([^a-zA-Z0-9.-]|$)'
+}
+
 shopt -s nullglob
 for f in /etc/nginx/sites-enabled/*; do
   name=$(basename "${f}")
   [[ "${name}" == "platform" ]] && continue
-  if grep -qE "${OUR_HOSTS_RE}" "${f}" 2>/dev/null; then
+  if claims_our_hostnames "${f}"; then
     log "I. disabling conflicting ${f} (claims demo./api.clinwrite.ai) → /etc/nginx/sites-disabled-by-platform/"
     if [[ -L "${f}" ]]; then
       target=$(readlink -f "${f}")
@@ -307,7 +318,7 @@ if [[ -d /etc/nginx/sites-disabled-by-platform ]]; then
     [[ "${name}" == *.symlink-was ]] && continue
     # If this file does NOT claim demo./api.clinwrite.ai, it was
     # mis-disabled by an earlier aggressive match. Put it back.
-    if ! grep -qE "${OUR_HOSTS_RE}" "${f}" 2>/dev/null; then
+    if ! claims_our_hostnames "${f}"; then
       # Strip trailing .bak when restoring — otherwise nginx would
       # still load it (its include has no extension filter) but the
       # ".bak" in the filename implies "disabled" to a human reader.

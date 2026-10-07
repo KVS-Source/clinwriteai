@@ -92,16 +92,47 @@ for d in "${DOMAINS[@]}"; do
   DOMAIN_ARGS+=(-d "$d")
 done
 
+# Decide whether we need --force-renewal.
+#
+# Problem observed in prod: when a lineage already exists (even with
+# a stale/wrong domain set — e.g. covers demo.clinwrite.ai +
+# demo.clinwriteai.com from a prior deploy's typo), certbot with
+# --expand --keep-until-expiring short-circuits with "Certificate not
+# yet due for renewal; no action taken" and never actually extends
+# the SAN.
+#
+# Resolution: if the local SAN check above found a missing domain
+# (we got past the short-circuit), force a re-issue so --expand's
+# new domain set lands on disk. --force-renewal overrides the
+# "not due for renewal" check. Note: Let's Encrypt rate-limits
+# duplicate certs (5/week per domain set), so don't force-renew on
+# routine redeploys — only when we KNOW the SAN is wrong.
+FORCE_FLAG=()
+if [[ -f "${CERT_DIR}/fullchain.pem" ]]; then
+  san_check=$(openssl x509 -in "${CERT_DIR}/fullchain.pem" -noout -ext subjectAltName 2>/dev/null || true)
+  for d in "${DOMAINS[@]}"; do
+    if ! grep -q "DNS:${d}" <<<"${san_check}"; then
+      log "forcing renewal — existing cert lineage missing DNS:${d}"
+      FORCE_FLAG=(--force-renewal)
+      break
+    fi
+  done
+fi
+
+# Pin the lineage name so certbot updates the existing cert in-place
+# rather than creating a parallel demo.clinwrite.ai-0001 lineage that
+# nginx wouldn't be pointing at.
 log "running certbot certonly --standalone for: ${DOMAINS[*]}"
 set +e
 certbot certonly \
   --standalone \
+  --cert-name "${PRIMARY}" \
   "${DOMAIN_ARGS[@]}" \
   --email "${EMAIL}" \
   --agree-tos --no-eff-email \
   --non-interactive \
   --expand \
-  --keep-until-expiring
+  "${FORCE_FLAG[@]}"
 certbot_rc=$?
 set -e
 

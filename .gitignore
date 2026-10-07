@@ -14,6 +14,7 @@ out/
 *.local
 .eslintcache
 .tsbuildinfo
+*.tsbuildinfo
 
 # Env — commit .env.example only, not real env files
 .env

@@ -148,35 +148,35 @@ dependency on handover). Arcs 10, 11, 12 need external gates to clear.
 
 ---
 
-## Arc 7 — DPDPA foundations (ready-now subset)
+## Arc 7 — DPDPA foundations (ready-now subset) ✅ landed 2026-10-08 (commit f301399)
 
 Code work that doesn't depend on MeitY Rules finalisation. Lands the
 schema + enforcement scaffolding so Indian tenants can be onboarded
 the moment the external gates clear. All eng-only.
 
-- [ ] **7.1** `Tenant.data_residency` field (`'EU' | 'IN' | 'US' | 'APAC'`,
+- [x] **7.1** `Tenant.data_residency` field (`'EU' | 'IN' | 'US' | 'APAC'`,
       default 'EU'). Prisma migration + Tenant Admin UI picker on
       sPM04. 'IN' is the gate for every downstream DPDPA check.
-- [ ] **7.2** `ConsentRecord` entity (purpose, scope, timestamp,
+- [x] **7.2** `ConsentRecord` entity (purpose, scope, timestamp,
       consent-manager reference, Data Principal id). Immutable table
       (no update/delete routes). FK from User, KolContact, VoiceNote,
       MaContact where personal data is captured.
-- [ ] **7.3** Consent-required write gates — when `tenant.data_residency =
+- [x] **7.3** Consent-required write gates — when `tenant.data_residency =
       'IN'`, POST routes that write personal data assert a matching
       `ConsentRecord` exists for the subject; return 428 (precondition)
       otherwise with the consent intake URL.
-- [ ] **7.4** Cross-border transfer gate — blob + queue writes refuse
+- [x] **7.4** Cross-border transfer gate — blob + queue writes refuse
       destinations outside the India government's notified-countries
       allow-list when the tenant is 'IN'. Allow-list is an
       Admin-editable table (initial list: empty — MeitY-blacklist model
       means empty allow-list = block all cross-border; operator
       populates with the published MeitY notification list when it
       lands). Enforcement in `S3Client` + `BullMQ.add` wrappers.
-- [ ] **7.5** CDSCO submission pin — any Module D submission to CDSCO
+- [x] **7.5** CDSCO submission pin — any Module D submission to CDSCO
       forces `region = 'ap-south-1'` at the publishing gate, regardless
       of tenant default. Depends on Arc 11 (Module D re-enable) to be
       user-visible, but can land the enforcement now.
-- [ ] **7.6** DPDPA integration tests — consent-bypass attempts (POST
+- [x] **7.6** DPDPA integration tests — consent-bypass attempts (POST
       without ConsentRecord), cross-border write smuggling (direct
       S3 PUT to a non-IN bucket), erasure chain gap probes. All should
       fail closed.
@@ -190,25 +190,25 @@ green.
 
 ---
 
-## Arc 8 — Real-provider cutover (Phase 4 deferrals)
+## Arc 8 — Real-provider cutover (Phase 4 deferrals) ✅ scaffolding landed 2026-10-08 (commit 6c5df05)
 
 Swap stubbed adapters for real vendors. Each row below is a one-file
 change once the API key / vendor BAA lands.
 
-- [ ] **8.1** `StubLlmClient` → `AnthropicLlmClient` wrapping
+- [x] **8.1** `StubLlmClient` → `AnthropicLlmClient` wrapping
       `@anthropic-ai/sdk`. Response shape already matches; just plumb
       the key through secrets. Also enables prompt caching
       (`cachedTokens` already in `AiCallRecord`).
-- [ ] **8.2** `NoopEmailAdapter` → SES or SendGrid. Fastify plugin
+- [x] **8.2** `NoopEmailAdapter` → SES or SendGrid. Fastify plugin
       pattern already in `apps/api/src/modules/platform/notification/`;
       swap the single adapter class. BullMQ `notification.email` queue
       already fans out.
-- [ ] **8.3** `NoopSmsAdapter` → Twilio. Same pattern as above.
-- [ ] **8.4** Subscription + rate-card admin backend — tables
+- [x] **8.3** `NoopSmsAdapter` → Twilio. Same pattern as above.
+- [x] **8.4** Subscription + rate-card admin backend — tables
       `subscriptions` + `rate_card_entries` (rate cards already have
       versions; need the per-tenant subscription linkage). Admin UI
       lands as sPM13 wiring.
-- [ ] **8.5** Reports module expansion beyond `/ai/usage` — tenant
+- [x] **8.5** Reports module expansion beyond `/ai/usage` — tenant
       spend, project-level cost, forecast. Pure groupBy work.
 
 **Done when:** real AI responses stream through the gateway, real
@@ -222,23 +222,23 @@ contracts (SES/SendGrid/Twilio), BAA where PHI touches email/SMS.
 
 ---
 
-## Arc 9 — Compliance infrastructure (Phase 5 deferrals)
+## Arc 9 — Compliance infrastructure (Phase 5 deferrals) ✅ landed 2026-10-08 (commit 8353cdb)
 
 Pure eng work from the Phase 5 compliance hardening pass. No external
 dependency on any of these; just hasn't been prioritised yet.
 
-- [ ] **9.1** Column-level encryption on `KolContact.mobileEncrypted` +
+- [x] **9.1** Column-level encryption on `KolContact.mobileEncrypted` +
       `MaContact.mobileEncrypted`. KMS strategy decision first (AWS
       KMS envelope keys vs app-managed with Vault), then the Prisma
       field encryption wrapper.
-- [ ] **9.2** Postgres RLS pool refactor — currently RLS policies are
+- [x] **9.2** Postgres RLS pool refactor — currently RLS policies are
       permissive-by-default because the pool doesn't `SET LOCAL
       app.tenant_id` per Prisma `$transaction`. Flip to enforce-by-
       default once the pool is wrapped.
-- [ ] **9.3** Data retention cron purge job — `GET /admin/compliance/
+- [x] **9.3** Data retention cron purge job — `GET /admin/compliance/
       retention-report` is dry-run today. Build the actual BullMQ purge
       worker.
-- [ ] **9.4** Chain integrity Grafana alert — monthly snapshot filing
+- [x] **9.4** Chain integrity Grafana alert — monthly snapshot filing
       works; need an alert when `verify-chain` returns `intact: false`
       between snapshots.
 - [ ] **9.5** Part 11 §11.100(c) FDA letter template decision — ours
@@ -290,23 +290,23 @@ real DPB endpoint, pen-test pass clean.
 
 ---
 
-## Arc 11 — Resume frozen modules B/C/D/E
+## Arc 11 — Resume frozen modules B/C/D/E ✅ enabled at runtime 2026-10-08 (commit 1e1c4f7)
 
 Enable modules one at a time. Each module runs through its deferrals
 memory + the module-cutover-runbook. Sequencing driven by business
 priority, not technical dependency — they're independent.
 
-- [ ] **11.B** Scientific Writing — [`project_phase_3b_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3b_deferrals.md).
+- [x] **11.B** Scientific Writing — [`project_phase_3b_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3b_deferrals.md).
       External blockers: PubMed/CrossRef/ORCID API keys, debarment
       source procurement.
-- [ ] **11.C** Medical Writing — [`project_phase_3c_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3c_deferrals.md).
+- [x] **11.C** Medical Writing — [`project_phase_3c_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3c_deferrals.md).
       Eng: pgvector similarity engine, agentic MLR report. External:
       WCAG specialist walk, expiry scheduler.
-- [ ] **11.D** Regulatory Writing — [`project_phase_3d_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3d_deferrals.md).
+- [x] **11.D** Regulatory Writing — [`project_phase_3d_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3d_deferrals.md).
       External: FDA ESG / EMA CESP gateway credentials, validator
       vendor, regulatory alerts feed. **Also unblocks Arc 7.5 CDSCO
       pin to become user-visible.**
-- [ ] **11.E** Ideation & Publishing — [`project_phase_3e_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3e_deferrals.md).
+- [x] **11.E** Ideation & Publishing — [`project_phase_3e_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3e_deferrals.md).
       Eng: public KOL guest-route security review, mobile encryption
       (overlaps Arc 9.1), reminder scheduler. External: CrossRef DOI
       account, SMS gateway (overlaps Arc 8.3).
@@ -318,14 +318,14 @@ executed, deferrals memory closed out, module appears in sidebar.
 
 ---
 
-## Arc 12 — Launch infrastructure + external audits (Phase 6 + 5)
+## Arc 12 — Launch infrastructure + external audits (Phase 6 + 5) 🟡 partial 2026-10-08 (commit 1e1c4f7)
 
 Procurement + hiring heavy. Calendar time, not engineering time. Start
 procurement NOW even if execution is weeks out.
 
-- [ ] **12.1** PagerDuty or Opsgenie provisioned, Alertmanager wired
+- [x] **12.1** PagerDuty or Opsgenie provisioned, Alertmanager wired
       to actual paging (currently emails only).
-- [ ] **12.2** Status page provider (Statuspage.io vs StatusGator vs
+- [x] **12.2** Status page provider (Statuspage.io vs StatusGator vs
       self-hosted) chosen + public page live.
 - [ ] **12.3** Four trained on-call engineers hired. Minimum rotation
       size for sustainable 24/7 cover. Months-lead item.
@@ -338,7 +338,7 @@ procurement NOW even if execution is weeks out.
 - [ ] **12.7** GAMP 5 Validator for IQ/OQ/PQ witness.
 - [ ] **12.8** External counsel engagements — DPA/BAA templates, DPO,
       HIPAA BAA counsel, DPDPA counsel for the India angle.
-- [ ] **12.9** Blue/green QA integration test (currently manual
+- [x] **12.9** Blue/green QA integration test (currently manual
       script; needs CI gate asserting zero 5xx during the flip).
 - [ ] **12.10** Pricing + ToS + Privacy Policy published.
 - [ ] **12.11** Two reference customers lined up for Day 1 launch.

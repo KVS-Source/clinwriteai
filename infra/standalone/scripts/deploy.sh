@@ -128,10 +128,21 @@ sudo -u platform --preserve-env=DATABASE_URL npx prisma migrate deploy
 # upserts, safe to run every deploy. We run from the repo path rather
 # than the /opt/platform/apps/api copy because the seed uses `tsx`
 # (a devDep) which only exists in the repo's node_modules.
+#
+# Env sourcing: `set -a; . file; set +a` auto-exports every subsequent
+# assignment to the npm child process. Replaces an earlier `env $(... |
+# xargs)` pattern that broke on quoted values containing spaces or
+# shell-metacharacters (e.g. NOTIFICATION_FROM_ADDRESS="Name <email>" —
+# xargs stripped the quotes + env interpreted `<email>` as an input
+# redirect). Same shape the web-build block already uses.
 log "Seeding fixtures (tenants + users + projects + documents)"
 cd /opt/platform/repo
-sudo -u platform env $(grep -v '^#' /run/platform/api.env | xargs) \
+sudo -u platform bash -c "
+  set -a
+  . /run/platform/api.env
+  set +a
   npm --workspace=apps/api run db:seed
+"
 
 # ---------- Restart services ----------
 log "Restarting platform-api"

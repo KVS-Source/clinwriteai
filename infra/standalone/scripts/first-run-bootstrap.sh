@@ -255,6 +255,22 @@ for snip in "${REPO_DIR}/infra/standalone/nginx/snippets/"*.conf; do
   install -m 644 "${snip}" "/etc/nginx/snippets/platform-$(basename "${snip}")"
 done
 install -m 644 "${REPO_DIR}/infra/standalone/nginx/platform.conf" /etc/nginx/sites-available/platform
+
+# Durable port patch: the committed nginx config references port 3001
+# (the API's default). If this VPS has remapped the API port (because
+# 3001 was in use by another project on the same host — section L
+# below detects this), re-apply the patch now so the install step
+# above doesn't silently reset the upstream to the wrong backend.
+#
+# Observed 2026-10-10: after a manual re-install of this file on a
+# host where moringa also runs on 3001, api.clinwrite.ai started
+# returning moringa's Express app's "Cannot OPTIONS /projects" with
+# no CORS headers. This block prevents a repeat.
+CURRENT_API_PORT=$(grep -oP '(?<=^PORT=)\d+' "${ENV_FILE}" 2>/dev/null || echo 3001)
+if [[ "${CURRENT_API_PORT}" != "3001" ]]; then
+  log "I. patching nginx upstream to port ${CURRENT_API_PORT} (api.env PORT differs from 3001 default)"
+  sed -i "s|127.0.0.1:3001|127.0.0.1:${CURRENT_API_PORT}|g" /etc/nginx/sites-available/platform
+fi
 ln -sfn /etc/nginx/sites-available/platform /etc/nginx/sites-enabled/platform
 
 # Sweep .bak files that prior versions of this script created in
@@ -363,6 +379,14 @@ for unit in "${REPO_DIR}/infra/standalone/systemd/platform-"*.service \
             "${REPO_DIR}/infra/standalone/systemd/platform-"*.timer; do
   [[ -f "${unit}" ]] && install -m 644 "${unit}" /etc/systemd/system/
 done
+
+# Mirror the nginx port patch: platform-api.service's ExecStartPost
+# health-probe URL hardcodes :3001. Re-apply the detected port so a
+# fresh install doesn't resurrect the wrong URL.
+if [[ "${CURRENT_API_PORT:-3001}" != "3001" ]]; then
+  log "J. patching platform-api.service health-probe URL to port ${CURRENT_API_PORT}"
+  sed -i "s|127.0.0.1:3001/health|127.0.0.1:${CURRENT_API_PORT}/health|g" /etc/systemd/system/platform-api.service
+fi
 
 # A platform-data.target is referenced by platform-api.service via
 # Requires=; create one if the repo doesn't ship it so systemctl can

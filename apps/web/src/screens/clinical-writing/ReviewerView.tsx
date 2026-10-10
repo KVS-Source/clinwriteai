@@ -97,9 +97,44 @@ export function ReviewerView() {
     addCommentMut.mutate()
   }
 
+  // Reviewer verdict posts (Phase 2.2). Sections are referenced by the
+  // active section's human-readable number — the server's audit event
+  // picks up `reviewer_approve` / `reviewer_request_changes` /
+  // `reviewer_block_approval` based on the verdict field.
+  const sectionRefFor = (sid: string | null) => {
+    if (!sid) return '§?'
+    const s = document?.sections.find(x => x.id === sid)
+    return s ? `§${s.number}` : `§${sid.replace('s', '').replace('_', '.')}`
+  }
+
+  const approveMut = useMutation({
+    mutationFn: () => documentsApi.addComment(documentId!, {
+      sectionRef: sectionRefFor(activeSection),
+      text:       '',
+      severity:   'query',
+      verdict:    'approve',
+    }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['comments', documentId] }),
+  })
+
+  const requestChangesMut = useMutation({
+    mutationFn: () => documentsApi.addComment(documentId!, {
+      sectionRef: sectionRefFor(activeSection),
+      text:       returnText,
+      severity:   'major',
+      verdict:    'request_changes',
+    }),
+    onSuccess: () => {
+      setReturningReason(null)
+      setReturnText('')
+      qc.invalidateQueries({ queryKey: ['comments', documentId] })
+    },
+  })
+
   const handleApproveSection = () => {
-    setApproveNote(`Section approved: ${activeSection ?? '§11.4.1'}`)
-    console.log('[reviewer] approve section', { documentId, sectionId: activeSection })
+    if (!documentId || !activeSection) return
+    setApproveNote(`Section approved: ${sectionRefFor(activeSection)}`)
+    approveMut.mutate()
   }
 
   const handleReturnForRevision = () => {
@@ -111,9 +146,7 @@ export function ReviewerView() {
       setReturningReason('Reason is required')
       return
     }
-    console.log('[reviewer] return for revision', { documentId, reason: returnText })
-    setReturningReason(null)
-    setReturnText('')
+    requestChangesMut.mutate()
   }
 
   const handleFlagSection = () => setFlagged(v => !v)

@@ -8,9 +8,6 @@ function BoldIcon()      { return <span className="font-sans text-[13px] font-bo
 function ItalicIcon()    { return <span className="font-sans text-[13px] font-semibold italic">I</span> }
 function UnderlineIcon() { return <span className="font-sans text-[13px] font-semibold underline">U</span> }
 
-function CaretDownIcon() {
-  return <svg width="9" height="9" viewBox="0 0 10 10" className="text-slate-500"><polygon points="1,3 9,3 5,8" fill="currentColor"/></svg>
-}
 function BulletListIcon() {
   return (
     <svg width="14" height="14" viewBox="0 0 14 14" fill="currentColor">
@@ -84,11 +81,13 @@ function SparkleIcon() {
 function IconButton({
   onClick,
   active,
+  disabled,
   title,
   children,
 }: {
   onClick?: () => void
   active?:  boolean
+  disabled?: boolean
   title?:   string
   children: React.ReactNode
 }) {
@@ -97,7 +96,8 @@ function IconButton({
       type="button"
       onClick={onClick}
       title={title}
-      className="flex h-7 w-7 flex-none items-center justify-center rounded-md border transition-colors hover:bg-slate-100"
+      disabled={disabled}
+      className="flex h-7 w-7 flex-none items-center justify-center rounded-md border transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
       style={{
         borderColor:     active ? '#BFDBFE' : '#E2E8F0',
         backgroundColor: active ? '#EFF6FF' : '#FFFFFF',
@@ -113,11 +113,30 @@ function Divider() {
   return <span className="h-[18px] w-px flex-none" style={{ backgroundColor: '#E2E8F0' }} />
 }
 
-export function EditorToolbar() {
+interface EditorToolbarProps {
+  // Phase 2.1 — TipTap editor instance drives the formatting cluster.
+  // Null while no section is active (buttons render disabled).
+  editor?: import('@tiptap/react').Editor | null
+}
+
+export function EditorToolbar({ editor }: EditorToolbarProps = {}) {
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
   const toggle = (mode: NonNullable<PanelMode>) => setActivePanel(activePanel === mode ? null : mode)
+
+  // Formatting command shortcuts — null-safe so toolbar can mount
+  // before the editor is ready.
+  const runCmd = (cmd: (chain: ReturnType<NonNullable<typeof editor>['chain']>) => void) => () => {
+    if (!editor) return
+    const chain = editor.chain().focus()
+    cmd(chain)
+    chain.run()
+  }
+  const isActive = (name: string, attrs?: Record<string, unknown>) => !!editor?.isActive(name, attrs)
+  const formatDisabled = !editor?.isEditable
+  const currentHeadingLevel =
+    editor && [2, 3, 4].find(l => editor.isActive('heading', { level: l })) || null
 
   return (
     <div
@@ -125,30 +144,41 @@ export function EditorToolbar() {
       style={{ backgroundColor: '#F8FAFC' }}
     >
 
-      {/* Formatting cluster — no-op stubs in Phase 1 */}
-      <IconButton title="Bold"><BoldIcon /></IconButton>
-      <IconButton title="Italic"><ItalicIcon /></IconButton>
-      <IconButton title="Underline"><UnderlineIcon /></IconButton>
+      {/* Formatting cluster — wired to TipTap commands (Phase 2.1) */}
+      <IconButton title="Bold (⌘B)"      active={isActive('bold')}      disabled={formatDisabled} onClick={runCmd(c => c.toggleBold())}><BoldIcon /></IconButton>
+      <IconButton title="Italic (⌘I)"    active={isActive('italic')}    disabled={formatDisabled} onClick={runCmd(c => c.toggleItalic())}><ItalicIcon /></IconButton>
+      <IconButton title="Underline (⌘U)" active={isActive('underline')} disabled={formatDisabled} onClick={runCmd(c => c.toggleUnderline())}><UnderlineIcon /></IconButton>
 
       <Divider />
 
-      <button
-        type="button"
+      <select
         title="Heading level"
-        className="flex h-7 flex-none items-center gap-2 rounded-md border px-2.5 text-xs font-semibold transition-colors hover:bg-slate-100"
+        disabled={formatDisabled}
+        value={currentHeadingLevel ?? 'p'}
+        onChange={e => {
+          if (!editor) return
+          const chain = editor.chain().focus()
+          const v = e.currentTarget.value
+          if (v === 'p') chain.setParagraph().run()
+          else chain.toggleHeading({ level: Number(v) as 2 | 3 | 4 }).run()
+        }}
+        className="h-7 flex-none rounded-md border px-2 text-xs font-semibold transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
         style={{ borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', color: '#475569' }}
       >
-        Heading 3 <CaretDownIcon />
-      </button>
+        <option value="p">Paragraph</option>
+        <option value="2">Heading 2</option>
+        <option value="3">Heading 3</option>
+        <option value="4">Heading 4</option>
+      </select>
 
       <Divider />
 
-      <IconButton title="Bulleted list"><BulletListIcon /></IconButton>
-      <IconButton title="Numbered list"><NumberListIcon /></IconButton>
+      <IconButton title="Bulleted list" active={isActive('bulletList')}  disabled={formatDisabled} onClick={runCmd(c => c.toggleBulletList())}><BulletListIcon /></IconButton>
+      <IconButton title="Numbered list" active={isActive('orderedList')} disabled={formatDisabled} onClick={runCmd(c => c.toggleOrderedList())}><NumberListIcon /></IconButton>
 
       <Divider />
 
-      <IconButton title="Insert table"><TableIcon /></IconButton>
+      <IconButton title="Blockquote" active={isActive('blockquote')} disabled={formatDisabled} onClick={runCmd(c => c.toggleBlockquote())}><TableIcon /></IconButton>
 
       <Divider />
 

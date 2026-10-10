@@ -14,9 +14,16 @@ import { requireAuth } from '../../../auth/rbac.js'
 
 const addSchema = z.object({
   sectionRef: z.string().min(1),
-  text: z.string().min(1),
+  // Text may be empty when posting a bare "approve" verdict; otherwise required.
+  text: z.string().default(''),
   severity: z.enum(['major', 'minor', 'query']),
-})
+  // Phase 2.2 — reviewer verdict. Null for plain comments. See
+  // docs/decisions/module-a-defaults.md §3.
+  verdict: z.enum(['approve', 'request_changes', 'block_approval']).optional(),
+}).refine(
+  v => v.verdict !== undefined || v.text.length > 0,
+  { message: 'text is required unless a verdict is set' },
+)
 
 const resolveSchema = z.object({
   resolutionType: z.enum(['accept', 'accept_with_modification', 'reject']),
@@ -102,6 +109,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
         sectionRef: parsed.data.sectionRef,
         text: parsed.data.text,
         severity: parsed.data.severity,
+        verdict: parsed.data.verdict ?? null,
         reviewerId: request.user!.id,
       },
     })
@@ -109,13 +117,16 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
-      action: 'comment_added',
+      // Reviewer verdicts carry a distinct audit action so compliance
+      // reports can filter them from plain comments.
+      action: parsed.data.verdict ? `reviewer_${parsed.data.verdict}` : 'comment_added',
       entityType: 'document',
       entityId: documentId,
       details: {
         commentId: id,
         sectionRef: parsed.data.sectionRef,
         severity: parsed.data.severity,
+        verdict: parsed.data.verdict ?? null,
       },
       ipAddress: request.ip ?? null,
     })

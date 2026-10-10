@@ -368,6 +368,18 @@ model Comment {
   resolvedBy     String?
   resolvedAt     DateTime?
   resolutionNote String?
+
+  // Reviewer verdict — Phase 2.2 of docs/pivot-plan.md Arc 5.
+  // null = plain comment; non-null = reviewer action with the comment
+  // body carrying the explanation. Three verdicts:
+  //   'approve'          — approves the section as-is
+  //   'request_changes'  — asks author to revise (soft return)
+  //   'block_approval'   — hard block; CRM meeting cannot close until
+  //                        this is resolved (chain-of-signature gate)
+  // Chosen over a parallel ReviewAction entity per
+  // docs/decisions/module-a-defaults.md §3.
+  verdict        String?
+
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
 
@@ -377,6 +389,7 @@ model Comment {
   @@index([documentId])
   @@index([documentId, status])
   @@index([documentId, sectionRef])
+  @@index([documentId, verdict])
 }
 
 // --------------------------------------------------------------------------

@@ -98,6 +98,8 @@ export interface Section {
   lockedByUserId?: string
 }
 
+export type ReviewerVerdict = 'approve' | 'request_changes' | 'block_approval'
+
 export interface Comment {
   id: string // CMT-###
   documentId: string
@@ -108,6 +110,9 @@ export interface Comment {
   text: string
   severity: CommentSeverity
   status: CommentStatus
+  // Phase 2.2 — null for plain comments; non-null when the comment is
+  // a reviewer verdict. See docs/decisions/module-a-defaults.md §3.
+  verdict?: ReviewerVerdict | null
   createdAt: string
   age: string // computed display value e.g. "3 days ago"
 }
@@ -319,8 +324,13 @@ export interface SubmitForReviewBody {
 
 export interface AddCommentBody {
   sectionRef: string
+  // Required unless `verdict` is set. Reviewer verdicts carry the
+  // explanation in `text`; a bare "approve" verdict may have empty text.
   text: string
   severity: CommentSeverity
+  // Phase 2.2 — reviewer verdict. See
+  // docs/decisions/module-a-defaults.md §3.
+  verdict?: ReviewerVerdict
 }
 
 export interface ResolveCommentBody {

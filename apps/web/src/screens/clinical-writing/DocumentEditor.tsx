@@ -9,6 +9,7 @@ import { StatusPill } from '../../components/ui'
 import { useDocumentStore, useProjectStore, useAuthStore } from '../../store'
 import { SectionNavigator } from './SectionNavigator'
 import { EditorToolbar }    from './EditorToolbar'
+import { EditorContent, useRichTextEditor } from './RichTextEditor'
 import { VoiceNotePanel }         from '../../panels/VoiceNotePanel'
 import { ChecklistPanel }         from '../../panels/ChecklistPanel'
 import { AuditTrailPanel }        from '../../panels/AuditTrailPanel'
@@ -144,7 +145,21 @@ export function DocumentEditor() {
     },
   })
 
-  const isDirty = isEditing && draftContent !== (activeSectionData?.contentHtml ?? '')
+  // TipTap editor instance (Phase 2.1). Mounted once per editor-pane
+  // lifecycle; HydrateContent inside useRichTextEditor re-syncs the
+  // DOM when the active section changes.
+  const editor = useRichTextEditor({
+    content:  activeSectionData?.contentHtml ?? '',
+    editable: isEditing,
+    onChange: html => setDraftContent(html),
+    placeholder: 'Start writing this section…',
+  })
+
+  // When TipTap emits an empty paragraph for a blank doc the raw HTML
+  // is '<p></p>'. Normalise so the dirty check doesn't fire spuriously
+  // after switching from an empty section.
+  const normaliseHtml = (s: string) => (s === '<p></p>' ? '' : s)
+  const isDirty = isEditing && normaliseHtml(draftContent) !== normaliseHtml(activeSectionData?.contentHtml ?? '')
 
   const presenceStack = useMemo(() => {
     if (!presenceSnapshot) return []
@@ -342,7 +357,7 @@ export function DocumentEditor() {
 
         {/* Editor pane — position:relative so right panel can overlay */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar />
+          <EditorToolbar editor={editor} />
 
           {/* Content — real section content, editable textarea for the
                MVP editor. Rich-text (TipTap) lands in Phase 2 per
@@ -357,13 +372,9 @@ export function DocumentEditor() {
 
                   {isEditing ? (
                     <>
-                      <textarea
-                        value={draftContent}
-                        onChange={e => setDraftContent(e.currentTarget.value)}
-                        className="mt-4 min-h-[320px] w-full rounded-md border border-slate-300 p-4 font-serif text-[15px] leading-[1.8] text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                        placeholder="Start writing this section…"
-                        data-section-editor
-                      />
+                      <div className="mt-4" data-section-editor>
+                        <EditorContent editor={editor} />
+                      </div>
                       <div className="mt-3 flex items-center justify-between">
                         <p className="text-xs text-slate-500">
                           {isDirty
@@ -375,6 +386,7 @@ export function DocumentEditor() {
                             type="button"
                             onClick={() => {
                               setDraftContent(activeSectionData.contentHtml)
+                              editor?.commands.setContent(activeSectionData.contentHtml, { emitUpdate: false })
                               setIsEditing(false)
                             }}
                             className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
@@ -400,11 +412,9 @@ export function DocumentEditor() {
                   ) : (
                     <>
                       {activeSectionData.contentHtml ? (
-                        <div
-                          className="mt-4 font-serif text-[15px] leading-[1.8] text-slate-900"
-                          // eslint-disable-next-line react/no-danger
-                          dangerouslySetInnerHTML={{ __html: activeSectionData.contentHtml }}
-                        />
+                        <div className="mt-4">
+                          <EditorContent editor={editor} />
+                        </div>
                       ) : (
                         <p className="mt-4 text-[14px] italic text-slate-400">
                           This section is empty. Click Edit to add content, or open the AI Suggest panel to draft it from source documents.

@@ -14,6 +14,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { groupSectionsByItem } from './section-grouping.js'
 
 const createPackageSchema = z.object({
   version: z.string().min(1).max(32),
@@ -212,13 +213,8 @@ export const tlfRoutes: FastifyPluginAsync = async (app) => {
     // UI's packages/types TLFItem interface:
     //   type (not itemType), id, title, linkedSections[], referenceCount?
     // linkedSections is the list of sectionRefs that cite this item on
-    // THIS document — grouped per-item below.
-    const sectionsByItem = new Map<string, string[]>()
-    for (const l of links) {
-      const arr = sectionsByItem.get(l.tlfItemId) ?? []
-      if (!arr.includes(l.sectionRef)) arr.push(l.sectionRef)
-      sectionsByItem.set(l.tlfItemId, arr)
-    }
+    // THIS document — grouped per-item via the shared pure helper.
+    const sectionsByItem = groupSectionsByItem(links)
 
     return {
       package: {

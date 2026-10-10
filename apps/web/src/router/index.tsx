@@ -7,8 +7,10 @@ import { SignIn }               from '../screens/shell/SignIn'
 import { MFAVerify }            from '../screens/shell/MFAVerify'
 import { TCGate }               from '../screens/shell/TCGate'
 import { AllProjects }          from '../screens/shell/AllProjects'
+import { NewProject }           from '../screens/shell/NewProject'
 import { ProjectDashboard }     from '../screens/shell/ProjectDashboard'
 import { ClinicalWritingHome }  from '../screens/clinical-writing/ClinicalWritingHome'
+import { NewDocument }          from '../screens/clinical-writing/NewDocument'
 import { DocumentEditor }       from '../screens/clinical-writing/DocumentEditor'
 import { DiffView }             from '../screens/clinical-writing/DiffView'
 import { ReviewerView }         from '../screens/clinical-writing/ReviewerView'
@@ -99,7 +101,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/projects" replace /> },
       { path: 'projects',     element: <AllProjects /> },
-      { path: 'projects/new', element: <PlaceholderScreen name="New Project (04)" /> },
+      { path: 'projects/new', element: <NewProject /> },
       { path: 'admin',        element: <AdminGuard><AdminPanel /></AdminGuard> },
       { path: 'super-admin',  element: <SuperAdminGuard><SuperAdminPanel /></SuperAdminGuard> },
       // Tenant admin (Arc 4). Live screens use the real API; the legacy
@@ -131,7 +133,7 @@ export const router = createBrowserRouter([
             path: 'clinical-writing',
             children: [
               { index: true,          element: <ClinicalWritingHome /> },
-              { path: 'new',          element: <PlaceholderScreen name="New Document (07)" /> },
+              { path: 'new',          element: <NewDocument /> },
               { path: 'classify',     element: <PlaceholderScreen name="Auto-Classification (08)" /> },
               { path: 'comments',     element: <CommentsDashboard /> },
               { path: 'portfolio',    element: <PortfolioDashboard /> },

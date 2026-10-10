@@ -448,6 +448,19 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
 
 // --- helpers --------------------------------------------------------------
 
+/**
+ * Pure helper exported for test coverage. Given the latest meetingRef
+ * (or null if no meetings exist yet), return the next ref formatted
+ * `CRM-NNN`. Padded to 3 digits for cardinal order up to 999; wraps to
+ * 4-digit CRM-1000 at the end so the format never silently loses
+ * ordering if a tenant files more than 999 meetings.
+ */
+export function formatNextCrmRef(latest: string | null): string {
+  const n = latest ? Number(latest.replace('CRM-', '')) + 1 : 1
+  const padded = n < 1000 ? String(n).padStart(3, '0') : String(n)
+  return `CRM-${padded}`
+}
+
 async function nextCrmRef(prisma: PrismaClient): Promise<string> {
   // Global sequence across all projects. A race between concurrent
   // schedulers can produce the same number; DB UNIQUE catches it and the
@@ -455,7 +468,5 @@ async function nextCrmRef(prisma: PrismaClient): Promise<string> {
   const rows = await prisma.$queryRawUnsafe<Array<{ meetingRef: string }>>(
     "SELECT \"meetingRef\" FROM crm_meetings WHERE \"meetingRef\" LIKE 'CRM-%' ORDER BY \"meetingRef\" DESC LIMIT 1",
   )
-  const latest = rows[0]?.meetingRef
-  const next = latest ? Number(latest.replace('CRM-', '')) + 1 : 1
-  return `CRM-${String(next).padStart(3, '0')}`
+  return formatNextCrmRef(rows[0]?.meetingRef ?? null)
 }

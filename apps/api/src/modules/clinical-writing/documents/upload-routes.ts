@@ -41,7 +41,8 @@ const confirmSchema = z.object({
 
 // Heuristic-based classification stub. Returns a reasonable guess based on
 // the filename until the real AI classifier lands.
-function classifyByFilename(filename: string) {
+// Exported for unit-test coverage; routes still call it via the local name.
+export function classifyByFilename(filename: string) {
   const lc = filename.toLowerCase()
   let documentType = 'protocol'
   let typeConfidence = 60

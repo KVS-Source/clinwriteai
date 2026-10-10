@@ -13,6 +13,7 @@ import { AuditTrailPanel }        from '../../panels/AuditTrailPanel'
 import { ReviewAssignmentPanel }  from '../../panels/ReviewAssignmentPanel'
 import { ICHValidatorPanel }      from '../../panels/ICHValidatorPanel'
 import { MedDRAPanel }            from '../../panels/MedDRAPanel'
+import { CommentsPanel }          from '../../panels/CommentsPanel'
 
 // Panel titles for the right panel header
 const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
@@ -49,7 +50,7 @@ export function DocumentEditor() {
   const toggleDiffMode       = useDocumentStore(s => s.toggleDiffMode)
   const setVersions          = useDocumentStore(s => s.setVersions)
 
-  const { data: document } = useQuery({
+  const { data: document, dataUpdatedAt, refetch: refetchDocument, isFetching: isRefetching } = useQuery({
     queryKey: ['document', documentId],
     queryFn:  () => documentsApi.get(documentId!),
     enabled:  !!documentId,
@@ -160,9 +161,13 @@ export function DocumentEditor() {
 
           {/* Right: autosave + presence + Save + Submit */}
           <div className="flex flex-none items-center gap-3.5">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#16A34A' }} />
-              Autosaved 09:14 UTC
+            <div className="flex items-center gap-1.5 text-xs text-slate-500" title="Last synced from the server. Click Save to refresh.">
+              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: isRefetching ? '#F59E0B' : '#16A34A' }} />
+              {isRefetching
+                ? 'Syncing…'
+                : dataUpdatedAt
+                  ? `Synced ${new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
+                  : 'Not synced'}
             </div>
 
             {/* Presence stack */}
@@ -191,9 +196,12 @@ export function DocumentEditor() {
 
             <button
               type="button"
-              className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
+              onClick={() => refetchDocument()}
+              disabled={isRefetching}
+              title="Pull the latest version from the server (collaborator edits, new comments, etc.)"
+              className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors disabled:cursor-wait disabled:opacity-60"
             >
-              Save
+              {isRefetching ? 'Syncing…' : 'Sync'}
             </button>
             <button
               type="button"
@@ -422,7 +430,10 @@ export function DocumentEditor() {
             {activePanel === 'meddra' && documentId && (
               <MedDRAPanel documentId={documentId} />
             )}
-            {activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && (
+            {activePanel === 'comments' && documentId && (
+              <CommentsPanel documentId={documentId} />
+            )}
+            {activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
                 <p className="mt-2 text-sm text-slate-700">

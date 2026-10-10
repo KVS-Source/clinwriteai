@@ -22,6 +22,17 @@ export const MODULE_SLUG_TO_KEY: Record<ModuleSlug, ModuleKey> = {
   'ideation-publishing': 'E',
 }
 
+// Reverse of MODULE_SLUG_TO_KEY. Needed because the API returns
+// `activeModules` as ModuleKey[] but most of the client UI expects
+// slugs (route segments, meta lookups).
+export const MODULE_KEY_TO_SLUG: Record<ModuleKey, ModuleSlug> = {
+  A: 'clinical-writing',
+  B: 'scientific-writing',
+  C: 'medical-writing',
+  D: 'regulatory-writing',
+  E: 'ideation-publishing',
+}
+
 export const MODULE_LABELS: Record<ModuleSlug, string> = {
   'clinical-writing':    'Clinical Writing',
   'scientific-writing':  'Scientific Writing',

@@ -4,13 +4,14 @@ import { useQuery } from '@tanstack/react-query'
 import { projectsApi } from '../../api'
 import { ProjectStatusPill } from '../../components/ui'
 import { useProjectStore } from '../../store'
+import { MODULE_KEY_TO_SLUG, type ModuleKey, type ModuleSlug } from '../../config/modules'
 
 // --- Static module metadata for the "Available modules" grid ---
 const INACTIVE_MODULES = [
-  { key: 'scientific-writing',   label: 'Scientific Writing',    letter: 'B', colour: '#0D9488', desc: 'Manuscripts, abstracts, congress materials.' },
-  { key: 'medical-writing',      label: 'Medical Writing',       letter: 'C', colour: '#7C3AED', desc: 'Medical information, MSL and payer content.' },
-  { key: 'regulatory-writing',   label: 'Regulatory Writing',    letter: 'D', colour: '#B0200D', desc: 'CTD/eCTD dossier authoring and submission.' },
-  { key: 'ideation-publishing',  label: 'Ideation & Publishing', letter: 'E', colour: '#0D9488', desc: 'Publication planning and channel output.' },
+  { key: 'scientific-writing',   label: 'Scientific Writing',    colour: '#0D9488', desc: 'Manuscripts, abstracts, congress materials.' },
+  { key: 'medical-writing',      label: 'Medical Writing',       colour: '#7C3AED', desc: 'Medical information, MSL and payer content.' },
+  { key: 'regulatory-writing',   label: 'Regulatory Writing',    colour: '#B0200D', desc: 'CTD/eCTD dossier authoring and submission.' },
+  { key: 'ideation-publishing',  label: 'Ideation & Publishing', colour: '#0D9488', desc: 'Publication planning and channel output.' },
 ] as const
 
 // --- Active-module labels/colours (for iterating project.activeModules) ---
@@ -147,12 +148,15 @@ export function ProjectDashboard() {
             <KpiCard label="Team Members" value={String(project.team.length)} sub="3 writers · 2 stats · 3 reviewers" />
           </div>
 
-          {/* Active module cards (one per project.activeModules) */}
-          {project.activeModules.map(moduleKey => {
-            const meta = ACTIVE_MODULE_META[moduleKey] ?? { label: moduleKey, colour: '#2563EB', description: '' }
+          {/* Active module cards. project.activeModules comes from the
+              API as ModuleKey[] (letters like 'A'); the UI meta map +
+              routes are slug-keyed, so translate once per iteration. */}
+          {project.activeModules.map((rawKey) => {
+            const slug: ModuleSlug | string = MODULE_KEY_TO_SLUG[rawKey as ModuleKey] ?? rawKey
+            const meta = ACTIVE_MODULE_META[slug] ?? { label: slug, colour: '#2563EB', description: '' }
             return (
               <div
-                key={moduleKey}
+                key={slug}
                 className="flex items-start gap-8 rounded-lg border border-slate-200 bg-white p-6"
                 style={{ borderTop: `3px solid ${meta.colour}` }}
               >
@@ -193,7 +197,7 @@ export function ProjectDashboard() {
                 <div className="flex w-[260px] flex-none flex-col gap-3">
                   <button
                     type="button"
-                    onClick={() => navigate(`/projects/${project.id}/${moduleKey}`)}
+                    onClick={() => navigate(`/projects/${project.id}/${slug}`)}
                     className="w-full rounded-md px-4 py-3 text-sm font-semibold text-white transition-colors hover:opacity-90"
                     style={{ backgroundColor: meta.colour }}
                   >
@@ -232,7 +236,6 @@ export function ProjectDashboard() {
                   <div className="flex items-center gap-2">
                     <span className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: m.colour, opacity: 0.45 }} />
                     <p className="text-sm font-semibold text-slate-500">{m.label}</p>
-                    <span className="font-mono text-[10px] tracking-wider text-slate-300">{m.letter}</span>
                   </div>
                   <p className="flex-1 text-xs leading-relaxed text-slate-500">{m.desc}</p>
                   <div className="mt-auto flex items-center justify-between">

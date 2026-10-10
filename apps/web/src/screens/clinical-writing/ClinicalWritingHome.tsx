@@ -6,6 +6,7 @@ import { documentsApi, projectsApi } from '../../api'
 import { StatusPill, SlidePanel } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { NewDocumentForm } from './NewDocument'
+import { UploadDocumentForm } from './UploadDocument'
 
 // --- Enum → display label maps ---
 
@@ -96,6 +97,7 @@ export function ClinicalWritingHome() {
   // Slider state — holds the id of the document being duplicated (null
   // for a plain new-doc flow). `null` with the panel open means fresh.
   const [newDocOpen, setNewDocOpen] = useState<false | { duplicateSourceId: string | null }>(false)
+  const [uploadOpen, setUploadOpen] = useState(false)
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -182,7 +184,7 @@ export function ClinicalWritingHome() {
               </button>
               <button
                 type="button"
-                onClick={() => navigate(`/projects/${projectId}/clinical-writing/classify`)}
+                onClick={() => setUploadOpen(true)}
                 className="rounded-md border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] font-semibold text-slate-900 transition-colors hover:bg-slate-50"
               >
                 Upload existing
@@ -448,6 +450,26 @@ export function ClinicalWritingHome() {
             onCancel={() => setNewDocOpen(false)}
             onCreated={id => {
               setNewDocOpen(false)
+              navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)
+            }}
+          />
+        )}
+      </SlidePanel>
+
+      <SlidePanel
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        title="Upload document"
+        subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
+        storageKey="panel-width-upload-document"
+      >
+        {uploadOpen && projectId && (
+          <UploadDocumentForm
+            projectId={projectId}
+            projectTA={project?.therapeuticArea}
+            onCancel={() => setUploadOpen(false)}
+            onCreated={id => {
+              setUploadOpen(false)
               navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)
             }}
           />

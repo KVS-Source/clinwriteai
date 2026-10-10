@@ -140,7 +140,8 @@ export const router = createBrowserRouter([
               { index: true,          element: <ClinicalWritingHome /> },
               // /clinical-writing/new retired — slider on ClinicalWritingHome.
               { path: 'new',          element: <Navigate to=".." replace relative="path" /> },
-              { path: 'classify',     element: <PlaceholderScreen name="Auto-Classification (08)" /> },
+              // /classify route retired — SlidePanel on ClinicalWritingHome handles upload+classify now.
+              { path: 'classify',     element: <Navigate to=".." replace relative="path" /> },
               { path: 'comments',     element: <CommentsDashboard /> },
               { path: 'portfolio',    element: <PortfolioDashboard /> },
               { path: 'audit-review', element: <AuditReviewAlert /> },

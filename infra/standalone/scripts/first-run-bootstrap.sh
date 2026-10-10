@@ -145,7 +145,7 @@ PORT=3001
 HOST=127.0.0.1
 LOG_LEVEL=info
 SECRETS_PROVIDER=env
-FEATURE_MODULES_ENABLED=A
+FEATURE_MODULES_ENABLED=A,B,C,D,E
 FEATURE_OPENAPI_DOCS=false
 # Server-side auth bypass — mirrors VITE_BYPASS_AUTH in apps/web/.env.demo.
 # Any request without a session cookie is served as this user. Unset once

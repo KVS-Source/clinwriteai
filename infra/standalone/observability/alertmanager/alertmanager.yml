@@ -1,0 +1,100 @@
+# Alertmanager config — Arc 12.1 of docs/pivot-plan.md.
+#
+# Primary route: PagerDuty for Sev1/Sev2, email for everything else.
+# Secondary route: Slack #platform-alerts (if configured) for Sev3+.
+#
+# Install path on VPS: /etc/alertmanager/alertmanager.yml
+# Reload:              amtool config reload --alertmanager.url=http://127.0.0.1:9093
+#
+# External gates (procurement — Arc 12 of docs/pivot-plan.md):
+#   - PagerDuty routing key (PAGERDUTY_SERVICE_KEY) — set in operator
+#     env before enabling PD routing. Receiver below falls back to
+#     email if the key env var isn't substituted at template time.
+#   - Slack webhook (SLACK_WEBHOOK_URL) — optional secondary channel.
+
+global:
+  # Resolve timeout — Alertmanager marks a firing alert resolved when
+  # it stops receiving the alert for this long. Keep tight so operators
+  # see recovery in the dashboard quickly.
+  resolve_timeout: 5m
+  # SMTP for the email receiver. SES recommended once Arc 8.2 lands.
+  smtp_from: 'alerts@clinwrite.ai'
+  smtp_smarthost: 'smtp.sendgrid.net:587'
+  smtp_auth_username: 'apikey'
+  smtp_auth_password_file: '/etc/alertmanager/smtp-password'
+  smtp_require_tls: true
+
+route:
+  group_by: ['alertname', 'severity', 'service']
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  receiver: 'ops-email'
+  routes:
+    # Sev1 — audit chain breaks, 5xx storms, database down → page immediately
+    - matchers:
+        - severity="sev1"
+      receiver: 'pagerduty-sev1'
+      group_wait: 10s
+      repeat_interval: 15m
+
+    # Sev2 — SLO burn, AI quota blown, queue backlog → page during business
+    - matchers:
+        - severity="sev2"
+      receiver: 'pagerduty-sev2'
+      group_wait: 30s
+      repeat_interval: 1h
+
+    # DPDPA-specific — cross-border block spikes, consent reject spikes
+    # → ops email + Slack (not paging; signals operator misconfig)
+    - matchers:
+        - category="dpdpa"
+      receiver: 'ops-slack'
+      repeat_interval: 2h
+
+receivers:
+  - name: 'ops-email'
+    email_configs:
+      - to: 'ops@clinwrite.ai'
+        send_resolved: true
+
+  - name: 'pagerduty-sev1'
+    pagerduty_configs:
+      # Operator substitutes ${PAGERDUTY_SEV1_KEY} at deploy time via
+      # envsubst or sops. See docs/compliance/runbooks/incident-response.md.
+      - routing_key: '${PAGERDUTY_SEV1_KEY}'
+        severity: 'critical'
+        description: '{{ .CommonAnnotations.summary }}'
+        details:
+          runbook: '{{ .CommonAnnotations.runbook }}'
+          firing: '{{ .Alerts.Firing | len }}'
+        send_resolved: true
+
+  - name: 'pagerduty-sev2'
+    pagerduty_configs:
+      - routing_key: '${PAGERDUTY_SEV2_KEY}'
+        severity: 'warning'
+        description: '{{ .CommonAnnotations.summary }}'
+        send_resolved: true
+
+  - name: 'ops-slack'
+    # Enabled when SLACK_WEBHOOK_URL is set at deploy time; otherwise
+    # the webhook POST fails and the alert falls through to ops-email
+    # via the default route (alertmanager treats send failures as
+    # non-fatal).
+    slack_configs:
+      - api_url: '${SLACK_WEBHOOK_URL}'
+        channel: '#platform-alerts'
+        title: '{{ .CommonAnnotations.summary }}'
+        text: '{{ range .Alerts }}{{ .Annotations.description }}\n{{ end }}'
+        send_resolved: true
+
+inhibit_rules:
+  # If the service is entirely down (sev1 Database Unreachable), suppress
+  # the knock-on sev2 alerts (slow latency, queue backlog) until it
+  # recovers — avoids paging the on-call for every downstream signal.
+  - source_matchers:
+      - alertname="DatabaseUnreachable"
+    target_matchers:
+      - severity=~"sev2|sev3"
+    equal: ['service']

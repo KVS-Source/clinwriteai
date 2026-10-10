@@ -3,27 +3,21 @@
 Instructions for assistants working in this repo. Keep this file short —
 link out to docs rather than inlining long context.
 
-## Development focus (2026-10-06 pivot)
+## Development focus
 
-Only **two surfaces** get new work:
-
-- **Clinical Writing (Module A)** — harden to production-ready, then
-  hand off to Dev + QA. Deferral tracking in
-  [memory/project_phase_3a_deferrals.md](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3a_deferrals.md)
-  (via the auto-memory system).
-- **Tenant Administrative** — brand-new build: tenant / org / project
-  CRUD + module toggles, user + role management, SSO/IdP config, audit
-  log viewer + compliance exports. No `Tenant` model exists yet.
-
-**Frozen** (code preserved, runtime disabled):
-
-- Module B (Scientific Writing)
-- Module C (Medical Writing)
-- Module D (Regulatory Writing)
-- Module E (Ideation & Publishing)
-
-Do **not** do new feature work on B / C / D / E. Bug fixes only, and
-only if they block Module A or Tenant Admin.
+- **Clinical Writing (Module A)** — handed to Dev + QA. See
+  [memory/project_phase_3a_deferrals.md](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3a_deferrals.md).
+- **Tenant Administrative** — live. Tenant / org / project CRUD +
+  module toggles, user + role management, SSO/IdP config, audit log
+  viewer + compliance exports. Shipped Arc 2-4.
+- **Modules B / C / D / E** — re-enabled 2026-10-08 (Arc 11). Each
+  module exposes its shipped surface; external-blocker items (PubMed /
+  CrossRef / ORCID for B; FDA ESG / EMA CESP for D; etc.) are listed in
+  each module's deferrals memory and are pending vendor procurement.
+- **DPDPA 2023 compliance** — foundations landed Arc 7
+  ([memory/project_dpdpa.md](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_dpdpa.md));
+  finalisation (DPO workflow, DPB breach-notification endpoint, pen
+  test) is Arc 10 and blocked on MeitY Rules finalisation.
 
 ### Kill-switch mechanics
 
@@ -49,9 +43,10 @@ is harmless but shows nothing in the sidebar.
 
 ### Plan
 
-[docs/pivot-plan.md](docs/pivot-plan.md) is the trackable plan — 7
-Arcs with per-item checkboxes. Arc 1 (pivot setup) is landing in this
-session; Arcs 2 → 6 ship across follow-ups.
+[docs/pivot-plan.md](docs/pivot-plan.md) is the trackable plan — 12
+Arcs. Arcs 1-9 + 11 landed; Arc 10 (DPDPA finalisation) + Arc 12
+(launch infra + external audits) await external gates. See the
+"Post-handover roadmap" section of pivot-plan.md for status.
 
 ## Repo map
 
@@ -91,10 +86,11 @@ CI also runs a `web-integration` job that spins postgres + redis +
 built API container, seeds, then runs Playwright smoke against the
 live API with MSW off.
 
-## When returning to frozen modules
+## Module deferrals
 
-Each has a deferral memory
+Each module has a deferral memory
 ([project_phase_3b_deferrals.md](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3b_deferrals.md)
 through `3e`) listing the shape-mapper work landed in batches 37-59 +
 the external blockers (vendor licences, SDK procurement) + the
-remaining scope-choice items. Resume order is decided in Arc 7.
+remaining scope-choice items. Modules are re-enabled at runtime —
+work the deferrals memory per module when picking one up.

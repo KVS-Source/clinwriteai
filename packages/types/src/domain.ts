@@ -89,6 +89,10 @@ export interface Section {
   number: string
   title: string
   status: ICHSectionStatus
+  // HTML body of the section — populated by the detail route (full
+  // shape), empty string in list shape. Editor mounts a textarea
+  // against this; save PATCHes back via UpdateSectionBody.
+  contentHtml: string
   presenceUserId?: string
   isLocked?: boolean
   lockedByUserId?: string
@@ -279,11 +283,18 @@ export interface CreateDocumentBody {
 }
 
 export interface UpdateSectionBody {
-  content: string
-  sectionId: string
+  // The HTML body of the section. Server stores as section.contentHtml;
+  // field name here matches the Prisma + API shape so the client
+  // doesn't translate.
+  contentHtml: string
+  sectionNumber?: string
+  sectionTitle?: string
+  // Part 11 §11.70 provenance — set when the save originated from an
+  // AI suggestion. Server REFUSES to save with aiDrafted=true if
+  // aiModel is missing.
   aiDrafted?: boolean
   aiModel?: string
-  sourceDocs?: string[]
+  sourceRef?: string
 }
 
 export interface WaiveItemBody {

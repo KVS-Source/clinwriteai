@@ -3,8 +3,8 @@
 // POST /projects/:projectId/documents (apps/api/src/modules/clinical-
 // writing/documents/routes.ts). Any authenticated user can create.
 
-import { useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CreateDocumentBody, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi } from '../../api'
@@ -29,12 +29,27 @@ export function NewDocument() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const { projectId } = useParams<{ projectId: string }>()
+  const [searchParams] = useSearchParams()
+  const dupSourceId = searchParams.get('dup')
 
   const [type,                 setType]                 = useState<DocumentType>('csr-full')
   const [title,                setTitle]                = useState('')
   const [assigneeId,           setAssigneeId]           = useState('')
   const [targetCompletionDate, setTargetCompletionDate] = useState('')
   const [description,          setDescription]          = useState('')
+
+  // Prefill when duplicating from an existing document.
+  const { data: sourceDoc } = useQuery({
+    queryKey: ['document', dupSourceId],
+    queryFn:  () => documentsApi.get(dupSourceId!),
+    enabled:  !!dupSourceId,
+  })
+  useEffect(() => {
+    if (!sourceDoc) return
+    setType(sourceDoc.type as DocumentType)
+    setTitle(`${sourceDoc.title} (copy)`)
+    setAssigneeId(sourceDoc.assigneeId)
+  }, [sourceDoc])
 
   const { data: users = [] } = useQuery<PlatformUser[]>({
     queryKey: ['platform-users'],

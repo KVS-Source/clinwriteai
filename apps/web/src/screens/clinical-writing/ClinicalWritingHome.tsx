@@ -365,16 +365,13 @@ export function ClinicalWritingHome() {
                     >
                       Open
                     </button>
-                    <button
-                      type="button"
-                      aria-label="More actions"
-                      onClick={e => e.stopPropagation()}
-                      className="flex gap-[2.5px] rounded-md p-1.5 hover:bg-slate-100 transition-colors"
-                    >
-                      <span className="h-[3px] w-[3px] rounded-full" style={{ backgroundColor: '#64748B' }} />
-                      <span className="h-[3px] w-[3px] rounded-full" style={{ backgroundColor: '#64748B' }} />
-                      <span className="h-[3px] w-[3px] rounded-full" style={{ backgroundColor: '#64748B' }} />
-                    </button>
+                    <DocumentRowMenu
+                      doc={doc}
+                      onOpen={() => handleDocClick(doc)}
+                      onDuplicate={() => {
+                        navigate(`/projects/${projectId}/clinical-writing/new?dup=${encodeURIComponent(doc.id)}`)
+                      }}
+                    />
                   </div>
                 </div>
               )
@@ -494,5 +491,87 @@ function SearchIcon() {
       <circle cx="6" cy="6" r="4.2"/>
       <path d="M9.6 9.6L12.5 12.5" strokeLinecap="round"/>
     </svg>
+  )
+}
+
+// Document row "⋯" menu — Arc A5. Recommended default action set per
+// docs/decisions/module-a-defaults.md §1. Items marked (soon) are
+// backend-pending and show a tooltip explaining when they'll light up.
+function DocumentRowMenu({ doc, onOpen, onDuplicate }: {
+  doc: Document
+  onOpen: () => void
+  onDuplicate: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const isSigned = doc.status === 'signed'
+  return (
+    <div className="relative">
+      <button
+        type="button"
+        aria-label="More actions"
+        aria-expanded={open}
+        onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
+        onBlur={() => setTimeout(() => setOpen(false), 150)}
+        className="flex gap-[2.5px] rounded-md p-1.5 hover:bg-slate-100 transition-colors"
+      >
+        <span className="h-[3px] w-[3px] rounded-full" style={{ backgroundColor: '#64748B' }} />
+        <span className="h-[3px] w-[3px] rounded-full" style={{ backgroundColor: '#64748B' }} />
+        <span className="h-[3px] w-[3px] rounded-full" style={{ backgroundColor: '#64748B' }} />
+      </button>
+      {open && (
+        <div
+          className="absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+          role="menu"
+          onClick={e => e.stopPropagation()}
+        >
+          <MenuItem onClick={() => { setOpen(false); onOpen() }}>Open</MenuItem>
+          <MenuItem onClick={() => { setOpen(false); onDuplicate() }}>Duplicate</MenuItem>
+          <MenuItem disabled title="Document-level PDF export lands with Phase 2 of the Module A plan.">
+            Export PDF <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
+          </MenuItem>
+          <div className="my-1 border-t border-slate-100" />
+          <MenuItem
+            disabled
+            title={isSigned ? 'Signed documents cannot be archived (Part 11 §11.10).' : 'Archive endpoint pending (Phase 2).'}
+          >
+            Archive <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
+          </MenuItem>
+          <MenuItem
+            disabled
+            danger
+            title={isSigned ? 'Signed documents cannot be deleted (Part 11 §11.10).' : 'Delete endpoint pending (Phase 2); admin-only.'}
+          >
+            Delete <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
+          </MenuItem>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function MenuItem({ onClick, disabled, danger, title, children }: {
+  onClick?: () => void
+  disabled?: boolean
+  danger?: boolean
+  title?: string
+  children: React.ReactNode
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={disabled}
+      title={title}
+      role="menuitem"
+      className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-[13px] ${
+        disabled
+          ? 'cursor-not-allowed text-slate-400'
+          : danger
+            ? 'text-red-600 hover:bg-red-50'
+            : 'text-slate-700 hover:bg-slate-50'
+      }`}
+    >
+      {children}
+    </button>
   )
 }

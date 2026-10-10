@@ -56,8 +56,17 @@ const sectionUpdateSchema = z.object({
 //   Prisma ichStatus     → UI Section.status
 // List-shape excludes sections (UI's list view only wants metadata); detail
 // shape includes them.
-function sectionShape(s: { id: string; sectionNumber: string; sectionTitle: string; ichStatus: string }) {
-  return { id: s.id, number: s.sectionNumber, title: s.sectionTitle, status: s.ichStatus }
+function sectionShape(s: { id: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null }) {
+  return {
+    id: s.id,
+    number: s.sectionNumber,
+    title: s.sectionTitle,
+    status: s.ichStatus,
+    // contentHtml is lazy — detail route includes it, list route omits
+    // it. UI editor pane reads this directly instead of fetching per-
+    // section separately.
+    contentHtml: s.contentHtml ?? '',
+  }
 }
 
 function documentShapeMeta(d: { version?: string } & Record<string, unknown>) {
@@ -340,5 +349,70 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return updated
+  })
+
+  // AI Suggest — thin wrapper over AI Gateway. Resolves (projectId,
+  // sectionNumber+title) → a prompt and dispatches to the gateway.
+  // Returns the raw gateway ChatResult; the UI shows accept/reject.
+  // When ANTHROPIC_API_KEY is set, this calls real Anthropic; otherwise
+  // deterministic stub (Arc 8.1).
+  const aiSuggestSchema = z.object({
+    intent: z.enum(['draft_from_source', 'tighten', 'explain', 'custom']),
+    customPrompt: z.string().min(1).max(2000).optional(),
+    model: z.string().default('claude-opus-4-7'),
+  })
+
+  app.post('/:documentId/sections/:sectionId/ai-suggest', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
+    const parsed = aiSuggestSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    // Load the section so the prompt can carry its current content +
+    // the section header. Project id is pulled from the document.
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      include: { currentVersion: { include: { sections: { where: { id: sectionId } } } } },
+    })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    const section = doc.currentVersion?.sections[0]
+    if (!section) return reply.code(404).send({ error: 'section_not_found' })
+
+    const sectionHeader = `§${section.sectionNumber} ${section.sectionTitle}`
+    const currentContent = section.contentHtml ?? ''
+
+    let prompt: string
+    switch (parsed.data.intent) {
+      case 'draft_from_source':
+        prompt = `You are drafting the "${sectionHeader}" section of a Clinical Study Report. Draft the section body in ICH E3 style using the project's linked source documents (CSR, Protocol, IB). Keep it concise; cite the source document where applicable.`
+        break
+      case 'tighten':
+        prompt = `Rewrite the following section for clarity. Preserve every data point and reference. Section: ${sectionHeader}\n\nCurrent content:\n${currentContent}`
+        break
+      case 'explain':
+        prompt = `Summarise the following CSR section in plain English for a non-statistician reviewer. Section: ${sectionHeader}\n\nContent:\n${currentContent}`
+        break
+      case 'custom':
+        prompt = `Section: ${sectionHeader}\n\nCurrent content:\n${currentContent}\n\nUser request:\n${parsed.data.customPrompt ?? ''}`
+        break
+    }
+
+    try {
+      const result = await app.aiGateway.chat({
+        tenantId: request.user!.tenantId,
+        projectId: doc.projectId,
+        actorId: request.user!.id,
+        module: 'A',
+        intent: parsed.data.intent,
+        model: parsed.data.model,
+        prompt,
+        maxOutputTokens: 2048,
+      })
+      return result
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      throw err
+    }
   })
 }

@@ -1,10 +1,12 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
-import type { PanelMode } from '@platform/types'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { usePresenceSnapshot } from '../../hooks/usePresence'
+import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill } from '../../components/ui'
-import { useDocumentStore, useProjectStore } from '../../store'
+import { useDocumentStore, useProjectStore, useAuthStore } from '../../store'
 import { SectionNavigator } from './SectionNavigator'
 import { EditorToolbar }    from './EditorToolbar'
 import { VoiceNotePanel }         from '../../panels/VoiceNotePanel'
@@ -14,6 +16,7 @@ import { ReviewAssignmentPanel }  from '../../panels/ReviewAssignmentPanel'
 import { ICHValidatorPanel }      from '../../panels/ICHValidatorPanel'
 import { MedDRAPanel }            from '../../panels/MedDRAPanel'
 import { CommentsPanel }          from '../../panels/CommentsPanel'
+import { AIAssistPanel }          from '../../panels/AIAssistPanel'
 
 // Panel titles for the right panel header
 const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
@@ -30,11 +33,33 @@ const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
   'tlf':               'TLF Cross-Reference',
 }
 
-const PRESENCE_STACK = [
-  { initials: 'MW', bg: '#DBEAFE', fg: '#1D4ED8', isLoggedIn: true  },
-  { initials: 'JO', bg: '#F5F3FF', fg: '#7C3AED', isLoggedIn: false },
-  { initials: 'EV', bg: '#FEF3C7', fg: '#D97706', isLoggedIn: false },
+// Deterministic colour for a user's presence avatar — hashed from userId
+// so the same user always gets the same colour across sessions.
+const AVATAR_PALETTE: Array<{ bg: string; fg: string }> = [
+  { bg: '#DBEAFE', fg: '#1D4ED8' },  // blue
+  { bg: '#F5F3FF', fg: '#7C3AED' },  // purple
+  { bg: '#FEF3C7', fg: '#D97706' },  // amber
+  { bg: '#D1FAE5', fg: '#065F46' },  // green
+  { bg: '#FEE2E2', fg: '#B91C1C' },  // red
+  { bg: '#E0E7FF', fg: '#3730A3' },  // indigo
+  { bg: '#FCE7F3', fg: '#9D174D' },  // pink
 ]
+
+function hashString(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
+
+function avatarColor(userId: string) {
+  return AVATAR_PALETTE[hashString(userId) % AVATAR_PALETTE.length]
+}
+
+function initialsFromName(name: string | null | undefined, fallback = '?'): string {
+  if (!name) return fallback
+  const parts = name.trim().split(/\s+/).slice(0, 2)
+  return parts.map(p => p[0]?.toUpperCase() ?? '').join('') || fallback
+}
 
 export function DocumentEditor() {
   const { projectId, documentId } = useParams()
@@ -67,6 +92,88 @@ export function DocumentEditor() {
     queryFn:  () => documentsApi.getVersions(documentId!),
     enabled:  !!documentId,
   })
+
+  // Real presence — Socket.io emits presence:changed; the hook polls as a
+  // fallback. Snapshot groups users by section; the header stack flattens
+  // across all sections on this doc.
+  const { data: presenceSnapshot } = usePresenceSnapshot(documentId ?? '', { pollMs: 15_000 })
+  const currentUser = useAuthStore(s => s.user)
+
+  // Resolve user id → PlatformUser so avatars can show initials + full
+  // name tooltip without the presence payload having to carry them.
+  const { data: platformUsers = [] } = useQuery<PlatformUser[]>({
+    queryKey: ['platform-users'],
+    queryFn:  () => platformApi.listUsers(),
+    staleTime: 60_000,
+  })
+  const usersById = useMemo(() => new Map(platformUsers.map(u => [u.id, u])), [platformUsers])
+
+  // ------- Section draft + save (Arc A3-mvp) -------
+  // Local draft content for the active section. Hydrated from the
+  // loaded document; dirty when the user types; cleared on save or
+  // when the active section changes.
+  const qc = useQueryClient()
+  const activeSectionData = useMemo(
+    () => (document && activeSection ? document.sections.find(s => s.id === activeSection) ?? null : null),
+    [document, activeSection],
+  )
+  const [draftContent, setDraftContent] = useState<string>('')
+  const [isEditing, setIsEditing] = useState<boolean>(false)
+
+  useEffect(() => {
+    // Hydrate the draft when the user switches sections. Blow away any
+    // in-flight edits silently — the editor's save pattern is explicit
+    // (click Save) so switching sections before saving IS a discard.
+    setDraftContent(activeSectionData?.contentHtml ?? '')
+    setIsEditing(false)
+  }, [activeSectionData?.id, activeSectionData?.contentHtml])
+
+  const saveSection = useMutation({
+    mutationFn: () => {
+      if (!documentId || !activeSectionData) throw new Error('no_active_section')
+      return documentsApi.updateSection(documentId, activeSectionData.id, {
+        contentHtml: draftContent,
+      })
+    },
+    onSuccess: () => {
+      setIsEditing(false)
+      // Server auto-creates a new DocumentVersion on content hash
+      // change — invalidate both so the version chip updates too.
+      qc.invalidateQueries({ queryKey: ['document', documentId] })
+      qc.invalidateQueries({ queryKey: ['versions', documentId] })
+    },
+  })
+
+  const isDirty = isEditing && draftContent !== (activeSectionData?.contentHtml ?? '')
+
+  const presenceStack = useMemo(() => {
+    if (!presenceSnapshot) return []
+    // Flatten all section rooms + dedupe by userId (same user may appear
+    // on two sections if they rapidly navigated). "active" wins over
+    // "idle" when the same user is in multiple states.
+    const bestByUser = new Map<string, { userId: string; status: 'active' | 'idle' | 'ended' }>()
+    for (const section of presenceSnapshot.sections) {
+      for (const user of section.users) {
+        const existing = bestByUser.get(user.userId)
+        if (!existing || (existing.status !== 'active' && user.status === 'active')) {
+          bestByUser.set(user.userId, { userId: user.userId, status: user.status })
+        }
+      }
+    }
+    return Array.from(bestByUser.values())
+      .filter(u => u.status !== 'ended')
+      .map(u => {
+        const platformUser = usersById.get(u.userId)
+        return {
+          userId: u.userId,
+          name: platformUser?.name ?? 'Unknown',
+          initials: initialsFromName(platformUser?.name),
+          isCurrentUser: currentUser?.id === u.userId,
+          color: avatarColor(u.userId),
+          status: u.status,
+        }
+      })
+  }, [presenceSnapshot, usersById, currentUser])
 
   // Hydrate active document + default active section + presence heartbeat
   useEffect(() => {
@@ -170,29 +277,43 @@ export function DocumentEditor() {
                   : 'Not synced'}
             </div>
 
-            {/* Presence stack */}
-            <div className="flex flex-none items-center">
-              {PRESENCE_STACK.map((p, i) => (
+            {/* Presence stack — real-time via /documents/:id/presence +
+                 Socket.io presence:changed. Empty when it's just you. */}
+            <div className="flex flex-none items-center" data-presence-stack>
+              {presenceStack.slice(0, 5).map((p, i) => (
                 <div
-                  key={p.initials}
+                  key={p.userId}
+                  title={`${p.name}${p.isCurrentUser ? ' (you)' : ''} · ${p.status}`}
                   className="flex h-6 w-6 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
                   style={{
-                    backgroundColor: p.bg,
-                    color: p.fg,
-                    boxShadow: p.isLoggedIn
+                    backgroundColor: p.color.bg,
+                    color: p.color.fg,
+                    boxShadow: p.isCurrentUser
                       ? '0 0 0 2px #FFFFFF, 0 0 0 4px #2563EB'
                       : '0 0 0 2px #FFFFFF',
+                    opacity: p.status === 'idle' ? 0.55 : 1,
                     marginLeft: i === 0 ? 0 : -6,
-                    zIndex: PRESENCE_STACK.length - i,
+                    zIndex: 5 - i,
                   }}
                 >
                   {p.initials}
                 </div>
               ))}
+              {presenceStack.length > 5 && (
+                <div
+                  title={`+${presenceStack.length - 5} more`}
+                  className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-slate-200 font-mono text-[10px] font-bold text-slate-600"
+                  style={{ boxShadow: '0 0 0 2px #FFFFFF', marginLeft: -6 }}
+                >
+                  +{presenceStack.length - 5}
+                </div>
+              )}
             </div>
 
             <span className="h-5 w-px" style={{ backgroundColor: '#E2E8F0' }} />
-            <span className="flex-none text-xs text-slate-500">{PRESENCE_STACK.length} active</span>
+            <span className="flex-none text-xs text-slate-500">
+              {presenceStack.length === 0 ? 'Only you' : `${presenceStack.length} active`}
+            </span>
 
             <button
               type="button"
@@ -223,98 +344,121 @@ export function DocumentEditor() {
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
           <EditorToolbar />
 
-          {/* Content */}
-          <div className="flex-1 overflow-y-auto px-12 pt-6 pb-8">
+          {/* Content — real section content, editable textarea for the
+               MVP editor. Rich-text (TipTap) lands in Phase 2 per
+               docs/decisions/module-a-defaults.md. */}
+          <div className="flex-1 overflow-y-auto px-12 pt-6 pb-8" data-section-content>
             <div className="flex max-w-[760px] flex-col">
-              <h2 className="text-[22px] font-bold tracking-tight">11. Efficacy Evaluation</h2>
-              <h3 className="mt-4 text-[17px] font-bold">11.4 Primary Efficacy Endpoint</h3>
-              <h4 className="mt-3 text-[15px] font-bold">§11.4.1 Progression-Free Survival</h4>
+              {activeSectionData ? (
+                <>
+                  <h2 className="text-[22px] font-bold tracking-tight">
+                    {activeSectionData.number} {activeSectionData.title}
+                  </h2>
 
-              {/* AI paragraph block */}
-              <div
-                className="relative mt-3 mb-3 rounded-r-[4px] p-[10px_14px]"
-                style={{ borderLeft: '3px solid #93C5FD', backgroundColor: '#F0F7FF' }}
-              >
-                <div
-                  className="absolute right-2.5 top-2.5 rounded px-1.5 py-1 font-mono text-[9px] font-medium"
-                  style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8' }}
-                >
-                  AI
-                </div>
-                <p className="pr-10 text-sm leading-[1.8] text-slate-900">
-                  Veloricept in combination with pembrolizumab demonstrated a statistically significant improvement in progression-free survival (PFS) compared to placebo plus pembrolizumab, with a median PFS of{' '}
-                  <span className="cursor-pointer" style={{ borderBottom: '1.5px solid #93C5FD' }}>14.2 months</span> versus{' '}
-                  <span className="cursor-pointer" style={{ borderBottom: '1.5px solid #93C5FD' }}>8.7 months</span> (
-                  <span className="cursor-pointer" style={{ borderBottom: '1.5px solid #93C5FD' }}>HR 0.61</span>;{' '}
-                  <span className="cursor-pointer" style={{ borderBottom: '1.5px solid #93C5FD' }}>95% CI 0.48–0.77</span>;{' '}
-                  <span className="cursor-pointer" style={{ borderBottom: '1.5px solid #93C5FD' }}>p&lt;0.0001</span>). This result is consistent with the pre-specified primary analysis outlined in the Statistical Analysis Plan (SAP v2.0, Section 6.3).
+                  {isEditing ? (
+                    <>
+                      <textarea
+                        value={draftContent}
+                        onChange={e => setDraftContent(e.currentTarget.value)}
+                        className="mt-4 min-h-[320px] w-full rounded-md border border-slate-300 p-4 font-serif text-[15px] leading-[1.8] text-slate-900 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                        placeholder="Start writing this section…"
+                        data-section-editor
+                      />
+                      <div className="mt-3 flex items-center justify-between">
+                        <p className="text-xs text-slate-500">
+                          {isDirty
+                            ? 'Unsaved changes — click Save Section to commit.'
+                            : 'No changes yet.'}
+                        </p>
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setDraftContent(activeSectionData.contentHtml)
+                              setIsEditing(false)
+                            }}
+                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          >
+                            Discard
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => saveSection.mutate()}
+                            disabled={!isDirty || saveSection.isPending}
+                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                          >
+                            {saveSection.isPending ? 'Saving…' : 'Save Section (new version)'}
+                          </button>
+                        </div>
+                      </div>
+                      {saveSection.isError && (
+                        <p className="mt-2 text-xs text-red-600" role="alert">
+                          Save failed — please try again. If the problem persists, check your network and reload.
+                        </p>
+                      )}
+                    </>
+                  ) : (
+                    <>
+                      {activeSectionData.contentHtml ? (
+                        <div
+                          className="mt-4 font-serif text-[15px] leading-[1.8] text-slate-900"
+                          // eslint-disable-next-line react/no-danger
+                          dangerouslySetInnerHTML={{ __html: activeSectionData.contentHtml }}
+                        />
+                      ) : (
+                        <p className="mt-4 text-[14px] italic text-slate-400">
+                          This section is empty. Click Edit to add content, or open the AI Suggest panel to draft it from source documents.
+                        </p>
+                      )}
+                      <div className="mt-6 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setIsEditing(true)}
+                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          Edit section
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setActivePanel('ai')}
+                          className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-bold transition-colors hover:bg-blue-100"
+                          style={{ borderColor: '#BFDBFE', backgroundColor: '#EFF6FF', color: '#1D4ED8' }}
+                        >
+                          <svg width="11" height="11" viewBox="0 0 14 14"><polygon points="7,1.2 8.6,5.4 12.8,7 8.6,8.6 7,12.8 5.4,8.6 1.2,7 5.4,5.4" fill="#2563EB"/></svg>
+                          AI Suggest
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </>
+              ) : (
+                <p className="mt-4 text-[14px] text-slate-400">
+                  Select a section from the navigator to view or edit.
                 </p>
-              </div>
-
-              <p className="mt-3 text-sm leading-[1.8] text-slate-900">
-                The Kaplan–Meier curves for PFS demonstrated early and sustained separation between treatment arms from Week 8 onwards, with the separation widening through to the data cut-off date of 30 September 2024.
-              </p>
-
-              {/* Cursor placeholder */}
-              <div className="mt-4 flex items-center gap-2.5">
-                <div className="h-[18px] w-[2px]" style={{ backgroundColor: '#94A3B8' }} />
-                <p className="text-sm italic text-slate-400">
-                  Continue writing, type{' '}
-                  <span className="rounded-[3px] px-1.5 py-0.5 font-mono text-xs not-italic text-slate-500" style={{ backgroundColor: '#F1F5F9' }}>/ai</span>{' '}
-                  or press{' '}
-                  <span className="rounded-[3px] px-1.5 py-0.5 font-mono text-xs not-italic text-slate-500" style={{ backgroundColor: '#F1F5F9' }}>⌘J</span>
-                </p>
-                <button
-                  type="button"
-                  onClick={() => setActivePanel('ai')}
-                  className="flex items-center gap-1.5 rounded-md border px-2.5 py-1 text-xs font-bold transition-colors hover:bg-blue-100"
-                  style={{ borderColor: '#BFDBFE', backgroundColor: '#EFF6FF', color: '#1D4ED8' }}
-                >
-                  <svg width="11" height="11" viewBox="0 0 14 14"><polygon points="7,1.2 8.6,5.4 12.8,7 8.6,8.6 7,12.8 5.4,8.6 1.2,7 5.4,5.4" fill="#2563EB"/></svg>
-                  AI Suggest
-                </button>
-              </div>
-
-              {/* §12.2 Locked section overlay */}
-              <div
-                className="mt-7 overflow-hidden rounded-lg border border-slate-200"
-                style={{ backgroundColor: 'rgba(241,245,249,0.5)' }}
-              >
-                <div className="flex items-center gap-2.5 border-b border-slate-200 bg-white px-3.5 py-2.5">
-                  <div
-                    className="flex h-3.5 w-3.5 flex-none items-center justify-center rounded-full font-mono text-[9px] font-bold"
-                    style={{ backgroundColor: '#F5F3FF', color: '#7C3AED' }}
-                  >
-                    JO
-                  </div>
-                  <p className="flex-1 text-[11px] text-slate-500">Dr. James Okonkwo is editing this section</p>
-                  <button className="whitespace-nowrap text-[11px] font-semibold text-blue-600 hover:text-blue-700">Request section</button>
-                </div>
-                <div className="flex flex-col gap-2.5 px-3.5 py-4">
-                  <div className="flex items-center gap-2">
-                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="#94A3B8" strokeWidth="1.2" className="flex-none">
-                      <rect x="2.2" y="5.2" width="7.6" height="5.4" rx="1"/>
-                      <path d="M4 5.2V3.8a2 2 0 0 1 4 0v1.4"/>
-                    </svg>
-                    <h4 className="text-[15px] font-bold text-slate-400">§12.2 Safety Evaluation</h4>
-                  </div>
-                  <div className="flex flex-col gap-2">
-                    <div className="h-2.5 w-full rounded-[5px] bg-slate-200" />
-                    <div className="h-2.5 w-[92%] rounded-[5px] bg-slate-200" />
-                    <div className="h-2.5 w-[74%] rounded-[5px] bg-slate-200" />
-                  </div>
-                  <p className="text-[11px] text-slate-500">Section content is hidden while another author holds the edit lock.</p>
-                </div>
-              </div>
+              )}
             </div>
           </div>
 
-          {/* Provenance bar (40px) */}
+          {/* Provenance bar (40px) — real section metadata from the
+               loaded document. AI-drafted / human-authored span counts
+               come from the Traceability panel endpoint when that lands
+               (CD prompt 04-traceability-panel.md). */}
           <div
             className="flex h-10 flex-none items-center overflow-hidden truncate whitespace-nowrap border-t border-slate-200 px-5 text-xs text-slate-500"
             style={{ backgroundColor: '#F8FAFC' }}
+            data-provenance-bar
           >
-            Section {activeSection ? activeSection.replace('s', '').replace('_', '.') : '11.4.1'} · 2 AI-drafted spans · 1 human-authored span · Last edited Marcus Webb · 22 Oct 2024 09:14 UTC
+            {(() => {
+              const section = document.sections.find(s => s.id === activeSection)
+              if (!section) return 'No section selected'
+              const edited = document.updatedAt
+                ? ` · Last edited ${new Date(document.updatedAt).toLocaleString('en-GB', {
+                    day: '2-digit', month: 'short', year: 'numeric',
+                    hour: '2-digit', minute: '2-digit',
+                  })} UTC`
+                : ''
+              return `§${section.number} ${section.title} · ${section.status}${edited}`
+            })()}
           </div>
 
           {/* Right panel — Pattern 6: absolute overlay on editor column, editor width stays constant */}
@@ -433,7 +577,14 @@ export function DocumentEditor() {
             {activePanel === 'comments' && documentId && (
               <CommentsPanel documentId={documentId} />
             )}
-            {activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && (
+            {activePanel === 'ai' && documentId && (
+              <AIAssistPanel
+                documentId={documentId}
+                sectionId={activeSection}
+                sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
+              />
+            )}
+            {activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
                 <p className="mt-2 text-sm text-slate-700">

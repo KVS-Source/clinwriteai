@@ -34,6 +34,22 @@ model Tenant {
   // Modules this tenant has access to. Intersected at runtime with the
   // deployment-wide FEATURE_MODULES_ENABLED env flag.
   modulesEnabled  String[]  @default(["A"])
+
+  // ----- DPDPA + data residency (Arc 7) -----
+  // 'EU' | 'IN' | 'US' | 'APAC'. 'IN' triggers DPDPA enforcement:
+  // consent-required writes, cross-border transfer gating, in-region
+  // storage. See docs/pivot-plan.md Arc 7.
+  dataResidency   String    @default("EU")
+  // DPO contact for Significant Data Fiduciary deployments under
+  // DPDPA 2023 §10. Only required when SDF flag is set — threshold
+  // criteria pending MeitY Rules finalisation (Arc 10.1).
+  dpoName         String?
+  dpoEmail        String?
+  dpoPhone        String?
+  // Admin-flagged SDF status. Flipping to true means DPO fields
+  // become mandatory on next save.
+  isSdf           Boolean   @default(false)
+
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
   archivedAt      DateTime?
@@ -42,9 +58,109 @@ model Tenant {
   ssoConnections  SsoConnection[]
   users           User[]
   projects        Project[]
+  consents        ConsentRecord[]
+  rightsRequests  DataPrincipalRequest[]
 
   @@map("tenants")
   @@index([status])
+  @@index([dataResidency])
+}
+
+// DPDPA 2023 §6 — verifiable consent records. Immutable: no update, no
+// delete at the API layer. A new ConsentRecord supersedes an older
+// one for the same (dataPrincipalId, purpose) pair.
+//
+// Linked polymorphically — subjectType + subjectId point at User,
+// KolContact, MaContact, VoiceNote, etc. Not using a hard FK because
+// the subject tables span modules (A..E).
+//
+// Required for write when tenant.dataResidency = 'IN'. Routes assert
+// a matching active ConsentRecord exists for the subject or return
+// 428 Precondition Required with the consent intake URL.
+model ConsentRecord {
+  id                      String    @id @default(cuid())
+  tenantId                String
+  tenant                  Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  // The Data Principal — may be a User.id (platform user) or a
+  // KolContact.id / MaContact.id (external contact). subjectType
+  // disambiguates.
+  subjectType             String                             // 'user' | 'kol_contact' | 'ma_contact' | 'voice_note'
+  subjectId               String
+  // What the data will be used for. Enforced by the write gate:
+  // routes that write personal data must declare a purpose that
+  // matches an active consent.
+  purpose                 String                             // 'service_delivery' | 'medical_review' | 'publication_authoring' | 'kol_engagement'
+  scope                   String[]  @default([])             // specific data categories covered (email, mobile, voice, etc.)
+  // Pointer to the external consent manager (DEPA / Account Aggregator
+  // for Indian Data Principals). Null when consent is captured
+  // in-app rather than via a consent manager.
+  consentManagerReference String?
+  // How consent was captured — audit trail. "web_form" | "api" | "cm_relay".
+  capturedVia             String
+  capturedAt              DateTime  @default(now())
+  // Consent can expire or be revoked by the Data Principal. Both
+  // produce a non-null revokedAt; distinguished by revocationReason.
+  revokedAt               DateTime?
+  revocationReason        String?                            // 'expired' | 'withdrawn' | 'purpose_fulfilled'
+
+  @@map("consent_records")
+  @@index([tenantId, subjectType, subjectId])
+  @@index([tenantId, subjectType, subjectId, purpose, revokedAt])
+}
+
+// DPDPA 2023 §13 — Data Principal rights requests. Access, correction,
+// erasure, grievance. Admin inbox + state machine.
+//
+// Erasure requests cascade through documents/provenance/comments/voice
+// notes/signatures via a worker job, redacting content while
+// preserving audit-chain hashes (same semantics as GDPR right-to-
+// erasure in Module A §8.3 of PRD_A_v0.4).
+model DataPrincipalRequest {
+  id                 String    @id @default(cuid())
+  tenantId           String
+  tenant             Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subjectType        String                             // 'user' | 'kol_contact' | 'ma_contact'
+  subjectId          String
+  subjectEmail       String                             // free-text so external requesters without an account can file
+  requestType        String                             // 'access' | 'correction' | 'erasure' | 'grievance'
+  status             String    @default("received")    // received | in_progress | fulfilled | rejected | cancelled
+  // Draft Rules say 30 days; config-driven so the number can flip
+  // when MeitY Rules finalise.
+  slaDueAt           DateTime
+  details            String                             // free-text; what the DP asked for
+  // Admin workflow fields
+  assignedToUserId   String?
+  resolutionNote     String?
+  fulfilledAt        DateTime?
+  // Only set when requestType = 'erasure' — references the audit
+  // event that recorded the cascade completion.
+  erasureAuditEventId String?
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  @@map("data_principal_requests")
+  @@index([tenantId, status])
+  @@index([tenantId, slaDueAt])
+}
+
+// Cross-border transfer allow-list — Arc 7.4. Operator-managed list
+// of jurisdictions that India's MeitY has NOT restricted for personal
+// data transfer. Empty list = all cross-border blocked. Updated when
+// MeitY publishes a new notification.
+//
+// Format: ISO-3166-1 alpha-2 country codes. Our ap-south-1 bucket maps
+// to 'IN'; cross-border writes require destination region's country
+// to be in this list.
+model AllowedTransferJurisdiction {
+  code         String    @id                           // 'US', 'GB', 'DE', ...
+  displayName  String
+  addedAt      DateTime  @default(now())
+  addedByUserId String?
+  // Operator notes — the MeitY notification reference, etc.
+  notes        String?
+
+  @@map("allowed_transfer_jurisdictions")
 }
 
 // Per-tenant OIDC / SAML config. WorkOS owns the IdP relationship; this

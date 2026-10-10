@@ -20,10 +20,13 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { enabledModules, requireAuth } from '../../../../auth/rbac.js'
 
+const DATA_RESIDENCY = ['EU', 'IN', 'US', 'APAC'] as const
+
 const createSchema = z.object({
   slug: z.string().min(2).max(64).regex(/^[a-z0-9-]+$/, 'slug must be lowercase alphanumeric + hyphens'),
   name: z.string().min(1).max(128),
   modulesEnabled: z.array(z.enum(['A', 'B', 'C', 'D', 'E'])).default(['A']),
+  dataResidency: z.enum(DATA_RESIDENCY).default('EU'),
 })
 
 const updateSchema = z.object({
@@ -33,6 +36,18 @@ const updateSchema = z.object({
 
 const modulesSchema = z.object({
   modulesEnabled: z.array(z.enum(['A', 'B', 'C', 'D', 'E'])),
+})
+
+// Arc 7.1 + 10.1 — data residency + DPO contact. One PATCH endpoint
+// handles both since they're the same concept (who the tenant is for
+// data-protection purposes). isSdf being set to true requires the DPO
+// triple to be non-null; validated at write time.
+const dpdpaSchema = z.object({
+  dataResidency: z.enum(DATA_RESIDENCY).optional(),
+  dpoName:  z.string().min(1).max(128).nullable().optional(),
+  dpoEmail: z.string().email().nullable().optional(),
+  dpoPhone: z.string().min(4).max(32).nullable().optional(),
+  isSdf:    z.boolean().optional(),
 })
 
 // Shape tenants for the UI's Tenant interface. Includes a derived
@@ -45,6 +60,11 @@ function tenantShape(t: {
   name: string
   status: string
   modulesEnabled: string[]
+  dataResidency: string
+  dpoName: string | null
+  dpoEmail: string | null
+  dpoPhone: string | null
+  isSdf: boolean
   createdAt: Date
   updatedAt: Date
   archivedAt: Date | null
@@ -59,6 +79,12 @@ function tenantShape(t: {
     modulesEnabled: t.modulesEnabled,
     effectiveModules: effective,
     deploymentCapped: effective.length < t.modulesEnabled.length,
+    dataResidency: t.dataResidency,
+    dpdpaApplies: t.dataResidency === 'IN',
+    dpo: t.dpoName || t.dpoEmail || t.dpoPhone
+      ? { name: t.dpoName, email: t.dpoEmail, phone: t.dpoPhone }
+      : null,
+    isSdf: t.isSdf,
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
     archivedAt: t.archivedAt ? t.archivedAt.toISOString() : null,
@@ -105,6 +131,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
         slug: parsed.data.slug,
         name: parsed.data.name,
         modulesEnabled: parsed.data.modulesEnabled,
+        dataResidency: parsed.data.dataResidency,
       },
     })
 
@@ -114,11 +141,60 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
       action: 'tenant.create',
       entityType: 'tenant',
       entityId: created.id,
-      details: { slug: created.slug, name: created.name, modulesEnabled: created.modulesEnabled },
+      details: { slug: created.slug, name: created.name, modulesEnabled: created.modulesEnabled, dataResidency: created.dataResidency },
       ipAddress: request.ip ?? null,
     })
 
     return reply.code(201).send(tenantShape(created))
+  })
+
+  // PATCH /admin/tenants/:id/dpdpa — Arc 7.1 + 10.1. Sets data residency
+  // and DPO contact in one call since they're the same compliance surface.
+  app.patch('/admin/tenants/:tenantId/dpdpa', { preHandler: anyAdminGate }, async (request, reply) => {
+    const { tenantId } = request.params as { tenantId: string }
+    const access = await assertTenantAccess(request, tenantId)
+    if (access !== 'super-admin' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
+
+    const parsed = dpdpaSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    // When flagging as SDF, the three DPO fields must be fully populated
+    // (either in the current update or already present on the row).
+    const current = await app.prisma.tenant.findUnique({ where: { id: tenantId } })
+    if (!current) return reply.code(404).send({ error: 'not_found' })
+
+    const next = {
+      dataResidency: parsed.data.dataResidency ?? current.dataResidency,
+      dpoName:  parsed.data.dpoName  === undefined ? current.dpoName  : parsed.data.dpoName,
+      dpoEmail: parsed.data.dpoEmail === undefined ? current.dpoEmail : parsed.data.dpoEmail,
+      dpoPhone: parsed.data.dpoPhone === undefined ? current.dpoPhone : parsed.data.dpoPhone,
+      isSdf:    parsed.data.isSdf    ?? current.isSdf,
+    }
+
+    if (next.isSdf && (!next.dpoName || !next.dpoEmail || !next.dpoPhone)) {
+      return reply.code(400).send({
+        error: 'dpo_required',
+        message: 'SDF tenants require DPO name, email, and phone to be set before enabling SDF status.',
+      })
+    }
+
+    const updated = await app.prisma.tenant.update({ where: { id: tenantId }, data: next })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'tenant.dpdpa.update',
+      entityType: 'tenant',
+      entityId: tenantId,
+      details: {
+        dataResidency: next.dataResidency,
+        isSdf: next.isSdf,
+        dpoFieldsSet: Boolean(next.dpoName && next.dpoEmail && next.dpoPhone),
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return tenantShape(updated)
   })
 
   // --- Detail / rename / module toggles ----------------------------------

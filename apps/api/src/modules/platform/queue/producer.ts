@@ -26,6 +26,8 @@ export type QueueJobName =
   | 'clinical.voice_transcribe'
   | 'clinical.presence_reaper'
   | 'compliance.access_review'
+  | 'dpdpa.erasure'
+  | 'dpdpa.breach_notification'
 
 export interface QueueJobOptions {
   /** Delay in milliseconds before the worker picks the job up. */

@@ -196,6 +196,12 @@ async function buildServer() {
   await app.register(ssoRoutes)
   await app.register(auditViewerRoutes)
 
+  // ---------- DPDPA 2023 (Arc 7 + 10 of docs/pivot-plan.md) ----------
+  // Decorates app.dpdpa (consent gate) + app.transfer (cross-border
+  // gate) + registers /admin/dpdpa/consents, /dpdpa/requests (public
+  // intake), /admin/dpdpa/requests, /admin/dpdpa/transfer-allowlist.
+  await app.register(import('./modules/platform/dpdpa/plugin.js'))
+
   // ---------- Module A — Clinical Writing ----------
   const { documentsProjectScopedRoutes, documentsRoutes } =
     await import('./modules/clinical-writing/documents/routes.js')

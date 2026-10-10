@@ -134,102 +134,283 @@ CLAUDE.md.
 
 ---
 
-## Arc 7 — Resume Modules B/C/D/E (future, out of scope now)
+## Post-handover roadmap (reorganised 2026-10-08)
 
-Not planned here. When ready, enable one module at a time via the
-toggle built in **3.2**, land the shape-mapper work remaining per
-`project_phase_3*_deferrals` memories, and run the module-cutover
-runbook per module.
+Everything after Arc 6 was previously handwaved as "Arc 7 (resume
+frozen modules)" + "Arc 8 (DPDPA)". That underplayed the Phase 4/5/6
+deferrals captured in the `project_phase_4/5/6_deferrals` memories.
+The redo below reorganises all remaining work into tracks that can
+move in parallel, with explicit dependencies + external blockers.
+
+**Reading order:** Arcs 7, 8, 9 can start the moment Arc 6 signs off
+(or sooner for Arc 7's DPDPA foundation subset, which has no code
+dependency on handover). Arcs 10, 11, 12 need external gates to clear.
 
 ---
 
-## Arc 8 — India DPDPA 2023 compliance (future, scoped 2026-10-08)
+## Arc 7 — DPDPA foundations (ready-now subset)
 
-Cross-cutting compliance work across Tenant Admin + every module.
-Decided in response to India market expansion. See each PRD's §8.1 /
-§8.3 / §10 for module-level requirements (added v0.4 for A, v0.1+ for
-B/C, v0.2 for D, v0.3 for E). This Arc tracks the platform build-out.
+Code work that doesn't depend on MeitY Rules finalisation. Lands the
+schema + enforcement scaffolding so Indian tenants can be onboarded
+the moment the external gates clear. All eng-only.
 
-- [ ] **8.1** `Tenant.data_residency` field (`'EU' | 'IN' | 'US' | 'APAC'`),
-      with 'IN' as the gate for DPDPA enforcement. Prisma migration +
-      Tenant Admin UI picker (sPM04 or new sub-screen).
-- [ ] **8.2** Per-tenant DPO contact (name, email, phone) persisted on
-      `Tenant`. Surface in Tenant Admin for Significant Data Fiduciary
-      tenants (threshold: Admin-flagged, criteria pending MeitY Rules
-      finalisation).
-- [ ] **8.3** Consent artefact store — new `ConsentRecord` entity
-      (purpose, scope, timestamp, consent-manager reference, Data
-      Principal id). Immutable. Linked from `User`, `KolContact`,
-      `VoiceNote` where personal data is captured. Required at point
-      of collection; absence of consent blocks writes.
-- [ ] **8.4** Data Principal rights workflow — Admin inbox for access /
-      correction / erasure / grievance requests. SLA timers (30 days
-      per DPDPA Rules draft, confirm on finalisation). Erasure
-      executor cascades through documents, provenance, comments,
-      voice notes, signatures — content redacted, hash preserved
-      (same semantics as GDPR right-to-erasure in Module A §8.3).
-- [ ] **8.5** Cross-border transfer gate — tenants with
-      `data_residency = 'IN'` reject writes to buckets/queues outside
-      the India government's notified-countries list. Block list is
-      Admin-updatable (MeitY publishes periodically; initial list
-      pending Rules finalisation).
-- [ ] **8.6** 72-hour breach notification — tie into the existing
-      audit chain + an operator notification path. Admin configures
-      recipient (Data Protection Board email + tenant-side DPO).
-- [ ] **8.7** CDSCO submission pinning — any Module D submission
-      destined for CDSCO (India HA) always flows through `ap-south-1`
-      regardless of tenant default residency. Enforced at the
-      publishing gate.
-- [ ] **8.8** Audit — pen-test DPDPA controls specifically (consent
-      bypass attempts, cross-border write smuggling, erasure chain
-      gaps). External auditor pass before go-live for IN tenants.
+- [ ] **7.1** `Tenant.data_residency` field (`'EU' | 'IN' | 'US' | 'APAC'`,
+      default 'EU'). Prisma migration + Tenant Admin UI picker on
+      sPM04. 'IN' is the gate for every downstream DPDPA check.
+- [ ] **7.2** `ConsentRecord` entity (purpose, scope, timestamp,
+      consent-manager reference, Data Principal id). Immutable table
+      (no update/delete routes). FK from User, KolContact, VoiceNote,
+      MaContact where personal data is captured.
+- [ ] **7.3** Consent-required write gates — when `tenant.data_residency =
+      'IN'`, POST routes that write personal data assert a matching
+      `ConsentRecord` exists for the subject; return 428 (precondition)
+      otherwise with the consent intake URL.
+- [ ] **7.4** Cross-border transfer gate — blob + queue writes refuse
+      destinations outside the India government's notified-countries
+      allow-list when the tenant is 'IN'. Allow-list is an
+      Admin-editable table (initial list: empty — MeitY-blacklist model
+      means empty allow-list = block all cross-border; operator
+      populates with the published MeitY notification list when it
+      lands). Enforcement in `S3Client` + `BullMQ.add` wrappers.
+- [ ] **7.5** CDSCO submission pin — any Module D submission to CDSCO
+      forces `region = 'ap-south-1'` at the publishing gate, regardless
+      of tenant default. Depends on Arc 11 (Module D re-enable) to be
+      user-visible, but can land the enforcement now.
+- [ ] **7.6** DPDPA integration tests — consent-bypass attempts (POST
+      without ConsentRecord), cross-border write smuggling (direct
+      S3 PUT to a non-IN bucket), erasure chain gap probes. All should
+      fail closed.
 
-**Done when:** an IN-residency tenant can be created, personal data
-collection requires consent, cross-border writes are blocked, a
-Data Principal access/erasure request completes end-to-end in staging,
-and the external audit sign-off is on file.
+**Done when:** an IN tenant can be created in Tenant Admin, writing a
+KolContact without a ConsentRecord returns 428, writing a document
+blob to a non-IN bucket from an IN tenant returns 403, all tests
+green.
+
+**Sizing:** 2-3 sessions.
+
+---
+
+## Arc 8 — Real-provider cutover (Phase 4 deferrals)
+
+Swap stubbed adapters for real vendors. Each row below is a one-file
+change once the API key / vendor BAA lands.
+
+- [ ] **8.1** `StubLlmClient` → `AnthropicLlmClient` wrapping
+      `@anthropic-ai/sdk`. Response shape already matches; just plumb
+      the key through secrets. Also enables prompt caching
+      (`cachedTokens` already in `AiCallRecord`).
+- [ ] **8.2** `NoopEmailAdapter` → SES or SendGrid. Fastify plugin
+      pattern already in `apps/api/src/modules/platform/notification/`;
+      swap the single adapter class. BullMQ `notification.email` queue
+      already fans out.
+- [ ] **8.3** `NoopSmsAdapter` → Twilio. Same pattern as above.
+- [ ] **8.4** Subscription + rate-card admin backend — tables
+      `subscriptions` + `rate_card_entries` (rate cards already have
+      versions; need the per-tenant subscription linkage). Admin UI
+      lands as sPM13 wiring.
+- [ ] **8.5** Reports module expansion beyond `/ai/usage` — tenant
+      spend, project-level cost, forecast. Pure groupBy work.
+
+**Done when:** real AI responses stream through the gateway, real
+emails + SMS deliver via the BullMQ queue, admin can CRUD subscriptions
++ rate cards from the UI.
+
+**External blockers:** API key procurement (Anthropic), vendor
+contracts (SES/SendGrid/Twilio), BAA where PHI touches email/SMS.
+
+**Sizing:** 2-3 sessions once vendors land.
+
+---
+
+## Arc 9 — Compliance infrastructure (Phase 5 deferrals)
+
+Pure eng work from the Phase 5 compliance hardening pass. No external
+dependency on any of these; just hasn't been prioritised yet.
+
+- [ ] **9.1** Column-level encryption on `KolContact.mobileEncrypted` +
+      `MaContact.mobileEncrypted`. KMS strategy decision first (AWS
+      KMS envelope keys vs app-managed with Vault), then the Prisma
+      field encryption wrapper.
+- [ ] **9.2** Postgres RLS pool refactor — currently RLS policies are
+      permissive-by-default because the pool doesn't `SET LOCAL
+      app.tenant_id` per Prisma `$transaction`. Flip to enforce-by-
+      default once the pool is wrapped.
+- [ ] **9.3** Data retention cron purge job — `GET /admin/compliance/
+      retention-report` is dry-run today. Build the actual BullMQ purge
+      worker.
+- [ ] **9.4** Chain integrity Grafana alert — monthly snapshot filing
+      works; need an alert when `verify-chain` returns `intact: false`
+      between snapshots.
+- [ ] **9.5** Part 11 §11.100(c) FDA letter template decision — ours
+      vs customer-provided. Required before shipping to Part 11-
+      regulated customers.
+- [ ] **9.6** De-identification feature decision — HIPAA Safe Harbor
+      §164.514(b). Lowers AI prompt risk substantially if offered.
+- [ ] **9.7** HIPAA dedicated hosting decision — logical isolation
+      (default) vs physical. Depends on first customer requirements.
+
+**Done when:** every mobile field is KMS-encrypted at rest, RLS blocks
+cross-tenant row reads in a smoke test, retention purge actually
+deletes rows past their TTL, Grafana pages on a chain break, three
+compliance decisions are documented in the compliance binder.
+
+**Sizing:** 4-5 sessions.
+
+---
+
+## Arc 10 — DPDPA finalisation (externally blocked)
+
+Last-mile DPDPA items that can't ship until MeitY Rules + the Data
+Protection Board are operational.
+
+- [ ] **10.1** Per-tenant DPO contact field + Significant Data
+      Fiduciary criteria. Blocked on MeitY Rules — SDF thresholds
+      (data volume, risk categories) aren't finalised.
+- [ ] **10.2** Data Principal rights workflow — Admin inbox for
+      access / correction / erasure / grievance. SLA timers (30 days
+      per draft Rules). Erasure cascade reuses the GDPR
+      right-to-erasure pipeline from Arc 9 (same content-delete,
+      hash-preserve semantics).
+- [ ] **10.3** 72-hour breach notification wiring — depends on India
+      Data Protection Board's recipient endpoint being published.
+- [ ] **10.4** DPDPA-specific pen test pass — adds consent-bypass,
+      cross-border-smuggling, erasure-chain-gap probes to the regular
+      pen-test scope (Arc 12.4). Required before IN tenants go live.
+
+**Done when:** IN tenant can run a full Data Principal access +
+erasure request end-to-end, breach test fires a notification to the
+real DPB endpoint, pen-test pass clean.
 
 **External blockers:**
-- MeitY Rules finalisation (phased in-force from 2025; consent-manager
-  requirements and SDF thresholds not yet final)
-- India Data Protection Board operational (board constituted; email
-  endpoint for breach notification not yet published)
-- External auditor engagement (budget + scope TBD; same pool as the
-  SOC 2 Type II roadmap in §8.2 of each PRD)
+- MeitY Rules finalisation (phased in-force from 2025)
+- India Data Protection Board operational (email endpoint publication)
+- Pen test firm engaged (shared with Arc 12.4)
+
+**Sizing:** 2 sessions once blockers clear.
+
+---
+
+## Arc 11 — Resume frozen modules B/C/D/E
+
+Enable modules one at a time. Each module runs through its deferrals
+memory + the module-cutover-runbook. Sequencing driven by business
+priority, not technical dependency — they're independent.
+
+- [ ] **11.B** Scientific Writing — [`project_phase_3b_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3b_deferrals.md).
+      External blockers: PubMed/CrossRef/ORCID API keys, debarment
+      source procurement.
+- [ ] **11.C** Medical Writing — [`project_phase_3c_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3c_deferrals.md).
+      Eng: pgvector similarity engine, agentic MLR report. External:
+      WCAG specialist walk, expiry scheduler.
+- [ ] **11.D** Regulatory Writing — [`project_phase_3d_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3d_deferrals.md).
+      External: FDA ESG / EMA CESP gateway credentials, validator
+      vendor, regulatory alerts feed. **Also unblocks Arc 7.5 CDSCO
+      pin to become user-visible.**
+- [ ] **11.E** Ideation & Publishing — [`project_phase_3e_deferrals`](../../Users/cheta/.claude/projects/c--Chetan-GenBioCa-LifeSciences/memory/project_phase_3e_deferrals.md).
+      Eng: public KOL guest-route security review, mobile encryption
+      (overlaps Arc 9.1), reminder scheduler. External: CrossRef DOI
+      account, SMS gateway (overlaps Arc 8.3).
+
+**Done when (per module):** env flag enabled, module-cutover-runbook
+executed, deferrals memory closed out, module appears in sidebar.
+
+**Sizing:** 2-3 sessions per module (varies by deferral depth).
+
+---
+
+## Arc 12 — Launch infrastructure + external audits (Phase 6 + 5)
+
+Procurement + hiring heavy. Calendar time, not engineering time. Start
+procurement NOW even if execution is weeks out.
+
+- [ ] **12.1** PagerDuty or Opsgenie provisioned, Alertmanager wired
+      to actual paging (currently emails only).
+- [ ] **12.2** Status page provider (Statuspage.io vs StatusGator vs
+      self-hosted) chosen + public page live.
+- [ ] **12.3** Four trained on-call engineers hired. Minimum rotation
+      size for sustainable 24/7 cover. Months-lead item.
+- [ ] **12.4** Penetration test firm engaged — annual budget. Scope
+      includes DPDPA probes (Arc 10.4).
+- [ ] **12.5** SOC 2 Type II auditor engaged. **Needs 6-month operating
+      window AFTER evidence pipelines run clean — start evidence
+      collection the moment Arc 9 lands.**
+- [ ] **12.6** ISO 27001 Stage 1 + Stage 2 certification body.
+- [ ] **12.7** GAMP 5 Validator for IQ/OQ/PQ witness.
+- [ ] **12.8** External counsel engagements — DPA/BAA templates, DPO,
+      HIPAA BAA counsel, DPDPA counsel for the India angle.
+- [ ] **12.9** Blue/green QA integration test (currently manual
+      script; needs CI gate asserting zero 5xx during the flip).
+- [ ] **12.10** Pricing + ToS + Privacy Policy published.
+- [ ] **12.11** Two reference customers lined up for Day 1 launch.
+
+**Done when:** on-call rotation live, status page up, SOC 2 Type II
+report issued, pen test pass + remediation closed, all legal in
+place, reference customers signed.
+
+**Sizing:** months-long calendar; a few eng sessions scattered within
+(12.1, 12.9).
 
 ---
 
 ## Dependencies
 
 ```
-Arc 1  ──────────────────┐
-                         ▼
+Arc 1 ──┐
+        ▼
 Arc 2 ──► Arc 3 ──► Arc 4
              │
-             └────────► Arc 5.5 (tenant RLS test only)
+             └────────► Arc 5.5 (tenant RLS test)
 
-Arc 5a / 5b / 5c / 5d can run anytime after Arc 1.
-
+Arc 5a / 5b / 5c / 5d run anytime after Arc 1.
 Arc 6 depends on both Arc 4 and Arc 5 complete.
+
+── Handover gate (end of Arc 6) ──
+
+Arc 7   (DPDPA foundations)  ─┐
+Arc 8   (real-provider cutover) ──┤  all can start in parallel after Arc 6
+Arc 9   (compliance infra)   ─┤   (procurement unlocks when it unlocks)
+Arc 11  (resume modules)     ─┘
+
+Arc 10  (DPDPA finalisation) ── needs MeitY Rules + DPB endpoint + pen-test (12.4)
+Arc 12  (launch + external audits) ── calendar-time; start procurement NOW
+              │
+              └── 12.5 SOC 2 Type II needs Arc 9 evidence pipelines live FIRST
+              └── 12.4 pen-test unblocks 10.4
 ```
 
-Arcs 2+3+4 and 5 can proceed in parallel; the only hard coupling is
-5.5's RLS test which needs Arc 2.6 live.
+**Critical path to "GA for IN tenants":** Arc 6 → Arc 7 → Arc 9 → Arc 10 →
+Arc 12.4 → Arc 12.5. Everything else is parallel.
+
+**Critical path to "resume Module D with CDSCO support":** Arc 6 → Arc 7
+→ Arc 11.D (Arc 7.5 CDSCO pin becomes user-visible on 11.D re-enable).
 
 ## Rough sizing
 
 Order-of-magnitude only — not commitments.
 
-| Arc | Items | Rough effort |
+| Arc | Scope | Rough effort |
 |-----|-------|--------------|
-| 1   | 5     | 1 session    |
-| 2   | 7     | 1-2 sessions |
-| 3   | 8     | 2-3 sessions |
-| 4   | 8     | 2-3 sessions |
-| 5   | 13    | 3-4 sessions |
-| 6   | 5     | 1 session (external walk-throughs) |
-| 8   | 8     | 3-5 sessions (DPDPA; depends on MeitY Rules finalisation) |
+| 1   | Pivot setup                | ✅ 1 session   |
+| 2   | Tenant Admin data model    | ✅ 1-2 sessions |
+| 3   | Tenant Admin API           | ✅ 2-3 sessions |
+| 4   | Tenant Admin web           | ✅ 2-3 sessions |
+| 5   | Module A hardening         | ✅ 3-4 sessions (4 items pending Dev/QA) |
+| 6   | Handover gate              | 1 session (external walk-throughs) |
+| 7   | DPDPA foundations          | 2-3 sessions (eng-only, ready now) |
+| 8   | Real-provider cutover      | 2-3 sessions (procurement-gated) |
+| 9   | Compliance infrastructure  | 4-5 sessions (eng-only) |
+| 10  | DPDPA finalisation         | 2 sessions (externally blocked) |
+| 11  | Resume modules B/C/D/E     | 2-3 sessions per module (8-12 total) |
+| 12  | Launch infra + ext audits  | months calendar; a few eng sessions scattered |
 
-Total: ~10-14 sessions to hand Module A + Tenant Admin to Dev + QA.
-Arc 8 (DPDPA) sized separately — adds 3-5 sessions on top, kicked off
-after Arc 6 handover or sooner if an IN tenant is contracted.
+**Totals:**
+- To finish Arc 6 handover: ~1 session (plus Dev/QA walk-through time)
+- To add Arcs 7+8+9 on top: ~8-11 eng sessions
+- To re-enable all four frozen modules: ~8-12 eng sessions
+- Arc 12 is procurement + hiring + calendar; eng involvement is light
+
+**Earliest "GA for IN tenants":** Arc 6 handover (1 session) + Arc 7
+(2-3 sessions) + Arc 9 column encryption + RLS (~2 sessions subset) +
+Arc 12 SOC 2 operating window (6 months) + Arc 12.4 pen test (external
+calendar). Engineering is weeks; calendar is ~6 months after Arc 9
+evidence pipelines are clean.

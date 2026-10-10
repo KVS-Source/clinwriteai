@@ -1,0 +1,154 @@
+[
+  {
+    "id": "DOC-KSAVI-PROTO",
+    "projectId": "proj-ksavi-401",
+    "type": "protocol",
+    "title": "KSAVI-401 Clinical Study Protocol, v2.1",
+    "status": "in-review",
+    "stage": "study-start-up",
+    "version": "v2.1",
+    "therapeuticArea": "Rheumatology",
+    "assigneeId": "user-MW",
+    "updatedAt": "2025-02-14T09:30:00Z",
+    "structureSource": "ICH E6(R3) GCP + ICH E8(R1) general considerations for clinical studies",
+    "sections": [
+      {
+        "id": "ksavi-proto-1", "number": "§1", "title": "Protocol Summary", "status": "complete",
+        "contentHtml": "<p>A phase 3, randomised, double-blind, double-dummy, active-controlled, multicentre trial to evaluate the efficacy and safety of KSAVI-04 (a C5a receptor antagonist biosimilar to avacopan) versus a standard oral prednisone taper, both on a background of rituximab or cyclophosphamide, in participants with newly diagnosed ANCA-associated vasculitis (AAV) — granulomatosis with polyangiitis (GPA) or microscopic polyangiitis (MPA).</p><p>Approximately 350 participants will be randomised 1:1 to KSAVI-04 30&nbsp;mg orally twice daily or a matching placebo plus a prednisone taper from 60&nbsp;mg/day over 20 weeks. The primary analysis is sustained remission at Week 52.</p>"
+      },
+      {
+        "id": "ksavi-proto-2", "number": "§2", "title": "Background and Rationale", "status": "complete",
+        "contentHtml": "<p>ANCA-associated vasculitis is a group of rare, potentially fatal autoimmune diseases characterised by necrotising inflammation of small-to-medium-sized blood vessels. India reports an estimated 20&ndash;30 new cases per million population per year, with GPA predominating.</p><p>Standard-of-care induction with rituximab or cyclophosphamide plus high-dose glucocorticoids achieves remission in &gt;80% of patients but is associated with substantial steroid-related morbidity &mdash; infection, hyperglycaemia, osteoporosis, and glucocorticoid-induced myopathy. The ADVOCATE trial (Jayne 2021) showed that avacopan, a selective C5a receptor antagonist, is non-inferior for remission at week 26 and superior for sustained remission at week 52, while allowing a markedly reduced steroid exposure.</p><p>KSAVI-04 is a proposed biosimilar developed by GenBioCa for Indian and emerging-market registration.</p>"
+      },
+      {
+        "id": "ksavi-proto-3", "number": "§3", "title": "Study Objectives and Endpoints", "status": "complete",
+        "contentHtml": "<p><strong>Primary objective.</strong> To demonstrate that KSAVI-04 is superior to a standard prednisone taper for sustained remission at Week 52.</p><p><strong>Primary endpoint.</strong> The proportion of participants with sustained remission at Week 52, defined as a BVAS of 0 at both Week 26 and Week 52 without a BVAS flare between these visits and with no glucocorticoid use for AAV during the 4 weeks preceding Week 52.</p><p><strong>Key secondary endpoints.</strong> (i) Remission at Week 26; (ii) time to first flare through Week 60; (iii) cumulative glucocorticoid exposure through Week 52 (mg prednisone-equivalent); (iv) change in Glucocorticoid Toxicity Index (GTI) at Week 26; (v) EQ-5D-5L at Week 52.</p>"
+      },
+      {
+        "id": "ksavi-proto-4", "number": "§4", "title": "Study Design", "status": "complete",
+        "contentHtml": "<p>Randomised, double-blind, double-dummy, parallel-group, active-controlled design. Randomisation is stratified by (a) induction background (rituximab vs cyclophosphamide), (b) ANCA type (MPO vs PR3), and (c) newly diagnosed vs relapsing disease. Visits occur at screening, baseline, weeks 1, 2, 4, 8, 12, 16, 20, 26, 32, 40, 52, and 60 (safety follow-up).</p><p>Blinding is maintained by double-dummy: all participants receive KSAVI-04 or matching placebo capsules plus active or placebo prednisone tapers, dispensed via identical blister packs.</p>"
+      },
+      {
+        "id": "ksavi-proto-5", "number": "§5", "title": "Study Population", "status": "complete",
+        "contentHtml": "<p><strong>Key inclusion criteria.</strong> Age &ge;18 years; new or relapsing GPA or MPA per 2022 ACR/EULAR classification; positive MPO-ANCA or PR3-ANCA; active disease (BVAS &ge;3); eGFR &ge;15 mL/min/1.73&nbsp;m&sup2;.</p><p><strong>Key exclusion criteria.</strong> Alveolar haemorrhage requiring mechanical ventilation; eosinophilic granulomatosis with polyangiitis; active or chronic hepatitis B/C; active tuberculosis (per CDSCO guidance for India sites, IGRA-based screening is mandatory); any live-attenuated vaccine within 4 weeks of baseline; prior exposure to a C5aR antagonist.</p>"
+      },
+      {
+        "id": "ksavi-proto-6", "number": "§6", "title": "Investigational Product and Comparator", "status": "complete",
+        "contentHtml": "<p>KSAVI-04 is a selective C5a receptor antagonist, administered orally as 10&nbsp;mg capsules at a dose of 30&nbsp;mg (three capsules) twice daily. The matching placebo is identical in appearance and excipient composition. Prednisone tablets (5&nbsp;mg) and matching placebo tablets are supplied centrally. Taper schedule for the active-prednisone arm starts at 60&nbsp;mg/day on Day 1 and declines over 20 weeks per the schedule in Appendix&nbsp;3.</p>"
+      },
+      {
+        "id": "ksavi-proto-7", "number": "§7", "title": "Study Procedures and Assessments", "status": "complete",
+        "contentHtml": "<p>Primary efficacy is assessed by central-adjudicated BVAS at each scheduled visit. Safety assessments include adverse events coded to MedDRA 27.0, vital signs, 12-lead ECG, routine haematology/chemistry, urinalysis with microscopy, and anti-drug antibody screening (quarterly). Participant-reported outcomes include EQ-5D-5L and SF-36 at baseline, Week 26, and Week 52.</p>"
+      },
+      {
+        "id": "ksavi-proto-8", "number": "§8", "title": "Statistical Analysis Plan", "status": "complete",
+        "contentHtml": "<p>With 350 participants (175 per arm), the trial has 90% power at a two-sided alpha of 0.05 to detect a 15 percentage-point difference in sustained remission at Week 52, assuming 50% in the control arm. Primary analysis is on the modified intention-to-treat population using a stratified Cochran&ndash;Mantel&ndash;Haenszel test. Missing data in the primary endpoint are handled as non-remission (conservative imputation). A pre-specified non-inferiority margin of 15% guards against spurious superiority inference.</p>"
+      },
+      {
+        "id": "ksavi-proto-9", "number": "§9", "title": "Safety Monitoring and Pharmacovigilance", "status": "in-progress",
+        "contentHtml": "<p>An independent Data and Safety Monitoring Board (DSMB) reviews unblinded safety data every 3 months. Serious adverse events are reported to the sponsor within 24 hours of site awareness. SUSARs are reported to regulators (CDSCO, FDA, EMA) within the applicable local timelines (CIOMS&nbsp;E2A).</p><p>The protocol-mandated safety review includes special scrutiny of serious infections, hepatobiliary events, and hypersensitivity reactions &mdash; the three signals most relevant to the C5aR antagonist class per the ADVOCATE adjudication.</p>"
+      },
+      {
+        "id": "ksavi-proto-10", "number": "§10", "title": "Data Management and Quality", "status": "in-progress",
+        "contentHtml": "<p>Electronic case report forms (eCRF) are built in Medidata&nbsp;Rave with range checks, cross-field edits, and auto-queries. Site data entry is expected within 5 business days of each visit. Monitoring follows a risk-based model (RBM) per ICH&nbsp;E6(R3) with 100% source data verification for the primary endpoint and 20% targeted SDV for secondary endpoints. A pre-specified blinded data review meeting occurs 2 weeks prior to database lock.</p>"
+      },
+      {
+        "id": "ksavi-proto-11", "number": "§11", "title": "Ethical Considerations", "status": "complete",
+        "contentHtml": "<p>The trial is conducted in accordance with the Declaration of Helsinki (2013), ICH&nbsp;E6(R3) GCP, and all applicable local regulations including (for Indian sites) the New Drugs and Clinical Trials Rules 2019 and the ICMR National Ethical Guidelines for Biomedical and Health Research Involving Human Participants.</p><p>Written informed consent is obtained in the participant's preferred language from a validated translation. Illiterate participants may consent via thumbprint with an impartial witness. The ICF is reviewed and approved by each site's ethics committee before enrolment.</p>"
+      },
+      {
+        "id": "ksavi-proto-12", "number": "§12", "title": "Regulatory Framework", "status": "complete",
+        "contentHtml": "<p>Primary regulatory submission to CDSCO (India) with parallel submissions to US&nbsp;FDA (IND 165432), EMA (EMEA/H/C/XXXXX), and ANVISA (Brazil). The study is listed on CTRI (Clinical Trials Registry of India), ClinicalTrials.gov, and the EU&nbsp;CTR database.</p>"
+      },
+      {
+        "id": "ksavi-proto-13", "number": "§13", "title": "Appendices", "status": "not-started",
+        "contentHtml": ""
+      }
+    ]
+  },
+  {
+    "id": "DOC-KSAVI-IB",
+    "projectId": "proj-ksavi-401",
+    "type": "ib",
+    "title": "KSAVI-04 Investigator's Brochure, Edition 3.0",
+    "status": "signed",
+    "stage": "study-start-up",
+    "version": "v3.0",
+    "therapeuticArea": "Rheumatology",
+    "assigneeId": "user-SC",
+    "updatedAt": "2024-10-15T14:22:00Z",
+    "sections": [
+      {
+        "id": "ksavi-ib-1", "number": "§1", "title": "Summary", "status": "complete",
+        "contentHtml": "<p>KSAVI-04 is an oral, selective, reversible antagonist of the C5a receptor (C5aR1) developed by GenBioCa as a proposed biosimilar to avacopan. This edition of the Investigator's Brochure summarises the preclinical pharmacology, pharmacokinetics, toxicology, and clinical experience through 31 August 2024.</p>"
+      },
+      {
+        "id": "ksavi-ib-2", "number": "§2", "title": "Introduction and Development Rationale", "status": "complete",
+        "contentHtml": "<p>The complement anaphylatoxin C5a is a potent chemoattractant for neutrophils and a key mediator of the tissue damage in ANCA-associated vasculitis. Selective C5aR1 blockade preserves the terminal complement pathway (and therefore protection against encapsulated bacterial infection) while inhibiting the C5a-driven inflammatory cascade. Avacopan was approved by the US&nbsp;FDA (2021) and EMA (2022) for AAV. KSAVI-04 shares the same mechanism and is being developed for broader geographic access.</p>"
+      },
+      {
+        "id": "ksavi-ib-3", "number": "§3", "title": "Physical, Chemical, and Pharmaceutical Properties", "status": "complete",
+        "contentHtml": "<p>KSAVI-04 is a small-molecule, orally bioavailable C5aR antagonist. Chemical name and structure are proprietary and provided under separate confidentiality agreement with the sponsor. The investigational product is supplied as 10&nbsp;mg immediate-release capsules containing microcrystalline cellulose, croscarmellose sodium, magnesium stearate, and gelatin as excipients.</p>"
+      },
+      {
+        "id": "ksavi-ib-4", "number": "§4", "title": "Non-clinical Studies", "status": "complete",
+        "contentHtml": "<p>In vitro potency and selectivity were comparable to the reference product in human neutrophil C5a-induced chemotaxis assays (IC&#8325;&#8320; 0.3&ndash;0.5&nbsp;nM) with no measurable activity at C3aR or FPR1. 13-week repeat-dose toxicity studies in rat and cynomolgus monkey established NOAEL at 100&nbsp;mg/kg/day with no target organ findings at therapeutic exposure multiples. Reproductive toxicity studies are complete; a pregnancy warning is included in the protocol.</p>"
+      },
+      {
+        "id": "ksavi-ib-5", "number": "§5", "title": "Clinical Pharmacology", "status": "complete",
+        "contentHtml": "<p>Phase&nbsp;1 single-ascending-dose (10&ndash;120&nbsp;mg) and multiple-ascending-dose (30&nbsp;mg BID &times; 14 days) studies in healthy volunteers (n=96) showed dose-proportional exposure, a terminal half-life of ~12 hours, and C5a-receptor occupancy &gt;95% at the planned clinical dose. No clinically significant drug-drug interactions were observed in the DDI programme (midazolam, warfarin, oral contraceptives).</p>"
+      },
+      {
+        "id": "ksavi-ib-6", "number": "§6", "title": "Clinical Efficacy", "status": "complete",
+        "contentHtml": "<p>No efficacy data in the target indication are yet available for KSAVI-04. The ADVOCATE pivotal trial of the reference product avacopan established the efficacy of C5aR antagonism in AAV: sustained remission at Week 52 in 65.7% (avacopan) vs 54.9% (prednisone taper), p=0.007 for superiority. KSAVI-401 is designed to extend that evidence base to the KSAVI-04 molecule and to broader geographic populations.</p>"
+      },
+      {
+        "id": "ksavi-ib-7", "number": "§7", "title": "Clinical Safety", "status": "complete",
+        "contentHtml": "<p>Across phase 1 studies in healthy volunteers, KSAVI-04 was well tolerated. Treatment-emergent adverse events were mostly mild and self-limiting; the most common were headache (12%), nausea (8%), and nasopharyngitis (7%). No serious adverse events, no deaths, and no treatment discontinuations occurred.</p><p>By mechanism, the drug class carries theoretical risks of hepatotoxicity (observed in ADVOCATE at a low but measurable rate) and serious infection. The protocol mandates liver function test monitoring every 4 weeks and prohibits enrolment of participants with active infection.</p>"
+      },
+      {
+        "id": "ksavi-ib-8", "number": "§8", "title": "Reference Safety Information", "status": "complete",
+        "contentHtml": "<p>The Reference Safety Information (RSI) for KSAVI-04 is Section&nbsp;7 of this Investigator's Brochure. Suspected unexpected serious adverse reactions (SUSARs) are those not consistent with the information in this section.</p>"
+      },
+      {
+        "id": "ksavi-ib-9", "number": "§9", "title": "Guidance for the Investigator", "status": "complete",
+        "contentHtml": "<p>Dose: 30&nbsp;mg orally twice daily, with or without food. If a dose is missed and &lt;3 hours have passed, the dose should be taken; otherwise, the next scheduled dose should be taken. Doses should not be doubled.</p><p>Monitor liver function at baseline, Week 2, Week 4, then every 4 weeks. Interrupt dosing if ALT &gt;5&times;ULN or if ALT &gt;3&times;ULN with concurrent bilirubin &gt;2&times;ULN. Dose reduction is not routinely recommended; permanent discontinuation is required for recurrent hepatobiliary signals.</p>"
+      },
+      {
+        "id": "ksavi-ib-10", "number": "§10", "title": "References", "status": "complete",
+        "contentHtml": "<p>Key references include: Jayne DRW, et&nbsp;al. Avacopan for the Treatment of ANCA-Associated Vasculitis. N Engl J Med 2021;384:599-609. Merkel PA, et&nbsp;al. Adjunctive Treatment with Avacopan: An Analysis of Subgroups. Arthritis Rheumatol 2023;75:1399-1409. Pagnoux C, et&nbsp;al. The 2022 American College of Rheumatology/European Alliance of Associations for Rheumatology Classification Criteria for Granulomatosis with Polyangiitis. Arthritis Rheumatol 2022;74:393-399.</p>"
+      }
+    ]
+  },
+  {
+    "id": "DOC-KSAVI-CSR",
+    "projectId": "proj-ksavi-401",
+    "type": "csr-full",
+    "title": "Clinical Study Report — KSAVI-401 (Interim, 26-Week Analysis)",
+    "status": "in-authoring",
+    "stage": "post-study",
+    "version": "v0.3",
+    "therapeuticArea": "Rheumatology",
+    "assigneeId": "user-MW",
+    "updatedAt": "2026-09-18T11:40:00Z",
+    "structureSource": "ICH E3 — Structure and Content of Clinical Study Reports (1995, current)",
+    "sections": [
+      { "id": "ksavi-csr-1",  "number": "§1",  "title": "Title Page",              "status": "complete",   "contentHtml": "<p>Clinical Study Report. Protocol KSAVI-401. A Phase 3, Randomised, Double-Blind, Double-Dummy, Active-Controlled Trial of KSAVI-04 (30&nbsp;mg BID) versus Standard Prednisone Taper, on a Background of Rituximab or Cyclophosphamide, in Participants with Newly Diagnosed or Relapsing ANCA-Associated Vasculitis.</p><p>Interim 26-Week Analysis. Report Version 0.3. Sponsor: GenBioCa, India. Date of this report: 18&nbsp;September&nbsp;2026.</p>" },
+      { "id": "ksavi-csr-2",  "number": "§2",  "title": "Synopsis",                "status": "complete",   "contentHtml": "<p>At the 26-week interim analysis, 348 participants had been randomised (175 KSAVI-04, 173 prednisone taper). Remission (BVAS&nbsp;0 and glucocorticoid dose &le;20&nbsp;mg/day) was achieved by 72.6% (127/175) of participants in the KSAVI-04 arm versus 68.2% (118/173) in the comparator arm; difference 4.4 percentage points (95% CI &minus;5.3 to 14.0; p=0.37 for superiority at 26 weeks). Cumulative glucocorticoid exposure was substantially lower in the KSAVI-04 arm (median 2,890&nbsp;mg prednisone-equivalent vs 4,230&nbsp;mg, p&lt;0.001). The 52-week primary analysis is pending.</p>" },
+      { "id": "ksavi-csr-3",  "number": "§3",  "title": "Table of Contents",       "status": "complete",   "contentHtml": "<p>Auto-generated at document assembly; see navigation panel.</p>" },
+      { "id": "ksavi-csr-4",  "number": "§4",  "title": "List of Abbreviations and Definitions", "status": "complete", "contentHtml": "<p>AAV, ANCA-associated vasculitis; ANCA, anti-neutrophil cytoplasmic antibody; BID, twice daily; BVAS, Birmingham Vasculitis Activity Score; C5aR, C5a receptor; CDSCO, Central Drugs Standard Control Organization (India); DSMB, Data and Safety Monitoring Board; eGFR, estimated glomerular filtration rate; GPA, granulomatosis with polyangiitis; ITT, intention-to-treat; MPA, microscopic polyangiitis; MedDRA, Medical Dictionary for Regulatory Activities; SAE, serious adverse event; TEAE, treatment-emergent adverse event.</p>" },
+      { "id": "ksavi-csr-5",  "number": "§5",  "title": "Ethics",                  "status": "complete",   "contentHtml": "<p>The study was conducted in accordance with the Declaration of Helsinki (2013), ICH&nbsp;E6(R3) Good Clinical Practice, applicable national regulations (India: NDCT Rules 2019; USA: 21&nbsp;CFR&nbsp;50/56/312; EU: Clinical Trials Regulation 536/2014), and the study protocol as amended through Amendment&nbsp;3 (dated 14&nbsp;January&nbsp;2025).</p><p>Independent ethics committee / institutional review board approval was obtained at each investigational site before participant enrolment. Written informed consent was obtained from every participant.</p>" },
+      { "id": "ksavi-csr-6",  "number": "§6",  "title": "Investigators and Study Administrative Structure", "status": "complete", "contentHtml": "<p>The study was conducted at 42 investigational sites in 7 countries. A full site listing is provided in Appendix&nbsp;16.1.4. The Data and Safety Monitoring Board comprised an independent chair (rheumatologist), a biostatistician, and a nephrologist, convened at pre-specified data review milestones.</p>" },
+      { "id": "ksavi-csr-7",  "number": "§7",  "title": "Introduction",            "status": "complete",   "contentHtml": "<p>ANCA-associated vasculitis is a rare autoimmune syndrome characterised by necrotising inflammation of small vessels. Despite high remission rates with modern induction therapy, patients experience substantial morbidity attributable to prolonged high-dose glucocorticoid exposure. The avacopan pivotal trial established that selective C5aR antagonism supports a dramatically steroid-sparing induction regimen. KSAVI-401 extends that evidence to the KSAVI-04 molecule across broader geographies.</p>" },
+      { "id": "ksavi-csr-8",  "number": "§8",  "title": "Study Objectives",        "status": "complete",   "contentHtml": "<p>The primary objective was to demonstrate superiority of KSAVI-04 over a standard prednisone taper for sustained remission at Week&nbsp;52. The 26-week interim analysis reported here evaluates the pre-specified key secondary endpoint of remission (BVAS&nbsp;0) at Week&nbsp;26 and the pre-specified safety outcomes.</p>" },
+      { "id": "ksavi-csr-9",  "number": "§9",  "title": "Investigational Plan",    "status": "complete",   "contentHtml": "<p>Participants were randomised 1:1 to KSAVI-04 30&nbsp;mg BID + placebo prednisone taper OR matching KSAVI-04 placebo + active prednisone taper, both on a background of rituximab (4&times;375&nbsp;mg/m&sup2; weekly) or cyclophosphamide IV (per CYCLOPS schedule), investigator's choice. Visits occurred at screening, baseline, weeks 1, 2, 4, 8, 12, 16, 20, 26, 32, 40, 52, and 60.</p>" },
+      { "id": "ksavi-csr-10", "number": "§10", "title": "Study Participants",      "status": "in-progress", "presenceUserId": "user-MW", "contentHtml": "<p>Of 428 participants screened, 348 were randomised. Baseline characteristics were well balanced between arms: median age 62 years (IQR 51&ndash;70), 54% male, 44% MPO-ANCA / 56% PR3-ANCA, 73% new-onset / 27% relapsing. 32% of participants were enrolled at Indian sites, 28% at US/Canadian sites, 24% in the EU/UK, and 16% in Brazil.</p>" },
+      { "id": "ksavi-csr-11", "number": "§11", "title": "Efficacy Evaluation",     "status": "in-progress", "presenceUserId": "user-MW", "contentHtml": "<p>At Week&nbsp;26, remission (BVAS&nbsp;0 and glucocorticoid dose &le;20&nbsp;mg/day) was achieved by 72.6% (127/175) of the KSAVI-04 arm and 68.2% (118/173) of the comparator arm; difference 4.4 percentage points (95% CI &minus;5.3 to 14.0; p=0.37). The 95% CI contained 0, so superiority for the Week-26 secondary endpoint was not established; the pre-specified non-inferiority margin was met.</p><p>Cumulative glucocorticoid exposure through Week&nbsp;26 was substantially lower in the KSAVI-04 arm: median 2,890&nbsp;mg prednisone-equivalent (IQR 2,110&ndash;3,920) versus 4,230&nbsp;mg (IQR 3,420&ndash;5,180) in the comparator; p&lt;0.001. Glucocorticoid Toxicity Index score at Week&nbsp;26 was significantly lower with KSAVI-04 (mean &Delta; &minus;18.4 vs &minus;3.9; p&lt;0.001).</p>" },
+      { "id": "ksavi-csr-12", "number": "§12", "title": "Safety Evaluation",       "status": "in-progress", "isLocked": true, "lockedByUserId": "user-JO", "contentHtml": "<p>Treatment-emergent adverse events occurred in 92.6% (162/175) of KSAVI-04 participants and 94.8% (164/173) of comparator-arm participants. Serious adverse events were reported in 24.0% vs 29.5%, with serious infections in 11.4% vs 15.0%. Hepatobiliary events of interest occurred in 7 KSAVI-04 participants (4.0%) versus 2 comparator-arm participants (1.2%); all resolved with dose interruption or discontinuation. Two deaths occurred during the 26-week period: one septicaemia (comparator arm) and one pulmonary embolism (KSAVI-04 arm, assessed as unrelated to study drug by the DSMB).</p>" },
+      { "id": "ksavi-csr-13", "number": "§13", "title": "Discussion and Overall Conclusions", "status": "not-started", "contentHtml": "" },
+      { "id": "ksavi-csr-14", "number": "§14", "title": "Tables, Figures, and Graphs", "status": "warning", "contentHtml": "<p><em>Placeholder.</em> Pending TLF package v0.3 import; expected 02&nbsp;October&nbsp;2026 from biostatistics.</p>" },
+      { "id": "ksavi-csr-15", "number": "§15", "title": "Reference List",          "status": "not-started", "contentHtml": "" },
+      { "id": "ksavi-csr-16", "number": "§16", "title": "Appendices",              "status": "not-started", "contentHtml": "" }
+    ]
+  }
+]

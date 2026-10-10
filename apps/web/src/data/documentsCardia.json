@@ -1,0 +1,153 @@
+[
+  {
+    "id": "DOC-CARDIA-PROTO",
+    "projectId": "proj-cardia-glow-203",
+    "type": "protocol",
+    "title": "CARDIA-GLOW-203 Clinical Study Protocol, v1.4",
+    "status": "signed",
+    "stage": "during-study",
+    "version": "v1.4",
+    "therapeuticArea": "Cardiometabolic",
+    "assigneeId": "user-MW",
+    "updatedAt": "2025-03-28T10:15:00Z",
+    "structureSource": "ICH E6(R3) + CDSCO New Drugs and Clinical Trials Rules 2019",
+    "sections": [
+      {
+        "id": "cardia-proto-1", "number": "§1", "title": "Protocol Summary", "status": "complete",
+        "contentHtml": "<p>A phase 2b, randomised, double-blind, placebo-controlled, parallel-group, dose-ranging trial of GLOW-203 (10&nbsp;mg, 25&nbsp;mg, or 50&nbsp;mg once daily) versus placebo in approximately 240 Indian adults with heart failure with preserved ejection fraction (HFpEF; LVEF &ge;50%) and type&nbsp;2 diabetes mellitus (HbA1c 6.5&ndash;10.0% on stable background therapy). The primary endpoint is change from baseline in NT-proBNP at Week&nbsp;24.</p>"
+      },
+      {
+        "id": "cardia-proto-2", "number": "§2", "title": "Background and Rationale", "status": "complete",
+        "contentHtml": "<p>HFpEF accounts for approximately half of all heart failure cases globally and a growing share in India, where the rapid rise of T2DM, hypertension, and obesity has pushed age-adjusted HFpEF prevalence sharply upward over the past decade.</p><p>Sodium-glucose co-transporter&nbsp;2 (SGLT2) inhibitors have revolutionised HFpEF care: both empagliflozin (EMPEROR-Preserved) and dapagliflozin (DELIVER) showed significant reductions in cardiovascular death and heart failure hospitalisation. GLOW-203 is a novel oral dual SGLT1/SGLT2 inhibitor. The additional SGLT1 blockade reduces post-prandial glucose absorption and may offer incremental cardiovascular and metabolic benefit, particularly in patients with the Indian dietary pattern of high-carbohydrate meals.</p>"
+      },
+      {
+        "id": "cardia-proto-3", "number": "§3", "title": "Study Objectives and Endpoints", "status": "complete",
+        "contentHtml": "<p><strong>Primary objective.</strong> To evaluate the effect of three doses of GLOW-203 vs placebo on NT-proBNP at Week&nbsp;24.</p><p><strong>Primary endpoint.</strong> Change from baseline in log-transformed NT-proBNP at Week&nbsp;24.</p><p><strong>Secondary endpoints.</strong> (i) Change in KCCQ-23 Clinical Summary Score; (ii) change in 6-minute walk distance; (iii) change in HbA1c; (iv) change in body weight; (v) incidence of adjudicated HF hospitalisation or urgent HF visit; (vi) safety and tolerability.</p>"
+      },
+      {
+        "id": "cardia-proto-4", "number": "§4", "title": "Study Design", "status": "complete",
+        "contentHtml": "<p>Randomised 1:1:1:1 to GLOW-203 10&nbsp;mg, 25&nbsp;mg, 50&nbsp;mg, or matching placebo once daily. Randomisation is stratified by baseline NT-proBNP (&lt;600 vs &ge;600&nbsp;pg/mL) and background diabetes therapy (metformin monotherapy vs metformin plus other agents, excluding SGLT inhibitors).</p><p>Study visits: screening (Day &minus;28 to &minus;7), baseline (Day 1), weeks 2, 4, 8, 12, 16, 20, and 24 (primary endpoint), plus a 4-week safety follow-up (Week&nbsp;28).</p>"
+      },
+      {
+        "id": "cardia-proto-5", "number": "§5", "title": "Study Population", "status": "complete",
+        "contentHtml": "<p><strong>Inclusion.</strong> Age 40&ndash;80; LVEF &ge;50% within 12 months; NYHA class II&ndash;III; NT-proBNP &ge;300&nbsp;pg/mL (in sinus rhythm) or &ge;900&nbsp;pg/mL (atrial fibrillation); T2DM with HbA1c 6.5&ndash;10.0% on stable antidiabetic therapy &ge;8 weeks; stable guideline-directed HF therapy &ge;4 weeks.</p><p><strong>Exclusion.</strong> Prior SGLT inhibitor exposure within 3 months; type 1 diabetes; eGFR &lt;30&nbsp;mL/min/1.73&nbsp;m&sup2;; history of diabetic ketoacidosis; genital mycotic infection within 6 weeks; LVEF &lt;50% at any prior assessment.</p>"
+      },
+      {
+        "id": "cardia-proto-6", "number": "§6", "title": "Investigational Product", "status": "complete",
+        "contentHtml": "<p>GLOW-203 is supplied as 10&nbsp;mg and 25&nbsp;mg immediate-release film-coated tablets. The 50&nbsp;mg dose is administered as two 25&nbsp;mg tablets. Matching placebo tablets are identical in appearance. Study drug is dispensed in participant-specific bottles with ingestion-tracking caps for the first 60 participants (adherence sub-study) and conventional bottles thereafter.</p>"
+      },
+      {
+        "id": "cardia-proto-7", "number": "§7", "title": "Study Procedures and Assessments", "status": "complete",
+        "contentHtml": "<p>NT-proBNP is measured centrally at all scheduled visits. KCCQ-23 is administered in the participant's preferred language (English, Hindi, Tamil, Telugu, Bengali, or Marathi &mdash; all validated per the Mapi Institute translations). Six-minute walk distance follows the ATS/ERS 2014 protocol with trained site technicians. HbA1c is measured at baseline, Weeks&nbsp;12 and 24.</p>"
+      },
+      {
+        "id": "cardia-proto-8", "number": "§8", "title": "Statistical Analysis Plan", "status": "complete",
+        "contentHtml": "<p>With 60 participants per arm (240 total) and an expected standard deviation of 0.80 on log NT-proBNP, the trial has 85% power to detect a 25% between-arm reduction at a two-sided alpha of 0.05 (comparing highest active dose vs placebo). The primary analysis is a mixed-model repeated-measures (MMRM) analysis with fixed effects for treatment, visit, treatment-by-visit interaction, baseline log NT-proBNP, and stratification factors.</p>"
+      },
+      {
+        "id": "cardia-proto-9", "number": "§9", "title": "Safety Monitoring", "status": "complete",
+        "contentHtml": "<p>Independent DSMB reviews unblinded safety data after 60, 120, and 180 randomised participants complete Week&nbsp;8. Adverse events of special interest include diabetic ketoacidosis, acute kidney injury, hypotension, hypoglycaemia (requiring assistance), volume depletion, and genital mycotic infection. SAEs are reported within 24 hours of site awareness.</p>"
+      },
+      {
+        "id": "cardia-proto-10", "number": "§10", "title": "Ethical and Regulatory Considerations", "status": "complete",
+        "contentHtml": "<p>The trial is conducted per the Declaration of Helsinki (2013), ICH&nbsp;E6(R3) GCP, the India New Drugs and Clinical Trials Rules 2019, and ICMR National Ethical Guidelines (2017). All participants provide written informed consent in a language they understand. The protocol was approved by the Subject Expert Committee at CDSCO and by each site's institutional ethics committee prior to initiation. Study registration: CTRI/2025/04/XXXXX.</p>"
+      },
+      {
+        "id": "cardia-proto-11", "number": "§11", "title": "Data Management", "status": "complete",
+        "contentHtml": "<p>Electronic data capture in Medidata Rave with site data entry expected within 3 business days of each visit. Central safety and endpoint laboratory (Metropolis Healthcare, Mumbai) handles all biospecimens with pre-specified handling and shipping SOPs. A pre-specified blinded data review meeting occurs 2 weeks before database lock. 100% SDV for the primary endpoint; risk-based 15% SDV for secondary endpoints.</p>"
+      },
+      {
+        "id": "cardia-proto-12", "number": "§12", "title": "Appendices", "status": "not-started",
+        "contentHtml": ""
+      }
+    ]
+  },
+  {
+    "id": "DOC-CARDIA-ICF",
+    "projectId": "proj-cardia-glow-203",
+    "type": "icf",
+    "title": "Participant Informed Consent Form — CARDIA-GLOW-203 (English Master)",
+    "status": "signed",
+    "stage": "study-start-up",
+    "version": "v2.0",
+    "therapeuticArea": "Cardiometabolic",
+    "assigneeId": "user-SC",
+    "updatedAt": "2025-02-10T08:00:00Z",
+    "sections": [
+      {
+        "id": "cardia-icf-1", "number": "§1", "title": "Why am I being asked to join this study?", "status": "complete",
+        "contentHtml": "<p>You are being invited to take part in a research study because your doctor has diagnosed you with heart failure with preserved pumping function (also called HFpEF) and type&nbsp;2 diabetes. This study is testing a new tablet called GLOW-203 to see whether it can lower a blood marker of heart stress (NT-proBNP) and improve how you feel.</p>"
+      },
+      {
+        "id": "cardia-icf-2", "number": "§2", "title": "What is the purpose of this study?", "status": "complete",
+        "contentHtml": "<p>Doctors already have tablets similar to GLOW-203 that help people with heart failure. GLOW-203 is new and works in a slightly different way. This study is checking three different doses of GLOW-203 against a dummy tablet (placebo) that contains no medicine, to find out: (1) Is GLOW-203 safe? (2) Does it reduce the blood marker of heart stress? (3) Does it make patients feel better?</p>"
+      },
+      {
+        "id": "cardia-icf-3", "number": "§3", "title": "What will happen during the study?", "status": "complete",
+        "contentHtml": "<p>You will come to the hospital for 10 visits over about 7 months. Each visit will take 1&ndash;3 hours. Blood samples will be taken at every visit. You will be asked to walk for 6 minutes to measure your exercise ability. You will fill out a questionnaire about how you feel. You will take one tablet by mouth every morning. Neither you nor the study doctor will know which of the four possible treatments (3 doses of GLOW-203, or placebo) you are taking &mdash; this is called a 'double-blind' study.</p>"
+      },
+      {
+        "id": "cardia-icf-4", "number": "§4", "title": "What are the possible risks and side effects?", "status": "complete",
+        "contentHtml": "<p>GLOW-203 belongs to a family of medicines called SGLT inhibitors. The most common side effects seen with similar medicines include: urinary tract infections, genital yeast infections, more frequent urination, feeling thirsty, and in rare cases low blood pressure or a serious condition called diabetic ketoacidosis. Your doctor will monitor you closely with blood tests at every visit. You should tell your study doctor immediately if you feel very unwell, have nausea or vomiting that will not stop, or feel confused.</p>"
+      },
+      {
+        "id": "cardia-icf-5", "number": "§5", "title": "What are the possible benefits?", "status": "complete",
+        "contentHtml": "<p>If you are randomised to GLOW-203, there is a chance it may help your heart failure and your blood sugar. There is also a chance you will be given the placebo (no medicine), in which case you will not get any direct benefit from the study drug. However, you will continue to receive all your regular heart and diabetes medicines, and you will be seen by a specialist team more often than usual &mdash; this close monitoring may help your overall care.</p>"
+      },
+      {
+        "id": "cardia-icf-6", "number": "§6", "title": "Will my participation be voluntary and confidential?", "status": "complete",
+        "contentHtml": "<p>Yes. Your decision to join the study is entirely voluntary. If you decide not to join, your usual medical care will not change. If you join, you can leave the study at any time, for any reason, and your usual care will continue.</p><p>Your medical records will remain confidential. Only the study doctor, their study staff, the sponsor's monitors, regulatory authorities, and the ethics committee will have access. Any information shared outside the hospital will have your name and other identifying details removed. Your personal data will be stored and handled in accordance with the India Digital Personal Data Protection Act 2023 (DPDPA).</p>"
+      },
+      {
+        "id": "cardia-icf-7", "number": "§7", "title": "Who do I contact if I have questions or concerns?", "status": "complete",
+        "contentHtml": "<p>If you have any questions about this study at any time, please contact your study doctor (contact details on the signature page of this form). If you have questions about your rights as a research participant, you can contact the Chairperson of the Institutional Ethics Committee at the hospital (telephone details on the signature page). In case of a study-related injury, you will receive free medical treatment and may be eligible for compensation per the India New Drugs and Clinical Trials Rules 2019.</p>"
+      },
+      {
+        "id": "cardia-icf-8", "number": "§8", "title": "Statement of Consent and Signature", "status": "complete",
+        "contentHtml": "<p>I have read this consent form (or had it read to me in a language I understand). I have had the opportunity to ask questions, and my questions have been answered to my satisfaction. I understand that my participation is voluntary and that I can leave the study at any time without affecting my future medical care. I agree to take part in this study.</p>"
+      }
+    ]
+  },
+  {
+    "id": "DOC-CARDIA-INTERIM",
+    "projectId": "proj-cardia-glow-203",
+    "type": "csr-synopsis",
+    "title": "CARDIA-GLOW-203 Interim Analysis Report (120-Participant Safety Review)",
+    "status": "in-review",
+    "stage": "during-study",
+    "version": "v0.9",
+    "therapeuticArea": "Cardiometabolic",
+    "assigneeId": "user-PN",
+    "updatedAt": "2026-07-22T16:50:00Z",
+    "sections": [
+      {
+        "id": "cardia-int-1", "number": "§1", "title": "Executive Summary", "status": "complete",
+        "contentHtml": "<p>This is the second pre-specified DSMB safety review for CARDIA-GLOW-203, covering the first 120 randomised participants who had completed Week&nbsp;8 as of 30&nbsp;June&nbsp;2026. The DSMB met on 18 July 2026 and recommended continuing the study without modification. No new safety signal was identified.</p>"
+      },
+      {
+        "id": "cardia-int-2", "number": "§2", "title": "Participant Disposition", "status": "complete",
+        "contentHtml": "<p>Of 142 participants screened across 12 Indian sites between 1&nbsp;May&nbsp;2025 and 15&nbsp;May&nbsp;2026, 120 were randomised: 30 to each of the three GLOW-203 dose arms (10, 25, 50&nbsp;mg) and 30 to placebo. Nine participants (7.5%) discontinued study drug before Week&nbsp;8: 4 for adverse events, 3 for consent withdrawal, 1 for protocol deviation, and 1 lost to follow-up.</p>"
+      },
+      {
+        "id": "cardia-int-3", "number": "§3", "title": "Baseline Characteristics", "status": "complete",
+        "contentHtml": "<p>Baseline characteristics were well balanced across treatment arms. Mean (SD) age was 64.2 (8.1) years; 48% male; mean BMI 28.4 (4.2)&nbsp;kg/m&sup2;; median NT-proBNP 712&nbsp;pg/mL (IQR 450&ndash;1240); mean HbA1c 7.9% (SD 1.2); and 42% were in NYHA class III. All participants were taking at least one guideline-directed heart failure therapy at baseline (ACE/ARB/ARNI, beta-blocker, or MRA), and all were on background antidiabetic therapy (metformin in 96%, DPP-4 inhibitor in 38%, sulfonylurea in 31%, insulin in 18%).</p>"
+      },
+      {
+        "id": "cardia-int-4", "number": "§4", "title": "Safety Overview", "status": "complete",
+        "contentHtml": "<p>Treatment-emergent adverse events through Week&nbsp;8 occurred in 68% of GLOW-203-treated participants and 60% of placebo participants. There were 4 serious adverse events (3 in active arms, 1 in placebo); none were assessed as related to study drug by the blinded site investigator or the independent DSMB. No deaths, no cases of diabetic ketoacidosis, and no cases of acute kidney injury meeting the pre-specified definition occurred during the review period.</p>"
+      },
+      {
+        "id": "cardia-int-5", "number": "§5", "title": "Adverse Events of Special Interest", "status": "complete",
+        "contentHtml": "<p>Genital mycotic infections: 3 cases in active arms (3.3%), 0 in placebo &mdash; all mild, all treated topically, none required study drug discontinuation. Urinary tract infections: 4 cases in active arms (4.4%), 1 in placebo &mdash; all uncomplicated and treated with standard oral antibiotics. Hypoglycaemia requiring assistance: 0 cases. Volume depletion symptoms: 2 cases in active arms, both mild and resolved with transient diuretic dose reduction.</p>"
+      },
+      {
+        "id": "cardia-int-6", "number": "§6", "title": "DSMB Recommendation", "status": "complete",
+        "contentHtml": "<p>The DSMB unanimously recommended that the study continue as planned, with no modification to the protocol, consent form, or stopping rules. The DSMB noted that the safety profile observed to date is consistent with the known class effects of SGLT inhibitors and no signal unique to the dual SGLT1/2 mechanism of GLOW-203 has emerged.</p>"
+      },
+      {
+        "id": "cardia-int-7", "number": "§7", "title": "Next Milestones", "status": "in-progress",
+        "contentHtml": "<p>The third and final pre-specified DSMB safety review will occur after 180 participants complete Week&nbsp;8 (expected 15&nbsp;October&nbsp;2026). The primary efficacy analysis at Week&nbsp;24 is expected in Q1 2027. If the efficacy signal is positive, the sponsor plans to initiate a confirmatory phase 3 study (CARDIA-GLOW-301) in Q3 2027.</p>"
+      }
+    ]
+  }
+]

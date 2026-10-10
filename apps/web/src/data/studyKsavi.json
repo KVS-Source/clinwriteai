@@ -1,0 +1,24 @@
+{
+  "id": "proj-ksavi-401",
+  "name": "KSAVI-401: Phase 3 Trial of KSAVI-04 (Avacopan Biosimilar) vs Oral Prednisone Taper in Newly Diagnosed ANCA-Associated Vasculitis",
+  "shortTitle": "KSAVI-401",
+  "client": "GenBioCa",
+  "therapeuticArea": "Rheumatology",
+  "indication": "ANCA-associated vasculitis (GPA, MPA) · newly diagnosed, induction therapy",
+  "phase": "III",
+  "status": "ongoing",
+  "startDate": "2024-11-01",
+  "dataCutoff": "2026-08-31",
+  "activeModules": ["clinical-writing"],
+  "submissionCountries": ["IN", "US", "EU", "BR"],
+  "referenceTrial": "ADVOCATE (NCT02994927) — Jayne DRW et al., N Engl J Med 2021;384:599-609. Avacopan vs prednisone taper in severe ANCA-associated vasculitis.",
+  "team": [
+    { "userId": "user-MW", "name": "Marcus Webb",       "initials": "MW", "role": "Lead Clinical Writer",   "raci": "R", "colourKey": "MW" },
+    { "userId": "user-SC", "name": "Dr. Sarah Chen",    "initials": "SC", "role": "Clinical PM",            "raci": "A", "colourKey": "SC" },
+    { "userId": "user-JO", "name": "Dr. James Okonkwo", "initials": "JO", "role": "PV Lead",                "raci": "C", "colourKey": "JO" },
+    { "userId": "user-EV", "name": "Dr. Elena Vasquez", "initials": "EV", "role": "Regulatory Affairs",     "raci": "C", "colourKey": "EV" },
+    { "userId": "user-PN", "name": "Dr. Priya Nair",    "initials": "PN", "role": "Biostatistician",        "raci": "C", "colourKey": "PN" },
+    { "userId": "user-AH", "name": "Dr. Amir Hossain",  "initials": "AH", "role": "Clinical Data Manager",  "raci": "C", "colourKey": "AH" },
+    { "userId": "user-RT", "name": "Rachel Thorn",      "initials": "RT", "role": "Data Manager",           "raci": "I", "colourKey": "RT" }
+  ]
+}

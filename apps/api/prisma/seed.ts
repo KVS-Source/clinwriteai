@@ -77,6 +77,12 @@ interface FixtureSection {
   number: string
   title: string
   status: string
+  // Optional pre-populated body. Older fixtures omit it (seed defaults
+  // to empty string, matching the writer-starts-from-blank flow).
+  // Newer "realistic data" fixtures (studyKsavi, studyCardia) include
+  // real clinical-writing content so the Dev team can click through
+  // a filled-in editor.
+  contentHtml?: string
 }
 
 interface FixtureDocument {
@@ -143,11 +149,20 @@ function initialsFor(name: string): string {
 
 async function main() {
   console.log('→ Loading fixtures from', DATA_DIR)
-  const users    = readFixture<FixtureUser[]>('users.json')
-  const study    = readFixture<FixtureProject>('study.json')
-  const studyTB  = readFixture<FixtureProject>('studyTB.json')
-  const docs     = readFixture<FixtureDocument[]>('documents.json')
-  console.log(`   ${users.length} users, 2 projects, ${docs.length} documents`)
+  const users        = readFixture<FixtureUser[]>('users.json')
+  const study        = readFixture<FixtureProject>('study.json')
+  const studyTB      = readFixture<FixtureProject>('studyTB.json')
+  const studyKsavi   = readFixture<FixtureProject>('studyKsavi.json')
+  const studyCardia  = readFixture<FixtureProject>('studyCardia.json')
+  const docs         = readFixture<FixtureDocument[]>('documents.json')
+  const docsKsavi    = readFixture<FixtureDocument[]>('documentsKsavi.json')
+  const docsCardia   = readFixture<FixtureDocument[]>('documentsCardia.json')
+  // Merge: the loops downstream iterate one combined project list +
+  // one combined document list; keeps per-project seeding logic
+  // identical to before.
+  const allProjects: FixtureProject[]  = [study, studyTB, studyKsavi, studyCardia]
+  const allDocs:     FixtureDocument[] = [...docs, ...docsKsavi, ...docsCardia]
+  console.log(`   ${users.length} users, ${allProjects.length} projects, ${allDocs.length} documents`)
 
   // --------------------------------------------------------------
   // 1. Tenant — Acme Oncology (one tenant for the demo environment).
@@ -257,8 +272,7 @@ async function main() {
     const map: Record<string, string> = { 'I': 'Phase I', 'II': 'Phase II', 'III': 'Phase III', 'IV': 'Phase IV' }
     return map[fixturePhase] ?? fixturePhase
   }
-  const projects: FixtureProject[] = [study, studyTB]
-  for (const p of projects) {
+  for (const p of allProjects) {
     await prisma.project.upsert({
       where: { id: p.id },
       create: {
@@ -327,7 +341,7 @@ async function main() {
   // that isn't in our User table (e.g. 'user-MW'). The second writer
   // from users.json works as a safe default.
   const fallbackAssignee = upsertedUsers['user-cl'] ?? upsertedUsers['user-admin']
-  for (const d of docs) {
+  for (const d of allDocs) {
     const assignee = upsertedUsers[d.assigneeId] ?? fallbackAssignee
     if (!assignee) {
       console.warn(`  skipping ${d.id} — no assignee available`)
@@ -373,6 +387,7 @@ async function main() {
     // carries a '§' prefix in the fixture; keep as-is so the UI
     // renders what the author sees.
     for (const s of d.sections ?? []) {
+      const body = s.contentHtml ?? ''
       await prisma.sectionContent.upsert({
         where: { documentVersionId_sectionId: { documentVersionId: version.id, sectionId: s.id } },
         create: {
@@ -380,12 +395,18 @@ async function main() {
           sectionId: s.id,
           sectionNumber: s.number,
           sectionTitle: s.title,
-          contentHtml: '',
+          contentHtml: body,
           ichStatus: underscored(s.status),
         },
         update: {
           sectionTitle: s.title,
           ichStatus: underscored(s.status),
+          // On re-seed, refresh content so authored fixtures stay in
+          // sync. If an operator has manually edited a seeded section
+          // via the UI, that edit lives on a NEW DocumentVersion (the
+          // PATCH-section flow hashes + versions on change) and this
+          // doesn't touch it — only the original seed's version.
+          ...(body ? { contentHtml: body } : {}),
         },
       })
     }

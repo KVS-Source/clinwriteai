@@ -1,0 +1,24 @@
+{
+  "id": "proj-cardia-glow-203",
+  "name": "CARDIA-GLOW-203: Phase 2b Trial of GLOW-203 (Dual SGLT1/2 Inhibitor) in Heart Failure with Preserved Ejection Fraction in Indian Patients with Comorbid Type 2 Diabetes",
+  "shortTitle": "CARDIA-GLOW-203",
+  "client": "GenBioCa",
+  "therapeuticArea": "Cardiometabolic",
+  "indication": "Heart failure with preserved ejection fraction (HFpEF, LVEF &ge;50%) + T2DM",
+  "phase": "IIb",
+  "status": "ongoing",
+  "startDate": "2025-04-15",
+  "dataCutoff": "2026-10-31",
+  "activeModules": ["clinical-writing"],
+  "submissionCountries": ["IN"],
+  "referenceTrial": "EMPEROR-Preserved (NCT03057951) — Anker SD et al., N Engl J Med 2021;385:1451-1461. Empagliflozin in HFpEF.",
+  "team": [
+    { "userId": "user-MW", "name": "Marcus Webb",       "initials": "MW", "role": "Lead Clinical Writer",   "raci": "R", "colourKey": "MW" },
+    { "userId": "user-SC", "name": "Dr. Sarah Chen",    "initials": "SC", "role": "Clinical PM",            "raci": "A", "colourKey": "SC" },
+    { "userId": "user-PN", "name": "Dr. Priya Nair",    "initials": "PN", "role": "Biostatistician",        "raci": "R", "colourKey": "PN" },
+    { "userId": "user-JO", "name": "Dr. James Okonkwo", "initials": "JO", "role": "PV Lead",                "raci": "C", "colourKey": "JO" },
+    { "userId": "user-EV", "name": "Dr. Elena Vasquez", "initials": "EV", "role": "Regulatory Affairs",     "raci": "C", "colourKey": "EV" },
+    { "userId": "user-AH", "name": "Dr. Amir Hossain",  "initials": "AH", "role": "Clinical Data Manager",  "raci": "C", "colourKey": "AH" },
+    { "userId": "user-RT", "name": "Rachel Thorn",      "initials": "RT", "role": "Data Manager",           "raci": "I", "colourKey": "RT" }
+  ]
+}

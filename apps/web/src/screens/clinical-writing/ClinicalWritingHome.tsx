@@ -3,8 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Document, DocumentStage, DocumentStatus, DocumentType } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
-import { StatusPill } from '../../components/ui'
+import { StatusPill, SlidePanel } from '../../components/ui'
 import { useProjectStore } from '../../store'
+import { NewDocumentForm } from './NewDocument'
 
 // --- Enum → display label maps ---
 
@@ -92,6 +93,9 @@ export function ClinicalWritingHome() {
   const [selectedStage,  setSelectedStage] = useState<DocumentStage | 'all'>('all')
   const [selectedStatus, setSelectedStatus]= useState<DocumentStatus | 'all'>('all')
   const [selectedType,   setSelectedType]  = useState<DocumentType | 'all'>('all')
+  // Slider state — holds the id of the document being duplicated (null
+  // for a plain new-doc flow). `null` with the panel open means fresh.
+  const [newDocOpen, setNewDocOpen] = useState<false | { duplicateSourceId: string | null }>(false)
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -171,7 +175,7 @@ export function ClinicalWritingHome() {
             <div className="flex gap-2.5 pt-1">
               <button
                 type="button"
-                onClick={() => navigate(`/projects/${projectId}/clinical-writing/new`)}
+                onClick={() => setNewDocOpen({ duplicateSourceId: null })}
                 className="rounded-md bg-blue-600 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-blue-700"
               >
                 + New Document
@@ -368,9 +372,7 @@ export function ClinicalWritingHome() {
                     <DocumentRowMenu
                       doc={doc}
                       onOpen={() => handleDocClick(doc)}
-                      onDuplicate={() => {
-                        navigate(`/projects/${projectId}/clinical-writing/new?dup=${encodeURIComponent(doc.id)}`)
-                      }}
+                      onDuplicate={() => setNewDocOpen({ duplicateSourceId: doc.id })}
                     />
                   </div>
                 </div>
@@ -431,6 +433,26 @@ export function ClinicalWritingHome() {
 
         </div>
       </div>
+
+      <SlidePanel
+        open={newDocOpen !== false}
+        onClose={() => setNewDocOpen(false)}
+        title={newDocOpen && newDocOpen.duplicateSourceId ? 'Duplicate document' : 'New document'}
+        subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
+        storageKey="panel-width-new-document"
+      >
+        {newDocOpen !== false && projectId && (
+          <NewDocumentForm
+            projectId={projectId}
+            duplicateSourceId={newDocOpen.duplicateSourceId}
+            onCancel={() => setNewDocOpen(false)}
+            onCreated={id => {
+              setNewDocOpen(false)
+              navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)
+            }}
+          />
+        )}
+      </SlidePanel>
     </div>
   )
 }

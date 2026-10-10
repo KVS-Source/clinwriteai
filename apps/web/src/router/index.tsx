@@ -7,10 +7,13 @@ import { SignIn }               from '../screens/shell/SignIn'
 import { MFAVerify }            from '../screens/shell/MFAVerify'
 import { TCGate }               from '../screens/shell/TCGate'
 import { AllProjects }          from '../screens/shell/AllProjects'
-import { NewProject }           from '../screens/shell/NewProject'
+// NewProject is now rendered inside a SlidePanel from AllProjects — the
+// standalone /projects/new route is retired. See docs/decisions/
+// module-a-defaults.md §1.
 import { ProjectDashboard }     from '../screens/shell/ProjectDashboard'
 import { ClinicalWritingHome }  from '../screens/clinical-writing/ClinicalWritingHome'
-import { NewDocument }          from '../screens/clinical-writing/NewDocument'
+// NewDocument is now rendered inside a SlidePanel from
+// ClinicalWritingHome. Standalone /clinical-writing/new route retired.
 import { DocumentEditor }       from '../screens/clinical-writing/DocumentEditor'
 import { DiffView }             from '../screens/clinical-writing/DiffView'
 import { ReviewerView }         from '../screens/clinical-writing/ReviewerView'
@@ -101,7 +104,9 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/projects" replace /> },
       { path: 'projects',     element: <AllProjects /> },
-      { path: 'projects/new', element: <NewProject /> },
+      // /projects/new retired — slider lives on the AllProjects screen now.
+      // Deep-links to the old URL redirect back to the list.
+      { path: 'projects/new', element: <Navigate to="/projects" replace /> },
       { path: 'admin',        element: <AdminGuard><AdminPanel /></AdminGuard> },
       { path: 'super-admin',  element: <SuperAdminGuard><SuperAdminPanel /></SuperAdminGuard> },
       // Tenant admin (Arc 4). Live screens use the real API; the legacy
@@ -133,7 +138,8 @@ export const router = createBrowserRouter([
             path: 'clinical-writing',
             children: [
               { index: true,          element: <ClinicalWritingHome /> },
-              { path: 'new',          element: <NewDocument /> },
+              // /clinical-writing/new retired — slider on ClinicalWritingHome.
+              { path: 'new',          element: <Navigate to=".." replace relative="path" /> },
               { path: 'classify',     element: <PlaceholderScreen name="Auto-Classification (08)" /> },
               { path: 'comments',     element: <CommentsDashboard /> },
               { path: 'portfolio',    element: <PortfolioDashboard /> },

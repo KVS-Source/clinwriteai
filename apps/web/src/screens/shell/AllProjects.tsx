@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Project, ProjectStatus } from '@platform/types'
 import { projectsApi } from '../../api'
-import { ProjectStatusPill } from '../../components/ui'
+import { ProjectStatusPill, SlidePanel } from '../../components/ui'
 import { useProjectStore } from '../../store'
+import { NewProjectForm } from './NewProject'
 
 function SearchIcon() {
   return (
@@ -44,6 +45,7 @@ export function AllProjects() {
 
   const [search,       setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all')
+  const [newProjectOpen, setNewProjectOpen] = useState(false)
 
   const { data: projects = [], isLoading } = useQuery({
     queryKey: ['projects'],
@@ -90,7 +92,7 @@ export function AllProjects() {
           </p>
         </div>
         <button
-          onClick={() => navigate('/projects/new')}
+          onClick={() => setNewProjectOpen(true)}
           className="flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-4 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
         >
           <span className="text-base leading-none">+</span>
@@ -209,6 +211,22 @@ export function AllProjects() {
         ))}
 
       </div>
+
+      <SlidePanel
+        open={newProjectOpen}
+        onClose={() => setNewProjectOpen(false)}
+        title="New project"
+        subtitle="Create a new study + its downstream deliverables"
+        storageKey="panel-width-new-project"
+      >
+        <NewProjectForm
+          onCancel={() => setNewProjectOpen(false)}
+          onCreated={id => {
+            setNewProjectOpen(false)
+            navigate(`/projects/${id}`)
+          }}
+        />
+      </SlidePanel>
     </div>
   )
 }

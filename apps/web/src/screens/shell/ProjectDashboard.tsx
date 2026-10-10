@@ -1,7 +1,8 @@
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { projectsApi } from '../../api'
+import type { Document } from '@platform/types'
+import { documentsApi, projectsApi } from '../../api'
 import { ProjectStatusPill } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { MODULE_KEY_TO_SLUG, type ModuleKey, type ModuleSlug } from '../../config/modules'
@@ -38,9 +39,56 @@ export function ProjectDashboard() {
     enabled:  !!projectId,
   })
 
+  // Real per-project document stats — replaces the hardcoded KPIs
+  // that used to show the same VELORA-301 numbers for every project.
+  const { data: documents = [] } = useQuery<Document[]>({
+    queryKey: ['documents', projectId],
+    queryFn:  () => documentsApi.list(projectId!),
+    enabled:  !!projectId,
+  })
+
   useEffect(() => {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
+
+  const stats = useMemo(() => {
+    const inFlight     = documents.filter(d => d.status !== 'signed').length
+    const inReview     = documents.filter(d => d.status === 'in-review').length
+    const awaitingSign = documents.filter(d => d.status === 'pending-signature').length
+    const signed       = documents.filter(d => d.status === 'signed').length
+    const inAuthoring  = documents.filter(d => d.status === 'in-authoring').length
+    // Most recently updated non-signed doc = the "current focus"
+    const current = [...documents]
+      .filter(d => d.status !== 'signed' && d.updatedAt)
+      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0]
+    return { inFlight, inReview, awaitingSign, signed, inAuthoring, current }
+  }, [documents])
+
+  // Team role breakdown — real counts from project.team.raci instead
+  // of the hardcoded "3 writers · 2 stats · 3 reviewers" string.
+  const teamBreakdown = useMemo(() => {
+    if (!project) return ''
+    const writers   = project.team.filter(t => t.raci === 'R').length
+    const approvers = project.team.filter(t => t.raci === 'A').length
+    const consulted = project.team.filter(t => t.raci === 'C').length
+    const informed  = project.team.filter(t => t.raci === 'I').length
+    return [
+      writers   && `${writers} responsible`,
+      approvers && `${approvers} accountable`,
+      consulted && `${consulted} consulted`,
+      informed  && `${informed} informed`,
+    ].filter(Boolean).join(' · ')
+  }, [project])
+
+  // Days-to-data-cutoff — real relative value from project.dataCutoff.
+  const daysToCutoff = useMemo(() => {
+    if (!project?.dataCutoff) return { value: '—', sub: 'No cutoff set', complete: false }
+    const diff = Math.ceil((new Date(project.dataCutoff).getTime() - Date.now()) / (24 * 60 * 60 * 1000))
+    if (diff <= 0) {
+      return { value: '0', sub: `Data cut completed ${project.dataCutoff.slice(0, 10)}`, complete: true }
+    }
+    return { value: String(diff), sub: `Cutoff ${project.dataCutoff.slice(0, 10)}`, complete: false }
+  }, [project])
 
   if (isLoading || !project) {
     return (
@@ -85,7 +133,7 @@ export function ProjectDashboard() {
             <div className="flex flex-wrap items-center gap-3.5 text-sm text-slate-500">
               <span>{project.client}</span>
               <span className="text-slate-300">·</span>
-              <span>Phase {project.phase} · NSCLC</span>
+              <span>Phase {project.phase}{project.indication ? ` · ${project.indication}` : ''}</span>
               <span className="text-slate-300">·</span>
               <span>Project lead {leadName}</span>
             </div>
@@ -98,7 +146,9 @@ export function ProjectDashboard() {
               style={{ backgroundColor: '#F1F5F9', color: '#475569' }}
             >
               <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ backgroundColor: '#16A34A' }} />
-              All changes autosaved 09:12 UTC
+              {stats.current?.updatedAt
+                ? `Last activity ${new Date(stats.current.updatedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+                : 'No activity yet'}
             </div>
             <button
               type="button"
@@ -121,31 +171,49 @@ export function ProjectDashboard() {
       <div className="flex-1 overflow-auto px-8 py-6">
         <div className="flex flex-col gap-6">
 
-          {/* Success banner — DB lock confirmed */}
-          <div
-            className="flex items-start gap-3 rounded-lg px-4 py-3.5"
-            style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}
-          >
+          {/* Success banner — only shown when data cutoff has passed */}
+          {daysToCutoff.complete && (
             <div
-              className="mt-px flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full text-[11px] font-extrabold text-white"
-              style={{ backgroundColor: '#16A34A' }}
+              className="flex items-start gap-3 rounded-lg px-4 py-3.5"
+              style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}
             >
-              ✓
+              <div
+                className="mt-px flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full text-[11px] font-extrabold text-white"
+                style={{ backgroundColor: '#16A34A' }}
+              >
+                ✓
+              </div>
+              <div className="flex-1 text-[13px] leading-relaxed text-slate-900">
+                Database lock confirmed {project.dataCutoff?.slice(0, 10)}. Final TLFs are available in the Master Library — sections dependent on data lock are unblocked for authoring.
+              </div>
             </div>
-            <div className="flex-1 text-[13px] leading-relaxed text-slate-900">
-              Database lock confirmed {project.dataCutoff ?? '22 Oct 2024'}. Final TLFs are available in the Master Library — CSR sections 9–14 are unblocked for authoring.
-            </div>
-            <button type="button" className="whitespace-nowrap text-[13px] font-semibold text-blue-600 hover:text-blue-700">
-              View TLF set
-            </button>
-          </div>
+          )}
 
-          {/* 4 KPI cards */}
+          {/* 4 KPI cards — real per-project values */}
           <div className="grid grid-cols-4 gap-4">
-            <KpiCard label="Documents In Flight" value="8" sub="2 in QC review · 1 awaiting sign-off" />
-            <KpiCard label="Open Comments" value="3" valueRight={<span className="text-xs font-semibold" style={{ color: '#B45309' }}>1 overdue</span>} sub="Oldest raised 6 days ago" />
-            <KpiCard label="Days to Data Cut-off" value="0" valueRight={<span className="text-xs font-semibold" style={{ color: '#15803D' }}>Complete</span>} sub={`Data cut completed ${project.dataCutoff ?? '22 Oct 2024'}`} />
-            <KpiCard label="Team Members" value={String(project.team.length)} sub="3 writers · 2 stats · 3 reviewers" />
+            <KpiCard
+              label="Documents In Flight"
+              value={String(stats.inFlight)}
+              sub={`${stats.inReview} in review · ${stats.awaitingSign} awaiting sign-off`}
+            />
+            <KpiCard
+              label="Completed Documents"
+              value={String(stats.signed)}
+              sub={stats.inAuthoring > 0 ? `${stats.inAuthoring} in authoring` : 'None in authoring'}
+            />
+            <KpiCard
+              label="Days to Data Cut-off"
+              value={daysToCutoff.value}
+              valueRight={daysToCutoff.complete
+                ? <span className="text-xs font-semibold" style={{ color: '#15803D' }}>Complete</span>
+                : null}
+              sub={daysToCutoff.sub}
+            />
+            <KpiCard
+              label="Team Members"
+              value={String(project.team.length)}
+              sub={teamBreakdown || 'Roster pending'}
+            />
           </div>
 
           {/* Active module cards. project.activeModules comes from the
@@ -177,20 +245,26 @@ export function ProjectDashboard() {
                   </div>
 
                   <div className="flex gap-8">
-                    <KV label="Documents"      value="8 active · 2 completed" />
-                    <KV label="Current stage"  value="CSR Section 11 — Efficacy · in medical review" />
-                    <KV label="Next milestone" value="Draft 2 circulation · 18 Nov 2024" />
+                    <KV label="Documents"      value={`${stats.inFlight} active · ${stats.signed} completed`} />
+                    <KV label="Current focus"  value={stats.current ? `${stats.current.title} · ${stats.current.status.replace(/-/g, ' ')}` : 'No active document'} />
+                    <KV label="Last updated"   value={stats.current?.updatedAt ? new Date(stats.current.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} />
                   </div>
 
-                  <div className="flex flex-col gap-2">
-                    <div className="flex justify-between text-xs text-slate-500">
-                      <span className="font-semibold">Module progress</span>
-                      <span>62%</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-[3px] bg-slate-200">
-                      <div className="h-full" style={{ width: '62%', backgroundColor: meta.colour }} />
-                    </div>
-                  </div>
+                  {(() => {
+                    const total = stats.inFlight + stats.signed
+                    const pct   = total === 0 ? 0 : Math.round((stats.signed / total) * 100)
+                    return (
+                      <div className="flex flex-col gap-2">
+                        <div className="flex justify-between text-xs text-slate-500">
+                          <span className="font-semibold">Documents complete</span>
+                          <span>{pct}% ({stats.signed}/{total})</span>
+                        </div>
+                        <div className="h-1.5 overflow-hidden rounded-[3px] bg-slate-200">
+                          <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: meta.colour }} />
+                        </div>
+                      </div>
+                    )
+                  })()}
                 </div>
 
                 {/* Right column: open button + needs-attention panel */}
@@ -204,15 +278,34 @@ export function ProjectDashboard() {
                     Open {meta.label}
                   </button>
                   <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3.5">
-                    <p className="text-xs font-semibold text-slate-500">Needs your attention</p>
-                    <div className="flex justify-between text-[13px]">
-                      <span>CSR Sec. 11 review</span>
-                      <span className="font-semibold" style={{ color: '#B45309' }}>Overdue</span>
-                    </div>
-                    <div className="flex justify-between text-[13px]">
-                      <span>Sec. 14 TLF reconciliation</span>
-                      <span className="text-slate-500">Due Fri</span>
-                    </div>
+                    <p className="text-xs font-semibold text-slate-500">Document status</p>
+                    {stats.inAuthoring > 0 && (
+                      <div className="flex justify-between text-[13px]">
+                        <span>In authoring</span>
+                        <span className="font-semibold text-slate-700">{stats.inAuthoring}</span>
+                      </div>
+                    )}
+                    {stats.inReview > 0 && (
+                      <div className="flex justify-between text-[13px]">
+                        <span>In review</span>
+                        <span className="font-semibold" style={{ color: '#B45309' }}>{stats.inReview}</span>
+                      </div>
+                    )}
+                    {stats.awaitingSign > 0 && (
+                      <div className="flex justify-between text-[13px]">
+                        <span>Awaiting signature</span>
+                        <span className="font-semibold" style={{ color: '#2563EB' }}>{stats.awaitingSign}</span>
+                      </div>
+                    )}
+                    {stats.signed > 0 && (
+                      <div className="flex justify-between text-[13px]">
+                        <span>Signed</span>
+                        <span className="font-semibold" style={{ color: '#15803D' }}>{stats.signed}</span>
+                      </div>
+                    )}
+                    {documents.length === 0 && (
+                      <p className="text-[12px] italic text-slate-400">No documents yet. Use + New Document on the module home.</p>
+                    )}
                   </div>
                 </div>
               </div>
@@ -249,32 +342,39 @@ export function ProjectDashboard() {
             </div>
           </div>
 
-          {/* Cost & Performance */}
-          <div className="flex flex-col gap-4">
-            <div className="flex items-baseline justify-between">
-              <div className="flex flex-col gap-1">
-                <p className="font-mono text-[11px] font-medium uppercase tracking-widest text-slate-500">Cost &amp; Performance</p>
-                <h3 className="text-xl font-bold tracking-tight text-slate-900">Clinical Writing Performance</h3>
-                <p className="text-xs text-slate-500">vs. manual benchmark</p>
-              </div>
-              <button type="button" className="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                Export report
-              </button>
-            </div>
-            <div className="grid grid-cols-3 gap-4">
-              <KpiCard label="Hours Saved"        value="142 hrs" sub="Across 10 documents this quarter" />
-              <KpiCard label="Estimated Value"    value="$28,400" sub="At blended writer rate $200/hr" />
-              <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-[18px]">
-                <p className="text-xs font-semibold text-slate-500">Documents Completed</p>
-                <p className="text-[28px] font-bold leading-none tracking-tight">
-                  2 <span className="text-base font-semibold text-slate-500">of 8</span>
-                </p>
-                <div className="h-1.5 overflow-hidden rounded-[3px] bg-slate-200">
-                  <div className="h-full w-1/4" style={{ backgroundColor: '#16A34A' }} />
+          {/* Cost & Performance — estimates derived from real doc counts
+              (14 hrs/doc avg × $200/hr blended rate, industry rough-
+              order-of-magnitude). Replaces hardcoded VELORA numbers. */}
+          {documents.length > 0 && (() => {
+            const total      = stats.inFlight + stats.signed
+            const pct        = total === 0 ? 0 : Math.round((stats.signed / total) * 100)
+            const hoursSaved = stats.signed * 14
+            const dollars    = hoursSaved * 200
+            return (
+              <div className="flex flex-col gap-4">
+                <div className="flex items-baseline justify-between">
+                  <div className="flex flex-col gap-1">
+                    <p className="font-mono text-[11px] font-medium uppercase tracking-widest text-slate-500">Cost &amp; Performance</p>
+                    <h3 className="text-xl font-bold tracking-tight text-slate-900">AI-assisted authoring value</h3>
+                    <p className="text-xs text-slate-500">Rough estimate vs. a manual benchmark of ~14 hrs/document at a blended $200/hr writer rate.</p>
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4">
+                  <KpiCard label="Hours Saved"     value={`${hoursSaved} hrs`} sub={`Across ${stats.signed} completed document${stats.signed === 1 ? '' : 's'}`} />
+                  <KpiCard label="Estimated Value" value={`$${dollars.toLocaleString()}`} sub="At blended writer rate $200/hr" />
+                  <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-[18px]">
+                    <p className="text-xs font-semibold text-slate-500">Documents Completed</p>
+                    <p className="text-[28px] font-bold leading-none tracking-tight">
+                      {stats.signed} <span className="text-base font-semibold text-slate-500">of {total}</span>
+                    </p>
+                    <div className="h-1.5 overflow-hidden rounded-[3px] bg-slate-200">
+                      <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: '#16A34A' }} />
+                    </div>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
+            )
+          })()}
 
         </div>
       </div>

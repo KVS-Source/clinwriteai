@@ -52,12 +52,18 @@ export interface Project {
   shortTitle: string
   client: string
   therapeuticArea: string
+  // Free-text indication / disease area ("NSCLC", "HFpEF + T2DM", etc.).
+  // Shown on the project dashboard subtitle. Optional for backwards
+  // compat with the older VELORA-only fixture.
+  indication?: string
   phase: string
   status: ProjectStatus
   startDate: string
   dataCutoff?: string
   activeModules: string[]
   submissionCountries: string[]
+  // Optional reference publication / prior-art link.
+  referenceTrial?: string
   team: TeamMember[]
 }
 

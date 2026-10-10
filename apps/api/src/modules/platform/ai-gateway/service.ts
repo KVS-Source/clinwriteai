@@ -71,10 +71,25 @@ class StubLlmClient implements LlmClient {
   }
 }
 
+/**
+ * Factory that picks the real Anthropic SDK wrapper when
+ * ANTHROPIC_API_KEY is set in env, else falls back to the deterministic
+ * StubLlmClient. Keeps dev + CI runnable without an API key.
+ * See apps/api/src/modules/platform/ai-gateway/anthropic-client.ts.
+ */
+export function createLlmClient(): LlmClient {
+  // Dynamic require pattern avoids pulling @anthropic-ai/sdk into the
+  // bundle when the key isn't set.
+  if (!process.env.ANTHROPIC_API_KEY?.trim()) return new StubLlmClient()
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { createAnthropicClientFromEnv } = require('./anthropic-client.js')
+  return createAnthropicClientFromEnv() ?? new StubLlmClient()
+}
+
 export class AiGatewayService {
   constructor(
     private readonly prisma: PrismaClient,
-    private readonly llm: LlmClient = new StubLlmClient(),
+    private readonly llm: LlmClient = createLlmClient(),
   ) {}
 
   async chat(args: ChatArgs): Promise<ChatResult> {

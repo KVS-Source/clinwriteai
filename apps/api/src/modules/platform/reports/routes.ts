@@ -236,4 +236,97 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
       generatedAt: new Date().toISOString(),
     }
   })
+
+  // --- Tenant spend forecast (Arc 8.5) ----------------------------------
+  // Projects current month-to-date AI spend to end-of-month using the
+  // simplest linear extrapolation (daily rate × days-remaining). Gives
+  // the operator a soft-cap alert well before the hard-cap kicks in.
+  app.get('/reports/tenant/:tenantId/spend-forecast', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request) => {
+    const { tenantId } = request.params as { tenantId: string }
+    const quota = await app.prisma.aiTenantQuota.findUnique({ where: { tenantId } })
+
+    const now = new Date()
+    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    const monthEnd   = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+
+    const agg = await app.prisma.aiCallRecord.aggregate({
+      where: { tenantId, createdAt: { gte: monthStart, lt: monthEnd } },
+      _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+      _count: { _all: true },
+    })
+    const spentUsd = Number(agg._sum.costUsd ?? 0)
+
+    const daysElapsed = Math.max(1, Math.ceil((now.getTime() - monthStart.getTime()) / (24 * 60 * 60 * 1000)))
+    const daysInMonth = Math.ceil((monthEnd.getTime() - monthStart.getTime()) / (24 * 60 * 60 * 1000))
+    const dailyRate = spentUsd / daysElapsed
+    const projectedMonthEndUsd = Number((dailyRate * daysInMonth).toFixed(2))
+
+    const cap = quota ? Number(quota.monthlyCapUsd) : null
+    const pctOfCap = cap && cap > 0 ? Number(((projectedMonthEndUsd / cap) * 100).toFixed(1)) : null
+
+    return {
+      tenantId,
+      month: { start: monthStart.toISOString(), end: monthEnd.toISOString() },
+      spent: {
+        usd: spentUsd,
+        callCount: agg._count._all,
+        inputTokens: Number(agg._sum.inputTokens ?? 0),
+        outputTokens: Number(agg._sum.outputTokens ?? 0),
+      },
+      daysElapsed,
+      daysInMonth,
+      dailyRateUsd: Number(dailyRate.toFixed(2)),
+      projectedMonthEndUsd,
+      cap: cap !== null ? { usd: cap, projectedPct: pctOfCap } : null,
+      generatedAt: now.toISOString(),
+    }
+  })
+
+  // --- Project-level AI cost rollup (Arc 8.5) ---------------------------
+  // Bills-per-project view: AI cost grouped by project within a date
+  // range. Useful for showing clients what their individual studies
+  // are consuming.
+  app.get('/reports/projects/ai-cost', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+    const parsed = dateRangeSchema.safeParse(request.query)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const { from, to } = resolveRange(parsed.data)
+
+    const rows = await app.prisma.aiCallRecord.groupBy({
+      by: ['projectId'],
+      where: { createdAt: { gte: from, lte: to }, projectId: { not: null } },
+      _sum: { costUsd: true, inputTokens: true, outputTokens: true, cachedTokens: true },
+      _count: { _all: true },
+    })
+
+    // Join project names in one shot (avoid N+1).
+    const projectIds = rows.map(r => r.projectId!).filter(Boolean) as string[]
+    const projects = projectIds.length
+      ? await app.prisma.project.findMany({
+          where: { id: { in: projectIds } },
+          select: { id: true, shortTitle: true, tenantId: true },
+        })
+      : []
+    const byId = new Map(projects.map(p => [p.id, p]))
+
+    const items = rows.map(r => {
+      const p = r.projectId ? byId.get(r.projectId) : undefined
+      return {
+        projectId: r.projectId,
+        projectShortTitle: p?.shortTitle ?? null,
+        tenantId: p?.tenantId ?? null,
+        callCount: r._count._all,
+        inputTokens: Number(r._sum.inputTokens ?? 0),
+        outputTokens: Number(r._sum.outputTokens ?? 0),
+        cachedTokens: Number(r._sum.cachedTokens ?? 0),
+        costUsd: Number(r._sum.costUsd ?? 0),
+      }
+    }).sort((a, b) => b.costUsd - a.costUsd)
+
+    return {
+      range: { from: from.toISOString(), to: to.toISOString() },
+      items,
+      totalCostUsd: items.reduce((sum, r) => sum + r.costUsd, 0),
+      generatedAt: new Date().toISOString(),
+    }
+  })
 }

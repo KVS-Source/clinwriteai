@@ -284,6 +284,31 @@ model TherapeuticArea {
   @@index([status])
 }
 
+// Per-tenant subscription + rate-card linkage — Arc 8.4.
+//
+// RateCardVersion + RateCardEntry are already defined above.
+// Subscription binds a tenant to a rate card version + monthly cap +
+// plan tier. One active subscription per tenant (endedAt = null);
+// historical subs stay around for billing reconciliation.
+model Subscription {
+  id                 String    @id @default(cuid())
+  tenantId           String
+  plan               String                                              // 'trial' | 'starter' | 'growth' | 'enterprise'
+  monthlyCapUsd      Decimal   @db.Decimal(10, 2)
+  rolloverDay        Int       @default(1)                               // 1..28; day of month quota resets
+  rateCardVersionId  String?                                             // null = use the globally-active rate card
+  startedAt          DateTime  @default(now())
+  endedAt            DateTime?                                           // null while active
+  createdBy          String                                              // super-admin User.id
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  notes              String?
+
+  @@map("subscriptions")
+  @@index([tenantId, endedAt])
+  @@index([rateCardVersionId])
+}
+
 model RegulatoryAlert {
   id                  String    @id @default(uuid())
   frameworkName       String                                           // 'ICH E3', 'FDA Guidance 2026-01', ...

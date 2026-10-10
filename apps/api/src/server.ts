@@ -202,6 +202,10 @@ async function buildServer() {
   // intake), /admin/dpdpa/requests, /admin/dpdpa/transfer-allowlist.
   await app.register(import('./modules/platform/dpdpa/plugin.js'))
 
+  // ---------- Subscriptions (Arc 8.4) ----------
+  const { subscriptionRoutes } = await import('./modules/platform/subscriptions/routes.js')
+  await app.register(subscriptionRoutes)
+
   // ---------- Module A — Clinical Writing ----------
   const { documentsProjectScopedRoutes, documentsRoutes } =
     await import('./modules/clinical-writing/documents/routes.js')

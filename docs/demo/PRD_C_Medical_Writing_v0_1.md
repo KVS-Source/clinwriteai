@@ -466,6 +466,7 @@ This is a Module C-specific requirement not present in Modules A or B — approv
 - KOL and Medical Affairs team contact details (name, email, mobile) are personal data under GDPR — stored with explicit consent record (PRD v4.1 §13.4).
 - Patient data in PILs: content-level data is approved label text (public), not patient-specific — no BAA requirement. However, patient eCRF data used in case report PILs triggers the same BAA posture as Module B FR-B-025.
 - GDPR: voice note recordings from KOL sessions are stored per Admin-configured data residency and retention policy (PRD v4.1 §13.4).
+- India DPDPA 2023: Indian KOL and Medical Affairs contact details, PIL translation reviewer data, and KOL advisory-board voice recordings treated as personal data of Data Principals. Verifiable consent captured at point of invitation (advisory board, PIL review panel); in-region storage (`ap-south-1`) by default for tenants with `data_residency = 'IN'`; cross-border transfer gated against India government's notified-countries list. Data Principal rights workflow with 72-hour breach notification to the Data Protection Board. *(NEW)*
 
 ### 8.3 Performance
 
@@ -524,6 +525,7 @@ Source: PRD v4.1 §11A.3
 | Flesch-Kincaid Readability Standard (Grade ≤8) | Applied Linguistics | — | Mandatory gate for all patient-facing content (FR-C-009) |
 | 21 CFR Part 11 | FDA (US) | Current | Electronic records for MLR-reviewed and approved materials |
 | GDPR (EU) 2016/679 | EU | 2018 | Patient data, KOL contact data, voice recordings |
+| DPDPA 2023 | MeitY (India) | Act Aug 2023; Rules in-force phased from 2025 | Mandatory for Indian KOL / Medical Affairs contacts, PIL translation reviewers, KOL advisory-board voice recordings. In-region storage, consent capture at invitation, cross-border transfer gating, Data Principal rights with 72-hour breach notification |
 | EU CTR (EU No 536/2014) Annex V | EU | 2022 | Plain Language Summary requirements |
 | WCAG 2.1 Level AA | W3C | 2018 | Digital content accessibility (FR-C-022) |
 

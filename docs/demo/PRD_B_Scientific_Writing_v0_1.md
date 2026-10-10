@@ -400,6 +400,7 @@ These four features are not available in any of the three competitor products an
 - Same security posture as Module A: AES-256 at rest, TLS 1.3 in transit, MFA enforced.
 - HIPAA BAA posture: PHI/PII in case-report content requires BAA (procurement dependency — §12).
 - GDPR: EU patient data is stored in EU region. Audio from voice notes deleted after transcription (Admin-configurable).
+- India DPDPA 2023: Indian Data Principal personal data (ORCID-tagged author contacts, patient-identifiable references, voice-note speakers) stored in-region (`ap-south-1`) by default. Verifiable consent captured at collection; cross-border transfer only to jurisdictions not on India government's restricted list. Data Principal rights (access/correction/erasure/grievance) workflow with 72-hour breach notification. Erasure preserves audit-chain hashes while removing content. *(NEW)*
 - ISO/IEC 27001 and SOC 2 Type II — same roadmap as Module A.
 
 ### 8.3 Performance
@@ -457,6 +458,8 @@ Source: PRD v4.1 §11A.2
 | ClinicalTrials.gov Results Reporting | FDA / NLM | 42 CFR Part 11 (FDAAA 2007) | Mandatory results disclosure and timelines |
 | 21 CFR Part 11 | FDA | Current | Electronic records for submission-linked publications |
 | COPE Guidelines | COPE | Current | Authorship disputes, data sharing, post-publication corrections |
+| GDPR (EU) 2016/679 | EU | 2018 | Author/case-report personal data in EU jurisdictions |
+| DPDPA 2023 | MeitY (India) | Act Aug 2023; Rules in-force phased from 2025 | Mandatory for Indian author ORCID contacts, case-report patient references, voice-note speakers. In-region storage, consent capture, cross-border transfer gating, Data Principal rights with 72-hour breach notification |
 
 ---
 

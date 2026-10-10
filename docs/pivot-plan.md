@@ -143,6 +143,62 @@ runbook per module.
 
 ---
 
+## Arc 8 — India DPDPA 2023 compliance (future, scoped 2026-10-08)
+
+Cross-cutting compliance work across Tenant Admin + every module.
+Decided in response to India market expansion. See each PRD's §8.1 /
+§8.3 / §10 for module-level requirements (added v0.4 for A, v0.1+ for
+B/C, v0.2 for D, v0.3 for E). This Arc tracks the platform build-out.
+
+- [ ] **8.1** `Tenant.data_residency` field (`'EU' | 'IN' | 'US' | 'APAC'`),
+      with 'IN' as the gate for DPDPA enforcement. Prisma migration +
+      Tenant Admin UI picker (sPM04 or new sub-screen).
+- [ ] **8.2** Per-tenant DPO contact (name, email, phone) persisted on
+      `Tenant`. Surface in Tenant Admin for Significant Data Fiduciary
+      tenants (threshold: Admin-flagged, criteria pending MeitY Rules
+      finalisation).
+- [ ] **8.3** Consent artefact store — new `ConsentRecord` entity
+      (purpose, scope, timestamp, consent-manager reference, Data
+      Principal id). Immutable. Linked from `User`, `KolContact`,
+      `VoiceNote` where personal data is captured. Required at point
+      of collection; absence of consent blocks writes.
+- [ ] **8.4** Data Principal rights workflow — Admin inbox for access /
+      correction / erasure / grievance requests. SLA timers (30 days
+      per DPDPA Rules draft, confirm on finalisation). Erasure
+      executor cascades through documents, provenance, comments,
+      voice notes, signatures — content redacted, hash preserved
+      (same semantics as GDPR right-to-erasure in Module A §8.3).
+- [ ] **8.5** Cross-border transfer gate — tenants with
+      `data_residency = 'IN'` reject writes to buckets/queues outside
+      the India government's notified-countries list. Block list is
+      Admin-updatable (MeitY publishes periodically; initial list
+      pending Rules finalisation).
+- [ ] **8.6** 72-hour breach notification — tie into the existing
+      audit chain + an operator notification path. Admin configures
+      recipient (Data Protection Board email + tenant-side DPO).
+- [ ] **8.7** CDSCO submission pinning — any Module D submission
+      destined for CDSCO (India HA) always flows through `ap-south-1`
+      regardless of tenant default residency. Enforced at the
+      publishing gate.
+- [ ] **8.8** Audit — pen-test DPDPA controls specifically (consent
+      bypass attempts, cross-border write smuggling, erasure chain
+      gaps). External auditor pass before go-live for IN tenants.
+
+**Done when:** an IN-residency tenant can be created, personal data
+collection requires consent, cross-border writes are blocked, a
+Data Principal access/erasure request completes end-to-end in staging,
+and the external audit sign-off is on file.
+
+**External blockers:**
+- MeitY Rules finalisation (phased in-force from 2025; consent-manager
+  requirements and SDF thresholds not yet final)
+- India Data Protection Board operational (board constituted; email
+  endpoint for breach notification not yet published)
+- External auditor engagement (budget + scope TBD; same pool as the
+  SOC 2 Type II roadmap in §8.2 of each PRD)
+
+---
+
 ## Dependencies
 
 ```
@@ -172,5 +228,8 @@ Order-of-magnitude only — not commitments.
 | 4   | 8     | 2-3 sessions |
 | 5   | 13    | 3-4 sessions |
 | 6   | 5     | 1 session (external walk-throughs) |
+| 8   | 8     | 3-5 sessions (DPDPA; depends on MeitY Rules finalisation) |
 
 Total: ~10-14 sessions to hand Module A + Tenant Admin to Dev + QA.
+Arc 8 (DPDPA) sized separately — adds 3-5 sessions on top, kicked off
+after Arc 6 handover or sooner if an IN tenant is contracted.

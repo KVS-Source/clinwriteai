@@ -1,13 +1,13 @@
 # GENBIO CA — AURORA
 ## PRD A — Clinical Writing
-### Version 0.3
+### Version 0.4
 
 **Platform name:** Aurora (placeholder — rebrand in progress. Shortlist sent to SMEs: AXION, VERIDOC, SYNTHARA, CLARIVA, GENOVA)
 **Tagline:** AI-Native Authoring for Life Sciences
 
-*Status: Updated — design phase complete, ready for architecture and technical documentation*
+*Status: Updated — India DPDPA 2023 compliance added (§8.1 / §8.3 / §10). Previous: design phase complete, architecture and technical documentation ready.*
 *Classification: Confidential — Internal Use Only*
-*Prepared: September 5, 2026*
+*Prepared: September 5, 2026 (v0.3) · October 8, 2026 (v0.4 DPDPA addition)*
 
 ---
 
@@ -15,9 +15,9 @@
 
 | Field | Value |
 |-------|-------|
-| Document | PRD A — Clinical Writing, v0.3 |
-| Status | Design-complete draft. Two open decisions closed (architecture, FR-A-032 mock). Three FR gaps addressed (FR-A-001 extended, FR-A-053 elevated, FR-A-065 split). New FRs added from design phase (FR-A-026 through FR-A-029b). NFRs expanded. Design decisions log added (Section 16). |
-| Supersedes | PRD A v0.2 (Sept 5, 2026) |
+| Document | PRD A — Clinical Writing, v0.4 |
+| Status | India DPDPA 2023 added to compliance surface. Previous: design-complete draft; two open decisions closed (architecture, FR-A-032 mock); three FR gaps addressed (FR-A-001 extended, FR-A-053 elevated, FR-A-065 split); new FRs added from design phase (FR-A-026 through FR-A-029b); NFRs expanded; design decisions log added (Section 16). |
+| Supersedes | PRD A v0.3 (Sept 5, 2026) |
 | Built From | PRD A v0.2 + 23-screen Claude Design prototype (Sessions 1–8) + comparative analysis against August 2024 wireframe + design session decisions |
 | Naming Note | Platform referred to as "Aurora" throughout (placeholder). Module letters (A–E) are internal identifiers only — never shown in the UI. |
 
@@ -37,6 +37,17 @@
 | §14 Open Questions | Two questions closed. Seven remaining open. |
 | §15 Design Decisions Log | New section — 10 decisions from design phase documented |
 | §16 Version History | v0.3 entry added |
+
+---
+
+## 0B. Change Summary v0.3 → v0.4
+
+| Section | Change |
+|---------|--------|
+| §8.1 Compliance & Validation | New bullet: India DPDPA 2023 — verifiable consent, purpose limitation, Data Principal rights (access / correction / erasure / grievance), 72-hour breach notification to the Data Protection Board, cross-border transfer gating against the India government's notified-countries list, DPO contact in-app for Significant Data Fiduciary deployments |
+| §8.3 Data Residency | India (`ap-south-1`) added as a selectable region. In-region default + write-refuse for tenants with `data_residency = 'IN'`. Immutable consent-artefact persistence alongside personal-data records. Data Principal rights workflow with erasure-preserves-audit-chain semantics (content delete, hash preserved) |
+| §10 Regulatory Framework Registry | DPDPA 2023 row added (MeitY issuer, Act Aug 2023, Rules in-force phased from 2025) |
+| §16 Version History | v0.4 entry added |
 
 ---
 
@@ -272,6 +283,7 @@ These are the capabilities that most clearly separate Aurora from AuroraPrime RM
 - A vendor-style validation evidence package (risk assessment, test summary, release notes) produced with each release. Module A's release process must confirm it receives that evidence — not assume it.
 - GSPR compliance for any medical device CER workflows (relevant when Module D activates medical device document types). *(NEW — v0.3)*
 - Role-based access controls enforced at the API level, not just application layer. RACI-driven access, Admin-editable only. *(NEW — v0.3)*
+- India DPDPA 2023 compliance for personal data of Indian Data Principals (KOLs, external reviewers, patient-identifiable references, voice-note speakers). Scope includes: verifiable consent capture at point of collection, purpose-limited processing enforced at the data-model level, Data Principal rights workflows (access / correction / erasure / grievance redressal), 72-hour breach notification to the Data Protection Board, and cross-border transfer only to jurisdictions not on the India government's restricted list (notification-list model, Oct 2023). The platform must appoint a Data Protection Officer contact in-app for Significant Data Fiduciary deployments. *(NEW — v0.4)*
 
 ### 8.2 Security & Performance
 
@@ -281,9 +293,11 @@ These are the capabilities that most clearly separate Aurora from AuroraPrime RM
 
 ### 8.3 Data Residency
 
-- Voice note audio stored in Admin-configured region (EU / Asia-Pacific selectable). Retention policy Admin-configurable: permanent, post-transcription delete, or 30/60/90-day delete.
+- Voice note audio stored in Admin-configured region (EU / Asia-Pacific / India selectable). Retention policy Admin-configurable: permanent, post-transcription delete, or 30/60/90-day delete. *(India added — v0.4)*
 - All personal data processed in accordance with GDPR (EU) 2016/679. Data Processing Agreement (DPA) provided to all EU clients. *(NEW — v0.3)*
 - KOL and external reviewer contact details (name, email, mobile) treated as personal data. Stored with appropriate consent and GDPR-compliant data protection. *(NEW — v0.3)*
+- India tenants: personal data of Indian Data Principals stored in-region (`ap-south-1` or equivalent) by default. Cross-border transfer gated on India government's notified-countries list — the deployment refuses writes to buckets outside the allow-list when the tenant's `data_residency = 'IN'`. Consent artefacts (purpose, timestamp, consent manager reference) persisted immutably alongside the personal-data record for audit. *(NEW — v0.4)*
+- Data Principal rights requests (access, correction, erasure, grievance) routed to an Admin inbox with SLA tracking. Erasure requests cascade through document provenance, voice notes, comments, and signatures — redaction markers preserve the audit chain integrity (deleting the content, not the hash). *(NEW — v0.4)*
 
 ### 8.4 List/Table UI Behaviour & Responsiveness
 
@@ -358,6 +372,7 @@ The following frameworks are embedded in Aurora's compliance check engine for Mo
 | EU Clinical Trials Regulation 536/2014 | EMA / EU | 2022 | Clinical trial registration and reporting in EU |
 | Declaration of Helsinki (2013) | WMA | 2013 | Ethical principles — ICF and Protocol compliance |
 | GDPR (EU) 2016/679 | EU | 2018 | Data protection for voice notes, patient data, document storage |
+| DPDPA 2023 | MeitY (India) | Act Aug 2023; Rules in-force phased from 2025 | Mandatory for Indian Data Principals — consent, purpose limitation, Data Principal rights, 72-hour breach notification, cross-border transfer gating, DPO appointment for Significant Data Fiduciaries |
 | EU Draft Annex 22 (AI in GxP) | EMA | Draft — monitor | AI architecture constraint (see §5.2); monitor for finalisation |
 
 ---
@@ -458,4 +473,5 @@ The following questions from v0.2 remain open. Two have been resolved (marked be
 | 0.1 | Sept 5, 2026 | First formal PRD-A. Built from PRD v4.1 + Module A narrative extraction + SME-reviewed gap list (25/25 rows resolved) + three architecture research briefs. |
 | 0.2 | Sept 5, 2026 | Validation pass. Added FR-A-003, FR-A-065, Section 8.4. Split FR-A-033 into FR-A-033a/b. Re-added two open questions. Added Annex 22 monitoring question. |
 | 0.3 | Sept 5, 2026 | Design phase complete. Architecture decision closed (modular monolith + 4 discipline rules). FR-A-032 mock decision closed. FR-A-001 extended to FR-A-001a–001d (system-managed checklist). FR-A-053 elevated to MVP (collaborative editing). FR-A-065 split into FR-A-065a (software) and FR-A-065b (process). New FRs: FR-A-026 (ICH E3 validator), FR-A-027 (MedDRA lookup), FR-A-028 (TLF cross-reference), FR-A-029 (diff view), FR-A-029b (section-level restore), FR-A-042 (review assignment), FR-A-044 (review extension), FR-A-066 (signature chain). NFRs expanded: §8.0 architecture, §8.1 GSPR + API-level RBAC, §8.2 SOC 2 roadmap, §8.3 DPA + KOL data, §8.5 accessibility, §8.6 availability. Data model expanded with 12 new entities. Design decisions log added (§15). Two open questions closed. |
+| 0.4 | Oct 8, 2026 | India DPDPA 2023 added. §8.1 Compliance & Validation gained a DPDPA bullet covering consent, purpose limitation, Data Principal rights, 72-hour breach notification, cross-border transfer gating, and DPO appointment for Significant Data Fiduciaries. §8.3 Data Residency gained India (`ap-south-1`) as a selectable region, in-region storage default for tenants with `data_residency = 'IN'`, immutable consent artefact persistence, and Data Principal rights workflow with erasure-preserves-audit-chain semantics. §10 Regulatory Framework Registry gained a DPDPA row. |
 

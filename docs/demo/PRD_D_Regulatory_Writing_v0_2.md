@@ -497,6 +497,7 @@ Cards are tagged with: TA, module (D), project, submission type, HA target, subm
 - Gateway credentials (FDA ESG, EMA CESP, CDSCO, MHRA) stored in an encrypted credential vault accessible only to Admin and eCTD Specialist roles.
 - Unredacted dossier versions (containing PPD/CCI) are access-controlled to the Regulatory Writer and Reg Affairs Lead only — not accessible to downstream users.
 - GDPR applies to any EU patient or investigator data present in Module 5 CSRs imported from Module A.
+- India DPDPA 2023 applies to Indian investigator contact data, Indian patient-identifiable references in Module 5 CSRs, and Indian HA correspondence attendees (CDSCO submissions). Gateway submissions to CDSCO (India) always flow through in-region infrastructure (`ap-south-1`) regardless of tenant default residency. Cross-border transfer of Indian personal data embedded in dossiers requires the destination health authority's jurisdiction to be on India government's notified-countries list; the submission is blocked at the publishing gate otherwise. Data Principal rights workflow with 72-hour breach notification. *(NEW)*
 
 ### 8.3 Performance
 
@@ -563,6 +564,7 @@ Source: PRD v4.1 §11A.4
 | ICH E2F — Development Safety Update Report (DSUR) | ICH | Jul 2011 | DSUR structure and content — required for clinical trials in progress; referenced by FR-D-015 |
 | ICH E2A — Clinical Safety Data Management | ICH | Oct 1994 | SAE reporting timelines and format |
 | GDPR (EU) 2016/679 | EU | 2018 | Patient and investigator data in regulatory submissions |
+| DPDPA 2023 | MeitY (India) | Act Aug 2023; Rules in-force phased from 2025 | Mandatory for Indian investigator / patient / HA-attendee personal data in dossiers. CDSCO submissions pinned in-region; cross-border transfer gated on India government's notified-countries list; publishing gate blocks disallowed transfers |
 
 ---
 

@@ -448,6 +448,7 @@ Per PRD v4.1 §19.5, the complete notification specification:
 
 - 21 CFR Part 11 audit trail (cross-platform): every ideation stage transition, approval, scheduling, and publishing event is logged. Note: the audit trail logging in Module E is 21 CFR Part 11 compliant per the platform-wide standard. However, the digital sign-offs in Module E (KOL sign-off and Medical Affairs sign-off per FR-E-014) are not full 21 CFR Part 11 e-signatures — they are digital approval stamps (name, email, timestamp) appropriate for Module E's non-regulated document type. Full 21 CFR Part 11 e-signatures are only required for publishing approval of formally designated artefacts registered for DOI (FR-E-019).
 - GDPR: KOL and Medical Affairs contact details (name, email, mobile) are personal data. Explicit consent capture required at project setup. Data stored per Admin-configured residency. Contact records are purged per GDPR retention policy if the project is closed.
+- India DPDPA 2023: Indian KOL contacts, Medical Affairs team members, and HCP summary / social-listening recipients treated as personal data of Indian Data Principals. KOL secure-review tokens, ORCID verification data, and SMS mobile numbers routed to the Indian Data Principal's registered consent manager where applicable. In-region storage (`ap-south-1`) default for tenants with `data_residency = 'IN'`; cross-border transfer gated against India government's notified-countries list. Data Principal rights workflow (access/correction/erasure/grievance) with 72-hour breach notification. Erasure of a KOL contact cascades to review tokens, content card attributions, and sign-off records while preserving audit-chain hashes. *(NEW)*
 - WCAG 2.1 Level AA: all Module E digital content outputs (PDF, HTML articles, HCP summaries) must pass (implemented via FR-E-019 using Module C WCAG content output engine). Note: the platform UI remains WCAG 2.2 AA — this standard applies only to published content outputs, consistent with Module C FR-C-022.
 
 ### 8.2 Security
@@ -503,6 +504,7 @@ Source: PRD v4.1 cross-cutting compliance framework table (Module E row) and §1
 | Crossref & ORCID Standards | Crossref / ORCID | Current | DOI registration and ORCID verification for citable published artefacts (FR-E-019) |
 | Dublin Core Metadata Terms | Dublin Core Metadata Initiative | 2020 | Structured metadata tagging for all published Module E artefacts (FR-E-019) |
 | GDPR (EU) 2016/679 | EU | 2018 | KOL and Medical Affairs contact personal data; consent and retention |
+| DPDPA 2023 | MeitY (India) | Act Aug 2023; Rules in-force phased from 2025 | Mandatory for Indian KOL, Medical Affairs, and HCP-recipient personal data. Consent manager integration, in-region storage, cross-border transfer gating, Data Principal rights with 72-hour breach notification |
 | 21 CFR Part 11 | FDA (US) | Current | Audit trail for ideation workflow, approvals, and publishing events (cross-platform) |
 
 Note: Module E does not inherit the ICH/ICMJE/ACCME/eCTD/MLR frameworks from Modules A–D — it produces communications/marketing content, not regulated clinical or submission documents.

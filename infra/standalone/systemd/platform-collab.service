@@ -1,0 +1,57 @@
+# systemd unit for the Yjs collab sidecar (Phase 2.3).
+# Install path on VPS: /etc/systemd/system/platform-collab.service
+#
+# Serves the WebSocket relay that TipTap's Collaboration + Caret
+# extensions connect to. Listens on 127.0.0.1 (behind nginx wss proxy
+# at wss://api.clinwrite.ai/collab).
+
+[Unit]
+Description=Platform Yjs Collab Sidecar — ClinWrite real-time section editing
+Documentation=https://github.com/KVS-Source/clinwriteai
+After=network.target platform-api.service
+Wants=network.target
+
+[Service]
+Type=simple
+User=platform
+Group=platform
+WorkingDirectory=/opt/platform/repo/apps/collab-server
+
+# Load env — picks up COLLAB_PORT, COLLAB_HOST, API_BASE_URL,
+# COLLAB_SYSTEM_TOKEN, COLLAB_PERSIST_DEBOUNCE_MS, LOG_LEVEL from the
+# same api.env that the API + worker read (ADR 0006).
+EnvironmentFile=/run/platform/api.env
+Environment="NODE_ENV=production"
+Environment="COLLAB_PORT=1234"
+Environment="COLLAB_HOST=127.0.0.1"
+
+ExecStartPre=/opt/platform/scripts/decrypt-env.sh api
+ExecStart=/usr/bin/node dist/index.js
+
+Restart=always
+RestartSec=5
+StartLimitInterval=60
+StartLimitBurst=5
+
+# Graceful shutdown — the sidecar flushes all open rooms on SIGTERM
+# (persists HTML to the API before closing websockets).
+KillSignal=SIGTERM
+TimeoutStopSec=30
+
+# Hardening (same posture as platform-api)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ReadWritePaths=/var/log/platform /run/platform
+
+LimitNOFILE=65536
+MemoryMax=2G
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=platform-collab
+
+[Install]
+WantedBy=multi-user.target

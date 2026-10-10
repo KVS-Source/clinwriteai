@@ -10,6 +10,7 @@ import { useDocumentStore, useProjectStore, useAuthStore } from '../../store'
 import { SectionNavigator } from './SectionNavigator'
 import { EditorToolbar }    from './EditorToolbar'
 import { EditorContent, useRichTextEditor } from './RichTextEditor'
+import { useCollabProvider } from './useCollabProvider'
 import { VoiceNotePanel }         from '../../panels/VoiceNotePanel'
 import { ChecklistPanel }         from '../../panels/ChecklistPanel'
 import { AuditTrailPanel }        from '../../panels/AuditTrailPanel'
@@ -145,14 +146,29 @@ export function DocumentEditor() {
     },
   })
 
+  // Collab provider (Phase 2.3). Null when VITE_COLLAB_URL isn't set →
+  // the editor runs solo. When set, a Y.Doc + WebsocketProvider is
+  // created per (documentId, activeSection) room.
+  const collab = useCollabProvider({ documentId, sectionId: activeSection })
+
+  // Current user profile for the CollaborationCaret extension — name
+  // + colour attached to this user's cursor + selection on other
+  // clients' screens.
+  const collabUser = currentUser ? {
+    name:  currentUser.name,
+    color: avatarColor(currentUser.id),
+  } : undefined
+
   // TipTap editor instance (Phase 2.1). Mounted once per editor-pane
-  // lifecycle; HydrateContent inside useRichTextEditor re-syncs the
-  // DOM when the active section changes.
+  // lifecycle; useRichTextEditor handles solo-mode hydration + collab
+  // extension mounting.
   const editor = useRichTextEditor({
     content:  activeSectionData?.contentHtml ?? '',
     editable: isEditing,
     onChange: html => setDraftContent(html),
     placeholder: 'Start writing this section…',
+    collab,
+    user: collabUser,
   })
 
   // When TipTap emits an empty paragraph for a blank doc the raw HTML

@@ -1,0 +1,30 @@
+{
+  "name": "@platform/collab-server",
+  "version": "0.1.0",
+  "description": "Yjs collaborative editing sidecar — websocket relay + CRDT persistence for Module A section editing (Phase 2.3 of docs/pivot-plan.md).",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc --build",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "yjs": "^13.6.19",
+    "y-protocols": "^1.0.6",
+    "ws": "^8.18.0",
+    "cookie": "^1.0.1",
+    "pino": "^9.3.2",
+    "pino-pretty": "^11.2.1"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/ws": "^8.5.12",
+    "tsx": "^4.16.5",
+    "typescript": "^5.5.4"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

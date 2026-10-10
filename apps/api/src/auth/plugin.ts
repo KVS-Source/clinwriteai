@@ -49,10 +49,35 @@ const authPlugin: FastifyPluginAsync = async (app) => {
     )
   }
 
+  // COLLAB_SYSTEM_TOKEN — shared secret the Yjs collab sidecar (apps/
+  // collab-server) sends on X-System-Token when persisting a doc.
+  // Lets the sidecar's unauthenticated process write via normal
+  // requireAuth-gated routes. Resolves to a synthetic 'system:collab'
+  // user with super-admin equivalence so module gates pass.
+  const COLLAB_SYSTEM_TOKEN = (process.env.COLLAB_SYSTEM_TOKEN ?? '').trim() || null
+
   // Decode the session cookie on every request (silent — unauth routes stay
   // open). requireAuth() enforces the gate for protected routes.
   app.addHook('onRequest', async (request) => {
     try {
+      // --- System-token path (collab sidecar) ---------------------------
+      // Checked first so the sidecar never pays the Prisma lookup for a
+      // real user.
+      if (COLLAB_SYSTEM_TOKEN) {
+        const header = request.headers['x-system-token']
+        const presented = Array.isArray(header) ? header[0] : header
+        if (presented && presented === COLLAB_SYSTEM_TOKEN) {
+          request.user = {
+            id: 'system:collab',
+            email: 'collab-sidecar@localhost',
+            role: 'super-admin',
+            modules: ['A', 'B', 'C', 'D', 'E'],
+            tenantId: null,
+          }
+          return
+        }
+      }
+
       const token = request.cookies[SESSION_COOKIE_NAME]
       if (token) {
         const claims = await request.jwtVerify<SessionClaims>()

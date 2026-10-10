@@ -119,6 +119,10 @@ if [[ ${NEED_ENV_REGEN} -eq 1 ]]; then
   JWT_SECRET=$(openssl rand -hex 32)
   AUDIT_HASH_SECRET=$(openssl rand -hex 32)
   BLOB_SIGNING_KEY=$(openssl rand -hex 32)
+  # Shared secret between the API + Yjs collab sidecar (Phase 2.3). The
+  # sidecar sends it on X-System-Token when persisting section HTML via
+  # the normal PATCH route.
+  COLLAB_SYSTEM_TOKEN=$(openssl rand -hex 32)
   # Preserve the Postgres password if one already exists so re-runs
   # don't orphan the DB and leave the role unable to connect.
   PG_PASSWORD=$(grep -oP '(?<=^POSTGRES_PASSWORD=).*' "${DOTENV_FILE}" 2>/dev/null || openssl rand -hex 16)
@@ -151,6 +155,10 @@ FEATURE_OPENAPI_DOCS=false
 # Any request without a session cookie is served as this user. Unset once
 # WorkOS lands + the SSO E2E runbook is complete.
 AUTH_BYPASS_EMAIL=admin@clinwrite.ai
+# Collab sidecar (Phase 2.3). Only used when platform-collab.service runs.
+COLLAB_SYSTEM_TOKEN=${COLLAB_SYSTEM_TOKEN}
+API_BASE_URL=http://127.0.0.1:3001
+COLLAB_PERSIST_DEBOUNCE_MS=30000
 ENV
 
   cat > "${DOTENV_FILE}" <<DOTENV

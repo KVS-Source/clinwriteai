@@ -61,9 +61,15 @@ sudo -u platform npm ci --prefer-offline --no-audit --no-fund
 log "Generating Prisma client"
 sudo -u platform npm --workspace=apps/api run db:generate
 
-log "Building workspaces (api + worker + web)"
-sudo -u platform npm --workspace=apps/api    run build
-sudo -u platform npm --workspace=apps/worker run build
+log "Building workspaces (api + worker + collab-server + web)"
+sudo -u platform npm --workspace=apps/api           run build
+sudo -u platform npm --workspace=apps/worker        run build
+# collab-server (Phase 2.3 of docs/pivot-plan.md) is optional at runtime —
+# gated by platform-collab.service being installed + VITE_COLLAB_URL being
+# set on the web build. Build it unconditionally so the artefact is ready;
+# the systemd unit decides whether to run it.
+sudo -u platform npm --workspace=apps/collab-server run build 2>/dev/null || \
+  log "collab-server build skipped (workspace not present on this deploy)"
 # Web bundle is built with demo API endpoint baked in.
 #
 # Env resolution order (first wins per key):
@@ -132,6 +138,13 @@ log "Restarting platform-api"
 systemctl restart platform-api
 log "Restarting platform-worker"
 systemctl restart platform-worker
+# Collab sidecar only exists on deployments where the unit was installed
+# (bootstrap drops it in alongside the api/worker units). Restart if
+# active; silently skip otherwise so pre-2.3 VPS deploys keep working.
+if systemctl is-enabled platform-collab.service >/dev/null 2>&1; then
+  log "Restarting platform-collab"
+  systemctl restart platform-collab
+fi
 
 # ---------- Health gate ----------
 log "Waiting for API health"

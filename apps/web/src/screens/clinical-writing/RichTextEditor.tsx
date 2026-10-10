@@ -1,21 +1,13 @@
-// Rich-text editor — Phase 2.1 TipTap integration.
+// Rich-text editor — Phase 2.1 (TipTap base) + Phase 2.3 (collab).
 //
-// Replaces the Phase-1 <textarea> with a WYSIWYG surface backed by
-// TipTap (ProseMirror underneath). Headings / bold / italic /
-// underline / lists / blockquote / inline links / typographic
-// corrections.
+// Solo mode: StarterKit's history is on, content hydrates from the
+// `content` prop, saves go via onChange → PATCH.
 //
-// Collaborative cursors (Phase 2.3) will plug in later as a
-// Collaboration + CollaborationCursor extension; the extensions list
-// is kept in one place (defaultExtensions) so the swap is additive.
-//
-// Public surface:
-//   - defaultExtensions() — returns the extension list used by the
-//     editor. Takes a placeholder override.
-//   - useRichTextEditor() — thin wrapper over TipTap's useEditor that
-//     also keeps the editor DOM synced when the `content` prop changes
-//     (e.g. the user switches active section).
-//   - EditorContent — re-exported from @tiptap/react.
+// Collab mode: when a `collab` provider is passed, we disable
+// StarterKit history (Yjs replaces it) and mount the Collaboration +
+// CollaborationCaret extensions. Content hydration flips off too — the
+// Y.Doc becomes the source of truth and the sidecar's own hydration
+// (from the API) seeds the shared doc.
 
 import { useEditor, EditorContent } from '@tiptap/react'
 import type { Editor } from '@tiptap/react'
@@ -23,15 +15,34 @@ import StarterKit from '@tiptap/starter-kit'
 import Underline from '@tiptap/extension-underline'
 import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
+import Collaboration from '@tiptap/extension-collaboration'
+import CollaborationCaret from '@tiptap/extension-collaboration-caret'
 import { useEffect, useRef } from 'react'
+import type { CollabProvider } from './useCollabProvider'
 
 export { EditorContent }
 export type { Editor }
 
-export function defaultExtensions(placeholder = 'Start writing this section…') {
-  return [
+interface User {
+  name:   string
+  color?: { fg: string; bg: string }
+}
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type AnyExt = any
+
+export function defaultExtensions(opts: {
+  placeholder?: string
+  collab?:      CollabProvider | null
+  user?:        User
+}): AnyExt[] {
+  // When collab is active, Yjs owns history — the Collaboration
+  // extension manages undo/redo and StarterKit's bundled undoRedo
+  // conflicts (double-undo). TipTap v3 renamed `history` → `undoRedo`.
+  const base: AnyExt[] = [
     StarterKit.configure({
       heading: { levels: [2, 3, 4] },
+      ...(opts.collab ? { undoRedo: false } : {}),
     }),
     Underline,
     Link.configure({
@@ -40,27 +51,61 @@ export function defaultExtensions(placeholder = 'Start writing this section…')
       linkOnPaste: true,
       HTMLAttributes: { rel: 'noopener noreferrer', class: 'text-blue-600 underline' },
     }),
-    Placeholder.configure({ placeholder }),
+    Placeholder.configure({ placeholder: opts.placeholder ?? 'Start writing this section…' }),
   ]
+
+  if (opts.collab) {
+    base.push(
+      Collaboration.configure({
+        document: opts.collab.doc,
+      }),
+      CollaborationCaret.configure({
+        provider: opts.collab.provider,
+        user: {
+          name:  opts.user?.name  ?? 'Anonymous',
+          color: opts.user?.color?.fg ?? '#2563EB',
+        },
+      }),
+    )
+  }
+
+  return base
 }
 
 interface UseRichTextEditorArgs {
-  content: string
+  content:  string
   editable: boolean
   onChange?: (html: string) => void
-  onBlur?: (html: string) => void
+  onBlur?:   (html: string) => void
   placeholder?: string
+  collab?:  CollabProvider | null
+  user?:    User
 }
 
 /**
  * TipTap doesn't auto-sync the editor DOM when the `content` prop
  * changes after mount. When the parent passes new content (e.g. the
- * user switches active section) we mirror it into the editor.
+ * user switches active section), we mirror it into the editor — but
+ * only in SOLO mode. In collab mode, the Y.Doc is the source of
+ * truth and the sidecar seeds it from the API when the room spawns.
  */
-export function useRichTextEditor({ content, editable, onChange, onBlur, placeholder }: UseRichTextEditorArgs): Editor | null {
+export function useRichTextEditor({
+  content,
+  editable,
+  onChange,
+  onBlur,
+  placeholder,
+  collab,
+  user,
+}: UseRichTextEditorArgs): Editor | null {
+  const extensions = defaultExtensions({ placeholder, collab, user })
+
   const editor = useEditor({
-    extensions: defaultExtensions(placeholder),
-    content,
+    extensions,
+    // Only pass initial content in solo mode. In collab mode, Yjs
+    // syncs the doc from the room; passing content here would race
+    // with the first sync message.
+    content: collab ? '' : content,
     editable,
     onUpdate: ({ editor }) => onChange?.(editor.getHTML()),
     onBlur:   ({ editor }) => onBlur?.(editor.getHTML()),
@@ -70,12 +115,12 @@ export function useRichTextEditor({ content, editable, onChange, onBlur, placeho
         spellcheck: 'true',
       },
     },
-  }, [editable])
+  }, [editable, collab?.roomId])
 
-  // Hydrate on external content change.
+  // Solo-mode-only hydration on external content change.
   const lastSetRef = useRef<string>(content)
   useEffect(() => {
-    if (!editor) return
+    if (!editor || collab) return
     if (lastSetRef.current === content) return
     if (editor.getHTML() === content) {
       lastSetRef.current = content
@@ -83,7 +128,7 @@ export function useRichTextEditor({ content, editable, onChange, onBlur, placeho
     }
     editor.commands.setContent(content, { emitUpdate: false })
     lastSetRef.current = content
-  }, [editor, content])
+  }, [editor, content, collab])
 
   return editor
 }

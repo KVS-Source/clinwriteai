@@ -188,6 +188,14 @@ install -m 755 -o platform -g platform \
   /opt/platform/scripts/wait-for-health.sh 2>/dev/null || \
   log "G. WARN: wait-for-health.sh not found in repo"
 
+# auto-deploy.sh — called by platform-deploy.timer. Owned by root since
+# the systemd unit runs as root (deploy.sh uses sudo -u platform
+# internally for git fetch/checkout). See infra/standalone/SCHEDULED-DEPLOY.md.
+install -m 755 -o root -g root \
+  "${REPO_DIR}/infra/standalone/scripts/auto-deploy.sh" \
+  /opt/platform/scripts/auto-deploy.sh 2>/dev/null || \
+  log "G. WARN: auto-deploy.sh not found in repo"
+
 if [[ ! -x "${SHIM}" ]] || ! grep -q "shim-v2" "${SHIM}"; then
   log "G. installing shim-v2 at ${SHIM}"
   cat > "${SHIM}" <<'SHIMEOF'
@@ -362,6 +370,17 @@ TARGET
 fi
 systemctl daemon-reload
 systemctl enable platform-data.target >/dev/null 2>&1 || true
+
+# Enable the auto-deploy timer (every 15 min Mon-Fri 09:00-19:00 IST).
+# The .timer unit is auto-installed by the loop above; this just flips
+# it on. Harmless to re-run on existing deployments. Requires that
+# /opt/platform/env/api.env contain NOTIFICATION_SMTP_* vars for the
+# failure-email path to work — operators without those vars still get
+# the schedule, just no email alerts.
+if [[ -f /etc/systemd/system/platform-deploy.timer ]]; then
+  systemctl enable --now platform-deploy.timer >/dev/null 2>&1 || \
+    log "J. WARN: could not enable platform-deploy.timer"
+fi
 
 # ================================================================
 # K. Firewall

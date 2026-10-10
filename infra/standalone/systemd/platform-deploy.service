@@ -1,0 +1,26 @@
+# systemd unit for the scheduled auto-deploy wrapper.
+# Install path on VPS: /etc/systemd/system/platform-deploy.service
+#
+# Fired by platform-deploy.timer (every 15 min Mon-Fri 09:00-19:00 IST)
+# OR manually with `sudo systemctl start platform-deploy.service`.
+#
+# The wrapper script (auto-deploy.sh) handles git-fetch comparison,
+# flock, logging, and failure email alerts.
+
+[Unit]
+Description=ClinWrite platform scheduled deploy (every 15 min Mon-Fri 09:00-19:00 IST)
+Documentation=https://github.com/KVS-Source/clinwriteai
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+WorkingDirectory=/opt/platform/repo
+Environment=TZ=Asia/Kolkata
+Environment=PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+ExecStart=/opt/platform/scripts/auto-deploy.sh
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,24 @@
+# systemd timer that triggers platform-deploy.service on a schedule.
+# Install path on VPS: /etc/systemd/system/platform-deploy.timer
+#
+# Schedule: every 15 min Mon-Fri 09:00-19:00 IST = 41 runs/day.
+#   - 09:00..18:45 every 15 min = 40 runs
+#   - exactly 19:00 = 1 run (two OnCalendar lines so last run is on
+#     the stroke of 7pm; a single `09..19:00/15` form would go up to
+#     19:45)
+#
+# Change the schedule by editing OnCalendar + running:
+#   sudo systemctl daemon-reload && sudo systemctl restart platform-deploy.timer
+
+[Unit]
+Description=Trigger platform-deploy.service every 15 min Mon-Fri 09:00-19:00 IST
+
+[Timer]
+OnCalendar=Mon..Fri *-*-* 09..18:00/15 Asia/Kolkata
+OnCalendar=Mon..Fri *-*-* 19:00:00 Asia/Kolkata
+# If the VPS was down at a scheduled time, catch up on boot.
+Persistent=true
+Unit=platform-deploy.service
+
+[Install]
+WantedBy=timers.target

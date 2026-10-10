@@ -56,12 +56,33 @@ const sectionUpdateSchema = z.object({
 //   Prisma ichStatus     → UI Section.status
 // List-shape excludes sections (UI's list view only wants metadata); detail
 // shape includes them.
+
+// DB persists enum-ish strings in snake_case (seed converts fixture
+// hyphens → underscores so the Postgres rows match the ADR 0001 enum
+// convention). The TS types in @platform/types + the UI colour maps
+// use hyphen-case, so unmap here before the JSON leaves the API.
+function hyphenate(v: string | null | undefined): string {
+  return (v ?? '').replace(/_/g, '-')
+}
+
+// Stage needs an extra reverse step because the seed maps post-study →
+// reporting (and nothing else). Hyphenate alone would leave 'reporting'
+// which isn't in the UI's DocumentStage enum → STAGE_LABELS lookup
+// returns undefined → render crash.
+const DB_STAGE_TO_UI: Record<string, string> = {
+  reporting: 'post-study',
+}
+function uiStage(v: string | null | undefined): string {
+  const raw = v ?? ''
+  return DB_STAGE_TO_UI[raw] ?? hyphenate(raw)
+}
+
 function sectionShape(s: { id: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null }) {
   return {
     id: s.id,
     number: s.sectionNumber,
     title: s.sectionTitle,
-    status: s.ichStatus,
+    status: hyphenate(s.ichStatus),
     // contentHtml is lazy — detail route includes it, list route omits
     // it. UI editor pane reads this directly instead of fetching per-
     // section separately.
@@ -69,21 +90,27 @@ function sectionShape(s: { id: string; sectionNumber: string; sectionTitle: stri
   }
 }
 
-function documentShapeMeta(d: { version?: string } & Record<string, unknown>) {
+function documentShapeMeta(d: { version?: string; type?: string; status?: string; stage?: string } & Record<string, unknown>) {
   // Metadata-only shape for list views. version is already a column on
   // Document? No — version lives on DocumentVersion. For list view, we
   // return 'v0.0' when no current version is set. Detail route overrides.
   return {
     ...d,
+    type:    hyphenate(d.type),
+    status:  hyphenate(d.status),
+    stage:   uiStage(d.stage),
     version: d.version ?? 'v0.0',
     sections: [] as Array<ReturnType<typeof sectionShape>>,
   }
 }
 
-function documentShapeFull(d: { currentVersion?: { versionNumber: string; sections: Array<Parameters<typeof sectionShape>[0]> } | null } & Record<string, unknown>) {
+function documentShapeFull(d: { type?: string; status?: string; stage?: string; currentVersion?: { versionNumber: string; sections: Array<Parameters<typeof sectionShape>[0]> } | null } & Record<string, unknown>) {
   const { currentVersion, ...rest } = d
   return {
     ...rest,
+    type:    hyphenate(d.type),
+    status:  hyphenate(d.status),
+    stage:   uiStage(d.stage),
     version: currentVersion?.versionNumber ?? 'v0.0',
     sections: (currentVersion?.sections ?? []).map(sectionShape),
   }

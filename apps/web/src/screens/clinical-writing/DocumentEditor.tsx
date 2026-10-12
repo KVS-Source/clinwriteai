@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
@@ -246,6 +246,19 @@ export function DocumentEditor() {
   const handleSubmitForReview = () => {
     setActivePanel('review-assignment')
   }
+
+  // Deep-link: if the URL has ?submit=1 (e.g. from DiffView's "Submit for
+  // review" button), auto-open the panel on mount + strip the param so a
+  // reload doesn't re-open it.
+  const [searchParams, setSearchParams] = useSearchParams()
+  useEffect(() => {
+    if (searchParams.get('submit') === '1') {
+      setActivePanel('review-assignment')
+      const next = new URLSearchParams(searchParams)
+      next.delete('submit')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, setActivePanel, setSearchParams])
 
   if (!document) {
     return (

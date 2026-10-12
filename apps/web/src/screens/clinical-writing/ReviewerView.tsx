@@ -118,7 +118,10 @@ export function ReviewerView() {
       severity:   'query',
       verdict:    'approve',
     }),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['comments', documentId] }),
+    onSuccess: () => {
+      setApproveNote(`Section approved: ${sectionRefFor(activeSection)}`)
+      qc.invalidateQueries({ queryKey: ['comments', documentId] })
+    },
   })
 
   const requestChangesMut = useMutation({
@@ -136,8 +139,11 @@ export function ReviewerView() {
   })
 
   const handleApproveSection = () => {
-    if (!documentId || !activeSection) return
-    setApproveNote(`Section approved: ${sectionRefFor(activeSection)}`)
+    if (!documentId) return
+    // Previously silently returned when activeSection was null — now the
+    // mutation still fires with sectionRefFor's '§?' fallback so brand-new
+    // documents (0 sections) still log an approve audit event rather than
+    // leaving the user with a dead button.
     approveMut.mutate()
   }
 
@@ -228,15 +234,17 @@ export function ReviewerView() {
             <button
               type="button"
               onClick={handleApproveSection}
-              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
+              disabled={approveMut.isPending}
+              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}
             >
-              Approve section
+              {approveMut.isPending ? 'Approving…' : 'Approve section'}
             </button>
             <button
               type="button"
               onClick={handleReturnForRevision}
-              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
+              disabled={requestChangesMut.isPending}
+              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
             >
               Return for revision
@@ -250,6 +258,16 @@ export function ReviewerView() {
         <div className="flex-none border-b border-slate-200 px-6 py-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>
           ✓ {approveNote}
           <button onClick={() => setApproveNote(null)} className="ml-3 text-xs underline">Dismiss</button>
+        </div>
+      )}
+      {approveMut.isError && (
+        <div className="flex-none border-b border-red-200 px-6 py-2 text-[12px] text-red-700" style={{ backgroundColor: '#FEE2E2' }}>
+          Could not record approval: {(approveMut.error as { body?: { message?: string } } | null)?.body?.message ?? (approveMut.error as Error | null)?.message ?? 'see console for details.'}
+        </div>
+      )}
+      {requestChangesMut.isError && (
+        <div className="flex-none border-b border-red-200 px-6 py-2 text-[12px] text-red-700" style={{ backgroundColor: '#FEE2E2' }}>
+          Could not post return comment: {(requestChangesMut.error as { body?: { message?: string } } | null)?.body?.message ?? (requestChangesMut.error as Error | null)?.message ?? 'see console for details.'}
         </div>
       )}
       {returningReason !== null && (
@@ -269,7 +287,14 @@ export function ReviewerView() {
           )}
           <div className="flex gap-2">
             <button onClick={() => { setReturningReason(null); setReturnText('') }} className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold">Cancel</button>
-            <button onClick={handleReturnForRevision} className="rounded px-3 py-1 text-[11px] font-semibold text-white" style={{ backgroundColor: '#B45309' }}>Confirm return</button>
+            <button
+              onClick={handleReturnForRevision}
+              disabled={requestChangesMut.isPending}
+              className="rounded px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+              style={{ backgroundColor: '#B45309' }}
+            >
+              {requestChangesMut.isPending ? 'Posting…' : 'Confirm return'}
+            </button>
           </div>
         </div>
       )}

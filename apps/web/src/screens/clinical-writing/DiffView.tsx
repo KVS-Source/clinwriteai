@@ -202,12 +202,16 @@ export function DiffView() {
 
             <button
               type="button"
+              onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)}
+              title="DiffView is read-only — go back to Editor to make changes"
               className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
             >
-              Save
+              Back to Editor
             </button>
             <button
               type="button"
+              onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}?submit=1`)}
+              title="Opens the Submit-for-Review panel on the Editor"
               className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
             >
               Submit for review

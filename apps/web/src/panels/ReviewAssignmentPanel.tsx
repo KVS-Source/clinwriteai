@@ -309,14 +309,17 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitMut.isPending}
-            className="flex-1 rounded-md bg-blue-600 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-70"
+            disabled={submitMut.isPending || !dueDate}
+            title={!dueDate ? 'Set a review-due date first' : undefined}
+            className="flex-1 rounded-md bg-blue-600 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:bg-slate-300 disabled:hover:bg-slate-300"
           >
             {submitMut.isPending ? 'Submitting…' : 'Submit for review →'}
           </button>
         </div>
         <p className="text-center text-[11px] italic leading-[1.5] text-slate-500">
-          Submitting will lock the document for authoring and notify all reviewers.
+          {!dueDate
+            ? 'Pick a review-due date above to enable the Submit button.'
+            : 'Submitting will lock the document for authoring and notify all reviewers.'}
         </p>
       </div>
     </div>

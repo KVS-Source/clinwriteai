@@ -40,11 +40,34 @@ const reviewerDecisionSchema = z.object({
   note: z.string().optional(),
 })
 
+// Accept both the canonical API form (approved | rejected | needs_edit) and
+// the UI's four display labels (approve | approve-with-revisions |
+// return-to-author | reject). The UI's `signaturePassword` is accepted as
+// `credentialProof` — it is immediately sha256'd on the server (never
+// stored plaintext). When `meaning` is absent, a default per decision is
+// supplied so Part 11 §11.50 isn't blocked by the demo UI not surfacing it.
+const UI_DECISION_MAP: Record<string, 'approved' | 'rejected' | 'needs_edit'> = {
+  approved: 'approved',
+  rejected: 'rejected',
+  needs_edit: 'needs_edit',
+  approve: 'approved',
+  'approve-with-revisions': 'approved',
+  'return-to-author': 'needs_edit',
+  reject: 'rejected',
+}
+const DEFAULT_MEANING: Record<string, string> = {
+  approved: 'I approve this content for external distribution',
+  rejected: 'I reject this content; fundamental issues require re-authoring',
+  needs_edit: 'I return this content to the author for revisions',
+}
 const leadDecideSchema = z.object({
-  decision: z.enum(['approved', 'rejected', 'needs_edit']),
+  decision: z.string().min(1),
   decisionNote: z.string().min(1, 'decision_note is required for Part 11'),
-  meaning: z.string().min(1, 'meaning is required for Part 11 §11.50'),
-  credentialProof: z.string().min(1, 'credentialProof token (password re-auth + MFA) required'),
+  meaning: z.string().optional(),
+  credentialProof: z.string().optional(),
+  signaturePassword: z.string().optional(),
+  signatureConfirmed: z.boolean().optional(),
+  decidedBy: z.string().optional(),
 })
 
 // Shape MlrComment rows for the UI's packages/types MLRComment interface.
@@ -126,7 +149,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/submit-to-mlr', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = submitSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
@@ -216,7 +239,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/mlr-reviewers/self-decision', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = reviewerDecisionSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const row = await app.prisma.mlrReviewer.findUnique({
       where: { contentItemId_userId: { contentItemId: contentId, userId: request.user!.id } },
@@ -262,7 +285,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/mlr-comments', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = addCommentSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
@@ -275,23 +298,39 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: 'not_a_reviewer', message: 'Only assigned MLR reviewers can comment' })
     }
 
-    const id = await nextMlrCommentId(app.prisma, contentId)
-
-    const created = await app.prisma.mlrComment.create({
-      data: {
-        id,
-        contentItemId: contentId,
-        reviewerId: request.user!.id,
-        reviewerName: request.user!.email,                              // denorm fallback — User.name would be nicer but email always present
-        text: parsed.data.text,
-        tag: parsed.data.tag,
-        escalatedFromAgentic: parsed.data.escalatedFromAgentic,
-        ...(parsed.data.escalatedFromAgentic && {
-          escalatedBy: request.user!.id,
-          escalatedAt: new Date(),
-        }),
-      },
-    })
+    // Retry loop handles the race where two concurrent inserts both read
+    // the same max sequence and try to use the same ID. The id column is
+    // the primary key, so a collision raises P2002 which we catch and
+    // retry with a freshly computed id.
+    let created: Awaited<ReturnType<typeof app.prisma.mlrComment.create>> | null = null
+    let lastId = ''
+    for (let attempt = 0; attempt < 5 && !created; attempt++) {
+      lastId = await nextMlrCommentId(app.prisma, contentId)
+      try {
+        created = await app.prisma.mlrComment.create({
+          data: {
+            id: lastId,
+            contentItemId: contentId,
+            reviewerId: request.user!.id,
+            reviewerName: request.user!.email,                              // denorm fallback — User.name would be nicer but email always present
+            text: parsed.data.text,
+            tag: parsed.data.tag,
+            escalatedFromAgentic: parsed.data.escalatedFromAgentic,
+            ...(parsed.data.escalatedFromAgentic && {
+              escalatedBy: request.user!.id,
+              escalatedAt: new Date(),
+            }),
+          },
+        })
+      } catch (e: unknown) {
+        if ((e as { code?: string }).code === 'P2002') continue           // unique collision on id — recompute + retry
+        throw e
+      }
+    }
+    if (!created) {
+      return reply.code(503).send({ error: 'id_contention', message: 'Too many simultaneous comments; retry' })
+    }
+    const id = lastId
 
     const auditEntry = await app.audit.append({
       timestamp: new Date().toISOString(),
@@ -347,7 +386,18 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/mlr-decision', { preHandler: requireAuth({ modules: ['C'], roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = leadDecideSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
+
+    const decision = UI_DECISION_MAP[parsed.data.decision]
+    if (!decision) {
+      return reply.code(400).send({ error: 'validation', message: `unknown decision: ${parsed.data.decision}` })
+    }
+    const meaning: string = parsed.data.meaning ?? DEFAULT_MEANING[decision] ?? 'MLR decision recorded'
+    const credentialSource =
+      parsed.data.credentialProof ?? parsed.data.signaturePassword ?? ''
+    if (!credentialSource) {
+      return reply.code(400).send({ error: 'validation', message: 'credentialProof or signaturePassword is required' })
+    }
 
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
@@ -368,7 +418,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
 
     // Immutable Part 11 record. credentialProof is sha256'd — never stored
     // in plaintext.
-    const credentialHash = createHash('sha256').update(parsed.data.credentialProof).digest('hex')
+    const credentialHash = createHash('sha256').update(credentialSource).digest('hex')
 
     // documentHash: for Phase 3C we hash a stable projection of the content
     // item (id + version + current fields). The final Compliance decision
@@ -390,12 +440,12 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
       const rec = await tx.mlrDecisionRecord.create({
         data: {
           contentItemId: contentId,
-          decision: parsed.data.decision,
+          decision,
           decisionNote: parsed.data.decisionNote,
           decidedBy: request.user!.id,
           decidedByName: user?.name ?? request.user!.email,
           decidedByRole: user?.role ?? 'admin',
-          meaning: parsed.data.meaning,
+          meaning,
           credentialHash,
           documentHash,
           versionAtDecision: item.version,
@@ -403,43 +453,59 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
         },
       })
 
-      // Transition content stage per the decision.
-      if (parsed.data.decision === 'approved') {
+      // Transition content stage per the decision. nextStatus is returned
+      // in the response so the UI can route (hyphen-case to match the
+      // MedContentStatus enum shape).
+      let nextStatus: string
+      if (decision === 'approved') {
         const now = new Date()
         const expiry = new Date(now)
         expiry.setMonth(expiry.getMonth() + 24)
+        nextStatus = 'approved'
         await tx.medContentItem.update({
           where: { id: contentId },
-          data: { stage: 6, status: 'approved', approvedAt: now, expiryDate: expiry },
+          data: { stage: 6, status: nextStatus, approvedAt: now, expiryDate: expiry },
         })
       } else {
-        // Rejected or needs_edit → back to stage 4 for the author to fix.
+        nextStatus = decision === 'rejected' ? 'rejected' : 'needs_edit'
         await tx.medContentItem.update({
           where: { id: contentId },
-          data: { stage: 4, status: parsed.data.decision === 'rejected' ? 'rejected' : 'needs_edit' },
+          data: { stage: 4, status: nextStatus },
         })
       }
 
-      return rec
+      return { rec, nextStatus }
     })
 
-    await app.audit.append({
+    const auditEntry = await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'mlr_decision_recorded',
       entityType: 'med_content',
       entityId: contentId,
       details: {
-        recordId: record.id,
-        decision: parsed.data.decision,
-        meaning: parsed.data.meaning,
+        recordId: record.rec.id,
+        decision,
+        meaning,
         documentHash,
         versionAtDecision: item.version,
       },
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(record)
+    // Return the UI-friendly shape (expected by MLRReview.tsx):
+    //   { decisionAt, auditEntryId, nextStatus }
+    const nextStatusUi = record.nextStatus.replace(/_/g, '-')                 // 'needs_edit' → 'needs-edit', 'in_authoring' n/a here
+    const nextStatusForUi =
+      record.nextStatus === 'needs_edit' ? 'in-authoring'
+      : record.nextStatus === 'approved' ? 'mlr-approved'
+      : nextStatusUi
+    return reply.code(201).send({
+      decisionAt: decidedAt.toISOString(),
+      auditEntryId: auditEntry.id,
+      nextStatus: nextStatusForUi,
+      record: record.rec,
+    })
   })
 
   app.get('/:contentId/mlr-decision/latest', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {

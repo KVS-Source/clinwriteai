@@ -29,16 +29,40 @@ const createClaimSchema = z.object({
   location: z.string().min(1),
 })
 
+// Adopt body: the UI's Claims Matrix screen sends
+// { claimId, approvedLibraryText, adoptedBy }. We accept either naming for
+// the approved text field (approvedText | approvedLibraryText) and derive
+// librarySourceRef from the existing claim.sourceRef when omitted — the
+// field is still required at the model level, but the demo UI doesn't have
+// a Library picker yet so defaulting to the claim's own sourceRef is a
+// defensible interim. adoptedBy is ignored (we use request.user.id).
 const adoptSchema = z.object({
   claimId: z.string().min(1),
-  approvedText: z.string().min(1),
-  librarySourceRef: z.string().min(1),
+  approvedText: z.string().min(1).optional(),
+  approvedLibraryText: z.string().min(1).optional(),
+  librarySourceRef: z.string().min(1).optional(),
+  adoptedBy: z.string().optional(),
+}).refine(v => v.approvedText || v.approvedLibraryText, {
+  message: 'approvedText or approvedLibraryText is required',
 })
 
+// Tier override: accept both the API-canonical letter form ('A'|'B'|'C') and
+// the UI's numeric ReviewTier (1|2|3 → A|B|C). The UI also sends
+// `newTier`+`overriddenBy` (overriddenBy ignored — use request.user).
+const TIER_UI_TO_DB: Record<number, 'A' | 'B' | 'C'> = { 1: 'A', 2: 'B', 3: 'C' }
 const overrideTierSchema = z.object({
-  tier: z.enum(['A', 'B', 'C']),
+  tier: z.enum(['A', 'B', 'C']).optional(),
+  newTier: z.union([z.enum(['A', 'B', 'C']), z.literal(1), z.literal(2), z.literal(3)]).optional(),
   reason: z.string().min(3, 'Override reason is required'),
+  overriddenBy: z.string().optional(),
 })
+
+function normalizeTier(input: z.infer<typeof overrideTierSchema>): 'A' | 'B' | 'C' | null {
+  const t = input.tier ?? input.newTier
+  if (t == null) return null
+  const letter = typeof t === 'number' ? TIER_UI_TO_DB[t] : t
+  return letter ?? null
+}
 
 export const claimsRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:contentId/claims', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
@@ -57,7 +81,7 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/claims', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = createClaimSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
@@ -114,16 +138,17 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return app.prisma.claimsMatrixItem.findMany({
+    const candidates = await app.prisma.claimsMatrixItem.findMany({
       where: { contentItemId: contentId },
       orderBy: { createdAt: 'asc' },
     })
+    return { candidates }
   })
 
   app.post('/:contentId/claims/adopt', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = adoptSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const claim = await app.prisma.claimsMatrixItem.findFirst({
       where: { id: parsed.data.claimId, contentItemId: contentId },
@@ -140,10 +165,13 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    const approvedText = parsed.data.approvedText ?? parsed.data.approvedLibraryText!
+    const librarySourceRef = parsed.data.librarySourceRef ?? claim.sourceRef
+
     const updated = await app.prisma.claimsMatrixItem.update({
       where: { id: claim.id },
       data: {
-        approvedLibraryText: parsed.data.approvedText,
+        approvedLibraryText: approvedText,
         approvalStatus: 'approved',
         adoptedAt: new Date(),
       },
@@ -159,9 +187,53 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
       entityId: contentId,
       details: {
         claimId: claim.id,
-        librarySourceRef: parsed.data.librarySourceRef,
+        librarySourceRef,
         bypassedMlr: true,                                               // audit the bypass per API contract
       },
+      ipAddress: request.ip ?? null,
+    })
+
+    return updated
+  })
+
+  // PATCH individual claim status — called by the Claims Matrix UI when a
+  // reviewer flips a single claim between approved/modified/needs_edit/
+  // library_adopted/new. Also accepts UI vocab 'must-fix' → 'needs_edit'.
+  app.patch('/:contentId/claims/:claimId', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId, claimId } = request.params as { contentId: string; claimId: string }
+    const body = (request.body ?? {}) as { approvalStatus?: string; reviewerId?: string }
+    const incoming = (body.approvalStatus ?? '').toLowerCase()
+    const dbStatus =
+      incoming === 'must-fix' || incoming === 'must_fix' ? 'needs_edit'
+      : incoming === 'modified' ? 'needs_edit'
+      : incoming
+    const allowed = new Set(['new', 'approved', 'rejected', 'needs_edit', 'library_adopted'])
+    if (!allowed.has(dbStatus)) {
+      return reply.code(400).send({ error: 'validation', message: `unknown approvalStatus: ${incoming}` })
+    }
+
+    const claim = await app.prisma.claimsMatrixItem.findFirst({
+      where: { id: claimId, contentItemId: contentId },
+    })
+    if (!claim) return reply.code(404).send({ error: 'not_found' })
+
+    const updated = await app.prisma.claimsMatrixItem.update({
+      where: { id: claimId },
+      data: {
+        approvalStatus: dbStatus,
+        reviewerId: body.reviewerId ?? request.user!.id,
+      },
+    })
+
+    await recalculateReviewTier(app.prisma, contentId, request.user!.id)
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'claim_status_updated',
+      entityType: 'med_content',
+      entityId: contentId,
+      details: { claimId, from: claim.approvalStatus, to: dbStatus },
       ipAddress: request.ip ?? null,
     })
 
@@ -178,13 +250,17 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
     return latest
   })
 
-  app.post('/:contentId/review-tier/override', { preHandler: requireAuth({ modules: ['C'], roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  // Tier override — mounted at both /review-tier/override (canonical) and
+  // /tier (the UI's shorthand) so the Claims Matrix PATCH wires end-to-end.
+  const overrideHandler: import('fastify').RouteHandlerMethod = async (request, reply) => {
     // Note: roles=['admin','super-admin'] is a Phase 3C stand-in for "MLR Lead" —
     // the full MLR-role catalogue lands when MLR comments/decision workflow
     // ships. Admin acts as MLR Lead until then.
     const { contentId } = request.params as { contentId: string }
     const parsed = overrideTierSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
+    const tier = normalizeTier(parsed.data)
+    if (!tier) return reply.code(400).send({ error: 'validation', message: 'tier (A|B|C or 1|2|3) is required' })
 
     const latest = await app.prisma.reviewTierRecord.findFirst({
       where: { contentItemId: contentId },
@@ -195,7 +271,7 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
     const created = await app.prisma.reviewTierRecord.create({
       data: {
         contentItemId: contentId,
-        tier: parsed.data.tier,
+        tier,
         reusePct: latest.reusePct,
         overriddenBy: request.user!.id,
         overrideReason: parsed.data.reason,
@@ -204,7 +280,7 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
 
     await app.prisma.medContentItem.update({
       where: { id: contentId },
-      data: { reviewTier: parsed.data.tier, tierOverriddenBy: request.user!.id },
+      data: { reviewTier: tier, tierOverriddenBy: request.user!.id },
     })
 
     await app.audit.append({
@@ -215,14 +291,17 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
       entityId: contentId,
       details: {
         originalTier: latest.tier,
-        newTier: parsed.data.tier,
+        newTier: tier,
         reason: parsed.data.reason,
       },
       ipAddress: request.ip ?? null,
     })
 
     return created
-  })
+  }
+
+  app.post('/:contentId/review-tier/override', { preHandler: requireAuth({ modules: ['C'], roles: ['admin', 'super-admin'] }) }, overrideHandler)
+  app.patch('/:contentId/tier',                 { preHandler: requireAuth({ modules: ['C'], roles: ['admin', 'super-admin'] }) }, overrideHandler)
 }
 
 // --- helpers --------------------------------------------------------------

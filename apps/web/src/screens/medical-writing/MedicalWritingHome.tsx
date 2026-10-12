@@ -5,7 +5,10 @@ import type { MedContentItem, MedContentStatus, MedContentType } from '@platform
 import { MED_CONTENT_TYPE_META, MED_CONTENT_STATUS_META } from '@platform/types'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { useMedContentStore } from '../../modules/medical-writing/store'
-import expiryFixture from '../../data/contentExpiryRecords.json'
+import { projectsApi } from '../../api/projects'
+import { SlidePanel } from '../../components/ui/SlidePanel'
+import { NewMedContent } from './NewMedContent'
+import { UploadMedContent } from './UploadMedContent'
 
 // Stable empty-array fallback for useQuery — prevents React #185
 // (setter-in-useEffect loops on the transient `[]` default reference).
@@ -82,10 +85,6 @@ function tabMatches(item: MedContentItem, tab: TabDef): boolean {
   return tab.statuses.includes(item.status)
 }
 
-const EXPIRY_MAP: Record<string, string> = Object.fromEntries(
-  (expiryFixture as { contentItemId: string; expiryDate: string }[])
-    .map(r => [r.contentItemId, r.expiryDate])
-)
 
 // --- Subcomponents ---
 
@@ -144,7 +143,7 @@ function ContentRow({ item, onOpen }: ContentRowProps) {
   const trackMeta  = TRACK_META[item.complianceTrack]
   const showFk     = isPatientFacing(item.type) && item.fkScore !== null && item.fkScore !== undefined
   const showTier   = item.reviewTier !== null && item.reviewTier !== undefined
-  const expiryDate = EXPIRY_MAP[item.id] ?? item.expiryDate ?? null
+  const expiryDate = item.expiryDate ?? null
   const showExpiry = expiryDate !== null
   const overdue    = item.mlrOverdue === true
   const sourceLabel = item.sourceModuleAProjectId ? 'Clinical Writing ✓' : null
@@ -333,11 +332,18 @@ export function MedicalWritingHome() {
   const [activeTab, setActiveTab] = useState<StageTab>('all')
   const [taFilter,  setTaFilter]  = useState<TAOption>('all')
   const [typeFilter, setTypeFilter] = useState<MedContentType | 'all'>('all')
-  const [toast, setToast]         = useState<string | null>(null)
+  const [newContentOpen, setNewContentOpen] = useState<false | { duplicateSourceId: string | null }>(false)
+  const [uploadOpen, setUploadOpen] = useState(false)
 
   const { data: contents = EMPTY_CONTENTS } = useQuery({
     queryKey: ['medContent', projectId],
     queryFn:  () => medContentApi.list(projectId!),
+    enabled:  !!projectId,
+  })
+
+  const { data: project } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn:  () => projectsApi.get(projectId!),
     enabled:  !!projectId,
   })
 
@@ -372,16 +378,17 @@ export function MedicalWritingHome() {
     })
   }, [all, activeTab, taFilter, typeFilter, statusFilter, searchQuery])
 
-  // Metrics strip
+  // Metrics strip — derive expiry count from the content items themselves
+  // (expiryDate column on MedContentItem) rather than a separate fixture.
   const metrics = useMemo(() => {
     const activeItems = all.filter(i => i.status !== 'expired').length
     const mlrPending  = all.filter(i => i.status === 'in-mlr-review').length
     const now         = Date.now()
-    const expiringSoon = (expiryFixture as { expiryDate: string }[])
-      .filter(r => {
-        const days = (new Date(r.expiryDate).getTime() - now) / (1000 * 60 * 60 * 24)
-        return days >= 0 && days <= 60
-      }).length
+    const expiringSoon = all.filter(i => {
+      if (!i.expiryDate) return false
+      const days = (new Date(i.expiryDate).getTime() - now) / (1000 * 60 * 60 * 24)
+      return days >= 0 && days <= 60
+    }).length
     return {
       activeItems,
       mlrPending,
@@ -400,13 +407,8 @@ export function MedicalWritingHome() {
     setSearchQuery('')
   }
 
-  const flash = (msg: string) => {
-    setToast(msg)
-    setTimeout(() => setToast(null), 3200)
-  }
-
-  const handleNewContent = () => navigate(`/projects/${projectId}/medical-writing/content/new`)
-  const handleUpload     = () => flash('Upload existing content — Step 1 of the C02 briefing flow.')
+  const handleNewContent = () => setNewContentOpen({ duplicateSourceId: null })
+  const handleUpload     = () => setUploadOpen(true)
   const handleOpen       = (item: MedContentItem) => navigate(`/projects/${projectId}/medical-writing/content/${item.id}`)
 
   const hasRows       = filtered.length > 0
@@ -423,7 +425,7 @@ export function MedicalWritingHome() {
           </button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
-            VELORA-301
+            {project?.shortTitle ?? project?.name ?? projectId ?? '…'}
           </button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <span className="font-semibold text-slate-900">Medical Writing</span>
@@ -436,7 +438,7 @@ export function MedicalWritingHome() {
               Medical Writing
             </h1>
             <p className="font-mono text-xs font-medium text-slate-500">
-              VELORA-301 · Oncology · MLR Track · GPP 2022 compliant
+              {project?.shortTitle ?? project?.name ?? '…'} · {project?.therapeuticArea ?? '—'} · MLR Track · GPP 2022 compliant
             </p>
           </div>
           <div className="flex flex-none gap-2">
@@ -660,16 +662,46 @@ export function MedicalWritingHome() {
         </div>
       </div>
 
-      {toast && (
-        <div
-          data-toast
-          className="pointer-events-none fixed bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2.5 rounded-lg px-4 py-3 text-[13px]"
-          style={{ backgroundColor: '#1E293B', color: '#FFFFFF', boxShadow: '0 12px 28px rgba(15,23,42,0.24)' }}
-        >
-          <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#7C3AED' }} />
-          {toast}
-        </div>
-      )}
+      <SlidePanel
+        open={newContentOpen !== false}
+        onClose={() => setNewContentOpen(false)}
+        title={newContentOpen && newContentOpen.duplicateSourceId ? 'Duplicate content item' : 'New content item'}
+        subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
+        storageKey="panel-width-new-med-content"
+      >
+        {newContentOpen !== false && projectId && (
+          <NewMedContent
+            projectId={projectId}
+            projectTA={project?.therapeuticArea}
+            duplicateSourceId={newContentOpen.duplicateSourceId}
+            onCancel={() => setNewContentOpen(false)}
+            onCreated={id => {
+              setNewContentOpen(false)
+              navigate(`/projects/${projectId}/medical-writing/content/${id}`)
+            }}
+          />
+        )}
+      </SlidePanel>
+
+      <SlidePanel
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        title="Upload content item"
+        subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
+        storageKey="panel-width-upload-med-content"
+      >
+        {uploadOpen && projectId && (
+          <UploadMedContent
+            projectId={projectId}
+            projectTA={project?.therapeuticArea}
+            onCancel={() => setUploadOpen(false)}
+            onCreated={id => {
+              setUploadOpen(false)
+              navigate(`/projects/${projectId}/medical-writing/content/${id}`)
+            }}
+          />
+        )}
+      </SlidePanel>
     </div>
   )
 }

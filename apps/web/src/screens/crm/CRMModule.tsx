@@ -2,11 +2,10 @@ import { useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Comment, ResolutionType } from '@platform/types'
-import { crmApi, documentsApi } from '../../api'
+import { crmApi, documentsApi, projectsApi } from '../../api'
 import { useCRMStore } from '../../store'
 import { CommentResolutionPanel } from '../../panels/CommentResolutionPanel'
 
-const CANONICAL_DOC_ID = 'DOC-001'
 const LOGGED_IN_USER   = 'Marcus Webb'
 
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
@@ -237,15 +236,27 @@ export function CRMModule() {
   const setActiveComment   = useCRMStore(s => s.setActiveComment)
   const setResolutionDraft = useCRMStore(s => s.setResolutionDraft)
 
-  // Fetch meetings for the document
-  const { data: meetings = [] } = useQuery({
-    queryKey: ['crm-meetings', CANONICAL_DOC_ID],
-    queryFn:  () => crmApi.getMeetings(CANONICAL_DOC_ID),
+  // Module-level CRM screen: pick the first document in the project that
+  // has CRM meetings. If none do, show an empty-state. Removes the
+  // previous hardcoded (activeDocId ?? '')='DOC-001' which broke every
+  // project that didn't happen to have that fixture.
+  const { data: projectDocs = [] } = useQuery({
+    queryKey: ['documents', projectId],
+    queryFn:  () => projectsApi.get(projectId!).then(() => documentsApi.list(projectId!)),
+    enabled:  !!projectId,
+  })
+  const activeDocId = projectDocs[0]?.id ?? null
+
+  const { data: meetings = [], isLoading: meetingsLoading } = useQuery({
+    queryKey: ['crm-meetings', activeDocId],
+    queryFn:  () => crmApi.getMeetings(activeDocId!),
+    enabled:  !!activeDocId,
   })
 
   const { data: comments = [] } = useQuery({
-    queryKey: ['comments', CANONICAL_DOC_ID],
-    queryFn:  () => documentsApi.getComments(CANONICAL_DOC_ID),
+    queryKey: ['comments', activeDocId],
+    queryFn:  () => documentsApi.getComments(activeDocId!),
+    enabled:  !!activeDocId,
   })
 
   // Hydrate store when meeting loads
@@ -286,8 +297,20 @@ export function CRMModule() {
 
   const isResolved = (id: string) => meeting?.resolvedIds.includes(id) ?? false
 
-  if (!meeting) {
+  if (meetingsLoading || !activeDocId) {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">Loading meeting…</p></div>
+  }
+  if (!meeting) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center">
+        <p className="font-mono text-sm text-slate-500">No CRM meetings scheduled for this project.</p>
+        <p className="text-xs text-slate-400">CRM meetings are created from the Reviewer View when a document enters CRM state.</p>
+        <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)}
+          className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
+          Back to Clinical Writing
+        </button>
+      </div>
+    )
   }
 
   const chairName = meeting.chair.name
@@ -431,7 +454,7 @@ export function CRMModule() {
               {totalCount} comments · {resolvedCount} resolved · {remaining} remaining
             </p>
             <button
-              onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${CANONICAL_DOC_ID}`)}
+              onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${(activeDocId ?? '')}`)}
               className="whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700"
             >
               View document →
@@ -520,7 +543,7 @@ export function CRMModule() {
           }}
         >
           <CommentResolutionPanel
-            documentId={CANONICAL_DOC_ID}
+            documentId={(activeDocId ?? '')}
             meetingId={meeting.id}
             onClose={() => setResolutionDraft(null)}
           />

@@ -189,6 +189,51 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     // in AuditReviewAlert.tsx to throw "d.map is not a function".
     return { entries: rows, total: rows.length, limit: 500, offset: 0 }
   })
+
+  // QA review cadence + last-review tracking for the Audit Review screen.
+  // Derived from the audit log itself (looks for the most recent
+  // 'qa_review_logged' event); no separate table is needed yet. Cadence
+  // default is 30 days; configurable per tenant in the future.
+  app.get('/:documentId/qa-review', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+
+    const cadenceDays = 30
+    const rows = await app.audit.listForEntity('document', documentId, 500)
+    const lastReview = rows.find(r => r.action === 'qa_review_logged') ?? null
+    const lastReviewedAt = lastReview?.timestamp ?? null
+    const nextDue = new Date((lastReviewedAt ? new Date(lastReviewedAt) : new Date(doc.createdAt)).getTime() + cadenceDays * 86_400_000)
+    const now = Date.now()
+    const daysOverdue = Math.max(0, Math.floor((now - nextDue.getTime()) / 86_400_000))
+    return {
+      cadenceDays,
+      lastReviewedAt,
+      nextDueAt: nextDue.toISOString(),
+      isOverdue: now > nextDue.getTime(),
+      daysOverdue,
+    }
+  })
+
+  app.post('/:documentId/qa-review', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const body = (request.body ?? {}) as { reviewedBy?: string; notes?: string }
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+
+    const cadenceDays = 30
+    const nextDue = new Date(Date.now() + cadenceDays * 86_400_000)
+    const entry = await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'qa_review_logged',
+      entityType: 'document',
+      entityId: documentId,
+      details: { reviewedBy: body.reviewedBy ?? request.user!.id, notes: body.notes ?? null },
+      ipAddress: request.ip ?? null,
+    })
+    return { auditEntryId: entry.id, nextDueAt: nextDue.toISOString() }
+  })
 }
 
 async function nextCommentId(prisma: import('@prisma/client').PrismaClient, documentId: string): Promise<string> {

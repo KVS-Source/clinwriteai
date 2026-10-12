@@ -87,6 +87,62 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
+  // --- UI-shape stubs ---------------------------------------------------
+  // ServicesDashboard + SubscriptionPayment screens call
+  //   GET /services/dashboard  → full Subscription shape
+  //   GET /admin/subscription  → full Subscription shape
+  // Both are derived from the first active Subscription row (or a
+  // deterministic placeholder if no row exists). This keeps the screens
+  // out of the "Loading…" infinite state while the real billing pipeline
+  // + rate-card wiring is deferred (project_phase_4_deferrals).
+  const stubSubscription = (plan = 'growth', monthlyCapUsd = 50000) => {
+    const now = new Date()
+    const renewal = new Date(now)
+    renewal.setMonth(renewal.getMonth() + 1)
+    return {
+      clientId:                 'client-default',
+      planName:                 plan,
+      contractedTokensPerMonth: 50_000_000,
+      currency:                 'USD',
+      monthlyFee:               monthlyCapUsd,
+      renewalDate:              renewal.toISOString().slice(0, 10),
+      autoRenew:                true,
+      currentMonthRunningTotal: 12_430,
+      paymentMethod: { type: 'card', brand: 'Visa', last4: '4242', expiryMonth: 12, expiryYear: 2028 },
+      activeGateways: ['Anthropic'],
+      currentPeriod: {
+        month: now.toISOString().slice(0, 7),
+        tokensConsumed:  13_200_000,
+        tokensRemaining: 36_800_000,
+        estimatedSpend:  12_430,
+        burnRatePerDay:  420,
+        projectedEndOfMonth: 24_000,
+      },
+      moduleBreakdown: [],
+      invoices: [],
+      marketValueSavings: {
+        total: 0,
+        calculatedAt: now.toISOString(),
+        rateCardVersion: 'v1.0',
+        rateCardSetBy: 'platform',
+        rateCardEffectiveDate: now.toISOString().slice(0, 10),
+        breakdown: [],
+      },
+      stub: true,
+    }
+  }
+
+  const subStubHandler: import('fastify').RouteHandlerMethod = async () => {
+    const active = await app.prisma.subscription.findFirst({
+      where: { endedAt: null },
+      orderBy: { startedAt: 'desc' },
+    })
+    if (!active) return stubSubscription()
+    return stubSubscription(active.plan, Number(active.monthlyCapUsd ?? 50000))
+  }
+  app.get('/services/dashboard',  { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, subStubHandler)
+  app.get('/admin/subscription',  { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, subStubHandler)
+
   app.post('/admin/subscriptions/:id/end', { preHandler: superAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const existing = await app.prisma.subscription.findUnique({ where: { id } })

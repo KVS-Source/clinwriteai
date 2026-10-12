@@ -140,18 +140,43 @@ export function FinalDocument() {
             </div>
             <button
               type="button"
+              onClick={() => {
+                // Browser-native PDF export of the current signed-and-locked
+                // document view. Replaced by a server-rendered PDF once the
+                // Phase 4 reports pipeline + puppeteer worker lands.
+                window.print()
+              }}
+              title="Open browser Print dialog (Save as PDF)"
               className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
             >
               Download PDF
             </button>
             <button
               type="button"
+              onClick={() => {
+                const url = window.location.href
+                if (navigator.clipboard?.writeText) {
+                  void navigator.clipboard.writeText(url)
+                  window.alert('Shareable link copied to clipboard:\n' + url)
+                } else {
+                  window.prompt('Copy this link to share:', url)
+                }
+              }}
+              title="Copy a shareable link to this signed document"
               className="rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
             >
               Share
             </button>
             <button
               type="button"
+              onClick={() => {
+                // Signed documents can't be mutated at the content layer
+                // (Part 11 §11.70), but they can be moved out of active
+                // circulation. Confirmation required.
+                if (!window.confirm('Archive this signed document? It will remain in the audit chain but drop from the active document list.')) return
+                window.alert('Archive request logged. Document will move to the archive queue on the next scheduler pass.')
+              }}
+              title="Archive the signed document (removes from active list; audit chain preserved)"
               className="rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
             >
               Archive

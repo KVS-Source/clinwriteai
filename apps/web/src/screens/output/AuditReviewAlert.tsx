@@ -5,8 +5,6 @@ import type { AuditEntry } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { useProjectStore } from '../../store'
 
-// The canonical document surfaced by this alert (matches prototype)
-const CANONICAL_DOC_ID = 'DOC-001'
 const LOGGED_IN_USER = 'Dr. Sarah Chen'
 
 // Avatar palette — Pattern 7
@@ -132,14 +130,25 @@ export function AuditReviewAlert() {
   const [checked, setChecked]     = useState<Set<number>>(new Set())
   const [alertDismissed, setAlertDismissed] = useState(false)
 
+  // Module-level audit screen: pick the first document in the project so
+  // the page works for any project (not just whichever had 'DOC-001').
+  const { data: projectDocs = [] } = useQuery({
+    queryKey: ['documents', projectId],
+    queryFn:  () => documentsApi.list(projectId!),
+    enabled:  !!projectId,
+  })
+  const activeDocId = projectDocs[0]?.id ?? null
+
   const { data: auditData } = useQuery({
-    queryKey: ['audit', CANONICAL_DOC_ID],
-    queryFn:  () => documentsApi.getAuditTrail(CANONICAL_DOC_ID),
+    queryKey: ['audit', activeDocId],
+    queryFn:  () => documentsApi.getAuditTrail(activeDocId!),
+    enabled:  !!activeDocId,
   })
 
   const { data: qaReview } = useQuery({
-    queryKey: ['qa-review', CANONICAL_DOC_ID],
-    queryFn:  () => documentsApi.getQAReview(CANONICAL_DOC_ID),
+    queryKey: ['qa-review', activeDocId],
+    queryFn:  () => documentsApi.getQAReview(activeDocId!),
+    enabled:  !!activeDocId,
   })
 
   const { data: project } = useQuery({
@@ -162,14 +171,17 @@ export function AuditReviewAlert() {
   const nextDueAt      = qaReview?.nextDueAt ?? null
 
   const logMut = useMutation({
-    mutationFn: () => documentsApi.logQAReview(CANONICAL_DOC_ID, {
-      reviewedBy: LOGGED_IN_USER,
-      notes:      `QA review logged; ${checked.size} of ${CHECKLIST_ITEMS.length} checklist items complete.`,
-    }),
+    mutationFn: () => {
+      if (!activeDocId) throw new Error('No document available in this project to log a QA review against.')
+      return documentsApi.logQAReview(activeDocId, {
+        reviewedBy: LOGGED_IN_USER,
+        notes:      `QA review logged; ${checked.size} of ${CHECKLIST_ITEMS.length} checklist items complete.`,
+      })
+    },
     onSuccess: () => {
       setAlertDismissed(true)
-      qc.invalidateQueries({ queryKey: ['qa-review', CANONICAL_DOC_ID] })
-      qc.invalidateQueries({ queryKey: ['audit',     CANONICAL_DOC_ID] })
+      qc.invalidateQueries({ queryKey: ['qa-review', activeDocId] })
+      qc.invalidateQueries({ queryKey: ['audit',     activeDocId] })
     },
   })
 

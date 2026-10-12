@@ -30,7 +30,7 @@ const pagedSchema = queryBaseSchema.extend({
 })
 
 interface AuditRow {
-  id: string
+  id: bigint  // audit_events.id is BIGSERIAL; $queryRawUnsafe returns a JS BigInt
   timestamp: Date
   actor_id: string
   action: string
@@ -44,7 +44,7 @@ interface AuditRow {
 
 function auditRowShape(r: AuditRow) {
   return {
-    id: r.id,
+    id: String(r.id),
     timestamp: r.timestamp.toISOString(),
     actorId: r.actor_id,
     action: r.action,
@@ -80,7 +80,9 @@ function buildFilter(q: z.infer<typeof queryBaseSchema>): { where: string; param
 // value contains comma/quote/newline. Keeps the output Excel-safe.
 function csvCell(v: unknown): string {
   if (v === null || v === undefined) return ''
-  const s = typeof v === 'string' ? v : JSON.stringify(v)
+  const s = typeof v === 'string' ? v
+          : typeof v === 'bigint' ? v.toString()
+          : JSON.stringify(v)
   if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`
   return s
 }

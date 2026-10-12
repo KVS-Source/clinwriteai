@@ -144,6 +144,18 @@ sudo -u platform bash -c "
   npm --workspace=apps/api run db:seed
 "
 
+# ---------- Blob storage directories ----------
+# BLOB_PROVIDER=local writes under BLOB_LOCAL_ROOT_DIR (default
+# /opt/platform/data/blob). On an older VPS where the initial bootstrap
+# didn't create this, uploads fail with
+#   ENOENT: no such file or directory, mkdir '/opt/platform/data/blob/documents'
+# The local-storage adapter already uses { recursive: true }, but needs
+# the ROOT to exist first. Create the four buckets referenced by the API
+# (documents, voice, exports, ectd) + chown to the platform user.
+log "Ensuring blob storage directories exist"
+mkdir -p /opt/platform/data/blob/{documents,voice,exports,ectd}
+chown -R platform:platform /opt/platform/data/blob
+
 # ---------- Restart services ----------
 log "Restarting platform-api"
 systemctl restart platform-api

@@ -290,6 +290,13 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
 
       {/* ===== Footer ===== */}
       <div className="flex flex-none flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3">
+        {submitMut.isError && (
+          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
+            {(submitMut.error as { body?: { message?: string } } | null)?.body?.message
+              ?? (submitMut.error as Error | null)?.message
+              ?? 'Could not submit — see console for details.'}
+          </div>
+        )}
         <div className="flex gap-2">
           <button
             type="button"

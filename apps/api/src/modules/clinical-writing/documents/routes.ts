@@ -319,7 +319,30 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
     const from = doc.status as DocumentStatus
-    if (!canTransitionDocument(from, 'in_review')) {
+    // Idempotent re-submit: already in review → return the document unchanged.
+    if (from === 'in_review') {
+      return doc
+    }
+    // UX gate: not_started is the day-one state for a brand-new document.
+    // The strict state machine requires not_started → in_authoring → in_review,
+    // but the UI's "Submit for review" button is the only path a writer takes
+    // on a demo document, so collapse both hops here. Audit captures the
+    // implicit in_authoring step so Part 11 reviewers still see the trail.
+    if (from === 'not_started') {
+      await app.prisma.document.update({
+        where: { id: documentId },
+        data: { status: 'in_authoring' },
+      })
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: request.user!.id,
+        action: 'document_status_changed',
+        entityType: 'document',
+        entityId: documentId,
+        details: { from: 'not_started', to: 'in_authoring', implicit: true },
+        ipAddress: request.ip ?? null,
+      })
+    } else if (!canTransitionDocument(from, 'in_review')) {
       const err = new InvalidDocumentTransitionError(from, 'in_review')
       return reply.code(409).send({ error: 'invalid_transition', message: err.message })
     }

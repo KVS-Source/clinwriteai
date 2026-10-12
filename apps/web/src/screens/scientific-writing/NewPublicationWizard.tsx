@@ -5,6 +5,8 @@ import type {
   PublicationType, ReportingGuideline, CreatePublicationBody,
 } from '@platform/types'
 import { publicationsApi } from '../../api'
+import { ApiError } from '../../api/client'
+import { usePlatformStore } from '../../platform/store'
 
 // --- Static config ---
 
@@ -175,28 +177,46 @@ export function NewPublicationWizard({ onClose }: WizardProps = {}) {
     else navigate(`/projects/${projectId}/scientific-writing`)
   }
 
+  const currentUser = usePlatformStore(s => s.currentUser)
+
   const createMut = useMutation({
     mutationFn: () => {
-      const body: CreatePublicationBody = {
-        projectId:              projectId ?? '',
+      if (!projectId) throw new Error('projectId missing in URL')
+      // API accepts snake_case subtype values (API schema just takes a
+      // string, but service-layer code expects the snake form).
+      const subtypeDb = type === 'manuscript'
+        ? (subtype === 'original' ? 'original_research'
+         : subtype === 'review'   ? 'systematic_review'
+         :                          'case_report')
+        : undefined
+      const body = {
         type,
-        subtype:                type === 'manuscript' ? (subtype === 'original' ? 'original-research' : subtype === 'review' ? 'systematic-review' : 'case-report') : null,
-        title:                  `${TYPE_CARDS.find(t => t.id === type)?.label ?? 'Publication'} — VELORA-301 draft`,
+        ...(subtypeDb && { subtype: subtypeDb }),
+        title: `${TYPE_CARDS.find(t => t.id === type)?.label ?? 'Publication'} — draft`,
         guideline,
-        journal:                journal || null,
-        targetSubmissionDate:   targetDate,
-        keyMessage:             keyMessage || null,
-        sourceDocumentId:       'doc-velora-csr',
-        sourceDocumentLabel:    'VELORA-301 CSR v1.0 · Clinical Writing',
-        ownerId:                'user-mw',
+        ...(journal && { journal }),
+        ...(targetDate && { targetSubmissionDate: new Date(targetDate).toISOString() }),
+        ...(keyMessage && { keyMessage }),
+        // case_report subtype requires a non-default BAA status (FR-B-025).
+        baaStatus: subtypeDb === 'case_report' ? 'in_progress' : 'not_applicable',
+        // teamRoles: current user as Responsible so the API accepts the
+        // request. The wizard's TEAM constant is UI-only (no userIds), so
+        // we can't honour it until the author-picker lands.
+        teamRoles: [{ userId: currentUser.id, raci: 'R' as const }],
       }
-      return publicationsApi.create(body)
+      return publicationsApi.create(projectId, body as unknown as Omit<CreatePublicationBody, 'projectId'>)
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['publications', projectId] })
       navigate(`/projects/${projectId}/scientific-writing`)
     },
   })
+
+  const createError = createMut.isError
+    ? createMut.error instanceof ApiError
+      ? ((createMut.error.body as { message?: string } | null)?.message ?? `Could not create (HTTP ${createMut.error.status}).`)
+      : (createMut.error as Error | null)?.message ?? 'Could not create publication — see console for details.'
+    : null
 
   const handleNext = () => {
     if (step < 4) setStep((step + 1) as 1 | 2 | 3 | 4)
@@ -815,6 +835,11 @@ export function NewPublicationWizard({ onClose }: WizardProps = {}) {
                 : 'Next →'}
             </button>
           </div>
+          {createError && (
+            <div className="mt-2 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
+              {createError}
+            </div>
+          )}
         </div>
       </div>
     </div>

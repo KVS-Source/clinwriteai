@@ -23,8 +23,10 @@ export const publicationsApi = {
     api.get<Publication[]>(`/projects/${projectId}/publications`),
   get:    (publicationId: string) =>
     api.get<Publication>(`/publications/${publicationId}`),
-  create: (body: CreatePublicationBody) =>
-    api.post<Publication>(`/publications`, body),
+  // Project-scoped per API route /projects/:id/publications. The body no
+  // longer includes projectId — it's taken from the URL.
+  create: (projectId: string, body: Omit<CreatePublicationBody, 'projectId'>) =>
+    api.post<Publication>(`/projects/${projectId}/publications`, body),
   update: (publicationId: string, body: UpdatePublicationBody) =>
     api.patch<Publication>(`/publications/${publicationId}`, body),
 

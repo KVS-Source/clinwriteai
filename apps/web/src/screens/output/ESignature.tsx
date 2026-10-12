@@ -441,7 +441,7 @@ export function ESignature() {
       <div className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center">
         <p className="font-mono text-sm text-slate-500">No signature chain has been initiated for this document.</p>
         <p className="text-xs text-slate-400">The document owner initiates the Part 11 chain from the Reviewer View once review is complete.</p>
-        <button onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/reviewer`)}
+        <button onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/review`)}
           className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
           Open Reviewer View
         </button>

@@ -31,16 +31,30 @@ const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
   'pil', 'pls_eu_ctr', 'patient_education',
 ])
 
+// UI sends type in hyphen-case (hcp-slide-deck); DB stores snake_case.
+// UI sends complianceTrack in short form (mlr | accme); DB stores
+// promotional | non_promotional | cme | advisory. Translate both so the
+// web New-content panel can submit the UI vocab directly.
+const UI_TYPE_TO_DB: Record<string, string> = {
+  'hcp-slide-deck': 'hcp_slide_deck', 'mi-letter': 'mi_letter', 'pil': 'pil',
+  'cme-module': 'cme_module', 'disease-dossier': 'disease_dossier',
+  'eu-ctr-pls': 'eu_ctr_pls', 'advisory-report': 'advisory_report',
+}
+const UI_TRACK_TO_DB: Record<string, string> = {
+  mlr: 'promotional', accme: 'cme',
+  promotional: 'promotional', non_promotional: 'non_promotional',
+  cme: 'cme', advisory: 'advisory',
+}
 const createSchema = z.object({
   type: z.string().min(1),
   title: z.string().min(1),
-  sourceModuleAProjectId: z.string().min(1),
+  sourceModuleAProjectId: z.string().optional(),   // defaults to :projectId from URL
   sourceModuleBPubId: z.string().optional(),
-  complianceTrack: z.enum(['promotional', 'non_promotional', 'cme', 'advisory']),
+  complianceTrack: z.string().optional(),          // accepts UI's 'mlr' | 'accme' too; defaults to 'promotional'
   taTag: z.string().min(1),
   channels: z.array(z.string()).default([]),
   targetAudience: z.array(z.string()).default([]),
-  ownerId: z.string().optional(),            // defaults to creator
+  ownerId: z.string().optional(),                   // defaults to creator
 })
 
 const patchSchema = z.object({
@@ -118,10 +132,8 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
-    // Verify the Module A source project exists — this is a cross-module FK
-    // check that Prisma can't do (no relation defined between MedContentItem
-    // and Project.source).
-    const srcA = await app.prisma.project.findUnique({ where: { id: parsed.data.sourceModuleAProjectId } })
+    const srcProjectId = parsed.data.sourceModuleAProjectId ?? projectId
+    const srcA = await app.prisma.project.findUnique({ where: { id: srcProjectId } })
     if (!srcA) return reply.code(400).send({ error: 'validation', message: 'sourceModuleAProjectId not found' })
 
     if (parsed.data.sourceModuleBPubId) {
@@ -129,14 +141,17 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
       if (!srcB) return reply.code(400).send({ error: 'validation', message: 'sourceModuleBPubId not found' })
     }
 
+    const dbType  = UI_TYPE_TO_DB[parsed.data.type]  ?? parsed.data.type
+    const dbTrack = UI_TRACK_TO_DB[parsed.data.complianceTrack ?? 'promotional'] ?? 'promotional'
+
     const created = await app.prisma.medContentItem.create({
       data: {
         projectId,
-        sourceModuleAProjectId: parsed.data.sourceModuleAProjectId,
+        sourceModuleAProjectId: srcProjectId,
         sourceModuleBPubId: parsed.data.sourceModuleBPubId ?? null,
-        type: parsed.data.type,
+        type: dbType,
         title: parsed.data.title,
-        complianceTrack: parsed.data.complianceTrack,
+        complianceTrack: dbTrack,
         taTag: parsed.data.taTag,
         channels: parsed.data.channels,
         targetAudience: parsed.data.targetAudience,

@@ -181,4 +181,22 @@ export const medContentApi = {
   // Portfolio
   getPortfolio: (projectId: string, scope?: string) =>
     api.get<MedContentItem[]>(`/projects/${projectId}/med-content/portfolio${scope ? `?scope=${encodeURIComponent(scope)}` : ''}`),
+
+  // Upload + classification (mirror of documentsApi.upload / confirmClassification).
+  // The upload itself is driven by raw XHR in UploadMedContent.tsx so it can
+  // report upload progress — fetch() can't surface upload progress events.
+  // This helper is here for parity + future refactors.
+  confirmClassification: (projectId: string, body: {
+    uploadId: string
+    documentType: string
+    title: string
+    version: string
+    therapeuticArea: string
+    complianceTrack: string
+    ownerId?: string
+    channels?: string[]
+    targetAudience?: string[]
+    overrides: string[]
+  }) =>
+    api.post<MedContentItem>(`/projects/${projectId}/med-content/confirm-classification`, body),
 }

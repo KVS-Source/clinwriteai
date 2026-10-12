@@ -149,7 +149,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/submit-to-mlr', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = submitSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
@@ -239,7 +239,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/mlr-reviewers/self-decision', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = reviewerDecisionSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const row = await app.prisma.mlrReviewer.findUnique({
       where: { contentItemId_userId: { contentItemId: contentId, userId: request.user!.id } },
@@ -285,7 +285,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/mlr-comments', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = addCommentSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
@@ -298,23 +298,39 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: 'not_a_reviewer', message: 'Only assigned MLR reviewers can comment' })
     }
 
-    const id = await nextMlrCommentId(app.prisma, contentId)
-
-    const created = await app.prisma.mlrComment.create({
-      data: {
-        id,
-        contentItemId: contentId,
-        reviewerId: request.user!.id,
-        reviewerName: request.user!.email,                              // denorm fallback — User.name would be nicer but email always present
-        text: parsed.data.text,
-        tag: parsed.data.tag,
-        escalatedFromAgentic: parsed.data.escalatedFromAgentic,
-        ...(parsed.data.escalatedFromAgentic && {
-          escalatedBy: request.user!.id,
-          escalatedAt: new Date(),
-        }),
-      },
-    })
+    // Retry loop handles the race where two concurrent inserts both read
+    // the same max sequence and try to use the same ID. The id column is
+    // the primary key, so a collision raises P2002 which we catch and
+    // retry with a freshly computed id.
+    let created: Awaited<ReturnType<typeof app.prisma.mlrComment.create>> | null = null
+    let lastId = ''
+    for (let attempt = 0; attempt < 5 && !created; attempt++) {
+      lastId = await nextMlrCommentId(app.prisma, contentId)
+      try {
+        created = await app.prisma.mlrComment.create({
+          data: {
+            id: lastId,
+            contentItemId: contentId,
+            reviewerId: request.user!.id,
+            reviewerName: request.user!.email,                              // denorm fallback — User.name would be nicer but email always present
+            text: parsed.data.text,
+            tag: parsed.data.tag,
+            escalatedFromAgentic: parsed.data.escalatedFromAgentic,
+            ...(parsed.data.escalatedFromAgentic && {
+              escalatedBy: request.user!.id,
+              escalatedAt: new Date(),
+            }),
+          },
+        })
+      } catch (e: unknown) {
+        if ((e as { code?: string }).code === 'P2002') continue           // unique collision on id — recompute + retry
+        throw e
+      }
+    }
+    if (!created) {
+      return reply.code(503).send({ error: 'id_contention', message: 'Too many simultaneous comments; retry' })
+    }
+    const id = lastId
 
     const auditEntry = await app.audit.append({
       timestamp: new Date().toISOString(),
@@ -370,7 +386,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/mlr-decision', { preHandler: requireAuth({ modules: ['C'], roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = leadDecideSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const decision = UI_DECISION_MAP[parsed.data.decision]
     if (!decision) {

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { MedClaim, MedContentItem } from '@platform/types'
 import { MED_CONTENT_TYPE_META } from '@platform/types'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
+import { projectsApi } from '../../api/projects'
 import { ReviewTierBadge } from '../../components/ui'
 
 // --- Static slide list — 26 slides per brief §43 ---
@@ -92,6 +93,12 @@ export function ContentEditor() {
     enabled:  !!contentId,
   })
 
+  const { data: project } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn:  () => projectsApi.get(projectId!),
+    enabled:  !!projectId,
+  })
+
   const { data: claims = [] } = useQuery({
     queryKey: ['med-claims', contentId],
     queryFn:  () => medContentApi.getClaims(contentId!),
@@ -164,7 +171,7 @@ export function ContentEditor() {
         {/* Header bar */}
         <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3" data-editor-header>
           <p className="font-mono text-[11px] text-slate-500" data-content-title>
-            VELORA-301 · Medical Writing · Veloricept HCP Slide Deck · Stage 3 · Authoring
+            {project?.shortTitle ?? project?.name ?? '…'} · Medical Writing · {currentItem?.title ?? '…'} · Stage {currentItem?.stage ?? '—'}
           </p>
           <span
             className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-semibold"
@@ -172,7 +179,7 @@ export function ContentEditor() {
             data-messaging-framework-chip
           >
             <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#7C3AED' }} />
-            Messaging framework: VELORA-301 v1.0 ✓
+            Messaging framework: {project?.shortTitle ?? '—'} v{currentItem?.version ?? '0.1'} ✓
           </span>
           {currentItem?.reviewTier && (
             <ReviewTierBadge tier={currentItem.reviewTier} overridden={!!currentItem.reviewTierOverriddenBy} />

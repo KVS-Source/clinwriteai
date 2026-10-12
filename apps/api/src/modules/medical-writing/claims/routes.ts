@@ -81,7 +81,7 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/claims', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = createClaimSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
@@ -148,7 +148,7 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/claims/adopt', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = adoptSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const claim = await app.prisma.claimsMatrixItem.findFirst({
       where: { id: parsed.data.claimId, contentItemId: contentId },
@@ -196,6 +196,50 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
     return updated
   })
 
+  // PATCH individual claim status — called by the Claims Matrix UI when a
+  // reviewer flips a single claim between approved/modified/needs_edit/
+  // library_adopted/new. Also accepts UI vocab 'must-fix' → 'needs_edit'.
+  app.patch('/:contentId/claims/:claimId', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId, claimId } = request.params as { contentId: string; claimId: string }
+    const body = (request.body ?? {}) as { approvalStatus?: string; reviewerId?: string }
+    const incoming = (body.approvalStatus ?? '').toLowerCase()
+    const dbStatus =
+      incoming === 'must-fix' || incoming === 'must_fix' ? 'needs_edit'
+      : incoming === 'modified' ? 'needs_edit'
+      : incoming
+    const allowed = new Set(['new', 'approved', 'rejected', 'needs_edit', 'library_adopted'])
+    if (!allowed.has(dbStatus)) {
+      return reply.code(400).send({ error: 'validation', message: `unknown approvalStatus: ${incoming}` })
+    }
+
+    const claim = await app.prisma.claimsMatrixItem.findFirst({
+      where: { id: claimId, contentItemId: contentId },
+    })
+    if (!claim) return reply.code(404).send({ error: 'not_found' })
+
+    const updated = await app.prisma.claimsMatrixItem.update({
+      where: { id: claimId },
+      data: {
+        approvalStatus: dbStatus,
+        reviewerId: body.reviewerId ?? request.user!.id,
+      },
+    })
+
+    await recalculateReviewTier(app.prisma, contentId, request.user!.id)
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'claim_status_updated',
+      entityType: 'med_content',
+      entityId: contentId,
+      details: { claimId, from: claim.approvalStatus, to: dbStatus },
+      ipAddress: request.ip ?? null,
+    })
+
+    return updated
+  })
+
   app.get('/:contentId/review-tier', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const latest = await app.prisma.reviewTierRecord.findFirst({
@@ -214,7 +258,7 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
     // ships. Admin acts as MLR Lead until then.
     const { contentId } = request.params as { contentId: string }
     const parsed = overrideTierSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
     const tier = normalizeTier(parsed.data)
     if (!tier) return reply.code(400).send({ error: 'validation', message: 'tier (A|B|C or 1|2|3) is required' })
 

@@ -166,7 +166,7 @@ export const medContentUploadRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:projectId/med-content/confirm-classification', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = confirmSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const upload = await app.prisma.contentUpload.findFirst({
       where: { id: parsed.data.uploadId, projectId },

@@ -106,7 +106,7 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
   app.get('/:projectId/med-content', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = listQuerySchema.safeParse(request.query)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
@@ -127,7 +127,7 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
   app.post('/:projectId/med-content', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = createSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
@@ -211,7 +211,7 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/:contentId', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = patchSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const existing = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!existing || existing.archivedAt) return reply.code(404).send({ error: 'not_found' })
@@ -303,7 +303,7 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/archive', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = archiveSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
@@ -337,5 +337,231 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return medContentShape(updated)
+  })
+
+  // --- Final output bundle (stage 6 summary screen) --------------------
+  // Returns the content item + a derived list of "library cards" + an
+  // expiry record + an approvals list sourced from signatures/decisions.
+  // Library cards are a stub (one card per channel the content ships to)
+  // until the Master Library data model lands. Approvals derive from the
+  // latest MLR decision record.
+  app.get('/:contentId/final', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId } = request.params as { contentId: string }
+    const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
+    if (!item) return reply.code(404).send({ error: 'not_found' })
+
+    const decision = await app.prisma.mlrDecisionRecord.findFirst({
+      where: { contentItemId: contentId },
+      orderBy: { timestampUtc: 'desc' },
+    })
+
+    const libraryCards = (item.channels ?? []).map((channel, idx) => ({
+      id: `lib-${contentId}-${idx}`,
+      channel,
+      title: `${item.title} — ${channel}`,
+      taTag: item.taTag,
+      status: item.status === 'approved' ? 'live' : 'draft',
+      pushedAt: item.approvedAt?.toISOString() ?? null,
+    }))
+
+    const expiryRecord = item.expiryDate ? {
+      contentItemId: contentId,
+      expiryDate: item.expiryDate.toISOString().slice(0, 10),
+      daysToExpiry: Math.ceil((item.expiryDate.getTime() - Date.now()) / (1000 * 60 * 60 * 24)),
+      alertRecipients: [],
+    } : null
+
+    const approvals = decision ? [{
+      name:      decision.decidedByName,
+      role:      decision.decidedByRole,
+      decidedAt: decision.timestampUtc.toISOString(),
+    }] : []
+
+    return {
+      contentItem: medContentShape(item),
+      libraryCards,
+      expiryRecord,
+      approvals,
+    }
+  })
+
+  // --- KOL session (stub) ---------------------------------------------
+  // Returns a deterministic placeholder session shape so sPM02 (KOL
+  // Advisory Board Session screen) renders without a hard dependency on
+  // the real session schema. Replace when the KOL session data model
+  // lands (project_phase_3c_deferrals).
+  app.get('/:contentId/kol-session', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId } = request.params as { contentId: string }
+    const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
+    if (!item) return reply.code(404).send({ error: 'not_found' })
+
+    return {
+      id: `kol-${contentId}`,
+      contentItemId: contentId,
+      scheduledFor: null,
+      meetingType: 'virtual',
+      attendees: [],
+      transcriptUploadedAt: null,
+      insightsReportGeneratedAt: null,
+      status: 'planned',
+    }
+  })
+
+  // --- WCAG + locales stubs (sPM05 Formatting & Accessibility) --------
+  // axe-core integration deferred (project_phase_3c_deferrals). These
+  // stubs return deterministic shapes so the UI renders instead of
+  // falling through to a 404.
+  app.post('/:contentId/wcag/run', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId } = request.params as { contentId: string }
+    const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
+    if (!item) return reply.code(404).send({ error: 'not_found' })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'wcag_run',
+      entityType: 'med_content',
+      entityId: contentId,
+      details: { stub: true },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      runAt: new Date().toISOString(),
+      passed: false,
+      score: 92,
+      failures: [
+        {
+          id: `wcag-${contentId}-1`,
+          slide: 'Slide 22',
+          rule: 'color-contrast',
+          wcagRef: '1.4.3',
+          detail: 'Caption text contrast 3.1:1 — below the 4.5:1 AA minimum.',
+          fixed: false,
+          fixedBy: null,
+          fixedAt: null,
+        },
+      ],
+      stub: true,
+    }
+  })
+
+  app.patch('/:contentId/wcag/failures/:failureId/fix', { preHandler: requireAuth({ modules: ['C'] }) }, async (request) => {
+    const { contentId, failureId } = request.params as { contentId: string; failureId: string }
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'wcag_failure_fixed',
+      entityType: 'med_content',
+      entityId: contentId,
+      details: { failureId, stub: true },
+      ipAddress: request.ip ?? null,
+    })
+    return { fixedAt: new Date().toISOString() }
+  })
+
+  app.get('/:contentId/locales', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId } = request.params as { contentId: string }
+    const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
+    if (!item) return reply.code(404).send({ error: 'not_found' })
+    // Shared Master Library model (SME direction, 2026-10-05) — primary
+    // locale is enabled, others are available but not yet translated.
+    return [
+      { code: 'en-GB', label: 'English (UK) — primary', enabled: true,  status: 'approved' },
+      { code: 'en-US', label: 'English (US)',           enabled: false, status: 'available' },
+      { code: 'de-DE', label: 'German (DE)',            enabled: false, status: 'available' },
+      { code: 'fr-FR', label: 'French (FR)',            enabled: false, status: 'available' },
+      { code: 'es-ES', label: 'Spanish (ES)',           enabled: false, status: 'available' },
+    ]
+  })
+
+  // --- AI suggest (stub) ---------------------------------------------
+  // Deterministic stub pending the Anthropic connector (Arc 8.1).
+  app.post('/:contentId/ai-suggest', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId } = request.params as { contentId: string }
+    const body = (request.body ?? {}) as { sectionId?: string; prompt?: string }
+    const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
+    if (!item) return reply.code(404).send({ error: 'not_found' })
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'ai_suggest_generated',
+      entityType: 'med_content',
+      entityId: contentId,
+      details: { sectionId: body.sectionId, model: 'stub-advisor-v1' },
+      ipAddress: request.ip ?? null,
+    })
+    return {
+      responseText:
+        `[AI stub — Anthropic connector pending] Suggested wording for ${body.sectionId ?? 'this section'}: ` +
+        `Veloricept + pembrolizumab significantly improved PFS vs pembrolizumab alone (HR 0.61; 95% CI 0.48–0.77; p<0.001), ` +
+        `with a safety profile consistent with pembrolizumab monotherapy.`,
+      aiModel: 'stub-advisor-v1',
+      generatedAt: new Date().toISOString(),
+    }
+  })
+
+  // --- Library push (stub) --------------------------------------------
+  // Master Library push: records an audit event and returns pushed card
+  // count. Real Master Library persistence lands when the shared card
+  // table + versioning model lands (project_phase_3c_deferrals A3).
+  app.post('/:contentId/library/push', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId } = request.params as { contentId: string }
+    const body = (request.body ?? {}) as { cardIds?: string[]; pushedBy?: string }
+    const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
+    if (!item) return reply.code(404).send({ error: 'not_found' })
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'library_push',
+      entityType: 'med_content',
+      entityId: contentId,
+      details: { cardCount: body.cardIds?.length ?? 0, stub: true },
+      ipAddress: request.ip ?? null,
+    })
+    return { pushedAt: new Date().toISOString(), cardCount: body.cardIds?.length ?? 0 }
+  })
+}
+
+// --- KOL session non-contentId-scoped routes (upload transcript,
+// generate insights). Mounted at /kol-sessions in server.ts. Separate
+// plugin because the base path differs from the other Module C routes.
+export const kolSessionRoutes: FastifyPluginAsync = async (app) => {
+  app.post('/:sessionId/transcript', { preHandler: requireAuth({ modules: ['C'] }) }, async (request) => {
+    const { sessionId } = request.params as { sessionId: string }
+    const body = (request.body ?? {}) as { transcriptText?: string; uploadedBy?: string }
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'kol_transcript_uploaded',
+      entityType: 'kol_session',
+      entityId: sessionId,
+      details: { bytes: (body.transcriptText ?? '').length, stub: true },
+      ipAddress: request.ip ?? null,
+    })
+    return { uploadedAt: new Date().toISOString() }
+  })
+
+  app.post('/:sessionId/insights/generate', { preHandler: requireAuth({ modules: ['C'] }) }, async (request) => {
+    const { sessionId } = request.params as { sessionId: string }
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'kol_insights_generated',
+      entityType: 'kol_session',
+      entityId: sessionId,
+      details: { model: 'stub-advisor-v1' },
+      ipAddress: request.ip ?? null,
+    })
+    return {
+      insightsReportText:
+        '[Insights stub — Anthropic connector pending]\n\n' +
+        'KEY INSIGHTS\n' +
+        '1. Clinical consensus on first-line use in PD-L1 ≥50% subgroup, with preference for combination therapy.\n' +
+        '2. Need for clearer monitoring guidance in patients with baseline hepatic impairment.\n' +
+        '3. Perceived value of real-world evidence from the UK and EU markets to supplement pivotal trial data.\n' +
+        '4. Interest in CME content covering biomarker-driven treatment selection.\n',
+      generatedAt: new Date().toISOString(),
+    }
   })
 }

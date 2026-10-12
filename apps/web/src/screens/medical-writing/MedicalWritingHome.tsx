@@ -9,7 +9,6 @@ import { projectsApi } from '../../api/projects'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 import { NewMedContent } from './NewMedContent'
 import { UploadMedContent } from './UploadMedContent'
-import expiryFixture from '../../data/contentExpiryRecords.json'
 
 // Stable empty-array fallback for useQuery — prevents React #185
 // (setter-in-useEffect loops on the transient `[]` default reference).
@@ -86,10 +85,6 @@ function tabMatches(item: MedContentItem, tab: TabDef): boolean {
   return tab.statuses.includes(item.status)
 }
 
-const EXPIRY_MAP: Record<string, string> = Object.fromEntries(
-  (expiryFixture as { contentItemId: string; expiryDate: string }[])
-    .map(r => [r.contentItemId, r.expiryDate])
-)
 
 // --- Subcomponents ---
 
@@ -148,7 +143,7 @@ function ContentRow({ item, onOpen }: ContentRowProps) {
   const trackMeta  = TRACK_META[item.complianceTrack]
   const showFk     = isPatientFacing(item.type) && item.fkScore !== null && item.fkScore !== undefined
   const showTier   = item.reviewTier !== null && item.reviewTier !== undefined
-  const expiryDate = EXPIRY_MAP[item.id] ?? item.expiryDate ?? null
+  const expiryDate = item.expiryDate ?? null
   const showExpiry = expiryDate !== null
   const overdue    = item.mlrOverdue === true
   const sourceLabel = item.sourceModuleAProjectId ? 'Clinical Writing ✓' : null
@@ -383,16 +378,17 @@ export function MedicalWritingHome() {
     })
   }, [all, activeTab, taFilter, typeFilter, statusFilter, searchQuery])
 
-  // Metrics strip
+  // Metrics strip — derive expiry count from the content items themselves
+  // (expiryDate column on MedContentItem) rather than a separate fixture.
   const metrics = useMemo(() => {
     const activeItems = all.filter(i => i.status !== 'expired').length
     const mlrPending  = all.filter(i => i.status === 'in-mlr-review').length
     const now         = Date.now()
-    const expiringSoon = (expiryFixture as { expiryDate: string }[])
-      .filter(r => {
-        const days = (new Date(r.expiryDate).getTime() - now) / (1000 * 60 * 60 * 24)
-        return days >= 0 && days <= 60
-      }).length
+    const expiringSoon = all.filter(i => {
+      if (!i.expiryDate) return false
+      const days = (new Date(i.expiryDate).getTime() - now) / (1000 * 60 * 60 * 24)
+      return days >= 0 && days <= 60
+    }).length
     return {
       activeItems,
       mlrPending,

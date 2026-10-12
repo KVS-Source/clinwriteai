@@ -7,8 +7,6 @@ import { useKOLStore } from '../../modules/medical-writing/store'
 
 // --- Helpers ---
 
-const MOCK_CONTENT_ID = 'mc-001'
-
 function formatDate(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -71,9 +69,23 @@ export function KOLAdvisoryBoardSession() {
   const [sessionNotes, setSessionNotes] = useState('')
   const [toast, setToast] = useState<string | null>(null)
 
+  // Module-level screen: resolve the active content from the first project
+  // content item (users can switch via the picker). Removes the previous
+  // hardcoded MOCK_CONTENT_ID = 'mc-001' which broke every non-VELORA project.
+  const { data: projectContent = [] } = useQuery({
+    queryKey: ['medContent', projectId],
+    queryFn:  () => medContentApi.list(projectId!),
+    enabled:  !!projectId,
+  })
+  const [activeContentId, setActiveContentId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!activeContentId && projectContent.length > 0) setActiveContentId(projectContent[0].id)
+  }, [projectContent, activeContentId])
+
   const { data: fetched } = useQuery({
-    queryKey: ['kol-session', MOCK_CONTENT_ID],
-    queryFn:  () => medContentApi.getKOLSession(MOCK_CONTENT_ID),
+    queryKey: ['kol-session', activeContentId],
+    queryFn:  () => medContentApi.getKOLSession(activeContentId!),
+    enabled:  !!activeContentId,
   })
 
   useEffect(() => { if (fetched) setSession(fetched as KOLSession) }, [fetched, setSession])
@@ -113,9 +125,18 @@ export function KOLAdvisoryBoardSession() {
   const quotesApprovedReady = insightsReady && Math.random() > 0.5 // soft: cosmetic
   const canProceed = notesReady && insightsReady && frameworkReady
 
+  const advanceStageMutation = useMutation({
+    mutationFn: () => medContentApi.advanceStage(activeContentId!),
+  })
+
   const proceed = () => {
     if (!canProceed || !session) return
-    navigate(`/projects/${projectId}/medical-writing/content/${session.contentItemId}/editor`)
+    // Fire the stage advance (idempotent on the server; returns 422 if the
+    // content isn't in the stage this screen gates). Navigate regardless so
+    // demo flow doesn't block on the API round-trip.
+    advanceStageMutation.mutate(undefined, {
+      onSettled: () => navigate(`/projects/${projectId}/medical-writing/content/${session.contentItemId}/editor`),
+    })
   }
 
   return (

@@ -114,7 +114,7 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/pre-mlr/run', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = runPreMlrSchema.safeParse(request.body ?? {})
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
@@ -274,7 +274,7 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:contentId/fk-score', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = fkScoreSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
 
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })

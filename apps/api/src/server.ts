@@ -280,6 +280,9 @@ async function buildServer() {
   const { medContentUploadRoutes } = await import('./modules/medical-writing/content/upload-routes.js')
   await app.register(medContentUploadRoutes, { prefix: '/projects' })
 
+  const { kolSessionRoutes } = await import('./modules/medical-writing/content/routes.js')
+  await app.register(kolSessionRoutes, { prefix: '/kol-sessions' })
+
   const { claimsRoutes } = await import('./modules/medical-writing/claims/routes.js')
   await app.register(claimsRoutes, { prefix: '/med-content' })
 

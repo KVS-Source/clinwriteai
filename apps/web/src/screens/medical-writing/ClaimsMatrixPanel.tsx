@@ -5,8 +5,6 @@ import type { ClaimStatus, MedClaim } from '@platform/types'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { useClaimsStore } from '../../modules/medical-writing/store'
 
-// --- Static assumption: default active content ---
-const ACTIVE_CONTENT_ID = 'mc-001'
 const CURRENT_USER_NAME = 'Dr Sarah Chen'
 
 // Stable empty-array fallback for useQuery — prevents React #185
@@ -49,9 +47,24 @@ export function ClaimsMatrixPanel() {
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3400) }
 
+  // Module-level claims view: pick the first content item in the project so
+  // the screen works for every project (not just VELORA). Users can switch
+  // via the picker below.
+  const { data: projectContent = [] } = useQuery({
+    queryKey: ['medContent', projectId],
+    queryFn:  () => medContentApi.list(projectId!),
+    enabled:  !!projectId,
+  })
+  const [activeContentId, setActiveContentId] = useState<string | null>(null)
+  useEffect(() => {
+    if (!activeContentId && projectContent.length > 0) setActiveContentId(projectContent[0].id)
+  }, [projectContent, activeContentId])
+  const activeContent = projectContent.find(c => c.id === activeContentId) ?? projectContent[0] ?? null
+
   const { data: fetched = EMPTY_CLAIMS } = useQuery({
-    queryKey: ['med-claims', ACTIVE_CONTENT_ID],
-    queryFn:  () => medContentApi.getClaims(ACTIVE_CONTENT_ID),
+    queryKey: ['med-claims', activeContentId],
+    queryFn:  () => medContentApi.getClaims(activeContentId!),
+    enabled:  !!activeContentId,
   })
 
   useEffect(() => { setStoreClaims(fetched as MedClaim[]) }, [fetched, setStoreClaims])
@@ -82,7 +95,7 @@ export function ClaimsMatrixPanel() {
   const adoptMutation = useMutation({
     mutationFn: (claim: MedClaim) => {
       if (!claim.approvedLibraryText) throw new Error('no library text')
-      return medContentApi.adoptClaim(ACTIVE_CONTENT_ID, {
+      return medContentApi.adoptClaim(activeContentId!, {
         claimId:              claim.id,
         approvedLibraryText:  claim.approvedLibraryText,
         adoptedBy:            CURRENT_USER_NAME,
@@ -100,7 +113,7 @@ export function ClaimsMatrixPanel() {
   })
 
   const harvestMutation = useMutation({
-    mutationFn: () => medContentApi.harvestClaims(ACTIVE_CONTENT_ID),
+    mutationFn: () => medContentApi.harvestClaims(activeContentId!),
     onMutate:   () => setHarvestSpin(true),
     onSettled:  () => setHarvestSpin(false),
     onSuccess:  (data) => {
@@ -125,8 +138,20 @@ export function ClaimsMatrixPanel() {
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Claims Matrix</h1>
             <p className="font-mono text-xs" style={{ color: '#64748B' }}>
-              Veloricept HCP Slide Deck v0.3 · {gateStats.total} claims extracted · Auto-updated during authoring
+              {activeContent ? `${activeContent.title} · v${activeContent.version} · ` : ''}{gateStats.total} claims extracted · Auto-updated during authoring
             </p>
+            {projectContent.length > 1 && (
+              <select
+                value={activeContentId ?? ''}
+                onChange={e => setActiveContentId(e.currentTarget.value)}
+                className="mt-2 h-8 w-80 rounded-md border border-slate-300 bg-white px-2 text-[12px]"
+                data-content-picker
+              >
+                {projectContent.map(c => (
+                  <option key={c.id} value={c.id}>{c.title}</option>
+                ))}
+              </select>
+            )}
           </div>
           <div className="flex flex-none gap-2">
             <button

@@ -359,7 +359,7 @@ export function ESignature() {
   const navigate                  = useNavigate()
   const qc                        = useQueryClient()
 
-  const { data: chain = [] } = useQuery({
+  const { data: chain = [], isLoading, isError, error } = useQuery({
     queryKey: ['signature-chain', documentId],
     queryFn:  () => documentsApi.getSignatureChain(documentId!),
     enabled:  !!documentId,
@@ -429,8 +429,24 @@ export function ESignature() {
     navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)
   }
 
-  if (chain.length === 0) {
+  if (isLoading) {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">Loading signature chain…</p></div>
+  }
+  if (isError) {
+    const msg = (error as Error | null)?.message ?? 'Could not load signature chain.'
+    return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-red-600">{msg}</p></div>
+  }
+  if (chain.length === 0) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center">
+        <p className="font-mono text-sm text-slate-500">No signature chain has been initiated for this document.</p>
+        <p className="text-xs text-slate-400">The document owner initiates the Part 11 chain from the Reviewer View once review is complete.</p>
+        <button onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/reviewer`)}
+          className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
+          Open Reviewer View
+        </button>
+      </div>
+    )
   }
 
   const selectedSigner = selectedIndex !== null ? chain[selectedIndex] : null

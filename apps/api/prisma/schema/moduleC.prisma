@@ -260,3 +260,32 @@ model PreMlrIssue {
   @@map("pre_mlr_issues")
   @@index([checkResultId])
 }
+
+// --------------------------------------------------------------------------
+// Pending med-content uploads (mirror of DocumentUpload in moduleA). Feeds
+// POST /projects/:id/med-content/upload → classifier stub → user confirms
+// via POST /:id/med-content/confirm-classification which creates the real
+// MedContentItem and sets contentItemId here.
+// --------------------------------------------------------------------------
+
+model ContentUpload {
+  id                   String   @id @default(uuid())
+  projectId            String
+  uploadedBy           String
+  blobKey              String
+  fileName             String
+  fileSizeBytes        Int
+  contentType          String
+  virusScanStatus      String   @default("pending")
+  classification       Json?
+  status               String   @default("pending_classification")
+  contentItemId        String?
+  rejectionReason      String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  @@map("content_uploads")
+  @@index([projectId])
+  @@index([status])
+  @@index([contentItemId])
+}

@@ -1,7 +1,10 @@
 import { useEffect, useState } from 'react'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useFormattingStore } from '../../modules/medical-writing/store'
 import type { WCAGResult } from '../../modules/medical-writing/store'
+import { medContentApi } from '../../modules/medical-writing/api/medContent'
+import { projectsApi } from '../../api/projects'
 
 // --- Initial WCAG state — one Contrast failure per brief ---
 const INITIAL_WCAG: WCAGResult = {
@@ -72,21 +75,45 @@ export function FormattingAccessibility() {
 
   useEffect(() => { if (!wcagResult) setWCAGResult(INITIAL_WCAG) }, [wcagResult, setWCAGResult])
 
-  const handleRunWCAG = () => {
-    setRunningWCAG(true)
-    setTimeout(() => {
-      const failures = (wcagResult?.failures ?? INITIAL_WCAG.failures)
-      const allFixed = failures.every(f => f.fixed)
+  // Project header + locales + WCAG results now come from the API. The
+  // INITIAL_WCAG constant above remains as a startup fallback for before
+  // the first API response arrives (demo UX stays stable).
+  const { data: project } = useQuery({
+    queryKey: ['project', projectId],
+    queryFn:  () => projectsApi.get(projectId!),
+    enabled:  !!projectId,
+  })
+
+  const { data: locales = [] } = useQuery({
+    queryKey: ['locales', contentId],
+    queryFn:  () => medContentApi.getLocales(contentId!),
+    enabled:  !!contentId,
+  })
+
+  const runWcagMutation = useMutation({
+    mutationFn: () => medContentApi.runWCAG(contentId!),
+    onMutate:   () => setRunningWCAG(true),
+    onSettled:  () => setRunningWCAG(false),
+    onSuccess:  (data) => {
+      type ApiWcagResult = { runAt: string; passed: boolean; score: number; failures?: Array<{ id: string; rule?: string; wcagRef?: string; slide?: string; detail: string; fixed?: boolean }> }
+      const api = data as unknown as ApiWcagResult
       setWCAGResult({
-        runAt:  new Date().toISOString(),
-        passed: allFixed,
-        score:  allFixed ? 100 : 82,
-        failures,
+        runAt:  api.runAt,
+        passed: api.passed,
+        score:  api.score,
+        failures: (api.failures ?? []).map(f => ({
+          id:        f.id,
+          criterion: `WCAG ${f.wcagRef ?? ''} — ${f.rule ?? 'issue'}`,
+          severity:  'must-fix',
+          slide:     f.slide ?? '—',
+          detail:    f.detail,
+          fixed:     f.fixed ?? false,
+        })),
       })
-      setRunningWCAG(false)
-      flash(allFixed ? 'WCAG 2.1 AA · 48 tests pass · HTML unlocked.' : 'WCAG re-run complete · issues remain.')
-    }, 3000)
-  }
+      flash(api.passed ? 'WCAG 2.1 AA passes · HTML unlocked.' : 'WCAG run complete · issues remain.')
+    },
+  })
+  const handleRunWCAG = () => runWcagMutation.mutate()
 
   const handleApplyFix = (failureId: string) => {
     markFailureFixed(failureId)
@@ -104,9 +131,15 @@ export function FormattingAccessibility() {
   ]
   const canProceed = checklist.every(c => c.passed)
 
+  const advanceStageMutation = useMutation({
+    mutationFn: () => medContentApi.advanceStage(contentId!),
+  })
+
   const proceed = () => {
     if (!canProceed) return
-    navigate(`/projects/${projectId}/medical-writing/content/${contentId}/final`)
+    advanceStageMutation.mutate(undefined, {
+      onSettled: () => navigate(`/projects/${projectId}/medical-writing/content/${contentId}/final`),
+    })
   }
 
   const toggleChannel = (id: string) => setChannels(c => ({ ...c, [id]: !c[id] }))
@@ -126,7 +159,7 @@ export function FormattingAccessibility() {
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Formatting &amp; Accessibility</h1>
-            <p className="font-mono text-xs" style={{ color: '#64748B' }}>Stage 5 · MLR Approved · Format for distribution</p>
+            <p className="font-mono text-xs" style={{ color: '#64748B' }}>{project?.shortTitle ?? '…'} · Stage 5 · MLR Approved · Format for distribution</p>
           </div>
           <div className="flex flex-none gap-2">
             <button
@@ -287,8 +320,9 @@ export function FormattingAccessibility() {
         <section className="rounded-lg border border-slate-200 bg-white p-5" data-localisation>
           <h2 className="text-[14px] font-bold text-slate-900">Localisation · Browser-native localisation · Shared Master Library model</h2>
           <div className="mt-3 flex flex-col gap-2">
-            {DEFAULT_LOCALES.map(l => {
-              const approved = l.status === 'MLR Approved'
+            {(locales.length > 0 ? locales : DEFAULT_LOCALES).map((raw: unknown) => {
+              const l = raw as { code: string; label: string; status: string; enabled?: boolean; affiliate?: string | null; assigned?: string | null }
+              const approved = l.status === 'approved' || l.status === 'MLR Approved'
               return (
                 <div key={l.code} className="flex flex-wrap items-center gap-3 rounded-md border border-slate-200 p-3" data-locale-row={l.code}>
                   <span className="font-mono text-[11px] text-slate-500">{l.code}</span>
@@ -310,7 +344,7 @@ export function FormattingAccessibility() {
             data-view-local-mlr
             className="mt-2 text-[12px] font-semibold text-violet-700 hover:underline"
           >View local MLR chain →</button>
-          <button type="button" onClick={() => flash('Add locale — POST /med-content/:id/locales')} className="ml-3 mt-2 text-[12px] font-semibold text-violet-700 hover:underline" data-add-locale>Add locale</button>
+          <button type="button" onClick={() => flash('Add locale — Master Library translator integration pending.')} className="ml-3 mt-2 text-[12px] font-semibold text-violet-700 hover:underline" data-add-locale>Add locale</button>
         </section>
 
         {/* Stage 5 checklist */}

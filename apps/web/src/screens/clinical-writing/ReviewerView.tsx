@@ -82,13 +82,17 @@ export function ReviewerView() {
 
   const addCommentMut = useMutation({
     mutationFn: () => documentsApi.addComment(documentId!, {
-      sectionRef: '§11.4.1',
+      // Was hardcoded '§11.4.1' — now derives from the user's active section
+      // so comments post against whatever section they're viewing. Falls back
+      // to §11.4.1 only when activeSection isn't resolvable yet.
+      sectionRef: sectionRefFor(activeSection) !== '§?' ? sectionRefFor(activeSection) : '§11.4.1',
       text:       commentText,
       severity,
     }),
     onSuccess: () => {
       setCommentText('')
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
+      qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
     },
   })
 
@@ -347,6 +351,16 @@ export function ReviewerView() {
                     {addCommentMut.isPending ? 'Posting…' : 'Post comment'}
                   </button>
                 </div>
+                {addCommentMut.isError && (
+                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
+                    {(addCommentMut.error as { body?: { message?: string } } | null)?.body?.message
+                      ?? (addCommentMut.error as Error | null)?.message
+                      ?? 'Could not post comment — see console for details.'}
+                  </div>
+                )}
+                {addCommentMut.isSuccess && !addCommentMut.isPending && (
+                  <p className="text-[11px] font-semibold text-green-700">Comment posted — see Comments panel.</p>
+                )}
               </div>
 
               <p className="mt-4 text-sm leading-[1.8] text-slate-900">

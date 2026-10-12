@@ -59,8 +59,36 @@ export const documentsApi = {
   acceptSuggestion: (documentId: string, body: AcceptSuggestionBody) =>
     api.post<Document>(`/documents/${documentId}/ai-accept`, body),
   // Signatures
-  getSignatureChain: (documentId: string) =>
-    api.get<SignatureRecord[]>(`/documents/${documentId}/signature-chain`),
+  // The API at /documents/:id/signature-chains returns SignatureChain[]
+  // (each with nested records). The UI consumes a flat SignatureRecord[]
+  // of the active chain, so pick the most-recent chain's records here.
+  // Prisma denorms are signerName + signerRole; the UI shape uses signer +
+  // role + initials — map both here.
+  getSignatureChain: async (documentId: string): Promise<SignatureRecord[]> => {
+    type ApiRecord = {
+      id: string; signerName: string; signerRole: string; meaning: string
+      status: string; step: number; timestampUtc?: string | null
+      authMethod?: string; documentHash?: string; versionAtDecision?: string
+    }
+    const chains = await api.get<Array<{ id: string; initiatedAt: string; records: ApiRecord[] }>>(
+      `/documents/${documentId}/signature-chains`,
+    )
+    if (!Array.isArray(chains) || chains.length === 0) return []
+    const records = chains[0].records ?? []
+    return records.map(r => ({
+      id:        r.id,
+      signer:    r.signerName,
+      initials:  r.signerName.split(/\s+/).slice(0, 2).map(w => (w[0] ?? '').toUpperCase()).join(''),
+      role:      r.signerRole,
+      meaning:   r.meaning as SignatureRecord['meaning'],
+      status:    r.status as SignatureRecord['status'],
+      step:      r.step,
+      timestamp: r.timestampUtc ?? undefined,
+      authMethod: r.authMethod,
+      documentHash: r.documentHash,
+      version_at_signing: r.versionAtDecision,
+    }))
+  },
   sign: (documentId: string, body: SignDocumentBody) =>
     api.post<SignatureRecord>(`/documents/${documentId}/sign`, body),
   // Reference tools

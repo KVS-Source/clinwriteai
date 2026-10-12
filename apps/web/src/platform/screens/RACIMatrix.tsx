@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { RaciMatrix as RaciMatrixData, PlatformUser, RACIRole, AuditTrailEntry, PlatformUserRole } from '@platform/types'
 import { PLATFORM_ACCENT, PLATFORM_USER_ROLE_LABEL } from '@platform/types'
+import { projectsApi } from '../../api'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
 
@@ -30,6 +31,7 @@ function computeSignedStages(audit: AuditTrailEntry[]): { module: string; entity
 export function RACIMatrix() {
   const currentUser = usePlatformStore(s => s.currentUser)
   const { data: raci }    = useQuery<RaciMatrixData>({ queryKey: ['raci'],           queryFn: () => platformApi.getRaci('proj-velora-301') })
+  const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list() })
   const { data: users = [] } = useQuery<PlatformUser[]>({ queryKey: ['admin-users'], queryFn: () => platformApi.listUsers() })
   const { data: audit = [] } = useQuery<AuditTrailEntry[]>({ queryKey: ['audit'],    queryFn: () => platformApi.listAudit() })
 
@@ -93,12 +95,14 @@ export function RACIMatrix() {
           <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4" data-project-selector>
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Project</p>
             <select
-              defaultValue="proj-velora-301"
               data-project-select
-              className="h-9 rounded-md border border-slate-300 px-3 text-[13px]"
+              disabled={projects.length === 0}
+              className="h-9 w-full min-w-0 truncate rounded-md border border-slate-300 bg-white px-3 text-[13px]"
             >
-              <option value="proj-velora-301">VELORA-301 Efficacy Suite</option>
-              <option value="proj-aurelia-101">AURELIA-101 Phase I</option>
+              {projects.length === 0 && <option value="">No projects</option>}
+              {projects.map(p => (
+                <option key={p.id} value={p.id} title={p.name}>{p.shortTitle || p.name}</option>
+              ))}
             </select>
 
             <p className="mt-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Module</p>

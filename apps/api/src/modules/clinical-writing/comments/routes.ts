@@ -100,19 +100,33 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
-    const id = await nextCommentId(app.prisma, documentId)
-
-    const created = await app.prisma.comment.create({
-      data: {
-        id,
-        documentId,
-        sectionRef: parsed.data.sectionRef,
-        text: parsed.data.text,
-        severity: parsed.data.severity,
-        verdict: parsed.data.verdict ?? null,
-        reviewerId: request.user!.id,
-      },
-    })
+    // Retry loop handles the P2002 race where two concurrent inserts both
+    // read the same max CMT-### sequence. Same pattern as the Module C
+    // MLR comments route. 5 attempts covers realistic reviewer bursts.
+    let created: Awaited<ReturnType<typeof app.prisma.comment.create>> | null = null
+    let id = ''
+    for (let attempt = 0; attempt < 5 && !created; attempt++) {
+      id = await nextCommentId(app.prisma, documentId)
+      try {
+        created = await app.prisma.comment.create({
+          data: {
+            id,
+            documentId,
+            sectionRef: parsed.data.sectionRef,
+            text: parsed.data.text,
+            severity: parsed.data.severity,
+            verdict: parsed.data.verdict ?? null,
+            reviewerId: request.user!.id,
+          },
+        })
+      } catch (e: unknown) {
+        if ((e as { code?: string }).code === 'P2002') continue           // id collision — recompute + retry
+        throw e
+      }
+    }
+    if (!created) {
+      return reply.code(503).send({ error: 'id_contention', message: 'Too many simultaneous comments; retry' })
+    }
 
     await app.audit.append({
       timestamp: new Date().toISOString(),

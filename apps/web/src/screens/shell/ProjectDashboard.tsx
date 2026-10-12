@@ -152,12 +152,16 @@ export function ProjectDashboard() {
             </div>
             <button
               type="button"
+              onClick={() => navigate('/admin')}
+              title="Admin · Project + tenant settings (admin role required)"
               className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
             >
               Project settings
             </button>
             <button
               type="button"
+              onClick={() => navigate(`/admin/audit?entityId=${encodeURIComponent(projectId ?? '')}`)}
+              title="Admin · Hash-chained audit trail (admin role required)"
               className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
             >
               Audit trail

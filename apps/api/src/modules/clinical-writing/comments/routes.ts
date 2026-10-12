@@ -184,7 +184,10 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
     const rows = await app.audit.listForEntity('document', documentId, 500)
-    return rows
+    // UI (documentsApi.getAuditTrail) expects a paginated envelope rather
+    // than a bare array — a bare array causes `(auditData?.entries ?? []).map`
+    // in AuditReviewAlert.tsx to throw "d.map is not a function".
+    return { entries: rows, total: rows.length, limit: 500, offset: 0 }
   })
 }
 

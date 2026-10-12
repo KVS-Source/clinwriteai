@@ -413,6 +413,19 @@ async function main() {
   }
 
   // --------------------------------------------------------------
+  // Module C — Medical Writing fixtures (Arc 11.C resume).
+  // Seeded only when the matching fixtures load cleanly; failures
+  // log + continue so a missing/legacy fixture doesn't take down
+  // the whole seed.
+  // --------------------------------------------------------------
+  try {
+    console.log('→ Seeding Module C (Medical Writing)…')
+    await seedModuleC()
+  } catch (e) {
+    console.warn('   Module C seed skipped:', (e as Error).message)
+  }
+
+  // --------------------------------------------------------------
   // Done.
   // --------------------------------------------------------------
   const counts = {
@@ -424,9 +437,350 @@ async function main() {
     documents:  await prisma.document.count(),
     versions:   await prisma.documentVersion.count(),
     sections:   await prisma.sectionContent.count(),
+    medContent: await prisma.medContentItem.count(),
+    medClaims:  await prisma.claimsMatrixItem.count(),
+    mlrReviewers: await prisma.mlrReviewer.count(),
+    mlrComments: await prisma.mlrComment.count(),
+    preMlrRuns:  await prisma.preMlrCheckResult.count(),
   }
   console.log('✔ Seed complete.')
   console.table(counts)
+}
+
+// ---------- Module C seeding ----------
+
+interface FixtureMedContent {
+  id: string
+  projectId: string
+  sourceModuleAProjectId: string
+  sourceModuleBPublicationId: string | null
+  type: string
+  title: string
+  status: string
+  stage: number
+  complianceTrack: string
+  taTag: string
+  version: string
+  channels: string[]
+  targetAudience: string[]
+  reviewTier: 1 | 2 | 3 | null
+  reviewTierOverriddenBy: string | null
+  fkScore: number | null
+  fkPassed: boolean | null
+  aiFootprintPct: number | null
+  expiryDate: string | null
+  approvedAt: string | null
+  medicalAffairsPlanId: string | null
+  publicationPlanId: string | null
+  ownerId: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface FixtureClaim {
+  id: string
+  contentItemId: string
+  claimText: string
+  sourceRef: string | null
+  sourceType: string | null
+  location: string
+  approvalStatus: string
+  reviewerId: string | null
+  similarityPct: number | null
+  approvedLibraryText: string | null
+  adoptedAt: string | null
+}
+
+interface FixturePreMlrIssue {
+  id: string
+  severity: string
+  slide: string | null
+  title: string
+  detail: string
+  suggestedFix: string | null
+  acknowledged: boolean
+  acknowledgedBy: string | null
+  acknowledgedAt: string | null
+}
+
+interface FixturePreMlr {
+  id: string
+  contentItemId: string
+  runAt: string
+  mustFixCount: number
+  shouldFixCount: number
+  noteCount: number
+  passed: boolean
+  runBy: string
+  issues: FixturePreMlrIssue[]
+}
+
+interface FixtureMlrReviewer {
+  id: string
+  contentItemId: string
+  userId: string
+  name: string
+  role: string
+  assignedAt: string
+  submittedAt: string | null
+  decision: string | null
+  decisionNote: string | null
+}
+
+interface FixtureMlrComment {
+  id: string
+  contentItemId: string
+  reviewerId: string
+  reviewerName: string
+  text: string
+  tag: string
+  createdAt: string
+  resolvedAt: string | null
+  resolvedBy: string | null
+  escalatedFromAgentic?: boolean
+  escalatedBy?: string | null
+  escalatedAt?: string | null
+}
+
+// Module C vocab maps — fixtures were written against the UI's enum names;
+// the DB stores snake_case canonical values.
+const COMPLIANCE_TRACK_MAP: Record<string, string> = {
+  mlr: 'promotional',
+  promotional: 'promotional',
+  non_promotional: 'non_promotional',
+  'non-promotional': 'non_promotional',
+  cme: 'cme',
+  accme: 'cme',
+  advisory: 'advisory',
+}
+const CLAIM_STATUS_MAP: Record<string, string> = {
+  new: 'new',
+  approved: 'approved',
+  rejected: 'rejected',
+  needs_edit: 'needs_edit',
+  'needs-edit': 'needs_edit',
+  modified: 'needs_edit',
+  'must-fix': 'needs_edit',
+  must_fix: 'needs_edit',
+  library_adopted: 'library_adopted',
+}
+const CLAIM_SOURCE_TYPE_MAP: Record<string, string> = {
+  smpc: 'smpc',
+  csr: 'csr',
+  publication: 'publication',
+  label: 'label',
+}
+const PRE_MLR_SEVERITY_MAP: Record<string, string> = {
+  'must-fix': 'must_fix',
+  'should-fix': 'should_fix',
+  must_fix: 'must_fix',
+  should_fix: 'should_fix',
+  note: 'note',
+}
+const TIER_UI_TO_DB: Record<number, 'A' | 'B' | 'C'> = { 1: 'A', 2: 'B', 3: 'C' }
+
+// Module C fixtures reference Module-C-specific user IDs (user-sc, user-ah,
+// user-rk, user-rm, user-sp, user-jh) that don't exist in users.json. Map
+// to the closest matching persona in the base seed, or fall back to
+// user-admin so the referenced-user FK check still passes.
+const MOD_C_USER_ALIAS: Record<string, string> = {
+  'user-sc': 'user-rw',       // Sarah Chen         → s.chen@genbioca.com (user-rw)
+  'user-rm': 'user-ma',       // Rebecca Morton     → r.morton@genbioca.com (user-ma)
+  'user-dc': 'user-dc',       // David Chen         → d.chen@genbioca.com (user-dc) ✓
+  'user-jh': 'user-admin',    // James Hartley      → j.hartley@genbioca.com (user-admin)
+  'user-sp': 'user-admin',    // Sarah Price (MLR Regulatory) — fallback to admin
+  'user-ah': 'user-admin',    // unmatched            → admin
+  'user-rk': 'user-admin',    // unmatched            → admin
+}
+
+async function seedModuleC() {
+  const medContent  = readFixture<FixtureMedContent[]>('medContent.json')
+  const medClaims   = readFixture<FixtureClaim[]>('medClaims.json')
+  const medPreMlr   = readFixture<FixturePreMlr>('medPreMLR.json')
+  const mlrReviewers = readFixture<FixtureMlrReviewer[]>('medMLRReviewers.json')
+  const mlrComments = readFixture<FixtureMlrComment[]>('medMLRComments.json')
+
+  // Content items — upsert so re-seed is idempotent. Only seed items whose
+  // referenced project exists in Postgres (fixtures reference proj-velora-301
+  // which was created in the Module A seed above).
+  const knownProjectIds = new Set(
+    (await prisma.project.findMany({ select: { id: true } })).map(p => p.id),
+  )
+  const knownUserIds = new Set(
+    (await prisma.user.findMany({ select: { id: true } })).map(u => u.id),
+  )
+  const resolveUserId = (id: string): string | null => {
+    if (knownUserIds.has(id)) return id
+    const alias = MOD_C_USER_ALIAS[id]
+    if (alias && knownUserIds.has(alias)) return alias
+    return null
+  }
+
+  let contentSeeded = 0
+  for (const mc of medContent) {
+    if (!knownProjectIds.has(mc.projectId)) continue
+    const createdBy = resolveUserId(mc.createdBy) ?? resolveUserId(mc.ownerId) ?? null
+    const ownerId   = resolveUserId(mc.ownerId) ?? createdBy
+    if (!createdBy || !ownerId) continue                                  // skip unassignable rows
+
+    await prisma.medContentItem.upsert({
+      where: { id: mc.id },
+      create: {
+        id: mc.id,
+        projectId: mc.projectId,
+        sourceModuleAProjectId: mc.sourceModuleAProjectId,
+        sourceModuleBPubId: mc.sourceModuleBPublicationId,
+        type: underscored(mc.type),
+        title: mc.title,
+        status: underscored(mc.status),
+        stage: mc.stage,
+        complianceTrack: COMPLIANCE_TRACK_MAP[mc.complianceTrack] ?? 'promotional',
+        taTag: mc.taTag,
+        version: mc.version,
+        channels: mc.channels,
+        targetAudience: mc.targetAudience,
+        reviewTier: mc.reviewTier ? TIER_UI_TO_DB[mc.reviewTier] : null,
+        tierOverriddenBy: mc.reviewTierOverriddenBy,
+        fkScore: mc.fkScore ?? null,
+        fkPassed: mc.fkPassed,
+        aiFootprintPct: mc.aiFootprintPct,
+        expiryDate: mc.expiryDate ? new Date(mc.expiryDate) : null,
+        approvedAt: mc.approvedAt ? new Date(mc.approvedAt) : null,
+        medicalAffairsPlanId: mc.medicalAffairsPlanId,
+        publicationPlanId: mc.publicationPlanId,
+        ownerId,
+        createdBy,
+        createdAt: new Date(mc.createdAt),
+        updatedAt: new Date(mc.updatedAt),
+      },
+      update: {
+        title: mc.title,
+        status: underscored(mc.status),
+        stage: mc.stage,
+        reviewTier: mc.reviewTier ? TIER_UI_TO_DB[mc.reviewTier] : null,
+        updatedAt: new Date(mc.updatedAt),
+      },
+    })
+    contentSeeded += 1
+  }
+  console.log(`   ${contentSeeded}/${medContent.length} med-content items seeded`)
+
+  // Claims — upsert on fixture id, bound to seeded content items only.
+  const seededContentIds = new Set(
+    (await prisma.medContentItem.findMany({ select: { id: true } })).map(c => c.id),
+  )
+  let claimsSeeded = 0
+  for (const cl of medClaims) {
+    if (!seededContentIds.has(cl.contentItemId)) continue
+    await prisma.claimsMatrixItem.upsert({
+      where: { id: cl.id },
+      create: {
+        id: cl.id,
+        contentItemId: cl.contentItemId,
+        claimText: cl.claimText,
+        sourceRef: cl.sourceRef ?? 'unspecified',
+        sourceType: CLAIM_SOURCE_TYPE_MAP[cl.sourceType ?? ''] ?? 'label',
+        location: cl.location,
+        approvalStatus: CLAIM_STATUS_MAP[cl.approvalStatus] ?? 'new',
+        reviewerId: resolveUserId(cl.reviewerId ?? '') ?? null,
+        similarityPct: cl.similarityPct,
+        approvedLibraryText: cl.approvedLibraryText,
+        adoptedAt: cl.adoptedAt ? new Date(cl.adoptedAt) : null,
+      },
+      update: {
+        approvalStatus: CLAIM_STATUS_MAP[cl.approvalStatus] ?? 'new',
+        similarityPct: cl.similarityPct,
+      },
+    })
+    claimsSeeded += 1
+  }
+  console.log(`   ${claimsSeeded}/${medClaims.length} claims seeded`)
+
+  // Pre-MLR run — one fixture object with nested issues.
+  if (seededContentIds.has(medPreMlr.contentItemId) && resolveUserId(medPreMlr.runBy)) {
+    const existing = await prisma.preMlrCheckResult.findUnique({ where: { id: medPreMlr.id } })
+    if (!existing) {
+      await prisma.preMlrCheckResult.create({
+        data: {
+          id: medPreMlr.id,
+          contentItemId: medPreMlr.contentItemId,
+          runAt: new Date(medPreMlr.runAt),
+          mustFixCount: medPreMlr.mustFixCount,
+          shouldFixCount: medPreMlr.shouldFixCount,
+          noteCount: medPreMlr.noteCount,
+          passed: medPreMlr.passed,
+          runBy: resolveUserId(medPreMlr.runBy)!,
+          issues: {
+            create: medPreMlr.issues.map(iss => ({
+              id: iss.id,
+              severity: PRE_MLR_SEVERITY_MAP[iss.severity] ?? 'note',
+              slide: iss.slide,
+              title: iss.title,
+              detail: iss.detail,
+              suggestedFix: iss.suggestedFix,
+              acknowledged: iss.acknowledged,
+              acknowledgedBy: iss.acknowledgedBy,
+              acknowledgedAt: iss.acknowledgedAt ? new Date(iss.acknowledgedAt) : null,
+            })),
+          },
+        },
+      })
+      console.log(`   1 pre-MLR run + ${medPreMlr.issues.length} issues seeded`)
+    }
+  }
+
+  // MLR reviewers — unique on (contentItem, user).
+  let reviewersSeeded = 0
+  for (const r of mlrReviewers) {
+    if (!seededContentIds.has(r.contentItemId)) continue
+    if (!resolveUserId(r.userId)) continue
+    await prisma.mlrReviewer.upsert({
+      where: { contentItemId_userId: { contentItemId: r.contentItemId, userId: r.userId } },
+      create: {
+        id: r.id,
+        contentItemId: r.contentItemId,
+        userId: r.userId,
+        role: r.role,
+        assignedAt: new Date(r.assignedAt),
+        submittedAt: r.submittedAt ? new Date(r.submittedAt) : null,
+        decision: r.decision,
+        decisionNote: r.decisionNote,
+      },
+      update: {
+        submittedAt: r.submittedAt ? new Date(r.submittedAt) : null,
+      },
+    })
+    reviewersSeeded += 1
+  }
+  console.log(`   ${reviewersSeeded}/${mlrReviewers.length} MLR reviewers seeded`)
+
+  // MLR comments.
+  let commentsSeeded = 0
+  for (const c of mlrComments) {
+    if (!seededContentIds.has(c.contentItemId)) continue
+    if (!resolveUserId(c.reviewerId)) continue
+    await prisma.mlrComment.upsert({
+      where: { id: c.id },
+      create: {
+        id: c.id,
+        contentItemId: c.contentItemId,
+        reviewerId: c.reviewerId,
+        reviewerName: c.reviewerName,
+        text: c.text,
+        tag: c.tag,
+        createdAt: new Date(c.createdAt),
+        resolvedAt: c.resolvedAt ? new Date(c.resolvedAt) : null,
+        resolvedBy: c.resolvedBy,
+        escalatedFromAgentic: c.escalatedFromAgentic ?? false,
+        escalatedBy: c.escalatedBy ?? null,
+        escalatedAt: c.escalatedAt ? new Date(c.escalatedAt) : null,
+      },
+      update: {},
+    })
+    commentsSeeded += 1
+  }
+  console.log(`   ${commentsSeeded}/${mlrComments.length} MLR comments seeded`)
 }
 
 main()

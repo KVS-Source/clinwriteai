@@ -63,20 +63,30 @@ const listQuerySchema = z.object({
 })
 
 // Shape med-content rows for the UI's packages/types `MedContentItem`
-// interface. Two name mismatches between Prisma + UI need aliasing:
+// interface. Name + type mismatches between Prisma + UI we fix here:
 //   - Prisma `tierOverriddenBy`        → UI `reviewTierOverriddenBy`
 //   - Prisma `sourceModuleBPubId`      → UI `sourceModuleBPublicationId`
+//   - Prisma `reviewTier` string A|B|C → UI numeric 1|2|3 (ReviewTier type)
 // UI also expects aiFootprintPct as number-not-null; Prisma stores Int?,
 // so we default to 0 when null (matches "no AI assist" semantics).
-function medContentShape(m: { tierOverriddenBy: string | null; sourceModuleBPubId: string | null; aiFootprintPct: number | null } & Record<string, unknown>) {
-  const { tierOverriddenBy, sourceModuleBPubId, aiFootprintPct, ...rest } = m
+const TIER_DB_TO_UI: Record<string, 1 | 2 | 3> = { A: 1, B: 2, C: 3 }
+export function medContentShape(m: {
+  tierOverriddenBy: string | null
+  sourceModuleBPubId: string | null
+  aiFootprintPct: number | null
+  reviewTier: string | null
+} & Record<string, unknown>) {
+  const { tierOverriddenBy, sourceModuleBPubId, aiFootprintPct, reviewTier, ...rest } = m
   return {
     ...rest,
+    reviewTier: reviewTier ? (TIER_DB_TO_UI[reviewTier] ?? null) : null,
     reviewTierOverriddenBy: tierOverriddenBy,
     sourceModuleBPublicationId: sourceModuleBPubId,
     aiFootprintPct: aiFootprintPct ?? 0,
   }
 }
+
+export const TIER_UI_TO_DB: Record<number, 'A' | 'B' | 'C'> = { 1: 'A', 2: 'B', 3: 'C' }
 
 export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:projectId/med-content', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
@@ -153,6 +163,26 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
 
     return reply.code(201).send(medContentShape(created))
   })
+
+  // Portfolio = same list but with the optional ?scope filter the UI's
+  // ContentPortfolio screen passes. Implemented as a thin wrapper so the
+  // UI route lands end-to-end; richer analytics (channel/TA/status roll-ups)
+  // can swap in without breaking the client contract.
+  app.get('/:projectId/med-content/portfolio', { preHandler: requireAuth({ modules: ['C'] }) }, async (request) => {
+    const { projectId } = request.params as { projectId: string }
+    const { scope } = (request.query ?? {}) as { scope?: string }
+    const rows = await app.prisma.medContentItem.findMany({
+      where: {
+        projectId,
+        archivedAt: null,
+        ...(scope === 'approved' && { status: 'approved' }),
+        ...(scope === 'in_mlr_review' && { status: 'in_mlr_review' }),
+        ...(scope === 'in_authoring' && { status: 'in_authoring' }),
+      },
+      orderBy: { updatedAt: 'desc' },
+    })
+    return rows.map(medContentShape)
+  })
 }
 
 export const medContentRoutes: FastifyPluginAsync = async (app) => {
@@ -198,7 +228,7 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    return medContentShape(updated)
   })
 
   app.post('/:contentId/advance-stage', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
@@ -252,7 +282,7 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    return medContentShape(updated)
   })
 
   app.post('/:contentId/archive', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
@@ -291,6 +321,6 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return updated
+    return medContentShape(updated)
   })
 }

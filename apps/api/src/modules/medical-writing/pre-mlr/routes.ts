@@ -190,7 +190,9 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
     return preMlrResultShape(full, auditEntry.id)
   })
 
-  app.get('/:contentId/pre-mlr/latest', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+  // Mounted twice so the UI's shorthand GET /pre-mlr resolves alongside
+  // the canonical /pre-mlr/latest.
+  const latestHandler: import('fastify').RouteHandlerMethod = async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const latest = await app.prisma.preMlrCheckResult.findFirst({
       where: { contentItemId: contentId },
@@ -201,7 +203,9 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
     // auditEntryId not persisted on the row; empty string is the UI's
     // "no linked audit entry" sentinel until we land a column for it.
     return preMlrResultShape(latest, '')
-  })
+  }
+  app.get('/:contentId/pre-mlr/latest', { preHandler: requireAuth({ modules: ['C'] }) }, latestHandler)
+  app.get('/:contentId/pre-mlr',        { preHandler: requireAuth({ modules: ['C'] }) }, latestHandler)
 
   app.patch('/:contentId/pre-mlr/issues/:issueId/acknowledge', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId, issueId } = request.params as { contentId: string; issueId: string }
@@ -421,5 +425,27 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
       },
       findings,
     }
+  })
+
+  // Escalate a specific finding from the agentic report into the MLR comment
+  // thread. Stub: records an audit entry and returns the audit id; the UI's
+  // MLR Review screen later picks this up as an escalation marker. Real
+  // implementation (when agentic report lands with AI findings persisted)
+  // will create an MlrComment row keyed to the escalated finding.
+  app.post('/:contentId/agentic-report/findings/:findingN/escalate', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
+    const { contentId, findingN } = request.params as { contentId: string; findingN: string }
+    const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
+    if (!item) return reply.code(404).send({ error: 'not_found' })
+
+    const entry = await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'agentic_finding_escalated',
+      entityType: 'med_content',
+      entityId: contentId,
+      details: { findingIndex: Number(findingN), model: 'stub-advisor-v1' },
+      ipAddress: request.ip ?? null,
+    })
+    return reply.code(201).send({ escalationAuditId: entry.id, escalatedAt: new Date().toISOString() })
   })
 }

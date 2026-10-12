@@ -63,13 +63,25 @@ export const medContentApi = {
   update: (contentId: string, body: Partial<MedContentItem>) =>
     api.patch<MedContentItem>(`/med-content/${contentId}`, body),
 
+  // Lifecycle transitions
+  advanceStage: (contentId: string) =>
+    api.post<MedContentItem>(`/med-content/${contentId}/advance-stage`, {}),
+  archive: (contentId: string, body: { reason: string }) =>
+    api.post<MedContentItem>(`/med-content/${contentId}/archive`, body),
+
   // Tier override
   overrideTier: (contentId: string, body: { newTier: ReviewTier; reason: string; overriddenBy: string }) =>
     api.patch<MedContentItem>(`/med-content/${contentId}/tier`, body),
+  getReviewTier: (contentId: string) =>
+    api.get<{ id: string; tier: 'A' | 'B' | 'C'; reusePct: number; calculatedAt: string }>(
+      `/med-content/${contentId}/review-tier`,
+    ),
 
   // FK score
   getFKScore: (contentId: string) =>
     api.get<FKScoreResponse>(`/med-content/${contentId}/fk-score`),
+  recordFKScore: (contentId: string, body: { score: number; bySection?: { sectionId: string; sectionLabel: string; score: number }[] }) =>
+    api.post<FKScoreResponse>(`/med-content/${contentId}/fk-score`, body),
 
   // AI suggest (shared with Modules A + B)
   aiSuggest: (contentId: string, body: AISuggestBody) =>
@@ -112,10 +124,20 @@ export const medContentApi = {
     api.post<{ decisionAt: string; auditEntryId: string; nextStatus: string }>(
       `/med-content/${contentId}/mlr-decision`, body,
     ),
+  getLatestMLRDecision: (contentId: string) =>
+    api.get<{
+      id: string; decision: 'approved' | 'rejected' | 'needs_edit'
+      decisionNote: string; meaning: string; decidedByName: string; decidedByRole: string
+      versionAtDecision: string; timestampUtc: string; documentHash: string
+    }>(`/med-content/${contentId}/mlr-decision/latest`),
+  submitSelfDecision: (contentId: string, body: { decision: 'approved' | 'rejected' | 'needs_edit'; note?: string }) =>
+    api.post<MLRReviewer>(`/med-content/${contentId}/mlr-reviewers/self-decision`, body),
 
   // Claims
   getClaims: (contentId: string) =>
     api.get<MedClaim[]>(`/med-content/${contentId}/claims`),
+  createClaim: (contentId: string, body: { claimText: string; sourceRef: string; sourceType: 'smpc' | 'csr' | 'publication' | 'label'; location: string }) =>
+    api.post<MedClaim>(`/med-content/${contentId}/claims`, body),
   harvestClaims: (contentId: string) =>
     api.post<HarvestClaimResponse>(`/med-content/${contentId}/claims/harvest`, {}),
   adoptClaim: (contentId: string, body: AdoptClaimBody) =>

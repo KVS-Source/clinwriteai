@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import type {
   RaciMatrix as RaciMatrixData, RaciTask, PlatformUser, RACIRole, AuditTrailEntry, PlatformUserRole,
   ProjectRaciAssignment, ProjectRaciAssignmentBody,
@@ -11,6 +12,7 @@ import { SlidePanel } from '../../components/ui'
 import raciTemplate from '../../data/raciMatrix.json'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
+import { PLATFORM_DEMO_USERS } from '../store/platformStore'
 
 // The role-based default template ships with the web bundle — the API only
 // stores per-project overrides (one row per `${module}:${taskId}` activity).
@@ -20,11 +22,19 @@ type ModuleKey = 'A' | 'B' | 'C' | 'D' | 'E'
 
 const activityKey = (module: ModuleKey, taskId: string) => `${module}:${taskId}`
 
+const INACTIVE_STATUSES: string[] = ['suspended', 'deprovisioned']
+
+// The API's user-role enum (clinical-writer, reviewer, …) has no RACI roles
+// (clinical-lead, qc-checker, e-signatory, …). Until it does, the demo persona
+// roster — which shares user ids with the API seed — supplies them.
+const DEMO_ROLE_BY_ID = new Map(PLATFORM_DEMO_USERS.map(u => [u.id, u.role]))
+const raciRoleOf = (u: PlatformUser): string => DEMO_ROLE_BY_ID.get(u.id) ?? u.role
+
 const RACI_COLOURS: Record<RACIRole, { bg: string; fg: string }> = {
   R: { bg: '#FEF2F2', fg: '#B0200D' },
   A: { bg: '#FFFBEB', fg: '#D97706' },
   C: { bg: '#EFF6FF', fg: '#1A3C5E' },
-  I: { bg: '#F8FAFC', fg: '#94A3B8' },
+  I: { bg: '#F1F5F9', fg: '#475569' },
 }
 
 const MODULE_LABELS: Record<'A' | 'B' | 'C' | 'D' | 'E', string> = {
@@ -44,21 +54,32 @@ function computeSignedStages(audit: AuditTrailEntry[]): { module: string; entity
 
 export function RACIMatrix() {
   const currentUser = usePlatformStore(s => s.currentUser)
+  // Mirrors the API's requireAuth({ roles: ['admin', 'super-admin'] }) on PUT/DELETE.
+  const canEdit = currentUser.role === 'admin' || currentUser.role === 'super-admin'
   const raci = DEFAULT_TEMPLATE
   const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list() })
   const { data: users = [] } = useQuery<PlatformUser[]>({ queryKey: ['admin-users'], queryFn: () => platformApi.listUsers() })
   const { data: audit = [] } = useQuery<AuditTrailEntry[]>({ queryKey: ['audit'],    queryFn: () => platformApi.listAudit() })
 
-  const [projectId, setProjectId] = useState('')
-  const [activeModule, setActiveModule] = useState<ModuleKey>('D')
-  const [mineOn, setMineOn] = useState(false)
-  const [editOpen, setEditOpen] = useState(false)
+  // Module + project live in the URL (?module=A&project=…) so they survive the
+  // full page reload the persona switcher does, and links are shareable.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const setParam = (key: 'module' | 'project', value: string) =>
+    setSearchParams(prev => { const next = new URLSearchParams(prev); next.set(key, value); return next }, { replace: true })
+
+  const moduleParam = searchParams.get('module') as ModuleKey | null
+  const activeModule: ModuleKey = moduleParam && raci.modules[moduleParam] ? moduleParam : 'D'
+  const setActiveModule = (m: ModuleKey) => setParam('module', m)
 
   // Default to VELORA-301 (the template's reference project), else the first project.
-  useEffect(() => {
-    if (projectId || projects.length === 0) return
-    setProjectId(projects.find(p => p.id === 'proj-velora-301')?.id ?? projects[0].id)
-  }, [projects, projectId])
+  const projectParam = searchParams.get('project')
+  const projectId = (projectParam && projects.some(p => p.id === projectParam))
+    ? projectParam
+    : (projects.find(p => p.id === 'proj-velora-301') ?? projects[0])?.id ?? ''
+  const setProjectId = (id: string) => setParam('project', id)
+
+  const [mineOn, setMineOn] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
 
   const { data: overrides = [] } = useQuery<ProjectRaciAssignment[]>({
     queryKey: ['project-raci', projectId],
@@ -70,6 +91,11 @@ export function RACIMatrix() {
     [overrides],
   )
   const userName = (id: string | null) => (id && users.find(u => u.id === id)?.name) || id || '—'
+  // Deprovisioned / suspended accounts can't take on RACI work.
+  const assignableUsers = useMemo(
+    () => users.filter(u => !INACTIVE_STATUSES.includes(u.status)),
+    [users],
+  )
 
   const selectedProject = projects.find(p => p.id === projectId)
   const moduleTasks = raci.modules[activeModule]?.tasks ?? []
@@ -82,20 +108,25 @@ export function RACIMatrix() {
     return Array.from(s)
   }, [moduleTasks])
 
+  // Customised tasks match on the people saved for this project; template
+  // tasks fall back to matching the current user's role column.
   const filteredTasks = useMemo(() => {
     if (!mineOn) return moduleTasks
-    return moduleTasks.filter(t => Object.keys(t.assignments).includes(currentUser.role))
-  }, [moduleTasks, mineOn, currentUser.role])
+    return moduleTasks.filter(t => {
+      const o = overrideByActivity.get(activityKey(activeModule, t.id))
+      if (o) {
+        return [o.responsibleId, o.accountableId, ...o.consultedIds, ...o.informedIds].includes(currentUser.id)
+      }
+      return Object.keys(t.assignments).includes(currentUser.role)
+    })
+  }, [moduleTasks, mineOn, overrideByActivity, activeModule, currentUser.id, currentUser.role])
 
   const peopleInRoles = useMemo(() => {
-    return allRoles
-      .map(role => ({
-        role,
-        user: users.find(u => u.role === role),
-      }))
-      .filter(x => !!x.user)
-      .map(x => ({ role: x.role, user: x.user as PlatformUser }))
-  }, [allRoles, users])
+    return allRoles.map(role => ({
+      role,
+      people: assignableUsers.filter(u => raciRoleOf(u) === role),
+    }))
+  }, [allRoles, assignableUsers])
 
   const signedStages = useMemo(() => computeSignedStages(audit), [audit])
 
@@ -143,7 +174,7 @@ export function RACIMatrix() {
             </select>
 
             <p className="mt-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Module</p>
-            <div className="flex flex-wrap gap-1" data-module-tabs>
+            <div className="flex flex-col gap-1" data-module-tabs>
               {(['A','B','C','D','E'] as const).map(m => {
                 const isActive = m === activeModule
                 const disabled = !raci.modules[m]
@@ -155,12 +186,13 @@ export function RACIMatrix() {
                     onClick={() => setActiveModule(m)}
                     data-module-tab={m}
                     data-active={isActive || undefined}
-                    className="h-8 flex-1 rounded-md text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                    title={disabled ? 'No RACI template for this module yet' : undefined}
+                    className="h-9 w-full rounded-md px-3 text-left text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
                     style={{
                       backgroundColor: isActive ? PLATFORM_ACCENT.primary : '#F1F5F9',
                       color:           isActive ? '#FFFFFF' : '#334155',
                     }}
-                  >{m}</button>
+                  >{MODULE_LABELS[m]}</button>
                 )
               })}
             </div>
@@ -189,14 +221,16 @@ export function RACIMatrix() {
                   data-mine-on={mineOn || undefined}
                   className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
                 >{mineOn ? 'Show all tasks' : 'Show my tasks'}</button>
-                <button
-                  type="button"
-                  data-edit-assignments
-                  onClick={() => setEditOpen(true)}
-                  disabled={!projectId || moduleTasks.length === 0}
-                  className="h-8 rounded-md border px-3 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
-                >Edit assignments →</button>
+                {canEdit && (
+                  <button
+                    type="button"
+                    data-edit-assignments
+                    onClick={() => setEditOpen(true)}
+                    disabled={!projectId || moduleTasks.length === 0}
+                    className="h-8 rounded-md border px-3 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
+                  >Edit assignments →</button>
+                )}
               </div>
             </div>
 
@@ -206,11 +240,21 @@ export function RACIMatrix() {
                 <thead style={{ backgroundColor: '#F8FAFC' }}>
                   <tr className="text-left">
                     <th className="sticky left-0 px-3 py-2 font-semibold" style={{ backgroundColor: '#F8FAFC' }}>Task</th>
-                    {allRoles.map(r => (
-                      <th key={r} className="px-3 py-2 text-center font-semibold text-slate-700" title={PLATFORM_USER_ROLE_LABEL[r as PlatformUserRole] ?? r}>
-                        {(PLATFORM_USER_ROLE_LABEL[r as PlatformUserRole] ?? r).split(' ').map((w, i) => i === 0 ? w : w[0]).join(' ')}
-                      </th>
-                    ))}
+                    {allRoles.map(r => {
+                      const mine = r === currentUser.role
+                      return (
+                        <th
+                          key={r}
+                          className="px-3 py-2 text-center font-semibold text-slate-700"
+                          style={mine ? { backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary } : undefined}
+                          title={PLATFORM_USER_ROLE_LABEL[r as PlatformUserRole] ?? r}
+                          data-my-column={mine || undefined}
+                        >
+                          {(PLATFORM_USER_ROLE_LABEL[r as PlatformUserRole] ?? r).split(' ').map((w, i) => i === 0 ? w : w[0]).join(' ')}
+                          {mine && <span className="block font-mono text-[9px] uppercase tracking-widest">You</span>}
+                        </th>
+                      )
+                    })}
                   </tr>
                 </thead>
                 <tbody>
@@ -238,10 +282,11 @@ export function RACIMatrix() {
                         </td>
                         {allRoles.map(r => {
                           const mark = (t.assignments as Record<string, RACIRole | undefined>)[r]
-                          if (!mark) return <td key={r} className="px-3 py-2 text-center text-slate-300">—</td>
+                          const colStyle = r === currentUser.role ? { backgroundColor: PLATFORM_ACCENT.bgTint } : undefined
+                          if (!mark) return <td key={r} className="px-3 py-2 text-center text-slate-300" style={colStyle}>—</td>
                           const c = RACI_COLOURS[mark]
                           return (
-                            <td key={r} className="px-3 py-2 text-center" data-raci-cell={`${r}-${mark}`}>
+                            <td key={r} className="px-3 py-2 text-center" style={colStyle} data-raci-cell={`${r}-${mark}`}>
                               <span
                                 className="inline-flex h-6 w-6 items-center justify-center rounded-md font-mono text-[11px] font-bold"
                                 style={{ backgroundColor: c.bg, color: c.fg, border: `1px solid ${c.fg}44` }}
@@ -275,16 +320,31 @@ export function RACIMatrix() {
             <div className="border-t border-slate-200 pt-4" data-people-panel>
               <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">People in these roles</p>
               <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
-                {peopleInRoles.map(({ role, user }) => (
-                  <div key={role} className="flex items-center gap-2 rounded-md border border-slate-200 p-2" data-person-role={role}>
-                    <span
-                      className="inline-flex h-8 w-8 items-center justify-center rounded-full font-mono text-[11px] font-bold text-white"
-                      style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-                    >{initialsFor(user.name)}</span>
-                    <div>
-                      <p className="text-[12px] font-semibold text-slate-900">{user.name}</p>
-                      <p className="font-mono text-[10px] text-slate-500">{PLATFORM_USER_ROLE_LABEL[role as PlatformUserRole] ?? role}</p>
-                    </div>
+                {peopleInRoles.map(({ role, people }) => (
+                  <div key={role} className="flex flex-col gap-2 rounded-md border border-slate-200 p-2" data-person-role={role}>
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                      {PLATFORM_USER_ROLE_LABEL[role as PlatformUserRole] ?? role}
+                    </p>
+                    {people.length === 0 && (
+                      <p className="text-[12px] italic text-slate-400" data-role-empty>No one in this role yet</p>
+                    )}
+                    {people.map(user => {
+                      const isMe = user.id === currentUser.id
+                      return (
+                        <div key={user.id} className="flex items-center gap-2" data-person={user.id}>
+                          <span
+                            className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full font-mono text-[11px] font-bold text-white"
+                            style={{ backgroundColor: PLATFORM_ACCENT.primary }}
+                          >{initialsFor(user.name)}</span>
+                          <div>
+                            <p className="text-[12px] font-semibold text-slate-900">
+                              {user.name}{isMe && <span className="ml-1 font-mono text-[10px] text-slate-500">(you)</span>}
+                            </p>
+                            {user.status === 'invited' && <p className="font-mono text-[10px] text-slate-500">Invited</p>}
+                          </div>
+                        </div>
+                      )
+                    })}
                   </div>
                 ))}
               </div>
@@ -301,7 +361,7 @@ export function RACIMatrix() {
         </div>
       </div>
 
-      {projectId && (
+      {canEdit && projectId && (
         <SlidePanel
           open={editOpen}
           onClose={() => setEditOpen(false)}
@@ -318,7 +378,7 @@ export function RACIMatrix() {
                 activity={activityKey(activeModule, t.id)}
                 task={t}
                 override={overrideByActivity.get(activityKey(activeModule, t.id))}
-                users={users}
+                users={assignableUsers}
                 accountableLocked={isRowLocked(t.label)}
               />
             ))}

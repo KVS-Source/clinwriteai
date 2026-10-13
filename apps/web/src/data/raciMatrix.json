@@ -2,6 +2,219 @@
   "version": "v1.0",
   "effectiveDate": "2026-01-01",
   "modules": {
+    "A": {
+      "label": "Clinical Writing",
+      "tasks": [
+        {
+          "id": "a-t1",
+          "label": "Study Start-Up (Stage 1)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "clinical-lead": "C",
+            "qc-checker": "I",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "a-t2",
+          "label": "During Study (Stage 2)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "clinical-lead": "C",
+            "qc-checker": "I",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "a-t3",
+          "label": "Post-Study / Data Analysis (Stage 3)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "clinical-lead": "C",
+            "qc-checker": "C",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "a-t4",
+          "label": "Cross-Functional Review (Stage 4)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "clinical-lead": "R",
+            "qc-checker": "R",
+            "e-signatory": "C"
+          }
+        },
+        {
+          "id": "a-t5",
+          "label": "CRM (Stage 5)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "clinical-lead": "C",
+            "qc-checker": "C",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "a-t6",
+          "label": "Final Output (Stage 6)",
+          "assignments": {
+            "admin": "A",
+            "author": "C",
+            "clinical-lead": "C",
+            "qc-checker": "R",
+            "e-signatory": "R"
+          }
+        }
+      ]
+    },
+    "B": {
+      "label": "Scientific Writing",
+      "tasks": [
+        {
+          "id": "b-t1",
+          "label": "Planning (Stage 1)",
+          "assignments": {
+            "admin": "A",
+            "author": "C",
+            "clinical-lead": "C",
+            "ma-team-lead": "R",
+            "qc-checker": "I"
+          }
+        },
+        {
+          "id": "b-t2",
+          "label": "Authoring (Stage 2)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "clinical-lead": "C",
+            "ma-team-lead": "C",
+            "qc-checker": "I"
+          }
+        },
+        {
+          "id": "b-t3",
+          "label": "Review (Stage 3)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "clinical-lead": "R",
+            "ma-team-lead": "C",
+            "qc-checker": "R"
+          }
+        },
+        {
+          "id": "b-t4",
+          "label": "Submission (Stage 4)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "clinical-lead": "I",
+            "ma-team-lead": "C",
+            "qc-checker": "C"
+          }
+        },
+        {
+          "id": "b-t5",
+          "label": "Final Output (Stage 5)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "clinical-lead": "I",
+            "ma-team-lead": "I",
+            "qc-checker": "C"
+          }
+        }
+      ]
+    },
+    "C": {
+      "label": "Medical Writing",
+      "tasks": [
+        {
+          "id": "c-t1",
+          "label": "Briefing (Stage 1)",
+          "assignments": {
+            "admin": "A",
+            "author": "C",
+            "ma-team-lead": "R",
+            "qc-checker": "I",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "c-t2",
+          "label": "KOL Session (Stage 2)",
+          "assignments": {
+            "admin": "A",
+            "author": "C",
+            "ma-team-lead": "R",
+            "qc-checker": "I",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "c-t3",
+          "label": "Authoring (Stage 3)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "ma-team-lead": "C",
+            "qc-checker": "I",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "c-t4",
+          "label": "Pre-MLR Check (Stage 4)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "ma-team-lead": "C",
+            "qc-checker": "R",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "c-t5",
+          "label": "MLR Review (Stage 5)",
+          "assignments": {
+            "admin": "A",
+            "author": "C",
+            "ma-team-lead": "R",
+            "qc-checker": "C",
+            "e-signatory": "R"
+          }
+        },
+        {
+          "id": "c-t6",
+          "label": "Formatting (Stage 6)",
+          "assignments": {
+            "admin": "A",
+            "author": "R",
+            "ma-team-lead": "I",
+            "qc-checker": "C",
+            "e-signatory": "I"
+          }
+        },
+        {
+          "id": "c-t7",
+          "label": "Final Output (Stage 7)",
+          "assignments": {
+            "admin": "A",
+            "author": "C",
+            "ma-team-lead": "I",
+            "qc-checker": "R",
+            "e-signatory": "R"
+          }
+        }
+      ]
+    },
     "D": {
       "label": "Regulatory Writing \u2014 Regulatory Writing",
       "tasks": [

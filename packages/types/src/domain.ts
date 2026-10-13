@@ -1502,6 +1502,7 @@ export interface PlatformUser {
 
 export interface RaciAssignment {
   admin?:                    RACIRole
+  author?:                   RACIRole
   'regulatory-writer'?:      RACIRole
   'clinical-lead'?:          RACIRole
   'cmc-lead'?:               RACIRole

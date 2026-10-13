@@ -42,6 +42,20 @@ export const raciRoutes: FastifyPluginAsync = async (app) => {
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
+    // Every referenced person must be a real user — otherwise the row would carry dangling ids.
+    const referencedIds = Array.from(new Set([
+      parsed.data.responsibleId,
+      parsed.data.accountableId,
+      ...parsed.data.consultedIds,
+      ...parsed.data.informedIds,
+    ].filter((id): id is string => !!id)))
+    if (referencedIds.length > 0) {
+      const found = await app.prisma.user.findMany({ where: { id: { in: referencedIds } }, select: { id: true } })
+      const foundIds = new Set(found.map(u => u.id))
+      const unknownUserIds = referencedIds.filter(id => !foundIds.has(id))
+      if (unknownUserIds.length > 0) return reply.code(400).send({ error: 'unknown_user', userIds: unknownUserIds })
+    }
+
     const row = await app.prisma.raciAssignment.upsert({
       where: { projectId_activity: { projectId, activity: parsed.data.activity } },
       create: {

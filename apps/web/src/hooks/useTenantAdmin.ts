@@ -175,6 +175,16 @@ export function useAuditQuery(q: AuditQuery) {
   })
 }
 
+// Distinct actions + entity types for the filter dropdowns. New action
+// names appear rarely, so a long staleTime is fine.
+export function useAuditFacets() {
+  return useQuery({
+    queryKey: ['audit', 'facets'],
+    queryFn:  () => auditApi.facets(),
+    staleTime: 5 * 60_000,
+  })
+}
+
 export function useAuditVerify() {
   return useMutation({
     mutationFn: (args: { fromId?: string; toId?: string } = {}) =>

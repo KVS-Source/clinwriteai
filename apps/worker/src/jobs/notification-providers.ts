@@ -1,8 +1,8 @@
 // Pluggable email + SMS adapters — Arc 8.2 / 8.3.
 //
-// Three implementations each, selected by env:
+// Implementations selected by env (SMTP added for email):
 //   - NoopProvider: logs + marks delivered (default; used in dev/CI).
-//   - SesProvider / SendGridProvider / TwilioProvider: real adapters
+//   - SmtpProvider / SesProvider / SendGridProvider / TwilioProvider: real adapters
 //     that invoke the vendor SDK. Lazy-loaded so the deps don't ship
 //     to dev if the keys aren't set.
 //
@@ -103,6 +103,37 @@ class SendGridEmailAdapter implements EmailAdapter {
   }
 }
 
+// Plain SMTP relay (Gmail app password, Office365, on-prem relay, ...).
+// Port 465 implies implicit TLS unless SMTP_SECURE overrides it.
+class SmtpEmailAdapter implements EmailAdapter {
+  readonly provider = 'smtp'
+  constructor(
+    private readonly host: string,
+    private readonly port: number,
+    private readonly secure: boolean,
+    private readonly user: string,
+    private readonly password: string,
+    private readonly fromAddress: string,
+  ) {}
+
+  async send(args: EmailSendArgs) {
+    const nodemailer = await import('nodemailer')
+    const transport = nodemailer.createTransport({
+      host: this.host,
+      port: this.port,
+      secure: this.secure,
+      auth: { user: this.user, pass: this.password },
+    })
+    const info = await transport.sendMail({
+      from: this.fromAddress,
+      to: args.recipientName ? { name: args.recipientName, address: args.recipientEmail } : args.recipientEmail,
+      subject: args.subject,
+      text: args.body,
+    })
+    return { providerRef: info.messageId ?? null }
+  }
+}
+
 class TwilioSmsAdapter implements SmsAdapter {
   readonly provider = 'twilio'
   constructor(
@@ -137,6 +168,19 @@ export function createEmailAdapter(): EmailAdapter {
   const from = process.env.EMAIL_FROM_ADDRESS ?? 'noreply@clinwrite.ai'
   if (provider === 'ses') {
     return new SesEmailAdapter(from)
+  }
+  if (provider === 'smtp') {
+    const host = process.env.SMTP_HOST
+    const user = process.env.SMTP_USER
+    const password = process.env.SMTP_PASSWORD
+    if (!host || !user || !password) {
+      // eslint-disable-next-line no-console
+      console.warn('[notification-providers] EMAIL_PROVIDER=smtp but SMTP_HOST/SMTP_USER/SMTP_PASSWORD not set; falling back to noop.')
+      return new NoopEmailAdapter()
+    }
+    const port = Number(process.env.SMTP_PORT ?? 465)
+    const secure = process.env.SMTP_SECURE ? process.env.SMTP_SECURE === 'true' : port === 465
+    return new SmtpEmailAdapter(host, port, secure, user, password, from)
   }
   if (provider === 'sendgrid') {
     const key = process.env.SENDGRID_API_KEY

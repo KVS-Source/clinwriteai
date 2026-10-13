@@ -1,0 +1,285 @@
+// Audit viewer routes — exercised through Fastify inject() against a fake
+// Prisma ($queryRawUnsafe) + fake audit repository, so no database is
+// touched. Pins the BigInt serialisation fix, filter SQL, paging, the
+// export cap, input validation and the super-admin gate.
+
+import Fastify, { type FastifyInstance } from 'fastify'
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { AuthenticatedUser, Role } from '../../../../auth/rbac.js'
+import { auditViewerRoutes, COUNT_CAP, EXPORT_ROW_CAP } from './routes.js'
+
+interface FakeRow {
+  id: bigint
+  timestamp: Date
+  actor_id: string
+  actor_name: string | null
+  actor_email: string | null
+  action: string
+  entity_type: string
+  entity_id: string
+  details: Record<string, unknown>
+  ip_address: string | null
+  prev_hash: string
+  row_hash: string
+}
+
+function makeRow(id: number, over: Partial<FakeRow> = {}): FakeRow {
+  return {
+    id: BigInt(id),
+    timestamp: new Date(Date.UTC(2026, 9, 12, 10, 0, id % 60)),
+    actor_id: 'user-admin',
+    actor_name: 'Dr James Hartley',
+    actor_email: 'j.hartley@genbioca.com',
+    action: 'http.post',
+    entity_type: 'http_request',
+    entity_id: '/projects',
+    details: { statusCode: 201, method: 'POST' },
+    ip_address: '127.0.0.1',
+    prev_hash: `prev-${id}`,
+    row_hash: `hash-${id}`,
+    ...over,
+  }
+}
+
+interface Setup {
+  role?: Role | null          // null → unauthenticated
+  rows?: FakeRow[]
+  count?: number
+  fail?: Error
+}
+
+interface Call { sql: string; params: unknown[] }
+
+async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; calls: Call[]; verifyChain: ReturnType<typeof vi.fn> }> {
+  const calls: Call[] = []
+  const rows = setup.rows ?? []
+  const $queryRawUnsafe = vi.fn(async (sql: string, ...params: unknown[]) => {
+    calls.push({ sql, params })
+    if (setup.fail) throw setup.fail
+    if (sql.includes('count(*)')) return [{ n: setup.count ?? rows.length }]
+    if (sql.includes('DISTINCT action')) return [{ v: 'auth.login' }, { v: 'http.post' }]
+    if (sql.includes('DISTINCT entity_type')) return [{ v: 'session' }]
+    return rows
+  })
+  const verifyChain = vi.fn(async () => ({ intact: true, firstBreakAt: null }))
+
+  const app = Fastify()
+  app.decorate('prisma', { $queryRawUnsafe } as never)
+  app.decorate('audit', { verifyChain } as never)
+  app.decorateRequest('user', null)
+  const role = setup.role === undefined ? 'super-admin' : setup.role
+  app.addHook('onRequest', async (request) => {
+    if (role === null) return
+    const user: AuthenticatedUser = { id: 'user-admin', email: 'admin@clinwrite.ai', role, modules: [], tenantId: null }
+    ;(request as unknown as { user: AuthenticatedUser }).user = user
+  })
+  await app.register(auditViewerRoutes)
+  await app.ready()
+  return { app, calls, verifyChain }
+}
+
+const pageSql = (calls: Call[]) => calls.find(c => c.sql.includes('ORDER BY'))!
+
+let current: FastifyInstance | null = null
+afterEach(async () => {
+  await current?.close()
+  current = null
+})
+
+async function setupApp(setup: Setup = {}) {
+  const built = await buildApp(setup)
+  current = built.app
+  return built
+}
+
+describe('GET /admin/audit', () => {
+  it('serialises BigInt ids as strings and returns actor details + totals', async () => {
+    const { app } = await setupApp({ rows: [makeRow(3), makeRow(2)], count: 2 })
+    const res = await app.inject({ method: 'GET', url: '/admin/audit?limit=5' })
+
+    expect(res.statusCode).toBe(200)
+    const body = res.json()
+    expect(body.rows.map((r: { id: string }) => r.id)).toEqual(['3', '2'])
+    expect(body.rows[0]).toMatchObject({
+      actorId: 'user-admin',
+      actorName: 'Dr James Hartley',
+      actorEmail: 'j.hartley@genbioca.com',
+      timestamp: '2026-10-12T10:00:03.000Z',
+    })
+    expect(body).toMatchObject({ hasMore: false, nextCursor: null, total: 2, totalCapped: false })
+  })
+
+  it('detects another page and returns the last visible id as the cursor', async () => {
+    // limit=2 → the route asks for 3; three rows back means "more".
+    const { app } = await setupApp({ rows: [makeRow(9), makeRow(8), makeRow(7)], count: 9 })
+    const body = (await app.inject({ method: 'GET', url: '/admin/audit?limit=2' })).json()
+    expect(body.rows).toHaveLength(2)
+    expect(body.hasMore).toBe(true)
+    expect(body.nextCursor).toBe('8')
+  })
+
+  it('pages newest-first with id < cursor by default', async () => {
+    const { app, calls } = await setupApp({ rows: [makeRow(4)] })
+    await app.inject({ method: 'GET', url: '/admin/audit?cursor=5&limit=10' })
+    const { sql, params } = pageSql(calls)
+    expect(sql).toContain('a.id < $1::bigint')
+    expect(sql).toContain('ORDER BY a.id DESC')
+    expect(params).toEqual(['5', 11])
+  })
+
+  it('pages oldest-first with id > cursor when order=asc', async () => {
+    const { app, calls } = await setupApp({ rows: [makeRow(6)] })
+    await app.inject({ method: 'GET', url: '/admin/audit?order=asc&cursor=5' })
+    const { sql } = pageSql(calls)
+    expect(sql).toContain('a.id > $1::bigint')
+    expect(sql).toContain('ORDER BY a.id ASC')
+  })
+
+  it('uses case-insensitive contains for action/entity type and escapes LIKE wildcards', async () => {
+    const { app, calls } = await setupApp()
+    await app.inject({ method: 'GET', url: '/admin/audit?action=100%25_x&entityType=Doc' })
+    const { sql, params } = pageSql(calls)
+    expect(sql).toContain('a.entity_type ILIKE $1')
+    expect(sql).toContain('a.action ILIKE $2')
+    expect(params.slice(0, 2)).toEqual(['%Doc%', '%100\\%\\_x%'])
+  })
+
+  it('matches actor by exact id or partial name / email', async () => {
+    const { app, calls } = await setupApp()
+    await app.inject({ method: 'GET', url: '/admin/audit?actor=hartley' })
+    const { sql, params } = pageSql(calls)
+    expect(sql).toContain('(a.actor_id = $1 OR u.email ILIKE $2 OR u.name ILIKE $2)')
+    expect(params.slice(0, 2)).toEqual(['hartley', '%hartley%'])
+  })
+
+  it('keeps entityId an exact match', async () => {
+    const { app, calls } = await setupApp()
+    await app.inject({ method: 'GET', url: '/admin/audit?entityId=proj-velora-301' })
+    expect(pageSql(calls).sql).toContain('a.entity_id = $1')
+  })
+
+  it('accepts dates with an offset as well as Z', async () => {
+    const { app } = await setupApp()
+    const withOffset = await app.inject({ method: 'GET', url: '/admin/audit?fromDate=2026-10-12T00:00:00%2B05:30' })
+    const withZ = await app.inject({ method: 'GET', url: '/admin/audit?toDate=2026-10-12T23:59:59Z' })
+    expect(withOffset.statusCode).toBe(200)
+    expect(withZ.statusCode).toBe(200)
+  })
+
+  it('rejects a date-only value with 400', async () => {
+    const { app, calls } = await setupApp()
+    const res = await app.inject({ method: 'GET', url: '/admin/audit?fromDate=2026-10-01' })
+    expect(res.statusCode).toBe(400)
+    expect(calls).toHaveLength(0)
+  })
+
+  it('rejects a non-numeric cursor with 400 before touching the database', async () => {
+    const { app, calls } = await setupApp()
+    const res = await app.inject({ method: 'GET', url: '/admin/audit?cursor=abc' })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().issues[0].path).toEqual(['cursor'])
+    expect(calls).toHaveLength(0)
+  })
+
+  it('reports a capped total for broad filters', async () => {
+    const { app } = await setupApp({ count: COUNT_CAP + 1 })
+    const body = (await app.inject({ method: 'GET', url: '/admin/audit' })).json()
+    expect(body.total).toBe(COUNT_CAP)
+    expect(body.totalCapped).toBe(true)
+  })
+
+  it('hides database error text behind a generic 500', async () => {
+    const { app } = await setupApp({ fail: new Error('invalid input syntax for type bigint: "abc" SELECT secret FROM x') })
+    const res = await app.inject({ method: 'GET', url: '/admin/audit' })
+    expect(res.statusCode).toBe(500)
+    expect(res.json()).toMatchObject({ error: 'internal', message: 'Audit query failed.' })
+    expect(res.body).not.toContain('SELECT')
+    expect(res.body).not.toContain('bigint')
+  })
+})
+
+describe('access control', () => {
+  it('returns 401 when unauthenticated', async () => {
+    const { app } = await setupApp({ role: null })
+    expect((await app.inject({ method: 'GET', url: '/admin/audit' })).statusCode).toBe(401)
+  })
+
+  it.each(['admin', 'clinical-writer', 'reviewer'] as const)('returns 403 for role %s', async (role) => {
+    const { app, calls } = await setupApp({ role })
+    for (const url of ['/admin/audit', '/admin/audit/export', '/admin/audit/verify', '/admin/audit/facets']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode).toBe(403)
+    }
+    expect(calls).toHaveLength(0)
+  })
+})
+
+describe('GET /admin/audit/facets', () => {
+  it('returns distinct actions and entity types', async () => {
+    const { app } = await setupApp()
+    const body = (await app.inject({ method: 'GET', url: '/admin/audit/facets' })).json()
+    expect(body).toEqual({ actions: ['auth.login', 'http.post'], entityTypes: ['session'] })
+  })
+})
+
+describe('GET /admin/audit/verify', () => {
+  it('passes the id range to the repository and echoes it back', async () => {
+    const { app, verifyChain } = await setupApp()
+    const res = await app.inject({ method: 'GET', url: '/admin/audit/verify?fromId=5&toId=20' })
+    expect(res.statusCode).toBe(200)
+    expect(verifyChain).toHaveBeenCalledWith('5', '20')
+    expect(res.json()).toMatchObject({ intact: true, firstBreakAt: null, checkedRange: { from: '5', to: '20' } })
+  })
+
+  it('rejects non-numeric ids with 400', async () => {
+    const { app, verifyChain } = await setupApp()
+    const res = await app.inject({ method: 'GET', url: '/admin/audit/verify?fromId=abc' })
+    expect(res.statusCode).toBe(400)
+    expect(verifyChain).not.toHaveBeenCalled()
+  })
+})
+
+describe('GET /admin/audit/export', () => {
+  it('returns CSV with BigInt ids, actor columns and newest-first order', async () => {
+    const { app, calls } = await setupApp({ rows: [makeRow(2), makeRow(1, { actor_id: 'anonymous', actor_name: null, actor_email: null })] })
+    const res = await app.inject({ method: 'GET', url: '/admin/audit/export' })
+
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('text/csv')
+    expect(res.headers['content-disposition']).toMatch(/attachment; filename="audit-\d{4}-\d{2}-\d{2}\.csv"/)
+    expect(res.headers['x-audit-export-truncated']).toBe('false')
+    expect(pageSql(calls).sql).toContain('ORDER BY a.id DESC')
+
+    const lines = res.body.split('\n')
+    expect(lines[0]).toBe('id,timestamp,actorId,actorName,actorEmail,action,entityType,entityId,details,ipAddress,prevHash,rowHash')
+    expect(lines[1]!.startsWith('2,2026-10-12T10:00:02.000Z,user-admin,Dr James Hartley,j.hartley@genbioca.com,http.post')).toBe(true)
+    expect(lines[1]).toContain('"{""statusCode"":201,""method"":""POST""}"')
+    expect(lines[2]!.startsWith('1,2026-10-12T10:00:01.000Z,anonymous,,,')).toBe(true)
+    expect(lines).toHaveLength(3)
+  })
+
+  it('exports oldest-first when order=asc', async () => {
+    const { app, calls } = await setupApp()
+    await app.inject({ method: 'GET', url: '/admin/audit/export?order=asc' })
+    expect(pageSql(calls).sql).toContain('ORDER BY a.id ASC')
+  })
+
+  it('flags truncation instead of silently dropping rows past the cap', async () => {
+    const rows = Array.from({ length: EXPORT_ROW_CAP + 1 }, (_, i) => makeRow(EXPORT_ROW_CAP + 1 - i))
+    const { app } = await setupApp({ rows })
+    const res = await app.inject({ method: 'GET', url: '/admin/audit/export' })
+
+    expect(res.headers['x-audit-export-truncated']).toBe('true')
+    const lines = res.body.split('\n')
+    expect(lines).toHaveLength(1 + EXPORT_ROW_CAP + 1)  // header + capped rows + notice
+    expect(lines[lines.length - 1]).toContain(`TRUNCATED: export capped at ${EXPORT_ROW_CAP} rows`)
+  })
+
+  it('applies the same filters as the list', async () => {
+    const { app, calls } = await setupApp()
+    await app.inject({ method: 'GET', url: '/admin/audit/export?action=login&entityId=s-1' })
+    const { sql, params } = pageSql(calls)
+    expect(sql).toContain('a.entity_id = $1')
+    expect(sql).toContain('a.action ILIKE $2')
+    expect(params).toEqual(['s-1', '%login%'])
+  })
+})

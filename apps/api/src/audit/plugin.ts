@@ -75,6 +75,9 @@ const auditPlugin: FastifyPluginAsync = async (app) => {
           method: request.method,
           path: request.url,
           requestId: request.id,
+          // FR-A-061: who (role) and under which authenticated session.
+          actorRole: (request as unknown as { user?: { role?: string } }).user?.role ?? null,
+          sessionId: (request as unknown as { authClaims?: { jti?: string } }).authClaims?.jti ?? null,
         },
         ipAddress: request.ip ?? null,
       })

@@ -64,6 +64,14 @@ export interface AuditEntry {
   // actors such as 'anonymous'.
   actorName: string | null
   actorEmail: string | null
+  // Role at the time of the event when recorded; otherwise the user's current
+  // role (actorRoleRecorded false). sessionId / old+new values are null when
+  // the event didn't capture them (entries written before FR-A-061 support).
+  actorRole?: string | null
+  actorRoleRecorded?: boolean
+  sessionId?: string | null
+  oldValue?: unknown
+  newValue?: unknown
   action: string
   entityType: string
   entityId: string
@@ -139,8 +147,12 @@ export const ssoApi = {
 
 // ---------- Audit viewer ----------
 
+export type AuditSortKey = 'id' | 'timestamp' | 'action' | 'entity' | 'actor' | 'ip'
+
 export interface AuditQuery {
   actorId?: string
+  q?: string            // free-text search across the visible columns
+  sortBy?: AuditSortKey // default 'id'; non-id sorts page by offset cursor
   actor?: string        // partial name / email, or exact actor id
   entityType?: string   // partial, case-insensitive
   entityId?: string

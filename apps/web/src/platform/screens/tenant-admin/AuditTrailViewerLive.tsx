@@ -14,13 +14,14 @@ import { useSearchParams } from 'react-router-dom'
 import {
   useAuditQuery, useAuditVerify, useAuditFacets, auditExportUrl, type AuditQuery,
 } from '../../../hooks'
-import { describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry } from '../../../api'
+import { describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry, type AuditSortKey } from '../../../api'
 
 const PAGE_SIZE = 100
 
 type TimeZoneMode = 'local' | 'utc'
 
 interface Filters {
+  search: string    // free-text, matches across the visible columns
   actor: string
   action: string
   entityType: string
@@ -29,10 +30,11 @@ interface Filters {
   toDay: string
 }
 
-const EMPTY_FILTERS: Filters = { actor: '', action: '', entityType: '', entityId: '', fromDay: '', toDay: '' }
+const EMPTY_FILTERS: Filters = { search: '', actor: '', action: '', entityType: '', entityId: '', fromDay: '', toDay: '' }
 
 function filtersFromUrl(params: URLSearchParams): Filters {
   return {
+    search:     params.get('q') ?? '',
     actor:      params.get('actor') ?? params.get('actorId') ?? '',
     action:     params.get('action') ?? '',
     entityType: params.get('entityType') ?? '',
@@ -56,9 +58,10 @@ function dayToIso(day: string, edge: 'start' | 'end', tz: TimeZoneMode): string 
     : new Date(`${day}${time}`).toISOString()  // no suffix → parsed as browser-local
 }
 
-function toAuditQuery(f: Filters, tz: TimeZoneMode): Omit<AuditQuery, 'limit' | 'cursor' | 'order'> {
+function toAuditQuery(f: Filters, tz: TimeZoneMode): Omit<AuditQuery, 'limit' | 'cursor' | 'order' | 'sortBy'> {
   const val = (s: string) => s.trim() || undefined
   return {
+    q:          val(f.search),
     actor:      val(f.actor),
     action:     val(f.action),
     entityType: val(f.entityType),
@@ -127,7 +130,60 @@ function ActionBadge({ action }: { action: string }) {
   )
 }
 
+// One-click filters on the Action column (a "contains" match).
+const QUICK_FILTERS: { label: string; action: string }[] = [
+  { label: 'PHI access', action: 'phi' },
+  { label: 'Sign-in', action: 'auth' },
+  { label: 'Users', action: 'user.' },
+  { label: 'Signatures', action: 'signature' },
+  { label: 'Documents', action: 'document' },
+  { label: 'HTTP writes', action: 'http.' },
+  { label: 'Audit access', action: 'audit.' },
+]
+
+const SORT_COLUMNS: { key: AuditSortKey; label: string }[] = [
+  { key: 'id',        label: 'ID' },
+  { key: 'timestamp', label: 'When' },
+  { key: 'action',    label: 'Action' },
+  { key: 'entity',    label: 'Entity' },
+  { key: 'actor',     label: 'Actor' },
+  { key: 'ip',        label: 'IP' },
+]
+
+function SortHeader({ col, sortBy, order, onSort }: {
+  col: { key: AuditSortKey; label: string }
+  sortBy: AuditSortKey
+  order: 'asc' | 'desc'
+  onSort: (key: AuditSortKey) => void
+}) {
+  const active = sortBy === col.key
+  return (
+    <th className="px-4 py-2" aria-sort={active ? (order === 'asc' ? 'ascending' : 'descending') : 'none'}>
+      <button
+        type="button"
+        onClick={() => onSort(col.key)}
+        className="inline-flex items-center gap-1 font-semibold uppercase tracking-widest hover:text-slate-800"
+        data-sort-column={col.key}
+        title={`Sort by ${col.label.toLowerCase()}`}
+      >
+        {col.label}
+        <span aria-hidden className={active ? 'text-slate-800' : 'text-slate-300'}>
+          {active ? (order === 'asc' ? '▲' : '▼') : '↕'}
+        </span>
+      </button>
+    </th>
+  )
+}
+
 function ActorCell({ entry }: { entry: AuditEntry }) {
+  const role = entry.actorRole
+    ? (
+      <p
+        className="text-[10px] uppercase tracking-wide text-slate-500"
+        title={entry.actorRoleRecorded ? 'Role recorded at the time of the event' : "User's current role (not recorded on this older entry)"}
+      >{entry.actorRole}{entry.actorRoleRecorded ? '' : ' *'}</p>
+    )
+    : null
   if (entry.actorName || entry.actorEmail) {
     return (
       <div title={`${entry.actorEmail ?? ''}\n${entry.actorId}`}>
@@ -135,6 +191,7 @@ function ActorCell({ entry }: { entry: AuditEntry }) {
         {entry.actorName && entry.actorEmail && (
           <p className="text-[10px] text-slate-500">{entry.actorEmail}</p>
         )}
+        {role}
       </div>
     )
   }
@@ -169,8 +226,25 @@ function detailValue(v: unknown): string {
 function DetailPanel({ entry }: { entry: AuditEntry }) {
   const [showRaw, setShowRaw] = useState(false)
   const pairs = Object.entries(entry.details ?? {})
+  // FR-A-061 fields, always shown so a missing value reads as "not recorded".
+  const identity: [string, string][] = [
+    ['Actor role', entry.actorRole ? `${entry.actorRole}${entry.actorRoleRecorded ? '' : ' (current role — not recorded on this entry)'}` : 'not recorded'],
+    ['Session id', entry.sessionId ?? 'not recorded'],
+    ['Old value', entry.oldValue === null || entry.oldValue === undefined ? '—' : detailValue(entry.oldValue)],
+    ['New value', entry.newValue === null || entry.newValue === undefined ? '—' : detailValue(entry.newValue)],
+  ]
   return (
     <div className="flex flex-col gap-3 rounded-md bg-slate-50 p-3 text-[11px] text-slate-700">
+      <table className="w-full max-w-3xl" data-section="identity">
+        <tbody>
+          {identity.map(([k, v]) => (
+            <tr key={k}>
+              <td className="w-40 py-0.5 pr-3 align-top font-semibold text-slate-500">{k}</td>
+              <td className="break-all py-0.5 font-mono">{v}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       {pairs.length > 0 ? (
         <table className="w-full max-w-3xl">
           <tbody>
@@ -247,12 +321,13 @@ export function AuditTrailViewerLive() {
   const [draft, setDraft] = useState<Filters>(initialFilters)
   const [applied, setApplied] = useState<Filters>(initialFilters)
   const [order, setOrder] = useState<'desc' | 'asc'>('desc')
+  const [sortBy, setSortBy] = useState<AuditSortKey>('id')
   const [tz, setTz] = useState<TimeZoneMode>('local')
   // Cursor for each visited page; index 0 (page 1) has no cursor.
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined])
   const pageIndex = cursors.length - 1
 
-  const baseQuery = useMemo(() => ({ ...toAuditQuery(applied, tz), order }), [applied, tz, order])
+  const baseQuery = useMemo(() => ({ ...toAuditQuery(applied, tz), sortBy, order }), [applied, tz, sortBy, order])
   const query: AuditQuery = { ...baseQuery, limit: PAGE_SIZE, cursor: cursors[pageIndex] }
   const { data, isLoading, isFetching, error, refetch } = useAuditQuery(query)
   const facets = useAuditFacets()
@@ -262,6 +337,8 @@ export function AuditTrailViewerLive() {
   const [verifyToId, setVerifyToId] = useState('')
 
   const dirty = !sameFilters(draft, applied)
+  // Reset is only offered while some filter (typed or applied) is in effect.
+  const filtersActive = !sameFilters(draft, EMPTY_FILTERS) || !sameFilters(applied, EMPTY_FILTERS)
   const dateRangeInvalid = draft.fromDay !== '' && draft.toDay !== '' && draft.fromDay > draft.toDay
 
   // Any change to what's on screen makes an earlier verify result stale.
@@ -279,6 +356,19 @@ export function AuditTrailViewerLive() {
   function resetFilter() {
     setDraft(EMPTY_FILTERS)
     setApplied(EMPTY_FILTERS)
+    setSortBy('id')
+    setOrder('desc')
+    resetView()
+  }
+  function quickFilter(action: string) {
+    const next = { ...applied, action: applied.action === action ? '' : action }
+    setDraft(next)
+    setApplied(next)
+    resetView()
+  }
+  function sortColumn(key: AuditSortKey) {
+    if (key === sortBy) setOrder(o => (o === 'asc' ? 'desc' : 'asc'))
+    else { setSortBy(key); setOrder(key === 'id' || key === 'timestamp' ? 'desc' : 'asc') }
     resetView()
   }
   function refresh() {
@@ -287,6 +377,7 @@ export function AuditTrailViewerLive() {
   }
   function changeOrder(next: 'desc' | 'asc') {
     setOrder(next)
+    setSortBy('id')
     resetView()
   }
   function changeTz(next: TimeZoneMode) {
@@ -393,6 +484,34 @@ export function AuditTrailViewerLive() {
 
         {/* Filter form */}
         <form onSubmit={applyFilter} className="rounded-lg border border-slate-200 bg-white p-4" data-section="filters">
+          <label className={`${labelClass} mb-3`}>
+            Search
+            <input
+              type="search"
+              className={`${inputClass} w-full`}
+              placeholder="Search action, entity, actor, IP or details…"
+              value={draft.search}
+              onChange={e => setDraft({ ...draft, search: e.target.value })}
+              data-field="search"
+            />
+          </label>
+          <div className="mb-3 flex flex-wrap items-center gap-2" data-section="quick-filters">
+            <span className="text-[11px] text-slate-500">Quick filters</span>
+            {QUICK_FILTERS.map(f => {
+              const on = applied.action.trim() === f.action
+              return (
+                <button
+                  key={f.action}
+                  type="button"
+                  onClick={() => quickFilter(f.action)}
+                  aria-pressed={on}
+                  className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${
+                    on ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+                  }`}
+                >{on ? '✓ ' : ''}{f.label}</button>
+              )
+            })}
+          </div>
           <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
             <label className={labelClass}>
               Actor (name, email or id)
@@ -442,7 +561,8 @@ export function AuditTrailViewerLive() {
               </label>
               <label className="flex items-center gap-1">
                 Order
-                <select className={inputClass} value={order} onChange={e => changeOrder(e.target.value as 'desc' | 'asc')}>
+                <select className={inputClass} value={sortBy === 'id' ? order : 'custom'} onChange={e => changeOrder(e.target.value as 'desc' | 'asc')}>
+                  {sortBy !== 'id' && <option value="custom" disabled>By column ({sortBy}, {order === 'asc' ? 'asc' : 'desc'})</option>}
                   <option value="desc">Newest first</option>
                   <option value="asc">Oldest first</option>
                 </select>
@@ -451,7 +571,9 @@ export function AuditTrailViewerLive() {
               {dirty && !dateRangeInvalid && <span className="text-amber-700">Filters changed — click Apply.</span>}
             </div>
             <div className="flex gap-2">
-              <button type="button" onClick={resetFilter} className="rounded-md px-3 py-1.5 text-[12px] text-slate-600 hover:bg-slate-100">Reset</button>
+              {filtersActive && (
+                <button type="button" onClick={resetFilter} className="rounded-md px-3 py-1.5 text-[12px] text-slate-600 hover:bg-slate-100" data-action="reset-filters">Reset</button>
+              )}
               <button type="submit" disabled={dateRangeInvalid} className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50" data-action="apply-filter">Apply</button>
               <button type="button" onClick={refresh} className="rounded-md border border-slate-300 px-3 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50">
                 {isFetching && !isLoading ? 'Refreshing…' : 'Refresh'}
@@ -482,12 +604,9 @@ export function AuditTrailViewerLive() {
             <table className="w-full text-[13px]">
               <thead style={{ backgroundColor: '#F8FAFC' }}>
                 <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                  <th className="px-4 py-2">ID</th>
-                  <th className="px-4 py-2">When</th>
-                  <th className="px-4 py-2">Action</th>
-                  <th className="px-4 py-2">Entity</th>
-                  <th className="px-4 py-2">Actor</th>
-                  <th className="px-4 py-2">IP</th>
+                  {SORT_COLUMNS.map(col => (
+                    <SortHeader key={col.key} col={col} sortBy={sortBy} order={order} onSort={sortColumn} />
+                  ))}
                   <th className="px-4 py-2">Details</th>
                 </tr>
               </thead>

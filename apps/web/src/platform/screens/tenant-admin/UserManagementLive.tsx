@@ -164,13 +164,8 @@ export function UserManagementLive() {
 
         {inviteLink && (
           <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-[12px] text-blue-900" data-section="invite-link">
-            <p className="font-semibold">
-              Invitation link for {inviteLink.email} (expires {new Date(inviteLink.inviteExpiresAt).toLocaleDateString()})
-            </p>
-            <p className="mt-1 break-all font-mono text-[11px]">{inviteLink.inviteUrl}</p>
+            <p className="font-semibold">Invitation Sent!</p>
             <div className="mt-2 flex gap-3">
-              <button type="button" className="underline" data-action="copy-invite-link"
-                onClick={() => { void navigator.clipboard?.writeText(inviteLink.inviteUrl) }}>Copy link</button>
               <button type="button" className="underline" data-action="dismiss-invite-link" onClick={() => setInviteLink(null)}>Dismiss</button>
             </div>
           </div>

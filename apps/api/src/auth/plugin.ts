@@ -9,6 +9,7 @@ import fp from 'fastify-plugin'
 import fastifyJwt from '@fastify/jwt'
 import { createSsoProvider, type SsoProvider } from './sso.js'
 import { authRoutes } from './routes.js'
+import { invitationRoutes } from './invitation-routes.js'
 import { SESSION_COOKIE_NAME, type SessionClaims } from './jwt.js'
 import type { AuthenticatedUser, ModuleKey, Role } from './rbac.js'
 
@@ -134,6 +135,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
   })
 
   await app.register(authRoutes)
+  await app.register(invitationRoutes)
 }
 
 declare module 'fastify' {

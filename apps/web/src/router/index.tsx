@@ -73,6 +73,7 @@ import { TenantDirectory }              from '../platform/screens/tenant-admin/T
 import { TenantDetail }                 from '../platform/screens/tenant-admin/TenantDetail'
 import { SsoConnectionConfig }          from '../platform/screens/tenant-admin/SsoConnectionConfig'
 import { UserManagementLive }           from '../platform/screens/tenant-admin/UserManagementLive'
+import { AcceptInvitation }             from '../platform/screens/AcceptInvitation'
 import { AuditTrailViewerLive }         from '../platform/screens/tenant-admin/AuditTrailViewerLive'
 import { TATagConfiguration }           from '../platform/screens/TATagConfiguration'
 import { RACIMatrix }                   from '../platform/screens/RACIMatrix'
@@ -97,6 +98,7 @@ export const router = createBrowserRouter([
   { path: '/sign-in', element: <SignIn /> },
   { path: '/mfa',     element: <MFAVerify /> },
   { path: '/terms',   element: <TCGate /> },
+  { path: '/accept-invitation', element: <AcceptInvitation /> },
   // Authenticated shell
   {
     path: '/',

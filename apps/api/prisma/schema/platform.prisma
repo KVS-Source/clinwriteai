@@ -22,6 +22,10 @@ model User {
   status        String   @default("invited")  // invited | active | suspended | deprovisioned
   lastActiveAt  DateTime?
   ssoSubject    String?  @unique            // from WorkOS SCIM
+  // T&C acceptance captured when an invited user completes first sign-in
+  // (AC-PM-007). Null for users who pre-date the invitation flow.
+  termsAcceptedAt DateTime?
+  termsVersion    String?
   // User's primary (home) tenant. Multi-tenant users have additional
   // memberships; this is just where they land on sign-in by default.
   // Nullable because super-admins at the platform level don't need one.
@@ -32,10 +36,30 @@ model User {
 
   sessions      Session[]
   memberships   Membership[]
+  invitations   UserInvitation[]
 
   @@map("users")
   @@index([tenantId])
   @@index([status])
+}
+
+// One-time sign-up link for an invited user (AC-PM-007). Only the SHA-256
+// of the token is stored; the raw token exists only in the link handed to
+// the admin. Resending rotates the token by revoking the prior row.
+model UserInvitation {
+  id          String    @id @default(cuid())
+  userId      String
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  revokedAt   DateTime?
+  invitedBy   String?
+  createdAt   DateTime  @default(now())
+
+  @@map("user_invitations")
+  @@index([userId])
+  @@index([expiresAt])
 }
 
 model Session {

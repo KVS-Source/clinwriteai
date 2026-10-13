@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTaLabels } from '../../hooks'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type {
@@ -56,7 +57,6 @@ const SUBTYPES: { id: ManuscriptSubtype; label: string }[] = [
   { id: 'case',     label: 'Case report' },
 ]
 
-const TA_OPTIONS = ['Oncology', 'Cardiology', 'Neurology', 'Immunology']
 
 const TEAM = [
   { role: 'Medical writer / publication lead', name: 'Marcus Webb',   initials: 'MW' as const },
@@ -150,6 +150,7 @@ export function NewPublicationWizard({ onClose }: WizardProps = {}) {
   const [step, setStep]                   = useState<1 | 2 | 3 | 4>(1)
   const [docs, setDocs]                   = useState<Record<Doc['key'], boolean>>({ csr: true, sap: true, tlf: true, protocol: false })
   const [ta, setTa]                       = useState('Oncology')
+  const { labels: taLabels } = useTaLabels()
   const [taOpen, setTaOpen]               = useState(false)
   const [type, setType]                   = useState<PublicationType>('manuscript')
   const [subtype, setSubtype]             = useState<ManuscriptSubtype>('original')
@@ -364,7 +365,7 @@ export function NewPublicationWizard({ onClose }: WizardProps = {}) {
                     className="flex flex-col gap-0.5 rounded-lg border border-slate-200 bg-white p-1.5"
                     style={{ boxShadow: '0 12px 28px rgba(15,23,42,0.12)' }}
                   >
-                    {TA_OPTIONS.map(opt => (
+                    {taLabels.map(opt => (
                       <button
                         key={opt}
                         type="button"

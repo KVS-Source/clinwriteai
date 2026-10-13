@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTaLabels } from '../../hooks'
 import { useQuery } from '@tanstack/react-query'
 import type { MasterLibraryItem, ModuleKey } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
@@ -44,6 +45,7 @@ export function MasterLibrary() {
   const [itemType,       setItemType]       = useState<'all' | 'document' | 'section'>('all')
   const [docTypes,       setDocTypes]       = useState<string[]>(['NDA'])
   const [tas,            setTas]            = useState<string[]>(['Oncology'])
+  const { labels: taLabels } = useTaLabels()
 
   const [selectedId, setSelectedId] = useState<string>('ml-001')
 
@@ -144,7 +146,7 @@ export function MasterLibrary() {
             <div data-filter-ta>
               <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Therapeutic area</p>
               <div className="mt-1 flex flex-wrap gap-1">
-                {['Oncology', 'Cardiometabolic'].map(t => {
+                {taLabels.map(t => {
                   const active = tas.includes(t)
                   return (
                     <button key={t} type="button" onClick={() => toggleFrom(tas, t, setTas)}

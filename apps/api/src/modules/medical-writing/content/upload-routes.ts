@@ -19,6 +19,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import type { MultipartFile } from '@fastify/multipart'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { invalidTaBody, resolveTa } from '../../platform/taxonomy/validate.js'
 import { generateBlobKey } from '../../platform/blob/local-storage.js'
 import { medContentShape } from './routes.js'
 
@@ -185,6 +186,9 @@ export const medContentUploadRoutes: FastifyPluginAsync = async (app) => {
     const dbType = UI_TYPE_TO_DB[parsed.data.documentType] ?? parsed.data.documentType
     const dbTrack = UI_TRACK_TO_DB[parsed.data.complianceTrack] ?? 'promotional'
 
+    const taTag = await resolveTa(app.prisma, parsed.data.therapeuticArea, project.therapeuticArea)
+    if (!taTag) return reply.code(400).send(invalidTaBody(parsed.data.therapeuticArea))
+
     const created = await app.prisma.medContentItem.create({
       data: {
         projectId,
@@ -192,7 +196,7 @@ export const medContentUploadRoutes: FastifyPluginAsync = async (app) => {
         type: dbType,
         title: parsed.data.title,
         complianceTrack: dbTrack,
-        taTag: parsed.data.therapeuticArea,
+        taTag,
         version: parsed.data.version,
         channels: parsed.data.channels,
         targetAudience: parsed.data.targetAudience,

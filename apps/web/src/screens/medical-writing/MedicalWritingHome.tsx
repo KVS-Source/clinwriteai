@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTaLabels } from '../../hooks'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { MedContentItem, MedContentStatus, MedContentType } from '@platform/types'
@@ -41,8 +42,7 @@ const TABS: TabDef[] = [
   { id: 'approved',     label: 'Stage 6 (Approved)',     statuses: ['mlr-approved', 'final-output'] },
 ]
 
-const TA_OPTIONS = ['Oncology', 'Cardiometabolic', 'Neurology', 'Immunology', 'Rare Disease', 'Respiratory'] as const
-type TAOption = typeof TA_OPTIONS[number] | 'all'
+type TAOption = string   // a TA label from the Admin master list, or 'all'
 
 const TYPE_FILTER_OPTIONS: { id: MedContentType | 'all'; label: string }[] = [
   { id: 'all',              label: 'All types' },
@@ -331,6 +331,7 @@ export function MedicalWritingHome() {
 
   const [activeTab, setActiveTab] = useState<StageTab>('all')
   const [taFilter,  setTaFilter]  = useState<TAOption>('all')
+  const { labels: taLabels } = useTaLabels()
   const [typeFilter, setTypeFilter] = useState<MedContentType | 'all'>('all')
   const [newContentOpen, setNewContentOpen] = useState<false | { duplicateSourceId: string | null }>(false)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -603,7 +604,7 @@ export function MedicalWritingHome() {
               className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[13px] text-slate-800 outline-none"
             >
               <option value="all">All TAs</option>
-              {TA_OPTIONS.map(ta => <option key={ta} value={ta}>{ta}</option>)}
+              {taLabels.map(ta => <option key={ta} value={ta}>{ta}</option>)}
             </select>
           </label>
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">

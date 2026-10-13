@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTaLabels } from '../../hooks'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { MedContentItem } from '@platform/types'
@@ -17,7 +18,6 @@ const SCOPES = [
 ] as const
 type Scope = typeof SCOPES[number]['id']
 
-const TA_OPTIONS = ['all', 'Oncology', 'Cardiometabolic', 'Neurology', 'Immunology', 'Rare Disease', 'Respiratory'] as const
 
 type Lane = {
   id:      'briefing' | 'authoring' | 'review' | 'approved'
@@ -59,7 +59,8 @@ export function ContentPortfolio() {
   const navigate = useNavigate()
 
   const [scope,    setScope]    = useState<Scope>('all')
-  const [taFilter, setTaFilter] = useState<typeof TA_OPTIONS[number]>('all')
+  const [taFilter, setTaFilter] = useState<string>('all')   // TA label or 'all'
+  const { labels: taLabels } = useTaLabels()
   const [toast,    setToast]    = useState<string | null>(null)
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 4200) }
@@ -153,12 +154,12 @@ export function ContentPortfolio() {
             <span>Therapy area</span>
             <select
               value={taFilter}
-              onChange={(e) => setTaFilter(e.target.value as typeof TA_OPTIONS[number])}
+              onChange={(e) => setTaFilter(e.target.value)}
               data-ta-filter
               className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[13px] text-slate-800"
             >
               <option value="all">All TAs</option>
-              {TA_OPTIONS.filter(t => t !== 'all').map(ta => <option key={ta} value={ta}>{ta}</option>)}
+              {taLabels.map(ta => <option key={ta} value={ta}>{ta}</option>)}
             </select>
           </label>
         </div>

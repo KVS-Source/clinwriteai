@@ -49,5 +49,9 @@ export const taxonomyApi = {
     api.patch<TherapeuticArea>(`/admin/taxonomy/therapeutic-areas/${encodeURIComponent(code)}`, body),
 
   archive: (code: string) =>
-    api.delete<TherapeuticArea>(`/admin/taxonomy/therapeutic-areas/${encodeURIComponent(code)}`),
+    api.patch<TherapeuticArea>(`/admin/taxonomy/therapeutic-areas/${encodeURIComponent(code)}`, { status: 'archived' }),
+
+  /** Hard delete — the API refuses (409 in_use) if anything carries the tag. */
+  remove: (code: string) =>
+    api.delete<{ ok: true }>(`/admin/taxonomy/therapeutic-areas/${encodeURIComponent(code)}`),
 }

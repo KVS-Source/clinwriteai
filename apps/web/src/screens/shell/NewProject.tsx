@@ -8,8 +8,8 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
+import { useTaLabels } from '../../hooks'
 
-const THERAPEUTIC_AREAS = ['Oncology', 'Cardiometabolic', 'Neurology', 'Immunology', 'Infectious Disease', 'Rare Disease', 'Respiratory', 'Dermatology']
 const PHASES  = ['Preclinical', 'Phase 1', 'Phase 1/2', 'Phase 2', 'Phase 2/3', 'Phase 3', 'Phase 4', 'Post-marketing']
 const MODULES = ['A', 'B', 'C', 'D', 'E'] as const
 const COUNTRIES = ['US', 'EU', 'IN', 'UK', 'JP', 'CN', 'BR', 'AU', 'CA']
@@ -34,7 +34,8 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
   const [idOverride,      setIdOverride]      = useState('')
   const [shortTitle,      setShortTitle]      = useState('')
   const [client,          setClient]          = useState('')
-  const [therapeuticArea, setTherapeuticArea] = useState(THERAPEUTIC_AREAS[0])
+  const { labels: taLabels, isLoading: tasLoading } = useTaLabels()
+  const [therapeuticArea, setTherapeuticArea] = useState('')
   const [indication,      setIndication]      = useState('')
   const [phase,           setPhase]           = useState(PHASES[2])
   const [startDate,       setStartDate]       = useState(() => new Date().toISOString().slice(0, 10))
@@ -74,6 +75,7 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
     derivedId.length >= 3 &&
     name.trim().length > 0 &&
     client.trim().length > 0 &&
+    therapeuticArea.length > 0 &&
     phase.length > 0 &&
     activeModules.length > 0
 
@@ -83,7 +85,9 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
         ? 'Only admins and super-admins can create projects.'
         : create.error.status === 409
           ? `Project id "${derivedId}" is already taken. Edit the auto-derived id below.`
-          : `Could not create project (HTTP ${create.error.status}).`
+          : (create.error.body as { error?: string; message?: string } | null)?.error === 'invalid_therapeutic_area'
+            ? (create.error.body as { message: string }).message
+            : `Could not create project (HTTP ${create.error.status}).`
       : 'Could not create project — see console for details.'
     : null
 
@@ -119,9 +123,10 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
 
       <Section title="Study details">
         <Field label="Therapeutic area *">
-          <select value={therapeuticArea} onChange={e => setTherapeuticArea(e.currentTarget.value)}
+          <select value={therapeuticArea} onChange={e => setTherapeuticArea(e.currentTarget.value)} required
             className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]">
-            {THERAPEUTIC_AREAS.map(a => <option key={a} value={a}>{a}</option>)}
+            <option value="" disabled>{tasLoading ? 'Loading…' : taLabels.length ? 'Select a therapeutic area' : 'No TA tags — add one in Admin → TA Tags'}</option>
+            {taLabels.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </Field>
         <Field label="Phase *">

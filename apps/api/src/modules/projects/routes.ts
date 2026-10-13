@@ -9,6 +9,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../auth/rbac.js'
+import { findActiveTaLabel, invalidTaBody, sameTa } from '../platform/taxonomy/validate.js'
 import {
   canTransition,
   InvalidTransitionError,
@@ -94,9 +95,14 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     const existing = await app.prisma.project.findUnique({ where: { id: parsed.data.id } })
     if (existing) return reply.code(409).send({ error: 'conflict', message: 'Project id already exists' })
 
+    // TA must come from the Admin-managed master list (PRD sPM17).
+    const therapeuticArea = await findActiveTaLabel(app.prisma, parsed.data.therapeuticArea)
+    if (!therapeuticArea) return reply.code(400).send(invalidTaBody(parsed.data.therapeuticArea))
+
     const created = await app.prisma.project.create({
       data: {
         ...parsed.data,
+        therapeuticArea,
         status: 'initiated',
         startDate: new Date(parsed.data.startDate),
         dataCutoff: parsed.data.dataCutoff ? new Date(parsed.data.dataCutoff) : null,
@@ -125,10 +131,20 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     const existing = await app.prisma.project.findUnique({ where: { id } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
 
+    // Only a *changed* TA is validated, so legacy labels on existing
+    // projects don't block unrelated edits.
+    let therapeuticArea = parsed.data.therapeuticArea
+    if (therapeuticArea !== undefined && !sameTa(therapeuticArea, existing.therapeuticArea)) {
+      const canonical = await findActiveTaLabel(app.prisma, therapeuticArea)
+      if (!canonical) return reply.code(400).send(invalidTaBody(therapeuticArea))
+      therapeuticArea = canonical
+    }
+
     const updated = await app.prisma.project.update({
       where: { id },
       data: {
         ...parsed.data,
+        therapeuticArea,
         startDate: parsed.data.startDate ? new Date(parsed.data.startDate) : undefined,
         dataCutoff: parsed.data.dataCutoff ? new Date(parsed.data.dataCutoff) : undefined,
       },
@@ -140,7 +156,13 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       action: 'project.update',
       entityType: 'project',
       entityId: id,
-      details: { changedFields: Object.keys(parsed.data) },
+      details: {
+        changedFields: Object.keys(parsed.data),
+        // TA stays editable (not locked), so record the before/after values.
+        ...(therapeuticArea !== undefined && !sameTa(therapeuticArea, existing.therapeuticArea) && {
+          therapeuticArea: { from: existing.therapeuticArea, to: therapeuticArea },
+        }),
+      },
       ipAddress: request.ip ?? null,
     })
 

@@ -5,6 +5,7 @@ import type { Project, ProjectStatus } from '@platform/types'
 import { projectsApi } from '../../api'
 import { ProjectStatusPill, SlidePanel } from '../../components/ui'
 import { useProjectStore } from '../../store'
+import { useTaLabels } from '../../hooks'
 import { NewProjectForm } from './NewProject'
 
 function SearchIcon() {
@@ -45,12 +46,23 @@ export function AllProjects() {
 
   const [search,       setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all')
+  const [taFilter,     setTaFilter]     = useState<string>('all')   // TA label or 'all'
   const [newProjectOpen, setNewProjectOpen] = useState(false)
 
   const { data: projects = [], isLoading } = useQuery({
     queryKey: ['projects'],
     queryFn:  () => projectsApi.list(),
   })
+
+  // AC-A-004b: filterable by TA tag. Offer the master list plus any TA a
+  // project already carries that predates it, so no project is unreachable.
+  const { labels: taLabels } = useTaLabels()
+  const taOptions = useMemo(() => {
+    const known = new Set(taLabels.map(l => l.toLowerCase()))
+    const legacy = [...new Set(projects.map((p: Project) => p.therapeuticArea).filter(Boolean))]
+      .filter(ta => !known.has(ta.toLowerCase()))
+    return [...taLabels, ...legacy].sort((a, b) => a.localeCompare(b))
+  }, [taLabels, projects])
 
   // Single-project shortcut: when the workspace holds exactly one project and
   // "+ New Project" is disabled in the demo, the projects-list page becomes a
@@ -69,9 +81,10 @@ export function AllProjects() {
         p.name.toLowerCase().includes(search.toLowerCase()) ||
         p.shortTitle.toLowerCase().includes(search.toLowerCase())
       const matchStatus = statusFilter === 'all' || p.status === statusFilter
-      return matchSearch && matchStatus
+      const matchTa     = taFilter === 'all' || p.therapeuticArea?.toLowerCase() === taFilter.toLowerCase()
+      return matchSearch && matchStatus && matchTa
     })
-  }, [projects, search, statusFilter])
+  }, [projects, search, statusFilter, taFilter])
 
   const handleProjectClick = (project: Project) => {
     setActiveProject(project)
@@ -146,6 +159,20 @@ export function AllProjects() {
             </button>
           ))}
         </div>
+
+        {/* TA filter */}
+        <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+          <span>Therapeutic area</span>
+          <select
+            value={taFilter}
+            onChange={e => setTaFilter(e.target.value)}
+            data-ta-filter
+            className="h-8 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-800"
+          >
+            <option value="all">All TAs</option>
+            {taOptions.map(ta => <option key={ta} value={ta}>{ta}</option>)}
+          </select>
+        </label>
 
       </div>
 

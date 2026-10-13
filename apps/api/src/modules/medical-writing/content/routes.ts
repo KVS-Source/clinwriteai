@@ -20,6 +20,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { invalidTaBody, resolveTa } from '../../platform/taxonomy/validate.js'
 import {
   complianceTrackIsLocked,
   nextContentStage,
@@ -148,6 +149,10 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
     const dbType  = UI_TYPE_TO_DB[parsed.data.type]  ?? parsed.data.type
     const dbTrack = UI_TRACK_TO_DB[parsed.data.complianceTrack ?? 'promotional'] ?? 'promotional'
 
+    // TA must be an active master-list tag unless it's the project's own.
+    const taTag = await resolveTa(app.prisma, parsed.data.taTag, project.therapeuticArea)
+    if (!taTag) return reply.code(400).send(invalidTaBody(parsed.data.taTag))
+
     const created = await app.prisma.medContentItem.create({
       data: {
         projectId,
@@ -156,7 +161,7 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
         type: dbType,
         title: parsed.data.title,
         complianceTrack: dbTrack,
-        taTag: parsed.data.taTag,
+        taTag,
         channels: parsed.data.channels,
         targetAudience: parsed.data.targetAudience,
         ownerId: parsed.data.ownerId ?? request.user!.id,
@@ -232,9 +237,16 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    // Only a changed TA is validated; keeping the current one is always fine.
+    let taTag = parsed.data.taTag
+    if (taTag !== undefined) {
+      taTag = await resolveTa(app.prisma, taTag, existing.taTag) ?? undefined
+      if (!taTag) return reply.code(400).send(invalidTaBody(parsed.data.taTag!))
+    }
+
     const updated = await app.prisma.medContentItem.update({
       where: { id: contentId },
-      data: parsed.data,
+      data: { ...parsed.data, taTag },
     })
 
     await app.audit.append({

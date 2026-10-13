@@ -19,6 +19,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
 
 const createSchema = z.object({
   title: z.string().min(1),
@@ -81,12 +82,16 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
+    // Library entries carry a mandatory master-list TA (FR-A-080).
+    const taTag = await resolveTa(app.prisma, parsed.data.taTag)
+    if (!taTag) return reply.code(400).send(invalidTaBody(parsed.data.taTag))
+
     const created = await app.prisma.librarySection.create({
       data: {
         tenantId: parsed.data.tenantId ?? request.user!.tenantId,
         title: parsed.data.title,
         body: parsed.data.body,
-        taTag: parsed.data.taTag,
+        taTag,
         framework: parsed.data.framework,
         category: parsed.data.category,
         tags: parsed.data.tags,
@@ -119,6 +124,12 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send({ error: 'not_current', message: 'Can only version the current section' })
     }
 
+    // A new version may keep the section's TA; a different TA must be active.
+    const taTag = parsed.data.taTag === undefined
+      ? existing.taTag
+      : await resolveTa(app.prisma, parsed.data.taTag, existing.taTag)
+    if (!taTag) return reply.code(400).send(invalidTaBody(parsed.data.taTag!))
+
     const created = await app.prisma.$transaction(async (tx) => {
       await tx.librarySection.update({
         where: { id: existing.id },
@@ -129,7 +140,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
           tenantId: existing.tenantId,
           title: parsed.data.title ?? existing.title,
           body: parsed.data.body ?? existing.body,
-          taTag: parsed.data.taTag ?? existing.taTag,
+          taTag,
           framework: parsed.data.framework ?? existing.framework,
           category: (parsed.data.category ?? existing.category) as 'claim' | 'safety' | 'boilerplate' | 'best_practice',
           tags: parsed.data.tags ?? existing.tags,

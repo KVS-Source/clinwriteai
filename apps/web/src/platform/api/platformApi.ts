@@ -1,5 +1,6 @@
 // Platform & Admin API client — used by sPM04–sPM18 and sB10.
 import { api } from '../../api/client'
+import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
   PlatformConfig, PlatformUser, RaciMatrix, MasterLibraryItem,
   BestPractice, PlatformNotification, NotificationPreference,
@@ -31,7 +32,24 @@ export interface CreateRateCardBody {
 export interface CreateTATagBody {
   name:          string
   abbreviation:  string
-  createdBy:     string
+}
+
+const TA_ADMIN = '/admin/taxonomy/therapeutic-areas'
+
+type TaxonomyRow = TherapeuticArea & { projectCount?: number; documentCount?: number }
+
+function taTagShape(r: TaxonomyRow): TATag {
+  return {
+    id:            r.code,
+    name:          r.label,
+    abbreviation:  r.code,
+    status:        r.status,
+    projectCount:  r.projectCount ?? 0,
+    documentCount: r.documentCount ?? 0,
+    createdAt:     r.createdAt.slice(0, 10),
+    createdBy:     r.createdBy,
+    archivedAt:    r.archivedAt?.slice(0, 10),
+  }
 }
 
 export interface UpdateFrameworkBody {
@@ -129,19 +147,21 @@ export const platformApi = {
       `/reports/${reportType}/generate`, body,
     ),
 
-  // sPM17 — TA tags
+  // sPM17 — TA tags. Backed by the therapeutic-areas taxonomy routes; the
+  // TA `code` doubles as the tag id + abbreviation, `label` is the name.
   listTATags: () =>
-    api.get<TATag[]>('/admin/taxonomy'),
+    api.get<TaxonomyRow[]>('/taxonomy/therapeutic-areas?includeArchived=true&includeUsage=true')
+      .then(rows => rows.map(taTagShape)),
   createTATag: (body: CreateTATagBody) =>
-    api.post<TATag>('/admin/taxonomy', body),
-  updateTATag: (tagId: string, patch: Partial<TATag>) =>
-    api.patch<TATag>(`/admin/taxonomy/${tagId}`, patch),
+    api.post<TaxonomyRow>(TA_ADMIN, { code: body.abbreviation, label: body.name }).then(taTagShape),
+  updateTATag: (tagId: string, patch: { name?: string }) =>
+    api.patch<TaxonomyRow>(`${TA_ADMIN}/${encodeURIComponent(tagId)}`, { label: patch.name }).then(taTagShape),
   archiveTATag: (tagId: string) =>
-    api.patch<TATag>(`/admin/taxonomy/${tagId}/archive`, {}),
+    api.patch<TaxonomyRow>(`${TA_ADMIN}/${encodeURIComponent(tagId)}`, { status: 'archived' }).then(taTagShape),
   restoreTATag: (tagId: string) =>
-    api.patch<TATag>(`/admin/taxonomy/${tagId}/restore`, {}),
+    api.patch<TaxonomyRow>(`${TA_ADMIN}/${encodeURIComponent(tagId)}`, { status: 'active' }).then(taTagShape),
   deleteTATag: (tagId: string) =>
-    api.delete<{ ok: true }>(`/admin/taxonomy/${tagId}`),
+    api.delete<{ ok: true }>(`${TA_ADMIN}/${encodeURIComponent(tagId)}`),
 
   // sPM18 — Regulatory Frameworks
   listFrameworks: () =>

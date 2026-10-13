@@ -1530,6 +1530,31 @@ export interface RaciMatrix {
   modules:       Partial<Record<'A' | 'B' | 'C' | 'D' | 'E', RaciModule>>
 }
 
+// Per-project RACI override row — GET/PUT/DELETE /projects/:projectId/raci.
+// `activity` is `${moduleKey}:${taskId}` from the RaciMatrix template.
+export interface ProjectRaciAssignment {
+  id:            string
+  projectId:     string
+  activity:      string
+  responsibleId: string | null
+  accountableId: string | null
+  consultedIds:  string[]
+  informedIds:   string[]
+  notes:         string | null
+  updatedBy:     string
+  updatedAt:     string
+  createdAt:     string
+}
+
+export interface ProjectRaciAssignmentBody {
+  activity:      string
+  responsibleId: string | null
+  accountableId: string | null
+  consultedIds:  string[]
+  informedIds:   string[]
+  notes?:        string
+}
+
 export interface AiEngineOption { id: string; label: string; provider: string; status: AiEngineStatus }
 export interface VoiceEngineOption { id: string; label: string; status: AiEngineStatus }
 export interface PaymentGateway { id: string; label: string; status: PaymentGatewayStatus; lastTested: string | null }

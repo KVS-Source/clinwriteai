@@ -6,6 +6,7 @@ import type {
   AuditTrailEntry, RateCard, Subscription, ReportDefinition,
   ModuleHealthScore, TATag, RegulatoryFramework, SlideDeckJob, Slide,
   PlatformClient, PlatformAnalytics,
+  ProjectRaciAssignment, ProjectRaciAssignmentBody,
 } from '@platform/types'
 
 // --- Request bodies ---
@@ -63,6 +64,12 @@ export const platformApi = {
   // sPM07 — RACI
   getRaci: (projectId: string) =>
     api.get<RaciMatrix>(`/raci/${projectId}`),
+  listProjectRaci: (projectId: string) =>
+    api.get<ProjectRaciAssignment[]>(`/projects/${projectId}/raci`),
+  setProjectRaci: (projectId: string, body: ProjectRaciAssignmentBody) =>
+    api.put<ProjectRaciAssignment>(`/projects/${projectId}/raci`, body),
+  deleteProjectRaci: (projectId: string, activity: string) =>
+    api.delete<void>(`/projects/${projectId}/raci/${encodeURIComponent(activity)}`),
 
   // sPM08 — Master Library
   listLibrary: () =>

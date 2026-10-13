@@ -9,66 +9,72 @@
           "id": "a-t1",
           "label": "Study Start-Up (Stage 1)",
           "assignments": {
-            "admin": "A",
-            "author": "R",
-            "clinical-lead": "C",
-            "qc-checker": "I",
-            "e-signatory": "I"
+            "clinical-writer": "R",
+            "clinical-pm": "A",
+            "biostatistician": "C",
+            "clinical-data-manager": "C",
+            "pharmacovigilance-lead": "I",
+            "regulatory-affairs-reviewer": "C"
           }
         },
         {
           "id": "a-t2",
           "label": "During Study (Stage 2)",
           "assignments": {
-            "admin": "A",
-            "author": "R",
-            "clinical-lead": "C",
-            "qc-checker": "I",
-            "e-signatory": "I"
+            "clinical-writer": "R",
+            "clinical-pm": "A",
+            "biostatistician": "I",
+            "clinical-data-manager": "C",
+            "pharmacovigilance-lead": "C",
+            "regulatory-affairs-reviewer": "I"
           }
         },
         {
           "id": "a-t3",
           "label": "Post-Study / Data Analysis (Stage 3)",
           "assignments": {
-            "admin": "A",
-            "author": "R",
-            "clinical-lead": "C",
-            "qc-checker": "C",
-            "e-signatory": "I"
+            "clinical-writer": "R",
+            "clinical-pm": "A",
+            "biostatistician": "R",
+            "clinical-data-manager": "R",
+            "pharmacovigilance-lead": "C",
+            "regulatory-affairs-reviewer": "I"
           }
         },
         {
           "id": "a-t4",
           "label": "Cross-Functional Review (Stage 4)",
           "assignments": {
-            "admin": "A",
-            "author": "R",
-            "clinical-lead": "R",
-            "qc-checker": "R",
-            "e-signatory": "C"
+            "clinical-writer": "R",
+            "clinical-pm": "A",
+            "biostatistician": "R",
+            "clinical-data-manager": "R",
+            "pharmacovigilance-lead": "R",
+            "regulatory-affairs-reviewer": "R"
           }
         },
         {
           "id": "a-t5",
-          "label": "CRM (Stage 5)",
+          "label": "Comments Resolution & Finalisation (Stage 5)",
           "assignments": {
-            "admin": "A",
-            "author": "R",
-            "clinical-lead": "C",
-            "qc-checker": "C",
-            "e-signatory": "I"
+            "clinical-writer": "R",
+            "clinical-pm": "A",
+            "biostatistician": "C",
+            "clinical-data-manager": "C",
+            "pharmacovigilance-lead": "C",
+            "regulatory-affairs-reviewer": "C"
           }
         },
         {
           "id": "a-t6",
           "label": "Final Output (Stage 6)",
           "assignments": {
-            "admin": "A",
-            "author": "C",
-            "clinical-lead": "C",
-            "qc-checker": "R",
-            "e-signatory": "R"
+            "clinical-writer": "R",
+            "clinical-pm": "A",
+            "biostatistician": "I",
+            "clinical-data-manager": "I",
+            "pharmacovigilance-lead": "C",
+            "regulatory-affairs-reviewer": "R"
           }
         }
       ]

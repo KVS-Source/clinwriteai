@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import type {
@@ -52,13 +52,34 @@ function computeSignedStages(audit: AuditTrailEntry[]): { module: string; entity
   return audit.filter(a => a.action === 'SIGNATURE_APPLIED').map(a => ({ module: a.module, entityId: a.entityId }))
 }
 
+// A customised row replaces the template marks: each role column shows the
+// strongest mark held by anyone of that role in the saved assignment (A > R > C > I).
+// People whose role isn't a column here still appear in the row's people line.
+const MARK_STRENGTH: RACIRole[] = ['A', 'R', 'C', 'I']
+function marksFromOverride(o: ProjectRaciAssignment, roleOfUser: (id: string) => string | undefined): Record<string, RACIRole> {
+  const marks: Record<string, RACIRole> = {}
+  const put = (id: string | null, mark: RACIRole) => {
+    const role = id ? roleOfUser(id) : undefined
+    if (!role) return
+    const current = marks[role]
+    if (!current || MARK_STRENGTH.indexOf(mark) < MARK_STRENGTH.indexOf(current)) marks[role] = mark
+  }
+  put(o.accountableId, 'A')
+  put(o.responsibleId, 'R')
+  o.consultedIds.forEach(id => put(id, 'C'))
+  o.informedIds.forEach(id => put(id, 'I'))
+  return marks
+}
+
 export function RACIMatrix() {
   const currentUser = usePlatformStore(s => s.currentUser)
   // Mirrors the API's requireAuth({ roles: ['admin', 'super-admin'] }) on PUT/DELETE.
   const canEdit = currentUser.role === 'admin' || currentUser.role === 'super-admin'
   const raci = DEFAULT_TEMPLATE
-  const { data: projects = [] } = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list() })
-  const { data: users = [] } = useQuery<PlatformUser[]>({ queryKey: ['admin-users'], queryFn: () => platformApi.listUsers() })
+  const { data: projects = [], isLoading: projectsLoading, isError: projectsError, refetch: refetchProjects } =
+    useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list() })
+  const { data: users = [], isSuccess: usersLoaded, isError: usersError, refetch: refetchUsers } =
+    useQuery<PlatformUser[]>({ queryKey: ['admin-users'], queryFn: () => platformApi.listUsers() })
   const { data: audit = [] } = useQuery<AuditTrailEntry[]>({ queryKey: ['audit'],    queryFn: () => platformApi.listAudit() })
 
   // Module + project live in the URL (?module=A&project=…) so they survive the
@@ -80,8 +101,27 @@ export function RACIMatrix() {
 
   const [mineOn, setMineOn] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  // Tasks in the edit panel with unsaved changes. The panel unmounts its contents
+  // on close, so closing with drafts open asks first (inline, no browser dialog).
+  const [dirtyTasks, setDirtyTasks] = useState<Set<string>>(new Set())
+  const [pendingDiscard, setPendingDiscard] = useState<{ what: string; proceed: () => void } | null>(null)
+  const reportDirty = useCallback((activity: string, dirty: boolean) => {
+    setDirtyTasks(prev => {
+      if (prev.has(activity) === dirty) return prev
+      const next = new Set(prev)
+      if (dirty) next.add(activity); else next.delete(activity)
+      return next
+    })
+  }, [])
+  // Run `proceed` now, or after the user confirms discarding unsaved drafts.
+  const guardUnsaved = (what: string, proceed: () => void) => {
+    if (editOpen && dirtyTasks.size > 0) setPendingDiscard({ what, proceed })
+    else proceed()
+  }
+  const closePanel = () => { setPendingDiscard(null); setEditOpen(false) }
+  const requestClosePanel = () => guardUnsaved('Closing', closePanel)
 
-  const { data: overrides = [] } = useQuery<ProjectRaciAssignment[]>({
+  const { data: overrides = [], isLoading: overridesLoading, isError: overridesError, refetch: refetchOverrides } = useQuery<ProjectRaciAssignment[]>({
     queryKey: ['project-raci', projectId],
     queryFn:  () => platformApi.listProjectRaci(projectId),
     enabled:  !!projectId,
@@ -90,7 +130,17 @@ export function RACIMatrix() {
     () => new Map(overrides.map(o => [o.activity, o])),
     [overrides],
   )
-  const userName = (id: string | null) => (id && users.find(u => u.id === id)?.name) || id || '—'
+  const roleOfUserId = (id: string) => {
+    const u = users.find(x => x.id === id)
+    return u ? raciRoleOf(u) : undefined
+  }
+  // Never surface a raw id: unknown ids are accounts that no longer exist (or the list failed to load).
+  const userName = (id: string | null) => {
+    if (!id) return '—'
+    const name = users.find(u => u.id === id)?.name
+    if (name) return name
+    return usersLoaded ? 'Unknown user' : '—'
+  }
   // Deprovisioned / suspended accounts can't take on RACI work.
   const assignableUsers = useMemo(
     () => users.filter(u => !INACTIVE_STATUSES.includes(u.status)),
@@ -160,14 +210,20 @@ export function RACIMatrix() {
           {/* Left panel */}
           <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4" data-project-selector>
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Project</p>
+            {projectsError && (
+              <p className="text-[11px] text-red-700" role="alert" data-error="projects">
+                Couldn't load projects.{' '}
+                <button type="button" onClick={() => refetchProjects()} className="font-semibold underline">Retry</button>
+              </p>
+            )}
             <select
               data-project-select
               value={projectId}
-              onChange={e => setProjectId(e.target.value)}
+              onChange={e => { const id = e.target.value; guardUnsaved('Switching project', () => setProjectId(id)) }}
               disabled={projects.length === 0}
               className="h-9 w-full min-w-0 truncate rounded-md border border-slate-300 bg-white px-3 text-[13px]"
             >
-              {projects.length === 0 && <option value="">No projects</option>}
+              {projects.length === 0 && <option value="">{projectsLoading ? 'Loading projects…' : 'No projects'}</option>}
               {projects.map(p => (
                 <option key={p.id} value={p.id} title={p.name}>{p.shortTitle || p.name}</option>
               ))}
@@ -183,7 +239,7 @@ export function RACIMatrix() {
                     key={m}
                     type="button"
                     disabled={disabled}
-                    onClick={() => setActiveModule(m)}
+                    onClick={() => guardUnsaved('Switching module', () => setActiveModule(m))}
                     data-module-tab={m}
                     data-active={isActive || undefined}
                     title={disabled ? 'No RACI template for this module yet' : undefined}
@@ -234,6 +290,26 @@ export function RACIMatrix() {
               </div>
             </div>
 
+            {(overridesError || usersError) && (
+              <div className="flex flex-col gap-1 rounded-md border border-red-200 bg-red-50 p-3 text-[12px] text-red-800" role="alert" data-error="load">
+                {overridesError && (
+                  <p>
+                    Couldn't load this project's customised assignments, so only the default template is shown.{' '}
+                    <button type="button" onClick={() => refetchOverrides()} className="font-semibold underline">Retry</button>
+                  </p>
+                )}
+                {usersError && (
+                  <p>
+                    Couldn't load the people list, so names and roles may be missing.{' '}
+                    <button type="button" onClick={() => refetchUsers()} className="font-semibold underline">Retry</button>
+                  </p>
+                )}
+              </div>
+            )}
+            {overridesLoading && !!projectId && (
+              <p className="text-[12px] text-slate-500" data-loading="overrides">Loading project assignments…</p>
+            )}
+
             {/* Matrix table */}
             <div className="overflow-auto rounded-lg border border-slate-200" data-raci-table>
               <table className="w-full text-[12px]">
@@ -281,7 +357,8 @@ export function RACIMatrix() {
                           )}
                         </td>
                         {allRoles.map(r => {
-                          const mark = (t.assignments as Record<string, RACIRole | undefined>)[r]
+                          const marks = (override ? marksFromOverride(override, roleOfUserId) : t.assignments) as Record<string, RACIRole | undefined>
+                          const mark = marks[r]
                           const colStyle = r === currentUser.role ? { backgroundColor: PLATFORM_ACCENT.bgTint } : undefined
                           if (!mark) return <td key={r} className="px-3 py-2 text-center text-slate-300" style={colStyle}>—</td>
                           const c = RACI_COLOURS[mark]
@@ -303,8 +380,13 @@ export function RACIMatrix() {
             </div>
 
             <p className="font-mono text-[11px] text-slate-500" data-row-count>
-              {filteredTasks.length} task{filteredTasks.length === 1 ? '' : 's'}{mineOn ? ` matching ${currentUser.name}` : ''}
+              {filteredTasks.length} task{filteredTasks.length === 1 ? '' : 's'}{mineOn ? ` assigned to ${currentUser.name}` : ''}
             </p>
+            {mineOn && filteredTasks.length === 0 && (
+              <p className="text-[12px] text-slate-500" data-mine-empty>
+                You have no assignments in {moduleLabel} for this project.
+              </p>
+            )}
 
             <div className="flex flex-wrap gap-3 text-[11px]" data-raci-legend>
               <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: RACI_COLOURS.R.bg, border: `1px solid ${RACI_COLOURS.R.fg}` }} />R = responsible</span>
@@ -364,13 +446,26 @@ export function RACIMatrix() {
       {canEdit && projectId && (
         <SlidePanel
           open={editOpen}
-          onClose={() => setEditOpen(false)}
+          onClose={requestClosePanel}
           title="Edit assignments"
           subtitle={`${moduleLabel} · ${selectedProject?.shortTitle || selectedProject?.name || projectId}`}
           storageKey="raci-edit-panel-width"
           defaultWidth={560}
         >
           <div className="flex flex-col gap-3" data-raci-edit-panel>
+            {pendingDiscard && (
+              <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-900" role="alert" data-raci-discard-confirm>
+                <p>
+                  {dirtyTasks.size} task{dirtyTasks.size === 1 ? ' has' : 's have'} unsaved changes. {pendingDiscard.what} will discard them.
+                </p>
+                <div className="mt-2 flex gap-2">
+                  <button type="button" onClick={() => setPendingDiscard(null)}
+                    className="h-7 rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700">Keep editing</button>
+                  <button type="button" onClick={() => { const { proceed } = pendingDiscard; setPendingDiscard(null); proceed() }} data-raci-discard
+                    className="h-7 rounded-md bg-amber-700 px-3 text-[11px] font-semibold text-white">Discard changes</button>
+                </div>
+              </div>
+            )}
             {moduleTasks.map(t => (
               <RaciTaskEditor
                 key={`${projectId}-${t.id}`}
@@ -380,6 +475,7 @@ export function RACIMatrix() {
                 override={overrideByActivity.get(activityKey(activeModule, t.id))}
                 users={assignableUsers}
                 accountableLocked={isRowLocked(t.label)}
+                onDirtyChange={reportDirty}
               />
             ))}
           </div>
@@ -390,13 +486,14 @@ export function RACIMatrix() {
 }
 
 // One task's editable R/A/C/I people. Saves via PUT (upsert), resets via DELETE.
-function RaciTaskEditor({ projectId, activity, task, override, users, accountableLocked }: {
+function RaciTaskEditor({ projectId, activity, task, override, users, accountableLocked, onDirtyChange }: {
   projectId:         string
   activity:          string
   task:              RaciTask
   override:          ProjectRaciAssignment | undefined
   users:             PlatformUser[]
   accountableLocked: boolean
+  onDirtyChange:     (activity: string, dirty: boolean) => void
 }) {
   const queryClient = useQueryClient()
   const fromOverride = (): ProjectRaciAssignmentBody => ({
@@ -408,6 +505,7 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
   })
   const [draft, setDraft] = useState<ProjectRaciAssignmentBody>(fromOverride)
   const [error, setError] = useState<string | null>(null)
+  const [confirmReset, setConfirmReset] = useState(false)
 
   // Re-sync when the saved row changes (after save/reset or a refetch).
   useEffect(() => { setDraft(fromOverride()) }, [override?.updatedAt, override?.id])
@@ -415,9 +513,21 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
   const saved = fromOverride()
   const dirty = JSON.stringify(draft) !== JSON.stringify(saved)
 
-  const onError = (e: unknown) => setError(
-    e instanceof ApiError && e.status === 403 ? 'Only Admins can change RACI assignments.' : 'Could not save — please try again.',
-  )
+  // Tell the panel about unsaved drafts (and clear on unmount) so closing can warn.
+  useEffect(() => {
+    onDirtyChange(activity, dirty)
+    return () => onDirtyChange(activity, false)
+  }, [activity, dirty, onDirtyChange])
+
+  // Inline, human-readable messages only — never the raw API status or body.
+  const onError = (e: unknown) => {
+    if (!(e instanceof ApiError)) return setError('Could not reach the server. Check your connection and try again.')
+    if (e.status === 401) return setError('Your session has expired. Sign in again to continue.')
+    if (e.status === 403) return setError('Only Admins can change RACI assignments.')
+    if (e.status === 404) return setError('This project or assignment no longer exists. Refresh the page.')
+    if (e.status === 400 || e.status === 422) return setError('These assignments are not valid. Check the people selected and try again.')
+    return setError('Something went wrong on our side. Please try again.')
+  }
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['project-raci', projectId] })
 
   const save = useMutation({
@@ -429,7 +539,7 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
   const reset = useMutation({
     mutationFn: () => platformApi.deleteProjectRaci(projectId, activity),
     onMutate:   () => setError(null),
-    onSuccess:  invalidate,
+    onSuccess:  () => { setConfirmReset(false); invalidate() },
     onError,
   })
   const busy = save.isPending || reset.isPending
@@ -500,14 +610,32 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
       {error && <p className="mt-2 text-[11px] text-red-700" role="alert">{error}</p>}
 
       <div className="mt-3 flex items-center justify-end gap-2">
-        {override && (
+        {override && !confirmReset && (
           <button
             type="button"
             disabled={busy}
-            onClick={() => reset.mutate()}
+            onClick={() => setConfirmReset(true)}
             data-raci-reset
             className="h-7 rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >{reset.isPending ? 'Resetting…' : 'Reset to template'}</button>
+          >Reset to template</button>
+        )}
+        {override && confirmReset && (
+          <>
+            <span className="text-[11px] text-slate-600" data-raci-reset-prompt>Remove this project's customisation?</span>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => setConfirmReset(false)}
+              className="h-7 rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 disabled:opacity-40"
+            >Cancel</button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => reset.mutate()}
+              data-raci-reset-confirm
+              className="h-7 rounded-md bg-red-700 px-3 text-[11px] font-semibold text-white disabled:opacity-40"
+            >{reset.isPending ? 'Resetting…' : 'Yes, reset'}</button>
+          </>
         )}
         <button
           type="button"

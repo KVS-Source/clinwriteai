@@ -1460,6 +1460,12 @@ export type PlatformUserRole =
   | 'qc-checker'
   | 'e-signatory'
   | 'creative-team-member'
+  | 'clinical-writer'
+  | 'clinical-pm'
+  | 'biostatistician'
+  | 'clinical-data-manager'
+  | 'pharmacovigilance-lead'
+  | 'regulatory-affairs-reviewer'
 
 export type PlatformUserStatus = 'active' | 'invited' | 'suspended'
 export type ModuleKey          = 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
@@ -1512,6 +1518,12 @@ export interface RaciAssignment {
   'ma-team-lead'?:           RACIRole
   'content-calendar-manager'?: RACIRole
   'creative-team-member'?:   RACIRole
+  'clinical-writer'?: RACIRole
+  'clinical-pm'?: RACIRole
+  'biostatistician'?: RACIRole
+  'clinical-data-manager'?: RACIRole
+  'pharmacovigilance-lead'?: RACIRole
+  'regulatory-affairs-reviewer'?: RACIRole
 }
 
 export interface RaciTask {
@@ -1923,4 +1935,10 @@ export const PLATFORM_USER_ROLE_LABEL: Record<PlatformUserRole, string> = {
   'qc-checker':                'QC Checker',
   'e-signatory':               'E-Signatory',
   'creative-team-member':      'Creative Team Member',
+  'clinical-writer': 'Clinical Writer',
+  'clinical-pm': 'Clinical PM',
+  'biostatistician': 'Biostatistician',
+  'clinical-data-manager': 'Data Manager',
+  'pharmacovigilance-lead': 'PV Lead',
+  'regulatory-affairs-reviewer': 'RA Reviewer',
 }

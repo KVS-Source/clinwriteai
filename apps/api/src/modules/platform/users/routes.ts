@@ -160,19 +160,50 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     })
   }
 
-  // Rotate the invitation: revoke any live one, issue a fresh token.
-  async function issueInvitation(userId: string, invitedBy: string) {
+  // Rotate the invitation: revoke any live one, issue a fresh token, and
+  // queue the invitation email. Email failure never fails the invite — the
+  // admin still gets the link in the response and `emailQueued` says whether
+  // the message was handed to the delivery queue.
+  async function issueInvitation(user: User, invitedBy: string) {
     const { token, tokenHash, expiresAt } = generateInvitationToken()
     await app.prisma.$transaction([
       app.prisma.userInvitation.updateMany({
-        where: { userId, acceptedAt: null, revokedAt: null },
+        where: { userId: user.id, acceptedAt: null, revokedAt: null },
         data: { revokedAt: new Date() },
       }),
-      app.prisma.userInvitation.create({ data: { userId, tokenHash, expiresAt, invitedBy } }),
+      app.prisma.userInvitation.create({ data: { userId: user.id, tokenHash, expiresAt, invitedBy } }),
     ])
-    // Until an email adapter lands the admin receives the link and shares
-    // it; the link is bound to the invitee's email at SSO sign-in.
-    return { inviteUrl: buildInviteUrl(app.env.CORS_ORIGIN, token), inviteExpiresAt: expiresAt.toISOString() }
+    const inviteUrl = buildInviteUrl(app.env.CORS_ORIGIN, token)
+    const inviteExpiresAt = expiresAt.toISOString()
+
+    let emailQueued = false
+    try {
+      await app.notifications.send({
+        recipientId: user.id,
+        kind: 'user.invitation',
+        title: 'You have been invited to ClinWrite',
+        body:
+          `Hello ${user.name},
+
+` +
+          `You have been invited to ClinWrite as ${user.role}. ` +
+          `Open the link below, accept the Terms & Conditions, then sign in with ${user.email}.
+
+` +
+          `${inviteUrl}
+
+` +
+          `This link expires on ${expiresAt.toUTCString()}.`,
+        channels: ['email'],
+        // The raw link is deliberately kept out of `payload` (and so out of
+        // the persisted notification metadata); it travels only in the body.
+        payload: { userId: user.id, expiresAt: inviteExpiresAt },
+      })
+      emailQueued = true
+    } catch (err) {
+      app.log.error({ err, userId: user.id }, 'failed to queue invitation email')
+    }
+    return { inviteUrl, inviteExpiresAt, emailQueued }
   }
 
   function illegalTransition(reply: FastifyReply, from: string, event: string) {
@@ -251,10 +282,10 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     const created = await app.prisma.user.create({
       data: { ...rest, email, tenantId, name: name ?? `${firstName} ${lastName}`, status: 'invited' },
     })
-    const invite = await issueInvitation(created.id, actor.id)
+    const invite = await issueInvitation(created, actor.id)
 
     await audit(request, 'user.invite', created.id, {
-      email: created.email, role: created.role, modules: created.modules, inviteExpiresAt: invite.inviteExpiresAt,
+      email: created.email, role: created.role, modules: created.modules, inviteExpiresAt: invite.inviteExpiresAt, emailQueued: invite.emailQueued,
     })
 
     return reply.code(201).send({ ...created, ...invite })
@@ -389,14 +420,14 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send({ error: 'not_invited', message: `User status is '${existing.status}'; resend-invite only valid for 'invited'` })
     }
 
-    const invite = await issueInvitation(id, actor.id)
+    const invite = await issueInvitation(existing, actor.id)
     await audit(request, 'user.invite.resend', id, { email: existing.email, inviteExpiresAt: invite.inviteExpiresAt })
 
     return {
       ok: true,
       email: existing.email,
       ...invite,
-      note: 'New invitation link issued; share it with the invitee (email dispatch pending notifications adapter)',
+      note: invite.emailQueued ? 'New invitation link issued and emailed' : 'New invitation link issued; email could not be queued, share the link manually',
     }
   })
 }

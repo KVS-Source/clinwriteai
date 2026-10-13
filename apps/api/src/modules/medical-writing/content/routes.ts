@@ -81,6 +81,8 @@ const listQuerySchema = z.object({
 //   - Prisma `tierOverriddenBy`        → UI `reviewTierOverriddenBy`
 //   - Prisma `sourceModuleBPubId`      → UI `sourceModuleBPublicationId`
 //   - Prisma `reviewTier` string A|B|C → UI numeric 1|2|3 (ReviewTier type)
+//   - Prisma `fkScore` Decimal         → UI number (Decimal serialises to a
+//                                        JSON string, which breaks `.toFixed`)
 // UI also expects aiFootprintPct as number-not-null; Prisma stores Int?,
 // so we default to 0 when null (matches "no AI assist" semantics).
 const TIER_DB_TO_UI: Record<string, 1 | 2 | 3> = { A: 1, B: 2, C: 3 }
@@ -89,10 +91,12 @@ export function medContentShape(m: {
   sourceModuleBPubId: string | null
   aiFootprintPct: number | null
   reviewTier: string | null
+  fkScore?: { toString(): string } | number | null
 } & Record<string, unknown>) {
-  const { tierOverriddenBy, sourceModuleBPubId, aiFootprintPct, reviewTier, ...rest } = m
+  const { tierOverriddenBy, sourceModuleBPubId, aiFootprintPct, reviewTier, fkScore, ...rest } = m
   return {
     ...rest,
+    fkScore: fkScore === null || fkScore === undefined ? null : Number(fkScore.toString()),
     reviewTier: reviewTier ? (TIER_DB_TO_UI[reviewTier] ?? null) : null,
     reviewTierOverriddenBy: tierOverriddenBy,
     sourceModuleBPublicationId: sourceModuleBPubId,

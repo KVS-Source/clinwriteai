@@ -209,6 +209,20 @@ export const platformHandlers = [
     return HttpResponse.json(created, { status: 201 })
   }),
 
+  // Live-API shape of the rate-card list (GET /ai/rate-cards), derived from
+  // the same fixture so mock mode and the sPM12 screen stay in step.
+  http.get(`${BASE}/ai/rate-cards`, async () => {
+    await delay(100)
+    return HttpResponse.json(ratecardsState.map(r => ({
+      id:          r.id,
+      version:     r.version,
+      isActive:    r.status === 'active',
+      publishedAt: r.effectiveFrom,
+      notes:       r.label ?? null,
+      validUntil:  r.validUntil,
+    })))
+  }),
+
   // --- sPM11 Services Dashboard + sPM13 Subscription & Payment ---
   http.get(`${BASE}/services/dashboard`, async () => {
     await delay(150)

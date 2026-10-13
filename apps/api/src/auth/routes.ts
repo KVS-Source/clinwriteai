@@ -12,9 +12,13 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { randomBytes } from 'node:crypto'
+import type { User } from '@prisma/client'
 import { z } from 'zod'
 import { SESSION_COOKIE_NAME, type SessionClaims } from './jwt.js'
 import { requireAuth, type ModuleKey, type Role } from './rbac.js'
+import { INVITE_COOKIE } from './invitation-routes.js'
+import { checkInvitation, hashInvitationToken, TERMS_VERSION } from '../modules/platform/users/invitations.js'
+import { transition, type UserStatus } from '../modules/platform/users/status-machine.js'
 
 const SSO_STATE_COOKIE = 'aurora_sso_state'
 const SSO_STATE_TTL_SECONDS = 10 * 60
@@ -61,27 +65,92 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
     const identity = await app.sso.exchangeCode({ code, state, redirectUri: resolveRedirectUri(request) })
 
-    // Upsert the user. On first login we create as 'read-only' with no module
-    // access — an admin must grant modules/role explicitly. Keeps zero-trust:
+    // Resolve the user. Sign-in never changes a user's status on its own:
+    //   - active    → normal sign-in.
+    //   - invited   → only with a live invitation link whose token (carried in
+    //                 the aurora_invite cookie) belongs to THIS user; that
+    //                 accepts T&C and activates the account (AC-PM-007).
+    //   - suspended / deprovisioned → refused.
+    // Unknown emails are created as 'read-only' with no module access — an
+    // admin must grant modules/role explicitly. Keeps zero-trust:
     // "logged in" ≠ "authorized to see anything".
-    const user = await app.prisma.user.upsert({
-      where: { email: identity.email },
-      create: {
-        email: identity.email,
-        name: identity.name,
-        role: 'read-only',
-        modules: [],
-        ssoSubject: identity.subject,
-        tenantId: identity.tenantId ?? null,
-        status: 'active',
-        lastActiveAt: new Date(),
-      },
-      update: {
-        ssoSubject: identity.subject,
-        lastActiveAt: new Date(),
-        status: 'active',
-      },
+    const existing = await app.prisma.user.findFirst({
+      where: { email: { equals: identity.email, mode: 'insensitive' } },
     })
+    const inviteToken = request.cookies[INVITE_COOKIE]
+    if (inviteToken) reply.clearCookie(INVITE_COOKIE, { path: '/', ...(app.env.SESSION_COOKIE_DOMAIN && { domain: app.env.SESSION_COOKIE_DOMAIN }) })
+
+    let user: User
+    if (!existing) {
+      user = await app.prisma.user.create({
+        data: {
+          email: identity.email,
+          name: identity.name,
+          role: 'read-only',
+          modules: [],
+          ssoSubject: identity.subject,
+          tenantId: identity.tenantId ?? null,
+          status: 'active',
+          lastActiveAt: new Date(),
+        },
+      })
+    } else if (existing.status === 'active') {
+      user = await app.prisma.user.update({
+        where: { id: existing.id },
+        data: { ssoSubject: identity.subject, lastActiveAt: new Date() },
+      })
+    } else if (existing.status === 'invited') {
+      const invitation = inviteToken
+        ? await app.prisma.userInvitation.findUnique({ where: { tokenHash: hashInvitationToken(inviteToken) } })
+        : null
+      const check = checkInvitation(invitation, existing.status)
+      if (!invitation || invitation.userId !== existing.id || !check.valid) {
+        await app.audit.append({
+          timestamp: new Date().toISOString(),
+          actorId: existing.id,
+          action: 'user.invitation.accept_failed',
+          entityType: 'user',
+          entityId: existing.id,
+          details: { reason: !inviteToken ? 'no_invitation_token' : !invitation || invitation.userId !== existing.id ? 'token_mismatch' : check.valid ? 'unknown' : check.reason },
+          ipAddress: request.ip ?? null,
+        })
+        return reply.code(403).send({
+          error: 'invitation_required',
+          message: 'Open the invitation link you were sent and accept the terms before signing in',
+        })
+      }
+      const accepted = transition(existing.status as UserStatus, 'accept')
+      if (!accepted.ok) return reply.code(403).send({ error: 'forbidden', message: 'Account cannot be activated' })
+      const now = new Date()
+      const [activated] = await app.prisma.$transaction([
+        app.prisma.user.update({
+          where: { id: existing.id },
+          data: {
+            status: accepted.to,
+            ssoSubject: identity.subject,
+            lastActiveAt: now,
+            termsAcceptedAt: now,
+            termsVersion: TERMS_VERSION,
+          },
+        }),
+        app.prisma.userInvitation.update({ where: { id: invitation.id }, data: { acceptedAt: now } }),
+      ])
+      user = activated
+      await app.audit.append({
+        timestamp: now.toISOString(),
+        actorId: existing.id,
+        action: 'user.invitation.accept',
+        entityType: 'user',
+        entityId: existing.id,
+        details: { email: existing.email, termsVersion: TERMS_VERSION },
+        ipAddress: request.ip ?? null,
+      })
+    } else {
+      return reply.code(403).send({
+        error: 'account_disabled',
+        message: `This account is ${existing.status}. Contact your administrator.`,
+      })
+    }
 
     const session = await app.prisma.session.create({
       data: {

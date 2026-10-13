@@ -4,6 +4,7 @@
 // Each queue gets its own Worker instance so concurrency, metrics, and
 // dead-letter handling are per-name.
 
+import { fileURLToPath } from 'node:url'
 import { Worker, type Job } from 'bullmq'
 import { Redis } from 'ioredis'
 import { PrismaClient } from '@prisma/client'
@@ -17,6 +18,18 @@ import { handleRestoreVersion } from './jobs/restore-version.js'
 import { handleVoiceTranscribe } from './jobs/voice-transcribe.js'
 import { handlePresenceReaper } from './jobs/presence-reaper.js'
 import { handleAccessReviewCron } from './jobs/access-review-cron.js'
+
+// Local/dev convenience: pick up the API's env files when present. Existing
+// process env always wins (loadEnvFile never overrides), so systemd/CI
+// injected values are untouched. .env.local is read first so it takes
+// precedence over .env.
+for (const file of ['../../api/.env.local', '../../api/.env']) {
+  try {
+    process.loadEnvFile(fileURLToPath(new URL(file, import.meta.url)))
+  } catch {
+    // file absent or unreadable — fine.
+  }
+}
 
 const log = pino({
   level: process.env.LOG_LEVEL ?? 'info',

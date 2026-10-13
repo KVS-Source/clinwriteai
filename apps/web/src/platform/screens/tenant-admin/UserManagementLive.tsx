@@ -30,6 +30,13 @@ interface AdminUser {
   updatedAt: string
 }
 
+// One-time sign-up link returned by invite / resend (valid 7 days). Shown to
+// the admin to share until email dispatch is wired.
+interface InviteLink {
+  inviteUrl: string
+  inviteExpiresAt: string
+}
+
 const ROLE_OPTIONS = [
   'super-admin', 'admin', 'clinical-writer', 'scientific-writer',
   'medical-writer', 'regulatory-writer', 'ideation-lead', 'reviewer', 'read-only',
@@ -38,11 +45,11 @@ const ROLE_OPTIONS = [
 const usersApi = {
   list:         () => api.get<AdminUser[]>('/admin/users'),
   invite:       (body: { email: string; name: string; role: string; modules?: string[]; tenantId?: string }) =>
-    api.post<AdminUser>('/admin/users', body),
+    api.post<AdminUser & InviteLink>('/admin/users', body),
   suspend:      (id: string) => api.post<AdminUser>(`/admin/users/${id}/suspend`, {}),
   reactivate:   (id: string) => api.post<AdminUser>(`/admin/users/${id}/reactivate`, {}),
   deprovision:  (id: string) => api.delete<{ ok: true }>(`/admin/users/${id}`),
-  resendInvite: (id: string) => api.post<{ ok: true; email: string; note: string }>(`/admin/users/${id}/resend-invite`, {}),
+  resendInvite: (id: string) => api.post<{ ok: true; email: string; note: string } & InviteLink>(`/admin/users/${id}/resend-invite`, {}),
 }
 
 function StatusChip({ status }: { status: UserStatus }) {
@@ -61,7 +68,7 @@ function StatusChip({ status }: { status: UserStatus }) {
   )
 }
 
-function InviteForm({ onDone }: { onDone: () => void }) {
+function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => void }) {
   const qc = useQueryClient()
   const [email, setEmail] = useState('')
   const [name,  setName]  = useState('')
@@ -73,9 +80,9 @@ function InviteForm({ onDone }: { onDone: () => void }) {
     mutationFn: () => usersApi.invite({
       email, name, role, tenantId: tenantId || undefined, modules: ['A'],
     }),
-    onSuccess: () => {
+    onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['admin-users'] })
-      onDone()
+      onDone(created.email, { inviteUrl: created.inviteUrl, inviteExpiresAt: created.inviteExpiresAt })
     },
     onError: (e) => setErr(describeApiError(e).message),
   })
@@ -115,6 +122,7 @@ export function UserManagementLive() {
   })
   const [showInvite, setShowInvite] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [inviteLink, setInviteLink] = useState<(InviteLink & { email: string }) | null>(null)
 
   function wrap<T>(p: Promise<T>) {
     return p.then(() => {
@@ -150,7 +158,23 @@ export function UserManagementLive() {
         {error && <p className="rounded-md bg-red-50 p-3 text-[13px] text-red-800">{describeApiError(error).message}</p>}
         {actionError && <p className="rounded-md bg-red-50 p-3 text-[13px] text-red-800" data-error>{actionError}</p>}
 
-        {showInvite && <InviteForm onDone={() => setShowInvite(false)} />}
+        {showInvite && (
+          <InviteForm onDone={(email, link) => { setShowInvite(false); setInviteLink({ email, ...link }) }} />
+        )}
+
+        {inviteLink && (
+          <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-[12px] text-blue-900" data-section="invite-link">
+            <p className="font-semibold">
+              Invitation link for {inviteLink.email} (expires {new Date(inviteLink.inviteExpiresAt).toLocaleDateString()})
+            </p>
+            <p className="mt-1 break-all font-mono text-[11px]">{inviteLink.inviteUrl}</p>
+            <div className="mt-2 flex gap-3">
+              <button type="button" className="underline" data-action="copy-invite-link"
+                onClick={() => { void navigator.clipboard?.writeText(inviteLink.inviteUrl) }}>Copy link</button>
+              <button type="button" className="underline" data-action="dismiss-invite-link" onClick={() => setInviteLink(null)}>Dismiss</button>
+            </div>
+          </div>
+        )}
 
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-[13px]">
@@ -176,7 +200,11 @@ export function UserManagementLive() {
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-2">
                       {u.status === 'invited' && (
-                        <button type="button" onClick={() => wrap(usersApi.resendInvite(u.id))} className="text-[11px] text-slate-700 hover:underline" data-action="resend-invite">Resend</button>
+                        <button type="button" onClick={() => {
+                          usersApi.resendInvite(u.id)
+                            .then(r => { setActionError(null); setInviteLink({ email: r.email, inviteUrl: r.inviteUrl, inviteExpiresAt: r.inviteExpiresAt }) })
+                            .catch(e => setActionError(describeApiError(e).message))
+                        }} className="text-[11px] text-slate-700 hover:underline" data-action="resend-invite">Resend</button>
                       )}
                       {u.status === 'active' && (
                         <button type="button" onClick={() => wrap(usersApi.suspend(u.id))} className="text-[11px] text-amber-700 hover:underline" data-action="suspend">Suspend</button>

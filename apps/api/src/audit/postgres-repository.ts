@@ -17,6 +17,9 @@ import { computeRowHash, findChainBreak } from './hash.js'
 // guarantee between in-flight transactions written against the old vs new key.
 const AUDIT_ADVISORY_LOCK_KEY = 7_438_912_041n % 2_147_483_647n  // fits int4
 
+// Rows per round-trip when verifying the chain.
+const VERIFY_BATCH_SIZE = 5_000
+
 interface AuditRow {
   id: string
   timestamp: Date
@@ -89,22 +92,37 @@ export class PostgresAuditRepository implements AuditRepository {
   }
 
   async verifyChain(fromId?: string, toId?: string): Promise<{ intact: boolean; firstBreakAt: string | null }> {
-    const rows = await this.prisma.$queryRawUnsafe<AuditRow[]>(
-      `SELECT id, "timestamp", actor_id, action, entity_type, entity_id, details, ip_address, prev_hash, row_hash
-       FROM audit_events
-       WHERE ($1::bigint IS NULL OR id >= $1::bigint)
-         AND ($2::bigint IS NULL OR id <= $2::bigint)
-       ORDER BY id ASC`,
-      fromId ?? null,
-      toId ?? null,
-    )
+    // Walk the range in fixed-size batches (keyset on id) so memory stays
+    // flat as the log grows. The expected prev_hash carries across batches,
+    // so the result is identical to checking the whole range in one pass.
+    let afterId: string | null = null
+    let expectedPrev: string | null = null
+    for (;;) {
+      const rows: AuditRow[] = await this.prisma.$queryRawUnsafe<AuditRow[]>(
+        `SELECT id, "timestamp", actor_id, action, entity_type, entity_id, details, ip_address, prev_hash, row_hash
+         FROM audit_events
+         WHERE ($1::bigint IS NULL OR id >= $1::bigint)
+           AND ($2::bigint IS NULL OR id <= $2::bigint)
+           AND ($3::bigint IS NULL OR id > $3::bigint)
+         ORDER BY id ASC
+         LIMIT ${VERIFY_BATCH_SIZE}`,
+        fromId ?? null,
+        toId ?? null,
+        afterId,
+      )
+      if (rows.length === 0) return { intact: true, firstBreakAt: null }
 
-    // When starting from the middle of the chain, seed with the actual stored
-    // prev_hash of the first row; genesis-anchor only applies at id=1.
-    const genesisPrev = rows[0]?.prev_hash ?? ''
-    const breakIdx = findChainBreak(rows.map(toShape), this.auditSecret, genesisPrev)
-    if (breakIdx === -1) return { intact: true, firstBreakAt: null }
-    return { intact: false, firstBreakAt: String(rows[breakIdx]!.id) }
+      // When starting from the middle of the chain, seed with the actual stored
+      // prev_hash of the first row; genesis-anchor only applies at id=1.
+      const genesisPrev: string = expectedPrev ?? rows[0]!.prev_hash
+      const breakIdx = findChainBreak(rows.map(toShape), this.auditSecret, genesisPrev)
+      if (breakIdx !== -1) return { intact: false, firstBreakAt: String(rows[breakIdx]!.id) }
+
+      const last = rows[rows.length - 1]!
+      if (rows.length < VERIFY_BATCH_SIZE) return { intact: true, firstBreakAt: null }
+      expectedPrev = last.row_hash
+      afterId = String(last.id)
+    }
   }
 }
 

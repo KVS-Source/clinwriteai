@@ -149,7 +149,7 @@ function ContentRow({ item, onOpen }: ContentRowProps) {
   const sourceLabel = item.sourceModuleAProjectId ? 'Clinical Writing ✓' : null
 
   const fkLabel = showFk
-    ? `FK ${item.fkScore!.toFixed(1)}${item.fkPassed ? ' ✓' : ''}`
+    ? `FK ${Number(item.fkScore).toFixed(1)}${item.fkPassed ? ' ✓' : ''}`
     : ''
   const fkPass = showFk && item.fkPassed === true
 

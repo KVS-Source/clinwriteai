@@ -20,7 +20,7 @@ export type { TherapeuticArea, TherapeuticAreaNode, ValidateResponse } from './t
 export { tenantsApi, membershipsApi, ssoApi, auditApi, AUDIT_EXPORT_ROW_CAP } from './tenantAdmin'
 export type {
   Tenant, Membership, SsoConnection, AuditEntry, AuditPage,
-  AuditVerifyResult, AuditQuery, AuditFacets, ModuleKey,
+  AuditVerifyResult, AuditQuery, AuditSortKey, AuditFacets, ModuleKey,
 } from './tenantAdmin'
 
 export { ApiError }        from './client'

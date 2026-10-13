@@ -50,7 +50,7 @@ interface Setup {
 
 interface Call { sql: string; params: unknown[] }
 
-async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; calls: Call[]; verifyChain: ReturnType<typeof vi.fn> }> {
+async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; calls: Call[]; verifyChain: ReturnType<typeof vi.fn>; append: ReturnType<typeof vi.fn> }> {
   const calls: Call[] = []
   const rows = setup.rows ?? []
   const $queryRawUnsafe = vi.fn(async (sql: string, ...params: unknown[]) => {
@@ -62,10 +62,11 @@ async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; call
     return rows
   })
   const verifyChain = vi.fn(async () => ({ intact: true, firstBreakAt: null }))
+  const append = vi.fn(async () => ({}))
 
   const app = Fastify()
   app.decorate('prisma', { $queryRawUnsafe } as never)
-  app.decorate('audit', { verifyChain } as never)
+  app.decorate('audit', { verifyChain, append } as never)
   app.decorateRequest('user', null)
   const role = setup.role === undefined ? 'super-admin' : setup.role
   app.addHook('onRequest', async (request) => {
@@ -75,7 +76,7 @@ async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; call
   })
   await app.register(auditViewerRoutes)
   await app.ready()
-  return { app, calls, verifyChain }
+  return { app, calls, verifyChain, append }
 }
 
 const pageSql = (calls: Call[]) => calls.find(c => c.sql.includes('ORDER BY'))!
@@ -250,10 +251,10 @@ describe('GET /admin/audit/export', () => {
     expect(pageSql(calls).sql).toContain('ORDER BY a.id DESC')
 
     const lines = res.body.split('\n')
-    expect(lines[0]).toBe('id,timestamp,actorId,actorName,actorEmail,action,entityType,entityId,details,ipAddress,prevHash,rowHash')
-    expect(lines[1]!.startsWith('2,2026-10-12T10:00:02.000Z,user-admin,Dr James Hartley,j.hartley@genbioca.com,http.post')).toBe(true)
+    expect(lines[0]).toBe('id,timestamp,actorId,actorName,actorEmail,actorRole,sessionId,action,entityType,entityId,oldValue,newValue,details,ipAddress,prevHash,rowHash')
+    expect(lines[1]!.startsWith('2,2026-10-12T10:00:02.000Z,user-admin,Dr James Hartley,j.hartley@genbioca.com,,,http.post')).toBe(true)
     expect(lines[1]).toContain('"{""statusCode"":201,""method"":""POST""}"')
-    expect(lines[2]!.startsWith('1,2026-10-12T10:00:01.000Z,anonymous,,,')).toBe(true)
+    expect(lines[2]!.startsWith('1,2026-10-12T10:00:01.000Z,anonymous,,,,,')).toBe(true)
     expect(lines).toHaveLength(3)
   })
 
@@ -281,5 +282,65 @@ describe('GET /admin/audit/export', () => {
     expect(sql).toContain('a.entity_id = $1')
     expect(sql).toContain('a.action ILIKE $2')
     expect(params).toEqual(['s-1', '%login%'])
+  })
+})
+
+
+describe('sorting, search and audit-of-audit', () => {
+  it('sorts by a non-id column with an id tie-break and pages by offset', async () => {
+    const { app, calls } = await setupApp({ rows: [makeRow(1), makeRow(2), makeRow(3)], count: 9 })
+    const body = (await app.inject({ method: 'GET', url: '/admin/audit?sortBy=action&order=asc&limit=2&cursor=4' })).json()
+    const { sql } = pageSql(calls)
+    expect(sql).toContain('ORDER BY a.action ASC NULLS LAST, a.id ASC')
+    expect(sql).toContain('OFFSET 4')
+    expect(sql).not.toContain('a.id >')
+    expect(body.nextCursor).toBe('6')   // offset 4 + limit 2
+  })
+
+  it('rejects an unknown sort column', async () => {
+    const { app } = await setupApp()
+    expect((await app.inject({ method: 'GET', url: '/admin/audit?sortBy=row_hash' })).statusCode).toBe(400)
+  })
+
+  it('free-text search matches across columns with an escaped pattern', async () => {
+    const { app, calls } = await setupApp()
+    await app.inject({ method: 'GET', url: '/admin/audit?q=50%25' })
+    const { sql, params } = pageSql(calls)
+    expect(sql).toContain('a.details::text ILIKE')
+    expect(sql).toContain('u.email ILIKE')
+    expect(params[0]).toBe('%50\\%%')
+  })
+
+  it('exposes role, session id and old/new values on each row', async () => {
+    const { app } = await setupApp({
+      rows: [makeRow(7, { details: { actorRole: 'qa', sessionId: 'sess-1', from: 'draft', to: 'review' } })],
+    })
+    const row = (await app.inject({ method: 'GET', url: '/admin/audit' })).json().rows[0]
+    expect(row).toMatchObject({ actorRole: 'qa', actorRoleRecorded: true, sessionId: 'sess-1', oldValue: 'draft', newValue: 'review' })
+  })
+
+  it('appends an audit.verify entry recording the range and result', async () => {
+    const { app, append } = await setupApp()
+    await app.inject({ method: 'GET', url: '/admin/audit/verify?fromId=200&toId=240' })
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'audit.verify',
+      entityType: 'audit_log',
+      details: expect.objectContaining({ fromId: '200', toId: '240', intact: true }),
+    }))
+  })
+
+  it('appends an audit.export entry with the filters and row count', async () => {
+    const { app, append } = await setupApp({ rows: [makeRow(2), makeRow(1)] })
+    await app.inject({ method: 'GET', url: '/admin/audit/export?action=auth' })
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'audit.export',
+      details: expect.objectContaining({ rowCount: 2, truncated: false, filters: expect.objectContaining({ action: 'auth' }) }),
+    }))
+  })
+
+  it('fails the export when the access cannot be recorded', async () => {
+    const { app, append } = await setupApp({ rows: [makeRow(1)] })
+    append.mockRejectedValueOnce(new Error('db down'))
+    expect((await app.inject({ method: 'GET', url: '/admin/audit/export' })).statusCode).toBe(500)
   })
 })

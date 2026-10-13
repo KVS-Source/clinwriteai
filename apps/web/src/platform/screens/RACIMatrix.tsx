@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { useSearchParams } from 'react-router-dom'
+import { useBlocker, useLocation, useSearchParams } from 'react-router-dom'
 import type {
   RaciMatrix as RaciMatrixData, RaciTask, PlatformUser, RACIRole, AuditTrailEntry, PlatformUserRole,
   ProjectRaciAssignment, ProjectRaciAssignmentBody,
@@ -40,6 +41,16 @@ const RACI_COLOURS: Record<RACIRole, { bg: string; fg: string }> = {
 const MODULE_LABELS: Record<'A' | 'B' | 'C' | 'D' | 'E', string> = {
   A: 'Clinical Writing', B: 'Scientific Writing', C: 'Medical Writing',
   D: 'Regulatory Writing', E: 'Ideation & Publishing',
+}
+
+// Account role as a readable label. The API's roles (reviewer, read-only, …) aren't all
+// in PLATFORM_USER_ROLE_LABEL, so fall back to the id with dashes turned into spaces.
+function accountRoleLabel(u: PlatformUser): string {
+  const role = String(u.role)
+  const known = PLATFORM_USER_ROLE_LABEL[role as PlatformUserRole]
+  if (known) return known
+  const words = role.replace(/-/g, ' ')
+  return words.charAt(0).toUpperCase() + words.slice(1)
 }
 
 function initialsFor(name: string): string {
@@ -89,7 +100,7 @@ export function RACIMatrix() {
     setSearchParams(prev => { const next = new URLSearchParams(prev); next.set(key, value); return next }, { replace: true })
 
   const moduleParam = searchParams.get('module') as ModuleKey | null
-  const activeModule: ModuleKey = moduleParam && raci.modules[moduleParam] ? moduleParam : 'D'
+  const activeModule: ModuleKey = moduleParam && raci.modules[moduleParam] ? moduleParam : 'A'
   const setActiveModule = (m: ModuleKey) => setParam('module', m)
 
   // Default to VELORA-301 (the template's reference project), else the first project.
@@ -104,7 +115,7 @@ export function RACIMatrix() {
   // Tasks in the edit panel with unsaved changes. The panel unmounts its contents
   // on close, so closing with drafts open asks first (inline, no browser dialog).
   const [dirtyTasks, setDirtyTasks] = useState<Set<string>>(new Set())
-  const [pendingDiscard, setPendingDiscard] = useState<{ what: string; proceed: () => void } | null>(null)
+  const [pendingClose, setPendingClose] = useState(false)
   const reportDirty = useCallback((activity: string, dirty: boolean) => {
     setDirtyTasks(prev => {
       if (prev.has(activity) === dirty) return prev
@@ -113,13 +124,31 @@ export function RACIMatrix() {
       return next
     })
   }, [])
-  // Run `proceed` now, or after the user confirms discarding unsaved drafts.
-  const guardUnsaved = (what: string, proceed: () => void) => {
-    if (editOpen && dirtyTasks.size > 0) setPendingDiscard({ what, proceed })
-    else proceed()
-  }
-  const closePanel = () => { setPendingDiscard(null); setEditOpen(false) }
-  const requestClosePanel = () => guardUnsaved('Closing', closePanel)
+  const closePanel = () => { setPendingClose(false); setEditOpen(false) }
+  const requestClosePanel = () => { if (dirtyTasks.size > 0) setPendingClose(true); else closePanel() }
+
+  // Any in-app navigation while drafts exist — module/project switches, the browser's back
+  // button, links — is held until the user decides. Closing or reloading the tab can only
+  // use the browser's own prompt.
+  const hasUnsaved = dirtyTasks.size > 0
+  const blocker = useBlocker(hasUnsaved)
+  const { pathname } = useLocation()
+  useEffect(() => {
+    if (!hasUnsaved) return
+    const onBeforeUnload = (e: BeforeUnloadEvent) => { e.preventDefault(); e.returnValue = '' }
+    window.addEventListener('beforeunload', onBeforeUnload)
+    return () => window.removeEventListener('beforeunload', onBeforeUnload)
+  }, [hasUnsaved])
+
+  const discardPrompt = blocker.state === 'blocked'
+    ? {
+        what:    blocker.location.pathname === pathname ? 'Switching project or module' : 'Leaving this page',
+        keep:    () => blocker.reset(),
+        discard: () => blocker.proceed(),
+      }
+    : pendingClose
+      ? { what: 'Closing', keep: () => setPendingClose(false), discard: closePanel }
+      : null
 
   const { data: overrides = [], isLoading: overridesLoading, isError: overridesError, refetch: refetchOverrides } = useQuery<ProjectRaciAssignment[]>({
     queryKey: ['project-raci', projectId],
@@ -130,14 +159,15 @@ export function RACIMatrix() {
     () => new Map(overrides.map(o => [o.activity, o])),
     [overrides],
   )
-  const roleOfUserId = (id: string) => {
-    const u = users.find(x => x.id === id)
+  const usersById = useMemo(() => new Map(users.map(u => [u.id, u])), [users])
+  const roleOfUserId = useCallback((id: string) => {
+    const u = usersById.get(id)
     return u ? raciRoleOf(u) : undefined
-  }
+  }, [usersById])
   // Never surface a raw id: unknown ids are accounts that no longer exist (or the list failed to load).
   const userName = (id: string | null) => {
     if (!id) return '—'
-    const name = users.find(u => u.id === id)?.name
+    const name = usersById.get(id)?.name
     if (name) return name
     return usersLoaded ? 'Unknown user' : '—'
   }
@@ -151,6 +181,16 @@ export function RACIMatrix() {
   const moduleTasks = raci.modules[activeModule]?.tasks ?? []
   const moduleLabel = MODULE_LABELS[activeModule]
   const customisedCount = moduleTasks.filter(t => overrideByActivity.has(activityKey(activeModule, t.id))).length
+
+  // Marks shown per task: the template's, or — for a customised task — derived from the saved people.
+  const marksByTask = useMemo(() => {
+    const m = new Map<string, Record<string, RACIRole | undefined>>()
+    for (const t of moduleTasks) {
+      const o = overrideByActivity.get(activityKey(activeModule, t.id))
+      m.set(t.id, o ? marksFromOverride(o, roleOfUserId) : (t.assignments as Record<string, RACIRole | undefined>))
+    }
+    return m
+  }, [moduleTasks, overrideByActivity, activeModule, roleOfUserId])
 
   const allRoles = useMemo(() => {
     const s = new Set<string>()
@@ -188,7 +228,7 @@ export function RACIMatrix() {
 
   return (
     <div className="bg-slate-50" data-screen="raci-matrix">
-      <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
+      <div className="flex flex-col gap-4 px-4 pb-12 pt-5 sm:px-8" style={{ maxWidth: 1440 }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
           <span>Platform</span>
@@ -205,7 +245,7 @@ export function RACIMatrix() {
           </div>
         </div>
 
-        <div className="grid gap-4" style={{ gridTemplateColumns: '240px 1fr' }}>
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-[240px_minmax(0,1fr)]">
 
           {/* Left panel */}
           <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4" data-project-selector>
@@ -219,7 +259,7 @@ export function RACIMatrix() {
             <select
               data-project-select
               value={projectId}
-              onChange={e => { const id = e.target.value; guardUnsaved('Switching project', () => setProjectId(id)) }}
+              onChange={e => setProjectId(e.target.value)}
               disabled={projects.length === 0}
               className="h-9 w-full min-w-0 truncate rounded-md border border-slate-300 bg-white px-3 text-[13px]"
             >
@@ -230,7 +270,7 @@ export function RACIMatrix() {
             </select>
 
             <p className="mt-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Module</p>
-            <div className="flex flex-col gap-1" data-module-tabs>
+            <div className="flex flex-wrap gap-1 lg:flex-col" data-module-tabs>
               {(['A','B','C','D','E'] as const).map(m => {
                 const isActive = m === activeModule
                 const disabled = !raci.modules[m]
@@ -239,11 +279,11 @@ export function RACIMatrix() {
                     key={m}
                     type="button"
                     disabled={disabled}
-                    onClick={() => guardUnsaved('Switching module', () => setActiveModule(m))}
+                    onClick={() => setActiveModule(m)}
                     data-module-tab={m}
                     data-active={isActive || undefined}
                     title={disabled ? 'No RACI template for this module yet' : undefined}
-                    className="h-9 w-full rounded-md px-3 text-left text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
+                    className="h-9 min-w-[8rem] flex-1 rounded-md px-3 text-left text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-40 lg:w-full lg:flex-none"
                     style={{
                       backgroundColor: isActive ? PLATFORM_ACCENT.primary : '#F1F5F9',
                       color:           isActive ? '#FFFFFF' : '#334155',
@@ -255,7 +295,7 @@ export function RACIMatrix() {
           </aside>
 
           {/* Right panel */}
-          <section className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5" data-raci-content>
+          <section className="flex min-w-0 flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:p-5" data-raci-content>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Matrix</p>
@@ -312,10 +352,10 @@ export function RACIMatrix() {
 
             {/* Matrix table */}
             <div className="overflow-auto rounded-lg border border-slate-200" data-raci-table>
-              <table className="w-full text-[12px]">
+              <table className="w-full min-w-[640px] text-[12px]">
                 <thead style={{ backgroundColor: '#F8FAFC' }}>
                   <tr className="text-left">
-                    <th className="sticky left-0 px-3 py-2 font-semibold" style={{ backgroundColor: '#F8FAFC' }}>Task</th>
+                    <th className="sticky left-0 z-10 border-r border-slate-100 px-3 py-2 font-semibold" style={{ backgroundColor: '#F8FAFC' }}>Task</th>
                     {allRoles.map(r => {
                       const mine = r === currentUser.role
                       return (
@@ -339,7 +379,7 @@ export function RACIMatrix() {
                     const override = overrideByActivity.get(activityKey(activeModule, t.id))
                     return (
                       <tr key={t.id} className="border-t border-slate-200" data-raci-row={t.id} data-row-locked={locked || undefined} data-row-customised={!!override || undefined}>
-                        <td className="sticky left-0 bg-white px-3 py-2 font-semibold text-slate-900" style={{ backgroundColor: '#FFFFFF' }}>
+                        <td className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2 font-semibold text-slate-900" style={{ backgroundColor: '#FFFFFF' }}>
                           {t.label}
                           {locked && <span className="ml-2 font-mono text-[10px] text-slate-400">🔒 locked</span>}
                           {override && (
@@ -357,8 +397,7 @@ export function RACIMatrix() {
                           )}
                         </td>
                         {allRoles.map(r => {
-                          const marks = (override ? marksFromOverride(override, roleOfUserId) : t.assignments) as Record<string, RACIRole | undefined>
-                          const mark = marks[r]
+                          const mark = marksByTask.get(t.id)?.[r]
                           const colStyle = r === currentUser.role ? { backgroundColor: PLATFORM_ACCENT.bgTint } : undefined
                           if (!mark) return <td key={r} className="px-3 py-2 text-center text-slate-300" style={colStyle}>—</td>
                           const c = RACI_COLOURS[mark]
@@ -452,16 +491,16 @@ export function RACIMatrix() {
           storageKey="raci-edit-panel-width"
           defaultWidth={560}
         >
-          <div className="flex flex-col gap-3" data-raci-edit-panel>
-            {pendingDiscard && (
+          <div className="flex flex-col gap-3 px-5 py-4" data-raci-edit-panel>
+            {discardPrompt && (
               <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-900" role="alert" data-raci-discard-confirm>
                 <p>
-                  {dirtyTasks.size} task{dirtyTasks.size === 1 ? ' has' : 's have'} unsaved changes. {pendingDiscard.what} will discard them.
+                  {dirtyTasks.size} task{dirtyTasks.size === 1 ? ' has' : 's have'} unsaved changes. {discardPrompt.what} will discard them.
                 </p>
                 <div className="mt-2 flex gap-2">
-                  <button type="button" onClick={() => setPendingDiscard(null)}
+                  <button type="button" onClick={discardPrompt.keep}
                     className="h-7 rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700">Keep editing</button>
-                  <button type="button" onClick={() => { const { proceed } = pendingDiscard; setPendingDiscard(null); proceed() }} data-raci-discard
+                  <button type="button" onClick={discardPrompt.discard} data-raci-discard
                     className="h-7 rounded-md bg-amber-700 px-3 text-[11px] font-semibold text-white">Discard changes</button>
                 </div>
               </div>
@@ -525,6 +564,9 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
     if (e.status === 401) return setError('Your session has expired. Sign in again to continue.')
     if (e.status === 403) return setError('Only Admins can change RACI assignments.')
     if (e.status === 404) return setError('This project or assignment no longer exists. Refresh the page.')
+    if (e.status === 400 && (e.body as { error?: string } | null)?.error === 'unknown_user') {
+      return setError('One or more selected people no longer exist. Refresh the page and pick again.')
+    }
     if (e.status === 400 || e.status === 422) return setError('These assignments are not valid. Check the people selected and try again.')
     return setError('Something went wrong on our side. Please try again.')
   }
@@ -546,107 +588,329 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
 
   const toggle = (field: 'consultedIds' | 'informedIds', id: string) =>
     setDraft(d => ({ ...d, [field]: d[field].includes(id) ? d[field].filter(x => x !== id) : [...d[field], id] }))
+  const clearField = (field: 'consultedIds' | 'informedIds') => setDraft(d => ({ ...d, [field]: [] }))
 
-  const userSelect = (field: 'responsibleId' | 'accountableId', disabled = false) => (
+  const [open, setOpen] = useState(false)
+  const usersById = useMemo(() => new Map(users.map(u => [u.id, u])), [users])
+  const nameOf = (id: string | null) => (id && usersById.get(id)?.name) || '—'
+
+  // Responsible / Accountable: one person each. Native select (keyboard + screen-reader friendly),
+  // grouped by role so a long list stays scannable.
+  const groupedUsers = useMemo(() => {
+    const groups = new Map<string, PlatformUser[]>()
+    for (const u of users) {
+      const label = accountRoleLabel(u)
+      groups.set(label, [...(groups.get(label) ?? []), u])
+    }
+    return Array.from(groups.entries())
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([label, list]) => [label, [...list].sort((a, b) => a.name.localeCompare(b.name))] as const)
+  }, [users])
+
+  const userSelect = (field: 'responsibleId' | 'accountableId', disabled = false, invalid = false) => (
     <select
       value={draft[field] ?? ''}
       disabled={disabled || busy}
       onChange={e => setDraft(d => ({ ...d, [field]: e.target.value || null }))}
       data-raci-select={field}
-      className="h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-[12px] disabled:bg-slate-50"
+      required={field === 'accountableId'}
+      aria-required={field === 'accountableId' || undefined}
+      aria-invalid={invalid || undefined}
+      className={`h-9 w-full rounded-md border bg-white px-2 text-[12px] disabled:bg-slate-50 ${invalid ? 'border-red-400' : 'border-slate-300'}`}
     >
       <option value="">— Unassigned —</option>
-      {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+      {groupedUsers.map(([label, list]) => (
+        <optgroup key={label} label={label}>
+          {list.map(u => <option key={u.id} value={u.id}>{u.name} — {label}</option>)}
+        </optgroup>
+      ))}
     </select>
   )
 
-  const userChips = (field: 'consultedIds' | 'informedIds') => (
-    <div className="flex flex-wrap gap-1" data-raci-chips={field}>
-      {users.map(u => {
-        const on = draft[field].includes(u.id)
-        return (
-          <button
-            key={u.id}
-            type="button"
-            disabled={busy}
-            onClick={() => toggle(field, u.id)}
-            aria-pressed={on}
-            className="rounded-full border px-2 py-0.5 text-[11px]"
-            style={on
-              ? { backgroundColor: PLATFORM_ACCENT.primary, borderColor: PLATFORM_ACCENT.primary, color: '#FFFFFF' }
-              : { backgroundColor: '#FFFFFF', borderColor: '#CBD5E1', color: '#334155' }}
-          >{u.name}</button>
-        )
-      })}
-    </div>
-  )
-
   return (
-    <div className="rounded-lg border border-slate-200 p-3" data-raci-editor={activity}>
-      <div className="flex items-center justify-between gap-2">
-        <p className="text-[13px] font-semibold text-slate-900">{task.label}</p>
-        {override && <span className="font-mono text-[10px]" style={{ color: PLATFORM_ACCENT.primary }}>customised</span>}
-      </div>
+    <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm" data-raci-editor={activity}>
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        aria-expanded={open}
+        data-raci-editor-toggle
+        className="flex w-full items-start gap-3 px-4 py-3 text-left hover:bg-slate-50"
+      >
+        <span aria-hidden="true" className="mt-1 w-3 shrink-0 text-[10px] text-slate-400">{open ? '▾' : '▸'}</span>
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-[13px] font-semibold text-slate-900">{task.label}</span>
+            {override && (
+              <span className="rounded px-1.5 py-0.5 font-mono text-[10px]"
+                style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}>customised</span>
+            )}
+            {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] text-amber-800" data-raci-unsaved>unsaved</span>}
+          </span>
+          {!open && (
+            <span className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1" data-raci-summary>
+              <SummaryItem letter="R" value={draft.responsibleId ? nameOf(draft.responsibleId) : null} />
+              <SummaryItem letter="A" value={draft.accountableId ? nameOf(draft.accountableId) : null} />
+              <SummaryItem letter="C" value={draft.consultedIds.length ? `${draft.consultedIds.length} ${draft.consultedIds.length === 1 ? 'person' : 'people'}` : null} />
+              <SummaryItem letter="I" value={draft.informedIds.length ? `${draft.informedIds.length} ${draft.informedIds.length === 1 ? 'person' : 'people'}` : null} />
+            </span>
+          )}
+        </span>
+      </button>
 
-      <div className="mt-2 grid grid-cols-2 gap-2">
-        <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
-          R · Responsible
-          {userSelect('responsibleId')}
-        </label>
-        <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
-          A · Accountable{accountableLocked && ' 🔒'}
-          {userSelect('accountableId', accountableLocked)}
-        </label>
-      </div>
-      {accountableLocked && (
-        <p className="mt-1 font-mono text-[10px] text-slate-400">Stage is signed — accountability cannot be reassigned.</p>
+      {open && (
+        <div className="border-t border-slate-200 px-4 py-4">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
+              R · Responsible
+              {userSelect('responsibleId')}
+            </label>
+            <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
+              <span>A · Accountable <span className="text-red-700" aria-hidden="true">*</span>{accountableLocked && ' 🔒'}</span>
+              {userSelect('accountableId', accountableLocked, !draft.accountableId)}
+            </label>
+          </div>
+          {!draft.accountableId && !accountableLocked && (
+            <p className="mt-1 text-[11px] text-red-700" role="alert" data-raci-accountable-hint>
+              Choose one Accountable person to save.
+            </p>
+          )}
+          {accountableLocked && (
+            <p className="mt-1 font-mono text-[10px] text-slate-400">Stage is signed — accountability cannot be reassigned.</p>
+          )}
+
+          <div className="mt-4 flex flex-col gap-4">
+            <PeoplePicker
+              label="C · Consulted"
+              field="consultedIds"
+              users={users}
+              selectedIds={draft.consultedIds}
+              disabled={busy}
+              onToggle={id => toggle('consultedIds', id)}
+              onClear={() => clearField('consultedIds')}
+            />
+            <PeoplePicker
+              label="I · Informed"
+              field="informedIds"
+              users={users}
+              selectedIds={draft.informedIds}
+              disabled={busy}
+              onToggle={id => toggle('informedIds', id)}
+              onClear={() => clearField('informedIds')}
+            />
+          </div>
+
+          {error && <p className="mt-3 text-[11px] text-red-700" role="alert">{error}</p>}
+
+          <div className="mt-4 flex items-center justify-end gap-2 border-t border-slate-100 pt-3">
+            {override && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setConfirmReset(true)}
+                data-raci-reset
+                className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+              >Reset to template</button>
+            )}
+            <button
+              type="button"
+              disabled={!dirty || busy || !draft.accountableId}
+              title={!draft.accountableId ? 'Exactly one person must be Accountable' : undefined}
+              onClick={() => save.mutate()}
+              data-raci-save
+              className="h-8 rounded-md px-4 text-[12px] font-semibold text-white disabled:opacity-40"
+              style={{ backgroundColor: PLATFORM_ACCENT.primary }}
+            >{save.isPending ? 'Saving…' : 'Save'}</button>
+          </div>
+        </div>
       )}
 
-      <p className="mt-2 text-[11px] font-semibold text-slate-600">C · Consulted</p>
-      {userChips('consultedIds')}
-      <p className="mt-2 text-[11px] font-semibold text-slate-600">I · Informed</p>
-      {userChips('informedIds')}
+      {confirmReset && (
+        <ConfirmResetDialog
+          taskLabel={task.label}
+          busy={reset.isPending}
+          error={error}
+          onCancel={() => { setConfirmReset(false); setError(null) }}
+          onConfirm={() => reset.mutate()}
+        />
+      )}
+    </div>
+  )
+}
 
-      {error && <p className="mt-2 text-[11px] text-red-700" role="alert">{error}</p>}
+// One "R  Name" pair in a collapsed task's summary row.
+function SummaryItem({ letter, value }: { letter: RACIRole; value: string | null }) {
+  const c = RACI_COLOURS[letter]
+  return (
+    <span className="inline-flex items-center gap-1.5 text-[11px]">
+      <span
+        className="inline-flex h-4 w-4 items-center justify-center rounded font-mono text-[9px] font-bold"
+        style={{ backgroundColor: c.bg, color: c.fg, border: `1px solid ${c.fg}44` }}
+      >{letter}</span>
+      <span className={value ? 'font-medium text-slate-700' : 'text-slate-400'}>{value ?? 'Not set'}</span>
+    </span>
+  )
+}
 
-      <div className="mt-3 flex items-center justify-end gap-2">
-        {override && !confirmReset && (
+// Multi-person picker for Consulted / Informed. Scales to long user lists: the chosen
+// people show as compact removable chips, and a searchable, scrollable list (name or
+// role) opens inline — inline, not a floating popover, so the scrolling panel can't clip it.
+function PeoplePicker({ label, field, users, selectedIds, disabled, onToggle, onClear }: {
+  label:       string
+  field:       'consultedIds' | 'informedIds'
+  users:       PlatformUser[]
+  selectedIds: string[]
+  disabled:    boolean
+  onToggle:    (id: string) => void
+  onClear:     () => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [query, setQuery] = useState('')
+
+  const usersById = useMemo(() => new Map(users.map(u => [u.id, u])), [users])
+  const selected = selectedIds.map(id => usersById.get(id)).filter((u): u is PlatformUser => !!u)
+  const unknownCount = selectedIds.length - selected.length
+
+  const matches = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return [...users]
+      .filter(u => !q || `${u.name} ${accountRoleLabel(u)}`.toLowerCase().includes(q))
+      .sort((a, b) => a.name.localeCompare(b.name))
+  }, [users, query])
+
+  return (
+    <div data-raci-chips={field}>
+      <div className="flex items-center justify-between gap-2">
+        <p className="text-[11px] font-semibold text-slate-600">
+          {label} <span className="font-normal text-slate-400">· {selectedIds.length} selected</span>
+        </p>
+        <div className="flex items-center gap-2">
+          {selectedIds.length > 0 && (
+            <button type="button" disabled={disabled} onClick={onClear}
+              className="text-[11px] text-slate-500 underline disabled:opacity-40">Clear all</button>
+          )}
+          <button
+            type="button"
+            disabled={disabled}
+            aria-expanded={adding}
+            onClick={() => { setAdding(a => !a); setQuery('') }}
+            className="h-7 rounded-md border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
+          >{adding ? 'Done' : '+ Add people'}</button>
+        </div>
+      </div>
+
+      <div className="mt-1.5 flex flex-wrap gap-1.5">
+        {selected.length === 0 && unknownCount === 0 && (
+          <p className="text-[11px] italic text-slate-400">No one selected</p>
+        )}
+        {selected.map(u => (
+          <span
+            key={u.id}
+            className="inline-flex max-w-full items-center gap-1 rounded-md py-0.5 pl-2 pr-1 text-[11px]"
+            style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
+          >
+            <span className="truncate font-semibold">{u.name}</span>
+            <span className="truncate text-[10px] opacity-70">{accountRoleLabel(u)}</span>
+            <button
+              type="button"
+              disabled={disabled}
+              onClick={() => onToggle(u.id)}
+              aria-label={`Remove ${u.name}`}
+              className="ml-0.5 flex h-4 w-4 items-center justify-center rounded text-[12px] leading-none hover:bg-white/60 disabled:opacity-40"
+            >×</button>
+          </span>
+        ))}
+        {unknownCount > 0 && (
+          <span className="text-[11px] text-slate-400">+{unknownCount} unknown user{unknownCount === 1 ? '' : 's'}</span>
+        )}
+      </div>
+
+      {adding && (
+        <div className="mt-2 rounded-md border border-slate-300 bg-white" data-raci-picker-panel>
+          <input
+            type="search"
+            autoFocus
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Search by name or role"
+            aria-label={`Search people for ${label}`}
+            className="h-8 w-full rounded-t-md border-b border-slate-200 px-3 text-[12px] outline-none"
+          />
+          <ul className="max-h-48 overflow-y-auto py-1">
+            {matches.map(u => {
+              const on = selectedIds.includes(u.id)
+              return (
+                <li key={u.id}>
+                  <label className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-[12px] hover:bg-slate-50">
+                    <input type="checkbox" checked={on} disabled={disabled} onChange={() => onToggle(u.id)} />
+                    <span className="min-w-0 flex-1 truncate font-semibold text-slate-900">{u.name}</span>
+                    <span className="shrink-0 text-[11px] text-slate-500">{accountRoleLabel(u)}</span>
+                  </label>
+                </li>
+              )
+            })}
+            {matches.length === 0 && <li className="px-3 py-2 text-[12px] text-slate-400">No one matches "{query}"</li>}
+          </ul>
+          <p className="border-t border-slate-100 px-3 py-1 font-mono text-[10px] text-slate-400">
+            {matches.length} of {users.length} people
+          </p>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// Centred pop-up. Rendered in a portal because the slide-in panel is transformed,
+// which would otherwise pin a fixed overlay to the panel instead of the screen.
+function ConfirmResetDialog({ taskLabel, busy, error, onCancel, onConfirm }: {
+  taskLabel: string
+  busy:      boolean
+  error:     string | null
+  onCancel:  () => void
+  onConfirm: () => void
+}) {
+  // Escape cancels the dialog only — capture phase so the panel's own Escape handler doesn't also close it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return
+      e.stopPropagation()
+      if (!busy) onCancel()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [busy, onCancel])
+
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-center justify-center bg-slate-900/50 p-4"
+      style={{ zIndex: 1000 }}
+      onMouseDown={e => { if (e.target === e.currentTarget && !busy) onCancel() }}
+      data-raci-reset-dialog
+    >
+      <div role="alertdialog" aria-modal="true" aria-labelledby="raci-reset-title" className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl">
+        <h2 id="raci-reset-title" className="text-[15px] font-bold text-slate-900">Reset to template?</h2>
+        <p className="mt-2 text-[13px] text-slate-600">
+          This removes this project's customised assignment for <span className="font-semibold">{taskLabel}</span> and
+          restores the default template. This can't be undone.
+        </p>
+        {error && <p className="mt-2 text-[12px] text-red-700" role="alert">{error}</p>}
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            autoFocus
+            disabled={busy}
+            onClick={onCancel}
+            className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 disabled:opacity-40"
+          >Cancel</button>
           <button
             type="button"
             disabled={busy}
-            onClick={() => setConfirmReset(true)}
-            data-raci-reset
-            className="h-7 rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >Reset to template</button>
-        )}
-        {override && confirmReset && (
-          <>
-            <span className="text-[11px] text-slate-600" data-raci-reset-prompt>Remove this project's customisation?</span>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => setConfirmReset(false)}
-              className="h-7 rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 disabled:opacity-40"
-            >Cancel</button>
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => reset.mutate()}
-              data-raci-reset-confirm
-              className="h-7 rounded-md bg-red-700 px-3 text-[11px] font-semibold text-white disabled:opacity-40"
-            >{reset.isPending ? 'Resetting…' : 'Yes, reset'}</button>
-          </>
-        )}
-        <button
-          type="button"
-          disabled={!dirty || busy || !draft.accountableId}
-          title={!draft.accountableId ? 'Exactly one person must be Accountable' : undefined}
-          onClick={() => save.mutate()}
-          data-raci-save
-          className="h-7 rounded-md px-3 text-[11px] font-semibold text-white disabled:opacity-40"
-          style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-        >{save.isPending ? 'Saving…' : 'Save'}</button>
+            onClick={onConfirm}
+            data-raci-reset-confirm
+            className="h-8 rounded-md bg-red-700 px-3 text-[12px] font-semibold text-white disabled:opacity-40"
+          >{busy ? 'Resetting…' : 'Yes, reset'}</button>
+        </div>
       </div>
-    </div>
+    </div>,
+    document.body,
   )
 }

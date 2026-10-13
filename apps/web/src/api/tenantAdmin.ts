@@ -60,6 +60,10 @@ export interface AuditEntry {
   id: string
   timestamp: string
   actorId: string
+  // Resolved from users when actorId is a real user; null for system
+  // actors such as 'anonymous'.
+  actorName: string | null
+  actorEmail: string | null
   action: string
   entityType: string
   entityId: string
@@ -73,6 +77,14 @@ export interface AuditPage {
   rows: AuditEntry[]
   nextCursor: string | null
   hasMore: boolean
+  // Matches for the current filter; capped server-side (totalCapped → "N+").
+  total: number
+  totalCapped: boolean
+}
+
+export interface AuditFacets {
+  actions: string[]
+  entityTypes: string[]
 }
 
 export interface AuditVerifyResult {
@@ -129,32 +141,38 @@ export const ssoApi = {
 
 export interface AuditQuery {
   actorId?: string
-  entityType?: string
+  actor?: string        // partial name / email, or exact actor id
+  entityType?: string   // partial, case-insensitive
   entityId?: string
-  action?: string
-  fromDate?: string
+  action?: string       // partial, case-insensitive
+  fromDate?: string     // ISO 8601, with Z or an offset
   toDate?: string
+  order?: 'desc' | 'asc'
   limit?: number
   cursor?: string
 }
 
-function auditQueryString(q: AuditQuery): string {
-  const entries = Object.entries(q).filter(([, v]) => v !== undefined && v !== '')
+// Max rows a single CSV export carries — mirrors EXPORT_ROW_CAP in the API.
+export const AUDIT_EXPORT_ROW_CAP = 10_000
+
+function toQueryString(params: Record<string, string | number | undefined>): string {
+  const entries = Object.entries(params)
+    .filter(([, v]) => v !== undefined && v !== '')
+    .map(([k, v]) => [k, String(v)] as [string, string])
   if (entries.length === 0) return ''
-  return '?' + new URLSearchParams(entries as [string, string][]).toString()
+  return '?' + new URLSearchParams(entries).toString()
 }
 
 export const auditApi = {
-  query:  (q: AuditQuery = {}) => api.get<AuditPage>(`/admin/audit${auditQueryString(q)}`),
-  verify: (fromId?: string, toId?: string) => {
-    const qs = auditQueryString({ ...(fromId && { fromDate: fromId }), ...(toId && { toDate: toId }) }).replace('fromDate', 'fromId').replace('toDate', 'toId')
-    return api.get<AuditVerifyResult>(`/admin/audit/verify${qs}`)
-  },
+  query:  (q: AuditQuery = {}) => api.get<AuditPage>(`/admin/audit${toQueryString({ ...q })}`),
+  facets: () => api.get<AuditFacets>('/admin/audit/facets'),
+  verify: (fromId?: string, toId?: string) =>
+    api.get<AuditVerifyResult>(`/admin/audit/verify${toQueryString({ fromId, toId })}`),
   // CSV export URL — not called via api.get because the response is a
   // file download. The UI points an <a href> at this URL (same cookie,
   // same origin via credentials: 'include' handled by the browser).
   exportUrl: (q: Omit<AuditQuery, 'limit' | 'cursor'> = {}) => {
     const base = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '')
-    return `${base}/admin/audit/export${auditQueryString(q)}`
+    return `${base}/admin/audit/export${toQueryString({ ...q })}`
   },
 }

@@ -46,7 +46,15 @@ const GROUPS: Record<ToggleName, unknown[]> = {
   MODULE_E: [...ideationPublishingHandlers],
 }
 
+// Admin Panel endpoints the real API doesn't serve yet. Kept mocked even when
+// the PROJECTS group is off, otherwise the panel never leaves "Loading…".
+const ADMIN_PANEL_MOCK_ONLY = platformHandlers.filter(h =>
+  /\/admin\/(config|subscription)$/.test(String((h as { info: { path: unknown } }).info.path)),
+)
+
 export function createWorker(): SetupWorker {
-  const handlers = activeMockGroups().flatMap(name => GROUPS[name] as never[])
+  const active = activeMockGroups()
+  const handlers = active.flatMap(name => GROUPS[name] as never[])
+  if (!active.includes('PROJECTS')) handlers.push(...(ADMIN_PANEL_MOCK_ONLY as never[]))
   return setupWorker(...handlers)
 }

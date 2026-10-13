@@ -19,6 +19,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { DocumentService } from './service.js'
 import {
   canTransitionDocument,
@@ -158,12 +159,21 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
+    // The project's therapeuticArea is copied in and immutable per FR-A-002.
+    // Inheriting it is always allowed; anything else must be an active TA.
+    const requestedTa = parsed.data.therapeuticArea
+    let therapeuticArea = project.therapeuticArea
+    if (requestedTa && !sameTa(requestedTa, project.therapeuticArea)) {
+      const canonical = await findActiveTaLabel(app.prisma, requestedTa)
+      if (!canonical) return reply.code(400).send(invalidTaBody(requestedTa))
+      therapeuticArea = canonical
+    }
+
     const { document, version } = await svc.create({
       projectId,
       type: parsed.data.type,
       title: parsed.data.title,
-      // The project's therapeuticArea is copied in and immutable per FR-A-002.
-      therapeuticArea: parsed.data.therapeuticArea ?? project.therapeuticArea,
+      therapeuticArea,
       assigneeId: parsed.data.assigneeId,
       createdBy: request.user!.id,
       templateId: parsed.data.templateId,
@@ -399,6 +409,44 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return updated
+  })
+
+  // Admin override of a document's TA (FR-A-002: set at creation, changeable
+  // only by Admin). The new TA must be an active master-list tag; the change
+  // is audited with before/after values.
+  const taChangeSchema = z.object({
+    therapeuticArea: z.string().min(1),
+    reason: z.string().max(500).optional(),
+  })
+
+  app.patch('/:documentId/therapeutic-area', { preHandler: requireAuth({ roles: ['admin', 'super-admin'], modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const parsed = taChangeSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (sameTa(parsed.data.therapeuticArea, doc.therapeuticArea)) return documentShapeMeta({ ...doc })
+
+    const therapeuticArea = await findActiveTaLabel(app.prisma, parsed.data.therapeuticArea)
+    if (!therapeuticArea) return reply.code(400).send(invalidTaBody(parsed.data.therapeuticArea))
+
+    const updated = await app.prisma.document.update({
+      where: { id: documentId },
+      data: { therapeuticArea },
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'document_therapeutic_area_changed',
+      entityType: 'document',
+      entityId: documentId,
+      details: { from: doc.therapeuticArea, to: therapeuticArea, reason: parsed.data.reason ?? null },
+      ipAddress: request.ip ?? null,
+    })
+
+    return documentShapeMeta({ ...updated })
   })
 
   // AI Suggest — thin wrapper over AI Gateway. Resolves (projectId,

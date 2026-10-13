@@ -1,4 +1,5 @@
 import { useMemo, useState, useEffect } from 'react'
+import { useTaLabels } from '../../hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { ComplianceTrack, MedContentItem, MedContentType } from '@platform/types'
@@ -7,7 +8,6 @@ import { medContentApi } from '../../modules/medical-writing/api/medContent'
 
 // --- Static config ---
 
-const TA_OPTIONS = ['Oncology', 'Cardiometabolic', 'Neurology', 'Immunology', 'Rare Disease', 'Respiratory'] as const
 
 const AUDIENCE_OPTIONS = ['HCP', 'Patient', 'Caregiver'] as const
 type Audience = typeof AUDIENCE_OPTIONS[number]
@@ -105,7 +105,8 @@ export function ContentBriefing() {
   const [title,       setTitle]       = useState('')
   const [type,        setType]        = useState<MedContentType | null>(null)
   const [track,       setTrack]       = useState<ComplianceTrack | null>(null)
-  const [taTag,       setTaTag]       = useState<typeof TA_OPTIONS[number] | null>('Oncology')
+  const [taTag,       setTaTag]       = useState<string | null>('Oncology')
+  const { labels: taLabels } = useTaLabels()
   const [audience,    setAudience]    = useState<Audience[]>([])
   const [channels,    setChannels]    = useState<string[]>(['Congress', 'Digital'])
   const [targetDate,  setTargetDate]  = useState('')
@@ -121,7 +122,7 @@ export function ContentBriefing() {
     setTitle(existing.title)
     setType(existing.type)
     setTrack(existing.complianceTrack)
-    setTaTag((TA_OPTIONS as readonly string[]).includes(existing.taTag) ? existing.taTag as typeof TA_OPTIONS[number] : null)
+    setTaTag(existing.taTag || null)
     setAudience((existing.targetAudience as Audience[]) ?? [])
     setChannels(existing.channels ?? [])
   }, [existing])
@@ -329,7 +330,8 @@ export function ContentBriefing() {
 
               <p className="mb-1 text-[12px] font-semibold text-slate-600">Therapy area</p>
               <div className="mb-4 flex flex-wrap gap-2" data-ta-picker>
-                {TA_OPTIONS.map(ta => (
+                {/* Master-list TAs, plus the item's own TA if it predates the list. */}
+                {(taTag && !taLabels.includes(taTag) ? [...taLabels, taTag] : taLabels).map(ta => (
                   <Pill key={ta} text={ta} active={taTag === ta} onClick={() => setTaTag(ta)} />
                 ))}
               </div>

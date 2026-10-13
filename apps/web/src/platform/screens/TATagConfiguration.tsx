@@ -2,8 +2,19 @@ import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { TATag } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
+import { ApiError } from '../../api/client'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
+
+// Prefer the API's human-readable message (e.g. the in-use refusal).
+function errorMessage(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { message?: string; error?: string } | null
+    if (body?.message) return body.message
+    if (err.status === 403) return 'Only Admins can manage TA tags.'
+  }
+  return 'Something went wrong. Please try again.'
+}
 
 function StatusChip({ status }: { status: 'active' | 'archived' }) {
   if (status === 'active')
@@ -14,7 +25,7 @@ function StatusChip({ status }: { status: 'active' | 'archived' }) {
 export function TATagConfiguration() {
   const currentUser = usePlatformStore(s => s.currentUser)
   const qc = useQueryClient()
-  const { data: tags = [] } = useQuery<TATag[]>({
+  const { data: tags = [], isLoading, error: loadError } = useQuery<TATag[]>({
     queryKey: ['ta-tags'],
     queryFn:  () => platformApi.listTATags(),
   })
@@ -22,6 +33,7 @@ export function TATagConfiguration() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [name,       setName]       = useState('')
   const [abbrev,     setAbbrev]     = useState('')
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const [confirmArchive, setConfirmArchive] = useState<TATag | null>(null)
 
@@ -35,6 +47,7 @@ export function TATagConfiguration() {
 
   const abbrevRule = useMemo(() => {
     if (abbrev.length > 6)                                                    return 'Maximum 6 characters'
+    if (abbrev && !/^[A-Z][A-Z0-9]{1,5}$/.test(abbrev))                       return '2–6 letters or digits, starting with a letter'
     if (abbrev && tags.some(t => t.abbreviation.toLowerCase() === abbrev.toLowerCase()))
       return 'This abbreviation is already in use'
     return ''
@@ -44,26 +57,36 @@ export function TATagConfiguration() {
 
   const autoSuggest = () => setAbbrev(name.replace(/[^A-Za-z]/g, '').toUpperCase().slice(0, 6))
 
+  // Runs a mutation, surfaces the API's refusal message, and refreshes the
+  // list plus every TA selector (they read the ['taxonomy'] queries).
+  const run = async (fn: () => Promise<unknown>): Promise<boolean> => {
+    setActionError(null)
+    try {
+      await fn()
+      return true
+    } catch (err) {
+      setActionError(errorMessage(err))
+      return false
+    } finally {
+      await qc.invalidateQueries({ queryKey: ['ta-tags'] })
+      await qc.invalidateQueries({ queryKey: ['taxonomy'] })
+    }
+  }
+
   const save = async () => {
     if (!canSave) return
-    await platformApi.createTATag({ name: name.trim(), abbreviation: abbrev, createdBy: currentUser.id }).catch(() => {})
-    await qc.invalidateQueries({ queryKey: ['ta-tags'] })
-    setName(''); setAbbrev(''); setDrawerOpen(false)
+    if (await run(() => platformApi.createTATag({ name: name.trim(), abbreviation: abbrev }))) {
+      setName(''); setAbbrev(''); setDrawerOpen(false)
+    }
   }
+  const archive = (t: TATag) => run(() => platformApi.archiveTATag(t.id))
   const doArchive = async () => {
     if (!confirmArchive) return
-    await platformApi.archiveTATag(confirmArchive.id).catch(() => {})
-    await qc.invalidateQueries({ queryKey: ['ta-tags'] })
+    await archive(confirmArchive)
     setConfirmArchive(null)
   }
-  const restore = async (t: TATag) => {
-    await platformApi.restoreTATag(t.id).catch(() => {})
-    await qc.invalidateQueries({ queryKey: ['ta-tags'] })
-  }
-  const del = async (t: TATag) => {
-    await platformApi.deleteTATag(t.id).catch(() => {})
-    await qc.invalidateQueries({ queryKey: ['ta-tags'] })
-  }
+  const restore = (t: TATag) => run(() => platformApi.restoreTATag(t.id))
+  const del = (t: TATag) => run(() => platformApi.deleteTATag(t.id))
 
   return (
     <div className="bg-slate-50" data-screen="ta-tag-configuration">
@@ -96,6 +119,13 @@ export function TATagConfiguration() {
           </div>
         </div>
 
+        {(loadError || actionError) && (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-800" data-ta-error>
+            {actionError ?? `Could not load TA tags: ${errorMessage(loadError)}`}
+          </div>
+        )}
+        {isLoading && <p className="text-[13px] text-slate-500" data-ta-loading>Loading TA tags…</p>}
+
         <div className="grid gap-4" style={{ gridTemplateColumns: drawerOpen ? '1fr 360px' : '1fr' }}>
 
           <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-tag-table data-tag-count={tags.length}>
@@ -111,10 +141,10 @@ export function TATagConfiguration() {
               </thead>
               <tbody>
                 {tags.map(t => {
-                  const inUse = t.projectCount > 0
+                  const inUse = t.projectCount + t.documentCount > 0
                   const note  = inUse ? `${t.projectCount} projects · ${t.documentCount} documents — cannot delete` : ''
                   const primaryLabel = t.status === 'archived' ? 'Restore' : 'Archive'
-                  const showDelete   = t.projectCount === 0 && t.status === 'active'
+                  const showDelete   = !inUse && t.status === 'active'
                   return (
                     <tr key={t.id} className="border-t border-slate-200"
                         data-tag-row={t.id}
@@ -132,7 +162,7 @@ export function TATagConfiguration() {
                           ? <button type="button" onClick={() => restore(t)} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-tag-primary-action="restore">Restore</button>
                           : (inUse
                               ? <button type="button" onClick={() => setConfirmArchive(t)} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-tag-primary-action="archive">Archive</button>
-                              : <button type="button" onClick={() => platformApi.archiveTATag(t.id).then(() => qc.invalidateQueries({ queryKey: ['ta-tags'] }))} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-tag-primary-action="archive">Archive</button>)}
+                              : <button type="button" onClick={() => { void archive(t) }} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-tag-primary-action="archive">Archive</button>)}
                         {showDelete && (
                           <button type="button" onClick={() => del(t)} className="ml-3 text-[12px] font-semibold text-slate-500 hover:text-red-700" data-tag-delete>Delete</button>
                         )}
@@ -206,7 +236,7 @@ export function TATagConfiguration() {
                style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }}
                data-archive-confirm={confirmArchive.id}>
             <p className="text-[13px] font-semibold" style={{ color: '#78350F' }}>
-              Archive {confirmArchive.name}? This tag is in use by {confirmArchive.projectCount} projects. It will be removed from new selections but existing tags are preserved.
+              Archive {confirmArchive.name}? This tag is in use by {confirmArchive.projectCount} projects and {confirmArchive.documentCount} documents. It will be removed from new selections but existing tags are preserved.
             </p>
             <div className="mt-3 flex gap-2">
               <button type="button" onClick={doArchive} data-confirm-archive

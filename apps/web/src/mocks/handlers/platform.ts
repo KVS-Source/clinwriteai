@@ -26,6 +26,21 @@ let notificationsState = notifications    as Array<Record<string, unknown>>
 let notifPrefsState    = notifPrefs       as Array<Record<string, unknown>>
 let ratecardsState     = ratecards        as Array<Record<string, unknown>>
 let taTagsState        = taTags           as Array<Record<string, unknown>>
+
+// TATag fixture row → therapeutic-areas API row (see platformApi.taTagShape).
+const taRow = (t: Record<string, unknown>) => ({
+  code:          t.abbreviation,
+  label:         t.name,
+  parentCode:    null,
+  status:        t.status,
+  description:   null,
+  createdBy:     t.createdBy ?? 'system',
+  createdAt:     t.createdAt,
+  updatedAt:     t.createdAt,
+  archivedAt:    t.archivedAt ?? null,
+  projectCount:  t.projectCount ?? 0,
+  documentCount: t.documentCount ?? 0,
+})
 let regFrameworksState = regFrameworks    as Array<Record<string, unknown>>
 const auditTrailState  = auditTrail       as Array<Record<string, unknown>>
 let slidedeckJobState  = slidedeckJob     as Record<string, unknown>
@@ -225,49 +240,56 @@ export const platformHandlers = [
   }),
 
   // --- sPM17 TA Tag Configuration ---
-  http.get(`${BASE}/admin/taxonomy`, async () => {
+  // Mirrors apps/api/src/modules/platform/taxonomy/routes.ts. Mock state is
+  // kept in the TATag fixture shape and keyed by abbreviation (= TA code).
+  http.get(`${BASE}/taxonomy/therapeutic-areas`, async ({ request }) => {
     await delay(100)
-    return HttpResponse.json(taTagsState)
+    const includeArchived = new URL(request.url).searchParams.get('includeArchived') === 'true'
+    return HttpResponse.json(taTagsState.filter(t => includeArchived || t.status === 'active').map(taRow))
   }),
-  http.post(`${BASE}/admin/taxonomy`, async ({ request }) => {
+  http.post(`${BASE}/admin/taxonomy/therapeutic-areas`, async ({ request }) => {
     await delay(150)
-    const body = await request.json() as Record<string, unknown>
+    const body = await request.json() as { code: string; label: string }
+    if (taTagsState.some(t => t.abbreviation === body.code)) {
+      return HttpResponse.json({ error: 'code_exists', message: `Abbreviation ${body.code} is already in use` }, { status: 409 })
+    }
     const created = {
-      id:            `tag-${String(body.abbreviation ?? Date.now()).toLowerCase()}`,
-      name:          body.name,
-      abbreviation:  body.abbreviation,
+      id:            `tag-${body.code.toLowerCase()}`,
+      name:          body.label,
+      abbreviation:  body.code,
       status:        'active',
       projectCount:  0,
       documentCount: 0,
       createdAt:     new Date().toISOString().slice(0, 10),
-      createdBy:     body.createdBy ?? 'user-admin',
+      createdBy:     'user-admin',
     }
-    taTagsState = [...taTagsState, created as Record<string, unknown>]
-    return HttpResponse.json(created, { status: 201 })
+    taTagsState = [...taTagsState, created]
+    return HttpResponse.json(taRow(created), { status: 201 })
   }),
-  http.patch(`${BASE}/admin/taxonomy/:tagId`, async ({ params, request }) => {
+  http.patch(`${BASE}/admin/taxonomy/therapeutic-areas/:code`, async ({ params, request }) => {
     await delay(100)
-    const patch = await request.json() as Record<string, unknown>
-    taTagsState = taTagsState.map(t => t.id === params.tagId ? { ...t, ...patch } : t)
-    return HttpResponse.json(taTagsState.find(t => t.id === params.tagId))
+    const patch = await request.json() as { label?: string; status?: 'active' | 'archived' }
+    taTagsState = taTagsState.map(t => t.abbreviation !== params.code ? t : {
+      ...t,
+      ...(patch.label !== undefined && { name: patch.label }),
+      ...(patch.status !== undefined && {
+        status: patch.status,
+        archivedAt: patch.status === 'archived' ? new Date().toISOString().slice(0, 10) : undefined,
+      }),
+    })
+    const row = taTagsState.find(t => t.abbreviation === params.code)
+    return row ? HttpResponse.json(taRow(row)) : HttpResponse.json({ error: 'not_found' }, { status: 404 })
   }),
-  http.patch(`${BASE}/admin/taxonomy/:tagId/archive`, async ({ params }) => {
+  http.delete(`${BASE}/admin/taxonomy/therapeutic-areas/:code`, async ({ params }) => {
     await delay(100)
-    taTagsState = taTagsState.map(t => t.id === params.tagId ? { ...t, status: 'archived', archivedAt: new Date().toISOString().slice(0, 10) } : t)
-    return HttpResponse.json(taTagsState.find(t => t.id === params.tagId))
-  }),
-  http.patch(`${BASE}/admin/taxonomy/:tagId/restore`, async ({ params }) => {
-    await delay(100)
-    taTagsState = taTagsState.map(t => t.id === params.tagId ? { ...t, status: 'active', archivedAt: undefined } : t)
-    return HttpResponse.json(taTagsState.find(t => t.id === params.tagId))
-  }),
-  http.delete(`${BASE}/admin/taxonomy/:tagId`, async ({ params }) => {
-    await delay(100)
-    const t = taTagsState.find(x => x.id === params.tagId)
-    if (t && ((t as { projectCount: number }).projectCount > 0)) {
-      return HttpResponse.json({ error: 'in-use', message: 'A tag in use cannot be deleted — archive it instead.' }, { status: 409 })
+    const t = taTagsState.find(x => x.abbreviation === params.code)
+    if (t && Number(t.projectCount) + Number(t.documentCount) > 0) {
+      return HttpResponse.json({
+        error: 'in_use',
+        message: `This tag is in use by ${t.projectCount} projects and ${t.documentCount} documents and cannot be deleted. You may archive it instead.`,
+      }, { status: 409 })
     }
-    taTagsState = taTagsState.filter(x => x.id !== params.tagId)
+    taTagsState = taTagsState.filter(x => x.abbreviation !== params.code)
     return HttpResponse.json({ ok: true })
   }),
 

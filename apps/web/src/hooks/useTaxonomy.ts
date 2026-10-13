@@ -1,5 +1,6 @@
 // React Query hooks for the therapeutic-areas taxonomy.
 
+import { useMemo } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { taxonomyApi, type TherapeuticArea } from '../api/taxonomy'
 
@@ -14,6 +15,20 @@ export function useTherapeuticAreas(opts: { tree?: boolean; includeArchived?: bo
     queryFn:  () => taxonomyApi.list(opts),
     staleTime: 5 * 60_000,   // TA list is near-static; cache 5min
   })
+}
+
+/**
+ * Active TA labels from the Admin-managed master list (PRD sPM17), sorted
+ * for selectors. Projects/documents store the label, so this is the value
+ * every TA picker should offer. Archived tags drop out automatically.
+ */
+export function useTaLabels(): { labels: string[]; isLoading: boolean } {
+  const { data, isLoading } = useTherapeuticAreas()
+  const labels = useMemo(
+    () => ((data ?? []) as TherapeuticArea[]).map(t => t.label).sort((a, b) => a.localeCompare(b)),
+    [data],
+  )
+  return { labels, isLoading }
 }
 
 export function useTherapeuticArea(code: string | undefined) {

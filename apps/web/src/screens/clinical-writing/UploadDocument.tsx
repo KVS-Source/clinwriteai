@@ -17,6 +17,7 @@ import type { DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { platformApi } from '../../platform/api/platformApi'
+import { useTaLabels } from '../../hooks'
 
 interface Props {
   projectId:   string
@@ -99,6 +100,17 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
   const [title,     setTitle]     = useState('')
   const [version,   setVersion]   = useState('')
   const [ta,        setTa]        = useState('')
+
+  // Master-list TAs, plus the project's own TA (always allowed to inherit,
+  // even if it predates the list) and whatever the classifier suggested.
+  const { labels: taLabels } = useTaLabels()
+  const taOptions = useMemo(() => {
+    const out = [...taLabels]
+    for (const extra of [projectTA, ta]) {
+      if (extra && !out.some(l => l.toLowerCase() === extra.toLowerCase())) out.push(extra)
+    }
+    return out
+  }, [taLabels, projectTA, ta])
   const [assignee,  setAssignee]  = useState('')
   const [touched,   setTouched]   = useState<Set<string>>(new Set())
 
@@ -390,13 +402,20 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
           </FieldLabel>
 
           <FieldLabel label="Therapeutic area *" conf={taConf} touched={touched.has('therapeuticArea')}>
-            <input
+            <select
               value={ta}
               onChange={e => { setTa(e.currentTarget.value); markTouched('therapeuticArea') }}
               required
-              placeholder="Oncology"
+              data-ta-select
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
-            />
+            >
+              <option value="" disabled>Select a therapeutic area</option>
+              {taOptions.map(opt => (
+                <option key={opt} value={opt}>
+                  {opt}{projectTA && opt.toLowerCase() === projectTA.toLowerCase() ? ' (inherited from project)' : ''}
+                </option>
+              ))}
+            </select>
           </FieldLabel>
 
           <label className="flex flex-col gap-1">

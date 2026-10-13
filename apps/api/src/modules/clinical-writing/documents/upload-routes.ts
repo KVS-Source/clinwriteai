@@ -18,6 +18,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import type { MultipartFile } from '@fastify/multipart'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { generateBlobKey } from '../../../modules/platform/blob/local-storage.js'
 import { DocumentService } from './service.js'
 
@@ -158,12 +159,21 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
+    // Inheriting the project's TA is always allowed; anything else must be
+    // an active TA from the master list.
+    let therapeuticArea = project.therapeuticArea
+    if (!sameTa(parsed.data.therapeuticArea, project.therapeuticArea)) {
+      const canonical = await findActiveTaLabel(app.prisma, parsed.data.therapeuticArea)
+      if (!canonical) return reply.code(400).send(invalidTaBody(parsed.data.therapeuticArea))
+      therapeuticArea = canonical
+    }
+
     // Create the Document (service enforces version/provenance invariants).
     const { document } = await svc.create({
       projectId,
       type: parsed.data.documentType,
       title: parsed.data.title,
-      therapeuticArea: parsed.data.therapeuticArea,
+      therapeuticArea,
       assigneeId: parsed.data.assigneeId,
       createdBy: request.user!.id,
     })

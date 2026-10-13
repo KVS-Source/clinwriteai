@@ -21,6 +21,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { invalidTaBody, resolveTa } from '../../platform/taxonomy/validate.js'
 import {
   nextSubmissionStage,
   STAGE_LABELS,
@@ -129,13 +130,16 @@ export const regSubmissionsProjectScopedRoutes: FastifyPluginAsync = async (app)
     const srcA = await app.prisma.project.findUnique({ where: { id: parsed.data.sourceModuleAProjectId } })
     if (!srcA) return reply.code(400).send({ error: 'validation', message: 'sourceModuleAProjectId not found' })
 
+    const taTag = await resolveTa(app.prisma, parsed.data.taTag, project.therapeuticArea)
+    if (!taTag) return reply.code(400).send(invalidTaBody(parsed.data.taTag))
+
     const created = await app.prisma.$transaction(async (tx) => {
       const sub = await tx.regulatorySubmission.create({
         data: {
           projectId,
           sourceModuleAProjectId: parsed.data.sourceModuleAProjectId,
           submissionType: parsed.data.submissionType,
-          taTag: parsed.data.taTag,
+          taTag,
           targetHas: parsed.data.targetHas,
           ectdVersion: parsed.data.ectdVersion,
           validatorEngine: parsed.data.validatorEngine,
@@ -195,9 +199,16 @@ export const regSubmissionsRoutes: FastifyPluginAsync = async (app) => {
     const existing = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
 
+    // Only a changed TA is validated; keeping the current one is always fine.
+    let taTag = parsed.data.taTag
+    if (taTag !== undefined) {
+      taTag = await resolveTa(app.prisma, taTag, existing.taTag) ?? undefined
+      if (!taTag) return reply.code(400).send(invalidTaBody(parsed.data.taTag!))
+    }
+
     const updated = await app.prisma.regulatorySubmission.update({
       where: { id: submissionId },
-      data: parsed.data,
+      data: { ...parsed.data, taTag },
     })
 
     await app.audit.append({

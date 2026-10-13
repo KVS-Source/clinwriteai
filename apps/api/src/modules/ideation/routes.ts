@@ -19,6 +19,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../auth/rbac.js'
+import { invalidTaBody, resolveTa } from '../platform/taxonomy/validate.js'
 import { deriveOverallStatus, type ReviewStatus } from './card-status.js'
 
 const createIdeationSchema = z.object({
@@ -213,11 +214,15 @@ export const ideationProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
+    // PRD E: TA tag mandatory; must be an active master-list tag unless inherited.
+    const taTag = await resolveTa(app.prisma, parsed.data.taTag, project.therapeuticArea)
+    if (!taTag) return reply.code(400).send(invalidTaBody(parsed.data.taTag))
+
     const created = await app.prisma.ideationProject.create({
       data: {
         projectId,
         sourceType: parsed.data.sourceType,
-        taTag: parsed.data.taTag,
+        taTag,
         createdBy: request.user!.id,
       },
     })

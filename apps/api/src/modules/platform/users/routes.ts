@@ -275,6 +275,10 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       tenantId = actor.tenantId!
     }
 
+    if (tenantId && !(await app.prisma.tenant.findUnique({ where: { id: tenantId }, select: { id: true } }))) {
+      return reject(reply, 400, 'tenant_not_found', `Tenant '${tenantId}' does not exist`)
+    }
+
     const email = rest.email.trim().toLowerCase()
     const existing = await app.prisma.user.findUnique({ where: { email } })
     if (existing) return reply.code(409).send({ error: 'conflict', message: 'Email already registered' })
@@ -313,6 +317,10 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     }
     if (existing.status === 'deprovisioned') {
       return reject(reply, 409, 'deprovisioned', 'User is deprovisioned and can no longer be modified')
+    }
+    if (fields.tenantId && fields.tenantId !== existing.tenantId
+        && !(await app.prisma.tenant.findUnique({ where: { id: fields.tenantId }, select: { id: true } }))) {
+      return reject(reply, 400, 'tenant_not_found', `Tenant '${fields.tenantId}' does not exist`)
     }
 
     // Demoting (or de-moduling is fine) an admin: same protections as losing access.

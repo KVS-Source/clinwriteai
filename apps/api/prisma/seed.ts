@@ -219,9 +219,9 @@ async function main() {
   // so operators who memorised admin@/writer@/reviewer@ still have
   // working logins alongside the richer fixture users.
   for (const legacy of [
-    { email: 'admin@clinwrite.ai',    name: 'Platform Admin',    role: 'super-admin',     modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
-    { email: 'writer@clinwrite.ai',   name: 'Clinical Writer',   role: 'clinical-writer', modules: ['A'],                     tenantId: acme.id },
-    { email: 'reviewer@clinwrite.ai', name: 'Medical Reviewer',  role: 'reviewer',        modules: ['A'],                     tenantId: acme.id },
+    { email: 'admin@clinwrite.ai',    name: 'Mr Rohan Iyer',     role: 'super-admin',     modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
+    { email: 'writer@clinwrite.ai',   name: 'Ms Ananya Rao',     role: 'clinical-writer', modules: ['A'],                     tenantId: acme.id },
+    { email: 'reviewer@clinwrite.ai', name: 'Dr Vikram Mehta',   role: 'reviewer',        modules: ['A'],                     tenantId: acme.id },
   ]) {
     await prisma.user.upsert({
       where: { email: legacy.email },

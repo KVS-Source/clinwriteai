@@ -64,13 +64,23 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
         <p className="whitespace-nowrap font-mono text-[10px] text-slate-500">{comment.id}</p>
         <p className="whitespace-nowrap text-[11px] text-slate-500">{comment.age}</p>
       </div>
-      <div>
+      <div className="flex flex-wrap items-center gap-1.5">
         <span
           className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
           style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}
         >
           {comment.status === 'open' ? 'Open' : 'Resolved'}
         </span>
+        {comment.verdict === 'request_changes' && (
+          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#FFF7ED', color: '#C2410C' }} data-verdict="request_changes">
+            ↩ Returned for revision
+          </span>
+        )}
+        {comment.verdict === 'block_approval' && (
+          <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#FEF2F2', color: '#B91C1C' }} data-verdict="block_approval">
+            ⊘ Approval blocked
+          </span>
+        )}
       </div>
       <p className="text-[13px] leading-relaxed text-slate-900">{comment.text}</p>
       {resolving ? (
@@ -92,6 +102,29 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
           >Reply</button>
         </div>
       )}
+    </div>
+  )
+}
+
+// A reviewer's "Approve section" is stored as a comment with verdict='approve'
+// and no text (docs/decisions/module-a-defaults.md §3). It needs no action, so
+// it's shown as a read-only approval record — no Resolve/Reply, not "open".
+function ApprovalCard({ comment }: { comment: Comment }) {
+  return (
+    <div
+      className="mb-2 flex flex-wrap items-center gap-2 rounded-lg border p-2.5"
+      style={{ borderColor: '#BBF7D0', backgroundColor: '#F0FDF4' }}
+      data-comment-id={comment.id}
+      data-verdict="approve"
+    >
+      <span className="text-[12px] font-semibold" style={{ color: '#15803D' }}>✓ Approved</span>
+      <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#FFFFFF' }}>
+        {comment.sectionRef}
+      </span>
+      <span className="text-[12px] text-slate-700">by {comment.reviewerName}</span>
+      <div className="flex-1" />
+      <p className="whitespace-nowrap font-mono text-[10px] text-slate-500">{comment.id}</p>
+      <p className="whitespace-nowrap text-[11px] text-slate-500">{comment.age}</p>
     </div>
   )
 }
@@ -130,7 +163,11 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
     : null
 
   const openComments = useMemo(
-    () => comments.filter((c: Comment) => c.status === 'open'),
+    () => comments.filter((c: Comment) => c.status === 'open' && c.verdict !== 'approve'),
+    [comments],
+  )
+  const approvals = useMemo(
+    () => comments.filter((c: Comment) => c.verdict === 'approve'),
     [comments],
   )
 
@@ -165,6 +202,15 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
           onResolveConfirm={(type, note) => resolveMut.mutate({ id: c.id, type, note })}
         />
       ))}
+
+      {approvals.length > 0 && (
+        <div className="mb-2 mt-1" data-section="approvals">
+          <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            Section approvals ({approvals.length})
+          </p>
+          {approvals.map((c: Comment) => <ApprovalCard key={c.id} comment={c} />)}
+        </div>
+      )}
 
       <button
         type="button"

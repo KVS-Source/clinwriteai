@@ -103,6 +103,9 @@ export const platformApi = {
     api.get<MasterLibraryItem[]>('/library'),
   getLibraryItem: (itemId: string) =>
     api.get<MasterLibraryItem>(`/library/${itemId}`),
+  // Records that a section was pulled into a document (usage count + audit).
+  adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
+    api.post<unknown>(`/library/sections/${itemId}/adopt`, body),
 
   // sPM09 — Best Practices
   listBestPractices: () =>

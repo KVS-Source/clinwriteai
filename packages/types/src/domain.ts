@@ -1492,7 +1492,7 @@ export type PaymentMethodType  = 'card' | 'bank-transfer' | 'upi'
 export type ReportType =
   | 'project-summary' | 'module-activity' | 'ai-usage'
   | 'user-activity' | 'compliance' | 'publishing-performance'
-export type MasterLibraryItemType = 'document' | 'section'
+export type MasterLibraryItemType = 'document' | 'section' | 'best-practice'
 export type TATagStatus = 'active' | 'archived'
 export type SlideDeckStatus = 'draft' | 'generating' | 'ready' | 'exported'
 
@@ -1626,6 +1626,9 @@ export interface MasterLibraryItem {
   isArchived:        boolean
   archivedReason?:   string
   provenanceChain:   string[]
+  // Text of a pushed section — what "Pull into document" inserts. Absent for
+  // whole documents and for items that carry no text.
+  body?:             string
 }
 
 export interface BestPractice {

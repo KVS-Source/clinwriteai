@@ -106,6 +106,11 @@ const authPlugin: FastifyPluginAsync = async (app) => {
       const token = request.cookies[SESSION_COOKIE_NAME]
       if (token) {
         const claims = await request.jwtVerify<SessionClaims>()
+        // @fastify/jwt's jwtVerify() also assigns the decoded token to
+        // request.user. Clear it: identity must come from the Session + User
+        // rows below, otherwise a revoked/expired session or an inactive user
+        // would still authenticate with the role baked into the JWT.
+        ;(request as { user?: unknown }).user = undefined
 
         // Re-load the user so revocations and role changes propagate without
         // waiting for token expiry. If the Session row is gone or revoked,

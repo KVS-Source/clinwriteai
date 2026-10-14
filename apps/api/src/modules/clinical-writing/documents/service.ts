@@ -43,6 +43,8 @@ export interface CreateDocumentArgs {
   createdBy: string
   templateId?: string
   targetCompletionDate?: Date
+  /** Starter sections for v0.1 (e.g. the ICH E3 template). Default: none. */
+  sections?: SectionPayload[]
 }
 
 export class DocumentService {
@@ -65,16 +67,30 @@ export class DocumentService {
         },
       })
 
+      const sections = args.sections ?? []
       const version = await tx.documentVersion.create({
         data: {
           documentId: doc.id,
           versionNumber: 'v0.1',
           label: 'Draft',
-          contentHash: hashSections([]),       // empty-document hash
+          contentHash: hashSections(sections),  // invariant 3 — covers the starter sections
           isCurrent: true,
           createdBy: args.createdBy,
         },
       })
+
+      if (sections.length > 0) {
+        await tx.sectionContent.createMany({
+          data: sections.map(s => ({
+            documentVersionId: version.id,
+            sectionId: s.sectionId,
+            sectionNumber: s.sectionNumber,
+            sectionTitle: s.sectionTitle,
+            contentHtml: s.contentHtml,
+            ichStatus: s.ichStatus ?? 'not_started',
+          })),
+        })
+      }
 
       await tx.document.update({
         where: { id: doc.id },

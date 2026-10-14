@@ -19,6 +19,7 @@ import type { MultipartFile } from '@fastify/multipart'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
+import { templateSections } from './templates.js'
 import { generateBlobKey } from '../../../modules/platform/blob/local-storage.js'
 import { DocumentService } from './service.js'
 
@@ -176,6 +177,9 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
       therapeuticArea,
       assigneeId: parsed.data.assigneeId,
       createdBy: request.user!.id,
+      // No content extraction yet — start from the ICH E3 section skeleton
+      // so the uploaded document is navigable and editable.
+      sections: templateSections(parsed.data.documentType, project.submissionCountries),
     })
 
     await app.prisma.documentUpload.update({

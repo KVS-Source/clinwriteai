@@ -1,0 +1,20 @@
+import { describe, expect, it } from 'vitest'
+import { templateSections } from './templates.js'
+
+describe('templateSections', () => {
+  it('seeds the ICH E3 CSR skeleton for csr-full', () => {
+    const s = templateSections('csr-full')
+    expect(s[0]).toMatchObject({ sectionId: 's1', sectionNumber: '§1', sectionTitle: 'Title Page', contentHtml: '', ichStatus: 'not_started' })
+    expect(s.map(x => x.sectionId)).toContain('s11_4')
+  })
+
+  it('includes §16.4 only when the project submits to the US (FR-A-003)', () => {
+    expect(templateSections('csr-full', ['EU']).some(x => x.sectionId === 's16_4')).toBe(false)
+    expect(templateSections('csr-full', ['EU', 'us']).some(x => x.sectionId === 's16_4')).toBe(true)
+  })
+
+  it('accepts snake_case types and leaves untemplated types empty', () => {
+    expect(templateSections('csr_synopsis')).toHaveLength(17)
+    expect(templateSections('protocol')).toEqual([])
+  })
+})

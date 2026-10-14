@@ -20,6 +20,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
+import { templateSections } from './templates.js'
 import { DocumentService } from './service.js'
 import {
   canTransitionDocument,
@@ -174,6 +175,9 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       type: parsed.data.type,
       title: parsed.data.title,
       therapeuticArea,
+      // ICH E3 starter sections so the navigator isn't empty; §16.4 only
+      // when the project submits to the US (FR-A-003).
+      sections: templateSections(parsed.data.type, project.submissionCountries),
       assigneeId: parsed.data.assigneeId,
       createdBy: request.user!.id,
       templateId: parsed.data.templateId,

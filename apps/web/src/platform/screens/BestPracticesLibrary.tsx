@@ -27,8 +27,15 @@ const MODULE_LABEL: Record<TabKey, string> = {
   platform: 'Platform',
 }
 
-// [Module]-[Category]-[Version]-[Date] naming convention
-const NAMING_REGEX = /^(Module-[A-E]|Platform)-[A-Za-z0-9]+-v\d+(\.\d+)?-\d{4}(-\d{2})?$/
+// [Module]-[Category]-[Version]-[Date] naming convention (FR-PM-016).
+// Category may be multi-part (`CTD-Authoring`, `MHRA-OQ-D-008`); month, when present, is 01–12.
+const NAMING_REGEX = /^(Module-([A-E])|Platform)-([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)-v(\d+(?:\.\d+)?)-(\d{4})(?:-(0[1-9]|1[0-2]))?$/
+
+function parseName(name: string): { module: ModuleKey; version: string } | null {
+  const m = NAMING_REGEX.exec(name)
+  if (!m) return null
+  return { module: (m[2] as ModuleKey | undefined) ?? 'platform', version: `v${m[4]}` }
+}
 
 function formatDay(iso: string): string {
   const d = new Date(iso)
@@ -54,6 +61,8 @@ export function BestPracticesLibrary() {
   const [guidance, setGuidance] = useState('')
   const [effFrom,  setEffFrom]  = useState('')
   const [validUntil, setValidUntil] = useState('')
+  const [publishError, setPublishError] = useState<string | null>(null)
+  const [publishing, setPublishing] = useState(false)
 
   const counts = useMemo(() => {
     const c: Record<TabKey, number> = { all: items.length, A: 0, B: 0, C: 0, D: 0, E: 0, platform: 0 }
@@ -71,16 +80,31 @@ export function BestPracticesLibrary() {
 
   const reviewDueCount = items.filter(i => i.reviewDue).length
 
-  const nameValid = NAMING_REGEX.test(name)
-  const canPublish = nameValid && !!category && !!guidance && !!effFrom && !!validUntil
+  const parsedName = parseName(name)
+  const nameValid = parsedName !== null
+  // The [Module] part of the name must be the discipline the item is filed under.
+  const moduleMatches = parsedName !== null && parsedName.module === module_
+  // Both are yyyy-mm-dd from <input type="date">, so string order is date order.
+  const datesInOrder = !effFrom || !validUntil || validUntil >= effFrom
+  const canPublish = nameValid && moduleMatches && !!category.trim() && !!guidance.trim() && !!effFrom && !!validUntil && datesInOrder
 
   const publish = async () => {
-    if (!canPublish) return
-    await platformApi.createBestPractice({
-      name, module: module_, category, guidance,
-      effectiveFrom: effFrom, validUntil, version: 'v1.0',
-      createdBy: currentUser.id, updatedAt: new Date().toISOString(),
-    } as Partial<BestPractice>).catch(() => {})
+    if (!canPublish || publishing) return
+    setPublishError(null)
+    setPublishing(true)
+    try {
+      await platformApi.createBestPractice({
+        name, module: module_, category: category.trim(), guidance: guidance.trim(),
+        effectiveFrom: effFrom, validUntil, version: parsedName!.version,
+        createdBy: currentUser.id, updatedAt: new Date().toISOString(),
+      } as Partial<BestPractice>)
+    } catch {
+      // Keep the drawer open and the form filled in so nothing typed is lost.
+      setPublishError('Could not publish this best practice. Your entries are kept — please try again.')
+      return
+    } finally {
+      setPublishing(false)
+    }
     await qc.invalidateQueries({ queryKey: ['best-practices'] })
     setName(''); setCategory(''); setGuidance(''); setEffFrom(''); setValidUntil('')
     setDrawerOpen(false)
@@ -225,7 +249,7 @@ export function BestPracticesLibrary() {
                   className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
                 {name && !nameValid && (
                   <p className="text-[11px] font-semibold" style={{ color: '#B45309' }} data-name-invalid>
-                    Name must match [Module]-[Category]-[Version]-[Date] convention (e.g. Module-D-CTD-Authoring-v1.2-2026-01).
+                    Best Practice items must follow the naming convention: [Module]-[Category]-[Version]-[Date]. Example: Module-D-CTD-Authoring-v1.2-2026-01.
                   </p>
                 )}
               </label>
@@ -237,6 +261,11 @@ export function BestPracticesLibrary() {
                   className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
                   {(['A','B','C','D','E','platform'] as ModuleKey[]).map(m => <option key={m} value={m}>{MODULE_LABEL[m as TabKey]}</option>)}
                 </select>
+                {nameValid && !moduleMatches && (
+                  <p className="text-[11px] font-semibold" style={{ color: '#B45309' }} data-module-mismatch>
+                    The name starts with {name.startsWith('Platform') ? 'Platform' : name.slice(0, 8)}, but the discipline is {MODULE_LABEL[module_ as TabKey]}. Change one so they match.
+                  </p>
+                )}
               </label>
 
               <label className="flex flex-col gap-1">
@@ -263,17 +292,27 @@ export function BestPracticesLibrary() {
                 <label className="flex flex-col gap-1">
                   <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Valid until</span>
                   <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.currentTarget.value)}
+                    min={effFrom || undefined}
                     data-input-valid-until
                     className="h-9 rounded-md border border-slate-300 px-3 text-[12px]" />
                 </label>
               </div>
+              {!datesInOrder && (
+                <p className="text-[11px] font-semibold" style={{ color: '#B45309' }} data-dates-invalid>
+                  "Valid until" can't be earlier than "Effective from".
+                </p>
+              )}
 
               <button
-                type="button" onClick={publish} disabled={!canPublish}
+                type="button" onClick={publish} disabled={!canPublish || publishing}
                 data-publish-bp
                 className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                 style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-              >Publish best practice →</button>
+              >{publishing ? 'Publishing…' : 'Publish best practice →'}</button>
+
+              {publishError && (
+                <p className="text-[11px] font-semibold text-red-700" role="alert" data-publish-error>{publishError}</p>
+              )}
 
               <p className="font-mono text-[11px] text-slate-500" data-publish-note>
                 Published items are visible to every client account immediately. Superseding an item preserves the previous version in the audit trail.

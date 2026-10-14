@@ -29,6 +29,8 @@ const MODULE_LABEL: Record<TabKey, string> = {
 
 // [Module]-[Category]-[Version]-[Date] naming convention (FR-PM-016).
 // Category may be multi-part (`CTD-Authoring`, `MHRA-OQ-D-008`); month, when present, is 01–12.
+const FIELD_CLS = 'rounded-md border border-slate-300 bg-white px-3 text-[13px] text-slate-900 placeholder:text-slate-400 focus:border-slate-500 focus:outline-none focus:ring-2 focus:ring-slate-200'
+
 const NAMING_REGEX = /^(Module-([A-E])|Platform)-([A-Za-z0-9]+(?:-[A-Za-z0-9]+)*)-v(\d+(?:\.\d+)?)-(\d{4})(?:-(0[1-9]|1[0-2]))?$/
 
 function parseName(name: string): { module: ModuleKey; version: string } | null {
@@ -37,8 +39,10 @@ function parseName(name: string): { module: ModuleKey; version: string } | null 
   return { module: (m[2] as ModuleKey | undefined) ?? 'platform', version: `v${m[4]}` }
 }
 
-function formatDay(iso: string): string {
+function formatDay(iso: string | null | undefined): string {
+  if (!iso) return '—'
   const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   return `${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
@@ -48,7 +52,7 @@ export function BestPracticesLibrary() {
   const canAuthor   = currentUser.role === 'super-admin'
   const qc = useQueryClient()
 
-  const { data: items = [] } = useQuery<BestPractice[]>({
+  const { data: items = [], isLoading, isError, refetch } = useQuery<BestPractice[]>({
     queryKey: ['best-practices'],
     queryFn:  () => platformApi.listBestPractices(),
   })
@@ -114,11 +118,11 @@ export function BestPracticesLibrary() {
     ? `All best practices · ${filtered.length} items`
     : tab === 'platform'
       ? `Platform-wide best practices · ${filtered.length} items`
-      : `Module ${tab} · ${MODULE_LABEL[tab]} Best Practices · ${filtered.length} items`
+      : `${MODULE_LABEL[tab]} best practices · ${filtered.length} items`
 
   return (
     <div className="bg-slate-50" data-screen="best-practices-library">
-      <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
+      <div className="flex flex-col gap-4 px-4 pb-12 pt-5 sm:px-8" style={{ maxWidth: 1440 }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
           <span>Platform</span>
@@ -153,12 +157,12 @@ export function BestPracticesLibrary() {
         </p>
 
         {/* Tabs */}
-        <div className="flex flex-wrap items-center gap-1 border-b border-slate-200" data-module-tabs>
+        <div className="flex flex-wrap items-center gap-1 border-b border-slate-200" role="tablist" aria-label="Best practices by discipline" data-module-tabs>
           {TAB_META.map(t => {
             const active = tab === t.key
             return (
               <button
-                key={t.key} type="button" onClick={() => setTab(t.key)}
+                key={t.key} type="button" role="tab" aria-selected={active} onClick={() => setTab(t.key)}
                 data-tab={t.key} data-active={active || undefined}
                 className="flex items-center gap-2 px-3 py-2 text-[13px] font-semibold"
                 style={{
@@ -170,7 +174,7 @@ export function BestPracticesLibrary() {
                 <span className="inline-flex h-5 items-center rounded-full px-1.5 text-[10px] font-mono font-semibold"
                   style={{ backgroundColor: active ? PLATFORM_ACCENT.primary : '#F1F5F9', color: active ? '#FFFFFF' : '#475569' }}
                   data-tab-count={t.key}
-                >{counts[t.key]}</span>
+                >{counts[t.key]}<span className="sr-only"> {counts[t.key] === 1 ? 'item' : 'items'}</span></span>
               </button>
             )
           })}
@@ -186,10 +190,21 @@ export function BestPracticesLibrary() {
 
         <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500" data-heading>{heading}</p>
 
-        <div className="grid gap-4" style={{ gridTemplateColumns: drawerOpen ? '1fr 360px' : '1fr' }}>
+        <div className={`grid gap-4 ${drawerOpen ? 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]' : 'grid-cols-1'}`}>
 
-          <section className="flex flex-col gap-3" data-bp-cards>
-            {filtered.length === 0 && <p className="text-[13px] text-slate-500">No best practices in this discipline yet.</p>}
+          <section className="flex min-w-0 flex-col gap-3" role="tabpanel" aria-label={MODULE_LABEL[tab]} data-bp-cards>
+            {isLoading && <p className="text-[13px] text-slate-500" data-state="loading">Loading best practices…</p>}
+            {isError && (
+              <p className="rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-800" role="alert" data-state="error">
+                Couldn't load best practices.{' '}
+                <button type="button" onClick={() => refetch()} className="font-semibold underline">Retry</button>
+              </p>
+            )}
+            {!isLoading && !isError && filtered.length === 0 && (
+              <p className="text-[13px] text-slate-500" data-state="empty">
+                {tab === 'all' ? 'No best practices yet.' : `No best practices in ${MODULE_LABEL[tab]} yet.`}
+              </p>
+            )}
             {filtered.map(bp => {
               const reviewDue = !!bp.reviewDue
               return (
@@ -205,29 +220,33 @@ export function BestPracticesLibrary() {
                   data-review-due={reviewDue || undefined}
                 >
                   <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{bp.category} · {bp.version}</p>
-                      <p className="mt-1 text-[15px] font-bold text-slate-900">{bp.name}</p>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500 [overflow-wrap:anywhere]">{bp.category} · {bp.version}</p>
+                      <p className="mt-1 text-[15px] font-bold text-slate-900 [overflow-wrap:anywhere]">{bp.name}</p>
                     </div>
                     {reviewDue && (
                       <span
                         className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
                         style={{ backgroundColor: '#FFFBEB', color: '#B45309', border: '1px solid #FDE68A' }}
                         data-review-due-badge
-                      >⚠ Review due · quarterly refresh</span>
+                      >⚠ Review due</span>
                     )}
                   </div>
-                  <p className="mt-2 font-mono text-[11px] text-slate-500">Effective {formatDay(bp.effectiveFrom)} → Valid until {formatDay(bp.validUntil)}</p>
-                  <p className="mt-3 text-[13px] text-slate-700">{bp.guidance}</p>
-                  <p className="mt-3 font-mono text-[11px] text-slate-500">
-                    Applicable doc types: {bp.applicableDocTypes.join(', ')}
-                  </p>
-                  <p className="mt-1 font-mono text-[11px] text-slate-500">
-                    Framework references: {bp.frameworkRefs.join(', ')}
-                  </p>
-                  <p className="mt-1 font-mono text-[11px] text-slate-400">Last updated {formatDay(bp.updatedAt)}</p>
+                  <p className="mt-2 font-mono text-[11px] text-slate-500">Effective {formatDay(bp.effectiveFrom)} → {bp.validUntil ? `Valid until ${formatDay(bp.validUntil)}` : 'No end date'}</p>
+                  <p className="mt-3 text-[13px] text-slate-700 [overflow-wrap:anywhere]">{bp.guidance}</p>
+                  {(bp.applicableDocTypes?.length ?? 0) > 0 && (
+                    <p className="mt-3 font-mono text-[11px] text-slate-500">
+                      Applicable doc types: {bp.applicableDocTypes.join(', ')}
+                    </p>
+                  )}
+                  {(bp.frameworkRefs?.length ?? 0) > 0 && (
+                    <p className="mt-1 font-mono text-[11px] text-slate-500">
+                      Framework references: {bp.frameworkRefs.join(', ')}
+                    </p>
+                  )}
+                  <p className="mt-1 font-mono text-[11px] text-slate-500">Last updated {formatDay(bp.updatedAt)}</p>
                   {reviewDue && bp.reviewDueNote && (
-                    <p className="mt-2 font-mono text-[11px]" style={{ color: '#B45309' }} data-review-due-note>{bp.reviewDueNote}</p>
+                    <p className="mt-2 text-[12px] text-slate-600" data-review-due-note>{bp.reviewDueNote}</p>
                   )}
                 </article>
               )
@@ -235,10 +254,11 @@ export function BestPracticesLibrary() {
           </section>
 
           {drawerOpen && canAuthor && (
-            <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5" data-new-bp-drawer>
+            <aside aria-label="New best practice" className="flex min-w-0 flex-col gap-3 self-start rounded-lg border border-slate-200 bg-white p-4 sm:p-5" data-new-bp-drawer>
               <div className="flex items-start justify-between">
                 <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">New best practice</p>
-                <button type="button" onClick={() => setDrawerOpen(false)} className="text-[12px] font-semibold text-slate-500 hover:underline">Close</button>
+                <button type="button" onClick={() => setDrawerOpen(false)} aria-label="Close new best practice form"
+                  className="h-7 rounded-md border border-slate-300 bg-white px-2.5 text-[12px] font-semibold text-slate-600 hover:bg-slate-50">Close ✕</button>
               </div>
 
               <label className="flex flex-col gap-1">
@@ -246,9 +266,9 @@ export function BestPracticesLibrary() {
                 <input type="text" value={name} onChange={(e) => setName(e.currentTarget.value)}
                   placeholder="Module-D-Category-v1.0-2026-09"
                   data-input-name
-                  className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
+                  className={`h-9 ${FIELD_CLS}`} />
                 {name && !nameValid && (
-                  <p className="text-[11px] font-semibold" style={{ color: '#B45309' }} data-name-invalid>
+                  <p className="text-[11px] font-semibold text-red-700" role="alert" data-name-invalid>
                     Best Practice items must follow the naming convention: [Module]-[Category]-[Version]-[Date]. Example: Module-D-CTD-Authoring-v1.2-2026-01.
                   </p>
                 )}
@@ -258,11 +278,11 @@ export function BestPracticesLibrary() {
                 <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Discipline</span>
                 <select value={module_} onChange={(e) => setModule(e.currentTarget.value as ModuleKey)}
                   data-input-module
-                  className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
+                  className={`h-9 ${FIELD_CLS}`}>
                   {(['A','B','C','D','E','platform'] as ModuleKey[]).map(m => <option key={m} value={m}>{MODULE_LABEL[m as TabKey]}</option>)}
                 </select>
                 {nameValid && !moduleMatches && (
-                  <p className="text-[11px] font-semibold" style={{ color: '#B45309' }} data-module-mismatch>
+                  <p className="text-[11px] font-semibold text-red-700" role="alert" data-module-mismatch>
                     The name starts with {name.startsWith('Platform') ? 'Platform' : name.slice(0, 8)}, but the discipline is {MODULE_LABEL[module_ as TabKey]}. Change one so they match.
                   </p>
                 )}
@@ -272,14 +292,14 @@ export function BestPracticesLibrary() {
                 <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Category</span>
                 <input type="text" value={category} onChange={(e) => setCategory(e.currentTarget.value)}
                   data-input-category
-                  className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
+                  className={`h-9 ${FIELD_CLS}`} />
               </label>
 
               <label className="flex flex-col gap-1">
                 <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Guidance</span>
                 <textarea rows={4} value={guidance} onChange={(e) => setGuidance(e.currentTarget.value)}
                   data-input-guidance
-                  className="rounded-md border border-slate-300 p-2 text-[12px]" />
+                  className={`resize-y py-2 ${FIELD_CLS}`} />
               </label>
 
               <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
@@ -287,18 +307,18 @@ export function BestPracticesLibrary() {
                   <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Effective from</span>
                   <input type="date" value={effFrom} onChange={(e) => setEffFrom(e.currentTarget.value)}
                     data-input-effective
-                    className="h-9 rounded-md border border-slate-300 px-3 text-[12px]" />
+                    className={`h-9 ${FIELD_CLS}`} />
                 </label>
                 <label className="flex flex-col gap-1">
                   <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Valid until</span>
                   <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.currentTarget.value)}
                     min={effFrom || undefined}
                     data-input-valid-until
-                    className="h-9 rounded-md border border-slate-300 px-3 text-[12px]" />
+                    className={`h-9 ${FIELD_CLS}`} />
                 </label>
               </div>
               {!datesInOrder && (
-                <p className="text-[11px] font-semibold" style={{ color: '#B45309' }} data-dates-invalid>
+                <p className="text-[11px] font-semibold text-red-700" role="alert" data-dates-invalid>
                   "Valid until" can't be earlier than "Effective from".
                 </p>
               )}

@@ -223,7 +223,8 @@
     "isArchived": false,
     "provenanceChain": [
       "Regulatory Writing \u00b7 HA Response Drafting \u00b7 sD10"
-    ]
+    ],
+    "body": "Response to FDA Day 120 questions: this bundle provides the approved response wording for efficacy, safety and CMC queries. Efficacy: the primary endpoint (PFS by BICR) was met, HR 0.58 (95% CI 0.46\u20130.73). Safety: the most common Grade \u22653 adverse events were neutropenia and fatigue; no new safety signals emerged versus the Phase II profile."
   },
   {
     "id": "ml-010",
@@ -299,5 +300,57 @@
     "provenanceChain": [
       "Regulatory Writing \u00b7 Stage 6 \u00b7 EMA ACK3"
     ]
+  },
+  {
+    "id": "ml-013",
+    "name": "HA Response Template Bundle \u2014 FDA Day 120",
+    "module": "D",
+    "itemType": "section",
+    "docType": "HA Response",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v2.0",
+    "pushedAt": "2026-10-20T10:15:00Z",
+    "pushedBy": "user-admin",
+    "pushedByName": "Dr James Hartley",
+    "projectId": "proj-velora-301",
+    "projectName": "VELORA-301 Efficacy Suite",
+    "tags": [
+      "HA Response",
+      "FDA",
+      "Template"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Regulatory Writing \u00b7 HA Response Drafting \u00b7 sD10"
+    ],
+    "body": "Response to FDA Day 120 questions: this bundle provides the approved response wording for efficacy, safety and CMC queries. Efficacy: the primary endpoint (PFS by BICR) was met, HR 0.58 (95% CI 0.46\u20130.73). Safety: the most common Grade \u22653 adverse events were neutropenia and fatigue; no new safety signals emerged versus the Phase II profile. Updated for the Day 150 clock-stop: added the integrated OS interim analysis."
+  },
+  {
+    "id": "ml-014",
+    "name": "Safety Narrative Template \u2014 Serious Adverse Events",
+    "module": "A",
+    "itemType": "section",
+    "docType": "CSR",
+    "ta": [
+      "Oncology"
+    ],
+    "version": "v1.0",
+    "pushedAt": "2026-10-18T09:40:00Z",
+    "pushedBy": "user-cl",
+    "pushedByName": "Dr Elena Vasquez",
+    "projectId": "proj-aurelia-101",
+    "projectName": "AURELIA-101 Phase I",
+    "tags": [
+      "CSR",
+      "Safety",
+      "Template"
+    ],
+    "isArchived": false,
+    "provenanceChain": [
+      "Clinical Writing \u00b7 Safety Narratives \u00b7 Final Output"
+    ],
+    "body": "Narrative structure for each serious adverse event: (1) subject identifier, age and sex; (2) study treatment and dose at onset; (3) event term, onset day and severity; (4) actions taken and outcome; (5) investigator and sponsor causality assessment; (6) relevant medical history and concomitant medication."
   }
 ]

@@ -253,7 +253,7 @@ export function FinalOutput() {
           </div>
 
           <p className="mt-3 text-[11px]" style={{ color: '#64748B' }}>Expiry: {formatDate(expiryDate)} applies to all cards from this item.</p>
-          <button type="button" onClick={() => flash('Opening Master Library')} className="mt-2 text-[12px] font-semibold text-violet-700 hover:underline">View in Master Library →</button>
+          <button type="button" onClick={() => navigate('/library')} className="mt-2 text-[12px] font-semibold text-violet-700 hover:underline">View in Master Library →</button>
         </section>
       </div>
 

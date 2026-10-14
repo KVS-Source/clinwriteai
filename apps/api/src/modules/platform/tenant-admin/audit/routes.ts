@@ -6,11 +6,12 @@
 //   GET  /admin/audit/verify               hash-chain integrity check
 //   GET  /admin/audit/export               CSV download of a filter range
 //
-// Super-admin only. Tenant-scoped audit filtering lands when the actor
-// records carry tenantId directly (deferred — see
-// project_phase_5_deferrals memory re: Part 11 artefact format).
-// Today super-admin crosses tenants anyway so the filter list is
-// sufficient for the handover walkthroughs.
+// Super-admin sees every tenant. Admin is tenant-scoped: audit_events carry no
+// tenantId yet (deferred — see project_phase_5_deferrals memory re: Part 11
+// artefact format), so an admin sees only entries whose ACTOR belongs to the
+// admin's own tenant (users."tenantId"). System/anonymous actors and actors in
+// other tenants are excluded; an admin with no tenant sees nothing (fail closed).
+// Verify-chain stays whole-chain for both: it returns only intact/firstBreakAt.
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
@@ -122,15 +123,25 @@ function containsPattern(value: string): string {
   return `%${value.replace(/[\\%_]/g, '\\$&')}%`
 }
 
+// Tenant scope for a request: undefined = unscoped (super-admin), null = admin
+// without a tenant (matches nothing), string = that tenant's actors only.
+export type TenantScope = string | null | undefined
+
+export function tenantScopeFor(user: { role: string; tenantId: string | null }): TenantScope {
+  return user.role === 'super-admin' ? undefined : user.tenantId
+}
+
 // Builds the WHERE clause + params array from the shared query schema.
 // Factored out so the query, count + export routes stay in lockstep.
-export function buildFilter(q: z.infer<typeof queryBaseSchema>): { where: string; params: unknown[] } {
+export function buildFilter(q: Partial<z.infer<typeof queryBaseSchema>>, scope: TenantScope = undefined): { where: string; params: unknown[] } {
   const conditions: string[] = []
   const params: unknown[] = []
   const param = (value: unknown) => {
     params.push(value)
     return `$${params.length}`
   }
+  if (scope === null)        conditions.push('FALSE')
+  else if (scope !== undefined) conditions.push(`u."tenantId" = ${param(scope)}`)
   if (q.actorId)    conditions.push(`a.actor_id = ${param(q.actorId)}`)
   if (q.actor) {
     const exact = param(q.actor)
@@ -181,7 +192,8 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
     ipAddress: request.ip ?? null,
   })
 
-  const superAdminGate = requireAuth({ roles: ['super-admin'] })
+  const auditGate = requireAuth({ roles: ['admin', 'super-admin'] })
+  const scopeOf = (request: import('fastify').FastifyRequest) => tenantScopeFor(request.user!)
 
   // Scoped to this plugin: unexpected failures are logged in full but the
   // client only gets a generic message + request id, never raw SQL /
@@ -197,12 +209,12 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
-  app.get('/admin/audit', { preHandler: superAdminGate }, async (request, reply) => {
+  app.get('/admin/audit', { preHandler: auditGate }, async (request, reply) => {
     const parsed = pagedSchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const q = parsed.data
 
-    const { where, params } = buildFilter(q)
+    const { where, params } = buildFilter(q, scopeOf(request))
 
     // Count first, on the filter alone (no cursor), capped so a broad filter
     // stays cheap. Reported as total + totalCapped ("10000+").
@@ -255,12 +267,14 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
 
   // Distinct values for the filter dropdowns. Small, indexed columns; the
   // LIMIT keeps the payload bounded if action naming ever explodes.
-  app.get('/admin/audit/facets', { preHandler: superAdminGate }, async () => {
+  app.get('/admin/audit/facets', { preHandler: auditGate }, async (request) => {
+    // Admins only get facet values from their own tenant's entries.
+    const { where, params } = buildFilter({}, scopeOf(request))
     const actions = await app.prisma.$queryRawUnsafe<Array<{ v: string }>>(
-      'SELECT DISTINCT action AS v FROM audit_events ORDER BY v LIMIT 500',
+      `SELECT DISTINCT action AS v ${FROM_CLAUSE} ${where} ORDER BY v LIMIT 500`, ...params,
     )
     const entityTypes = await app.prisma.$queryRawUnsafe<Array<{ v: string }>>(
-      'SELECT DISTINCT entity_type AS v FROM audit_events ORDER BY v LIMIT 500',
+      `SELECT DISTINCT entity_type AS v ${FROM_CLAUSE} ${where} ORDER BY v LIMIT 500`, ...params,
     )
     return {
       actions: actions.map(r => r.v),
@@ -268,7 +282,7 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
-  app.get('/admin/audit/verify', { preHandler: superAdminGate }, async (request, reply) => {
+  app.get('/admin/audit/verify', { preHandler: auditGate }, async (request, reply) => {
     const parsed = verifySchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -292,11 +306,11 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
   // when the filter matches more, the response says so (header + trailing
   // line) instead of silently dropping rows. Ordered like the screen
   // (newest first unless order=asc).
-  app.get('/admin/audit/export', { preHandler: superAdminGate }, async (request, reply) => {
+  app.get('/admin/audit/export', { preHandler: auditGate }, async (request, reply) => {
     const parsed = queryBaseSchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
-    const { where, params } = buildFilter(parsed.data)
+    const { where, params } = buildFilter(parsed.data, scopeOf(request))
     const exportDir = parsed.data.order === 'asc' ? 'ASC' : 'DESC'
     const exportOrderBy = parsed.data.sortBy === 'id'
       ? `a.id ${exportDir}`

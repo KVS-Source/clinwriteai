@@ -48,6 +48,17 @@ export function TATagConfiguration() {
 
   const activeCount = tags.filter(t => t.status === 'active').length
 
+  // In-use tags (linked to projects/documents) first, then the rest; newest
+  // created first within each group, name as the tie-break. createdAt is an
+  // ISO date string, so string order is date order.
+  const sortedTags = useMemo(() => {
+    const inUse = (t: TATag) => t.projectCount + t.documentCount > 0
+    return [...tags].sort((a, b) =>
+      Number(inUse(b)) - Number(inUse(a))
+      || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
+      || a.name.localeCompare(b.name))
+  }, [tags])
+
   const nameRule = useMemo(() => {
     if (name === '')                                                          return 'Tag name is required'
     if (tags.some(t => t.name.toLowerCase() === name.trim().toLowerCase()))   return 'This tag name already exists'
@@ -150,7 +161,7 @@ export function TATagConfiguration() {
                 </tr>
               </thead>
               <tbody>
-                {tags.map(t => {
+                {sortedTags.map(t => {
                   const inUse = t.projectCount + t.documentCount > 0
                   const note  = inUse ? `${t.projectCount} projects · ${t.documentCount} documents — cannot delete` : ''
                   const primaryLabel = t.status === 'archived' ? 'Restore' : 'Archive'

@@ -43,6 +43,7 @@ function makeRow(id: number, over: Partial<FakeRow> = {}): FakeRow {
 
 interface Setup {
   role?: Role | null          // null → unauthenticated
+  tenantId?: string | null    // the signed-in user's tenant (default null)
   rows?: FakeRow[]
   count?: number
   fail?: Error
@@ -71,7 +72,7 @@ async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; call
   const role = setup.role === undefined ? 'super-admin' : setup.role
   app.addHook('onRequest', async (request) => {
     if (role === null) return
-    const user: AuthenticatedUser = { id: 'user-admin', email: 'admin@clinwrite.ai', role, modules: [], tenantId: null }
+    const user: AuthenticatedUser = { id: 'user-admin', email: 'admin@clinwrite.ai', role, modules: [], tenantId: setup.tenantId ?? null }
     ;(request as unknown as { user: AuthenticatedUser }).user = user
   })
   await app.register(auditViewerRoutes)
@@ -205,12 +206,54 @@ describe('access control', () => {
     expect((await app.inject({ method: 'GET', url: '/admin/audit' })).statusCode).toBe(401)
   })
 
-  it.each(['admin', 'clinical-writer', 'reviewer'] as const)('returns 403 for role %s', async (role) => {
+  it.each(['clinical-writer', 'reviewer', 'read-only'] as const)('returns 403 for role %s', async (role) => {
     const { app, calls } = await setupApp({ role })
     for (const url of ['/admin/audit', '/admin/audit/export', '/admin/audit/verify', '/admin/audit/facets']) {
       expect((await app.inject({ method: 'GET', url })).statusCode).toBe(403)
     }
     expect(calls).toHaveLength(0)
+  })
+
+  it('lets admin in on every audit route', async () => {
+    const { app } = await setupApp({ role: 'admin', tenantId: 'TENANT-ACME' })
+    for (const url of ['/admin/audit', '/admin/audit/export', '/admin/audit/verify', '/admin/audit/facets']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode).toBe(200)
+    }
+  })
+})
+
+describe('tenant scoping', () => {
+  it("restricts an admin's list, count, facets and export to actors in their own tenant", async () => {
+    const { app, calls } = await setupApp({ role: 'admin', tenantId: 'TENANT-ACME' })
+    for (const url of ['/admin/audit', '/admin/audit/facets', '/admin/audit/export']) {
+      await app.inject({ method: 'GET', url })
+    }
+    expect(calls).toHaveLength(5) // count + page, 2 facets, export
+    for (const c of calls) {
+      expect(c.sql).toContain('u."tenantId" = $1')
+      expect(c.params[0]).toBe('TENANT-ACME')
+    }
+  })
+
+  it('shows an admin with no tenant nothing (fails closed)', async () => {
+    const { app, calls } = await setupApp({ role: 'admin', tenantId: null, rows: [makeRow(1)] })
+    await app.inject({ method: 'GET', url: '/admin/audit' })
+    expect(pageSql(calls).sql).toMatch(/WHERE FALSE/)
+  })
+
+  it('keeps super-admin unscoped', async () => {
+    const { app, calls } = await setupApp({ role: 'super-admin', tenantId: null })
+    await app.inject({ method: 'GET', url: '/admin/audit' })
+    await app.inject({ method: 'GET', url: '/admin/audit/facets' })
+    for (const c of calls) expect(c.sql).not.toMatch(/tenantId|WHERE FALSE/)
+  })
+
+  it('combines the tenant scope with user filters, scope first', async () => {
+    const { app, calls } = await setupApp({ role: 'admin', tenantId: 'TENANT-ACME' })
+    await app.inject({ method: 'GET', url: '/admin/audit?action=login' })
+    const page = pageSql(calls)
+    expect(page.sql).toMatch(/u\."tenantId" = \$1 AND a\.action ILIKE \$2/)
+    expect(page.params.slice(0, 2)).toEqual(['TENANT-ACME', '%login%'])
   })
 })
 

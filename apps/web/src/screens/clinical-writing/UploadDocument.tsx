@@ -226,7 +226,7 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
     return (
       <div className="flex flex-col gap-4 p-5" data-form="upload-document">
         <section className="rounded-lg border border-slate-200 bg-slate-50 p-5">
-          <h3 className="text-[13px] font-semibold text-slate-900">Upload existing document</h3>
+          <h3 className="text-[13px] font-semibold text-slate-900">Upload source document</h3>
           <p className="mt-0.5 text-[12px] text-slate-500">
             Drop a PDF or DOCX. We'll auto-classify the document type, study title, and version so you only need to confirm.
           </p>

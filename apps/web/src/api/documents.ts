@@ -43,8 +43,12 @@ export const documentsApi = {
     api.get<Comment[]>(`/documents/${documentId}/comments`),
   addComment: (documentId: string, body: AddCommentBody) =>
     api.post<Comment>(`/documents/${documentId}/comments`, body),
+  // The UI's ResolutionType is hyphenated ('accept-with-modification'); the API's
+  // enum is underscored ('accept_with_modification') and rejects the hyphenated form.
   resolveComment: (documentId: string, commentId: string, body: ResolveCommentBody) =>
-    api.patch<Comment>(`/documents/${documentId}/comments/${commentId}/resolve`, body),
+    api.patch<Comment>(`/documents/${documentId}/comments/${commentId}/resolve`, {
+      ...body, resolutionType: body.resolutionType.replace(/-/g, '_'),
+    }),
   // Audit
   getAuditTrail: (documentId: string) =>
     api.get<{ entries: AuditEntry[]; total: number; limit: number; offset: number }>(`/documents/${documentId}/audit`),

@@ -3,8 +3,9 @@ import { useDocumentStore } from '../../store'
 interface Props {
   onAddComment: () => void
   onFlagSection: () => void
-  raciRole: 'R' | 'A' | 'C' | 'I'
-  raciLabel: string
+  // The signed-in reviewer's role, shown on the right. (RACI is per activity,
+  // so it isn't a single letter for the whole document.)
+  roleLabel?: string
 }
 
 function CommentIcon() {
@@ -75,7 +76,7 @@ function Divider() {
   return <span className="h-[18px] w-px flex-none" style={{ backgroundColor: '#E2E8F0' }} />
 }
 
-export function ReviewerToolbar({ onAddComment, onFlagSection, raciRole, raciLabel }: Props) {
+export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel }: Props) {
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
@@ -141,9 +142,11 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, raciRole, raciLab
       <div className="flex-1" />
 
       {/* Role label — right */}
-      <span className="whitespace-nowrap font-mono text-[10px] font-medium tracking-wider text-slate-500">
-        Your review: {raciRole} ({raciLabel})
-      </span>
+      {roleLabel && (
+        <span className="whitespace-nowrap font-mono text-[10px] font-medium tracking-wider text-slate-500">
+          Reviewing as: {roleLabel}
+        </span>
+      )}
     </div>
   )
 }

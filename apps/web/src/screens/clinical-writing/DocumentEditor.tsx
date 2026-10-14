@@ -614,7 +614,11 @@ export function DocumentEditor() {
               <MedDRAPanel documentId={documentId} />
             )}
             {activePanel === 'comments' && documentId && (
-              <CommentsPanel documentId={documentId} />
+              <CommentsPanel
+                documentId={documentId}
+                sections={document?.sections ?? []}
+                activeSectionId={activeSection}
+              />
             )}
             {activePanel === 'ai' && documentId && (
               <AIAssistPanel

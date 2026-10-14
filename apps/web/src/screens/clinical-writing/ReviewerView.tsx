@@ -3,6 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CommentSeverity } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { useCurrentUser } from '../../hooks'
+import { withSectionMark } from '../../panels/CommentComposer'
+import { PLATFORM_USER_ROLE_LABEL, type PlatformUserRole } from '@platform/types'
 import { useDocumentStore, useProjectStore } from '../../store'
 import { SectionNavigator } from './SectionNavigator'
 import { ReviewerToolbar } from './ReviewerToolbar'
@@ -10,18 +13,16 @@ import { CommentsPanel }   from '../../panels/CommentsPanel'
 import { ChecklistPanel }  from '../../panels/ChecklistPanel'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
 
-// Logged-in user for the reviewer view = EV (Dr. Elena Vasquez, Regulatory Affairs, RACI: C)
-const LOGGED_IN_REVIEWER = {
-  userId:    'user-EV',
-  name:      'Dr. Elena Vasquez',
-  initials:  'EV',
-  role:      'Regulatory Affairs',
-  raci:      'C' as const,
-  colourKey: 'EV' as const,
+// Avatar colours for known people; anyone else gets the neutral blue. The person
+// shown as "you" is whoever the API says is signed in (useCurrentUser) — the
+// server records comments against that identity, so the screen must show it too.
+const AVATAR: Record<string, { bg: string; fg: string }> = {
+  MW: { bg: '#DBEAFE', fg: '#1D4ED8' }, SC: { bg: '#F0FDF4', fg: '#15803D' },
+  JO: { bg: '#F5F3FF', fg: '#7C3AED' }, EV: { bg: '#FEF3C7', fg: '#D97706' },
+  PN: { bg: '#FEE2E2', fg: '#DC2626' }, AH: { bg: '#E0F2FE', fg: '#0369A1' },
+  RT: { bg: '#FCE7F3', fg: '#9D174D' }, LP: { bg: '#F3F4F6', fg: '#374151' },
 }
-const RACI_LABEL: Record<'R' | 'A' | 'C' | 'I', string> = {
-  R: 'Responsible', A: 'Accountable', C: 'Consulted', I: 'Informed',
-}
+const NEUTRAL_AVATAR = { bg: '#DBEAFE', fg: '#1D4ED8' }
 
 const PANEL_TITLES: Record<string, string> = {
   comments:  'Comments',
@@ -80,6 +81,23 @@ export function ReviewerView() {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
 
+  // Who is acting — the same identity the server records the comment under.
+  const { data: me } = useCurrentUser()
+  const reviewer = {
+    name:     me?.name ?? '…',
+    initials: me?.initials ?? '',
+    role:     me ? (PLATFORM_USER_ROLE_LABEL[me.role as PlatformUserRole] ?? me.role) : '',
+  }
+  const reviewerColours = AVATAR[reviewer.initials] ?? NEUTRAL_AVATAR
+
+  // Same query key the Comments panel uses, so this is a cache read, not a second fetch.
+  const { data: commentList = [] } = useQuery({
+    queryKey: ['comments', documentId],
+    queryFn:  () => documentsApi.getComments(documentId!),
+    enabled:  !!documentId,
+  })
+  const openCommentCount = commentList.filter(c => c.status === 'open').length
+
   const addCommentMut = useMutation({
     mutationFn: () => documentsApi.addComment(documentId!, {
       // Was hardcoded '§11.4.1' — now derives from the user's active section
@@ -108,7 +126,7 @@ export function ReviewerView() {
   const sectionRefFor = (sid: string | null) => {
     if (!sid) return '§?'
     const s = document?.sections.find(x => x.id === sid)
-    return s ? `§${s.number}` : `§${sid.replace('s', '').replace('_', '.')}`
+    return s ? withSectionMark(s.number) : `§${sid.replace('s', '').replace('_', '.')}`
   }
 
   const approveMut = useMutation({
@@ -208,7 +226,7 @@ export function ReviewerView() {
             {/* Presence stack — EV as logged-in (amber ring) */}
             <div className="flex flex-none items-center">
               {[
-                { initials: 'EV', bg: '#FEF3C7', fg: '#D97706', ring: '#D97706' },
+                { initials: reviewer.initials || '·', bg: reviewerColours.bg, fg: reviewerColours.fg, ring: reviewerColours.fg },
                 { initials: 'MW', bg: '#DBEAFE', fg: '#1D4ED8' },
                 { initials: 'JO', bg: '#F5F3FF', fg: '#7C3AED' },
               ].map((p, i) => (
@@ -304,7 +322,7 @@ export function ReviewerView() {
 
         <SectionNavigator
           sections={document.sections}
-          loggedInUser={{ initials: 'EV', colourKey: 'EV' }}
+          loggedInUser={{ initials: reviewer.initials, colourKey: (reviewer.initials in AVATAR ? reviewer.initials : 'MW') as 'MW' }}
           activeSectionBadge="IN REVIEW"
           progressLabelSuffix="reviewed"
         />
@@ -317,8 +335,7 @@ export function ReviewerView() {
               el?.focus()
             }}
             onFlagSection={handleFlagSection}
-            raciRole={LOGGED_IN_REVIEWER.raci}
-            raciLabel={RACI_LABEL[LOGGED_IN_REVIEWER.raci]}
+            roleLabel={reviewer.role}
           />
 
           {/* Content */}
@@ -342,9 +359,9 @@ export function ReviewerView() {
                 style={{ borderColor: '#2563EB', boxShadow: '0 0 0 3px rgba(37,99,235,0.12)' }}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex h-5 w-5 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold" style={{ backgroundColor: '#FEF3C7', color: '#D97706' }}>EV</div>
-                  <p className="text-[13px] font-bold">Dr. Elena Vasquez</p>
-                  <p className="font-mono text-[10px] tracking-wider text-slate-500">Regulatory Affairs · C</p>
+                  <div className="flex h-5 w-5 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold" style={{ backgroundColor: reviewerColours.bg, color: reviewerColours.fg }} data-comment-author-initials>{reviewer.initials}</div>
+                  <p className="text-[13px] font-bold" data-comment-author>{reviewer.name}</p>
+                  <p className="font-mono text-[10px] tracking-wider text-slate-500">{reviewer.role}</p>
                   <div className="flex-1" />
                   <p className="text-[11px] text-slate-500">Draft</p>
                 </div>
@@ -402,7 +419,7 @@ export function ReviewerView() {
 
           {/* Provenance bar */}
           <div className="flex h-10 flex-none items-center overflow-hidden truncate whitespace-nowrap border-t border-slate-200 px-5 text-xs text-slate-500" style={{ backgroundColor: '#F8FAFC' }}>
-            Section {activeSection ? activeSection.replace('s', '').replace('_', '.') : '11.4.1'} · 2 AI-drafted spans · 1 human-authored span · Reviewing as {LOGGED_IN_REVIEWER.name} · {LOGGED_IN_REVIEWER.raci} ({RACI_LABEL[LOGGED_IN_REVIEWER.raci]})
+            Section {activeSection ? activeSection.replace('s', '').replace('_', '.') : '11.4.1'} · 2 AI-drafted spans · 1 human-authored span · Reviewing as {reviewer.name}{reviewer.role ? ` · ${reviewer.role}` : ''}
           </div>
 
           {/* Right panel — absolute overlay per Pattern 6 */}
@@ -418,7 +435,7 @@ export function ReviewerView() {
             >
               {/* Panel header */}
               <div className="flex h-12 flex-none items-center gap-2 border-b border-slate-200 px-4">
-                <h3 className="text-sm font-bold text-slate-900">{panelTitle}{activePanel === 'comments' ? ' (3 open)' : ''}</h3>
+                <h3 className="text-sm font-bold text-slate-900">{panelTitle}{activePanel === 'comments' ? ` (${openCommentCount} open)` : ''}</h3>
                 <div className="flex-1" />
                 <button
                   type="button"
@@ -432,7 +449,12 @@ export function ReviewerView() {
 
               {/* Panel body */}
               {activePanel === 'comments' && documentId && (
-                <CommentsPanel documentId={documentId} />
+                <CommentsPanel
+                  documentId={documentId}
+                  sections={document?.sections ?? []}
+                  activeSectionId={activeSection}
+                  onAddComment={() => (window.document.getElementById('reviewer-comment-textarea') as HTMLTextAreaElement | null)?.focus()}
+                />
               )}
               {activePanel === 'checklist' && documentId && (
                 <ChecklistPanel documentId={documentId} />

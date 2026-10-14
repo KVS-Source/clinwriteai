@@ -19,6 +19,15 @@ export interface InviteUserBody {
   modules:  Array<'A' | 'B' | 'C' | 'D' | 'E'>
 }
 
+export interface RateCardVersionSummary {
+  id:          string
+  version:     string
+  isActive:    boolean
+  publishedAt: string
+  notes?:      string | null
+  validUntil?: string        // not stored by the API yet; mock data only
+}
+
 export interface CreateRateCardBody {
   version:               string
   label:                 string
@@ -130,6 +139,12 @@ export const platformApi = {
     api.get<RateCard[]>('/super-admin/rate-cards'),
   createRateCard: (body: CreateRateCardBody) =>
     api.post<RateCard>('/super-admin/rate-cards', body),
+
+  // Live rate-card versions served by the AI gateway (GET /ai/rate-cards).
+  // Different shape from the sPM12 RateCard above — only the active flag and
+  // version are shared. validUntil is only present on mock data today.
+  listRateCardVersions: () =>
+    api.get<RateCardVersionSummary[]>('/ai/rate-cards'),
 
   // sPM11 / sPM13 — Subscription & Services
   getServicesDashboard: () =>

@@ -446,6 +446,23 @@ export function AuditTrailViewerLive() {
           </div>
         </div>
 
+        {/* Immutability notice — sPM15 spec text; always rendered, never behind a toggle. */}
+        <p
+          role="note"
+          className="flex items-start gap-2 rounded-md border px-3 py-2 text-[12px]"
+          style={{ backgroundColor: '#F0F7FA', borderColor: '#BFDBFE', color: '#005F8E' }}
+          data-section="immutability-notice"
+        >
+          <svg aria-hidden width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="mt-0.5 flex-none">
+            <rect x="3" y="7" width="10" height="7" rx="1.5" />
+            <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
+          </svg>
+          <span>
+            This audit trail is immutable. Entries cannot be edited, deleted, or reordered. Every entry was
+            written at the time of the action it describes. Compliant with 21 CFR Part 11.
+          </span>
+        </p>
+
         {/* Verify range (optional) */}
         <section className="flex flex-wrap items-end gap-2 rounded-lg border border-slate-200 bg-white p-3" data-section="verify-range">
           <label className={labelClass}>

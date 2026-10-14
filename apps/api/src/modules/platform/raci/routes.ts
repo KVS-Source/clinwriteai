@@ -8,10 +8,40 @@
 //   - responsibleId + accountableId are at most one user each; consulted
 //     and informed are string[] of user ids.
 //   - UPSERT semantics on PUT — one assignment per (projectId, activity).
+//   - Last write wins: concurrent admins may overwrite each other. That is
+//     accepted because every PUT/DELETE audits the full before + after state,
+//     so any overwritten version can be reconstructed from the audit chain.
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+
+interface RaciRowLike {
+  responsibleId: string | null
+  accountableId: string | null
+  consultedIds:  string[]
+  informedIds:   string[]
+  notes:         string | null
+  updatedBy:     string
+  updatedAt:     Date
+}
+
+// Snapshot of the assignable fields for audit details (before / after).
+// JSON-plain values only (no Date, no undefined): the audit row hash is computed
+// over canonical JSON, and anything that changes on a JSONB round-trip would
+// break chain verification.
+function raciAuditSnapshot(row: RaciRowLike | null) {
+  if (!row) return null
+  return {
+    responsibleId: row.responsibleId ?? null,
+    accountableId: row.accountableId ?? null,
+    consultedIds:  row.consultedIds ?? [],
+    informedIds:   row.informedIds ?? [],
+    notes:         row.notes ?? null,
+    updatedBy:     row.updatedBy ?? null,
+    updatedAt:     row.updatedAt ? new Date(row.updatedAt).toISOString() : null,
+  }
+}
 
 const upsertSchema = z.object({
   activity: z.string().min(1),
@@ -56,6 +86,10 @@ export const raciRoutes: FastifyPluginAsync = async (app) => {
       if (unknownUserIds.length > 0) return reply.code(400).send({ error: 'unknown_user', userIds: unknownUserIds })
     }
 
+    const before = await app.prisma.raciAssignment.findUnique({
+      where: { projectId_activity: { projectId, activity: parsed.data.activity } },
+    })
+
     const row = await app.prisma.raciAssignment.upsert({
       where: { projectId_activity: { projectId, activity: parsed.data.activity } },
       create: {
@@ -87,8 +121,9 @@ export const raciRoutes: FastifyPluginAsync = async (app) => {
       details: {
         projectId,
         activity: parsed.data.activity,
-        responsibleId: parsed.data.responsibleId ?? null,
-        accountableId: parsed.data.accountableId ?? null,
+        created:  !before,
+        before:   raciAuditSnapshot(before),
+        after:    raciAuditSnapshot(row),
       },
       ipAddress: request.ip ?? null,
     })
@@ -111,7 +146,7 @@ export const raciRoutes: FastifyPluginAsync = async (app) => {
       action: 'raci_assignment_deleted',
       entityType: 'raci_assignment',
       entityId: existing.id,
-      details: { projectId, activity },
+      details: { projectId, activity, before: raciAuditSnapshot(existing) },
       ipAddress: request.ip ?? null,
     })
 

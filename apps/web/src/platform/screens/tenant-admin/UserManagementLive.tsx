@@ -26,8 +26,21 @@ interface AdminUser {
   modules: string[]
   status: UserStatus
   tenantId: string | null
+  lastActiveAt: string | null   // stamped on each sign-in (auth/routes.ts)
   createdAt: string
   updatedAt: string
+}
+
+// "Last active" cell: relative for the last week, a date after that.
+function formatLastActive(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000)
+  if (mins < 1)  return 'Just now'
+  if (mins < 60) return `${mins} min ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} h ago`
+  const days = Math.floor(hours / 24)
+  if (days < 7) return `${days} d ago`
+  return new Date(iso).toLocaleDateString()
 }
 
 // One-time sign-up link returned by invite / resend (valid 7 days). Shown to
@@ -179,6 +192,7 @@ export function UserManagementLive() {
                 <th className="px-4 py-2">Role</th>
                 <th className="px-4 py-2">Tenant</th>
                 <th className="px-4 py-2">Status</th>
+                <th className="px-4 py-2">Last active</th>
                 <th className="px-4 py-2 text-right">Actions</th>
               </tr>
             </thead>
@@ -192,6 +206,11 @@ export function UserManagementLive() {
                   <td className="px-4 py-3 text-slate-700">{u.role}</td>
                   <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{u.tenantId ?? '—'}</td>
                   <td className="px-4 py-3"><StatusChip status={u.status} /></td>
+                  <td className="px-4 py-3 text-[12px] text-slate-600" data-last-active>
+                    {u.lastActiveAt
+                      ? <span title={new Date(u.lastActiveAt).toLocaleString()}>{formatLastActive(u.lastActiveAt)}</span>
+                      : <span className="text-slate-400">Never</span>}
+                  </td>
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-2">
                       {u.status === 'invited' && (

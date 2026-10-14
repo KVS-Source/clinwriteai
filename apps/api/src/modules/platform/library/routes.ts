@@ -20,6 +20,11 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
+import type { Prisma } from '@prisma/client'
+import {
+  BEST_PRACTICE_NAME, parseVersionLabel, sectionToBestPractice, sectionToItem,
+  type LibraryContext, type SectionRow,
+} from './shape.js'
 
 const createSchema = z.object({
   title: z.string().min(1),
@@ -47,7 +52,212 @@ const adoptSchema = z.object({
   adoptingEntity: z.string().min(1),
 })
 
+// ---- UI-facing reads (Master Library + Best Practices screens) --------------
+const csv = z.string().optional().transform(v => (v ? v.split(',').map(x => x.trim()).filter(Boolean) : []))
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'expected YYYY-MM-DD')
+
+const SORTS = ['recent', 'oldest', 'name-asc', 'name-desc'] as const
+const LIST_MAX = 200
+
+const uiListQuery = z.object({
+  q:          z.string().trim().max(200).optional(),
+  module:     csv,                                   // A,B,… (platform-wide = "platform")
+  itemType:   csv,                                   // document | section | best-practice
+  docType:    csv,
+  ta:         csv,
+  projectId:  z.string().optional(),
+  version:    z.string().optional(),                 // "v2.0" / "2"
+  from:       isoDay.optional(),                     // pushed on/after
+  to:         isoDay.optional(),                     // pushed on/before
+  sort:       z.enum(SORTS).default('recent'),
+  limit:      z.coerce.number().int().min(1).max(LIST_MAX).default(LIST_MAX),
+  cursor:     z.string().regex(/^\d{1,7}$/).optional(),   // row offset
+  includeRetired: z.enum(['true', 'false']).default('false'),
+})
+
+const bestPracticeQuery = z.object({
+  module:   z.string().optional(),
+  category: z.string().optional(),
+})
+
+const bestPracticeCreate = z.object({
+  name:               z.string().regex(BEST_PRACTICE_NAME, 'Name must follow [Module]-[Category]-[Version]-[Date], e.g. Module-D-CTD-Authoring-v1.2-2026-01'),
+  module:             z.enum(['A', 'B', 'C', 'D', 'E', 'platform']),
+  category:           z.string().trim().min(1).max(80),
+  guidance:           z.string().trim().min(1),
+  effectiveFrom:      isoDay,
+  validUntil:         isoDay,
+  applicableDocTypes: z.array(z.string().trim().min(1)).default([]),
+  frameworkRefs:      z.array(z.string().trim().min(1)).default([]),
+  therapeuticArea:    z.string().optional(),         // omitted → platform-wide
+}).refine(b => b.validUntil >= b.effectiveFrom, { message: 'validUntil must not be before effectiveFrom', path: ['validUntil'] })
+
+const PLATFORM_WIDE_TA = 'Platform-wide'
+
 export const libraryRoutes: FastifyPluginAsync = async (app) => {
+  // Rows with tenantId=null are platform-wide; a tenant row is only visible to
+  // its own tenant (super-admin sees all).
+  const visibleTo = (user: { role: string; tenantId: string | null }): Prisma.LibrarySectionWhereInput =>
+    user.role === 'super-admin'
+      ? {}
+      : { OR: [{ tenantId: null }, ...(user.tenantId ? [{ tenantId: user.tenantId }] : [])] }
+
+  // One batched lookup for the names/projects a page of rows refers to.
+  async function fetchContext(rows: SectionRow[]): Promise<LibraryContext> {
+    const userIds = [...new Set(rows.map(r => r.approvedBy))]
+    const projectIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('project:')).map(t => t.slice(8))))]
+    const [users, projects] = await Promise.all([
+      userIds.length ? app.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [],
+      projectIds.length ? app.prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true, status: true } }) : [],
+    ])
+    return {
+      userNames: new Map(users.map(u => [u.id, u.name])),
+      projects: new Map(projects.map(p => [p.id, { name: p.name, status: p.status }])),
+    }
+  }
+
+  // GET /library — the Master Library screen. Filters, search, sort and
+  // paging all run in the database; the page size and total travel in headers
+  // so the body stays a plain array.
+  app.get('/', { preHandler: requireAuth() }, async (request, reply) => {
+    const parsed = uiListQuery.safeParse(request.query)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const q = parsed.data
+
+    const and: Prisma.LibrarySectionWhereInput[] = [visibleTo(request.user!)]
+    if (q.q) and.push({ OR: [
+      { title: { contains: q.q, mode: 'insensitive' } },
+      { body:  { contains: q.q, mode: 'insensitive' } },
+      { tags:  { has: q.q } },
+    ] })
+    if (q.module.length) and.push({ OR: q.module.map(m => m === 'platform'
+      ? { NOT: { tags: { hasSome: ['A', 'B', 'C', 'D', 'E'].map(x => `module:${x}`) } } }
+      : { tags: { has: `module:${m.toUpperCase()}` } }) })
+    if (q.docType.length) and.push({ tags: { hasSome: q.docType.map(d => `doctype:${d}`) } })
+    if (q.ta.length) and.push({ taTag: { in: q.ta } })
+    if (q.projectId) and.push({ tags: { has: `project:${q.projectId}` } })
+    if (q.itemType.length) and.push({ OR: q.itemType.flatMap((t): Prisma.LibrarySectionWhereInput[] =>
+      t === 'best-practice' ? [{ category: 'best_practice' }]
+      : t === 'document'    ? [{ category: { not: 'best_practice' }, tags: { has: 'type:document' } }]
+      : t === 'section'     ? [{ category: { not: 'best_practice' }, NOT: { tags: { has: 'type:document' } } }]
+      : []) })
+    if (q.version) {
+      const n = parseVersionLabel(q.version)
+      if (n === null) return reply.code(400).send({ error: 'validation', message: 'version must look like "v2.0"' })
+      and.push({ version: n })
+    }
+    if (q.from || q.to) and.push({ approvedAt: {
+      ...(q.from && { gte: new Date(`${q.from}T00:00:00.000Z`) }),
+      ...(q.to   && { lte: new Date(`${q.to}T23:59:59.999Z`) }),
+    } })
+    const where: Prisma.LibrarySectionWhereInput = {
+      isCurrent: true,
+      ...(q.includeRetired === 'false' && { retiredAt: null }),
+      AND: and,
+    }
+
+    const orderBy: Prisma.LibrarySectionOrderByWithRelationInput[] =
+      q.sort === 'oldest'    ? [{ approvedAt: 'asc' },  { id: 'asc' }]
+      : q.sort === 'name-asc'  ? [{ title: 'asc' },       { id: 'asc' }]
+      : q.sort === 'name-desc' ? [{ title: 'desc' },      { id: 'asc' }]
+      : [{ approvedAt: 'desc' }, { id: 'asc' }]
+
+    const skip = Number(q.cursor ?? 0)
+    const [total, rows] = await Promise.all([
+      app.prisma.librarySection.count({ where }),
+      app.prisma.librarySection.findMany({ where, orderBy, skip, take: q.limit }),
+    ])
+    const ctx = await fetchContext(rows)
+
+    reply.header('X-Total-Count', String(total))
+    reply.header('X-Next-Cursor', skip + rows.length < total ? String(skip + rows.length) : '')
+    return rows.map(r => sectionToItem(r, ctx))
+  })
+
+  // GET /library/best-practices (registered before /:id so it isn't read as an id)
+  app.get('/best-practices', { preHandler: requireAuth() }, async (request, reply) => {
+    const parsed = bestPracticeQuery.safeParse(request.query)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const { module, category } = parsed.data
+    const rows = await app.prisma.librarySection.findMany({
+      where: {
+        category: 'best_practice', isCurrent: true, retiredAt: null,
+        AND: [
+          visibleTo(request.user!),
+          ...(module ? [module === 'platform'
+            ? { NOT: { tags: { hasSome: ['A', 'B', 'C', 'D', 'E'].map(x => `module:${x}`) } } }
+            : { tags: { has: `module:${module.toUpperCase()}` } }] : []),
+          ...(category ? [{ tags: { has: `category:${category}` } }] : []),
+        ],
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
+    })
+    return rows.map(r => sectionToBestPractice(r))
+  })
+
+  // POST /library/best-practices — Super Admin only (PRD sPM09).
+  app.post('/best-practices', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+    const parsed = bestPracticeCreate.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
+    const b = parsed.data
+
+    const dup = await app.prisma.librarySection.findFirst({
+      where: { title: b.name, category: 'best_practice', isCurrent: true },
+      select: { id: true },
+    })
+    if (dup) return reply.code(409).send({ error: 'duplicate_name', message: `A best practice named "${b.name}" already exists` })
+
+    // Platform-wide items carry no therapeutic area; anything else must be an active TA.
+    let taTag = PLATFORM_WIDE_TA
+    if (b.therapeuticArea) {
+      const resolved = await resolveTa(app.prisma, b.therapeuticArea)
+      if (!resolved) return reply.code(400).send(invalidTaBody(b.therapeuticArea))
+      taTag = resolved
+    }
+
+    const major = Number(/-v(\d+)/.exec(b.name)?.[1] ?? 1)
+    const tags = [
+      ...(b.module === 'platform' ? [] : [`module:${b.module}`]),
+      `category:${b.category}`,
+      `effective:${b.effectiveFrom}`,
+      `valid-until:${b.validUntil}`,
+      ...b.applicableDocTypes.map(d => `doctype:${d}`),
+    ]
+    const created = await app.prisma.librarySection.create({
+      data: {
+        tenantId: null,                       // best practices are platform-wide
+        title: b.name,
+        body: b.guidance,
+        taTag,
+        framework: b.frameworkRefs.join(', ') || 'Custom',
+        category: 'best_practice',
+        version: Math.max(1, major),
+        tags,
+        approvedBy: request.user!.id,
+      },
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'best_practice_created',
+      entityType: 'library_section',
+      entityId: created.id,
+      details: { name: b.name, module: b.module, category: b.category },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.code(201).send(sectionToBestPractice(created))
+  })
+
+  // GET /library/:id — one item for the detail panel.
+  app.get('/:id', { preHandler: requireAuth() }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    return sectionToItem(row, await fetchContext([row]))
+  })
+
   app.get('/sections', { preHandler: requireAuth() }, async (request, reply) => {
     const parsed = listQuery.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })

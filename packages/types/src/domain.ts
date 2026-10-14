@@ -1466,6 +1466,10 @@ export type PlatformUserRole =
   | 'clinical-data-manager'
   | 'pharmacovigilance-lead'
   | 'regulatory-affairs-reviewer'
+  | 'scientific-writer'
+  | 'medical-writer'
+  | 'reviewer'
+  | 'read-only'
 
 export type PlatformUserStatus = 'active' | 'invited' | 'suspended'
 export type ModuleKey          = 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
@@ -1941,4 +1945,8 @@ export const PLATFORM_USER_ROLE_LABEL: Record<PlatformUserRole, string> = {
   'clinical-data-manager': 'Data Manager',
   'pharmacovigilance-lead': 'PV Lead',
   'regulatory-affairs-reviewer': 'RA Reviewer',
+  'scientific-writer': 'Scientific Writer',
+  'medical-writer': 'Medical Writer',
+  'reviewer': 'Reviewer',
+  'read-only': 'Read-only',
 }

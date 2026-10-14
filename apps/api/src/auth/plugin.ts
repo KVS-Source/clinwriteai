@@ -79,6 +79,30 @@ const authPlugin: FastifyPluginAsync = async (app) => {
         }
       }
 
+      // --- Demo persona path (dev/demo only) ------------------------------
+      // The SPA's "Switch persona" menu sends X-Demo-Persona: <User.id> so the
+      // data the API returns matches the persona on screen. Honoured ONLY while
+      // AUTH_BYPASS_EMAIL is set — that flag already means "no real auth" — so
+      // it adds nothing once the bypass is unset in staging/prod. Unknown or
+      // inactive ids fall through to the normal paths below.
+      if (BYPASS_EMAIL) {
+        const header = request.headers['x-demo-persona']
+        const personaId = Array.isArray(header) ? header[0] : header
+        if (personaId) {
+          const persona = await app.prisma.user.findUnique({ where: { id: personaId } })
+          if (persona && persona.status === 'active') {
+            request.user = {
+              id: persona.id,
+              email: persona.email,
+              role: persona.role as Role,
+              modules: persona.modules as ModuleKey[],
+              tenantId: persona.tenantId ?? null,
+            }
+            return
+          }
+        }
+      }
+
       const token = request.cookies[SESSION_COOKIE_NAME]
       if (token) {
         const claims = await request.jwtVerify<SessionClaims>()

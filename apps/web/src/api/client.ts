@@ -12,8 +12,11 @@
 //   the user to the login URL (VITE_AUTH_LOGIN_URL, default `${API}/auth/login`).
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '')
+// `||` not `??`: a blank VITE_AUTH_LOGIN_URL= line in .env.local comes through
+// as '' and must fall back to the default (otherwise location.assign('')
+// just reloads the current page).
 const LOGIN_URL =
-  (import.meta.env.VITE_AUTH_LOGIN_URL as string | undefined) ?? `${API_BASE}/auth/login`
+  (import.meta.env.VITE_AUTH_LOGIN_URL as string | undefined) || `${API_BASE}/auth/login`
 
 // A caller can opt out of the auto-redirect for a specific request — useful
 // when a route needs to render its own "please log in" UI instead of leaving
@@ -28,16 +31,29 @@ export class ApiError extends Error {
   }
 }
 
+// Dev/demo only: when a persona was picked from the top-bar "Switch persona"
+// menu, tell the API so the data matches the persona on screen. The API
+// ignores this header unless AUTH_BYPASS_EMAIL is set (never in production).
+const PERSONA_STORAGE_KEY = 'clinwrite.demo.currentUserId'
+function demoPersonaHeader(): Record<string, string> {
+  if (import.meta.env.MODE === 'production') return {}
+  try {
+    const id = window.localStorage.getItem(PERSONA_STORAGE_KEY)
+    return id ? { 'X-Demo-Persona': id } : {}
+  } catch { return {} }
+}
+
 async function request<T>(endpoint: string, options?: RequestOptions): Promise<T> {
   const { on401 = 'redirect', ...init } = options ?? {}
   const res = await fetch(`${API_BASE}${endpoint}`, {
     credentials: 'include',
+    ...init,
     headers: {
       'Content-Type': 'application/json',
       Accept: 'application/json',
+      ...demoPersonaHeader(),
       ...(init.headers ?? {}),
     },
-    ...init,
   })
 
   if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined') {

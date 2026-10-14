@@ -74,6 +74,7 @@ import { TenantDetail }                 from '../platform/screens/tenant-admin/T
 import { SsoConnectionConfig }          from '../platform/screens/tenant-admin/SsoConnectionConfig'
 import { UserManagementLive }           from '../platform/screens/tenant-admin/UserManagementLive'
 import { AcceptInvitation }             from '../platform/screens/AcceptInvitation'
+import { RoleHome }                     from '../platform/screens/RoleHome'
 import { AuditTrailViewerLive }         from '../platform/screens/tenant-admin/AuditTrailViewerLive'
 import { TATagConfiguration }           from '../platform/screens/TATagConfiguration'
 import { RACIMatrix }                   from '../platform/screens/RACIMatrix'
@@ -104,7 +105,8 @@ export const router = createBrowserRouter([
     path: '/',
     element: <AuthGuard><AppShell /></AuthGuard>,
     children: [
-      { index: true, element: <Navigate to="/projects" replace /> },
+      { index: true, element: <Navigate to="/home" replace /> },
+      { path: 'home',         element: <RoleHome /> },
       { path: 'projects',     element: <AllProjects /> },
       // /projects/new retired — slider lives on the AllProjects screen now.
       // Deep-links to the old URL redirect back to the list.

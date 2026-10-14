@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { useAuthStore } from '../../store'
+import { useSessionSync } from '../../platform/store'
 
 // Auth bypass is now env-driven so cutover can flip per-env without a
 // code change. Default-true for dev (keeps the prototype usable without
@@ -18,8 +19,13 @@ const BYPASS_AUTH =
 
 export function AuthGuard({ children }: { children: ReactNode }) {
   const isAuthenticated = useAuthStore(s => s.isAuthenticated)
+  // Wait for /auth/me so role-gated pages never flash for the wrong user.
+  const sessionReady = useSessionSync()
   if (!isAuthenticated && !BYPASS_AUTH) {
     return <Navigate to="/sign-in" replace />
+  }
+  if (!sessionReady) {
+    return <div className="flex h-screen items-center justify-center bg-slate-50 text-[13px] text-slate-500" data-session-loading>Loading your workspace…</div>
   }
   return <>{children}</>
 }

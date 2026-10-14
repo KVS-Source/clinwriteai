@@ -46,7 +46,23 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     // bounce (observed in prod as a flashing refresh + /projects 429s
     // from rate-limit tripping on the retry storm).
     const redirectUri = resolveRedirectUri(request)
-    const url = await app.sso.getAuthorizationUrl({ state, redirectUri })
+
+    // Invitation sign-in: the accept page set aurora_invite. If it still
+    // holds a live invitation, sign in AS the invited email. The hint comes
+    // from the invitation row, never from the query string, so it can't be
+    // used to pick an arbitrary identity.
+    let loginHint: string | undefined
+    const inviteToken = request.cookies[INVITE_COOKIE]
+    if (inviteToken) {
+      const invitation = await app.prisma.userInvitation.findUnique({
+        where: { tokenHash: hashInvitationToken(inviteToken) },
+        include: { user: { select: { email: true, status: true } } },
+      })
+      if (invitation && checkInvitation(invitation, invitation.user.status).valid) {
+        loginHint = invitation.user.email
+      }
+    }
+    const url = await app.sso.getAuthorizationUrl({ state, redirectUri, loginHint })
     return reply.redirect(url)
   })
 
@@ -228,8 +244,21 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     return { ok: true }
   })
 
+  // The SPA needs the display fields too (it can't derive a name or status
+  // from the JWT claims), so enrich the authorization view with the profile.
   app.get('/auth/me', { preHandler: requireAuth() }, async (request) => {
-    return request.user
+    const user = request.user!
+    const profile = await app.prisma.user.findUnique({
+      where: { id: user.id },
+      select: { name: true, initials: true, status: true, lastActiveAt: true },
+    })
+    return {
+      ...user,
+      name: profile?.name ?? user.email,
+      initials: profile?.initials ?? null,
+      status: profile?.status ?? 'active',
+      lastActiveAt: profile?.lastActiveAt?.toISOString() ?? null,
+    }
   })
 }
 

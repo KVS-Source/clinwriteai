@@ -30,6 +30,12 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   { label: 'Subscription',     href: '/admin/subscription', roles: ['admin', 'super-admin'] as const },
   { label: 'Reports',          href: '/reports',    roles: ['admin', 'super-admin'] as const },
 ]
+// Read access to the library is open to every signed-in user (PRD sPM08), so
+// users without the Platform section get these two links on their own.
+const LIBRARY_NAV: { label: string; href: string }[] = [
+  { label: 'Master Library', href: '/library' },
+  { label: 'Best Practices', href: '/library/best-practices' },
+]
 const SUPER_ADMIN_NAV: PlatformNavItem[] = [
   { label: 'Super Admin Panel',   href: '/super-admin',            roles: ['super-admin'] as const },
   { label: 'Tenants',             href: '/super-admin/tenants',    roles: ['super-admin'] as const },
@@ -79,6 +85,7 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
   const platformItems   = isAdmin      ? PLATFORM_NAV.filter(i => i.roles.includes(currentUser.role as 'admin' | 'super-admin'))   : []
   const superAdminItems = isSuperAdmin ? SUPER_ADMIN_NAV.filter(i => i.roles.includes(currentUser.role as 'admin' | 'super-admin')) : []
   const showPlatform   = platformItems.length   > 0
+  const libraryItems   = showPlatform ? [] : LIBRARY_NAV
   const showSuperAdmin = superAdminItems.length > 0
 
   // Module access — admin/super-admin see all 5 modules; module users see only
@@ -127,8 +134,26 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
         </div>
       </div>
 
-      {/* All Projects link */}
+      {/* My workspace — role-specific landing page */}
       <div className="px-3 pt-4">
+        <NavLink
+          to="/home"
+          className={({ isActive }) =>
+            `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${
+              isActive
+                ? 'bg-slate-700 text-white'
+                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+            }`
+          }
+          data-nav="my-workspace"
+        >
+          <HomeIcon />
+          <span>My Workspace</span>
+        </NavLink>
+      </div>
+
+      {/* All Projects link */}
+      <div className="px-3 pt-1">
         <NavLink
           to="/projects"
           className={({ isActive }) =>
@@ -245,6 +270,36 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
                     <span>{item.label}</span>
                   </>
                 )}
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+      )}
+
+      {/* Library — for users who don't get the Platform section above */}
+      {libraryItems.length > 0 && (
+        <div className="mt-4 px-3" data-sidebar-section="library">
+          <div className="mb-2 px-2.5">
+            <MonoLabel className="text-slate-500">Library</MonoLabel>
+          </div>
+          <nav className="flex flex-col gap-0.5">
+            {libraryItems.map(item => (
+              <NavLink
+                key={item.href}
+                to={item.href}
+                end
+                data-platform-link={item.href}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${
+                    isActive ? 'text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  }`
+                }
+                style={({ isActive }) =>
+                  isActive ? { backgroundColor: `${MODULE_COLOURS['platform']}44` } : {}
+                }
+              >
+                <span className="flex-none"><ShieldIcon /></span>
+                <span>{item.label}</span>
               </NavLink>
             ))}
           </nav>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../../store/projectStore'
-import { usePlatformStore, PLATFORM_DEMO_USERS } from '../../platform/store'
+import { usePlatformStore, PLATFORM_DEMO_USERS, hasPersonaOverride, clearPersonaOverride } from '../../platform/store'
 import { PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import type { PlatformUser } from '@platform/types'
 
@@ -154,7 +154,7 @@ export function TopNav() {
               <div className="px-3 py-2" style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
                 <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Switch persona (demo)</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">
-                  Prototype mode — role guards bypassed; every persona can navigate anywhere. The active persona changes the demo context (RACI, notifications, guard behaviour).
+                  Role guards are enforced: each persona only reaches the pages its role allows. Switching persona changes this browser's demo context (RACI, notifications, menus); it does not change your real sign-in.
                 </p>
               </div>
 
@@ -197,6 +197,14 @@ export function TopNav() {
               </div>
 
               <div className="border-t border-slate-200 px-3 py-2">
+                {hasPersonaOverride() && (
+                  <button
+                    type="button"
+                    onClick={() => { clearPersonaOverride(); window.location.reload() }}
+                    className="mb-1.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
+                    data-action="use-real-signin"
+                  >Use my real sign-in</button>
+                )}
                 <p className="font-mono text-[10px] text-slate-500">
                   Selection persists in localStorage · reload happens on switch
                 </p>

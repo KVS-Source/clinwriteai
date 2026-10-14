@@ -1466,6 +1466,10 @@ export type PlatformUserRole =
   | 'clinical-data-manager'
   | 'pharmacovigilance-lead'
   | 'regulatory-affairs-reviewer'
+  | 'scientific-writer'
+  | 'medical-writer'
+  | 'reviewer'
+  | 'read-only'
 
 export type PlatformUserStatus = 'active' | 'invited' | 'suspended'
 export type ModuleKey          = 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
@@ -1492,7 +1496,7 @@ export type PaymentMethodType  = 'card' | 'bank-transfer' | 'upi'
 export type ReportType =
   | 'project-summary' | 'module-activity' | 'ai-usage'
   | 'user-activity' | 'compliance' | 'publishing-performance'
-export type MasterLibraryItemType = 'document' | 'section'
+export type MasterLibraryItemType = 'document' | 'section' | 'best-practice'
 export type TATagStatus = 'active' | 'archived'
 export type SlideDeckStatus = 'draft' | 'generating' | 'ready' | 'exported'
 
@@ -1626,6 +1630,9 @@ export interface MasterLibraryItem {
   isArchived:        boolean
   archivedReason?:   string
   provenanceChain:   string[]
+  // Text of a pushed section — what "Pull into document" inserts. Absent for
+  // whole documents and for items that carry no text.
+  body?:             string
 }
 
 export interface BestPractice {
@@ -1941,4 +1948,8 @@ export const PLATFORM_USER_ROLE_LABEL: Record<PlatformUserRole, string> = {
   'clinical-data-manager': 'Data Manager',
   'pharmacovigilance-lead': 'PV Lead',
   'regulatory-affairs-reviewer': 'RA Reviewer',
+  'scientific-writer': 'Scientific Writer',
+  'medical-writer': 'Medical Writer',
+  'reviewer': 'Reviewer',
+  'read-only': 'Read-only',
 }

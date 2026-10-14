@@ -11,6 +11,8 @@
 export interface SsoAuthorizationUrlInput {
   state: string
   redirectUri: string
+  /** Email the IdP should pre-select (invitation sign-in). Mock signs in as it; WorkOS passes it as login_hint. */
+  loginHint?: string
 }
 
 export interface SsoCallbackInput {
@@ -41,9 +43,9 @@ export interface SsoProvider {
 export class MockSsoProvider implements SsoProvider {
   constructor(private readonly fixtureEmail = 'dev@clinwrite.ai') {}
 
-  async getAuthorizationUrl({ state, redirectUri }: SsoAuthorizationUrlInput): Promise<string> {
+  async getAuthorizationUrl({ state, redirectUri, loginHint }: SsoAuthorizationUrlInput): Promise<string> {
     const url = new URL(redirectUri)
-    url.searchParams.set('code', `mock:${this.fixtureEmail}`)
+    url.searchParams.set('code', `mock:${loginHint ?? this.fixtureEmail}`)
     url.searchParams.set('state', state)
     return url.toString()
   }

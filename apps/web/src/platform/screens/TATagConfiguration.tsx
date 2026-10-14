@@ -16,6 +16,15 @@ function errorMessage(err: unknown): string {
   return 'Something went wrong. Please try again.'
 }
 
+// createdAt arrives as 'YYYY-MM-DD'; parse as a local date so the day never
+// shifts with the viewer's timezone.
+function formatCreated(ymd: string | undefined): string {
+  if (!ymd) return '—'
+  const [y, m, d] = ymd.slice(0, 10).split('-').map(Number)
+  if (!y || !m || !d) return ymd
+  return new Date(y, m - 1, d).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
+}
+
 function StatusChip({ status }: { status: 'active' | 'archived' }) {
   if (status === 'active')
     return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0' }} data-status-chip="active">✓ Active</span>
@@ -135,6 +144,7 @@ export function TATagConfiguration() {
                   <th className="px-4 py-2">Tag name</th>
                   <th className="px-4 py-2">Abbreviation</th>
                   <th className="px-4 py-2">Status</th>
+                  <th className="px-4 py-2">Created date</th>
                   <th className="px-4 py-2">In use</th>
                   <th className="px-4 py-2 text-right">Actions</th>
                 </tr>
@@ -154,6 +164,7 @@ export function TATagConfiguration() {
                       <td className="px-4 py-3 font-semibold text-slate-900">{t.name}</td>
                       <td className="px-4 py-3 font-mono text-[11px] text-slate-700">{t.abbreviation}</td>
                       <td className="px-4 py-3"><StatusChip status={t.status} /></td>
+                      <td className="px-4 py-3 text-[12px] text-slate-600" data-tag-created>{formatCreated(t.createdAt)}</td>
                       <td className="px-4 py-3 text-[12px] text-slate-600" data-tag-note>
                         {note || <span className="text-slate-400">—</span>}
                       </td>

@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { Subscription, RateCard } from '@platform/types'
+import type { Subscription } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
-import { platformApi } from '../api/platformApi'
+import { platformApi, type RateCardVersionSummary } from '../api/platformApi'
+import { describeApiError } from '../../api'
 import { usePlatformStore } from '../store'
 
 function formatDay(iso: string): string {
@@ -31,39 +32,124 @@ function StatusChip({ status }: { status: 'healthy' | 'monitor' | 'over' }) {
   )
 }
 
-const TODAY = new Date('2026-09-09T00:00:00Z')
+// Midnight UTC today — renewal dates are calendar days, so whole-day maths.
+function startOfTodayUTC(): Date {
+  const now = new Date()
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+}
+
+// Tokens still needed to reach renewal at the current daily consumption rate,
+// beyond what is left — the "deficit" sPM11 asks Top up to pre-fill. Zero when
+// the remaining balance is projected to last until renewal.
+function projectedShortfall(period: Subscription['currentPeriod'], today: Date, renewalDays: number): number {
+  const periodStart = new Date(`${period.month}-01T00:00:00Z`)
+  const daysElapsed = Math.max(1, daysBetween(periodStart, today) + 1)
+  const tokensPerDay = period.tokensConsumed / daysElapsed
+  const needed = tokensPerDay * Math.max(0, renewalDays)
+  return Math.max(0, Math.round(needed - period.tokensRemaining))
+}
+
+function csvCell(v: string | number): string {
+  const s = String(v)
+  return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+function buildServicesCsv(sub: Subscription, today: Date): string {
+  const p = sub.currentPeriod
+  const rows: (string | number)[][] = [
+    ['ClinWrite.AI services consumption'],
+    ['Generated (UTC)', new Date().toISOString()],
+    ['Period', p.month],
+    ['Plan', sub.planName],
+    ['Currency', sub.currency],
+    ['Renewal date', sub.renewalDate],
+    ['Days to renewal', daysBetween(today, new Date(sub.renewalDate))],
+    ['Contracted tokens per month', sub.contractedTokensPerMonth],
+    ['Contracted amount per month', sub.monthlyFee],
+    ['Tokens consumed', p.tokensConsumed],
+    ['Tokens remaining', p.tokensRemaining],
+    ['Estimated spend', p.estimatedSpend],
+  ]
+  // The API currently serves placeholder figures (billing pipeline deferred);
+  // say so in the file rather than let it pass as real consumption data.
+  if ((sub as Subscription & { stub?: boolean }).stub) {
+    rows.push(['Note', 'Placeholder figures - billing pipeline not yet connected'])
+  }
+  rows.push([])
+  rows.push(['Discipline', 'Tokens consumed', `Cost (${sub.currency})`, '% of total', 'Burn rate', 'Status'])
+  for (const r of sub.moduleBreakdown) {
+    rows.push([r.label, r.tokensConsumed, r.cost, r.pctOfTotal, r.burnRate, r.status])
+  }
+  rows.push(['Total', p.tokensConsumed, p.estimatedSpend, 100, '', ''])
+  return rows.map(r => r.map(csvCell).join(',')).join('\n')
+}
+
+function downloadFile(filename: string, content: string, type: string) {
+  const url = URL.createObjectURL(new Blob([content], { type }))
+  const a = document.createElement('a')
+  a.href = url
+  a.download = filename
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(url)
+}
 
 export function ServicesDashboard() {
   const currentUser = usePlatformStore(s => s.currentUser)
   const navigate = useNavigate()
+  const today = useMemo(() => startOfTodayUTC(), [])
 
-  const { data: sub } = useQuery<Subscription>({
+  const { data: sub, error, isError, refetch, isFetching } = useQuery<Subscription>({
     queryKey: ['services-dashboard'],
     queryFn:  () => platformApi.getServicesDashboard(),
   })
-  const { data: rateCards = [] } = useQuery<RateCard[]>({
-    queryKey: ['rate-cards'],
-    queryFn:  () => platformApi.listRateCards(),
+  const { data: rateCards = [] } = useQuery<RateCardVersionSummary[]>({
+    queryKey: ['rate-card-versions'],
+    queryFn:  () => platformApi.listRateCardVersions(),
   })
 
   const [exportResult, setExportResult] = useState<string | null>(null)
 
-  const activeRateCard = useMemo(() => rateCards.find(r => r.status === 'active'), [rateCards])
-  const rateCardExpired = activeRateCard ? new Date(activeRateCard.validUntil) < TODAY : false
+  const activeRateCard = useMemo(() => rateCards.find(r => r.isActive), [rateCards])
+  // The live API does not store a validity end date yet, so only cards that
+  // carry one (mock data) can be detected as expired.
+  const rateCardExpired = activeRateCard?.validUntil ? new Date(activeRateCard.validUntil) < today : false
 
+  if (isError) {
+    return (
+      <div className="p-8" data-screen="services-dashboard">
+        <div className="mx-auto max-w-xl rounded-md border p-4 text-[13px]" style={{ backgroundColor: '#FEF2F2', borderColor: '#FCA5A5', color: '#7F1D1D' }} data-load-error>
+          <p className="font-semibold">Couldn't load services data</p>
+          <p className="mt-1">{describeApiError(error).message}</p>
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >{isFetching ? 'Retrying…' : 'Retry'}</button>
+        </div>
+      </div>
+    )
+  }
   if (!sub) return <div className="p-8 text-center text-sm text-slate-500" data-screen="services-dashboard">Loading…</div>
 
   const period = sub.currentPeriod
   const remainingPct = Math.round((period.tokensRemaining / sub.contractedTokensPerMonth) * 100)
-  const renewalDays = daysBetween(TODAY, new Date(sub.renewalDate))
+  const renewalDays = daysBetween(today, new Date(sub.renewalDate))
   const alert = sub.burnRateAlert
+  const shortfall = projectedShortfall(period, today, renewalDays)
 
   const handleTopUp = () => {
     if (rateCardExpired) return
-    navigate(`/admin/subscription?prefill=${period.tokensRemaining}`)
+    navigate(shortfall > 0 ? `/admin/subscription?prefill=${shortfall}` : '/admin/subscription')
   }
 
-  const handleExportCsv = () => setExportResult(`csv-services-${Date.now()}.csv`)
+  const handleExportCsv = () => {
+    const filename = `services-${period.month}.csv`
+    downloadFile(filename, buildServicesCsv(sub, today), 'text/csv;charset=utf-8')
+    setExportResult(filename)
+  }
 
   return (
     <div className="bg-slate-50" data-screen="services-dashboard">
@@ -177,7 +263,7 @@ export function ServicesDashboard() {
         </section>
 
         {exportResult && (
-          <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-export-result>✓ CSV exported · {exportResult}</p>
+          <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-export-result>✓ Downloaded {exportResult}</p>
         )}
 
         <p

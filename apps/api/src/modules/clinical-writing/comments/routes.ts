@@ -2,8 +2,10 @@
 //
 // Comments are reviewer feedback bound to a document + section. They use a
 // human-readable application-generated id ("CMT-###") so reviewers can
-// reference them in meeting notes and CRM discussions. The sequence is
-// per-document — CMT-001 restarts for each document rather than being global.
+// reference them in meeting notes and CRM discussions. Comment.id is the
+// table's primary key, so the sequence is global (CMT-001, CMT-002, ... across
+// all documents), not per-document: a per-document sequence would hand the
+// second document's first comment an id that already exists.
 //
 // Comments are NEVER deleted; resolve-then-keep-the-record is the only
 // mutation path. This is why resolve 409s on an already-resolved comment.
@@ -101,12 +103,13 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
     // Retry loop handles the P2002 race where two concurrent inserts both
-    // read the same max CMT-### sequence. Same pattern as the Module C
+    // read the same max CMT-### sequence (each retry re-reads the max, so it
+    // picks up the winner's row and moves on). Same pattern as the Module C
     // MLR comments route. 5 attempts covers realistic reviewer bursts.
     let created: Awaited<ReturnType<typeof app.prisma.comment.create>> | null = null
     let id = ''
     for (let attempt = 0; attempt < 5 && !created; attempt++) {
-      id = await nextCommentId(app.prisma, documentId)
+      id = await nextCommentId(app.prisma)
       try {
         created = await app.prisma.comment.create({
           data: {
@@ -250,13 +253,12 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
   })
 }
 
-async function nextCommentId(prisma: import('@prisma/client').PrismaClient, documentId: string): Promise<string> {
-  // CMT-### is per-document and application-generated. We query the current
-  // max then +1 — a race is tolerable because the Comment.id has a UNIQUE
-  // constraint and the handler will 500 on the rare clash (test coverage
-  // would be contrived; real reviewer concurrency per document is low).
+async function nextCommentId(prisma: import('@prisma/client').PrismaClient): Promise<string> {
+  // CMT-### is application-generated and must be unique table-wide (it is the
+  // primary key). We query the current max then +1 — a race is possible but the
+  // UNIQUE constraint rejects the loser and the handler's retry loop recomputes.
   const latest = await prisma.comment.findMany({
-    where: { documentId, id: { startsWith: 'CMT-' } },
+    where: { id: { startsWith: 'CMT-' } },
     select: { id: true },
   })
   const maxSeq = latest.reduce((max, row) => {

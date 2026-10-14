@@ -1,10 +1,11 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useRef } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type { Section, SignatureRecord } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { useDocumentStore, useProjectStore } from '../../store'
 import { SectionNavigator } from '../clinical-writing/SectionNavigator'
+import { EditorContent, useRichTextEditor } from '../clinical-writing/RichTextEditor'
 
 // Avatar palette — matches design-system Pattern 7
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
@@ -33,6 +34,32 @@ function ShieldIcon({ size = 14, colour = '#15803D', stroke = 1.6 }: { size?: nu
   )
 }
 
+// Read-only render of one section's saved HTML. Goes through TipTap's schema
+// (same as the editor) rather than innerHTML, so stored markup can't inject
+// script into the signed, locked view.
+function FinalSectionBody({ html }: { html: string }) {
+  const editor = useRichTextEditor({ content: html, editable: false })
+  return (
+    <div className="mt-2 [&_.tiptap-editor]:min-h-0">
+      <EditorContent editor={editor} />
+    </div>
+  )
+}
+
+// The prototype showed this passage for §11.4. Kept only as a fallback for
+// that section when its saved body is empty, so the demo doesn't go blank.
+const PROTOTYPE_S11_4_HTML =
+  '<p>Veloricept in combination with pembrolizumab demonstrated a statistically significant improvement in progression-free survival (PFS) compared to placebo plus pembrolizumab, with a median PFS of 14.2 months versus 8.7 months (HR 0.61; 95% CI 0.48–0.77; p&lt;0.0001). This result is consistent with the pre-specified primary analysis outlined in the Statistical Analysis Plan (SAP v2.0, Section 6.3).</p>' +
+  '<p>The Kaplan–Meier curves for PFS demonstrated early and sustained separation between treatment arms from Week 8 onwards, with the separation widening through to the data cut-off date of 30 September 2024.</p>'
+
+// The API returns sections ordered as text (§1, §10, §11, §2 ...). Present them
+// in document order: compare section numbers numerically, part by part.
+const sectionOrder = new Intl.Collator(undefined, { numeric: true })
+const bySectionNumber = (a: Section, b: Section) =>
+  sectionOrder.compare(a.number.replace(/^§/, ''), b.number.replace(/^§/, ''))
+
+const isBlankHtml = (html: string | undefined) => !html || html.replace(/<[^>]*>/g, '').trim() === ''
+
 export function FinalDocument() {
   const { projectId, documentId } = useParams()
   const navigate                  = useNavigate()
@@ -58,12 +85,34 @@ export function FinalDocument() {
     enabled:  !!documentId,
   })
 
+  const activeSection = useDocumentStore(s => s.activeSection)
+  const scrollRef     = useRef<HTMLDivElement | null>(null)
+  const landed        = useRef(false)
+
   useEffect(() => {
     if (!document) return
     setActiveDocument(document)
-    // In the final view, land on §11.4.1 like the prototype does
-    setActiveSection(document.sections.find(s => s.id === 's11_4')?.id ?? document.sections[0]?.id ?? null)
+    // The final view shows the whole document, so start at the top.
+    setActiveSection([...document.sections].sort(bySectionNumber)[0]?.id ?? null)
+    landed.current = false
   }, [document, setActiveDocument, setActiveSection])
+
+  // Section navigator click → scroll that section into view (skip the initial
+  // landing so the page opens at the top, not mid-document).
+  useEffect(() => {
+    if (!activeSection) return
+    if (!landed.current) { landed.current = true; return }
+    scrollRef.current
+      ?.querySelector<HTMLElement>(`[data-final-section="${activeSection}"]`)
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }, [activeSection])
+
+  // Print stylesheet hook: lets index.css un-clip the app shell while this
+  // screen is mounted so "Download PDF" prints every page, not one viewport.
+  useEffect(() => {
+    window.document.body.classList.add('printing-final-document')
+    return () => window.document.body.classList.remove('printing-final-document')
+  }, [])
 
   useEffect(() => {
     if (project) setActiveProject(project)
@@ -72,7 +121,9 @@ export function FinalDocument() {
   // In the final state, all sections are complete (100% progress bar, all-green dots)
   const sectionsAllComplete: Section[] = useMemo(() => {
     if (!document) return []
-    return document.sections.map(s => ({ ...s, status: 'complete' as const, isLocked: false, lockedByUserId: undefined }))
+    return [...document.sections]
+      .sort(bySectionNumber)
+      .map(s => ({ ...s, status: 'complete' as const, isLocked: false, lockedByUserId: undefined }))
   }, [document])
 
   // Build the 3 final signature rows from the fetched chain, in Authored→Approved→Reviewed order
@@ -98,7 +149,7 @@ export function FinalDocument() {
   }
 
   return (
-    <div className="flex h-full flex-col" data-screen="final-document">
+    <div className="flex h-full flex-col" data-screen="final-document" data-print-root>
 
       {/* ============ Document header ============ */}
       <div
@@ -209,12 +260,12 @@ export function FinalDocument() {
       {/* ============ Two-column row — no right panel in the final view ============ */}
       <div className="flex flex-1 min-h-0">
 
-        <SectionNavigator sections={sectionsAllComplete} />
+        <div className="flex" data-no-print><SectionNavigator sections={sectionsAllComplete} /></div>
 
         {/* Editor pane — read-only, no toolbar, no right panel */}
         <div className="flex min-w-0 flex-1 flex-col bg-white">
           {/* Content scroll */}
-          <div className="flex-1 overflow-y-auto px-12 pt-6 pb-8">
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-12 pt-6 pb-8" data-final-scroll>
             <div className="flex max-w-[760px] flex-col">
 
               {/* Signature chain banner — green box at top of content */}
@@ -250,17 +301,30 @@ export function FinalDocument() {
                 </div>
               </div>
 
-              {/* Section content — plain text, no AI highlights, no traceable underlines */}
-              <h2 className="text-[22px] font-bold tracking-tight">11. Efficacy Evaluation</h2>
-              <h3 className="mt-4 text-[17px] font-bold">11.4 Primary Efficacy Endpoint</h3>
-              <h4 className="mt-3 text-[15px] font-bold">11.4.1 Progression-Free Survival</h4>
-
-              <p className="mt-3 text-sm leading-[1.8] text-slate-900">
-                Veloricept in combination with pembrolizumab demonstrated a statistically significant improvement in progression-free survival (PFS) compared to placebo plus pembrolizumab, with a median PFS of 14.2 months versus 8.7 months (HR 0.61; 95% CI 0.48–0.77; p&lt;0.0001). This result is consistent with the pre-specified primary analysis outlined in the Statistical Analysis Plan (SAP v2.0, Section 6.3).
-              </p>
-              <p className="mt-3 text-sm leading-[1.8] text-slate-900">
-                The Kaplan–Meier curves for PFS demonstrated early and sustained separation between treatment arms from Week 8 onwards, with the separation widening through to the data cut-off date of 30 September 2024.
-              </p>
+              {/* Every section of the document, in order */}
+              {[...document.sections].sort(bySectionNumber).map(section => {
+                const html = isBlankHtml(section.contentHtml) && section.id === 's11_4'
+                  ? PROTOTYPE_S11_4_HTML
+                  : section.contentHtml
+                return (
+                  <section
+                    key={section.id}
+                    data-final-section={section.id}
+                    className="mb-8 scroll-mt-4"
+                    style={{ breakInside: 'auto' }}
+                  >
+                    <h2 className="text-[20px] font-bold tracking-tight" style={{ breakAfter: 'avoid' }}>
+                      {section.number}. {section.title}
+                    </h2>
+                    {isBlankHtml(html)
+                      ? <p className="mt-2 text-sm italic text-slate-400">No content recorded for this section.</p>
+                      : <FinalSectionBody html={html} />}
+                  </section>
+                )
+              })}
+              {document.sections.length === 0 && (
+                <p className="text-sm italic text-slate-400">This document has no sections.</p>
+              )}
             </div>
           </div>
 

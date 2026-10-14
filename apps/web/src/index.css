@@ -36,3 +36,41 @@
     to { transform: rotate(360deg); }
   }
 }
+
+/* ---- Print: Final Document ------------------------------------------------
+   The app shell is a fixed-height, overflow-hidden flex layout, so a plain
+   window.print() captured just one viewport ("Total: 1 page"). While the
+   Final Document screen is mounted (it sets body.printing-final-document),
+   un-clip every ancestor, hide the chrome and let the content paginate. */
+@media print {
+  body.printing-final-document aside,
+  body.printing-final-document [data-topnav],
+  body.printing-final-document [data-no-print],
+  body.printing-final-document [data-print-root] button {
+    display: none !important;
+  }
+  html:has(body.printing-final-document),
+  body.printing-final-document,
+  body.printing-final-document :is(div, main):has([data-print-root]),
+  body.printing-final-document [data-print-root],
+  body.printing-final-document :is(div):has(> [data-final-scroll]),
+  body.printing-final-document [data-final-scroll] {
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+  }
+  body.printing-final-document [data-final-scroll] {
+    padding: 0 !important;
+  }
+  body.printing-final-document [data-final-section] {
+    break-inside: auto;
+  }
+  body.printing-final-document [data-final-section] h2 {
+    break-after: avoid;
+  }
+  body.printing-final-document [data-provenance-bar] {
+    display: block !important;
+    margin-top: 12px;
+  }
+}

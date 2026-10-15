@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useTaLabels } from '../../hooks'
+import { useTaFilterOptions } from '../../hooks'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { MedContentItem, MedContentStatus, MedContentType } from '@platform/types'
@@ -342,7 +342,6 @@ export function MedicalWritingHome() {
 
   const [activeTab, setActiveTab] = useState<StageTab>('all')
   const [taFilter,  setTaFilter]  = useState<TAOption>('all')
-  const { labels: taLabels } = useTaLabels()
   const [typeFilter, setTypeFilter] = useState<MedContentType | 'all'>('all')
   const [newContentOpen, setNewContentOpen] = useState<false | { duplicateSourceId: string | null }>(false)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -352,6 +351,8 @@ export function MedicalWritingHome() {
     queryFn:  () => medContentApi.list(projectId!),
     enabled:  !!projectId,
   })
+
+  const { options: taOptions, isLoading: taLoading, isError: taError } = useTaFilterOptions(contents.map(c => c.taTag))
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -607,7 +608,7 @@ export function MedicalWritingHome() {
         {/* Filter bar: TA + type dropdowns */}
         <div className="flex flex-wrap items-center gap-3" data-filter-bar>
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-            <span>Therapy area</span>
+            <span>Therapeutic Area</span>
             <select
               value={taFilter}
               onChange={(e) => setTaFilter(e.target.value as TAOption)}
@@ -615,7 +616,9 @@ export function MedicalWritingHome() {
               className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[13px] text-slate-800 outline-none"
             >
               <option value="all">All TAs</option>
-              {taLabels.map(ta => <option key={ta} value={ta}>{ta}</option>)}
+              {taOptions.length === 0 && taLoading && <option disabled>Loading…</option>}
+              {taOptions.length === 0 && taError && <option disabled>Couldn't load therapeutic areas</option>}
+              {taOptions.map(ta => <option key={ta} value={ta}>{ta}</option>)}
             </select>
           </label>
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">

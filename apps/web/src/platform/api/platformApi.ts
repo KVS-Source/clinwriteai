@@ -55,15 +55,51 @@ function taTagShape(r: TaxonomyRow): TATag {
     status:        r.status,
     projectCount:  r.projectCount ?? 0,
     documentCount: r.documentCount ?? 0,
-    createdAt:     r.createdAt.slice(0, 10),
+    createdAt:     r.createdAt,   // full ISO timestamp — the TA list sorts same-day tags by time
     createdBy:     r.createdBy,
     archivedAt:    r.archivedAt?.slice(0, 10),
   }
 }
 
-export interface UpdateFrameworkBody {
-  status?:         string
-  changeSummary?:  string
+// sPM18 — the API's regulatory_frameworks row (GET/POST /admin/frameworks).
+interface FrameworkRow {
+  id:            string
+  name:          string          // unique short code, e.g. 'ICH E3'
+  version:       string
+  jurisdiction:  string          // issuer, e.g. 'ICH' | 'FDA' | 'EMA'
+  category:      string
+  effectiveDate: string
+  retiredAt:     string | null
+  description:   string | null   // full name
+  sourceUrl:     string | null
+  updatedAt:     string
+}
+
+export interface CreateFrameworkBody {
+  name:          string
+  version:       string
+  jurisdiction:  string
+  category:      string
+  effectiveDate: string          // ISO datetime
+  description?:  string
+  sourceUrl?:    string
+}
+
+// The registry stores no scope or revision status yet: scope is empty and
+// status is Current / Deprecated (retired) only.
+function frameworkShape(r: FrameworkRow): RegulatoryFramework {
+  return {
+    id:            r.id,
+    code:          r.name,
+    name:          r.description || r.name,
+    issuer:        r.jurisdiction,
+    version:       r.version,
+    effectiveDate: r.effectiveDate,
+    scope:         [],
+    status:        r.retiredAt ? 'Deprecated' : 'Current',
+    lastUpdated:   r.updatedAt,
+    changeSummary: null,
+  }
 }
 
 export interface GenerateReportBody {
@@ -183,9 +219,12 @@ export const platformApi = {
 
   // sPM18 — Regulatory Frameworks
   listFrameworks: () =>
-    api.get<RegulatoryFramework[]>('/regulatory-frameworks'),
-  updateFramework: (frameworkId: string, patch: UpdateFrameworkBody) =>
-    api.patch<RegulatoryFramework>(`/regulatory-frameworks/${frameworkId}`, patch),
+    api.get<FrameworkRow[]>('/admin/frameworks?includeRetired=true').then(rows => rows.map(frameworkShape)),
+  createFramework: (body: CreateFrameworkBody) =>
+    api.post<FrameworkRow>('/admin/frameworks', body).then(frameworkShape),
+  // Marks a framework superseded (sets retiredAt). Audited server-side; irreversible.
+  retireFramework: (frameworkId: string) =>
+    api.post<FrameworkRow>(`/admin/frameworks/${encodeURIComponent(frameworkId)}/retire`, {}).then(frameworkShape),
 
   // sB10 — Slide Deck (Scientific Writing)
   getSlideDeckJob: (publicationId: string, jobId: string) =>

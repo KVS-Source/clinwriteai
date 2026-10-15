@@ -122,7 +122,7 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
       </Section>
 
       <Section title="Study details">
-        <Field label="Therapeutic area *">
+        <Field label="Therapeutic area *" wide>
           <select value={therapeuticArea} onChange={e => setTherapeuticArea(e.currentTarget.value)} required
             className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]">
             <option value="" disabled>{tasLoading ? 'Loading…' : taLabels.length ? 'Select a therapeutic area' : 'No TA tags — add one in Admin → TA Tags'}</option>
@@ -139,7 +139,7 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
           <input value={indication} onChange={e => setIndication(e.currentTarget.value)}
             className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
         </Field>
-        <Field label="Reference trial">
+        <Field label="Reference trial" wide>
           <input value={referenceTrial} onChange={e => setReferenceTrial(e.currentTarget.value)}
             placeholder="VELORA-301, STUDY-ABCD, …"
             className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
@@ -221,9 +221,11 @@ function Section({ title, hint, children }: { title: string; hint?: string; chil
   )
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+// `wide` spans both columns so long placeholders / option text (e.g. "Select a
+// therapeutic area") aren't clipped inside a half-width control.
+function Field({ label, hint, wide, children }: { label: string; hint?: string; wide?: boolean; children: React.ReactNode }) {
   return (
-    <label className="flex flex-col gap-1">
+    <label className={`flex flex-col gap-1 ${wide ? 'md:col-span-2' : ''}`}>
       <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
       {children}
       {hint && <span className="text-[11px] text-slate-400">{hint}</span>}

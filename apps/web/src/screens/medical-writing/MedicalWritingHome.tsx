@@ -1,6 +1,6 @@
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useEffect, useMemo, useState } from 'react'
-import { useTaLabels } from '../../hooks'
+import { useTaFilterOptions } from '../../hooks'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { MedContentItem, MedContentStatus, MedContentType } from '@platform/types'
@@ -60,6 +60,17 @@ const TRACK_META = {
   mlr:   { label: 'MLR TRACK',   bg: '#EFF6FF', fg: '#2563EB' },
   accme: { label: 'ACCME TRACK', bg: '#F0FDF4', fg: '#15803D' },
 } as const
+
+// The API returns the DB track vocabulary (promotional | non_promotional |
+// cme | advisory); fixtures use the short UI form (mlr | accme). CME is the
+// ACCME track; every other track goes through MLR.
+function trackMetaFor(track: string | null | undefined) {
+  return track === 'accme' || track === 'cme' ? TRACK_META.accme : TRACK_META.mlr
+}
+
+// Neutral badge for a type/status the UI has no metadata for, so one
+// unexpected value can't take down the whole list.
+const UNKNOWN_META = { label: '—', bg: '#F1F5F9', fg: '#475569' } as const
 
 // --- Helpers ---
 
@@ -139,9 +150,9 @@ interface ContentRowProps {
   onOpen: () => void
 }
 function ContentRow({ item, onOpen }: ContentRowProps) {
-  const typeMeta   = MED_CONTENT_TYPE_META[item.type]
-  const statusMeta = MED_CONTENT_STATUS_META[item.status]
-  const trackMeta  = TRACK_META[item.complianceTrack]
+  const typeMeta   = MED_CONTENT_TYPE_META[item.type] ?? { ...UNKNOWN_META, label: String(item.type) }
+  const statusMeta = MED_CONTENT_STATUS_META[item.status] ?? { ...UNKNOWN_META, label: String(item.status) }
+  const trackMeta  = trackMetaFor(item.complianceTrack)
   const showFk     = isPatientFacing(item.type) && item.fkScore !== null && item.fkScore !== undefined
   const showTier   = item.reviewTier !== null && item.reviewTier !== undefined
   const expiryDate = item.expiryDate ?? null
@@ -332,7 +343,6 @@ export function MedicalWritingHome() {
 
   const [activeTab, setActiveTab] = useState<StageTab>('all')
   const [taFilter,  setTaFilter]  = useState<TAOption>('all')
-  const { labels: taLabels } = useTaLabels()
   const [typeFilter, setTypeFilter] = useState<MedContentType | 'all'>('all')
   const [newContentOpen, setNewContentOpen] = useState<false | { duplicateSourceId: string | null }>(false)
   const [uploadOpen, setUploadOpen] = useState(false)
@@ -342,6 +352,8 @@ export function MedicalWritingHome() {
     queryFn:  () => medContentApi.list(projectId!),
     enabled:  !!projectId,
   })
+
+  const { options: taOptions, isLoading: taLoading, isError: taError } = useTaFilterOptions(contents.map(c => c.taTag))
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -605,7 +617,9 @@ export function MedicalWritingHome() {
               className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[13px] text-slate-800 outline-none"
             >
               <option value="all">All TAs</option>
-              {taLabels.map(ta => <option key={ta} value={ta}>{ta}</option>)}
+              {taOptions.length === 0 && taLoading && <option disabled>Loading…</option>}
+              {taOptions.length === 0 && taError && <option disabled>Couldn't load therapeutic areas</option>}
+              {taOptions.map(ta => <option key={ta} value={ta}>{ta}</option>)}
             </select>
           </label>
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">

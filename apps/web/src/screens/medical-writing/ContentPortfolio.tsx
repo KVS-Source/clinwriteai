@@ -1,6 +1,6 @@
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useMemo, useState } from 'react'
-import { useTaLabels } from '../../hooks'
+import { useTaFilterOptions } from '../../hooks'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { MedContentItem } from '@platform/types'
@@ -61,7 +61,6 @@ export function ContentPortfolio() {
 
   const [scope,    setScope]    = useState<Scope>('all')
   const [taFilter, setTaFilter] = useState<string>('all')   // TA label or 'all'
-  const { labels: taLabels } = useTaLabels()
   const [toast,    setToast]    = useState<string | null>(null)
 
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 4200) }
@@ -71,6 +70,8 @@ export function ContentPortfolio() {
     queryFn:  () => medContentApi.getPortfolio(projectId!, scope),
     enabled:  !!projectId,
   })
+
+  const { options: taOptions, isLoading: taLoading, isError: taError } = useTaFilterOptions(items.map(i => i.taTag))
 
   // Apply TA filter client-side
   const filtered = useMemo(
@@ -160,7 +161,9 @@ export function ContentPortfolio() {
               className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[13px] text-slate-800"
             >
               <option value="all">All TAs</option>
-              {taLabels.map(ta => <option key={ta} value={ta}>{ta}</option>)}
+              {taOptions.length === 0 && taLoading && <option disabled>Loading…</option>}
+              {taOptions.length === 0 && taError && <option disabled>Couldn't load therapeutic areas</option>}
+              {taOptions.map(ta => <option key={ta} value={ta}>{ta}</option>)}
             </select>
           </label>
         </div>
@@ -174,7 +177,8 @@ export function ContentPortfolio() {
                 <div className="flex flex-col gap-2">
                   {l.items.map(item => {
                     const overdue = item.mlrOverdue === true
-                    const typeMeta = MED_CONTENT_TYPE_META[item.type]
+                    // Fallback keeps an unexpected type from crashing the board.
+                    const typeMeta = MED_CONTENT_TYPE_META[item.type] ?? { bg: '#F1F5F9', fg: '#475569', code: String(item.type).toUpperCase() }
                     return (
                       <button
                         key={item.id}

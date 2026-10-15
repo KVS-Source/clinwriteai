@@ -12,6 +12,27 @@
   }
 }
 
+/* Rich-text editor lists. The editor carries `prose`, but @tailwindcss/typography
+   isn't installed, so Tailwind's preflight leaves <ul>/<ol> with no markers or
+   indent — the toolbar's list buttons applied lists that were invisible. Scoped to
+   .tiptap-editor (editable + read-only renders) so nothing else changes. */
+@layer components {
+  .tiptap-editor ul,
+  .tiptap-editor ol {
+    padding-left: 1.5em;
+    margin: 0.5em 0;
+  }
+  .tiptap-editor ul { list-style-type: disc; }
+  .tiptap-editor ol { list-style-type: decimal; }
+  .tiptap-editor ul ul { list-style-type: circle; }
+  .tiptap-editor ul ul ul { list-style-type: square; }
+  .tiptap-editor ol ol { list-style-type: lower-alpha; }
+  .tiptap-editor ol ol ol { list-style-type: lower-roman; }
+  .tiptap-editor li { margin: 0.15em 0; padding-left: 0.25em; }
+  .tiptap-editor li::marker { color: #475569; }
+  .tiptap-editor li > p { margin: 0; }
+}
+
 @layer utilities {
   @keyframes auroraShimmer {
     0%, 100% { opacity: 0.55; }

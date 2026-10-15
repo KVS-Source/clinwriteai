@@ -16,8 +16,9 @@ function errorMessage(err: unknown): string {
   return 'Something went wrong. Please try again.'
 }
 
-// createdAt arrives as 'YYYY-MM-DD'; parse as a local date so the day never
-// shifts with the viewer's timezone.
+// createdAt arrives as an ISO timestamp (or 'YYYY-MM-DD' from mocks); only the
+// date part is shown, parsed as a local date so the day never shifts with the
+// viewer's timezone.
 function formatCreated(ymd: string | undefined): string {
   if (!ymd) return '—'
   const [y, m, d] = ymd.slice(0, 10).split('-').map(Number)
@@ -49,8 +50,8 @@ export function TATagConfiguration() {
   const activeCount = tags.filter(t => t.status === 'active').length
 
   // In-use tags (linked to projects/documents) first, then the rest; newest
-  // created first within each group, name as the tie-break. createdAt is an
-  // ISO date string, so string order is date order.
+  // created first within each group, name as the tie-break. createdAt is a full
+  // ISO timestamp, so string order is creation order — same-day tags included.
   const sortedTags = useMemo(() => {
     const inUse = (t: TATag) => t.projectCount + t.documentCount > 0
     return [...tags].sort((a, b) =>

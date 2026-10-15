@@ -1,9 +1,12 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { KOLSession } from '@platform/types'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
+import { ApiError } from '../../api/client'
 import { useKOLStore } from '../../modules/medical-writing/store'
+import { SlidePanel } from '../../components/ui'
+import { VoiceNoteRecorder, formatClock, type LocalVoiceNote } from './KOLVoiceNoteRecorder'
 
 // --- Helpers ---
 
@@ -22,6 +25,18 @@ function formatDateTime(iso: string | null | undefined): string {
   const hh = String(d.getUTCHours()).padStart(2, '0')
   const mm = String(d.getUTCMinutes()).padStart(2, '0')
   return `${date} ${hh}:${mm} UTC`
+}
+
+// Plain-language reason for a failed request. Never shows raw status codes or server text.
+function describeRequestError(e: unknown, doing: string): string {
+  if (e instanceof ApiError) {
+    if (e.status === 401) return 'Your session has expired. Sign in again and retry.'
+    if (e.status === 403) return `You don't have access to Medical Writing, so ${doing} isn't available to you.`
+    if (e.status === 404) return `This content item or its KOL session no longer exists, so ${doing} isn't available.`
+    if (e.status === 503) return `Medical Writing is switched off on this server, so ${doing} isn't available.`
+    return `Something went wrong on the server while ${doing}. Please try again.`
+  }
+  return `Could not reach the server while ${doing}. Check your connection and try again.`
 }
 
 // Static messaging framework returned after insights are generated
@@ -69,10 +84,22 @@ export function KOLAdvisoryBoardSession() {
   const [sessionNotes, setSessionNotes] = useState('')
   const [toast, setToast] = useState<string | null>(null)
 
+  // Voice notes are browser-only for now (no API): they live in this tab and are freed on leave.
+  const [voiceOpen, setVoiceOpen] = useState(false)
+  const [voiceNotes, setVoiceNotes] = useState<LocalVoiceNote[]>([])
+  const voiceNotesRef = useRef<LocalVoiceNote[]>([])
+  voiceNotesRef.current = voiceNotes
+  useEffect(() => () => { voiceNotesRef.current.forEach(n => URL.revokeObjectURL(n.url)) }, [])
+  const removeVoiceNote = (id: string) => setVoiceNotes(list => {
+    const gone = list.find(n => n.id === id)
+    if (gone) URL.revokeObjectURL(gone.url)
+    return list.filter(n => n.id !== id)
+  })
+
   // Module-level screen: resolve the active content from the first project
   // content item (users can switch via the picker). Removes the previous
   // hardcoded MOCK_CONTENT_ID = 'mc-001' which broke every non-VELORA project.
-  const { data: projectContent = [] } = useQuery({
+  const { data: projectContent = [], isLoading: contentLoading, isError: contentError, error: contentErr } = useQuery({
     queryKey: ['medContent', projectId],
     queryFn:  () => medContentApi.list(projectId!),
     enabled:  !!projectId,
@@ -82,7 +109,7 @@ export function KOLAdvisoryBoardSession() {
     if (!activeContentId && projectContent.length > 0) setActiveContentId(projectContent[0].id)
   }, [projectContent, activeContentId])
 
-  const { data: fetched } = useQuery({
+  const { data: fetched, isError: sessionError, error: sessionErr } = useQuery({
     queryKey: ['kol-session', activeContentId],
     queryFn:  () => medContentApi.getKOLSession(activeContentId!),
     enabled:  !!activeContentId,
@@ -90,21 +117,40 @@ export function KOLAdvisoryBoardSession() {
 
   useEffect(() => { if (fetched) setSession(fetched as KOLSession) }, [fetched, setSession])
 
+  const [generateError, setGenerateError] = useState<string | null>(null)
+
+  // Why the session isn't available, if it isn't — shown instead of failing silently.
+  const loadProblem: string | null =
+    contentError ? describeRequestError(contentErr, 'loading this project\'s content')
+    : !contentLoading && !contentError && projectContent.length === 0 ? 'This project has no Medical Writing content yet, so there is no KOL session to report on.'
+    : sessionError ? describeRequestError(sessionErr, 'loading the KOL session')
+    : null
+
   const generateMutation = useMutation({
     mutationFn: () => {
       if (!session) return Promise.reject(new Error('no session'))
       setGeneratingInsights(true)
       return medContentApi.generateInsights(session.id)
     },
+    onMutate: () => setGenerateError(null),
     onSuccess: (data) => {
       setInsightsReportText(data.insightsReportText)
       setMessagingFramework(DEFAULT_FRAMEWORK.map(r => r.claim))
       setGeneratingInsights(false)
     },
-    onError: () => setGeneratingInsights(false),
+    onError: (e) => {
+      setGeneratingInsights(false)
+      setGenerateError(describeRequestError(e, 'generating the insights report'))
+    },
   })
 
-  const handleGenerate = () => generateMutation.mutate()
+  const handleGenerate = () => {
+    if (!session) {
+      setGenerateError(loadProblem ?? 'The KOL session has not loaded yet. Wait a moment and try again.')
+      return
+    }
+    generateMutation.mutate()
+  }
 
   const handleRequestApproval = () => {
     const kolNames = (session?.attendees ?? [])
@@ -162,7 +208,7 @@ export function KOLAdvisoryBoardSession() {
             <span className="font-mono text-[11px] uppercase" style={{ letterSpacing: '0.1em', color: '#7C3AED' }}>Stage 2 of 6</span>
             <button
               type="button"
-              onClick={() => flash('Voice recorder — Clinical Writing VoiceNotePanel')}
+              onClick={() => setVoiceOpen(true)}
               data-add-voice-note
               className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
             >Add voice note</button>
@@ -247,30 +293,53 @@ export function KOLAdvisoryBoardSession() {
         {/* Voice Notes */}
         <section className="rounded-lg border border-slate-200 bg-white p-5" data-panel="voice-notes">
           <h2 className="mb-3 text-[14px] font-bold text-slate-900">Voice Notes</h2>
-          <div className="flex items-start gap-3">
-            <div className="flex-1 rounded-md bg-slate-50 p-3">
-              <div className="mb-1 flex items-center gap-2">
-                <span className="text-[13px] font-semibold text-slate-800">Voice note · Ad Board opening</span>
-                <span
-                  className="rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold"
-                  style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}
-                  data-transcribed-badge
-                >TRANSCRIBED ✓</span>
-              </div>
-              <p className="font-mono text-[11px]" style={{ color: '#64748B' }} data-transcription-attribution>
-                Transcribed by {session?.transcriptionEngine ?? 'OpenAI Whisper'} · {formatDateTime(session?.transcriptionTimestamp)} · Logged to audit trail
+          <div className="flex flex-col gap-2" data-voice-note-list>
+            {voiceNotes.length === 0 && (
+              <p className="rounded-md bg-slate-50 p-3 text-[13px] text-slate-600" data-voice-empty>
+                No voice notes yet. Use <span className="font-semibold">Add voice note</span> to record one or upload an audio file.
               </p>
-              <div className="mt-2 flex gap-2">
-                <button type="button" className="text-[12px] font-semibold text-violet-700 hover:underline" onClick={() => flash('Transcript viewer')}>View transcript</button>
-                <button type="button" className="text-[12px] font-semibold text-violet-700 hover:underline" onClick={() => flash('Upload meeting transcript')}>Upload meeting transcript</button>
+            )}
+            {voiceNotes.map(n => (
+              <div key={n.id} className="rounded-md bg-slate-50 p-3" data-voice-note={n.id}>
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <span className="text-[13px] font-semibold text-slate-800">{n.label}</span>
+                  <span
+                    className="rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold"
+                    style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}
+                  >NOT SAVED · NOT TRANSCRIBED</span>
+                  <button
+                    type="button"
+                    onClick={() => removeVoiceNote(n.id)}
+                    className="ml-auto text-[12px] font-semibold text-red-700 hover:underline"
+                    aria-label={`Remove ${n.label}`}
+                  >Remove</button>
+                </div>
+                <p className="mb-2 font-mono text-[11px]" style={{ color: '#64748B' }}>
+                  {n.source === 'recorded' ? 'Recorded' : 'Uploaded'} · {formatClock(n.durationSec)} · {formatDateTime(n.createdAt)}
+                </p>
+                <audio controls src={n.url} className="w-full" />
               </div>
-            </div>
+            ))}
+            <p className="text-[11px]" style={{ color: '#64748B' }}>
+              Voice notes are kept in this browser tab only until server storage is available. They are lost when you refresh.
+            </p>
+            <button
+              type="button"
+              className="w-fit text-[12px] font-semibold text-violet-700 hover:underline"
+              onClick={() => flash('Upload meeting transcript')}
+            >Upload meeting transcript</button>
           </div>
           <div className="mt-3 flex items-center gap-2 rounded-md bg-slate-50 p-3">
             <span className="text-[13px] text-slate-800">📄 {session?.transcriptRef ?? '—'}</span>
             <span className="font-mono text-[11px]" style={{ color: '#15803D' }}>UPLOADED ✓ · Indexed for AI insights</span>
           </div>
         </section>
+
+        {(loadProblem || generateError) && (
+          <div className="rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-800" role="alert" data-insights-problem>
+            {generateError ?? loadProblem}
+          </div>
+        )}
 
         {/* KOL Insights Report */}
         <section className="rounded-lg border border-slate-200 bg-white p-5" data-panel="insights-report">
@@ -408,6 +477,23 @@ export function KOLAdvisoryBoardSession() {
           </p>
         </section>
       </div>
+
+      <SlidePanel
+        open={voiceOpen}
+        onClose={() => setVoiceOpen(false)}
+        title="Add voice note"
+        subtitle="KOL Advisory Board Session"
+        storageKey="kol-voice-panel-width"
+        defaultWidth={420}
+      >
+        <VoiceNoteRecorder
+          onSave={note => {
+            setVoiceNotes(list => [note, ...list])
+            setVoiceOpen(false)
+            flash('Voice note added to this session (not saved to the server).')
+          }}
+        />
+      </SlidePanel>
 
       {toast && (
         <div

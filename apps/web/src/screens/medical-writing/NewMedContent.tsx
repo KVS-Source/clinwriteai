@@ -110,7 +110,9 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
         ? 'Medical Writing (Module C) is not enabled on this deployment.'
         : create.error.status === 403
           ? 'You do not have write access to this project.'
-          : `Could not create (HTTP ${create.error.status}).`
+          // Surface the API's reason (e.g. an inactive therapeutic area).
+          : (create.error.body as { message?: string } | null)?.message
+            ?? `Could not create (HTTP ${create.error.status}).`
       : 'Could not create — see console for details.'
     : null
 

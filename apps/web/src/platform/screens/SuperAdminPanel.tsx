@@ -1,11 +1,15 @@
 import { useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import type {
-  PlatformClient, PlatformAnalytics, PlatformConfig, AuditTrailEntry,
+  PlatformAnalytics, PlatformConfig, AuditTrailEntry,
 } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
+import { describeApiError } from '../../api'
+import { useTenants } from '../../hooks'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
+import { NewTenantDialog } from './tenant-admin/TenantDirectory'
 
 type TabKey = 'clients' | 'analytics' | 'ai-engines' | 'feature-flags'
 
@@ -74,23 +78,33 @@ function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: s
 
 // -------------- Tab bodies --------------
 
-function ClientsTab({ clients, analytics }: { clients: PlatformClient[]; analytics: PlatformAnalytics | null }) {
-  const counts = analytics?.clientCounts ?? { active: 0, suspended: 0, churned: 0 }
+// A client is a tenant (GET/POST /admin/tenants). Plan, admin contact and
+// revenue aren't on the tenant record yet, so those columns show "—".
+function ClientsTab() {
+  const { data: tenants = [], isLoading, error } = useTenants()
+  const [newOpen, setNewOpen] = useState(false)
+  const counts = {
+    active:    tenants.filter(t => t.status === 'active').length,
+    suspended: tenants.filter(t => t.status === 'suspended').length,
+    archived:  tenants.filter(t => t.status === 'archived').length,
+  }
   return (
     <div className="flex flex-col gap-5" data-tab-panel="clients">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <SectionHeader
           eyebrow="Client Management"
-          title={`${counts.active} active clients · ${counts.suspended} suspended · ${counts.churned} churned`}
+          title={`${counts.active} active clients · ${counts.suspended} suspended · ${counts.archived} archived`}
           subtitle="GenBioCa-internal view. Super Admin governs every client organisation; Admin governs a single client account."
         />
         <button
           type="button"
           data-new-client
+          onClick={() => setNewOpen(true)}
           className="h-9 rounded-md px-3 text-[13px] font-semibold text-white"
           style={{ backgroundColor: PLATFORM_ACCENT.primary }}
         >+ New client →</button>
       </div>
+      {newOpen && <NewTenantDialog noun="client" onClose={() => setNewOpen(false)} />}
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-clients-table>
         <table className="w-full text-[13px]">
@@ -106,25 +120,37 @@ function ClientsTab({ clients, analytics }: { clients: PlatformClient[]; analyti
             </tr>
           </thead>
           <tbody>
-            {clients.map(c => (
+            {isLoading && (
+              <tr><td colSpan={7} className="px-4 py-6 text-center text-[13px] text-slate-500">Loading clients…</td></tr>
+            )}
+            {error && (
+              <tr><td colSpan={7} className="px-4 py-6 text-center text-[13px] text-red-700" role="alert">Couldn't load clients — {describeApiError(error).message}</td></tr>
+            )}
+            {!isLoading && !error && tenants.length === 0 && (
+              <tr><td colSpan={7} className="px-4 py-6 text-center text-[13px] text-slate-500">No clients yet. Click <strong>+ New client</strong> to add one.</td></tr>
+            )}
+            {tenants.map(c => (
               <tr key={c.id} className="border-t border-slate-200" data-client-row={c.id} data-client-status={c.status}>
                 <td className="px-4 py-3">
                   <p className="font-semibold text-slate-900">{c.name}</p>
-                  {c.note && <p className="mt-0.5 font-mono text-[10px] text-slate-500">{c.note}</p>}
+                  <p className="mt-0.5 font-mono text-[10px] text-slate-500">{c.slug}</p>
                 </td>
-                <td className="px-4 py-3 text-slate-700">{c.plan}</td>
+                <td className="px-4 py-3 text-slate-400">—</td>
                 <td className="px-4 py-3">
                   {c.status === 'active'    && <StatusChip status="ok"   label="✓ Active"    />}
                   {c.status === 'suspended' && <StatusChip status="warn" label="⚠ Suspended" />}
-                  {c.status === 'churned'   && <StatusChip status="off"  label="○ Churned"   />}
+                  {c.status === 'archived'  && <StatusChip status="off"  label="○ Archived"  />}
                 </td>
-                <td className="px-4 py-3 text-slate-700">{c.adminContactName ?? '—'}</td>
+                <td className="px-4 py-3 text-slate-400">—</td>
                 <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{formatDay(c.createdAt)}</td>
-                <td className="px-4 py-3 text-right font-mono text-slate-800">{formatGBP(c.revenueToDateGBP)}</td>
+                <td className="px-4 py-3 text-right font-mono text-slate-400">—</td>
                 <td className="px-4 py-3 text-right">
-                  {c.status === 'active'    && <button type="button" className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-client-action="view-suspend">{c.note === '(internal)' ? 'View' : 'View / Suspend'}</button>}
-                  {c.status === 'suspended' && <button type="button" className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-client-action="reactivate">Reactivate</button>}
-                  {c.status === 'churned'   && <button type="button" className="text-[12px] font-semibold text-slate-500" data-client-action="view-readonly">View (read-only)</button>}
+                  <Link
+                    to={`/super-admin/tenants/${c.id}`}
+                    className="text-[12px] font-semibold hover:underline"
+                    style={{ color: c.status === 'archived' ? '#64748B' : PLATFORM_ACCENT.primary }}
+                    data-client-action={c.status === 'active' ? 'view-suspend' : c.status === 'suspended' ? 'reactivate' : 'view-readonly'}
+                  >{c.status === 'active' ? 'View / Suspend' : c.status === 'suspended' ? 'View / Reactivate' : 'View (read-only)'}</Link>
                 </td>
               </tr>
             ))}
@@ -329,7 +355,6 @@ export function SuperAdminPanel() {
   const [activeTab, setActiveTab] = useState<TabKey>('clients')
 
   const { data: config }    = useQuery({ queryKey: ['platform-config'],       queryFn: () => platformApi.getConfig() })
-  const { data: clients = [] } = useQuery({ queryKey: ['sa-clients'],         queryFn: () => platformApi.listPlatformClients() })
   const { data: analytics = null } = useQuery({ queryKey: ['sa-analytics'],   queryFn: () => platformApi.getPlatformAnalytics() })
   const { data: audit = [] }   = useQuery({ queryKey: ['audit'],              queryFn: () => platformApi.listAudit() })
 
@@ -388,7 +413,7 @@ export function SuperAdminPanel() {
           </aside>
 
           <section className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5" data-settings-content>
-            {activeTab === 'clients'       && <ClientsTab       clients={clients as PlatformClient[]} analytics={analytics as PlatformAnalytics | null} />}
+            {activeTab === 'clients'       && <ClientsTab />}
             {activeTab === 'analytics'     && analytics && <AnalyticsTab analytics={analytics as PlatformAnalytics} />}
             {activeTab === 'ai-engines'    && config    && <AIEnginesTab    config={config as PlatformConfig} />}
             {activeTab === 'feature-flags' && config    && <FeatureFlagsTab config={config as PlatformConfig} onToggle={onFlagToggle} />}

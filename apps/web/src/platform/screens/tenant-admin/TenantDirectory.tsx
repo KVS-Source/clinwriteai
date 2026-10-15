@@ -64,7 +64,8 @@ function ModuleChips({ enabled, capped }: { enabled: string[]; capped: boolean }
   )
 }
 
-function NewTenantDialog({ onClose }: { onClose: () => void }) {
+// Also opened from the Super Admin Panel's "+ New client" (a client is a tenant).
+export function NewTenantDialog({ onClose, noun = 'tenant' }: { onClose: () => void; noun?: 'tenant' | 'client' }) {
   const [slug, setSlug] = useState('')
   const [name, setName] = useState('')
   const create = useCreateTenant()
@@ -83,7 +84,7 @@ function NewTenantDialog({ onClose }: { onClose: () => void }) {
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-slate-900/40" data-dialog="new-tenant">
       <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
-        <h3 className="text-[16px] font-bold text-slate-900">New tenant</h3>
+        <h3 className="text-[16px] font-bold text-slate-900">New {noun}</h3>
         <p className="mt-1 text-[12px] text-slate-500">
           Slug is lowercase alphanumeric + hyphens; shown in URLs. Only Clinical
           Writing is enabled by default — adjust after creation.
@@ -124,7 +125,7 @@ function NewTenantDialog({ onClose }: { onClose: () => void }) {
             className="rounded-md bg-slate-800 px-3 py-1.5 text-[13px] font-semibold text-white disabled:opacity-50"
             data-action="create-tenant"
           >
-            {create.isPending ? 'Creating…' : 'Create tenant'}
+            {create.isPending ? 'Creating…' : `Create ${noun}`}
           </button>
         </div>
       </div>

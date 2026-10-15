@@ -142,7 +142,12 @@ export class DocumentService {
       if (!doc?.currentVersion) throw new Error(`Document ${args.documentId} not found or has no current version`)
 
       const current = doc.currentVersion
+      // Match the stable section key. A row uuid (sent by clients that loaded
+      // the document before the API exposed the key) is resolved to its key
+      // so the edit updates that section instead of appending a new one.
       const existing = current.sections.find(s => s.sectionId === args.sectionId)
+        ?? current.sections.find(s => s.id === args.sectionId)
+      if (existing) args = { ...args, sectionId: existing.sectionId }
 
       // No-op if content didn't actually change — spare the version churn.
       if (existing && existing.contentHtml === args.contentHtml) {
@@ -178,7 +183,14 @@ export class DocumentService {
         })
       }
 
-      const nextVersionNumber = bumpVersion(current.versionNumber)
+      // Bump from the highest existing version, not just the current one, so
+      // a stale current pointer can never collide with the
+      // (documentId, versionNumber) unique key.
+      const allVersions = await tx.documentVersion.findMany({
+        where: { documentId: doc.id },
+        select: { versionNumber: true },
+      })
+      const nextVersionNumber = bumpVersion(highestVersion(allVersions.map(v => v.versionNumber), current.versionNumber))
       const nextHash = hashSections(nextSections)
 
       // Atomically: mark old version non-current, insert new version + its
@@ -244,6 +256,22 @@ export class DocumentService {
 }
 
 // --- helpers --------------------------------------------------------------
+
+/** Highest "vMAJOR.MINOR" label in `labels`, or `fallback` if none parse. */
+export function highestVersion(labels: string[], fallback: string): string {
+  let best: [number, number] | null = null
+  let bestLabel = fallback
+  for (const l of labels) {
+    const m = l.match(/^v(\d+)\.(\d+)$/)
+    if (!m) continue
+    const cand: [number, number] = [Number(m[1]), Number(m[2])]
+    if (!best || cand[0] > best[0] || (cand[0] === best[0] && cand[1] > best[1])) {
+      best = cand
+      bestLabel = l
+    }
+  }
+  return bestLabel
+}
 
 function bumpVersion(v: string): string {
   // Simple "v0.N" ladder for Phase 3A. Cross-major jumps (v1.0 → v1.1) land

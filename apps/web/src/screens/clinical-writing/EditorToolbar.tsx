@@ -1,4 +1,5 @@
 import type { PanelMode } from '@platform/types'
+import { useEditorState } from '@tiptap/react'
 import { useDocumentStore } from '../../store'
 import { ReferenceDropdown } from '../../components/ui'
 
@@ -133,10 +134,27 @@ export function EditorToolbar({ editor }: EditorToolbarProps = {}) {
     cmd(chain)
     chain.run()
   }
-  const isActive = (name: string, attrs?: Record<string, unknown>) => !!editor?.isActive(name, attrs)
-  const formatDisabled = !editor?.isEditable
-  const currentHeadingLevel =
-    editor && [2, 3, 4].find(l => editor.isActive('heading', { level: l })) || null
+  // TipTap v3 no longer re-renders on every transaction, so reading
+  // editor.isEditable / isActive() during render goes stale — the heading
+  // select stayed disabled (or showed the wrong level) after entering edit
+  // mode or moving the cursor. useEditorState subscribes to the editor and
+  // re-renders the toolbar whenever these derived values change.
+  const state = useEditorState({
+    editor: editor ?? null,
+    selector: ({ editor: e }) => ({
+      editable:     !!e?.isEditable,
+      bold:         !!e?.isActive('bold'),
+      italic:       !!e?.isActive('italic'),
+      underline:    !!e?.isActive('underline'),
+      bulletList:   !!e?.isActive('bulletList'),
+      orderedList:  !!e?.isActive('orderedList'),
+      blockquote:   !!e?.isActive('blockquote'),
+      headingLevel: (e && [2, 3, 4].find(l => e.isActive('heading', { level: l }))) || null,
+    }),
+  })
+  const isActive = (name: string) => !!state?.[name as keyof typeof state]
+  const formatDisabled = !state?.editable
+  const currentHeadingLevel = state?.headingLevel ?? null
 
   return (
     <div

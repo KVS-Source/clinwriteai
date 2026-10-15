@@ -10,7 +10,7 @@
 // can be the home for the real API wiring without churning the UX of
 // the older screen.
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { describeApiError } from '../../../api'
 import { api } from '../../../api/client'
@@ -135,7 +135,34 @@ export function UserManagementLive() {
   })
   const [showInvite, setShowInvite] = useState(false)
   const [actionError, setActionError] = useState<string | null>(null)
-  const [inviteLink, setInviteLink] = useState<(InviteLink & { email: string }) | null>(null)
+  const [inviteLink, setInviteLink] = useState<(InviteLink & { email: string; kind?: 'sent' | 'resent' }) | null>(null)
+  // Per-row Resend feedback, shown next to the button the admin clicked
+  // (the top banner can be off-screen, or already showing identical text).
+  const [resendState, setResendState] = useState<{ id: string; phase: 'sending' | 'done' | 'failed'; message?: string } | null>(null)
+  const noticeRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (inviteLink) noticeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [inviteLink])
+
+  function resend(u: AdminUser) {
+    setResendState({ id: u.id, phase: 'sending' })
+    usersApi.resendInvite(u.id)
+      .then(r => {
+        setActionError(null)
+        setInviteLink({ email: r.email, inviteUrl: r.inviteUrl, inviteExpiresAt: r.inviteExpiresAt, kind: 'resent' })
+        setResendState({ id: u.id, phase: 'done' })
+      })
+      .catch(e => {
+        const message = describeApiError(e).message
+        setActionError(message)
+        setResendState({ id: u.id, phase: 'failed', message })
+      })
+      .finally(() => {
+        // Clear the inline confirmation after a few seconds.
+        setTimeout(() => setResendState(s => (s?.id === u.id && s.phase !== 'sending' ? null : s)), 5000)
+      })
+  }
 
   function wrap<T>(p: Promise<T>) {
     return p.then(() => {
@@ -172,12 +199,16 @@ export function UserManagementLive() {
         {actionError && <p className="rounded-md bg-red-50 p-3 text-[13px] text-red-800" data-error>{actionError}</p>}
 
         {showInvite && (
-          <InviteForm onDone={(email, link) => { setShowInvite(false); setInviteLink({ email, ...link }) }} />
+          <InviteForm onDone={(email, link) => { setShowInvite(false); setInviteLink({ email, ...link, kind: 'sent' }) }} />
         )}
 
         {inviteLink && (
-          <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-[12px] text-blue-900" data-section="invite-link">
-            <p className="font-semibold">Invitation Sent!</p>
+          <div ref={noticeRef} className="rounded-md border border-blue-200 bg-blue-50 p-3 text-[12px] text-blue-900" data-section="invite-link">
+            <p className="font-semibold">
+              {inviteLink.kind === 'resent'
+                ? `Invitation resent successfully to ${inviteLink.email}.`
+                : 'Invitation Sent!'}
+            </p>
             <div className="mt-2 flex gap-3">
               <button type="button" className="underline" data-action="dismiss-invite-link" onClick={() => setInviteLink(null)}>Dismiss</button>
             </div>
@@ -213,12 +244,20 @@ export function UserManagementLive() {
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-2">
+                      {u.status === 'invited' && resendState?.id === u.id && resendState.phase === 'done' && (
+                        <span className="text-[11px] font-semibold text-green-700" data-resend-done>Resent ✓</span>
+                      )}
+                      {u.status === 'invited' && resendState?.id === u.id && resendState.phase === 'failed' && (
+                        <span className="text-[11px] font-semibold text-red-700" title={resendState.message} data-resend-failed>Resend failed</span>
+                      )}
                       {u.status === 'invited' && (
-                        <button type="button" onClick={() => {
-                          usersApi.resendInvite(u.id)
-                            .then(r => { setActionError(null); setInviteLink({ email: r.email, inviteUrl: r.inviteUrl, inviteExpiresAt: r.inviteExpiresAt }) })
-                            .catch(e => setActionError(describeApiError(e).message))
-                        }} className="text-[11px] text-slate-700 hover:underline" data-action="resend-invite">Resend</button>
+                        <button
+                          type="button"
+                          onClick={() => resend(u)}
+                          disabled={resendState?.id === u.id && resendState.phase === 'sending'}
+                          className="text-[11px] text-slate-700 hover:underline disabled:cursor-wait disabled:opacity-60"
+                          data-action="resend-invite"
+                        >{resendState?.id === u.id && resendState.phase === 'sending' ? 'Sending…' : 'Resend'}</button>
                       )}
                       {u.status === 'active' && (
                         <button type="button" onClick={() => wrap(usersApi.suspend(u.id))} className="text-[11px] text-amber-700 hover:underline" data-action="suspend">Suspend</button>

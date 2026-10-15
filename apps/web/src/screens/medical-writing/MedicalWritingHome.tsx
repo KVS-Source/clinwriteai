@@ -60,6 +60,17 @@ const TRACK_META = {
   accme: { label: 'ACCME TRACK', bg: '#F0FDF4', fg: '#15803D' },
 } as const
 
+// The API returns the DB track vocabulary (promotional | non_promotional |
+// cme | advisory); fixtures use the short UI form (mlr | accme). CME is the
+// ACCME track; every other track goes through MLR.
+function trackMetaFor(track: string | null | undefined) {
+  return track === 'accme' || track === 'cme' ? TRACK_META.accme : TRACK_META.mlr
+}
+
+// Neutral badge for a type/status the UI has no metadata for, so one
+// unexpected value can't take down the whole list.
+const UNKNOWN_META = { label: '—', bg: '#F1F5F9', fg: '#475569' } as const
+
 // --- Helpers ---
 
 function isPatientFacing(type: MedContentType): boolean {
@@ -138,9 +149,9 @@ interface ContentRowProps {
   onOpen: () => void
 }
 function ContentRow({ item, onOpen }: ContentRowProps) {
-  const typeMeta   = MED_CONTENT_TYPE_META[item.type]
-  const statusMeta = MED_CONTENT_STATUS_META[item.status]
-  const trackMeta  = TRACK_META[item.complianceTrack]
+  const typeMeta   = MED_CONTENT_TYPE_META[item.type] ?? { ...UNKNOWN_META, label: String(item.type) }
+  const statusMeta = MED_CONTENT_STATUS_META[item.status] ?? { ...UNKNOWN_META, label: String(item.status) }
+  const trackMeta  = trackMetaFor(item.complianceTrack)
   const showFk     = isPatientFacing(item.type) && item.fkScore !== null && item.fkScore !== undefined
   const showTier   = item.reviewTier !== null && item.reviewTier !== undefined
   const expiryDate = item.expiryDate ?? null

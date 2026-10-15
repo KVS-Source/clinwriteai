@@ -97,6 +97,13 @@ export function medContentShape(m: {
   const { tierOverriddenBy, sourceModuleBPubId, aiFootprintPct, reviewTier, fkScore, ...rest } = m
   return {
     ...rest,
+    // DB stores snake_case enums ('hcp_slide_deck', 'in_mlr_review'); the UI's
+    // MedContentType / MedContentStatus are hyphen-case. Without this the
+    // briefing screen looked up DEFAULT_AUDIENCE['hcp_slide_deck'] → undefined
+    // and crashed. complianceTrack stays in DB vocab — the New-content panel
+    // and PATCH both use it.
+    ...(typeof rest.type === 'string' && { type: rest.type.replace(/_/g, '-') }),
+    ...(typeof rest.status === 'string' && { status: rest.status.replace(/_/g, '-') }),
     fkScore: fkScore === null || fkScore === undefined ? null : Number(fkScore.toString()),
     reviewTier: reviewTier ? (TIER_DB_TO_UI[reviewTier] ?? null) : null,
     reviewTierOverriddenBy: tierOverriddenBy,

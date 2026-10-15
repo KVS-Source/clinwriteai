@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PanelMode, PlatformUser } from '@platform/types'
@@ -238,8 +238,24 @@ export function DocumentEditor() {
     return versions[idx + 1].versionNumber
   })()
 
-  const openCompareVersions = () => {
-    toggleDiffMode(previousVersion, currentVersion)
+  const openCompareVersions = () => compareWith(previousVersion)
+
+  // Version chip dropdown — lists every version; picking an older one opens
+  // the diff against the current version.
+  const [versionMenuOpen, setVersionMenuOpen] = useState(false)
+  const versionMenuRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!versionMenuOpen) return
+    const handler = (e: MouseEvent) => {
+      if (versionMenuRef.current && !versionMenuRef.current.contains(e.target as Node)) setVersionMenuOpen(false)
+    }
+    window.document.addEventListener('mousedown', handler)
+    return () => window.document.removeEventListener('mousedown', handler)
+  }, [versionMenuOpen])
+
+  function compareWith(fromVersion: string) {
+    setVersionMenuOpen(false)
+    toggleDiffMode(fromVersion, currentVersion)
     navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/diff`)
   }
 
@@ -298,16 +314,63 @@ export function DocumentEditor() {
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-base font-bold tracking-tight text-slate-900">{document.title}</h1>
             <span className="flex-none"><StatusPill status={document.status} size="sm" /></span>
-            <button
-              type="button"
-              onClick={openCompareVersions}
-              title="Switch revision / compare"
-              className="flex flex-none items-center gap-2 rounded-md border px-2.5 py-1.5 transition-colors hover:bg-slate-50"
-              style={{ borderColor: '#E2E8F0', backgroundColor: '#FFFFFF' }}
-            >
-              <span className="font-mono text-[11px] font-medium text-slate-500">{currentVersion}</span>
-              <svg width="9" height="9" viewBox="0 0 10 10" className="text-slate-500"><polygon points="1,3 9,3 5,8" fill="currentColor"/></svg>
-            </button>
+            <div ref={versionMenuRef} className="relative flex-none" data-version-dropdown>
+              <button
+                type="button"
+                onClick={() => setVersionMenuOpen(v => !v)}
+                title="Switch revision / compare"
+                aria-haspopup="menu"
+                aria-expanded={versionMenuOpen}
+                className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 transition-colors hover:bg-slate-50"
+                style={{ borderColor: '#E2E8F0', backgroundColor: '#FFFFFF' }}
+              >
+                <span className="font-mono text-[11px] font-medium text-slate-500">{currentVersion}</span>
+                <svg width="9" height="9" viewBox="0 0 10 10" className="text-slate-500"><polygon points="1,3 9,3 5,8" fill="currentColor"/></svg>
+              </button>
+
+              {versionMenuOpen && (
+                <div
+                  role="menu"
+                  className="absolute left-0 z-30 flex flex-col rounded-lg bg-white p-1.5"
+                  style={{ top: '100%', marginTop: 6, minWidth: 240, maxHeight: 320, overflowY: 'auto', border: '1px solid #E2E8F0', boxShadow: '0 8px 20px rgba(15,23,42,0.10)' }}
+                  data-version-menu
+                >
+                  <p className="px-3 pb-1 pt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400">Versions</p>
+                  {versions.length === 0 && (
+                    <p className="px-3 py-2 text-[12px] text-slate-500">Only the current version exists.</p>
+                  )}
+                  {versions.map(v => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      role="menuitem"
+                      disabled={v.isCurrent}
+                      onClick={() => compareWith(v.versionNumber)}
+                      title={v.isCurrent ? 'This is the version you are editing' : `Compare ${v.versionNumber} with ${currentVersion}`}
+                      className="flex items-center justify-between gap-3 rounded px-3 py-2 text-left transition-colors hover:bg-slate-50 disabled:cursor-default disabled:hover:bg-transparent"
+                      data-version-option={v.versionNumber}
+                    >
+                      <span className="flex flex-col">
+                        <span className="font-mono text-[12px] font-semibold text-slate-800">{v.versionNumber} <span className="font-sans font-normal text-slate-500">· {v.label}</span></span>
+                        <span className="text-[11px] text-slate-400">{new Date(v.createdAt).toLocaleString()}</span>
+                      </span>
+                      {v.isCurrent
+                        ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">Current</span>
+                        : <span className="text-[11px] font-semibold text-blue-600">Compare →</span>}
+                    </button>
+                  ))}
+                  {versions.length > 1 && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={openCompareVersions}
+                      className="mt-1 rounded border-t border-slate-100 px-3 py-2 text-left text-[12px] font-semibold text-blue-700 hover:bg-slate-50"
+                      data-version-compare-previous
+                    >Compare with previous version ({previousVersion} → {currentVersion})</button>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Right: autosave + presence + Save + Submit */}

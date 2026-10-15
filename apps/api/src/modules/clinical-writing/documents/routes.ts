@@ -79,9 +79,12 @@ function uiStage(v: string | null | undefined): string {
   return DB_STAGE_TO_UI[raw] ?? hyphenate(raw)
 }
 
-function sectionShape(s: { id: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null }) {
+function sectionShape(s: { id: string; sectionId: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null }) {
   return {
-    id: s.id,
+    // The stable section key ('s11_4', 'sae4'), NOT the row uuid: rows are
+    // re-created on every version, and PATCH /sections/:sectionId matches
+    // on this key. Sending the uuid made every save append a new section.
+    id: s.sectionId,
     number: s.sectionNumber,
     title: s.sectionTitle,
     status: hyphenate(s.ichStatus),
@@ -473,7 +476,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // the section header. Project id is pulled from the document.
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
-      include: { currentVersion: { include: { sections: { where: { id: sectionId } } } } },
+      // Match the stable section key; the row uuid is still accepted for
+      // clients that loaded the document before sectionShape sent the key.
+      include: { currentVersion: { include: { sections: { where: { OR: [{ sectionId }, { id: sectionId }] } } } } },
     })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
     const section = doc.currentVersion?.sections[0]

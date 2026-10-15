@@ -133,6 +133,13 @@ export class DocumentService {
     sourceRef?: string
   }) {
     return this.prisma.$transaction(async (tx) => {
+      // One writer per document at a time. Two saves landing together (a user
+      // plus the collab sidecar, or a double-click) would both read the same
+      // highest version, both insert the next number, and the loser would hit
+      // the (documentId, versionNumber) unique key and surface as "Save
+      // failed". The advisory lock is released when this transaction ends.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.documentId}))`
+
       const doc = await tx.document.findUnique({
         where: { id: args.documentId },
         include: {
@@ -195,8 +202,12 @@ export class DocumentService {
 
       // Atomically: mark old version non-current, insert new version + its
       // sections, update document.current_version_id, append provenance if AI.
-      await tx.documentVersion.update({
-        where: { id: current.id },
+      // Clear the flag on EVERY version of this document, not just the one the
+      // pointer names. If the pointer was ever stale (pointing at v0.3 while
+      // v0.4 is flagged current) clearing only `current.id` would leave two
+      // rows flagged current after this save; this restores "exactly one".
+      await tx.documentVersion.updateMany({
+        where: { documentId: doc.id, isCurrent: true },
         data: { isCurrent: false },
       })
 

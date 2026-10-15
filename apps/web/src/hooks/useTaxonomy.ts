@@ -31,6 +31,25 @@ export function useTaLabels(): { labels: string[]; isLoading: boolean } {
   return { labels, isLoading }
 }
 
+/**
+ * Options for a "Therapeutic Area" filter: the Admin master list plus any TA already carried by the
+ * items on screen. The union keeps the filter useful if the master list is slow, empty or failed to
+ * load — every item shown can still be filtered by its own TA.
+ */
+export function useTaFilterOptions(itemTaTags: Array<string | null | undefined>): {
+  options: string[]; isLoading: boolean; isError: boolean
+} {
+  const { data, isLoading, isError } = useTherapeuticAreas()
+  const key = itemTaTags.join('\u0000')
+  const options = useMemo(() => {
+    const labels = ((data ?? []) as TherapeuticArea[]).map(t => t.label)
+    const fromItems = itemTaTags.filter((t): t is string => !!t)
+    return Array.from(new Set([...labels, ...fromItems])).sort((a, b) => a.localeCompare(b))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [data, key])
+  return { options, isLoading, isError }
+}
+
 export function useTherapeuticArea(code: string | undefined) {
   return useQuery({
     queryKey: taOneKey(code ?? ''),

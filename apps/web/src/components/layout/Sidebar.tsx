@@ -252,6 +252,9 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
               <NavLink
                 key={item.href}
                 to={item.href}
+                // '/library' is a path prefix of '/library/best-practices'; match it exactly so
+                // the two sidebar entries aren't both highlighted on the Best Practices page.
+                end={item.href === '/library'}
                 data-platform-link={item.href}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${

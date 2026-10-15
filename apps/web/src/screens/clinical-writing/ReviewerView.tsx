@@ -3,25 +3,28 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CommentSeverity } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { useCurrentUser } from '../../hooks'
+import { withSectionMark } from '../../panels/CommentComposer'
+import { PLATFORM_USER_ROLE_LABEL, STATUS_META, type PlatformUserRole } from '@platform/types'
+import { EditorContent } from '@tiptap/react'
 import { useDocumentStore, useProjectStore } from '../../store'
+import { useRichTextEditor } from './RichTextEditor'
 import { SectionNavigator } from './SectionNavigator'
 import { ReviewerToolbar } from './ReviewerToolbar'
 import { CommentsPanel }   from '../../panels/CommentsPanel'
 import { ChecklistPanel }  from '../../panels/ChecklistPanel'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
 
-// Logged-in user for the reviewer view = EV (Dr. Elena Vasquez, Regulatory Affairs, RACI: C)
-const LOGGED_IN_REVIEWER = {
-  userId:    'user-EV',
-  name:      'Dr. Elena Vasquez',
-  initials:  'EV',
-  role:      'Regulatory Affairs',
-  raci:      'C' as const,
-  colourKey: 'EV' as const,
+// Avatar colours for known people; anyone else gets the neutral blue. The person
+// shown as "you" is whoever the API says is signed in (useCurrentUser) — the
+// server records comments against that identity, so the screen must show it too.
+const AVATAR: Record<string, { bg: string; fg: string }> = {
+  MW: { bg: '#DBEAFE', fg: '#1D4ED8' }, SC: { bg: '#F0FDF4', fg: '#15803D' },
+  JO: { bg: '#F5F3FF', fg: '#7C3AED' }, EV: { bg: '#FEF3C7', fg: '#D97706' },
+  PN: { bg: '#FEE2E2', fg: '#DC2626' }, AH: { bg: '#E0F2FE', fg: '#0369A1' },
+  RT: { bg: '#FCE7F3', fg: '#9D174D' }, LP: { bg: '#F3F4F6', fg: '#374151' },
 }
-const RACI_LABEL: Record<'R' | 'A' | 'C' | 'I', string> = {
-  R: 'Responsible', A: 'Accountable', C: 'Consulted', I: 'Informed',
-}
+const NEUTRAL_AVATAR = { bg: '#DBEAFE', fg: '#1D4ED8' }
 
 const PANEL_TITLES: Record<string, string> = {
   comments:  'Comments',
@@ -80,12 +83,49 @@ export function ReviewerView() {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
 
+  // Who is acting — the same identity the server records the comment under.
+  const { data: me } = useCurrentUser()
+  const reviewer = {
+    name:     me?.name ?? '…',
+    initials: me?.initials ?? '',
+    role:     me ? (PLATFORM_USER_ROLE_LABEL[me.role as PlatformUserRole] ?? me.role) : '',
+  }
+  const reviewerColours = AVATAR[reviewer.initials] ?? NEUTRAL_AVATAR
+
+  // Same query key the Comments panel uses, so this is a cache read, not a second fetch.
+  const { data: commentList = [] } = useQuery({
+    queryKey: ['comments', documentId],
+    queryFn:  () => documentsApi.getComments(documentId!),
+    enabled:  !!documentId,
+  })
+  // Approvals are stored as verdict comments but need no action, so they don't
+  // count as "open" (the Comments panel lists them separately as approvals).
+  const openCommentCount = commentList.filter(c => c.status === 'open' && c.verdict !== 'approve').length
+
+  // The section being reviewed. Verdicts are only meaningful against a real
+  // section — a document with no sections must not record "§?" approvals.
+  const activeSectionData = document?.sections.find(s => s.id === activeSection) ?? null
+  const hasSections       = (document?.sections.length ?? 0) > 0
+  const activeRef         = activeSectionData ? withSectionMark(activeSectionData.number) : null
+  const alreadyApproved   = !!me && !!activeRef && commentList.some(
+    c => c.verdict === 'approve' && c.reviewerId === me.id && c.sectionRef === activeRef,
+  )
+  const verdictBlockedReason = !hasSections ? 'This document has no sections yet'
+                             : !activeSectionData ? 'Select a section to review'
+                             : null
+
+  // Read-only render of the active section's real content (same TipTap schema
+  // as the editor, so only known formatting is rendered).
+  const sectionViewer = useRichTextEditor({ content: activeSectionData?.contentHtml ?? '', editable: false })
+  const sectionIsBlank = !activeSectionData?.contentHtml || activeSectionData.contentHtml === '<p></p>'
+
+  // Plain comments post against the section being viewed; §11.4.1 remains the
+  // fallback for documents whose sections aren't loaded / don't exist.
+  const commentRef = activeRef ?? '§11.4.1'
+
   const addCommentMut = useMutation({
     mutationFn: () => documentsApi.addComment(documentId!, {
-      // Was hardcoded '§11.4.1' — now derives from the user's active section
-      // so comments post against whatever section they're viewing. Falls back
-      // to §11.4.1 only when activeSection isn't resolvable yet.
-      sectionRef: sectionRefFor(activeSection) !== '§?' ? sectionRefFor(activeSection) : '§11.4.1',
+      sectionRef: commentRef,
       text:       commentText,
       severity,
     }),
@@ -108,7 +148,7 @@ export function ReviewerView() {
   const sectionRefFor = (sid: string | null) => {
     if (!sid) return '§?'
     const s = document?.sections.find(x => x.id === sid)
-    return s ? `§${s.number}` : `§${sid.replace('s', '').replace('_', '.')}`
+    return s ? withSectionMark(s.number) : `§${sid.replace('s', '').replace('_', '.')}`
   }
 
   const approveMut = useMutation({
@@ -139,15 +179,14 @@ export function ReviewerView() {
   })
 
   const handleApproveSection = () => {
-    if (!documentId) return
-    // Previously silently returned when activeSection was null — now the
-    // mutation still fires with sectionRefFor's '§?' fallback so brand-new
-    // documents (0 sections) still log an approve audit event rather than
-    // leaving the user with a dead button.
+    // No approvals against "§?" (document without sections) and no duplicate
+    // approvals of the same section by the same reviewer.
+    if (!documentId || verdictBlockedReason || alreadyApproved) return
     approveMut.mutate()
   }
 
   const handleReturnForRevision = () => {
+    if (verdictBlockedReason) return
     if (returningReason === null) {
       setReturningReason('')
       return
@@ -166,6 +205,7 @@ export function ReviewerView() {
   }
 
   const panelTitle = activePanel && activePanel in PANEL_TITLES ? PANEL_TITLES[activePanel] : ''
+  const statusMeta = STATUS_META[document.status] ?? { bg: '#F8FAFC', fg: '#64748B', label: document.status }
 
   return (
     <div className="flex h-full flex-col" data-screen="reviewer-view">
@@ -194,9 +234,10 @@ export function ReviewerView() {
             <h1 className="truncate text-base font-bold tracking-tight">{document.title}</h1>
             <span
               className="flex-none rounded-full px-2.5 py-1 text-xs font-semibold"
-              style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}
+              style={{ backgroundColor: statusMeta.bg, color: statusMeta.fg }}
+              data-document-status={document.status}
             >
-              In Review
+              {statusMeta.label}
             </span>
             <span className="flex-none font-mono text-[11px] text-slate-500">v{document.version} · For Review</span>
           </div>
@@ -208,7 +249,7 @@ export function ReviewerView() {
             {/* Presence stack — EV as logged-in (amber ring) */}
             <div className="flex flex-none items-center">
               {[
-                { initials: 'EV', bg: '#FEF3C7', fg: '#D97706', ring: '#D97706' },
+                { initials: reviewer.initials || '·', bg: reviewerColours.bg, fg: reviewerColours.fg, ring: reviewerColours.fg },
                 { initials: 'MW', bg: '#DBEAFE', fg: '#1D4ED8' },
                 { initials: 'JO', bg: '#F5F3FF', fg: '#7C3AED' },
               ].map((p, i) => (
@@ -234,16 +275,20 @@ export function ReviewerView() {
             <button
               type="button"
               onClick={handleApproveSection}
-              disabled={approveMut.isPending}
-              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
+              disabled={approveMut.isPending || !!verdictBlockedReason || alreadyApproved}
+              title={verdictBlockedReason ?? (alreadyApproved ? `You have already approved ${activeRef}` : undefined)}
+              data-action="approve-section"
+              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}
             >
-              {approveMut.isPending ? 'Approving…' : 'Approve section'}
+              {approveMut.isPending ? 'Approving…' : alreadyApproved ? '✓ Approved by you' : 'Approve section'}
             </button>
             <button
               type="button"
               onClick={handleReturnForRevision}
-              disabled={requestChangesMut.isPending}
+              disabled={requestChangesMut.isPending || !!verdictBlockedReason}
+              title={verdictBlockedReason ?? undefined}
+              data-action="return-for-revision"
               className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
             >
@@ -254,6 +299,11 @@ export function ReviewerView() {
       </div>
 
       {/* Approve/Return inline notices */}
+      {!hasSections && (
+        <div className="flex-none border-b border-slate-200 px-6 py-2 text-[12px] text-slate-600" style={{ backgroundColor: '#F8FAFC' }} data-notice="no-sections">
+          This document has no sections yet, so sections can't be approved or returned. Comments can still be added.
+        </div>
+      )}
       {approveNote && (
         <div className="flex-none border-b border-slate-200 px-6 py-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>
           ✓ {approveNote}
@@ -304,7 +354,7 @@ export function ReviewerView() {
 
         <SectionNavigator
           sections={document.sections}
-          loggedInUser={{ initials: 'EV', colourKey: 'EV' }}
+          loggedInUser={{ initials: reviewer.initials, colourKey: (reviewer.initials in AVATAR ? reviewer.initials : 'MW') as 'MW' }}
           activeSectionBadge="IN REVIEW"
           progressLabelSuffix="reviewed"
         />
@@ -317,24 +367,33 @@ export function ReviewerView() {
               el?.focus()
             }}
             onFlagSection={handleFlagSection}
-            raciRole={LOGGED_IN_REVIEWER.raci}
-            raciLabel={RACI_LABEL[LOGGED_IN_REVIEWER.raci]}
+            roleLabel={reviewer.role}
           />
 
           {/* Content */}
           <div className="flex-1 overflow-y-auto px-12 pt-6 pb-8">
             <div className="flex max-w-[760px] flex-col">
-              <h2 className="text-[22px] font-bold tracking-tight">11. Efficacy Evaluation</h2>
-              <h3 className="mt-4 text-[17px] font-bold">11.4 Primary Efficacy Endpoint</h3>
-              <h4 className="mt-3 text-[15px] font-bold">§11.4.1 Progression-Free Survival</h4>
-
-              {/* AI paragraph block */}
-              <div className="relative mt-3 rounded-r-[4px] p-[10px_14px]" style={{ borderLeft: '3px solid #93C5FD', backgroundColor: '#F0F7FF' }}>
-                <div className="absolute right-2.5 top-2.5 rounded px-1.5 py-1 font-mono text-[9px] font-medium" style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>AI</div>
-                <p className="pr-10 text-sm leading-[1.8] text-slate-900">
-                  Veloricept in combination with pembrolizumab demonstrated a statistically significant improvement in progression-free survival (PFS) compared to placebo plus pembrolizumab, with a median PFS of <span style={{ borderBottom: '1.5px solid #93C5FD' }}>14.2 months</span> versus <span style={{ borderBottom: '1.5px solid #93C5FD' }}>8.7 months</span> (<span style={{ borderBottom: '1.5px solid #93C5FD' }}>HR 0.61</span>; <span style={{ borderBottom: '1.5px solid #93C5FD' }}>95% CI 0.48–0.77</span>; <span style={{ borderBottom: '1.5px solid #93C5FD' }}>p&lt;0.0001</span>).
+              {/* Section under review — the document's real content, read-only */}
+              {activeSectionData ? (
+                <section data-section-content={activeSectionData.id}>
+                  <h2 className="text-[20px] font-bold tracking-tight">
+                    {withSectionMark(activeSectionData.number)} {activeSectionData.title}
+                  </h2>
+                  {sectionIsBlank ? (
+                    <p className="mt-3 rounded-md border border-dashed border-slate-300 p-4 text-center text-[13px] text-slate-500" data-state="empty-section">
+                      This section has no content yet.
+                    </p>
+                  ) : (
+                    <div className="mt-3 [&_.tiptap-editor]:min-h-0">
+                      <EditorContent editor={sectionViewer} />
+                    </div>
+                  )}
+                </section>
+              ) : (
+                <p className="rounded-md border border-dashed border-slate-300 p-4 text-center text-[13px] text-slate-500" data-state="no-sections">
+                  {hasSections ? 'Select a section from the list to review it.' : 'This document has no sections yet.'}
                 </p>
-              </div>
+              )}
 
               {/* Comment composition box — persistent */}
               <div
@@ -342,9 +401,9 @@ export function ReviewerView() {
                 style={{ borderColor: '#2563EB', boxShadow: '0 0 0 3px rgba(37,99,235,0.12)' }}
               >
                 <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex h-5 w-5 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold" style={{ backgroundColor: '#FEF3C7', color: '#D97706' }}>EV</div>
-                  <p className="text-[13px] font-bold">Dr. Elena Vasquez</p>
-                  <p className="font-mono text-[10px] tracking-wider text-slate-500">Regulatory Affairs · C</p>
+                  <div className="flex h-5 w-5 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold" style={{ backgroundColor: reviewerColours.bg, color: reviewerColours.fg }} data-comment-author-initials>{reviewer.initials}</div>
+                  <p className="text-[13px] font-bold" data-comment-author>{reviewer.name}</p>
+                  <p className="font-mono text-[10px] tracking-wider text-slate-500">{reviewer.role}</p>
                   <div className="flex-1" />
                   <p className="text-[11px] text-slate-500">Draft</p>
                 </div>
@@ -353,13 +412,13 @@ export function ReviewerView() {
                   rows={3}
                   value={commentText}
                   onChange={e => setCommentText(e.target.value)}
-                  placeholder="Write a comment for §11.4.1…"
+                  placeholder={`Write a comment for ${commentRef}…`}
                   className="w-full rounded border p-2.5 text-sm outline-none focus:border-blue-600 focus:shadow-focus"
                   style={{ borderColor: '#E2E8F0', resize: 'vertical' }}
                 />
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[11px] text-slate-500">Tag to:</span>
-                  <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }}>§11.4.1</span>
+                  <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }} data-comment-tag>{commentRef}</span>
                   <span className="ml-1.5 text-[11px] text-slate-500">Severity:</span>
                   <SeverityButton value="major"  active={severity === 'major'}  onClick={() => setSeverity('major')}  label="Major"  bg="#FEE2E2" fg="#DC2626" />
                   <SeverityButton value="minor"  active={severity === 'minor'}  onClick={() => setSeverity('minor')}  label="Minor"  bg="#FFFBEB" fg="#B45309" />
@@ -388,10 +447,6 @@ export function ReviewerView() {
                 )}
               </div>
 
-              <p className="mt-4 text-sm leading-[1.8] text-slate-900">
-                The Kaplan–Meier curves for PFS demonstrated early and sustained separation between treatment arms from Week 8 onwards, with the separation widening through to the data cut-off date of 30 September 2024.
-              </p>
-
               {flagged && (
                 <div className="mt-3 rounded border px-3 py-2 text-[12px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}>
                   ⚑ Section flagged for follow-up
@@ -402,7 +457,7 @@ export function ReviewerView() {
 
           {/* Provenance bar */}
           <div className="flex h-10 flex-none items-center overflow-hidden truncate whitespace-nowrap border-t border-slate-200 px-5 text-xs text-slate-500" style={{ backgroundColor: '#F8FAFC' }}>
-            Section {activeSection ? activeSection.replace('s', '').replace('_', '.') : '11.4.1'} · 2 AI-drafted spans · 1 human-authored span · Reviewing as {LOGGED_IN_REVIEWER.name} · {LOGGED_IN_REVIEWER.raci} ({RACI_LABEL[LOGGED_IN_REVIEWER.raci]})
+            Section {activeRef ?? '—'} ·2 AI-drafted spans · 1 human-authored span · Reviewing as {reviewer.name}{reviewer.role ? ` · ${reviewer.role}` : ''}
           </div>
 
           {/* Right panel — absolute overlay per Pattern 6 */}
@@ -418,7 +473,7 @@ export function ReviewerView() {
             >
               {/* Panel header */}
               <div className="flex h-12 flex-none items-center gap-2 border-b border-slate-200 px-4">
-                <h3 className="text-sm font-bold text-slate-900">{panelTitle}{activePanel === 'comments' ? ' (3 open)' : ''}</h3>
+                <h3 className="text-sm font-bold text-slate-900">{panelTitle}{activePanel === 'comments' ? ` (${openCommentCount} open)` : ''}</h3>
                 <div className="flex-1" />
                 <button
                   type="button"
@@ -432,7 +487,12 @@ export function ReviewerView() {
 
               {/* Panel body */}
               {activePanel === 'comments' && documentId && (
-                <CommentsPanel documentId={documentId} />
+                <CommentsPanel
+                  documentId={documentId}
+                  sections={document?.sections ?? []}
+                  activeSectionId={activeSection}
+                  onAddComment={() => (window.document.getElementById('reviewer-comment-textarea') as HTMLTextAreaElement | null)?.focus()}
+                />
               )}
               {activePanel === 'checklist' && documentId && (
                 <ChecklistPanel documentId={documentId} />

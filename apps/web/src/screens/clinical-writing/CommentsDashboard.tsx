@@ -1,3 +1,4 @@
+import { ResolveForm } from '../../panels/ResolveCommentForm'
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -100,82 +101,6 @@ function DocIcon() {
       <rect x="4.4" y="4.2" width="5.2" height="1.2" rx="0.6" fill="#94A3B8"/>
       <rect x="4.4" y="7" width="5.2" height="1.2" rx="0.6" fill="#94A3B8"/>
     </svg>
-  )
-}
-
-// --- Resolve inline form ---
-
-interface ResolveFormProps {
-  onCancel:  () => void
-  onConfirm: (type: ResolutionType, note: string) => void
-  isPending: boolean
-}
-
-function ResolveForm({ onCancel, onConfirm, isPending }: ResolveFormProps) {
-  const [type, setType] = useState<ResolutionType>('accept')
-  const [note, setNote] = useState('')
-  const [err,  setErr]  = useState<string | null>(null)
-
-  const submit = () => {
-    if (!note.trim()) { setErr('Resolution note is required'); return }
-    onConfirm(type, note.trim())
-  }
-
-  return (
-    <div
-      className="flex flex-col gap-2 rounded border p-2.5"
-      style={{ borderColor: '#BFDBFE', backgroundColor: '#EFF6FF' }}
-    >
-      <div className="flex flex-wrap items-center gap-1.5">
-        <span className="text-[11px] font-semibold text-slate-700">Type:</span>
-        {(['accept', 'accept-with-modification', 'reject'] as ResolutionType[]).map(t => (
-          <button
-            key={t}
-            type="button"
-            onClick={() => setType(t)}
-            className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors"
-            style={type === t ? {
-              backgroundColor: '#2563EB', color: '#FFFFFF', border: '1px solid #2563EB',
-            } : {
-              backgroundColor: '#FFFFFF', color: '#475569', border: '1px solid #E2E8F0',
-            }}
-          >
-            {t === 'accept' ? 'Accept' : t === 'accept-with-modification' ? 'Accept w/ mod' : 'Reject'}
-          </button>
-        ))}
-      </div>
-      <label>
-        <span className="text-[11px] font-semibold text-slate-700">Resolution note (required)</span>
-        <input
-          type="text"
-          value={note}
-          onChange={e => { setNote(e.target.value); if (err) setErr(null) }}
-          placeholder="Describe how this comment was resolved"
-          className="mt-1 h-8 w-full rounded border px-2 text-[12px] outline-none focus:border-blue-600 focus:shadow-focus"
-          style={{ borderColor: '#E2E8F0' }}
-          autoFocus
-        />
-      </label>
-      {err && <p className="text-[11px] font-semibold" style={{ color: '#DC2626' }}>{err}</p>}
-      <div className="flex gap-2">
-        <button
-          type="button"
-          onClick={onCancel}
-          disabled={isPending}
-          className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-        >
-          Cancel
-        </button>
-        <button
-          type="button"
-          onClick={submit}
-          disabled={isPending}
-          className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-        >
-          {isPending ? 'Resolving…' : 'Confirm resolve'}
-        </button>
-      </div>
-    </div>
   )
 }
 
@@ -289,7 +214,12 @@ function CommentCard({ comment, resolvingId, onResolveClick, onResolveCancel, on
               >
                 Resolve
               </button>
-              <button className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-900 hover:bg-slate-50 transition-colors">
+              <button
+                type="button"
+                disabled
+                title="Replies aren't available yet"
+                className="cursor-not-allowed rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-400"
+              >
                 Reply
               </button>
               <div className="flex-1" />

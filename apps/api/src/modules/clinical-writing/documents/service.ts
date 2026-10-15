@@ -133,6 +133,13 @@ export class DocumentService {
     sourceRef?: string
   }) {
     return this.prisma.$transaction(async (tx) => {
+      // One writer per document at a time. Two saves landing together (a user
+      // plus the collab sidecar, or a double-click) would both read the same
+      // highest version, both insert the next number, and the loser would hit
+      // the (documentId, versionNumber) unique key and surface as "Save
+      // failed". The advisory lock is released when this transaction ends.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.documentId}))`
+
       const doc = await tx.document.findUnique({
         where: { id: args.documentId },
         include: {
@@ -142,7 +149,12 @@ export class DocumentService {
       if (!doc?.currentVersion) throw new Error(`Document ${args.documentId} not found or has no current version`)
 
       const current = doc.currentVersion
+      // Match the stable section key. A row uuid (sent by clients that loaded
+      // the document before the API exposed the key) is resolved to its key
+      // so the edit updates that section instead of appending a new one.
       const existing = current.sections.find(s => s.sectionId === args.sectionId)
+        ?? current.sections.find(s => s.id === args.sectionId)
+      if (existing) args = { ...args, sectionId: existing.sectionId }
 
       // No-op if content didn't actually change — spare the version churn.
       if (existing && existing.contentHtml === args.contentHtml) {
@@ -178,13 +190,24 @@ export class DocumentService {
         })
       }
 
-      const nextVersionNumber = bumpVersion(current.versionNumber)
+      // Bump from the highest existing version, not just the current one, so
+      // a stale current pointer can never collide with the
+      // (documentId, versionNumber) unique key.
+      const allVersions = await tx.documentVersion.findMany({
+        where: { documentId: doc.id },
+        select: { versionNumber: true },
+      })
+      const nextVersionNumber = bumpVersion(highestVersion(allVersions.map(v => v.versionNumber), current.versionNumber))
       const nextHash = hashSections(nextSections)
 
       // Atomically: mark old version non-current, insert new version + its
       // sections, update document.current_version_id, append provenance if AI.
-      await tx.documentVersion.update({
-        where: { id: current.id },
+      // Clear the flag on EVERY version of this document, not just the one the
+      // pointer names. If the pointer was ever stale (pointing at v0.3 while
+      // v0.4 is flagged current) clearing only `current.id` would leave two
+      // rows flagged current after this save; this restores "exactly one".
+      await tx.documentVersion.updateMany({
+        where: { documentId: doc.id, isCurrent: true },
         data: { isCurrent: false },
       })
 
@@ -244,6 +267,22 @@ export class DocumentService {
 }
 
 // --- helpers --------------------------------------------------------------
+
+/** Highest "vMAJOR.MINOR" label in `labels`, or `fallback` if none parse. */
+export function highestVersion(labels: string[], fallback: string): string {
+  let best: [number, number] | null = null
+  let bestLabel = fallback
+  for (const l of labels) {
+    const m = l.match(/^v(\d+)\.(\d+)$/)
+    if (!m) continue
+    const cand: [number, number] = [Number(m[1]), Number(m[2])]
+    if (!best || cand[0] > best[0] || (cand[0] === best[0] && cand[1] > best[1])) {
+      best = cand
+      bestLabel = l
+    }
+  }
+  return bestLabel
+}
 
 function bumpVersion(v: string): string {
   // Simple "v0.N" ladder for Phase 3A. Cross-major jumps (v1.0 → v1.1) land

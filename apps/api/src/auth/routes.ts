@@ -246,16 +246,21 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
 
   // The SPA needs the display fields too (it can't derive a name or status
   // from the JWT claims), so enrich the authorization view with the profile.
+  // name + initials are what the UI shows as "you": the server records comments,
+  // signatures and audit entries under this same identity.
   app.get('/auth/me', { preHandler: requireAuth() }, async (request) => {
     const user = request.user!
-    const profile = await app.prisma.user.findUnique({
-      where: { id: user.id },
-      select: { name: true, initials: true, status: true, lastActiveAt: true },
-    })
+    const profile = await app.prisma.user
+      .findUnique({
+        where: { id: user.id },
+        select: { name: true, initials: true, status: true, lastActiveAt: true },
+      })
+      .catch(() => null)                       // synthetic users (e.g. the collab sidecar) have no row
+    const name = profile?.name ?? user.email
     return {
       ...user,
-      name: profile?.name ?? user.email,
-      initials: profile?.initials ?? null,
+      name,
+      initials: profile?.initials ?? initialsOf(name),
       status: profile?.status ?? 'active',
       lastActiveAt: profile?.lastActiveAt?.toISOString() ?? null,
     }
@@ -273,4 +278,14 @@ function resolveRedirectUri(request: { protocol: string; hostname: string; heade
   const proto = forwardedProto ?? request.protocol
   const host = forwardedHost ?? request.hostname
   return `${proto}://${host}/auth/callback`
+}
+
+// "Mr Rohan Iyer" -> "RI": first letters of the first two words that aren't a title.
+export function initialsOf(name: string): string {
+  return name
+    .split(/[\s@.]+/)
+    .filter(w => w && !/^(dr|mr|mrs|ms|prof)$/i.test(w))
+    .slice(0, 2)
+    .map(w => w[0]!.toUpperCase())
+    .join('')
 }

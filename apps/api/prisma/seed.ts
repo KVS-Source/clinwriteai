@@ -381,7 +381,13 @@ async function main() {
       },
       update: {},
     })
-    await prisma.document.update({ where: { id: doc.id }, data: { currentVersionId: version.id } }).catch(() => undefined)
+    // Point at the fixture version only on first seed. The staging deploy
+    // re-runs this seed; resetting the pointer on every run rewound documents
+    // to their fixture version (edits looked lost) and made the next save
+    // collide with an existing version number ("Save failed").
+    if (!doc.currentVersionId) {
+      await prisma.document.update({ where: { id: doc.id }, data: { currentVersionId: version.id } }).catch(() => undefined)
+    }
 
     // Section rows — one per fixture section. The number field often
     // carries a '§' prefix in the fixture; keep as-is so the UI

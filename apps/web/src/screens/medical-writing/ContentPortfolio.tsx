@@ -173,7 +173,8 @@ export function ContentPortfolio() {
                 <div className="flex flex-col gap-2">
                   {l.items.map(item => {
                     const overdue = item.mlrOverdue === true
-                    const typeMeta = MED_CONTENT_TYPE_META[item.type]
+                    // Fallback keeps an unexpected type from crashing the board.
+                    const typeMeta = MED_CONTENT_TYPE_META[item.type] ?? { bg: '#F1F5F9', fg: '#475569', code: String(item.type).toUpperCase() }
                     return (
                       <button
                         key={item.id}

@@ -129,7 +129,9 @@ export function ContentBriefing() {
 
   // When type changes, default audience if the user hasn't set one
   useEffect(() => {
-    if (type && audience.length === 0) setAudience(DEFAULT_AUDIENCE[type])
+    // `?? []` guards an unknown type (e.g. a raw DB value) — undefined here
+    // crashed the whole screen on the next `audience.length`.
+    if (type && audience.length === 0) setAudience(DEFAULT_AUDIENCE[type] ?? [])
   }, [type, audience.length])
 
   const frameworks = useMemo(() => frameworksFor(track), [track])

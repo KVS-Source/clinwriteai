@@ -11,6 +11,7 @@
 //     module source linking isn't required for the demo. Editor can rebind
 //     later.
 
+import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MedContentType, PlatformUser } from '@platform/types'
@@ -174,7 +175,7 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
               className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Therapeutic area *</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{THERAPEUTIC_AREA_LABEL} *</span>
             <input value={taTag} onChange={e => setTaTag(e.currentTarget.value)} required
               placeholder="Oncology"
               className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />

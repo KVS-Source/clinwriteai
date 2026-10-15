@@ -1,3 +1,4 @@
+import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useMemo, useState, useEffect } from 'react'
 import { useTaLabels } from '../../hooks'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -328,7 +329,7 @@ export function ContentBriefing() {
             <section className="rounded-lg border border-slate-200 bg-white p-5" data-panel="scope-matrix">
               <h2 className="mb-3 text-[14px] font-bold text-slate-900">Content Scope Matrix</h2>
 
-              <p className="mb-1 text-[12px] font-semibold text-slate-600">Therapy area</p>
+              <p className="mb-1 text-[12px] font-semibold text-slate-600">{THERAPEUTIC_AREA_LABEL}</p>
               <div className="mb-4 flex flex-wrap gap-2" data-ta-picker>
                 {/* Master-list TAs, plus the item's own TA if it predates the list. */}
                 {(taTag && !taLabels.includes(taTag) ? [...taLabels, taTag] : taLabels).map(ta => (

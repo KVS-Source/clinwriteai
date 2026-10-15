@@ -22,16 +22,9 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { invalidTaBody, resolveTa } from '../../platform/taxonomy/validate.js'
 import { generateBlobKey } from '../../platform/blob/local-storage.js'
 import { medContentShape } from './routes.js'
+import { isSupportedSourceFile, SUPPORTED_SOURCE_LABEL } from '../../platform/uploads/source-files.js'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024
-
-const SUPPORTED_MIME: ReadonlyArray<RegExp> = [
-  /^application\/pdf$/,
-  /^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document$/,
-  /^application\/vnd\.openxmlformats-officedocument\.presentationml\.presentation$/,
-  /^application\/msword$/,
-  /^application\/vnd\.ms-powerpoint$/,
-]
 
 // UI sends hyphen-case MedContentType (hcp-slide-deck, mi-letter, ...);
 // classifier output + DB persist snake_case (hcp_slide_deck, ...). Keep
@@ -109,8 +102,12 @@ export const medContentUploadRoutes: FastifyPluginAsync = async (app) => {
     if (buf.length > MAX_UPLOAD_BYTES) {
       return reply.code(413).send({ error: 'too_large', message: `File > ${MAX_UPLOAD_BYTES / 1024 / 1024}MB` })
     }
-    if (!SUPPORTED_MIME.some(r => r.test(file.mimetype))) {
-      return reply.code(400).send({ error: 'unsupported_mime', mimetype: file.mimetype })
+    if (!isSupportedSourceFile(file.filename, file.mimetype)) {
+      return reply.code(400).send({
+        error: 'unsupported_mime',
+        mimetype: file.mimetype,
+        message: `Unsupported file type. Upload a ${SUPPORTED_SOURCE_LABEL}.`,
+      })
     }
 
     const ext = file.filename.split('.').pop()

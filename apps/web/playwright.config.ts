@@ -27,7 +27,9 @@ export default defineConfig({
     video: 'retain-on-failure',
   },
   projects: [
-    { name: 'chromium', use: { ...devices['Desktop Chrome'] } },
+    // E2E_CHANNEL=msedge|chrome runs against an installed browser instead of the
+    // Playwright-downloaded Chromium (handy on locked-down QA machines).
+    { name: 'chromium', use: { ...devices['Desktop Chrome'], ...(process.env.E2E_CHANNEL && { channel: process.env.E2E_CHANNEL }) } },
   ],
   webServer: process.env.E2E_BASE_URL
     ? undefined   // caller provided their own URL (e.g. a deployed staging)

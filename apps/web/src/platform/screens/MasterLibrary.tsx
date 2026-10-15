@@ -1,3 +1,4 @@
+import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useTaLabels } from '../../hooks'
@@ -174,7 +175,7 @@ export function MasterLibrary() {
       ['Module', `${item.module} · ${DISCIPLINE_LABEL[item.module as 'A' | 'B' | 'C' | 'D' | 'E'] ?? item.module}`],
       ['Item type', ITEM_TYPE_LABEL[item.itemType] ?? item.itemType],
       ['Document type', item.docType],
-      ['Therapeutic area', item.ta.join(', ') || '—'],
+      [THERAPEUTIC_AREA_LABEL, item.ta.join(', ') || '—'],
       ['Version', item.version],
       ['Project', item.projectName],
       ['Pushed', `${formatDay(item.pushedAt)} by ${item.pushedByName}`],
@@ -267,7 +268,7 @@ export function MasterLibrary() {
             </div>
 
             <div data-filter-ta>
-              <p className={labelClass}>Therapeutic area</p>
+              <p className={labelClass}>{THERAPEUTIC_AREA_LABEL}</p>
               <div className="mt-1 flex flex-wrap gap-1">
                 {taLabels.map(t => {
                   const on = tas.includes(t)

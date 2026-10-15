@@ -1,3 +1,4 @@
+import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useMemo, useState } from 'react'
 import { useTaLabels } from '../../hooks'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
@@ -343,7 +344,7 @@ export function NewPublicationWizard({ onClose }: WizardProps = {}) {
 
               <div className="flex flex-col gap-2" style={{ maxWidth: 300 }}>
                 <p className="text-xs font-semibold text-slate-500">
-                  Therapeutic area <span style={{ color: '#005F8E' }}>*</span>{' '}
+                  {THERAPEUTIC_AREA_LABEL} <span style={{ color: '#005F8E' }}>*</span>{' '}
                   <span className="font-medium text-slate-400">— mandatory</span>
                 </p>
                 <button

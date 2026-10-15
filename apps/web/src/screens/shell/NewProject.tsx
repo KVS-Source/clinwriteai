@@ -4,6 +4,7 @@
 // is what the user sees if they lack the role — form shows a friendly
 // error in that case.
 
+import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectsApi } from '../../api'
@@ -122,7 +123,7 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
       </Section>
 
       <Section title="Study details">
-        <Field label="Therapeutic area *" wide>
+        <Field label={`${THERAPEUTIC_AREA_LABEL} *`} wide>
           <select value={therapeuticArea} onChange={e => setTherapeuticArea(e.currentTarget.value)} required
             className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]">
             <option value="" disabled>{tasLoading ? 'Loading…' : taLabels.length ? 'Select a therapeutic area' : 'No TA tags — add one in Admin → TA Tags'}</option>

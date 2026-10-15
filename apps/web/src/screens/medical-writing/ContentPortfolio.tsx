@@ -1,3 +1,4 @@
+import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useMemo, useState } from 'react'
 import { useTaLabels } from '../../hooks'
 import { useQuery } from '@tanstack/react-query'
@@ -151,7 +152,7 @@ export function ContentPortfolio() {
             </select>
           </label>
           <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-            <span>Therapy area</span>
+            <span>{THERAPEUTIC_AREA_LABEL}</span>
             <select
               value={taFilter}
               onChange={(e) => setTaFilter(e.target.value)}

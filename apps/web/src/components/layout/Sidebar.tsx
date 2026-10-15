@@ -98,7 +98,6 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
     if (!key || !isModuleEnabled(key)) return false
     return isAdmin || userModuleKeys.has(key)
   }
-  const visibleModules = Object.entries(MODULE_LABELS).filter(([slug]) => canSeeModule(slug))
   const hasCurrentModuleAccess = canSeeModule(activeModule)
 
   const allNavItems: Record<NavKey, NavItem> = {
@@ -211,29 +210,41 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
         </div>
       )}
 
-      {/* Module switcher — sits directly below the current-module nav so users
-          in a project keep switch controls together with their working nav. */}
-      {projectId && visibleModules.length > 0 && (
+      {/* Module switcher — always lists all five modules so users can see what
+          the platform offers. A module that is switched off on this deployment
+          (VITE_MODULES_ENABLED) or not granted to the user is shown greyed out
+          and can't be opened, instead of being hidden or leading to a 503. */}
+      {projectId && (
         <div className="mt-4 border-t border-slate-700 px-3 pt-3" data-sidebar-section="module-switch">
           <div className="mb-2 px-2.5">
-            <MonoLabel className="text-slate-500">
-              {visibleModules.length === 1 ? 'Your module' : 'Switch module'}
-            </MonoLabel>
+            <MonoLabel className="text-slate-500">Switch module</MonoLabel>
           </div>
           <div className="flex flex-col gap-0.5">
-            {visibleModules.map(([key, label]) => {
+            {Object.entries(MODULE_LABELS).map(([key, label]) => {
               const colour = MODULE_COLOURS[key]
               const isActive = key === activeModule
+              const moduleKey = MODULE_SLUG_TO_KEY[key as ModuleSlug]
+              const enabled = !!moduleKey && isModuleEnabled(moduleKey)
+              const available = canSeeModule(key)
+              const why = !enabled ? 'Not enabled on this deployment' : !available ? 'Not included in your access — ask your admin' : undefined
               return (
                 <button
                   key={key}
-                  onClick={() => navigate(`/projects/${projectId}/${key}`)}
+                  type="button"
+                  onClick={() => available && navigate(`/projects/${projectId}/${key}`)}
+                  disabled={!available}
+                  title={why}
+                  data-module-switch={key}
+                  data-module-available={available}
                   className={`flex items-center gap-2.5 rounded-md px-2.5 py-1.5 text-xs transition-colors text-left ${
-                    isActive ? 'text-white' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                    !available
+                      ? 'cursor-not-allowed text-slate-600'
+                      : isActive ? 'text-white' : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
                   }`}
                 >
-                  <div className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: colour }} />
-                  {label}
+                  <div className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: colour, opacity: available ? 1 : 0.35 }} />
+                  <span className="flex-1">{label}</span>
+                  {!available && <span className="font-mono text-[9px] uppercase tracking-wider text-slate-600">{!enabled ? 'Off' : 'No access'}</span>}
                 </button>
               )
             })}

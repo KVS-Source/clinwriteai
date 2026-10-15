@@ -11,6 +11,8 @@
 // The classifier is a filename-heuristic stub in dev (`stub: true`); the
 // panel surfaces that so reviewers know to double-check the fields.
 
+import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
+import { SOURCE_FILE_ACCEPT, SOURCE_FILE_ERROR, SOURCE_FILE_EXT_RE, SOURCE_FILE_HINT } from '../../utils/sourceFileTypes'
 import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DocumentType, PlatformUser } from '@platform/types'
@@ -55,8 +57,8 @@ const DOC_TYPE_OPTIONS: { value: DocumentType; label: string }[] = [
 ]
 
 const MAX_BYTES = 50 * 1024 * 1024
-const ACCEPT_MIME = 'application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/msword'
-const ACCEPT_EXT_RE = /\.(pdf|docx|doc)$/i
+const ACCEPT_MIME = SOURCE_FILE_ACCEPT
+const ACCEPT_EXT_RE = SOURCE_FILE_EXT_RE
 
 interface Classification {
   documentType:       string
@@ -129,7 +131,7 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
 
   const beginUpload = (f: File) => {
     if (!(ACCEPT_EXT_RE.test(f.name))) {
-      setUploadErr('Only PDF, DOCX, or DOC files are supported.')
+      setUploadErr(SOURCE_FILE_ERROR)
       return
     }
     if (f.size > MAX_BYTES) {
@@ -228,7 +230,7 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
         <section className="rounded-lg border border-slate-200 bg-slate-50 p-5">
           <h3 className="text-[13px] font-semibold text-slate-900">Upload source document</h3>
           <p className="mt-0.5 text-[12px] text-slate-500">
-            Drop a PDF or DOCX. We'll auto-classify the document type, study title, and version so you only need to confirm.
+            Drop a PDF, Word, PowerPoint, Excel, or image file. We'll auto-classify the document type, study title, and version so you only need to confirm.
           </p>
         </section>
 
@@ -256,7 +258,7 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
           <UploadIcon />
           <div className="text-center">
             <p className="text-[14px] font-semibold text-slate-900">Drop a file here</p>
-            <p className="mt-1 text-[12px] text-slate-500">or click to browse — PDF, DOCX, DOC · up to 50 MB</p>
+            <p className="mt-1 text-[12px] text-slate-500">or click to browse — {SOURCE_FILE_HINT} · up to 50 MB</p>
           </div>
           <input
             ref={fileInputRef}
@@ -401,7 +403,7 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
             />
           </FieldLabel>
 
-          <FieldLabel label="Therapeutic area *" conf={taConf} touched={touched.has('therapeuticArea')}>
+          <FieldLabel label={`${THERAPEUTIC_AREA_LABEL} *`} conf={taConf} touched={touched.has('therapeuticArea')}>
             <select
               value={ta}
               onChange={e => { setTa(e.currentTarget.value); markTouched('therapeuticArea') }}

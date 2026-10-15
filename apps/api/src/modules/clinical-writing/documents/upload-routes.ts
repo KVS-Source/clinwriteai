@@ -22,14 +22,9 @@ import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonom
 import { templateSections } from './templates.js'
 import { generateBlobKey } from '../../../modules/platform/blob/local-storage.js'
 import { DocumentService } from './service.js'
+import { isSupportedSourceFile, SUPPORTED_SOURCE_LABEL } from '../../platform/uploads/source-files.js'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024   // 50 MB per API contract
-
-const SUPPORTED_MIME: ReadonlyArray<RegExp> = [
-  /^application\/pdf$/,
-  /^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document$/,
-  /^application\/msword$/,
-]
 
 const confirmSchema = z.object({
   uploadId: z.string().min(1),
@@ -84,8 +79,12 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
     if (buf.length > MAX_UPLOAD_BYTES) {
       return reply.code(413).send({ error: 'too_large', message: `File > ${MAX_UPLOAD_BYTES / 1024 / 1024}MB` })
     }
-    if (!SUPPORTED_MIME.some(r => r.test(file.mimetype))) {
-      return reply.code(400).send({ error: 'unsupported_mime', mimetype: file.mimetype })
+    if (!isSupportedSourceFile(file.filename, file.mimetype)) {
+      return reply.code(400).send({
+        error: 'unsupported_mime',
+        mimetype: file.mimetype,
+        message: `Unsupported file type. Upload a ${SUPPORTED_SOURCE_LABEL}.`,
+      })
     }
 
     // Store the bytes in BlobStorage first — if that fails, we don't

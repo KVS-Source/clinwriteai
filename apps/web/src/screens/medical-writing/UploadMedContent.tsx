@@ -9,6 +9,8 @@
 // Classifier is a filename-heuristic stub in dev; `stub: true` surfaces an
 // amber banner so reviewers know to double-check every field.
 
+import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
+import { SOURCE_FILE_ACCEPT, SOURCE_FILE_ERROR, SOURCE_FILE_EXT_RE, SOURCE_FILE_HINT } from '../../utils/sourceFileTypes'
 import { useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MedContentType, PlatformUser } from '@platform/types'
@@ -52,13 +54,8 @@ const TRACK_OPTIONS: { value: string; label: string }[] = [
 ]
 
 const MAX_BYTES = 50 * 1024 * 1024
-const ACCEPT_MIME =
-  'application/pdf,' +
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document,' +
-  'application/vnd.openxmlformats-officedocument.presentationml.presentation,' +
-  'application/msword,' +
-  'application/vnd.ms-powerpoint'
-const ACCEPT_EXT_RE = /\.(pdf|docx|doc|pptx|ppt)$/i
+const ACCEPT_MIME = SOURCE_FILE_ACCEPT
+const ACCEPT_EXT_RE = SOURCE_FILE_EXT_RE
 
 interface Classification {
   documentType:       string
@@ -120,7 +117,7 @@ export function UploadMedContent({ projectId, projectTA, onCreated, onCancel }: 
 
   const beginUpload = (f: File) => {
     if (!ACCEPT_EXT_RE.test(f.name)) {
-      setUploadErr('Only PDF, DOCX, DOC, PPTX, or PPT files are supported.')
+      setUploadErr(SOURCE_FILE_ERROR)
       return
     }
     if (f.size > MAX_BYTES) {
@@ -219,7 +216,7 @@ export function UploadMedContent({ projectId, projectTA, onCreated, onCancel }: 
         <section className="rounded-lg border border-slate-200 bg-slate-50 p-5">
           <h3 className="text-[13px] font-semibold text-slate-900">Upload existing content</h3>
           <p className="mt-0.5 text-[12px] text-slate-500">
-            Drop a PDF, DOCX, or PPTX. We&rsquo;ll auto-classify the content type, version, and compliance track so you only need to confirm.
+            Drop a PDF, Word, PowerPoint, Excel, or image file. We&rsquo;ll auto-classify the content type, version, and compliance track so you only need to confirm.
           </p>
         </section>
 
@@ -247,7 +244,7 @@ export function UploadMedContent({ projectId, projectTA, onCreated, onCancel }: 
           <UploadIcon />
           <div className="text-center">
             <p className="text-[14px] font-semibold text-slate-900">Drop a file here</p>
-            <p className="mt-1 text-[12px] text-slate-500">or click to browse — PDF, DOCX, DOC, PPTX, PPT · up to 50 MB</p>
+            <p className="mt-1 text-[12px] text-slate-500">or click to browse — {SOURCE_FILE_HINT} · up to 50 MB</p>
           </div>
           <input
             ref={fileInputRef}
@@ -376,7 +373,7 @@ export function UploadMedContent({ projectId, projectTA, onCreated, onCancel }: 
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
           </FieldLabel>
 
-          <FieldLabel label="Therapeutic area *" conf={taConf} touched={touched.has('therapeuticArea')}>
+          <FieldLabel label={`${THERAPEUTIC_AREA_LABEL} *`} conf={taConf} touched={touched.has('therapeuticArea')}>
             <input value={ta} onChange={e => { setTa(e.currentTarget.value); markTouched('therapeuticArea') }} required
               placeholder="Oncology"
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />

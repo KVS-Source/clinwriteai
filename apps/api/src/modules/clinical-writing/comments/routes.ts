@@ -14,6 +14,54 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 
+// --- Document audit-trail shape (UI `AuditEntry`) ---------------------------
+// The panel renders eventType/actor/initials/detail; the audit chain stores
+// action/actorId/details. Raw fields are kept so other consumers still work.
+const ACTION_TO_EVENT: Record<string, string> = {
+  section_edited:            'content-edited',
+  ai_draft_accepted:         'ai-draft',
+  comment_added:             'comment-added',
+  comment_resolved:          'comment-resolved',
+  checklist_item_waived:     'checklist-waived',
+  checklist_item_completed:  'checklist-completed',
+  signature_initiated:       'document-signed',
+  version_restore_initiated: 'version-restore',
+  voice_note_added:          'voice-note-added',
+  qa_review_logged:          'qa-review-completed',
+}
+
+type AuditRow = { id: string; timestamp: string; actorId: string; action: string; details: unknown }
+
+const humanise = (action: string) => action.replace(/[._]/g, ' ').replace(/\s+/g, ' ').trim()
+
+const initialsOf = (name: string) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map(p => p[0]!.toUpperCase()).join('') || '?'
+
+function auditDetail(row: AuditRow): string {
+  const d = (row.details ?? {}) as Record<string, unknown>
+  const parts: string[] = []
+  if (typeof d.sectionId === 'string') parts.push(`Section ${d.sectionId}`)
+  if (typeof d.versionNumber === 'string') parts.push(d.versionNumber)
+  if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from)} → ${String(d.to)}`)
+  if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
+  return parts.length ? parts.join(' · ') : humanise(row.action)
+}
+
+function auditEntryShape(row: AuditRow, actorName: string | undefined) {
+  const actor = actorName ?? (row.actorId.startsWith('system') ? 'System' : row.actorId)
+  const isAi = row.action === 'ai_draft_accepted'
+  return {
+    ...row,
+    actor,
+    actorInitials: initialsOf(actor),
+    actorColourKey: isAi ? 'AI' : initialsOf(actor),
+    // null for actions the panel has no badge for — it falls back to a
+    // neutral badge labelled from `action` instead of crashing.
+    eventType: ACTION_TO_EVENT[row.action] ?? null,
+    detail: auditDetail(row),
+  }
+}
+
 const addSchema = z.object({
   sectionRef: z.string().min(1),
   // Text may be empty when posting a bare "approve" verdict; otherwise required.
@@ -201,10 +249,15 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
     const rows = await app.audit.listForEntity('document', documentId, 500)
+    // Batched actor lookup so each entry can show a name, not a user id.
+    const actorIds = [...new Set(rows.map(r => r.actorId))]
+    const users = await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+    const nameById = new Map(users.map(u => [u.id, u.name]))
+    const entries = rows.map(r => auditEntryShape(r as unknown as AuditRow, nameById.get(r.actorId)))
     // UI (documentsApi.getAuditTrail) expects a paginated envelope rather
     // than a bare array — a bare array causes `(auditData?.entries ?? []).map`
     // in AuditReviewAlert.tsx to throw "d.map is not a function".
-    return { entries: rows, total: rows.length, limit: 500, offset: 0 }
+    return { entries, total: entries.length, limit: 500, offset: 0 }
   })
 
   // QA review cadence + last-review tracking for the Audit Review screen.

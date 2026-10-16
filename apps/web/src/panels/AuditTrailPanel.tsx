@@ -188,7 +188,11 @@ export function AuditTrailPanel({ documentId }: Props) {
         )}
 
         {!isLoading && filtered.map((entry: AuditEntry) => {
-          const badge = EVENT_BADGE[entry.eventType]
+          // Real audit rows include actions the panel has no badge for
+          // (status changes, uploads, CRM…) — fall back to a neutral badge
+          // labelled from the raw action instead of crashing the editor.
+          const rawAction = (entry.action ?? '').replace(/[._]/g, ' ').trim()
+          const badge = EVENT_BADGE[entry.eventType] ?? { bg: '#F1F5F9', fg: '#475569', label: (rawAction || 'EVENT').toUpperCase() }
           const isAI  = entry.actorColourKey === 'AI'
           return (
             <div
@@ -213,7 +217,7 @@ export function AuditTrailPanel({ documentId }: Props) {
                 <Avatar initials={entry.actorInitials} colourKey={entry.actorColourKey} isAI={isAI} />
                 <p className="min-w-0 truncate text-[13px]">
                   <span className="font-bold text-slate-900">{entry.actor}</span>{' '}
-                  <span className="text-slate-500">{actionPhrase(entry.eventType)}</span>
+                  <span className="text-slate-500">{actionPhrase(entry.eventType) ?? rawAction}</span>
                 </p>
               </div>
 

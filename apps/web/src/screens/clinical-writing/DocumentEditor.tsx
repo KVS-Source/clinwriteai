@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { usePresenceSnapshot } from '../../hooks/usePresence'
+import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill } from '../../components/ui'
 import { useDocumentStore, useProjectStore, useAuthStore } from '../../store'
@@ -70,7 +71,6 @@ export function DocumentEditor() {
 
   const activeSection        = useDocumentStore(s => s.activeSection)
   const activePanel          = useDocumentStore(s => s.activePanel)
-  const panelWidth           = useDocumentStore(s => s.panelWidth)
   const setActiveDocument    = useDocumentStore(s => s.setActiveDocument)
   const setActiveSection     = useDocumentStore(s => s.setActiveSection)
   const setActivePanel       = useDocumentStore(s => s.setActivePanel)
@@ -263,6 +263,16 @@ export function DocumentEditor() {
     setActivePanel('review-assignment')
   }
 
+  // ------- Right panel: drag-to-resize, expand to the full working area, remembered width -------
+  const panel = useResizablePanel({
+    activePanel,
+    // the submit-for-review form needs more room than the other panels
+    preferredWidth: p => (p === 'review-assignment' ? 440 : undefined),
+  })
+  const panelExpanded         = panel.expanded
+  const panelDragging         = panel.dragging
+  const togglePanelExpanded   = panel.toggleExpanded
+
   // Deep-link: if the URL has ?submit=1 (e.g. from DiffView's "Submit for
   // review" button), auto-open the panel on mount + strip the param so a
   // reload doesn't re-open it.
@@ -431,16 +441,48 @@ export function DocumentEditor() {
             >
               {isRefetching ? 'Syncing…' : 'Sync'}
             </button>
-            <button
-              type="button"
-              onClick={handleSubmitForReview}
-              className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
-            >
-              Submit for review
-            </button>
+            {document.status === 'in-review' ? (
+              <button
+                type="button"
+                disabled
+                title="This document has been submitted and is with the reviewers"
+                className="cursor-not-allowed rounded-md border border-amber-200 bg-amber-50 px-3.5 py-2 text-[13px] font-semibold text-amber-800"
+                data-submitted
+              >
+                Submitted for review ✓
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={handleSubmitForReview}
+                className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
+              >
+                Submit for review
+              </button>
+            )}
           </div>
         </div>
       </div>
+
+      {/* Submitted state: the document is with the reviewers and locked for authoring. */}
+      {document.status === 'in-review' && (
+        <div
+          role="status"
+          className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-200 bg-amber-50 px-6 py-2 text-[13px] text-amber-900"
+          data-submitted-banner
+        >
+          <span aria-hidden="true" className="font-bold">✓</span>
+          <span className="font-semibold">Submitted for review.</span>
+          <span>The document is locked for authoring while reviewers respond.</span>
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/review`)}
+            className="ml-auto font-semibold underline"
+          >
+            Open Reviewer View →
+          </button>
+        </div>
+      )}
 
       {/* ============ Three-panel row ============ */}
       <div className="flex flex-1 min-h-0">
@@ -516,7 +558,9 @@ export function DocumentEditor() {
                         <button
                           type="button"
                           onClick={() => setIsEditing(true)}
-                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                          disabled={document.status === 'in-review'}
+                          title={document.status === 'in-review' ? 'Locked for authoring while the document is in review' : undefined}
+                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
                         >
                           Edit section
                         </button>
@@ -566,14 +610,26 @@ export function DocumentEditor() {
           {/* Right panel — Pattern 6: absolute overlay on editor column, editor width stays constant */}
           {activePanel !== null && (
             <div
-              className="absolute top-0 right-0 bottom-0 flex flex-col border-l border-slate-200"
+              className="fixed top-14 right-0 bottom-0 flex flex-col border-l border-slate-200"
               style={{
-                width:           panelWidth,
-                zIndex:          6,
+                width:           panel.width,
+                maxWidth:        '100%',
+                zIndex:          30,
                 backgroundColor: (activePanel === 'checklist' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra') ? '#FFFFFF' : '#F8FAFC',
                 boxShadow:       '-16px 0 40px rgba(15,23,42,0.12)',
               }}
             >
+            {/* Drag handle on the left edge: drag to resize, double-click to expand/shrink */}
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize panel"
+              title="Drag to resize · double-click to expand"
+              onMouseDown={e => { e.preventDefault(); panel.startDrag() }}
+              onDoubleClick={togglePanelExpanded}
+              className="absolute inset-y-0 -left-1 z-10 w-2 cursor-ew-resize transition-colors hover:bg-blue-300/60"
+              style={panelDragging ? { backgroundColor: 'rgba(147,197,253,0.7)' } : undefined}
+            />
             {/* Panel header (48px) */}
             <div className="flex h-12 flex-none items-center gap-2 border-b border-slate-200 px-4">
               {activePanel === 'voice' && (
@@ -640,6 +696,23 @@ export function DocumentEditor() {
                 </span>
               )}
               <div className="flex-1" />
+              <button
+                type="button"
+                onClick={togglePanelExpanded}
+                aria-label={panelExpanded ? 'Shrink panel' : 'Expand panel'}
+                title={panelExpanded ? 'Shrink panel' : 'Expand panel'}
+                className="flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
+              >
+                {panelExpanded ? (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M7.5 1.5v3h3M4.5 10.5v-3h-3M7.5 4.5l3-3M4.5 7.5l-3 3"/>
+                  </svg>
+                ) : (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M7 1.5h3.5V5M5 10.5H1.5V7M10.5 1.5L7 5M1.5 10.5L5 7"/>
+                  </svg>
+                )}
+              </button>
               <button
                 type="button"
                 onClick={() => setActivePanel(null)}

@@ -1,8 +1,25 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { RACI_META, type RACIRole, type TeamMember } from '@platform/types'
+import { RACI_META, STATUS_META, type Document, type DocumentStatus, type RACIRole, type TeamMember } from '@platform/types'
+import { fromSQLEnum } from '../utils/enumConvert'
 import { documentsApi, projectsApi } from '../api'
+import { ApiError } from '../api/client'
 import { useDocumentStore } from '../store'
+
+// Plain-language reason for a failed submit — never the server's internal wording
+// (e.g. "Invalid document transition: crm_in_progress → in_review").
+function submitErrorMessage(err: unknown, currentStatus: string): string {
+  if (!(err instanceof ApiError)) return 'Could not reach the server. Check your connection and try again.'
+  switch (err.status) {
+    case 400: return 'Check the review due date and the reviewers, then try again.'
+    case 401: return 'Your session has expired. Sign in again to continue.'
+    case 403: return "You don't have permission to submit this document for review."
+    case 404: return 'This document no longer exists. Refresh the page.'
+    case 409:
+    case 422: return `This document is "${currentStatus}", so it can't be sent for review right now. Documents are submitted for review from In Authoring — finish or cancel the current step first.`
+    default:  return 'Something went wrong on our side. Please try again.'
+  }
+}
 
 interface Props {
   documentId: string
@@ -84,30 +101,32 @@ function ReviewerRow({
   onRemove: () => void
 }) {
   return (
-    <div className="flex items-center gap-2.5 border-b px-4 py-2.5 transition-colors hover:bg-slate-50" style={{ borderColor: '#F1F5F9' }}>
-      <RACIBadge role={member.raci} />
-      <div className="flex min-w-0 flex-col gap-0.5">
-        <p className="truncate text-[13px] font-semibold text-slate-900">{member.role}</p>
-        <p className="truncate text-[11px] text-slate-500">{RACI_DESCRIPTION[member.raci]}</p>
+    // Two lines so the person's name is never squeezed by the role text in a narrow panel:
+    // who (avatar + name) on top, their role and what it means underneath.
+    <div className="flex items-start gap-2.5 border-b px-4 py-2.5 transition-colors hover:bg-slate-50" style={{ borderColor: '#F1F5F9' }}>
+      <span className="mt-0.5"><RACIBadge role={member.raci} /></span>
+      <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+        <div className="flex min-w-0 items-center gap-2">
+          <Avatar initials={member.initials} />
+          <p className="min-w-0 truncate text-[13px] font-semibold text-slate-900">{member.name}</p>
+        </div>
+        <p className="text-[11px] leading-snug text-slate-500">
+          <span className="font-semibold text-slate-600">{member.role}</span> · {RACI_DESCRIPTION[member.raci]}
+        </p>
       </div>
-      <div className="flex-1" />
-      <div className="flex flex-none items-center gap-2">
-        <Avatar initials={member.initials} />
-        <p className="whitespace-nowrap text-[13px] font-semibold">{member.name}</p>
-        {canRemove ? (
-          <button
-            type="button"
-            onClick={onRemove}
-            aria-label="Remove reviewer"
-            title="Remove reviewer"
-            className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
-          >
-            ✕
-          </button>
-        ) : (
-          <div className="w-[18px]" aria-hidden="true" />
-        )}
-      </div>
+      {canRemove ? (
+        <button
+          type="button"
+          onClick={onRemove}
+          aria-label={`Remove ${member.name}`}
+          title="Remove reviewer"
+          className="mt-0.5 flex h-[22px] w-[22px] flex-none items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
+        >
+          ✕
+        </button>
+      ) : (
+        <div className="w-[22px] flex-none" aria-hidden="true" />
+      )}
     </div>
   )
 }
@@ -133,6 +152,8 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
   const [dueDate,    setDueDate]    = useState('')
   const [dateError,  setDateError]  = useState<string | null>(null)
   const [reviewers,  setReviewers]  = useState<TeamMember[]>([])
+  const [showPreview, setShowPreview] = useState(false)
+  const [adding,      setAdding]      = useState(false)
 
   // Seed reviewers from project.team on first load
   useEffect(() => {
@@ -151,7 +172,12 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
       dueDate,
     }),
     onSuccess: (updated) => {
-      setActiveDocument(updated)
+      // The server may answer with the raw row (snake_case status, no sections), so apply the new
+      // status onto the document the screen already has — the editor flips to "In Review" at once,
+      // and the refetch below then confirms it.
+      const newStatus = fromSQLEnum(String((updated as { status?: string } | null)?.status ?? 'in-review')) as DocumentStatus
+      qc.setQueryData<Document>(['document', documentId], old => (old ? { ...old, status: newStatus } : old))
+      if (document) setActiveDocument({ ...document, status: newStatus })
       qc.invalidateQueries({ queryKey: ['document',  documentId] })
       qc.invalidateQueries({ queryKey: ['documents', projectId] })
       onClose()
@@ -171,9 +197,22 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
     setReviewers(prev => prev.filter(r => r.userId !== userId))
   }
 
+  // Project team members who aren't on the list right now (removed earlier, or never seeded).
+  const availableToAdd = useMemo(
+    () => (project?.team ?? []).filter(m => !reviewers.some(r => r.userId === m.userId)),
+    [project, reviewers],
+  )
+  const addReviewer = (member: TeamMember) => {
+    setReviewers(prev => (prev.some(r => r.userId === member.userId) ? prev : [...prev, member]))
+    setAdding(false)
+  }
+
   if (!document) {
     return <div className="p-4 text-sm text-slate-500">Loading document…</div>
   }
+
+  // The document's real current status (the "from" side of the transition).
+  const statusMeta = STATUS_META[document.status] ?? { bg: '#EFF6FF', fg: '#2563EB', label: document.status }
 
   // Notification preview: due date formatted DD MMM YYYY
   const dueDateLabel = dueDate
@@ -181,20 +220,24 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
     : 'not set'
 
   return (
-    <div className="flex h-full flex-col overflow-hidden">
+    <div className="flex h-full min-h-0 flex-col overflow-hidden">
+
+      {/* One scroll area for everything above the footer, so no section is ever squeezed
+          out of view at 100% zoom; the footer below always stays on screen. */}
+      <div className="min-h-0 flex-1 overflow-y-auto">
 
       {/* ===== Document summary card ===== */}
-      <div className="flex flex-none flex-col gap-2.5 border-b border-slate-200 px-4 py-4" style={{ backgroundColor: '#F8FAFC' }}>
-        <p className="text-[14px] font-bold">{document.title}</p>
+      <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }}>
+        <p className="text-[14px] font-bold leading-snug">{document.title}</p>
         <p className="text-xs text-slate-500">
-          {document.type.toUpperCase()} · v{document.version} · {document.stage.replace(/-/g, ' ')}
+          {document.type.toUpperCase()} · v{String(document.version).replace(/^v/i, '')} · {document.stage.replace(/-/g, ' ')}
         </p>
         <div className="flex items-center gap-2">
           <span
             className="rounded-full px-2.5 py-1 text-xs font-semibold"
-            style={{ backgroundColor: '#EFF6FF', color: '#2563EB' }}
+            style={{ backgroundColor: statusMeta.bg, color: statusMeta.fg }}
           >
-            In Authoring
+            {statusMeta.label}
           </span>
           <ArrowRight />
           <span
@@ -204,14 +247,18 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
             In Review
           </span>
         </div>
-        <div className="mt-1 flex items-center gap-2.5">
-          <label htmlFor="review-due" className="flex-none text-xs text-slate-500">Review due</label>
+        <div className="flex items-center gap-2.5">
+          <label htmlFor="review-due" className="flex-none text-xs text-slate-500">
+            Review due <span className="text-red-600" aria-hidden="true">*</span>
+          </label>
           <input
             id="review-due"
             type="date"
+            required
+            aria-required="true"
             value={dueDate}
             onChange={e => { setDueDate(e.target.value); if (dateError) setDateError(null) }}
-            className="rounded-md border px-2.5 py-1.5 text-[13px] outline-none focus:border-blue-600 focus:shadow-focus"
+            className="min-w-0 flex-1 rounded-md border px-2.5 py-1.5 text-[13px] outline-none focus:border-blue-600 focus:shadow-focus"
             style={{ borderColor: dateError ? '#DC2626' : '#E2E8F0' }}
           />
         </div>
@@ -221,9 +268,9 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
       </div>
 
       {/* ===== Review type selector ===== */}
-      <div className="flex flex-none flex-col gap-2 border-b border-slate-200 px-4 py-3">
+      <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3">
         <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Review type</p>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <ReviewTypeCard
             active={reviewType === 'parallel'}
             title="Parallel review"
@@ -239,10 +286,11 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
         </div>
       </div>
 
-      {/* ===== Reviewers list (scroll) ===== */}
-      <div className="flex-1 overflow-y-auto">
-        <div className="px-4 pt-3 pb-1.5">
+      {/* ===== Reviewers list ===== */}
+      <div>
+        <div className="flex items-baseline justify-between px-4 pt-3 pb-1.5">
           <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Assign reviewers</p>
+          <p className="text-[11px] text-slate-500">{nonOwnerReviewers.length} reviewer{nonOwnerReviewers.length === 1 ? '' : 's'} + author</p>
         </div>
         {reviewers.map(member => (
           <ReviewerRow
@@ -255,17 +303,61 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
         <div className="m-4">
           <button
             type="button"
-            className="w-full rounded-md border border-dashed px-3 py-2 text-center text-[12px] text-slate-600 transition-colors hover:bg-slate-50"
+            onClick={() => setAdding(a => !a)}
+            disabled={availableToAdd.length === 0}
+            aria-expanded={adding}
+            className="w-full rounded-md border border-dashed px-3 py-2 text-center text-[12px] text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:bg-white"
             style={{ borderColor: '#CBD5E1', backgroundColor: '#FFFFFF' }}
+            data-add-reviewer
           >
-            ＋ Add reviewer
+            {availableToAdd.length === 0
+              ? 'Everyone on the team is already assigned'
+              : adding ? 'Cancel' : '＋ Add reviewer'}
           </button>
+          {adding && availableToAdd.length > 0 && (
+            <ul
+              className="mt-2 max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white"
+              aria-label="Team members you can add as reviewers"
+              data-add-reviewer-list
+            >
+              {availableToAdd.map(m => (
+                <li key={m.userId}>
+                  <button
+                    type="button"
+                    onClick={() => addReviewer(m)}
+                    className="flex w-full items-start gap-2.5 border-b border-slate-100 px-3 py-2 text-left transition-colors hover:bg-slate-50"
+                  >
+                    <span className="mt-0.5"><RACIBadge role={m.raci} /></span>
+                    <span className="flex min-w-0 flex-1 flex-col gap-0.5">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <Avatar initials={m.initials} />
+                        <span className="min-w-0 truncate text-[13px] font-semibold text-slate-900">{m.name}</span>
+                      </span>
+                      <span className="text-[11px] leading-snug text-slate-500">
+                        <span className="font-semibold text-slate-600">{m.role}</span> · {RACI_DESCRIPTION[m.raci]}
+                      </span>
+                    </span>
+                    <span className="mt-0.5 flex-none text-[11px] font-semibold text-blue-600">Add</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
         </div>
       </div>
 
-      {/* ===== Notification preview ===== */}
-      <div className="flex-none border-t border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }}>
-        <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Notification preview</p>
+      {/* ===== Notification preview (collapsed by default — it only repeats what's above) ===== */}
+      <div className="border-t border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }}>
+        <button
+          type="button"
+          onClick={() => setShowPreview(v => !v)}
+          aria-expanded={showPreview}
+          className="flex w-full items-center justify-between text-left"
+        >
+          <span className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Notification preview</span>
+          <span aria-hidden="true" className="text-[10px] text-slate-400">{showPreview ? '▾' : '▸'}</span>
+        </button>
+        {showPreview && (
         <div className="mt-1.5 flex flex-col gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2.5">
           <p className="text-[12px] font-bold text-slate-900">Review requested: {document.title}</p>
           <p className="text-[11px] leading-[1.5] text-slate-500">
@@ -286,15 +378,16 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
             <p className="text-[11px] text-slate-500">{nonOwnerReviewers.length} reviewer{nonOwnerReviewers.length === 1 ? '' : 's'}</p>
           </div>
         </div>
+        )}
       </div>
+
+      </div>{/* end scroll area */}
 
       {/* ===== Footer ===== */}
       <div className="flex flex-none flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3">
         {submitMut.isError && (
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
-            {(submitMut.error as { body?: { message?: string } } | null)?.body?.message
-              ?? (submitMut.error as Error | null)?.message
-              ?? 'Could not submit — see console for details.'}
+            {submitErrorMessage(submitMut.error, statusMeta.label)}
           </div>
         )}
         <div className="flex gap-2">
@@ -337,7 +430,7 @@ function ReviewTypeCard({
     <button
       type="button"
       onClick={onClick}
-      className="relative flex flex-1 flex-col gap-1 rounded-lg px-3 py-2.5 text-left transition-colors"
+      className="relative flex min-w-[140px] flex-1 flex-col gap-1 rounded-lg py-2.5 pl-3 pr-7 text-left transition-colors"
       style={{
         border:          active ? '2px solid #2563EB' : '1px solid #E2E8F0',
         backgroundColor: active ? '#EFF6FF' : '#FFFFFF',

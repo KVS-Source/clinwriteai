@@ -6,6 +6,8 @@ interface Props {
   // The signed-in reviewer's role, shown on the right. (RACI is per activity,
   // so it isn't a single letter for the whole document.)
   roleLabel?: string
+  // Shown as a count on the Comments button.
+  openCommentCount?: number
 }
 
 function CommentIcon() {
@@ -76,11 +78,11 @@ function Divider() {
   return <span className="h-[18px] w-px flex-none" style={{ backgroundColor: '#E2E8F0' }} />
 }
 
-export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel }: Props) {
+export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCommentCount }: Props) {
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
-  const toggle = (mode: 'checklist' | 'audit') =>
+  const toggle = (mode: 'comments' | 'checklist' | 'audit') =>
     setActivePanel(activePanel === mode ? null : mode)
 
   return (
@@ -119,6 +121,28 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel }: Prop
       </button>
 
       <Divider />
+
+      {/* Comments panel — closed until asked for */}
+      <button
+        type="button"
+        onClick={() => toggle('comments')}
+        title="Comments"
+        aria-label={openCommentCount ? `Comments (${openCommentCount} open)` : 'Comments'}
+        aria-pressed={activePanel === 'comments'}
+        data-open-comments
+        className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2 text-xs font-semibold transition-colors hover:bg-slate-100"
+        style={{
+          borderColor:     activePanel === 'comments' ? '#BFDBFE' : '#E2E8F0',
+          backgroundColor: activePanel === 'comments' ? '#EFF6FF' : '#FFFFFF',
+          color:           activePanel === 'comments' ? '#1D4ED8' : '#475569',
+        }}
+      >
+        <CommentIcon />
+        Comments
+        {!!openCommentCount && (
+          <span className="rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700">{openCommentCount}</span>
+        )}
+      </button>
 
       {/* Checklist (view-only) */}
       <IconButton

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -74,9 +74,15 @@ export function ReviewerView() {
     setActivePanel(null)
   }, [setActivePanel])
 
+  // Choose the starting section once per document; a reload of the same document keeps the
+  // reviewer on the section they are reading.
+  const startedDocumentRef = useRef<string | null>(null)
   useEffect(() => {
     if (document) {
       setActiveDocument(document)
+      const current = useDocumentStore.getState().activeSection
+      if (startedDocumentRef.current === document.id && current && document.sections.some(s => s.id === current)) return
+      startedDocumentRef.current = document.id
       const defaultSection = document.sections.find(s => s.id === 's11_4')?.id
         ?? document.sections.find(s => s.status === 'in-progress')?.id
         ?? document.sections[0]?.id

@@ -122,13 +122,18 @@ export function DocumentEditor() {
   const [draftContent, setDraftContent] = useState<string>('')
   const [isEditing, setIsEditing] = useState<boolean>(false)
 
+  // Switching sections starts the new section fresh. The editor's save pattern is explicit (click
+  // Save), so leaving a section mid-edit IS a discard.
   useEffect(() => {
-    // Hydrate the draft when the user switches sections. Blow away any
-    // in-flight edits silently — the editor's save pattern is explicit
-    // (click Save) so switching sections before saving IS a discard.
     setDraftContent(activeSectionData?.contentHtml ?? '')
     setIsEditing(false)
-  }, [activeSectionData?.id, activeSectionData?.contentHtml])
+  }, [activeSectionData?.id])
+
+  // A reload that changes the section's saved text (someone else saved, or your own save came back)
+  // refreshes the draft — but never while you're typing, and it never drops you out of edit mode.
+  useEffect(() => {
+    if (!isEditing) setDraftContent(activeSectionData?.contentHtml ?? '')
+  }, [activeSectionData?.contentHtml])
 
   const saveSection = useMutation({
     mutationFn: () => {
@@ -207,9 +212,18 @@ export function DocumentEditor() {
   }, [presenceSnapshot, usersById, currentUser])
 
   // Hydrate active document + default active section + presence heartbeat
+  // The starting section is chosen once per document. A reload of the same document (after saving
+  // a section, the Sync button, or the browser tab regaining focus) hands back a new `document`
+  // object — that must not move the reader to a different section, so keep the current one for as
+  // long as it still exists in the document.
+  const startedDocumentRef = useRef<string | null>(null)
   useEffect(() => {
     if (!document) return
     setActiveDocument(document)
+    const current = useDocumentStore.getState().activeSection
+    const sameDocument = startedDocumentRef.current === document.id
+    if (sameDocument && current && document.sections.some(s => s.id === current)) return
+    startedDocumentRef.current = document.id
     // Default to §11.4 Primary Efficacy Analysis if it exists (matches prototype)
     const defaultSection = document.sections.find(s => s.id === 's11_4')?.id
       ?? document.sections.find(s => s.status === 'in-progress')?.id

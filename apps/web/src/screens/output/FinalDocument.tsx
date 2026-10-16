@@ -89,10 +89,14 @@ export function FinalDocument() {
   const scrollRef     = useRef<HTMLDivElement | null>(null)
   const landed        = useRef(false)
 
+  // Start at the top once per document; a reload of the same document keeps the section the
+  // reader scrolled to.
+  const startedDocumentRef = useRef<string | null>(null)
   useEffect(() => {
     if (!document) return
     setActiveDocument(document)
-    // The final view shows the whole document, so start at the top.
+    if (startedDocumentRef.current === document.id) return
+    startedDocumentRef.current = document.id
     setActiveSection([...document.sections].sort(bySectionNumber)[0]?.id ?? null)
     landed.current = false
   }, [document, setActiveDocument, setActiveSection])

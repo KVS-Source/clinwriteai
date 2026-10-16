@@ -22,6 +22,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections } from './templates.js'
 import { DocumentService } from './service.js'
+import { chooseModel } from '../../platform/config/ai-engine-settings.js'
 import {
   canTransitionDocument,
   DOCUMENT_STATUSES,
@@ -464,7 +465,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   const aiSuggestSchema = z.object({
     intent: z.enum(['draft_from_source', 'tighten', 'explain', 'custom']),
     customPrompt: z.string().min(1).max(2000).optional(),
-    model: z.string().default('claude-opus-4-7'),
+    model: z.string().optional(),            // omitted -> the engine saved in Admin Panel -> AI Engine
   })
 
   app.post('/:documentId/sections/:sectionId/ai-suggest', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -503,6 +504,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         break
     }
 
+    const model = await chooseModel(app.prisma, parsed.data.model)
     try {
       const result = await app.aiGateway.chat({
         tenantId: request.user!.tenantId,
@@ -510,7 +512,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         actorId: request.user!.id,
         module: 'A',
         intent: parsed.data.intent,
-        model: parsed.data.model,
+        model,
         prompt,
         maxOutputTokens: 2048,
       })

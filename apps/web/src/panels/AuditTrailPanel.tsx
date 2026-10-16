@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { AuditEntry } from '@platform/types'
 import { documentsApi } from '../api'
+import { apiConfig } from '../api/client'
 
 interface Props {
   documentId: string
@@ -124,12 +125,36 @@ export function AuditTrailPanel({ documentId }: Props) {
     return sorted.filter(e => allowed.includes(e.eventType))
   }, [sorted, filter])
 
-  const handleExport = () => {
-    console.log('[audit] Export audit trail', { documentId, total, filtered: filtered.length })
+  // Downloads come from the API so the export is itself audited server-side.
+  const [downloading, setDownloading] = useState<'csv' | 'pdf' | null>(null)
+  const [downloadError, setDownloadError] = useState<string | null>(null)
+
+  const download = async (format: 'csv' | 'pdf') => {
+    setDownloading(format)
+    setDownloadError(null)
+    try {
+      const path = format === 'csv' ? 'audit/export' : 'audit/pdf'
+      const res = await fetch(`${apiConfig.baseUrl}/documents/${encodeURIComponent(documentId)}/${path}`, { credentials: 'include' })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const name = /filename="([^"]+)"/.exec(res.headers.get('Content-Disposition') ?? '')?.[1]
+        ?? `audit-trail-${documentId}.${format}`
+      const url = URL.createObjectURL(blob)
+      const a = window.document.createElement('a')
+      a.href = url
+      a.download = name
+      window.document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch (err) {
+      setDownloadError(`Couldn't download the audit trail (${err instanceof Error ? err.message : 'network error'}). Please try again.`)
+    } finally {
+      setDownloading(null)
+    }
   }
-  const handleDownloadPDF = () => {
-    console.log('[audit] Download as PDF', { documentId, total })
-  }
+  const handleExport      = () => { void download('csv') }
+  const handleDownloadPDF = () => { void download('pdf') }
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -240,6 +265,9 @@ export function AuditTrailPanel({ documentId }: Props) {
       </div>
 
       {/* Sticky footer */}
+      {downloadError && (
+        <p className="flex-none border-t border-red-200 bg-red-50 px-4 py-2 text-[11px] text-red-800" data-download-error>{downloadError}</p>
+      )}
       <div
         className="flex flex-none gap-2 border-t border-slate-200 px-4 py-3"
         style={{ backgroundColor: '#F8FAFC' }}
@@ -247,16 +275,20 @@ export function AuditTrailPanel({ documentId }: Props) {
         <button
           type="button"
           onClick={handleExport}
-          className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 transition-colors"
+          disabled={downloading !== null}
+          className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 transition-colors disabled:cursor-wait disabled:opacity-60"
+          data-action="export-audit-csv"
         >
-          Export audit trail
+          {downloading === 'csv' ? 'Exporting…' : 'Export audit trail'}
         </button>
         <button
           type="button"
           onClick={handleDownloadPDF}
-          className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 transition-colors"
+          disabled={downloading !== null}
+          className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 transition-colors disabled:cursor-wait disabled:opacity-60"
+          data-action="export-audit-pdf"
         >
-          Download as PDF
+          {downloading === 'pdf' ? 'Preparing PDF…' : 'Download as PDF'}
         </button>
       </div>
     </div>

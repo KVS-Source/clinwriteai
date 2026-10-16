@@ -12,6 +12,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
+import PDFDocument from 'pdfkit'
 import { requireAuth } from '../../../auth/rbac.js'
 
 // --- Document audit-trail shape (UI `AuditEntry`) ---------------------------
@@ -45,6 +46,46 @@ function auditDetail(row: AuditRow): string {
   if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from)} → ${String(d.to)}`)
   if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
   return parts.length ? parts.join(' · ') : humanise(row.action)
+}
+
+// RFC 4180 cell: quote when it contains a delimiter, quote or newline.
+function csvCell(v: unknown): string {
+  const s = v === null || v === undefined ? '' : String(v)
+  return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+}
+
+const exportFileName = (title: string, documentId: string) =>
+  `audit-trail-${(title || documentId).replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || documentId}`
+
+type ShapedAuditEntry = ReturnType<typeof auditEntryShape> & { rowHash: string | null }
+
+// Plain tabular audit report (newest first) rendered to a Buffer.
+function renderAuditPdf(title: string, documentId: string, entries: ShapedAuditEntry[]): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: 'A4', margin: 40, info: { Title: `Audit trail — ${title}` } })
+    const chunks: Buffer[] = []
+    doc.on('data', (c: Buffer) => chunks.push(c))
+    doc.on('end', () => resolve(Buffer.concat(chunks)))
+    doc.on('error', reject)
+
+    doc.font('Helvetica-Bold').fontSize(14).text('Audit trail')
+    doc.font('Helvetica').fontSize(10).fillColor('#475569')
+      .text(`${title} (${documentId})`)
+      .text(`Generated ${new Date().toISOString()} · ${entries.length} entries · hash-chained (21 CFR Part 11)`)
+    doc.moveDown(0.8).fillColor('#0F172A')
+
+    const newestFirst = [...entries].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    for (const e of newestFirst) {
+      if (doc.y > doc.page.height - 90) doc.addPage()
+      doc.font('Helvetica-Bold').fontSize(9).fillColor('#0F172A')
+        .text(`${new Date(e.timestamp).toISOString().replace('T', ' ').slice(0, 16)} UTC   ${humanise(e.action).toUpperCase()}`)
+      doc.font('Helvetica').fontSize(9).fillColor('#334155').text(`${e.actor} — ${e.detail}`)
+      if (e.rowHash) doc.fontSize(7).fillColor('#94A3B8').text(`row hash ${e.rowHash}`)
+      doc.moveDown(0.5)
+    }
+    if (entries.length === 0) doc.font('Helvetica').fontSize(10).text('No audit events recorded for this document.')
+    doc.end()
+  })
 }
 
 function auditEntryShape(row: AuditRow, actorName: string | undefined) {
@@ -248,17 +289,76 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
-    const rows = await app.audit.listForEntity('document', documentId, 500)
-    // Batched actor lookup so each entry can show a name, not a user id.
-    const actorIds = [...new Set(rows.map(r => r.actorId))]
-    const users = await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
-    const nameById = new Map(users.map(u => [u.id, u.name]))
-    const entries = rows.map(r => auditEntryShape(r as unknown as AuditRow, nameById.get(r.actorId)))
+    const entries = await loadAuditEntries(documentId)
     // UI (documentsApi.getAuditTrail) expects a paginated envelope rather
     // than a bare array — a bare array causes `(auditData?.entries ?? []).map`
     // in AuditReviewAlert.tsx to throw "d.map is not a function".
     return { entries, total: entries.length, limit: 500, offset: 0 }
   })
+
+  // Export the document's audit trail (panel "Export audit trail" / "Download
+  // as PDF"). Each export is itself appended to the audit chain.
+  app.get('/:documentId/audit/export', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, title: true } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+
+    const entries = await loadAuditEntries(documentId)
+    const header = ['id', 'timestamp', 'actor', 'actorId', 'action', 'eventType', 'detail', 'details', 'ipAddress', 'prevHash', 'rowHash']
+    const lines = [header.join(',')]
+    for (const e of entries) {
+      lines.push([
+        e.id, e.timestamp, e.actor, e.actorId, e.action, e.eventType ?? '', e.detail,
+        JSON.stringify(e.details ?? {}), e.ipAddress ?? '', e.prevHash ?? '', e.rowHash ?? '',
+      ].map(csvCell).join(','))
+    }
+
+    await recordExport(request, documentId, 'csv', entries.length)
+    reply.header('Content-Type', 'text/csv; charset=utf-8')
+    reply.header('Content-Disposition', `attachment; filename="${exportFileName(doc.title, documentId)}.csv"`)
+    return lines.join('\r\n') + '\r\n'
+  })
+
+  app.get('/:documentId/audit/pdf', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, title: true } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+
+    const entries = await loadAuditEntries(documentId)
+    const pdf = await renderAuditPdf(doc.title, documentId, entries)
+
+    await recordExport(request, documentId, 'pdf', entries.length)
+    reply.header('Content-Type', 'application/pdf')
+    reply.header('Content-Disposition', `attachment; filename="${exportFileName(doc.title, documentId)}.pdf"`)
+    return reply.send(pdf)
+  })
+
+  // Shaped entries (oldest-first from the chain), with actor names resolved
+  // in one batched query.
+  async function loadAuditEntries(documentId: string) {
+    const rows = await app.audit.listForEntity('document', documentId, 500)
+    const actorIds = [...new Set(rows.map(r => r.actorId))]
+    const users = await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+    const nameById = new Map(users.map(u => [u.id, u.name]))
+    return rows.map(r => ({
+      ...auditEntryShape(r as unknown as AuditRow, nameById.get(r.actorId)),
+      ipAddress: (r as { ipAddress?: string | null }).ipAddress ?? null,
+      prevHash: (r as { prevHash?: string }).prevHash ?? null,
+      rowHash: (r as { rowHash?: string }).rowHash ?? null,
+    }))
+  }
+
+  async function recordExport(request: import('fastify').FastifyRequest, documentId: string, format: 'csv' | 'pdf', count: number) {
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'audit_trail_exported',
+      entityType: 'document',
+      entityId: documentId,
+      details: { format, entryCount: count },
+      ipAddress: request.ip ?? null,
+    })
+  }
 
   // QA review cadence + last-review tracking for the Audit Review screen.
   // Derived from the audit log itself (looks for the most recent

@@ -43,6 +43,13 @@ const SUPER_ADMIN_NAV: PlatformNavItem[] = [
   { label: 'Rate Card',           href: '/super-admin/rate-card',  roles: ['super-admin'] as const },
 ]
 
+// NavLink matches by path prefix, so "/admin" would stay highlighted on
+// "/admin/users" (and "/library" on "/library/best-practices", ...). Items whose
+// path is a prefix of another item's path must match exactly (`end`) so only
+// the page you're actually on is highlighted.
+const ALL_NAV_HREFS = [...PLATFORM_NAV, ...SUPER_ADMIN_NAV].map(i => i.href)
+const needsExactMatch = (href: string) => ALL_NAV_HREFS.some(other => other !== href && other.startsWith(`${href}/`))
+
 function HomeIcon()   { return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M2 6.5L8 2l6 4.5V14H2V6.5Z"/></svg> }
 function FolderIcon() { return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M1.5 4.5h4l1.5 2h7.5v7h-13V4.5Z"/></svg> }
 function ChatIcon()   { return <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M1.5 1.5h13v9h-7l-4 4V10.5h-2V1.5Z"/></svg> }
@@ -263,9 +270,7 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
               <NavLink
                 key={item.href}
                 to={item.href}
-                // '/library' is a path prefix of '/library/best-practices'; match it exactly so
-                // the two sidebar entries aren't both highlighted on the Best Practices page.
-                end={item.href === '/library'}
+                end={needsExactMatch(item.href)}
                 data-platform-link={item.href}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${
@@ -331,6 +336,7 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
               <NavLink
                 key={item.href}
                 to={item.href}
+                end={needsExactMatch(item.href)}
                 data-super-admin-link={item.href}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${

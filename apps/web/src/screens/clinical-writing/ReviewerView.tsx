@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CommentSeverity } from '@platform/types'
@@ -40,14 +41,17 @@ export function ReviewerView() {
 
   const activeSection      = useDocumentStore(s => s.activeSection)
   const activePanel        = useDocumentStore(s => s.activePanel)
-  const panelWidth         = useDocumentStore(s => s.panelWidth)
   const setActiveDocument  = useDocumentStore(s => s.setActiveDocument)
   const setActiveSection   = useDocumentStore(s => s.setActiveSection)
   const setActivePanel     = useDocumentStore(s => s.setActivePanel)
 
+  // Side panel: drag the edge to resize, or expand it to the whole working area.
+  const panel = useResizablePanel({ activePanel })
+
   const [commentText,     setCommentText]     = useState('')
   const [severity,        setSeverity]        = useState<CommentSeverity>('minor')
   const [flagged,         setFlagged]         = useState(false)
+  const [composerOpen,    setComposerOpen]    = useState(true)
   const [returningReason, setReturningReason] = useState<string | null>(null)
   const [returnText,      setReturnText]      = useState('')
   const [approveNote,     setApproveNote]     = useState<string | null>(null)
@@ -63,14 +67,22 @@ export function ReviewerView() {
     enabled:  !!projectId,
   })
 
-  // Open Comments panel automatically on mount
+  // Start with no side panel open. The panel state is shared with the Editor, so also clear
+  // anything left open there (e.g. Submit for review) — the reviewer only has Comments,
+  // Checklist and Audit. Reviewers open them from the toolbar when they want them.
   useEffect(() => {
-    setActivePanel('comments')
+    setActivePanel(null)
   }, [setActivePanel])
 
+  // Choose the starting section once per document; a reload of the same document keeps the
+  // reviewer on the section they are reading.
+  const startedDocumentRef = useRef<string | null>(null)
   useEffect(() => {
     if (document) {
       setActiveDocument(document)
+      const current = useDocumentStore.getState().activeSection
+      if (startedDocumentRef.current === document.id && current && document.sections.some(s => s.id === current)) return
+      startedDocumentRef.current = document.id
       const defaultSection = document.sections.find(s => s.id === 's11_4')?.id
         ?? document.sections.find(s => s.status === 'in-progress')?.id
         ?? document.sections[0]?.id
@@ -131,6 +143,7 @@ export function ReviewerView() {
     }),
     onSuccess: () => {
       setCommentText('')
+      setComposerOpen(false)   // posted — close the box; the prompt below reopens it
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
       qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
     },
@@ -200,6 +213,23 @@ export function ReviewerView() {
 
   const handleFlagSection = () => setFlagged(v => !v)
 
+  // Cancel throws the draft away and collapses the box; opening it again (toolbar button or the
+  // prompt that replaces it) brings back an empty box and puts the cursor in it.
+  const cancelComposer = () => {
+    setCommentText('')
+    setSeverity('minor')
+    addCommentMut.reset()
+    setComposerOpen(false)
+  }
+  const openComposer = () => {
+    addCommentMut.reset()   // drop the "posted" note from the last comment
+    setComposerOpen(true)
+    // The box may have been collapsed — wait for it to render before focusing.
+    window.setTimeout(() => {
+      (window.document.getElementById('reviewer-comment-textarea') as HTMLTextAreaElement | null)?.focus()
+    }, 0)
+  }
+
   if (!document) {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">Loading document…</p></div>
   }
@@ -239,7 +269,10 @@ export function ReviewerView() {
             >
               {statusMeta.label}
             </span>
-            <span className="flex-none font-mono text-[11px] text-slate-500">v{document.version} · For Review</span>
+            <span className="flex-none font-mono text-[11px] text-slate-500">
+              {String(document.version).startsWith('v') ? document.version : `v${document.version}`}
+              {document.status === 'in-review' ? ' · For Review' : ''}
+            </span>
           </div>
 
           {/* Right cluster */}
@@ -297,6 +330,25 @@ export function ReviewerView() {
           </div>
         </div>
       </div>
+
+      {/* Not submitted yet: say so, instead of looking like a live review. */}
+      {(document.status === 'in-authoring' || document.status === 'not-started') && (
+        <div
+          role="status"
+          className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-blue-200 bg-blue-50 px-6 py-2 text-[13px] text-blue-900"
+          data-notice="not-submitted"
+        >
+          <span className="font-semibold">This document hasn't been submitted for review yet.</span>
+          <span>It is {statusMeta.label}. Submit it from the Editor to start the review.</span>
+          <button
+            type="button"
+            onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)}
+            className="ml-auto font-semibold underline"
+          >
+            Go to Editor →
+          </button>
+        </div>
+      )}
 
       {/* Approve/Return inline notices */}
       {!hasSections && (
@@ -362,12 +414,10 @@ export function ReviewerView() {
         {/* Editor pane */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
           <ReviewerToolbar
-            onAddComment={() => {
-              const el = window.document.getElementById('reviewer-comment-textarea') as HTMLTextAreaElement | null
-              el?.focus()
-            }}
+            onAddComment={openComposer}
             onFlagSection={handleFlagSection}
             roleLabel={reviewer.role}
+            openCommentCount={openCommentCount}
           />
 
           {/* Content */}
@@ -395,10 +445,12 @@ export function ReviewerView() {
                 </p>
               )}
 
-              {/* Comment composition box — persistent */}
+              {/* Comment composition box — Cancel collapses it; "Add comment" (or the prompt below) reopens it */}
+              {composerOpen ? (
               <div
                 className="mt-4 flex flex-col gap-2.5 rounded-lg border bg-white p-3.5"
                 style={{ borderColor: '#2563EB', boxShadow: '0 0 0 3px rgba(37,99,235,0.12)' }}
+                data-comment-composer
               >
                 <div className="flex flex-wrap items-center gap-2">
                   <div className="flex h-5 w-5 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold" style={{ backgroundColor: reviewerColours.bg, color: reviewerColours.fg }} data-comment-author-initials>{reviewer.initials}</div>
@@ -425,7 +477,12 @@ export function ReviewerView() {
                   <SeverityButton value="query"  active={severity === 'query'}  onClick={() => setSeverity('query')}  label="Query"  bg="#EFF6FF" fg="#2563EB" />
                 </div>
                 <div className="flex items-center justify-end gap-3">
-                  <button onClick={() => setCommentText('')} className="text-xs font-semibold text-slate-500 hover:text-slate-700">Cancel</button>
+                  <button
+                    type="button"
+                    onClick={cancelComposer}
+                    disabled={addCommentMut.isPending}
+                    className="text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
+                  >Cancel</button>
                   <button
                     type="button"
                     onClick={handlePostComment}
@@ -446,6 +503,23 @@ export function ReviewerView() {
                   <p className="text-[11px] font-semibold text-green-700">Comment posted — see Comments panel.</p>
                 )}
               </div>
+              ) : (
+                <>
+                {addCommentMut.isSuccess && (
+                  <p className="mt-4 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-[12px] font-semibold text-green-700" role="status" data-comment-posted>
+                    ✓ Comment posted — see the Comments panel.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={openComposer}
+                  className="mt-3 flex w-full items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3.5 py-3 text-left text-[13px] font-semibold text-slate-600 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
+                  data-open-composer
+                >
+                  <span aria-hidden="true">＋</span> Add a comment{commentRef ? ` for ${commentRef}` : ''}
+                </button>
+                </>
+              )}
 
               {flagged && (
                 <div className="mt-3 rounded border px-3 py-2 text-[12px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}>
@@ -463,18 +537,47 @@ export function ReviewerView() {
           {/* Right panel — absolute overlay per Pattern 6 */}
           {activePanel !== null && (
             <div
-              className="absolute top-0 right-0 bottom-0 flex flex-col border-l border-slate-200"
+              className="fixed top-14 right-0 bottom-0 flex flex-col border-l border-slate-200"
               style={{
-                width:           panelWidth,
-                zIndex:          6,
+                width:           panel.width,
+                maxWidth:        '100%',
+                zIndex:          30,
                 backgroundColor: '#FFFFFF',
                 boxShadow:       '-16px 0 40px rgba(15,23,42,0.12)',
               }}
             >
+              {/* Drag handle on the left edge: drag to resize, double-click to expand/shrink */}
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="Resize panel"
+                title="Drag to resize · double-click to expand"
+                onMouseDown={e => { e.preventDefault(); panel.startDrag() }}
+                onDoubleClick={panel.toggleExpanded}
+                className="absolute inset-y-0 -left-1 z-10 w-2 cursor-ew-resize transition-colors hover:bg-blue-300/60"
+                style={panel.dragging ? { backgroundColor: 'rgba(147,197,253,0.7)' } : undefined}
+              />
               {/* Panel header */}
               <div className="flex h-12 flex-none items-center gap-2 border-b border-slate-200 px-4">
                 <h3 className="text-sm font-bold text-slate-900">{panelTitle}{activePanel === 'comments' ? ` (${openCommentCount} open)` : ''}</h3>
                 <div className="flex-1" />
+                <button
+                  type="button"
+                  onClick={panel.toggleExpanded}
+                  aria-label={panel.expanded ? 'Shrink panel' : 'Expand panel'}
+                  title={panel.expanded ? 'Shrink panel' : 'Expand panel'}
+                  className="flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
+                >
+                  {panel.expanded ? (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M7.5 1.5v3h3M4.5 10.5v-3h-3M7.5 4.5l3-3M4.5 7.5l-3 3"/>
+                    </svg>
+                  ) : (
+                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                      <path d="M7 1.5h3.5V5M5 10.5H1.5V7M10.5 1.5L7 5M1.5 10.5L5 7"/>
+                    </svg>
+                  )}
+                </button>
                 <button
                   type="button"
                   onClick={() => setActivePanel(null)}
@@ -491,7 +594,7 @@ export function ReviewerView() {
                   documentId={documentId}
                   sections={document?.sections ?? []}
                   activeSectionId={activeSection}
-                  onAddComment={() => (window.document.getElementById('reviewer-comment-textarea') as HTMLTextAreaElement | null)?.focus()}
+                  onAddComment={openComposer}
                 />
               )}
               {activePanel === 'checklist' && documentId && (

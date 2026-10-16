@@ -206,6 +206,10 @@ async function buildServer() {
   const { subscriptionRoutes } = await import('./modules/platform/subscriptions/routes.js')
   await app.register(subscriptionRoutes)
 
+  // ---------- Admin Panel config (sPM04) ----------
+  const { adminConfigRoutes } = await import('./modules/platform/config/routes.js')
+  await app.register(adminConfigRoutes)
+
   // ---------- Module A — Clinical Writing ----------
   const { documentsProjectScopedRoutes, documentsRoutes } =
     await import('./modules/clinical-writing/documents/routes.js')

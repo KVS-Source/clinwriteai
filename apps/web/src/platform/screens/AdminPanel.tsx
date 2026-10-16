@@ -492,7 +492,7 @@ export function AdminPanel() {
   const [activeTab, setActiveTab] = useState<TabKey>('ai-engine')
   const [unsaved,   setUnsaved]   = useState(false)
 
-  const { data: config } = useQuery({
+  const { data: config, isError: configFailed, refetch: refetchConfig } = useQuery({
     queryKey: ['platform-config'],
     queryFn:  () => platformApi.getConfig(),
   })
@@ -581,7 +581,13 @@ export function AdminPanel() {
 
           {/* Right content panel */}
           <section className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5" data-settings-content>
-            {!config && <p className="text-[13px] text-slate-500">Loading configuration…</p>}
+            {!config && !configFailed && <p className="text-[13px] text-slate-500">Loading configuration…</p>}
+            {!config && configFailed && (
+              <div className="rounded-md bg-red-50 p-3 text-[13px] text-red-800" data-config-error>
+                Couldn't load the platform configuration.{' '}
+                <button type="button" onClick={() => { void refetchConfig() }} className="font-semibold underline">Try again</button>
+              </div>
+            )}
             {config && activeTab === 'ai-engine'          && <AIEngineTab          config={config} onChange={markUnsaved} />}
             {config && activeTab === 'voice'              && <VoiceTab             config={config} onChange={markUnsaved} />}
             {config && activeTab === 'ectd'               && <EctdTab              config={config} />}

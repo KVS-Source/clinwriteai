@@ -35,8 +35,12 @@ export class ApiError extends Error {
 // menu, tell the API so the data matches the persona on screen. The API
 // ignores this header unless AUTH_BYPASS_EMAIL is set (never in production).
 const PERSONA_STORAGE_KEY = 'clinwrite.demo.currentUserId'
+// A demo build (VITE_BYPASS_AUTH=true) is a production-mode build too, so the
+// header must still go out there or the API resolves a different user than
+// the one on screen (e.g. UI says Super Admin, API says admin → 403).
+const BYPASS_AUTH = (import.meta.env.VITE_BYPASS_AUTH as string | undefined)?.toLowerCase() === 'true'
 function demoPersonaHeader(): Record<string, string> {
-  if (import.meta.env.MODE === 'production') return {}
+  if (import.meta.env.MODE === 'production' && !BYPASS_AUTH) return {}
   try {
     const id = window.localStorage.getItem(PERSONA_STORAGE_KEY)
     return id ? { 'X-Demo-Persona': id } : {}

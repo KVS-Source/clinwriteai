@@ -48,8 +48,9 @@ const GROUPS: Record<ToggleName, unknown[]> = {
 
 // Admin Panel endpoints the real API doesn't serve yet. Kept mocked even when
 // the PROJECTS group is off, otherwise the panel never leaves "Loading…".
+// /admin/config is now served by the API (modules/platform/config/routes.ts).
 const ADMIN_PANEL_MOCK_ONLY = platformHandlers.filter(h =>
-  /\/admin\/(config|subscription)$/.test(String((h as { info: { path: unknown } }).info.path)),
+  /\/admin\/subscription$/.test(String((h as { info: { path: unknown } }).info.path)),
 )
 
 export function createWorker(): SetupWorker {

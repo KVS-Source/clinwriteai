@@ -7,32 +7,102 @@
 // count, tenant name) and static defaults for integrations that aren't wired
 // yet. `stub: true` flags the defaults, mirroring GET /admin/subscription.
 // Persisting edits (Save changes) needs a config table — deferred.
+//
+// POST /admin/test-connection fires a real test prompt at the AI engine (see
+// test-connection.ts); the last result is read back from the audit trail, so
+// "last tested" survives restarts and shows who/when.
 
 import type { FastifyPluginAsync } from 'fastify'
 import { requireAuth } from '../../../auth/rbac.js'
+import { createAnthropicClientFromEnv } from '../ai-gateway/anthropic-client.js'
+import { runConnectionTest } from './test-connection.js'
+import {
+  AI_ENGINE_SAVED, availableEngineOptions, resolveAiEngineSettings, validateAiEngineSettings,
+  type AiEngineSettings,
+} from './ai-engine-settings.js'
+import { z } from 'zod'
+
+const saveAiEngineSchema = z.object({
+  default:                  z.string().min(1),
+  fallback:                 z.string().min(1),
+  perModuleOverrideEnabled: z.boolean(),
+})
 
 const SEAT_LIMIT = 50
 
+const AI_TEST_ACTION = 'ai_connection_tested'
+
 export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
+  // The most recent Test-connection result, from the audit trail.
+  async function lastConnectionTest() {
+    try {
+      const rows = await app.prisma.$queryRaw<Array<{ timestamp: Date; details: Record<string, unknown> | null }>>`
+        SELECT "timestamp", details FROM audit_events WHERE action = ${AI_TEST_ACTION} ORDER BY id DESC LIMIT 1
+      `
+      return rows[0] ?? null
+    } catch { return null }                  // an unreadable audit row must not break the Admin Panel
+  }
+
+  app.post('/admin/test-connection', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request) => {
+    const { default: model } = await resolveAiEngineSettings(app.prisma)   // test the engine the platform will actually use
+    const key = process.env.ANTHROPIC_API_KEY?.trim() ?? ''
+    const result = await runConnectionTest({
+      client: createAnthropicClientFromEnv(),   // null without a key — never the offline stub
+      model,
+      secrets: [key],
+    })
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: AI_TEST_ACTION,
+      entityType: 'ai_engine',
+      entityId: model,
+      details: { status: result.status, model, latencyMs: result.latency, message: result.message },
+      ipAddress: request.ip ?? null,
+    })
+    return result
+  })
+
+  // Save the AI engine choice (PRD AC-PM-001). Written to the audit trail with the
+  // value it replaces; AI calls pick it up immediately (chooseModel).
+  app.put('/admin/config/ai-engine', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+    const parsed = saveAiEngineSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const next: AiEngineSettings = parsed.data
+    const problem = validateAiEngineSettings(next)
+    if (problem) return reply.code(400).send({ error: 'validation', message: problem })
+
+    const previous = await resolveAiEngineSettings(app.prisma)
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: AI_ENGINE_SAVED,
+      entityType: 'ai_engine',
+      entityId: next.default,
+      details: { ...next, previous },
+      ipAddress: request.ip ?? null,
+    })
+    return { ...next, availableEngines: availableEngineOptions().map(e => ({ ...e, status: e.id === next.default ? 'active' : 'available' })) }
+  })
+
   app.get('/admin/config', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request) => {
     const user = request.user!
     const env = process.env
 
-    const [tenant, activeSeats, subscription] = await Promise.all([
+    const [tenant, activeSeats, subscription, lastTest, engine] = await Promise.all([
       user.tenantId ? app.prisma.tenant.findUnique({ where: { id: user.tenantId } }) : null,
       app.prisma.user.count({
         where: { status: 'active', ...(user.tenantId ? { tenantId: user.tenantId } : {}) },
       }),
       app.prisma.subscription.findFirst({ where: { endedAt: null }, orderBy: { startedAt: 'desc' } }),
+      lastConnectionTest(),
+      resolveAiEngineSettings(app.prisma),
     ])
 
     const now = new Date()
     const renewal = new Date(now)
     renewal.setMonth(renewal.getMonth() + 1)
 
-    const defaultModel  = env.ANTHROPIC_MODEL_SONNET || 'claude-sonnet-4-6'
-    const fallbackModel = env.ANTHROPIC_MODEL_HAIKU  || 'claude-haiku-4-5'
-    const opusModel     = env.ANTHROPIC_MODEL_OPUS   || 'claude-opus-4-7'
     const aiConnected   = !!env.ANTHROPIC_API_KEY
     const smtpConnected = (env.EMAIL_PROVIDER ?? '').toLowerCase() === 'smtp' && !!env.SMTP_HOST
 
@@ -48,17 +118,14 @@ export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
       contractedTokensPerMonth: 4_000_000,
       currency:                 'USD',
       aiEngine: {
-        default:                  defaultModel,
-        fallback:                 fallbackModel,
-        perModuleOverrideEnabled: true,
-        availableEngines: [
-          { id: defaultModel,  label: defaultModel,  provider: 'Anthropic', status: 'active' },
-          { id: opusModel,     label: opusModel,     provider: 'Anthropic', status: 'available' },
-          { id: fallbackModel, label: fallbackModel, provider: 'Anthropic', status: 'available' },
-        ],
-        lastTested:          now.toISOString(),
-        lastTestedLatencyMs: 0,
-        lastTestedStatus:    aiConnected ? 'connected' : 'not-configured',
+        default:                  engine.default,
+        fallback:                 engine.fallback,
+        perModuleOverrideEnabled: engine.perModuleOverrideEnabled,
+        availableEngines: availableEngineOptions().map(e => ({ ...e, status: e.id === engine.default ? 'active' : 'available' })),
+        lastTested:          lastTest?.timestamp.toISOString() ?? null,
+        lastTestedLatencyMs: typeof lastTest?.details?.latencyMs === 'number' ? lastTest.details.latencyMs : null,
+        // What the last test found; with none yet, whether a key is even present.
+        lastTestedStatus:    (lastTest?.details?.status as string | undefined) ?? (aiConnected ? 'never-tested' : 'not-configured'),
       },
       voiceTranscription: {
         engine: 'whisper',

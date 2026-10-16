@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
-import type { PlatformConfig, Subscription } from '@platform/types'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { AiConnectionTestResult, AiEngineSaveBody, PlatformConfig, Subscription } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
+import { describeApiError } from '../../api'
 import { usePlatformStore } from '../store'
 
 type TabKey =
@@ -19,13 +20,13 @@ const TABS: { key: TabKey; label: string }[] = [
   { key: 'external-apis',      label: 'External APIs' },
 ]
 
-const ENGINE_DISPLAY: Record<string, string> = {
-  'claude-sonnet-4-6': 'Claude Sonnet 4.6',
-  'claude-opus-4':     'Claude Opus 4',
-  'claude-haiku-4-5':  'Claude Haiku 4.5',
-  'gpt-4o':            'GPT-4o',
-  'gemini-pro':        'Gemini Pro',
-}
+// Friendly names for known model ids (matched by prefix, so dated ids like
+// "claude-haiku-4-5-20251001" resolve too); anything else shows its own label.
+const ENGINE_NAMES: [string, string][] = [
+  ['claude-sonnet-4-6', 'Claude Sonnet 4.6'], ['claude-opus-4-7', 'Claude Opus 4.7'], ['claude-opus-4', 'Claude Opus 4'],
+  ['claude-haiku-4-5', 'Claude Haiku 4.5'], ['gpt-4o', 'GPT-4o'], ['gemini-pro', 'Gemini Pro'],
+]
+const engineName = (id: string, fallback: string) => ENGINE_NAMES.find(([p]) => id.startsWith(p))?.[1] ?? fallback
 
 function formatUTC(iso: string): string {
   const d = new Date(iso)
@@ -74,7 +75,32 @@ function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: s
 
 // -------------- Tab bodies --------------
 
-function AIEngineTab({ config, onChange }: { config: PlatformConfig; onChange: () => void }) {
+export type AiDraft = AiEngineSaveBody
+const draftOf = (config: PlatformConfig): AiDraft => ({
+  default:                  config.aiEngine.default,
+  fallback:                 config.aiEngine.fallback,
+  perModuleOverrideEnabled: config.aiEngine.perModuleOverrideEnabled,
+})
+const sameDraft = (a: AiDraft, b: AiDraft) =>
+  a.default === b.default && a.fallback === b.fallback && a.perModuleOverrideEnabled === b.perModuleOverrideEnabled
+
+function AIEngineTab({ config, draft, onDraft }: { config: PlatformConfig; draft: AiDraft; onDraft: (d: AiDraft) => void }) {
+  const saved = draftOf(config)
+  const engines = config.aiEngine.availableEngines
+
+  // Every engine except the default; plus the saved fallback if it isn't one of the cards.
+  const fallbackOptions = engines.filter(e => e.id !== draft.default).map(e => ({ id: e.id, label: engineName(e.id, e.label) }))
+  if (draft.fallback !== draft.default && !fallbackOptions.some(o => o.id === draft.fallback)) {
+    fallbackOptions.push({ id: draft.fallback, label: engineName(draft.fallback, draft.fallback) })
+  }
+
+  // Picking a new default: if it is also the fallback, the old default becomes the fallback
+  // so the two always differ (the server rejects a fallback equal to the default).
+  const selectDefault = (id: string) => {
+    if (id === draft.default) return
+    onDraft({ ...draft, default: id, fallback: draft.fallback === id ? draft.default : draft.fallback })
+  }
+
   return (
     <div className="flex flex-col gap-5" data-tab-panel="ai-engine">
       <SectionHeader
@@ -83,17 +109,23 @@ function AIEngineTab({ config, onChange }: { config: PlatformConfig; onChange: (
         subtitle="Configure the default AI engine, per-module overrides, and the fallback route."
       />
 
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }} data-engine-grid>
-        {config.aiEngine.availableEngines.map(e => {
-          const isDefault = e.id === config.aiEngine.default
-          const label = ENGINE_DISPLAY[e.id] ?? e.label
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }} data-engine-grid role="radiogroup" aria-label="Default AI engine">
+        {engines.map(e => {
+          const isDefault = e.id === draft.default
+          const changed = isDefault && draft.default !== saved.default
+          const label = engineName(e.id, e.label)
           return (
-            <div
+            <button
+              type="button"
+              role="radio"
+              aria-checked={isDefault}
               key={e.id}
-              className="rounded-lg bg-white p-4"
+              onClick={() => selectDefault(e.id)}
+              className="rounded-lg bg-white p-4 text-left transition-shadow hover:shadow-md focus:outline-none focus-visible:ring-2"
               style={{
                 border: `${isDefault ? 2 : 1}px solid ${isDefault ? PLATFORM_ACCENT.primary : '#E2E8F0'}`,
                 boxShadow: '0 1px 3px rgba(0,0,0,0.08)',
+                cursor: 'pointer',
               }}
               data-engine-card={e.id}
               data-engine-active={isDefault || undefined}
@@ -108,26 +140,33 @@ function AIEngineTab({ config, onChange }: { config: PlatformConfig; onChange: (
                   : <StatusChip status="off" label="○ Available" />}
               </div>
               {isDefault && (
-                <p className="mt-2 text-[11px]" style={{ color: PLATFORM_ACCENT.primary }}>Default across all modules</p>
+                <p className="mt-2 text-[11px]" style={{ color: PLATFORM_ACCENT.primary }}>
+                  Default across all modules{changed ? ' · not saved yet' : ''}
+                </p>
               )}
-            </div>
+            </button>
           )
         })}
       </div>
 
-      <div className="rounded-lg border border-slate-200 bg-white p-4" data-fallback-row>
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Fallback engine</p>
-        <p className="mt-1 text-[14px] font-semibold text-slate-900">
-          {ENGINE_DISPLAY[config.aiEngine.fallback] ?? config.aiEngine.fallback} (fastest)
-        </p>
-        <p className="mt-1 text-[12px] text-slate-600">Used when the default engine returns an error or exceeds the response-time budget.</p>
-      </div>
+      <label className="block rounded-lg border border-slate-200 bg-white p-4" data-fallback-row>
+        <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Fallback engine</span>
+        <select
+          value={draft.fallback}
+          onChange={e => onDraft({ ...draft, fallback: e.target.value })}
+          data-fallback-select
+          className="mt-1 h-9 w-full max-w-md rounded-md border border-slate-300 bg-white px-2 text-[14px] font-semibold text-slate-900"
+        >
+          {fallbackOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
+        </select>
+        <span className="mt-1 block text-[12px] text-slate-600">Used when the default engine returns an error or exceeds the response-time budget.</span>
+      </label>
 
       <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4" data-override-toggle>
         <input
           type="checkbox"
-          defaultChecked={config.aiEngine.perModuleOverrideEnabled}
-          onChange={onChange}
+          checked={draft.perModuleOverrideEnabled}
+          onChange={e => onDraft({ ...draft, perModuleOverrideEnabled: e.target.checked })}
           className="mt-0.5 h-4 w-4"
           style={{ accentColor: PLATFORM_ACCENT.primary }}
         />
@@ -137,27 +176,83 @@ function AIEngineTab({ config, onChange }: { config: PlatformConfig; onChange: (
         </div>
       </label>
 
-      <div
-        className="rounded-lg p-4"
-        style={{ backgroundColor: PLATFORM_ACCENT.bgTint, border: `1px solid ${PLATFORM_ACCENT.borderMedium}` }}
-        data-test-connection
-      >
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <p className="text-[13px] font-semibold" style={{ color: PLATFORM_ACCENT.primary }} data-connection-status>
-              ✓ Connected · {config.aiEngine.default} · latency {config.aiEngine.lastTestedLatencyMs}ms
-            </p>
-            <p className="mt-1 font-mono text-[11px] text-slate-600">
-              Last tested {formatUTC(config.aiEngine.lastTested)}
-            </p>
-          </div>
-          <button
-            type="button"
-            data-test-connection-button
-            className="h-9 rounded-md px-3 text-[13px] font-semibold text-white"
-            style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-          >Test connection</button>
+      <ConnectionTest config={config} />
+    </div>
+  )
+}
+
+// "Test connection" (PRD sPM04 §2.2): fires a test prompt at the AI engine and
+// shows the real outcome — connected + latency, failed + why, or "no key". The
+// server enforces the 5-second limit and logs each result to the audit trail.
+type ConnectionView =
+  | { kind: 'connected';      model: string; latency: number | null; at: string | null }
+  | { kind: 'failed';         model: string; message: string;        at: string | null }
+  | { kind: 'not-configured'; message: string }
+  | { kind: 'never-tested' }
+
+function initialView(config: PlatformConfig): ConnectionView {
+  const e = config.aiEngine
+  if (e.lastTestedStatus === 'connected')      return { kind: 'connected', model: e.default, latency: e.lastTestedLatencyMs, at: e.lastTested }
+  if (e.lastTestedStatus === 'failed')         return { kind: 'failed', model: e.default, message: 'The last test failed. Run it again to see why.', at: e.lastTested }
+  if (e.lastTestedStatus === 'not-configured') return { kind: 'not-configured', message: 'No AI provider key is configured on the server (ANTHROPIC_API_KEY).' }
+  return { kind: 'never-tested' }
+}
+
+function viewFromResult(r: AiConnectionTestResult): ConnectionView {
+  if (r.status === 'connected')      return { kind: 'connected', model: r.model, latency: r.latency, at: r.testedAt }
+  if (r.status === 'not-configured') return { kind: 'not-configured', message: r.message ?? 'No AI provider key is configured.' }
+  return { kind: 'failed', model: r.model, message: r.message ?? 'Connection failed.', at: r.testedAt }
+}
+
+function ConnectionTest({ config }: { config: PlatformConfig }) {
+  const [view, setView] = useState<ConnectionView>(() => initialView(config))
+  const test = useMutation({
+    mutationFn: () => platformApi.testAiConnection(),
+    onSuccess:  (result) => setView(viewFromResult(result)),
+    onError:    (err)    => setView({ kind: 'failed', model: config.aiEngine.default, message: describeApiError(err).message, at: new Date().toISOString() }),
+  })
+
+  const tone =
+    test.isPending                 ? { fg: '#475569', bg: PLATFORM_ACCENT.bgTint, border: PLATFORM_ACCENT.borderMedium }
+    : view.kind === 'connected'    ? { fg: PLATFORM_ACCENT.primary, bg: PLATFORM_ACCENT.bgTint, border: PLATFORM_ACCENT.borderMedium }
+    : view.kind === 'failed'       ? { fg: '#B91C1C', bg: '#FEF2F2', border: '#FECACA' }
+    : view.kind === 'not-configured' ? { fg: '#B45309', bg: '#FFFBEB', border: '#FDE68A' }
+    :                                { fg: '#475569', bg: PLATFORM_ACCENT.bgTint, border: PLATFORM_ACCENT.borderMedium }
+
+  const headline =
+    test.isPending                   ? `Testing ${config.aiEngine.default}…`
+    : view.kind === 'connected'      ? `✓ Connected · ${view.model}${view.latency !== null ? ` · latency ${view.latency}ms` : ''}`
+    : view.kind === 'failed'         ? `✗ Connection failed · ${view.model}`
+    : view.kind === 'not-configured' ? '⚠ AI engine not configured'
+    :                                  'Not tested yet'
+  const detail =
+    test.isPending                   ? 'Sending a short test prompt (up to 5 seconds).'
+    : view.kind === 'connected'      ? (view.at ? `Last tested ${formatUTC(view.at)}` : '')
+    : view.kind === 'failed'         ? `${view.message}${view.at ? ` · tested ${formatUTC(view.at)}` : ''}`
+    : view.kind === 'not-configured' ? view.message
+    :                                  'Click Test connection to send a short test prompt to the default engine.'
+
+  return (
+    <div
+      className="rounded-lg p-4"
+      style={{ backgroundColor: tone.bg, border: `1px solid ${tone.border}` }}
+      data-test-connection
+    >
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div role="status" aria-live="polite">
+          <p className="text-[13px] font-semibold" style={{ color: tone.fg }} data-connection-status={test.isPending ? 'testing' : view.kind}>
+            {headline}
+          </p>
+          {detail && <p className="mt-1 font-mono text-[11px] text-slate-600" data-connection-detail>{detail}</p>}
         </div>
+        <button
+          type="button"
+          data-test-connection-button
+          onClick={() => test.mutate()}
+          disabled={test.isPending}
+          className="h-9 rounded-md px-3 text-[13px] font-semibold text-white disabled:cursor-wait disabled:opacity-60"
+          style={{ backgroundColor: PLATFORM_ACCENT.primary }}
+        >{test.isPending ? 'Testing…' : 'Test connection'}</button>
       </div>
     </div>
   )
@@ -490,7 +585,10 @@ export function AdminPanel() {
   const setConfig   = usePlatformStore(s => s.setConfig)
 
   const [activeTab, setActiveTab] = useState<TabKey>('ai-engine')
-  const [unsaved,   setUnsaved]   = useState(false)
+  const [otherUnsaved, setOtherUnsaved] = useState(false)   // edits on tabs that don't persist yet
+  const [aiDraft,   setAiDraft]   = useState<AiDraft | null>(null)
+  const [saveNote,  setSaveNote]  = useState<string | null>(null)
+  const qc = useQueryClient()
 
   const { data: config, isError: configFailed, refetch: refetchConfig } = useQuery({
     queryKey: ['platform-config'],
@@ -503,8 +601,25 @@ export function AdminPanel() {
 
   useEffect(() => { if (config) setConfig(config) }, [config, setConfig])
 
-  const markUnsaved = () => setUnsaved(true)
-  const handleSave  = () => setUnsaved(false)
+  const aiDraftEffective = aiDraft ?? (config ? draftOf(config) : null)
+  const aiDirty = !!config && !!aiDraft && !sameDraft(aiDraft, draftOf(config))
+  const unsaved = otherUnsaved || aiDirty
+
+  const saveAi = useMutation({
+    mutationFn: (body: AiDraft) => platformApi.saveAiEngine(body),
+    onSuccess: async () => {
+      await qc.invalidateQueries({ queryKey: ['platform-config'] })
+      setAiDraft(null)
+      setSaveNote('AI engine settings saved. All AI calls now use the selected engine.')
+    },
+  })
+
+  const markUnsaved = () => { setSaveNote(null); setOtherUnsaved(true) }
+  const handleSave  = () => {
+    setSaveNote(null)
+    if (aiDirty && aiDraft) saveAi.mutate(aiDraft)
+    setOtherUnsaved(false)
+  }
 
   const activeTabLabel = useMemo(() => TABS.find(t => t.key === activeTab)?.label ?? '', [activeTab])
 
@@ -542,14 +657,21 @@ export function AdminPanel() {
             )}
             <button
               type="button"
-              disabled={!unsaved}
+              disabled={!unsaved || saveAi.isPending}
               onClick={handleSave}
               data-save-changes
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >Save changes</button>
+            >{saveAi.isPending ? 'Saving…' : 'Save changes'}</button>
           </div>
         </div>
+
+        {saveNote && <p className="rounded-md bg-green-50 p-2.5 text-[13px] font-semibold text-green-800" role="status" data-save-note>{saveNote}</p>}
+        {saveAi.isError && (
+          <p className="rounded-md bg-red-50 p-2.5 text-[13px] font-semibold text-red-800" role="alert" data-save-error>
+            Couldn't save the AI engine settings: {describeApiError(saveAi.error).message}
+          </p>
+        )}
 
         {/* Two-column: settings nav + content */}
         <div className="grid gap-4" style={{ gridTemplateColumns: '240px 1fr' }}>
@@ -588,7 +710,7 @@ export function AdminPanel() {
                 <button type="button" onClick={() => { void refetchConfig() }} className="font-semibold underline">Try again</button>
               </div>
             )}
-            {config && activeTab === 'ai-engine'          && <AIEngineTab          config={config} onChange={markUnsaved} />}
+            {config && aiDraftEffective && activeTab === 'ai-engine' && <AIEngineTab config={config} draft={aiDraftEffective} onDraft={d => { setSaveNote(null); setAiDraft(d) }} />}
             {config && activeTab === 'voice'              && <VoiceTab             config={config} onChange={markUnsaved} />}
             {config && activeTab === 'ectd'               && <EctdTab              config={config} />}
             {config && activeTab === 'payment-gateways'   && <PaymentGatewaysTab   config={config} onChange={markUnsaved} />}

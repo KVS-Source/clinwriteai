@@ -2,7 +2,7 @@
 import { api } from '../../api/client'
 import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
-  PlatformConfig, PlatformUser, RaciMatrix, MasterLibraryItem,
+  PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, RaciMatrix, MasterLibraryItem,
   BestPractice, PlatformNotification, NotificationPreference,
   AuditTrailEntry, RateCard, Subscription, ReportDefinition,
   ModuleHealthScore, TATag, RegulatoryFramework, SlideDeckJob, Slide,
@@ -113,6 +113,10 @@ export interface GenerateReportBody {
 
 export const platformApi = {
   // sPM04 / sPM05 — config
+  // Fires a real test prompt at the AI engine; the server answers within ~5 seconds.
+  // Saves the default / fallback engine and the per-module override switch; AI calls use it from then on.
+  saveAiEngine: (body: AiEngineSaveBody) => api.put<AiEngineSaveBody>('/admin/config/ai-engine', body),
+  testAiConnection: () => api.post<AiConnectionTestResult>('/admin/test-connection', {}),
   getConfig: () =>
     api.get<PlatformConfig>('/admin/config'),
 

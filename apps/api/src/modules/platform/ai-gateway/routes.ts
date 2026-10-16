@@ -2,6 +2,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
+import { chooseModel } from '../config/ai-engine-settings.js'
 import { requireAuth } from '../../../auth/rbac.js'
 import { RateLimitedError } from './service.js'
 import { invalidateRateCardCache } from './rate-card.js'
@@ -11,7 +12,7 @@ const chatSchema = z.object({
   projectId: z.string().optional().nullable(),
   module: z.enum(['A', 'B', 'C', 'D', 'E', 'platform']),
   intent: z.string().min(1),
-  model: z.string().default('claude-sonnet-4-6'),
+  model: z.string().optional(),            // omitted -> the engine saved in Admin Panel -> AI Engine
   prompt: z.string().min(1),
   maxOutputTokens: z.number().int().positive().optional(),
 })
@@ -31,6 +32,7 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
     const parsed = chatSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
+    const model = await chooseModel(app.prisma, parsed.data.model)
     try {
       const result = await app.aiGateway.chat({
         tenantId: parsed.data.tenantId ?? request.user!.tenantId,
@@ -38,7 +40,7 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
         actorId: request.user!.id,
         module: parsed.data.module,
         intent: parsed.data.intent,
-        model: parsed.data.model,
+        model,
         prompt: parsed.data.prompt,
         maxOutputTokens: parsed.data.maxOutputTokens,
       })
@@ -52,7 +54,7 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
         details: {
           module: parsed.data.module,
           intent: parsed.data.intent,
-          model: parsed.data.model,
+          model,
           costUsd: result.costUsd,
           limitDecision: result.limitDecision,
           piiScrubbed: result.piiScrubbed,

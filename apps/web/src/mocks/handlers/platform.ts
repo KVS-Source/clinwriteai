@@ -45,11 +45,43 @@ let regFrameworksState = regFrameworks    as Array<Record<string, unknown>>
 const auditTrailState  = auditTrail       as Array<Record<string, unknown>>
 let slidedeckJobState  = slidedeckJob     as Record<string, unknown>
 
+const AI_ENGINE_KEY = 'clinwrite.mock.aiEngine.v1'
+function loadAiEngine(): { default: string; fallback: string; perModuleOverrideEnabled: boolean } | null {
+  try { const raw = localStorage.getItem(AI_ENGINE_KEY); return raw ? JSON.parse(raw) : null } catch { return null }
+}
+
 export const platformHandlers = [
   // --- sPM04 / sPM05 Admin + Super Admin config ---
   http.get(`${BASE}/admin/config`, async () => {
     await delay(100)
-    return HttpResponse.json(platformConfig)
+    const saved = loadAiEngine()
+    if (!saved) return HttpResponse.json(platformConfig)
+    const cfg = platformConfig as unknown as { aiEngine: { availableEngines: Array<{ id: string }> } }
+    return HttpResponse.json({
+      ...platformConfig,
+      aiEngine: {
+        ...platformConfig.aiEngine, ...saved,
+        availableEngines: cfg.aiEngine.availableEngines.map(e => ({ ...e, status: e.id === saved.default ? 'active' : 'available' })),
+      },
+    })
+  }),
+  // Save the AI engine choice: kept in localStorage so it survives a reload, like the real API would.
+  http.put(`${BASE}/admin/config/ai-engine`, async ({ request }) => {
+    const body = await request.json() as { default: string; fallback: string; perModuleOverrideEnabled: boolean }
+    await delay(300)
+    if (body.default === body.fallback) {
+      return HttpResponse.json({ error: 'validation', message: 'The fallback engine must be different from the default engine.' }, { status: 400 })
+    }
+    try { localStorage.setItem(AI_ENGINE_KEY, JSON.stringify(body)) } catch { /* storage blocked: not persisted */ }
+    return HttpResponse.json(body)
+  }),
+
+  // Test connection: a healthy engine answering in ~340 ms (docs/PM/CC session-PM01).
+  http.post(`${BASE}/admin/test-connection`, async () => {
+    await delay(900)
+    return HttpResponse.json({
+      status: 'connected', model: 'claude-sonnet-4-6', latency: 340, message: null, testedAt: new Date().toISOString(),
+    })
   }),
 
   // --- sPM06 User Management ---

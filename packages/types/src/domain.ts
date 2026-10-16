@@ -1578,6 +1578,22 @@ export interface PaymentGateway { id: string; label: string; status: PaymentGate
 export interface ExternalApi    { id: string; label: string; status: ExternalApiStatus;    lastTested: string | null; note?: string; owner?: string }
 export interface FeatureFlag    { id: string; label: string; status: FeatureFlagStatus }
 
+// Body of PUT /admin/config/ai-engine (Admin Panel -> AI Engine -> Save changes).
+export interface AiEngineSaveBody {
+  default:                  string
+  fallback:                 string
+  perModuleOverrideEnabled: boolean
+}
+
+// Result of POST /admin/test-connection (Admin Panel -> AI Engine).
+export interface AiConnectionTestResult {
+  status:   'connected' | 'failed' | 'not-configured'
+  model:    string
+  latency:  number | null
+  message:  string | null
+  testedAt: string
+}
+
 export interface PlatformConfig {
   clientId:                 string
   clientName:               string
@@ -1591,8 +1607,11 @@ export interface PlatformConfig {
     fallback:                   string
     perModuleOverrideEnabled:   boolean
     availableEngines:           AiEngineOption[]
-    lastTested:                 string
-    lastTestedLatencyMs:        number
+    // null until the first "Test connection"; status is what that test found
+    // ('connected' | 'failed' | 'not-configured'), or 'never-tested' / 'not-configured'
+    // before any test has run.
+    lastTested:                 string | null
+    lastTestedLatencyMs:        number | null
     lastTestedStatus:           string
   }
   voiceTranscription: {

@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useMutation, useQuery } from '@tanstack/react-query'
 import type { Subscription, RateCard, PlatformConfig } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -59,6 +59,15 @@ export function SubscriptionPayment() {
 
   const gateways = (cfg?.paymentGateways ?? []).filter(g => g.status === 'active')
   const [gateway, setGateway] = useState<string>(gateways[0]?.id ?? 'stripe')
+
+  // No gateway is integrated yet: this records a pending top-up request.
+  const topUp = useMutation({
+    mutationFn: () => platformApi.requestTopUp({
+      tokens: qty,
+      amountUsd: Number(priceValue.toFixed(2)),
+      gateway: gateways.some(g => g.id === gateway) ? gateway : null,
+    }),
+  })
 
   const dec = () => setStepIdx(Math.max(0, stepIdx - 1))
   const inc = () => setStepIdx(Math.min(STEPS.length - 1, stepIdx + 1))
@@ -195,6 +204,11 @@ export function SubscriptionPayment() {
             <div data-gateway-select>
               <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Payment gateway</p>
               <div className="mt-1 flex flex-col gap-1">
+                {gateways.length === 0 && (
+                  <p className="text-[12px] text-slate-500" data-no-gateway>
+                    No payment gateway is connected yet. Your request will be recorded and payment collected once one is set up.
+                  </p>
+                )}
                 {gateways.map(g => (
                   <label key={g.id} className="flex items-center gap-2 text-[12px] text-slate-800">
                     <input type="radio" name="gw" checked={gateway === g.id} onChange={() => setGateway(g.id)}
@@ -212,11 +226,23 @@ export function SubscriptionPayment() {
             )}
 
             <button
-              type="button" disabled={isExpired}
+              type="button" disabled={isExpired || topUp.isPending}
+              onClick={() => topUp.mutate()}
               data-proceed-payment
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >Proceed to payment →</button>
+            >{topUp.isPending ? 'Submitting…' : 'Proceed to payment →'}</button>
+
+            {topUp.isSuccess && (
+              <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-topup-success>
+                ✓ Top-up request submitted ({qtyLabel}, ${priceValue.toFixed(2)}) · Ref {topUp.data.requestId}. Payment will be collected once the payment gateway is connected — nothing has been charged.
+              </p>
+            )}
+            {topUp.isError && (
+              <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-topup-error>
+                Could not submit the top-up request. Please try again.
+              </p>
+            )}
 
             <p className="font-mono text-[11px] text-slate-500" data-no-card-storage-note>
               Payment is processed securely via the selected gateway. No card details are stored on this platform.

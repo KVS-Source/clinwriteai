@@ -200,6 +200,9 @@ export const platformApi = {
     api.get<Subscription>('/services/dashboard'),
   getSubscription: () =>
     api.get<Subscription>('/admin/subscription'),
+  // Records a pending top-up; no payment gateway is integrated yet.
+  requestTopUp: (body: { tokens: number; amountUsd: number; gateway: string | null }) =>
+    api.post<{ requestId: string; status: 'pending_payment'; requestedAt: string }>('/admin/subscription/top-up', body),
 
   // sPM16 — Reports & Analytics
   listReports: () =>

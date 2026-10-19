@@ -140,6 +140,36 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
     if (!active) return stubSubscription()
     return stubSubscription(active.plan, Number(active.monthlyCapUsd ?? 50000))
   }
+  // Token top-up request (Subscription screen "Proceed to payment").
+  // No payment gateway is integrated yet, so nothing is charged: the request
+  // is recorded as pending on the audit chain for collection once a gateway
+  // is connected.
+  const topUpSchema = z.object({
+    tokens:    z.number().int().positive(),
+    amountUsd: z.number().nonnegative(),
+    gateway:   z.string().min(1).nullable().optional(),
+  })
+  app.post('/admin/subscription/top-up', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+    const parsed = topUpSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const active = await app.prisma.subscription.findFirst({ where: { endedAt: null }, orderBy: { startedAt: 'desc' } })
+    const requestId = `topup-${Date.now().toString(36)}`
+    const requestedAt = new Date().toISOString()
+
+    await app.audit.append({
+      timestamp: requestedAt,
+      actorId: request.user!.id,
+      action: 'subscription_topup_requested',
+      entityType: 'subscription',
+      entityId: active?.id ?? 'none',
+      details: { requestId, ...parsed.data, gateway: parsed.data.gateway ?? null, status: 'pending_payment' },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.code(201).send({ requestId, status: 'pending_payment', requestedAt, ...parsed.data })
+  })
+
   app.get('/services/dashboard',  { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, subStubHandler)
   app.get('/admin/subscription',  { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, subStubHandler)
 

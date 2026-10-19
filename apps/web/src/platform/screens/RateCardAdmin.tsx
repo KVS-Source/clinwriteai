@@ -9,6 +9,7 @@ const TODAY = new Date('2026-09-09T00:00:00Z')
 
 function formatDay(iso: string): string {
   const d = new Date(iso)
+  if (!iso || Number.isNaN(d.getTime())) return '—'
   const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   return `${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
@@ -47,8 +48,9 @@ export function RateCardAdmin() {
 
   const backdatingError = effFrom && new Date(effFrom) < TODAY ? 'Effective date cannot be in the past. Please select a current or future date.' : ''
 
-  const daysToExpiry = active ? daysBetween(TODAY, new Date(active.validUntil)) : 0
-  const isExpired = active ? new Date(active.validUntil) < TODAY : false
+  const hasExpiry = !!active?.validUntil
+  const daysToExpiry = active && hasExpiry ? daysBetween(TODAY, new Date(active.validUntil)) : 0
+  const isExpired = active && hasExpiry ? new Date(active.validUntil) < TODAY : false
 
   return (
     <div className="bg-slate-50" data-screen="rate-card-admin">
@@ -124,7 +126,7 @@ export function RateCardAdmin() {
                   : <button type="button" disabled data-edit-ratecard-locked className="h-9 rounded-md border border-slate-300 bg-slate-50 px-3 text-[13px] font-semibold text-slate-500 opacity-60">🔒 Locked</button>}
               </div>
 
-              {active.status === 'active' && !isExpired && (
+              {active.status === 'active' && hasExpiry && !isExpired && (
                 <div className="rounded-lg border p-3" style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }} data-expiry-warning>
                   <p className="text-[12px] font-semibold" style={{ color: '#B45309' }}>
                     ⚠ Expires in {daysToExpiry} days · Super Admin receives a reminder 7 days before expiry. <strong>An expired rate card blocks new purchases until a successor is published.</strong>
@@ -155,7 +157,7 @@ export function RateCardAdmin() {
                     </tr>
                   </thead>
                   <tbody>
-                    {active.rates.map((r, i) => (
+                    {(active.rates ?? []).map((r, i) => (
                       <tr key={i} className="border-t border-slate-200" data-rate-row={i}>
                         <td className="px-4 py-3 font-semibold text-slate-900">{r.module}</td>
                         <td className="px-4 py-3 text-slate-700">{r.serviceType}</td>

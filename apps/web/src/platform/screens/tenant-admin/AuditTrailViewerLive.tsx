@@ -9,7 +9,7 @@
 // Initial filters can come from the URL (?entityId=…&action=…), which is
 // how ProjectDashboard deep-links here.
 
-import { useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import {
   useAuditQuery, useAuditVerify, useAuditFacets, auditExportUrl, type AuditQuery,
@@ -17,6 +17,8 @@ import {
 import { describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry, type AuditSortKey } from '../../../api'
 
 const PAGE_SIZE = 100
+// Pause after the last keystroke before the search box applies itself.
+const SEARCH_DEBOUNCE_MS = 400
 
 type TimeZoneMode = 'local' | 'utc'
 
@@ -346,6 +348,22 @@ export function AuditTrailViewerLive() {
     setCursors([undefined])
     verify.reset()
   }
+
+  // Search applies itself once typing pauses (debounced); the other filter
+  // fields still wait for Apply. Only the search term is taken from the draft,
+  // so half-typed actor/date fields aren't applied behind the user's back.
+  const draftSearch = draft.search
+  const appliedSearch = applied.search
+  useEffect(() => {
+    if (draftSearch.trim() === appliedSearch.trim()) return
+    const timer = setTimeout(() => {
+      setApplied(a => ({ ...a, search: draftSearch }))
+      setCursors([undefined])
+      verify.reset()
+    }, SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+    // verify.reset is stable for the life of the mutation, so it isn't a dependency.
+  }, [draftSearch, appliedSearch])
 
   function applyFilter(e?: FormEvent) {
     e?.preventDefault()

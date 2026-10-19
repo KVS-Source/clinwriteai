@@ -14,7 +14,7 @@ import { expect } from '@playwright/test'
 
 export const PROTOTYPE_PROJECT_ID = 'proj-velora-301'
 
-async function ensureLoggedIn(page: Page) {
+export async function ensureLoggedIn(page: Page) {
   if (!page.url().match(/\/sign-in$/)) return
   await page.getByLabel(/email/i).fill('marcus.webb@genbiocat.com')
   await page.getByLabel(/password/i).fill('password')
@@ -24,6 +24,9 @@ async function ensureLoggedIn(page: Page) {
   await page.getByRole('button', { name: /verify|continue/i }).click()
   await page.waitForURL(/\/(terms|projects)/, { timeout: 10_000 })
   if (page.url().match(/\/terms$/)) {
+    // Both acknowledgement boxes must be ticked before Continue enables (AC-A-003).
+    // The real inputs are visually hidden under custom tick boxes, hence force.
+    for (const box of await page.getByRole('checkbox').all()) await box.check({ force: true })
     await page.getByRole('button', { name: /accept|agree|continue/i }).click()
     await page.waitForURL(/\/projects/, { timeout: 10_000 })
   }

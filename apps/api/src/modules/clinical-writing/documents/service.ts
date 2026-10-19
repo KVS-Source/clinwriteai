@@ -106,10 +106,13 @@ export class DocumentService {
       where: { id: documentId },
       include: {
         currentVersion: {
-          include: { sections: { orderBy: { sectionId: 'asc' } } },
+          include: { sections: true },
         },
       },
     })
+    // Order by section number, not by the text key ('s1','s10','s2' sorted
+    // §10 before §2 in the navigator).
+    doc?.currentVersion?.sections.sort(compareSections)
     return doc
   }
 
@@ -267,6 +270,29 @@ export class DocumentService {
 }
 
 // --- helpers --------------------------------------------------------------
+
+/**
+ * Natural order for sections: "§2" < "§10" < "§11" < "§11.4" < "§16.1".
+ * Labels with no number (DSUR "ES" / "TOC") sort first, matching how those
+ * documents open; ties fall back to the stable section key.
+ */
+export function compareSections(
+  a: { sectionNumber: string; sectionId: string },
+  b: { sectionNumber: string; sectionId: string },
+): number {
+  const parts = (n: string) => (n.match(/\d+(?:\.\d+)*/)?.[0] ?? '').split('.').filter(Boolean).map(Number)
+  const pa = parts(a.sectionNumber)
+  const pb = parts(b.sectionNumber)
+  if (pa.length === 0 || pb.length === 0) {
+    if (pa.length !== pb.length) return pa.length === 0 ? -1 : 1
+  }
+  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+    const x = pa[i] ?? -1
+    const y = pb[i] ?? -1
+    if (x !== y) return x - y
+  }
+  return a.sectionId.localeCompare(b.sectionId)
+}
 
 /** Highest "vMAJOR.MINOR" label in `labels`, or `fallback` if none parse. */
 export function highestVersion(labels: string[], fallback: string): string {

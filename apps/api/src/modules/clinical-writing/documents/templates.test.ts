@@ -18,3 +18,12 @@ describe('templateSections', () => {
     expect(templateSections('protocol')).toEqual([])
   })
 })
+
+describe('compareSections', () => {
+  it('orders sections numerically, unnumbered first', async () => {
+    const { compareSections } = await import('./service.js')
+    const nums = ['§10', '§2', 'TOC', '§11.4', '§1', '§16.1', '§11', 'ES', '§20']
+    const sorted = nums.map((n, i) => ({ sectionNumber: n, sectionId: `k${i}` })).sort(compareSections).map(s => s.sectionNumber)
+    expect(sorted).toEqual(['TOC', 'ES', '§1', '§2', '§10', '§11', '§11.4', '§16.1', '§20'])
+  })
+})

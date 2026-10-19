@@ -144,6 +144,7 @@ export function ReviewerView() {
     onSuccess: () => {
       setCommentText('')
       setComposerOpen(false)   // posted — close the box; the prompt below reopens it
+      setActivePanel('comments')   // show the reviewer their comment in the drawer
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
       qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
     },

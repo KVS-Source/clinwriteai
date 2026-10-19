@@ -163,13 +163,19 @@ export const platformApi = {
   markNotificationRead: (id: string) =>
     api.patch<PlatformNotification>(`/notifications/${id}/mark-read`, {}),
 
-  // sPM15 — Audit trail
-  listAudit: () =>
-    api.get<AuditTrailEntry[]>('/audit'),
+  // sPM15 — Audit trail. API mounts the admin audit routes under
+  // /admin/audit (see modules/platform/tenant-admin/audit/routes.ts). The
+  // bare /audit path only ever existed as an MSW mock; using it against
+  // the real server 404s. API returns { rows, nextCursor, hasMore };
+  // flatten to the AuditTrailEntry[] shape the AuditTrailViewer expects.
+  listAudit: async (): Promise<AuditTrailEntry[]> => {
+    const r = await api.get<{ rows: AuditTrailEntry[] } | AuditTrailEntry[]>('/admin/audit')
+    return Array.isArray(r) ? r : (r.rows ?? [])
+  },
   getAudit: (id: string) =>
-    api.get<AuditTrailEntry>(`/audit/${id}`),
+    api.get<AuditTrailEntry>(`/admin/audit/${id}`),
   exportAuditCsv: () =>
-    api.get<{ downloadUrl: string; rowCount: number }>('/audit/export/csv'),
+    api.get<{ downloadUrl: string; rowCount: number }>('/admin/audit/export'),
 
   // sPM05 — Super Admin clients + analytics
   listPlatformClients: () =>

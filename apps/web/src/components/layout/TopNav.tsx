@@ -83,6 +83,10 @@ export function TopNav() {
   const groups = groupPersonas(PLATFORM_DEMO_USERS)
 
   const switchTo = (u: PlatformUser) => {
+    // setCurrentUser persists the user id under
+    // 'clinwrite.demo.currentUserId'; apps/web/src/api/client.ts reads
+    // that key and sends it as X-Demo-Persona on every request so the
+    // API resolves the matching DB user and returns the right role.
     setCurrentUser(u)
     setOpen(false)
     // Reload so every query re-fetches under the new persona and permission-scoped

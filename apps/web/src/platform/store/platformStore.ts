@@ -22,6 +22,8 @@ export const PLATFORM_DEMO_USERS: PlatformUser[] = [SUPER_ADMIN, ...CLIENT_USERS
 
 const DEFAULT_USER_ID  = 'user-admin'   // Dr James Hartley — all-modules Admin
 const STORAGE_KEY      = 'clinwrite.demo.currentUserId'
+// Note: apps/web/src/api/client.ts reads STORAGE_KEY directly to send the
+// user id on X-Demo-Persona, so no separate persist step is needed here.
 
 function loadPersistedUser(): PlatformUser {
   try {

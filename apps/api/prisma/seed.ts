@@ -218,14 +218,29 @@ async function main() {
   // Legacy admin accounts from the original minimal seed. Keep around
   // so operators who memorised admin@/writer@/reviewer@ still have
   // working logins alongside the richer fixture users.
+  //
+  // a.thornton@clinwrite.ai is the demo super-admin persona wired in
+  // apps/web/src/platform/store/platformStore.ts (SUPER_ADMIN const —
+  // id user-sa, email a.thornton@...). Must exist in the DB so the
+  // X-Demo-Persona header can resolve it to a super-admin role when the
+  // user picks Alex Thornton in the persona switcher — otherwise every
+  // call still lands as the admin AUTH_BYPASS_EMAIL and 403s hit the
+  // super-admin screens (Tenants, Rate Cards, Analytics…).
   for (const legacy of [
-    { email: 'admin@clinwrite.ai',    name: 'Mr Rohan Iyer',     role: 'super-admin',     modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
-    { email: 'writer@clinwrite.ai',   name: 'Ms Ananya Rao',     role: 'clinical-writer', modules: ['A'],                     tenantId: acme.id },
-    { email: 'reviewer@clinwrite.ai', name: 'Dr Vikram Mehta',   role: 'reviewer',        modules: ['A'],                     tenantId: acme.id },
+    { id: null,       email: 'admin@clinwrite.ai',       name: 'Mr Rohan Iyer',   role: 'super-admin',     modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
+    // Alex Thornton — demo super-admin persona in the UI's
+    // PLATFORM_DEMO_USERS (store/platformStore.ts SUPER_ADMIN const).
+    // Explicit id='user-sa' + email so the X-Demo-Persona header can
+    // resolve her by either; without this the id lookup falls back to
+    // AUTH_BYPASS_EMAIL (an admin) and super-admin screens 403.
+    { id: 'user-sa',  email: 'a.thornton@clinwrite.ai',  name: 'Alex Thornton',   role: 'super-admin',     modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
+    { id: null,       email: 'writer@clinwrite.ai',      name: 'Ms Ananya Rao',   role: 'clinical-writer', modules: ['A'],                     tenantId: acme.id },
+    { id: null,       email: 'reviewer@clinwrite.ai',    name: 'Dr Vikram Mehta', role: 'reviewer',        modules: ['A'],                     tenantId: acme.id },
   ]) {
     await prisma.user.upsert({
       where: { email: legacy.email },
       create: {
+        ...(legacy.id ? { id: legacy.id } : {}),
         email: legacy.email,
         name: legacy.name,
         initials: initialsFor(legacy.name),

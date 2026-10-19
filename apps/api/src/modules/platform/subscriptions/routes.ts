@@ -143,6 +143,75 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
   app.get('/services/dashboard',  { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, subStubHandler)
   app.get('/admin/subscription',  { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, subStubHandler)
 
+  // --- Super-admin dashboard stubs ------------------------------------
+  // sPM05: PlatformClient[] + PlatformAnalytics. Both are derived from
+  // the Tenant + Subscription + User + Document rows so numbers reflect
+  // real DB state (not fake fixtures). Not blocked on external vendors.
+  app.get('/super-admin/clients', { preHandler: superAdmin }, async () => {
+    const tenants = await app.prisma.tenant.findMany({ orderBy: { createdAt: 'asc' } })
+    // Pull all active subs so we can tag each tenant with its plan + a
+    // revenue estimate (monthlyCapUsd × months-since-start, capped).
+    const subs = await app.prisma.subscription.findMany({ where: { endedAt: null } })
+    const subByTenant = new Map(subs.map(s => [s.tenantId, s]))
+    const owners = await app.prisma.membership.findMany({
+      where: { role: 'owner' },
+      include: { user: { select: { name: true } } },
+    })
+    const ownerByTenant = new Map(owners.map(o => [o.tenantId, o.user.name]))
+    const now = Date.now()
+    return tenants.map(t => {
+      const s = subByTenant.get(t.id)
+      const months = s ? Math.max(1, Math.round((now - s.startedAt.getTime()) / (30 * 86_400_000))) : 0
+      const revenue = s ? Number(s.monthlyCapUsd ?? 0) * months * 0.78 : 0  // USD→GBP approx
+      return {
+        id:               t.id,
+        name:             t.name,
+        plan:             s?.plan ?? 'trial',
+        status:           t.status === 'active' ? 'active' : t.status === 'suspended' ? 'suspended' : 'churned',
+        adminContactName: ownerByTenant.get(t.id) ?? null,
+        createdAt:        t.createdAt.toISOString(),
+        revenueToDateGBP: Math.round(revenue),
+      }
+    })
+  })
+
+  app.get('/super-admin/analytics', { preHandler: superAdmin }, async () => {
+    const [users, projects, docs, tenants, subs] = await Promise.all([
+      app.prisma.user.count({ where: { status: 'active' } }),
+      app.prisma.project.count(),
+      app.prisma.document.count({
+        where: { createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) } },
+      }),
+      app.prisma.tenant.findMany({ select: { status: true } }),
+      app.prisma.subscription.findMany({ where: { endedAt: null }, select: { monthlyCapUsd: true } }),
+    ])
+    const clientCounts = {
+      active:    tenants.filter(t => t.status === 'active').length,
+      suspended: tenants.filter(t => t.status === 'suspended').length,
+      churned:   tenants.filter(t => t.status === 'archived').length,
+    }
+    const monthlyGBP = subs.reduce((sum, s) => sum + Number(s.monthlyCapUsd ?? 0) * 0.78, 0)
+    return {
+      totalActiveUsers:          users,
+      activeProjects:            projects,
+      documentsCreatedRolling30: docs,
+      aiTokensRolling30:         0,                     // real token metric lands with Arc 8.1 AI gateway
+      mrrGBP:                    Math.round(monthlyGBP),
+      arrGBP:                    Math.round(monthlyGBP * 12),
+      churnThisQuarter:          0,
+      avgTokensPerClientMonth:   0,
+      clientCounts,
+    }
+  })
+
+  // Rate cards — mirror the ai-gateway /rate-cards GET to the UI's
+  // expected /super-admin/rate-cards path so the Rate Card screen loads
+  // instead of 404'ing. Shape is identical (RateCard[]).
+  app.get('/super-admin/rate-cards', { preHandler: superAdmin }, async () => {
+    const rows = await app.prisma.rateCardVersion.findMany({ orderBy: { publishedAt: 'desc' } })
+    return rows
+  })
+
   app.post('/admin/subscriptions/:id/end', { preHandler: superAdmin }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const existing = await app.prisma.subscription.findUnique({ where: { id } })

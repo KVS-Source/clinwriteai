@@ -33,7 +33,10 @@ export class ApiError extends Error {
 
 // Dev/demo only: when a persona was picked from the top-bar "Switch persona"
 // menu, tell the API so the data matches the persona on screen. The API
-// ignores this header unless AUTH_BYPASS_EMAIL is set (never in production).
+// honours X-Demo-Persona when AUTH_BYPASS_EMAIL is set (dev + demo). The
+// value is the demo user id (e.g. 'user-sa'); the API accepts either an id
+// or an email. The seeded User rows include ids for the PLATFORM_DEMO_USERS
+// personas so the lookup resolves to the right role.
 const PERSONA_STORAGE_KEY = 'clinwrite.demo.currentUserId'
 // A demo build (VITE_BYPASS_AUTH=true) is a production-mode build too, so the
 // header must still go out there or the API resolves a different user than

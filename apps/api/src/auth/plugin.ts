@@ -133,7 +133,10 @@ const authPlugin: FastifyPluginAsync = async (app) => {
       }
 
       // Fallback — demo bypass. Only engages if no valid session was
-      // established above AND AUTH_BYPASS_EMAIL is set.
+      // established above AND AUTH_BYPASS_EMAIL is set. The X-Demo-Persona
+      // path at line ~88 already handled the persona-switcher case and
+      // returned early; this is the final AUTH_BYPASS_EMAIL fallback for
+      // requests without a valid session or persona.
       if (BYPASS_EMAIL && !request.user) {
         const dbUser = await app.prisma.user.findUnique({ where: { email: BYPASS_EMAIL } })
         if (dbUser && dbUser.status === 'active') {

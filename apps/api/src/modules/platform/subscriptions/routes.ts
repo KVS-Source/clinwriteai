@@ -236,10 +236,38 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
 
   // Rate cards — mirror the ai-gateway /rate-cards GET to the UI's
   // expected /super-admin/rate-cards path so the Rate Card screen loads
-  // instead of 404'ing. Shape is identical (RateCard[]).
+  // instead of 404'ing. Rows are shaped to the UI's RateCard: each model
+  // entry becomes three per-1M-token rate lines (input / output / cached).
+  // The table has no validity window, so validUntil is '' (UI shows '—').
   app.get('/super-admin/rate-cards', { preHandler: superAdmin }, async () => {
-    const rows = await app.prisma.rateCardVersion.findMany({ orderBy: { publishedAt: 'desc' } })
-    return rows
+    const rows = await app.prisma.rateCardVersion.findMany({
+      orderBy: { publishedAt: 'desc' },
+      include: { entries: { orderBy: { model: 'asc' } } },
+    })
+    const publishers = await app.prisma.user.findMany({
+      where: { id: { in: [...new Set(rows.map(r => r.publishedBy))] } },
+      select: { id: true, name: true },
+    })
+    const nameById = new Map(publishers.map(u => [u.id, u.name]))
+    return rows.map(r => ({
+      id:                   r.id,
+      version:              r.version,
+      label:                `Rate card ${r.version}`,
+      status:               r.isActive ? 'active' : 'archived',
+      effectiveFrom:        r.publishedAt.toISOString(),
+      validUntil:           '',
+      archivedAt:           null,
+      createdBy:            r.publishedBy,
+      createdByName:        nameById.get(r.publishedBy) ?? r.publishedBy,
+      isDisruptionRateCard: false,
+      ...(r.notes && { note: r.notes }),
+      currency:             'USD',
+      rates: r.entries.flatMap(e => [
+        { module: e.model, serviceType: 'Input tokens',        unit: 'per 1M tokens', rate: Number(e.inputPer1M) },
+        { module: e.model, serviceType: 'Output tokens',       unit: 'per 1M tokens', rate: Number(e.outputPer1M) },
+        { module: e.model, serviceType: 'Cached input tokens', unit: 'per 1M tokens', rate: Number(e.cachedInputPer1M) },
+      ]),
+    }))
   })
 
   app.post('/admin/subscriptions/:id/end', { preHandler: superAdmin }, async (request, reply) => {

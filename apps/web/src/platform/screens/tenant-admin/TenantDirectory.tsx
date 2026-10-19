@@ -91,8 +91,9 @@ export function NewTenantDialog({ onClose, noun = 'tenant' }: { onClose: () => v
         </p>
         <div className="mt-4 flex flex-col gap-3">
           <label className="flex flex-col gap-1 text-[12px] text-slate-700">
-            Slug
+            <span>Slug <span className="text-red-600" aria-hidden="true">*</span></span>
             <input
+              required
               className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]"
               value={slug}
               onChange={e => setSlug(e.target.value.toLowerCase())}
@@ -101,8 +102,9 @@ export function NewTenantDialog({ onClose, noun = 'tenant' }: { onClose: () => v
             />
           </label>
           <label className="flex flex-col gap-1 text-[12px] text-slate-700">
-            Display name
+            <span>Display name <span className="text-red-600" aria-hidden="true">*</span></span>
             <input
+              required
               className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]"
               value={name}
               onChange={e => setName(e.target.value)}

@@ -358,6 +358,8 @@ async function buildServer() {
   // root — paths are a mix of /regulatory-alerts/* and /admin/regulatory-alerts/*.
   await app.register(regulatoryAlertsRoutes)
 
+  const { reportsCatalogueRoutes } = await import('./modules/platform/reports/catalogue-routes.js')
+  await app.register(reportsCatalogueRoutes)
   const { reportsRoutes } = await import('./modules/platform/reports/routes.js')
   // Read-only aggregation layer across all 5 modules. Project dashboard
   // open to any module member; tenant + AI spend + audit activity gated to admins.

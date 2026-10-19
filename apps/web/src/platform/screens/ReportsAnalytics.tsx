@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import type { ReportDefinition, ModuleHealthScore, Subscription } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
+import { apiConfig } from '../../api/client'
 import { usePlatformStore } from '../store'
 
 const DEMO_ADMIN_EMAIL = 'j.hartley@genbioca.com'
@@ -41,7 +42,7 @@ export function ReportsAnalytics() {
   }, [dateFrom, dateTo])
 
   const isLargeDataset = dateSpanDays > 30
-  const generateLabel  = isLargeDataset ? 'Queue report →' : 'Generate PDF'
+  const generateLabel  = isLargeDataset ? 'Queue report →' : `Generate ${format.toUpperCase()}`
 
   const heading = navItems.find(n => n.id === activeNav)?.label ?? 'Dashboard'
 
@@ -49,9 +50,17 @@ export function ReportsAnalytics() {
     ? (sub.marketValueSavings.total / sub.currentPeriod.estimatedSpend).toFixed(1) + '×'
     : '—'
 
+  const [generateError, setGenerateError] = useState<string | null>(null)
   const handleGenerate = async () => {
-    const res = await platformApi.generateReport(reportType, { format, dateFrom, dateTo }).catch(() => null)
-    if (res) setGenerateResult(res.downloadUrl)
+    setGenerateError(null)
+    setGenerateResult(null)
+    try {
+      const res = await platformApi.generateReport(reportType, { format, dateFrom, dateTo })
+      // The API returns a path relative to its base URL.
+      setGenerateResult(res.downloadUrl.startsWith('http') ? res.downloadUrl : `${apiConfig.baseUrl}${res.downloadUrl}`)
+    } catch {
+      setGenerateError('Could not generate the report. Please try again.')
+    }
   }
 
   return (
@@ -206,7 +215,13 @@ export function ReportsAnalytics() {
               )}
 
               {generateResult && (
-                <p className="mt-2 rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-generate-result>✓ Report ready · {generateResult}</p>
+                <p className="mt-2 rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-generate-result>
+                  ✓ Report ready ·{' '}
+                  <a href={generateResult} className="font-semibold underline" data-generate-download>Download {format.toUpperCase()}</a>
+                </p>
+              )}
+              {generateError && (
+                <p className="mt-2 rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-generate-error>{generateError}</p>
               )}
             </div>
 

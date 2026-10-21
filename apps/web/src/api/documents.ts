@@ -4,7 +4,7 @@ import type {
   AISuggestion, SignatureRecord, DocumentVersion, VoiceNote,
   CreateDocumentBody, UpdateSectionBody, CompleteItemBody, WaiveItemBody,
   RestoreSectionsBody, SubmitForReviewBody, AddCommentBody,
-  ResolveCommentBody, SignDocumentBody, AISuggestBody, AcceptSuggestionBody,
+  ResolveCommentBody, AISuggestBody, AcceptSuggestionBody,
 } from '@platform/types'
 
 export const documentsApi = {
@@ -93,8 +93,8 @@ export const documentsApi = {
       version_at_signing: r.versionAtDecision,
     }))
   },
-  sign: (documentId: string, body: SignDocumentBody) =>
-    api.post<SignatureRecord>(`/documents/${documentId}/sign`, body),
+  // Signing goes through the chain API (signaturesApi.signRecord →
+  // POST /signature-records/:recordId/sign); POST /documents/:id/sign never existed.
   // Reference tools
   getTLF: (documentId: string) =>
     api.get<{ package: { version: string; validatedBy: string; validatedDate: string }; items: unknown[] }>(`/documents/${documentId}/tlf`),

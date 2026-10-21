@@ -328,6 +328,17 @@ export function ReviewerView() {
             >
               Return for revision
             </button>
+            {/* Review + CRM done → the owner starts the Part 11 chain (FR-A-066). */}
+            {document.status === 'pending-signature' && (
+              <button
+                type="button"
+                onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/sign`)}
+                data-action="initiate-signature-chain"
+                className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700"
+              >
+                Start signature chain →
+              </button>
+            )}
           </div>
         </div>
       </div>

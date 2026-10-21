@@ -1,8 +1,21 @@
+// E-Signature (Screen — Part 11 signature chain, FR-A-062/063/066).
+//
+// Wired to the real chain API:
+//   GET  /documents/:id/signature-chains     → newest chain + records
+//   POST /documents/:id/signature-chains     → initiate (InitiateSignatureChain)
+//   POST /signature-records/:recordId/sign   → the signature act
+//   POST /signature-chains/:chainId/cancel   → cancel (document → in authoring)
+// The meaning of each signature is fixed when the chain is initiated, so it is
+// shown read-only here. The step the signed-in user may sign is the record
+// that is `awaiting` AND has their signerId (no delegation).
+
 import { useEffect, useMemo, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import type { SignatureMeaning, SignatureRecord } from '@platform/types'
-import { documentsApi } from '../../api'
+import { documentsApi, type SignatureChain, type SignatureRecord as ChainRecord } from '../../api'
+import { ApiError } from '../../api/client'
+import { useCancelSignatureChain, useCurrentUser, useSignatureChains, useSignRecord } from '../../hooks'
+import { InitiateSignatureChain } from './InitiateSignatureChain'
 
 // Signer avatar palette (matches Pattern 7)
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
@@ -16,24 +29,39 @@ const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
   LP: { bg: '#F3F4F6', fg: '#374151' },
 }
 
-type RowState = 'signed' | 'you' | 'queued'
+// 'you' = awaiting and yours to sign; 'awaiting' = awaiting someone else.
+type RowState = 'signed' | 'you' | 'awaiting' | 'queued'
 
-// Meaning-of-signature options for the isYou signing form
-const MEANING_OPTIONS: { value: SignatureMeaning; title: string; sub: string }[] = [
-  { value: 'authored', title: 'I have authored this document',              sub: 'Author sign-off' },
-  { value: 'reviewed', title: 'I have reviewed this document',              sub: 'Reviewer sign-off' },
-  { value: 'approved', title: 'I approve this document for submission',     sub: 'Approver sign-off' },
-]
-
-// Long role/description mapping (for the panel avatar row)
-const ROLE_LONG: Record<string, string> = {
-  'PV Lead':              'PV Lead · Consulted',
-  'Lead Clinical Writer': 'Lead Clinical Writer · Responsible',
-  'Regulatory Affairs':   'Regulatory Affairs · Consulted',
-  'Clinical PM':          'Clinical PM / Lead · Accountable',
+const MEANING_TEXT: Record<ChainRecord['meaning'], string> = {
+  authored: 'I have authored this document',
+  reviewed: 'I have reviewed this document',
+  approved: 'I approve this document for submission',
 }
 
-// --- Icons ---
+const initialsOf = (name: string) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?'
+
+const fmtUtc = (iso: string | null | undefined) =>
+  iso ? `${new Date(iso).toISOString().replace('T', ' ').slice(0, 16)} UTC` : '—'
+
+// Map the API's refusal codes to plain messages.
+function signErrorText(err: unknown): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { error?: string; message?: string; issues?: Array<{ message: string }> } | null
+    switch (body?.error) {
+      case 'wrong_signer':   return 'Only the designated signer can sign this step.'
+      case 'already_signed': return 'This step has already been signed.'
+      case 'not_awaiting':   return "It isn't this step's turn yet — earlier signatures are still pending."
+      case 'chain_closed':   return 'This signature chain is closed (completed or cancelled).'
+      case 'document_missing_version': return 'The document has no current version to sign.'
+      case 'validation':     return body.issues?.[0]?.message ?? 'Please check the details and try again.'
+    }
+    if (body?.message) return body.message
+  }
+  return 'Could not record the signature. Please try again.'
+}
+
+// --- Icons / primitives ---
 
 function LockIcon({ colour = '#2563EB', size = 20 }: { colour?: string; size?: number }) {
   return (
@@ -50,11 +78,7 @@ function Avatar({ initials, size = 24 }: { initials: string; size?: number }) {
   return (
     <div
       className="flex flex-none items-center justify-center rounded-full font-mono font-bold"
-      style={{
-        width: size, height: size,
-        backgroundColor: c.bg, color: c.fg,
-        fontSize: size >= 24 ? 12 : 10,
-      }}
+      style={{ width: size, height: size, backgroundColor: c.bg, color: c.fg, fontSize: size >= 24 ? 12 : 10 }}
     >
       {initials}
     </div>
@@ -63,26 +87,20 @@ function Avatar({ initials, size = 24 }: { initials: string; size?: number }) {
 
 function StatePill({ state }: { state: RowState }) {
   const map = {
-    signed: { label: 'Signed ✓',              bg: '#F0FDF4', fg: '#15803D', border: '1px solid #BBF7D0' },
-    you:    { label: 'Awaiting your signature', bg: '#EFF6FF', fg: '#2563EB', border: 'none' },
-    queued: { label: 'Queued',                bg: '#F8FAFC', fg: '#64748B', border: '1px solid #E2E8F0' },
+    signed:   { label: 'Signed ✓',                bg: '#F0FDF4', fg: '#15803D', border: '1px solid #BBF7D0' },
+    you:      { label: 'Awaiting your signature', bg: '#EFF6FF', fg: '#2563EB', border: 'none' },
+    awaiting: { label: 'Awaiting signature',      bg: '#FFFBEB', fg: '#B45309', border: '1px solid #FDE68A' },
+    queued:   { label: 'Queued',                  bg: '#F8FAFC', fg: '#64748B', border: '1px solid #E2E8F0' },
   }[state]
   return (
-    <span
-      className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold"
-      style={{ backgroundColor: map.bg, color: map.fg, border: map.border }}
-    >
+    <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: map.bg, color: map.fg, border: map.border }}>
       {map.label}
     </span>
   )
 }
 
 function MonoLabel({ children, color = '#64748B' }: { children: React.ReactNode; color?: string }) {
-  return (
-    <p className="font-mono text-[10px] font-medium uppercase tracking-widest" style={{ color }}>
-      {children}
-    </p>
-  )
+  return <p className="font-mono text-[10px] font-medium uppercase tracking-widest" style={{ color }}>{children}</p>
 }
 
 function KVRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
@@ -101,40 +119,18 @@ function KVRow({ label, value, mono }: { label: string; value: string; mono?: bo
 
 // --- Signer row ---
 
-interface RowProps {
-  index:     number
-  step:      string
-  record:    SignatureRecord
-  state:     RowState
-  isSelected: boolean
-  onSelect:  () => void
-}
-
-function SignerRow({ step, record, state, isSelected, onSelect }: RowProps) {
+function SignerRow({ record, state, isSelected, onSelect }: { record: ChainRecord; state: RowState; isSelected: boolean; onSelect: () => void }) {
   const baseStyle: React.CSSProperties =
-    state === 'signed'
-      ? { border: '1px solid #BBF7D0', borderLeft: '4px solid #16A34A', backgroundColor: '#F0FDF4' }
-      : state === 'you'
-      ? { border: '2px solid #2563EB', backgroundColor: '#FFFFFF', boxShadow: '0 0 0 3px rgba(37,99,235,0.10)' }
-      : { border: '1px solid #E2E8F0', backgroundColor: '#FFFFFF', opacity: 0.6 }
-
-  const meaningText =
-    state === 'signed'
-      ? `I have ${record.meaning === 'approved' ? 'approved' : record.meaning} this document`
-      : state === 'you'
-      ? 'I have authored this document'
-      : record.meaning === 'reviewed' ? 'I have reviewed this document'
-      : record.meaning === 'approved' ? 'I approve this document for submission'
-      : 'I have authored this document'
+    state === 'signed' ? { border: '1px solid #BBF7D0', borderLeft: '4px solid #16A34A', backgroundColor: '#F0FDF4' }
+    : state === 'you'  ? { border: '2px solid #2563EB', backgroundColor: '#FFFFFF', boxShadow: '0 0 0 3px rgba(37,99,235,0.10)' }
+    : state === 'awaiting' ? { border: '1px solid #FDE68A', backgroundColor: '#FFFFFF' }
+    : { border: '1px solid #E2E8F0', backgroundColor: '#FFFFFF', opacity: 0.6 }
 
   const meta =
-    state === 'signed'
-      ? `${new Date(record.timestamp!).toUTCString().slice(5, 22)} UTC · SHA-256 verified`
-      : state === 'you'
-      ? 'Signing panel is open at right — complete to release the next signature.'
-      : 'Notified once the preceding signature is recorded.'
-
-  const metaColour = state === 'you' ? '#2563EB' : '#64748B'
+    state === 'signed'   ? `${fmtUtc(record.timestampUtc)} · document hash bound`
+    : state === 'you'    ? 'Your signature is required — complete the panel at right.'
+    : state === 'awaiting' ? 'Waiting for this signer.'
+    : 'Released once the preceding signature is recorded.'
 
   return (
     <button
@@ -146,69 +142,45 @@ function SignerRow({ step, record, state, isSelected, onSelect }: RowProps) {
       className="flex items-center gap-3 rounded-lg p-3.5 text-left transition-colors"
       style={baseStyle}
     >
-      {/* Step badge */}
-      <div
-        className="flex h-8 w-8 flex-none items-center justify-center rounded-md font-mono text-[13px] font-bold"
-        style={{ backgroundColor: '#F1F5F9', color: '#475569' }}
-      >
-        {step}
+      <div className="flex h-8 w-8 flex-none items-center justify-center rounded-md font-mono text-[13px] font-bold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>
+        {record.step}
       </div>
-
-      {/* Avatar */}
-      <Avatar initials={record.initials} size={28} />
-
-      {/* Main text block */}
+      <Avatar initials={initialsOf(record.signerName)} size={28} />
       <div className="flex min-w-0 flex-1 flex-col gap-0.5">
         <div className="flex min-w-0 items-center gap-2">
-          <p className="truncate text-sm font-bold">{record.signer}</p>
-          <p className="whitespace-nowrap font-mono text-[9px] tracking-wider text-slate-500">
-            {record.role.toUpperCase()}
-          </p>
+          <p className="truncate text-sm font-bold">{record.signerName}</p>
+          <p className="whitespace-nowrap font-mono text-[9px] tracking-wider text-slate-500">{record.signerRole.toUpperCase()}</p>
         </div>
-        <p className="text-xs text-slate-500">{meaningText}</p>
-        <p className="text-[11px]" style={{ color: metaColour }}>{meta}</p>
+        <p className="text-xs text-slate-500">{MEANING_TEXT[record.meaning]}</p>
+        <p className="text-[11px]" style={{ color: state === 'you' ? '#2563EB' : '#64748B' }}>{meta}</p>
       </div>
-
-      {/* Status pill */}
       <StatePill state={state} />
     </button>
   )
 }
 
-// --- Panel body: signed ---
+// --- Panel bodies ---
 
-function SignedPanel({ record }: { record: SignatureRecord }) {
-  const meaningText = record.meaning === 'authored' ? 'I have authored this document'
-    : record.meaning === 'approved' ? 'I approve this document for submission'
-    : 'I have reviewed this document'
-
+function SignedPanel({ record }: { record: ChainRecord }) {
   return (
     <div className="flex flex-col gap-4">
-      {/* Meaning of signature card */}
       <div className="rounded-lg p-3 pl-3.5" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}>
         <MonoLabel color="#15803D">Meaning of signature</MonoLabel>
-        <p className="mt-1 text-[13px] leading-relaxed" style={{ color: '#15803D' }}>{meaningText}</p>
+        <p className="mt-1 text-[13px] leading-relaxed" style={{ color: '#15803D' }}>{MEANING_TEXT[record.meaning]}</p>
       </div>
-
-      {/* Signature record */}
       <div>
         <MonoLabel>Signature record</MonoLabel>
         <div className="mt-1.5">
-          <KVRow label="Signature ID"       value={record.id}                                mono />
-          <KVRow label="Recorded"           value={record.timestamp ?? '—'}                  mono />
-          <KVRow label="Signer local time"  value="16:32 CET (Amsterdam)" />
-          <KVRow label="Time source"        value="ClinWrite.AI time server · NTP stratum 2" />
-          <KVRow label="Authentication"     value={record.authMethod ?? '—'} />
-          <KVRow label="Document hash signed" value={record.documentHash ?? '—'}             mono />
-          <KVRow label="Version at signing" value={record.version_at_signing ?? '—'} />
-          <KVRow label="Scope locked"       value="§12 Safety Evaluation, §16.2" />
-          <KVRow label="Audit entry"        value="AUD-10228"                                mono />
-          <KVRow label="Device"             value="Firefox 131 · Windows 11" />
-          <KVRow label="Network"            value="10.42.7.94 · GenBioCa VPN"                mono />
+          <KVRow label="Signature ID"         value={record.id} mono />
+          <KVRow label="Recorded (server)"    value={fmtUtc(record.timestampUtc)} mono />
+          <KVRow label="Signer local time"    value={record.localTime ?? '—'} />
+          <KVRow label="Time source"          value={record.timeSource ?? '—'} />
+          <KVRow label="Authentication"       value={record.authMethod ?? '—'} />
+          <KVRow label="Document hash signed" value={record.documentHash ?? '—'} mono />
+          <KVRow label="Version at signing"   value={record.versionAtSigning ?? '—'} />
+          <KVRow label="Scope"                value={record.scopeSections.length ? record.scopeSections.join(', ') : 'Whole document'} />
         </div>
       </div>
-
-      {/* Immutability note */}
       <div className="flex items-start gap-2 rounded-lg border border-slate-200 px-3.5 py-2.5" style={{ backgroundColor: '#F8FAFC' }}>
         <span className="mt-0.5"><LockIcon colour="#94A3B8" size={12} /></span>
         <p className="text-[12px] italic leading-relaxed text-slate-500">
@@ -219,133 +191,73 @@ function SignedPanel({ record }: { record: SignatureRecord }) {
   )
 }
 
-// --- Panel body: queued ---
-
-function QueuedPanel({ record, previousSigner }: { record: SignatureRecord; previousSigner?: SignatureRecord }) {
-  const meaningText = record.meaning === 'reviewed' ? 'I have reviewed this document'
-    : record.meaning === 'approved' ? 'I approve this document for submission'
-    : 'I have authored this document'
-
-  const waitingOn = previousSigner ? `Step ${previousSigner.step} · ${previousSigner.signer}` : '—'
-
+function PendingPanel({ record, previous, state }: { record: ChainRecord; previous?: ChainRecord; state: 'awaiting' | 'queued' }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-lg border border-slate-200 p-3 pl-3.5" style={{ backgroundColor: '#F8FAFC' }}>
         <MonoLabel>Meaning required at signing</MonoLabel>
-        <p className="mt-1 text-[13px] leading-relaxed text-slate-900">{meaningText}</p>
+        <p className="mt-1 text-[13px] leading-relaxed text-slate-900">{MEANING_TEXT[record.meaning]}</p>
       </div>
-
       <div>
         <MonoLabel>Pending signature</MonoLabel>
         <div className="mt-1.5">
-          <KVRow label="Waiting on"              value={waitingOn} />
-          <KVRow label="Notification"            value="Queued — email on release" />
-          <KVRow label="Due"                     value={record.step === 3 ? '30 Oct 2024 17:00 UTC' : '31 Oct 2024 17:00 UTC'} />
-          <KVRow label="Authentication required" value="Password + TOTP" />
-          <KVRow label="Delegation"              value="Not permitted — Part 11" />
-          <KVRow label="RACI source"             value={record.step === 3 ? 'RACI-VEL301-C3' : 'RACI-VEL301-A1'} mono />
+          <KVRow label="Status"      value={state === 'awaiting' ? `Awaiting ${record.signerName}` : 'Queued'} />
+          {state === 'queued' && <KVRow label="Waiting on" value={previous ? `Step ${previous.step} · ${previous.signerName}` : '—'} />}
+          <KVRow label="Delegation"  value="Not permitted — Part 11" />
+          <KVRow label="Scope"       value={record.scopeSections.length ? record.scopeSections.join(', ') : 'Whole document'} />
         </div>
       </div>
-
-      <div className="flex gap-2">
-        <button className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-50 transition-colors">
-          Send reminder
-        </button>
-        <button className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-50 transition-colors">
-          View RACI
-        </button>
-      </div>
-
       <p className="text-[11px] italic leading-relaxed text-slate-500">
-        This signatory is notified automatically once the preceding signature is recorded.
+        Only {record.signerName} can sign this step.
       </p>
     </div>
   )
 }
 
-// --- Panel body: you (signing form) ---
-
-interface YouPanelProps {
-  record:       SignatureRecord
-  meaning:      SignatureMeaning | null
-  credential:   string
-  onMeaning:    (m: SignatureMeaning) => void
-  onCredential: (v: string) => void
-}
-
-function YouPanel({ record, meaning, credential, onMeaning, onCredential }: YouPanelProps) {
+function YouPanel({ record, email, credential, onCredential, error }: {
+  record: ChainRecord; email: string | undefined; credential: string; onCredential: (v: string) => void; error: string | null
+}) {
   return (
     <div className="flex flex-col gap-4">
       <p className="text-[12px] leading-relaxed text-slate-500">
-        21 CFR Part 11 · Annex 11 compliant — this signature is legally binding and cannot be edited once recorded.
+        21 CFR Part 11 · Annex 11 — this signature is legally binding and cannot be edited once recorded.
       </p>
 
-      {/* Meaning cards */}
-      <div className="flex flex-col gap-2">
-        <div className="flex items-baseline justify-between">
-          <p className="text-[13px] font-bold">Meaning of signature</p>
-          <MonoLabel>REQUIRED</MonoLabel>
-        </div>
-        {MEANING_OPTIONS.map(opt => {
-          const isSelected = meaning === opt.value
-          return (
-            <button
-              key={opt.value}
-              type="button"
-              onClick={() => onMeaning(opt.value)}
-              data-meaning={opt.value}
-              data-selected={isSelected || undefined}
-              className="relative flex flex-col gap-1 rounded-lg p-3 text-left transition-colors"
-              style={isSelected ? {
-                border: '2px solid #2563EB',
-                backgroundColor: '#EFF6FF',
-              } : {
-                border: '1px solid #E2E8F0',
-                backgroundColor: '#FFFFFF',
-              }}
-            >
-              <p className="text-[13px] font-bold" style={{ color: isSelected ? '#1D4ED8' : '#1E293B' }}>{opt.title}</p>
-              <MonoLabel>{opt.sub}</MonoLabel>
-              {isSelected && (
-                <div className="absolute right-3 top-2.5 flex h-4 w-4 items-center justify-center rounded-full text-[9px] font-extrabold text-white" style={{ backgroundColor: '#2563EB' }}>
-                  ✓
-                </div>
-              )}
-            </button>
-          )
-        })}
+      {/* Meaning is fixed when the chain is initiated (shown read-only). */}
+      <div className="rounded-lg p-3 pl-3.5" style={{ border: '2px solid #2563EB', backgroundColor: '#EFF6FF' }} data-meaning={record.meaning}>
+        <MonoLabel color="#1D4ED8">Meaning of signature</MonoLabel>
+        <p className="mt-1 text-[13px] font-bold" style={{ color: '#1D4ED8' }}>{MEANING_TEXT[record.meaning]}</p>
       </div>
 
-      {/* Credential re-entry */}
       <div className="flex flex-col gap-2">
         <p className="text-[13px] font-bold">Confirm your identity</p>
         <div className="flex items-center gap-2">
           <LockIcon colour="#94A3B8" size={12} />
-          <p className="truncate text-[13px] text-slate-500">marcus.webb@genbioca.com</p>
+          <p className="truncate text-[13px] text-slate-500">{email ?? '—'}</p>
         </div>
         <label htmlFor="sig-pw" className="text-xs font-semibold text-slate-500">ClinWrite.AI password</label>
         <input
           id="sig-pw"
           type="password"
+          autoComplete="current-password"
           value={credential}
           onChange={e => onCredential(e.target.value)}
           placeholder="Re-enter password"
           className="h-10 rounded-md border px-3 text-sm outline-none focus:border-blue-600 focus:shadow-focus"
           style={{ borderColor: '#E2E8F0', letterSpacing: '0.14em' }}
+          data-credential-input
         />
         <p className="text-[11px] italic text-slate-500">Re-enter credentials each time — signatures cannot be delegated.</p>
+        {error && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-sign-error>{error}</p>}
       </div>
 
-      {/* Signature manifest preview */}
       <div>
         <MonoLabel>What this signature will record</MonoLabel>
         <div className="mt-1.5">
-          <KVRow label="Timestamp"    value={new Date().toUTCString().slice(5, 22) + ' UTC'} mono />
-          <KVRow label="Time source"  value="ClinWrite.AI time server · NTP stratum 2" />
-          <KVRow label="Document hash" value={record.documentHash ?? '3a9f…c4d2'}          mono />
-          <KVRow label="Version"      value="v0.4 → v1.0 on final signature" />
-          <KVRow label="Scope locked" value="§1–§16 at time of signing" />
-          <KVRow label="Device"       value="Chrome 129 · macOS 15.0" />
+          <KVRow label="Timestamp"     value="Server time at signing (UTC)" />
+          <KVRow label="Document hash" value="SHA-256 of the current version" />
+          <KVRow label="Scope"         value={record.scopeSections.length ? record.scopeSections.join(', ') : 'Whole document'} />
+          <KVRow label="Device"        value={typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 60) : '—'} />
         </div>
       </div>
     </div>
@@ -356,78 +268,88 @@ function YouPanel({ record, meaning, credential, onMeaning, onCredential }: YouP
 
 export function ESignature() {
   const { projectId, documentId } = useParams()
-  const navigate                  = useNavigate()
-  const qc                        = useQueryClient()
+  const navigate = useNavigate()
+  const qc = useQueryClient()
 
-  const { data: chain = [], isLoading, isError, error } = useQuery({
-    queryKey: ['signature-chain', documentId],
-    queryFn:  () => documentsApi.getSignatureChain(documentId!),
+  const { data: me } = useCurrentUser()
+  const { data: document } = useQuery({
+    queryKey: ['document', documentId],
+    queryFn:  () => documentsApi.get(documentId!),
     enabled:  !!documentId,
   })
+  const { data: chains = [], isLoading, isError, error } = useSignatureChains(documentId!)
 
-  // Local overrides so signing MW visibly promotes MW→signed and EV→awaiting
-  const [signedOverrides, setSignedOverrides] = useState<string[]>([])
-  const [selectedIndex,   setSelectedIndex]   = useState<number | null>(null)
-  const [meaning,         setMeaning]         = useState<SignatureMeaning | null>(null)
-  const [credential,      setCredential]      = useState('')
+  // Newest chain first (API order). An active chain wins; otherwise show the
+  // newest completed/cancelled one for its record.
+  const chain: SignatureChain | undefined =
+    chains.find(c => c.status === 'initiated' || c.status === 'in_progress') ?? chains[0]
+  const records = useMemo(() => [...(chain?.records ?? [])].sort((a, b) => a.step - b.step), [chain])
+  const chainActive = chain?.status === 'initiated' || chain?.status === 'in_progress'
 
-  // Compute effective state per signer
-  const derivedStates: RowState[] = useMemo(() => {
-    return chain.map((sig, i) => {
-      if (sig.status === 'signed' || signedOverrides.includes(sig.id)) return 'signed'
-      const previousAllSigned = chain.slice(0, i).every(prev => prev.status === 'signed' || signedOverrides.includes(prev.id))
-      return previousAllSigned ? 'you' : 'queued'
-    })
-  }, [chain, signedOverrides])
+  const states: RowState[] = useMemo(() => records.map(r =>
+    r.status === 'signed' ? 'signed'
+    : r.status === 'awaiting' ? (r.signerId === me?.id && chainActive ? 'you' : 'awaiting')
+    : 'queued'), [records, me?.id, chainActive])
 
-  const currentSignerIndex = derivedStates.indexOf('you')
+  const [selectedIndex, setSelectedIndex] = useState<number | null>(null)
+  const [credential, setCredential] = useState('')
+  const [cancelOpen, setCancelOpen] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
 
-  // Default selection to the current-user "you" row
+  const signMut   = useSignRecord({ chainId: chain?.id ?? '', documentId: documentId! })
+  const cancelMut = useCancelSignatureChain({ chainId: chain?.id ?? '', documentId: documentId! })
+
+  // Default selection: the user's own awaiting step, else the first awaiting.
+  const yourIndex = states.indexOf('you')
   useEffect(() => {
-    if (selectedIndex === null && currentSignerIndex >= 0) {
-      setSelectedIndex(currentSignerIndex)
-      // Pre-seed meaning from that signer's meaning
-      const s = chain[currentSignerIndex]
-      if (s) setMeaning(s.meaning)
-    }
-  }, [chain, currentSignerIndex, selectedIndex])
+    if (selectedIndex !== null || records.length === 0) return
+    const i = yourIndex >= 0 ? yourIndex : states.indexOf('awaiting')
+    if (i >= 0) setSelectedIndex(i)
+  }, [records.length, yourIndex, states, selectedIndex])
 
-  const signedCount = derivedStates.filter(s => s === 'signed').length
-  const totalCount  = chain.length
-  const progressPct = totalCount > 0 ? Math.round((signedCount / totalCount) * 100) : 0
-
-  const signMut = useMutation({
-    mutationFn: (args: { m: SignatureMeaning; cred: string }) => {
-      const credentialHash = args.cred.length > 0 ? `sha256-mock-${args.cred.length}` : ''
-      return documentsApi.sign(documentId!, {
-        meaning:        args.m,
-        credentialHash,
-        scope:          [],
-      })
-    },
-    onSuccess: () => {
-      // Promote the current "you" signer to signed
-      if (currentSignerIndex >= 0) {
-        const cur = chain[currentSignerIndex]
-        setSignedOverrides(prev => [...prev, cur.id])
-      }
-      setMeaning(null)
-      setCredential('')
-      qc.invalidateQueries({ queryKey: ['signature-chain', documentId] })
-      // If final signature → document now 'signed' — invalidate document too
-      qc.invalidateQueries({ queryKey: ['document', documentId] })
-    },
-  })
+  const refreshAfterChange = () => {
+    // Final signature flips the document to signed + clears the watermark.
+    qc.invalidateQueries({ queryKey: ['document', documentId] })
+    qc.invalidateQueries({ queryKey: ['signature-chain', documentId] })   // Final Document tab
+    qc.invalidateQueries({ queryKey: ['documents'] })
+  }
 
   const handleSign = () => {
-    if (!meaning || !credential.trim()) return
-    signMut.mutate({ m: meaning, cred: credential })
+    if (selectedIndex === null || !credential.trim()) return
+    const record = records[selectedIndex]
+    signMut.mutate(
+      {
+        recordId: record.id,
+        body: {
+          credentialProof: credential,
+          localTime: new Date().toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }),
+          timeSource: 'Signer device clock (server UTC timestamp is authoritative)',
+          deviceInfo: navigator.userAgent.slice(0, 200),
+        },
+      },
+      {
+        onSuccess: () => {
+          setCredential('')
+          setSelectedIndex(null)
+          refreshAfterChange()
+        },
+      },
+    )
   }
 
-  const handleCancel = () => {
-    console.log('[e-sign] cancel signing', { documentId })
-    navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)
+  const handleCancelChain = () => {
+    if (!cancelReason.trim()) return
+    cancelMut.mutate(cancelReason.trim(), {
+      onSuccess: () => {
+        setCancelOpen(false)
+        setCancelReason('')
+        setSelectedIndex(null)
+        refreshAfterChange()
+      },
+    })
   }
+
+  const backToEditor = () => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)
 
   if (isLoading) {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">Loading signature chain…</p></div>
@@ -436,26 +358,36 @@ export function ESignature() {
     const msg = (error as Error | null)?.message ?? 'Could not load signature chain.'
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-red-600">{msg}</p></div>
   }
-  if (chain.length === 0) {
+
+  // No active chain → initiate (or explain why not yet).
+  if (!chain || chain.status === 'cancelled') {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-3 p-10 text-center">
-        <p className="font-mono text-sm text-slate-500">No signature chain has been initiated for this document.</p>
-        <p className="text-xs text-slate-400">The document owner initiates the Part 11 chain from the Reviewer View once review is complete.</p>
+      <div className="flex h-full flex-col items-center justify-center gap-4 overflow-y-auto p-10" data-screen="e-signature">
+        {chain?.status === 'cancelled' && (
+          <p className="text-[12px] text-amber-700" data-chain-cancelled>
+            The previous signature chain was cancelled{chain.cancelReason ? ` — “${chain.cancelReason}”` : ''}.
+          </p>
+        )}
+        <InitiateSignatureChain documentId={documentId!} projectId={projectId!} documentStatus={document?.status} />
         <button onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/review`)}
-          className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
+          className="text-[12px] font-semibold text-slate-600 hover:underline">
           Open Reviewer View
         </button>
       </div>
     )
   }
 
-  const selectedSigner = selectedIndex !== null ? chain[selectedIndex] : null
-  const selectedState  = selectedIndex !== null ? derivedStates[selectedIndex] : null
-  const panelTitle     = selectedState === 'signed' ? 'Signature record'
+  const signedCount = states.filter(s => s === 'signed').length
+  const totalCount  = records.length
+  const progressPct = totalCount > 0 ? Math.round((signedCount / totalCount) * 100) : 0
+  const selected      = selectedIndex !== null ? records[selectedIndex] : null
+  const selectedState = selectedIndex !== null ? states[selectedIndex] : null
+  const panelTitle =
+    selectedState === 'signed' ? 'Signature record'
     : selectedState === 'you' ? 'Electronic signature'
-    : selectedState === 'queued' ? 'Pending signature'
-    : ''
-  const panelStep = selectedIndex !== null ? `STEP ${selectedIndex + 1} OF ${totalCount}` : ''
+    : selectedState ? 'Pending signature' : ''
+  const title = document?.title ?? 'Document'
+  const statusLabel = chain.status === 'complete' ? 'Signed' : 'Pending signature'
 
   return (
     <div className="flex h-full flex-col" data-screen="e-signature">
@@ -465,39 +397,63 @@ export function ESignature() {
         <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-slate-500">
           <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
           <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">VELORA-301</button>
-          <span className="text-slate-300">›</span>
           <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900 transition-colors">Clinical Writing</button>
           <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)} className="hover:text-slate-900 transition-colors truncate">
-            Clinical Study Report — VELORA-301
-          </button>
+          <button onClick={backToEditor} className="truncate hover:text-slate-900 transition-colors">{title}</button>
           <span className="text-slate-300">›</span>
           <span className="font-semibold text-slate-900">Sign</span>
         </div>
         <div className="flex h-14 items-center justify-between gap-6">
           <div className="flex min-w-0 items-center gap-3">
-            <h1 className="truncate text-base font-bold tracking-tight">Clinical Study Report — VELORA-301</h1>
-            <span className="flex-none font-mono text-[11px] text-slate-500">v0.4 · Final</span>
-            <span className="flex-none rounded-full px-2.5 py-1 text-xs font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}>
-              Pending signature
+            <h1 className="truncate text-base font-bold tracking-tight">{title}</h1>
+            <span className="flex-none font-mono text-[11px] text-slate-500">{document?.version ?? ''}</span>
+            <span
+              className="flex-none rounded-full px-2.5 py-1 text-xs font-semibold"
+              style={chain.status === 'complete' ? { backgroundColor: '#F0FDF4', color: '#15803D' } : { backgroundColor: '#FFFBEB', color: '#B45309' }}
+              data-chain-status={chain.status}
+            >
+              {statusLabel}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={handleCancel}
-            className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
-            style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
-          >
-            Cancel signing
-          </button>
+          {chainActive && (
+            <button
+              type="button"
+              onClick={() => setCancelOpen(v => !v)}
+              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
+              style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
+              data-cancel-chain
+            >
+              Cancel signature chain
+            </button>
+          )}
         </div>
+        {cancelOpen && chainActive && (
+          <div className="mb-3 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3" data-cancel-form>
+            <p className="text-[12px] text-amber-900">
+              Cancelling voids the signatures recorded so far and returns the document to In Authoring. A reason is required for the audit trail.
+            </p>
+            <div className="flex gap-2">
+              <input
+                value={cancelReason}
+                onChange={e => setCancelReason(e.target.value)}
+                placeholder="Reason for cancelling"
+                className="h-9 flex-1 rounded-md border border-amber-300 bg-white px-3 text-[13px]"
+                data-cancel-reason
+              />
+              <button
+                type="button"
+                onClick={handleCancelChain}
+                disabled={!cancelReason.trim() || cancelMut.isPending}
+                className="rounded-md bg-amber-600 px-3 text-[13px] font-semibold text-white disabled:opacity-50"
+              >{cancelMut.isPending ? 'Cancelling…' : 'Confirm cancel'}</button>
+            </div>
+            {cancelMut.isError && <p className="text-[12px] text-red-800">Could not cancel the chain. Please try again.</p>}
+          </div>
+        )}
       </div>
 
       {/* ============ Main + panel overlay ============ */}
       <div className="relative flex flex-1 min-h-0">
-
-        {/* Left area */}
         <div className="flex-1 min-w-0 overflow-y-auto px-8 py-7" style={{ backgroundColor: '#F8FAFC' }}>
           <div className="flex flex-col gap-5" style={{ maxWidth: 820 }}>
 
@@ -505,12 +461,15 @@ export function ESignature() {
             <div className="flex items-center gap-4 rounded-lg border border-slate-200 bg-white px-5 py-4">
               <LockIcon />
               <div className="flex min-w-0 flex-1 flex-col gap-1">
-                <p className="text-sm font-bold">Clinical Study Report — VELORA-301</p>
-                <p className="font-mono text-[11px] text-slate-500">v0.4 · 28 Oct 2024 · 47 pages · SHA-256: 3a9f…c4d2</p>
+                <p className="text-sm font-bold">{title}</p>
+                <p className="font-mono text-[11px] text-slate-500">
+                  {document?.version ?? '—'} · chain started {fmtUtc(chain.initiatedAt)}
+                  {chain.completedAt ? ` · completed ${fmtUtc(chain.completedAt)}` : ''}
+                </p>
               </div>
               <div className="flex flex-none flex-col gap-0.5 text-right">
                 <p className="text-xs text-slate-500">Signature progress</p>
-                <p className="text-sm font-bold">{signedCount} of {totalCount} recorded</p>
+                <p className="text-sm font-bold" data-signature-progress>{signedCount} of {totalCount} recorded</p>
               </div>
               <div className="w-[120px] flex-none">
                 <div className="h-1.5 overflow-hidden rounded-[3px]" style={{ backgroundColor: '#E2E8F0' }}>
@@ -519,89 +478,86 @@ export function ESignature() {
               </div>
             </div>
 
+            {chain.status === 'complete' && (
+              <div className="rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-[13px] text-green-800" data-chain-complete>
+                ✓ All signatures recorded — the document is signed and the watermark has been removed.{' '}
+                <button onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/final`)} className="font-semibold underline">
+                  Open Final Document
+                </button>
+              </div>
+            )}
+
             {/* Signature chain */}
             <div className="flex flex-col gap-2.5">
               <div className="flex items-baseline justify-between gap-3">
-                <MonoLabel>Signature chain · sequential</MonoLabel>
-                <p className="text-xs text-slate-500">Select a signatory to inspect its record — order is fixed by the project RACI.</p>
+                <MonoLabel>Signature chain · {chain.chainType}</MonoLabel>
+                <p className="text-xs text-slate-500">Select a signatory to inspect its record.</p>
               </div>
-              {chain.map((record, i) => (
+              {records.map((record, i) => (
                 <SignerRow
                   key={record.id}
-                  index={i}
-                  step={String(i + 1)}
                   record={record}
-                  state={derivedStates[i]}
+                  state={states[i]}
                   isSelected={selectedIndex === i}
-                  onSelect={() => setSelectedIndex(i)}
+                  onSelect={() => { setSelectedIndex(i); signMut.reset() }}
                 />
               ))}
             </div>
 
-            {/* Lock notice */}
             <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }}>
               <span className="mt-0.5"><LockIcon colour="#94A3B8" size={12} /></span>
               <p className="text-[12px] italic leading-relaxed text-slate-500">
-                The document is locked for authoring while signatures are being collected. Cancelling signing returns it to In Authoring and voids the signature chain recorded so far.
+                The document is locked for authoring while signatures are being collected. Cancelling the chain returns it to In Authoring and voids the signatures recorded so far.
               </p>
             </div>
           </div>
         </div>
 
         {/* Right panel — absolute overlay */}
-        {selectedSigner && selectedState && (
+        {selected && selectedState && (
           <div
             className="absolute top-0 right-0 bottom-0 flex flex-col border-l border-slate-200 bg-white"
-            style={{
-              width:     480,
-              zIndex:    10,
-              boxShadow: '-16px 0 40px rgba(15,23,42,0.12)',
-              minHeight: 0,
-            }}
+            style={{ width: 480, zIndex: 10, boxShadow: '-16px 0 40px rgba(15,23,42,0.12)', minHeight: 0 }}
           >
-            {/* Panel header (48px) */}
             <div className="flex h-12 flex-none items-center gap-2 border-b border-slate-200 px-4">
               <span style={{ color: '#2563EB' }}><LockIcon size={14} /></span>
               <h3 className="whitespace-nowrap text-sm font-bold">{panelTitle}</h3>
-              <span className="ml-1 whitespace-nowrap font-mono text-[10px] tracking-wider text-slate-500">{panelStep}</span>
+              <span className="ml-1 whitespace-nowrap font-mono text-[10px] tracking-wider text-slate-500">STEP {selected.step} OF {totalCount}</span>
               <div className="flex-1" />
               <button
                 type="button"
                 onClick={() => setSelectedIndex(null)}
                 aria-label="Close panel"
                 className="flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
-              >
-                ✕
-              </button>
+              >✕</button>
             </div>
 
-            {/* Panel body — signer summary + state-specific block */}
             <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
-              {/* Signer summary row */}
               <div className="flex items-center gap-2.5">
-                <Avatar initials={selectedSigner.initials} size={32} />
+                <Avatar initials={initialsOf(selected.signerName)} size={32} />
                 <div className="flex min-w-0 flex-col gap-0.5">
-                  <p className="truncate text-sm font-bold">{selectedSigner.signer}</p>
-                  <p className="text-xs text-slate-500">{ROLE_LONG[selectedSigner.role] ?? selectedSigner.role}</p>
+                  <p className="truncate text-sm font-bold">{selected.signerName}</p>
+                  <p className="text-xs text-slate-500">{selected.signerRole}</p>
                 </div>
                 <div className="flex-1" />
                 <StatePill state={selectedState} />
               </div>
 
-              {selectedState === 'signed'  && <SignedPanel record={selectedSigner} />}
-              {selectedState === 'queued'  && <QueuedPanel record={selectedSigner} previousSigner={chain[selectedIndex! - 1]} />}
-              {selectedState === 'you'     && (
+              {selectedState === 'signed' && <SignedPanel record={selected} />}
+              {(selectedState === 'awaiting' || selectedState === 'queued') && (
+                <PendingPanel record={selected} previous={records[selectedIndex! - 1]} state={selectedState} />
+              )}
+              {selectedState === 'you' && (
                 <YouPanel
-                  record={selectedSigner}
-                  meaning={meaning}
+                  record={selected}
+                  email={me?.email}
                   credential={credential}
-                  onMeaning={setMeaning}
                   onCredential={setCredential}
+                  error={signMut.isError ? signErrorText(signMut.error) : null}
                 />
               )}
             </div>
 
-            {/* Panel footer — varies by state */}
             {selectedState === 'you' && (
               <div className="flex flex-none flex-col border-t border-slate-200" style={{ backgroundColor: '#F8FAFC' }}>
                 <div className="flex items-center gap-2.5 px-4 pt-3.5 pb-2">
@@ -610,33 +566,19 @@ export function ESignature() {
                     onClick={() => setSelectedIndex(null)}
                     disabled={signMut.isPending}
                     className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-900 hover:bg-slate-100 transition-colors disabled:opacity-50"
-                  >
-                    Cancel
-                  </button>
+                  >Cancel</button>
                   <div className="flex-1" />
                   <button
                     type="button"
                     onClick={handleSign}
-                    disabled={!meaning || !credential.trim() || signMut.isPending}
+                    disabled={!credential.trim() || signMut.isPending}
                     className="whitespace-nowrap rounded-md bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {signMut.isPending ? 'Signing…' : 'Sign document'}
-                  </button>
+                    data-sign-submit
+                  >{signMut.isPending ? 'Signing…' : 'Sign document'}</button>
                 </div>
                 <p className="pb-2.5 text-center font-mono text-[10px] font-medium tracking-wider leading-relaxed text-slate-500">
                   By signing you confirm the meaning above under penalty of applicable regulations.
                 </p>
-              </div>
-            )}
-
-            {selectedState === 'signed' && (
-              <div className="flex flex-none gap-2 border-t border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }}>
-                <button className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 transition-colors">
-                  Download certificate
-                </button>
-                <button className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 transition-colors">
-                  Verify signature
-                </button>
               </div>
             )}
           </div>

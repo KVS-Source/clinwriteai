@@ -186,6 +186,9 @@ export interface CRMMeeting {
   startTime: string
   endTime: string
   startedAt?: string
+  endedAt?: string
+  /** scheduled → in_progress (Start) → complete (End) · or cancelled. */
+  status?: 'scheduled' | 'in_progress' | 'complete' | 'cancelled'
   chair: TeamMember
   attendees: TeamMember[]
   commentIds: string[]

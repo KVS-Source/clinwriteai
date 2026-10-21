@@ -61,14 +61,16 @@ async function fetchCrmContext(
     }),
     prisma.comment.findMany({
       where: { documentId },
-      select: { id: true, status: true },
+      select: { id: true, status: true, verdict: true },
     }),
   ])
   return {
     documentTitle: doc?.title ?? documentId,
     version: doc?.currentVersion?.versionNumber ?? 'v0.0',
     allCommentIds: comments.map(c => c.id),
-    openCommentIds: new Set(comments.filter(c => c.status === 'open').map(c => c.id)),
+    // Approval verdicts are sign-offs, not issues — the complete gate skips
+    // them, so they are not 'pending' resolution either.
+    openCommentIds: new Set(comments.filter(c => c.status === 'open' && c.verdict !== 'approve').map(c => c.id)),
   }
 }
 
@@ -112,6 +114,8 @@ async function crmMeetingShape(
     startTime: meeting.startTime,
     endTime: meeting.endTime,
     startedAt: meeting.startedAt?.toISOString(),
+    endedAt: meeting.endedAt?.toISOString(),
+    status: meeting.status,             // scheduled | in_progress | complete | cancelled
     chair: toTeamMember(meeting.chairId, byId.get(meeting.chairId) ?? null, 'A'),
     attendees: meeting.attendees.map(a => toTeamMember(a.userId, byId.get(a.userId) ?? null, a.roleInCrm === 'Chair' ? 'A' : a.roleInCrm === 'Author' ? 'R' : 'C')),
     commentIds: ctx.allCommentIds,
@@ -284,8 +288,17 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     // Gate: all OPEN comments on this document must have a resolution in
     // THIS meeting. Resolutions from other meetings don't count (chair
     // explicitly accepted responsibility by scheduling this one).
+    // Reviewer "approve" verdicts are sign-offs, not issues — they don't need
+    // a resolution (otherwise every section approval blocked the meeting).
+    // Plain comments (verdict null) and request_changes / block_approval
+    // verdicts still do. The OR keeps null verdicts: `not: 'approve'` alone
+    // would drop them in SQL.
     const openComments = await app.prisma.comment.findMany({
-      where: { documentId: meeting.documentId, status: 'open' },
+      where: {
+        documentId: meeting.documentId,
+        status: 'open',
+        OR: [{ verdict: null }, { verdict: { not: 'approve' } }],
+      },
       select: { id: true },
     })
     const resolvedIds = new Set(meeting.resolutions.map(r => r.commentId))

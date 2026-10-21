@@ -198,7 +198,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         data: {
           status: 'signed',
           documentHash,
-          versionAtSigning: doc.currentVersion!.label,
+          versionAtSigning: doc.currentVersion!.versionNumber,   // e.g. "v0.2" — the label ("Working") is not a version
           credentialHash,
           timestampUtc: now,
           localTime: parsed.data.localTime,
@@ -254,7 +254,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         step: record.step,
         meaning: record.meaning,
         documentHash,
-        versionAtSigning: doc.currentVersion.label,
+        versionAtSigning: doc.currentVersion.versionNumber,
       },
       ipAddress: request.ip ?? null,
     })

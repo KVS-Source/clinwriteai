@@ -328,6 +328,17 @@ export function ReviewerView() {
             >
               Return for revision
             </button>
+            {/* Review → Comments Resolution Meeting (PRD stage 5). */}
+            {(document.status === 'in-review' || document.status === 'crm-in-progress') && (
+              <button
+                type="button"
+                onClick={() => navigate(`/projects/${projectId}/clinical-writing/crm?doc=${encodeURIComponent(documentId ?? '')}`)}
+                data-action="open-crm"
+                className="whitespace-nowrap rounded-md border border-blue-200 bg-blue-50 px-3.5 py-2 text-[13px] font-semibold text-blue-700 hover:bg-blue-100"
+              >
+                CRM meeting →
+              </button>
+            )}
             {/* Review + CRM done → the owner starts the Part 11 chain (FR-A-066). */}
             {document.status === 'pending-signature' && (
               <button

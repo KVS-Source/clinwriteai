@@ -11,7 +11,7 @@ type Row = Record<string, any>
 function fakePrisma() {
   const documents: Row[] = [{
     id: 'DOC-1', status: 'pending_signature', watermarked: true, signedAt: null,
-    currentVersion: { label: 'Draft', sections: [{ sectionId: 's1', contentHtml: '<p>a</p>' }] },
+    currentVersion: { label: 'Draft', versionNumber: 'v0.2', sections: [{ sectionId: 's1', contentHtml: '<p>a</p>' }] },
   }]
   const chains: Row[] = []
   const records: Row[] = []
@@ -112,6 +112,7 @@ describe('signature chain routes', () => {
     const s1 = await t.app.inject({ method: 'POST', url: `/signature-records/${step1.id}/sign`, payload: signBody })
     expect(s1.statusCode).toBe(200)
     expect(s1.json().status).toBe('signed')
+    expect(s1.json().versionAtSigning).toBe('v0.2')   // version number, not the label ('Draft')
     expect(t.db.records.find(r => r.id === step2.id)!.status).toBe('awaiting')   // released
     expect(t.db.documents[0].status).toBe('pending_signature')
 

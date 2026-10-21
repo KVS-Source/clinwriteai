@@ -1008,9 +1008,17 @@ async function seedModuleB() {
   )
 
   let authorCount = 0
+  // Track (publicationId, userId) collisions caused by MOD_B_USER_ALIAS collapsing
+  // multiple fixture users onto the same real user — the DB has a UNIQUE on the
+  // pair, so the second-and-later authors land with userId=null (schema already
+  // allows null for external KOLs).
+  const seenPubUser = new Set<string>()
   for (const a of authors) {
     if (!seededPubIds.has(a.publicationId)) continue
-    const userId  = resolveUserId(a.userId)
+    const resolvedUserId = resolveUserId(a.userId)
+    const key = resolvedUserId ? `${a.publicationId}|${resolvedUserId}` : null
+    const userId = key && seenPubUser.has(key) ? null : resolvedUserId
+    if (key && userId) seenPubUser.add(key)
     const addedBy = resolveUserId(a.addedBy)
     if (!addedBy) continue
 

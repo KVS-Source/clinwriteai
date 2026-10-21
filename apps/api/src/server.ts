@@ -324,13 +324,15 @@ async function buildServer() {
 
   // Aliases + stubs — covers path mismatches (ectd-map, consistency-check,
   // etc.) and externally-blocked endpoints (gateway, super-reviewers,
-  // library-cards, regulatory-alerts) with deterministic placeholder
-  // shapes so the UI's buttons + screens render instead of 404'ing.
+  // library-cards) with deterministic placeholder shapes so the UI's
+  // buttons + screens render instead of 404'ing.
   // See apps/api/src/modules/regulatory-writing/aliases-and-stubs.ts.
-  const { regAliasesAndStubs, regulatoryAlertsStubRoutes } =
+  // NB: `regulatoryAlertsStubRoutes` is NOT registered here — the real
+  // cross-module `regulatoryAlertsRoutes` further down owns
+  // GET /regulatory-alerts (Fastify fails startup on duplicate routes).
+  const { regAliasesAndStubs } =
     await import('./modules/regulatory-writing/aliases-and-stubs.js')
   await app.register(regAliasesAndStubs, { prefix: '/reg-submissions' })
-  await app.register(regulatoryAlertsStubRoutes)                            // root — /regulatory-alerts
 
   // ---------- Module E — Ideation & Publishing ----------
   const { ideationProjectScopedRoutes, ideationRoutes } =

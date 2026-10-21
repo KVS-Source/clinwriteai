@@ -257,8 +257,11 @@ async function buildServer() {
   await app.register(publicationsProjectScopedRoutes, { prefix: '/projects' })
   await app.register(publicationsRoutes, { prefix: '/publications' })
 
-  const { citationsRoutes } = await import('./modules/scientific-writing/citations/routes.js')
+  const { citationsRoutes, pubmedRoutes } = await import('./modules/scientific-writing/citations/routes.js')
   await app.register(citationsRoutes, { prefix: '/publications' })
+  // pubmedRoutes mounts at root — the client's citation-search endpoint
+  // is GET /pubmed/search (not /publications/pubmed/search).
+  await app.register(pubmedRoutes)
 
   const { authorsRoutes } = await import('./modules/scientific-writing/authors/routes.js')
   await app.register(authorsRoutes, { prefix: '/publications' })

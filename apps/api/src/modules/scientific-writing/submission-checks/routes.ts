@@ -101,6 +101,24 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
     })
   }
 
+  // UI's SubmissionCheckSummary roll-up: counts per state so the
+  // Journal Submission Readiness screen can show its traffic-light bar
+  // without recomputing on the client each render.
+  function summariseChecks(rows: Array<{ state: string }>) {
+    const by = { pass: 0, warn: 0, ack: 0, block: 0, fail: 0 } as Record<string, number>
+    for (const r of rows) by[r.state] = (by[r.state] ?? 0) + 1
+    return {
+      totalChecks: rows.length,
+      passCount:   by.pass,
+      warnCount:   by.warn,
+      ackCount:    by.ack,
+      blockCount:  by.block,
+      failCount:   by.fail,
+      // Submission-ready = zero blocks + zero fails (warns can be ack'd).
+      submissionReady: by.block === 0 && by.fail === 0,
+    }
+  }
+
   app.get('/:publicationId/submission-checks', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
     const { publicationId } = request.params as { publicationId: string }
     const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
@@ -111,7 +129,11 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
       where: { publicationId },
       orderBy: [{ groupId: 'asc' }, { label: 'asc' }],
     })
-    return rows.map(submissionCheckShape)
+    // UI (JournalSubmissionReadiness) expects { summary, checks } — not a
+    // bare array. Shape the response here so the client doesn't have to
+    // compute the summary on each render.
+    const shaped = rows.map(submissionCheckShape)
+    return { summary: summariseChecks(rows), checks: shaped }
   })
 
   // Re-run all checks. Real check engine lands separately; this stub
@@ -143,7 +165,15 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
       where: { publicationId },
       orderBy: [{ groupId: 'asc' }, { label: 'asc' }],
     })
-    return rows.map(submissionCheckShape)
+    // Mirror the GET shape + add startedAt so the UI can show "last run
+    // X seconds ago" without a second request. { summary, checks,
+    // startedAt } is the shape client runSubmissionChecks expects.
+    const shaped = rows.map(submissionCheckShape)
+    return {
+      startedAt: now.toISOString(),
+      summary:   summariseChecks(rows),
+      checks:    shaped,
+    }
   })
 
   // Acknowledge a 'warn' check. Advisory → ack transition. Soft gate.

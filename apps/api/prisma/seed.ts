@@ -446,6 +446,13 @@ async function main() {
     console.warn('   Module C seed skipped:', (e as Error).message)
   }
 
+  try {
+    console.log('→ Seeding Module B (Scientific Writing)…')
+    await seedModuleB()
+  } catch (e) {
+    console.warn('   Module B seed skipped:', (e as Error).message)
+  }
+
   // --------------------------------------------------------------
   // Done.
   // --------------------------------------------------------------
@@ -463,6 +470,9 @@ async function main() {
     mlrReviewers: await prisma.mlrReviewer.count(),
     mlrComments: await prisma.mlrComment.count(),
     preMlrRuns:  await prisma.preMlrCheckResult.count(),
+    publications: await prisma.publication.count(),
+    pubAuthors:   await prisma.publicationAuthor.count(),
+    citations:    await prisma.citation.count(),
   }
   console.log('✔ Seed complete.')
   console.table(counts)
@@ -802,6 +812,257 @@ async function seedModuleC() {
     commentsSeeded += 1
   }
   console.log(`   ${commentsSeeded}/${mlrComments.length} MLR comments seeded`)
+}
+
+// ---------- Module B seeding ----------
+//
+// Fixtures: publications.json, publicationAuthors.json, citations.json.
+// Vocab gaps that need normalising for the DB:
+//   - subtype 'original-research' (UI hyphen) → 'original_research' (DB snake)
+//   - baaStatus 'not-applicable' (UI hyphen) → 'not_applicable' (DB snake)
+//   - status / stage left hyphenated (route handlers accept either)
+// Author / citation user and project FKs are resolved via the same
+// user-alias map pattern as Module C so fixture-only IDs resolve to
+// seeded User rows.
+
+interface FixturePublication {
+  id: string
+  projectId: string
+  type: string
+  subtype: string | null
+  title: string
+  stage: string
+  status: string
+  version: string
+  guideline: string
+  journal: string | null
+  targetSubmissionDate: string | null
+  keyMessage: string | null
+  baaStatus: string
+  sourceDocumentId: string | null
+  sourceDocumentLabel: string | null
+  ownerId: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+interface FixtureIcmjeCriterion {
+  criterionIndex: number
+  met: boolean
+  confirmedBy: string | null
+  confirmedAt: string | null
+}
+
+interface FixturePublicationAuthor {
+  id: string
+  publicationId: string
+  userId: string | null
+  name: string
+  initials: string
+  role: string
+  raci: 'R' | 'A' | 'C' | 'I'
+  isExternal: boolean
+  coiStatus: string | null
+  coiSubmittedAt: string | null
+  debarmentStatus: string | null
+  debarmentCheckedAt: string | null
+  invitedAt: string | null
+  inviteEmail: string | null
+  addedBy: string
+  addedAt: string
+  removedAt: string | null
+  icmjeCriteria: FixtureIcmjeCriterion[]
+  icmjeAcknowledged: boolean
+  icmjeAcknowledgedBy: string | null
+  icmjeAcknowledgedAt: string | null
+}
+
+interface FixtureCitation {
+  id: string
+  publicationId: string
+  pmid: string | null
+  title: string
+  shortRef: string
+  fullRef: string
+  locus: string | null
+  isSourceDocument: boolean
+  insertedBy: string
+  insertedAt: string
+  removedBy: string | null
+  removedAt: string | null
+}
+
+const SUBTYPE_UI_TO_DB: Record<string, string> = {
+  'original-research':  'original_research',
+  'systematic-review':  'systematic_review',
+  'case-report':        'case_report',
+  'original_research':  'original_research',
+  'systematic_review':  'systematic_review',
+  'case_report':        'case_report',
+}
+const BAA_UI_TO_DB: Record<string, string> = {
+  'not-applicable': 'not_applicable',
+  'in-progress':    'in_progress',
+  not_applicable:   'not_applicable',
+  required:         'required',
+  in_progress:      'in_progress',
+  executed:         'executed',
+}
+// Module B fixtures reference 'user-mw' / 'user-sc' / 'user-ev' / etc.
+// Not every id exists in the base seed; map to the closest match.
+const MOD_B_USER_ALIAS: Record<string, string> = {
+  'user-mw':      'user-rw',       // Marcus Webb → s.chen (writer)
+  'user-sc':      'user-rw',       // Sarah Chen → s.chen (writer)
+  'user-pn':      'user-admin',    // Priya Nair → admin
+  'user-ev':      'user-ma',       // Elena Vasquez → r.morton (reviewer)
+  'user-ah':      'user-admin',    // Ashish → admin
+  'user-rk':      'user-admin',    // Rohan → admin
+  'user-jh':      'user-admin',    // James Hartley → admin
+  'user-dc':      'user-dc',       // David Chen → d.chen ✓
+}
+
+async function seedModuleB() {
+  const pubs    = readFixture<FixturePublication[]>('publications.json')
+  const authors = readFixture<FixturePublicationAuthor[]>('publicationAuthors.json')
+  const cites   = readFixture<FixtureCitation[]>('citations.json')
+
+  const knownProjectIds = new Set(
+    (await prisma.project.findMany({ select: { id: true } })).map(p => p.id),
+  )
+  const knownUserIds = new Set(
+    (await prisma.user.findMany({ select: { id: true } })).map(u => u.id),
+  )
+  const resolveUserId = (id: string | null): string | null => {
+    if (!id) return null
+    if (knownUserIds.has(id)) return id
+    const alias = MOD_B_USER_ALIAS[id]
+    if (alias && knownUserIds.has(alias)) return alias
+    return null
+  }
+
+  let pubCount = 0
+  for (const p of pubs) {
+    if (!knownProjectIds.has(p.projectId)) continue
+    const ownerId   = resolveUserId(p.ownerId)   ?? resolveUserId(p.createdBy)
+    const createdBy = resolveUserId(p.createdBy) ?? ownerId
+    if (!ownerId || !createdBy) continue
+
+    await prisma.publication.upsert({
+      where: { id: p.id },
+      create: {
+        id:                   p.id,
+        projectId:            p.projectId,
+        type:                 p.type,
+        subtype:              p.subtype ? (SUBTYPE_UI_TO_DB[p.subtype] ?? p.subtype) : null,
+        title:                p.title,
+        stage:                p.stage,
+        status:               p.status,
+        version:              p.version,
+        guideline:            p.guideline,
+        journal:              p.journal,
+        targetSubmissionDate: p.targetSubmissionDate ? new Date(p.targetSubmissionDate) : null,
+        keyMessage:           p.keyMessage,
+        baaStatus:            BAA_UI_TO_DB[p.baaStatus] ?? 'not_applicable',
+        sourceDocumentId:     p.sourceDocumentId,
+        sourceDocumentLabel:  p.sourceDocumentLabel,
+        ownerId,
+        createdBy,
+        createdAt:            new Date(p.createdAt),
+        updatedAt:            new Date(p.updatedAt),
+      },
+      update: {
+        title:   p.title,
+        stage:   p.stage,
+        status:  p.status,
+        version: p.version,
+        updatedAt: new Date(p.updatedAt),
+      },
+    })
+    pubCount += 1
+  }
+  console.log(`   ${pubCount}/${pubs.length} publications seeded`)
+
+  const seededPubIds = new Set(
+    (await prisma.publication.findMany({ select: { id: true } })).map(p => p.id),
+  )
+
+  let authorCount = 0
+  for (const a of authors) {
+    if (!seededPubIds.has(a.publicationId)) continue
+    const userId  = resolveUserId(a.userId)
+    const addedBy = resolveUserId(a.addedBy)
+    if (!addedBy) continue
+
+    const row = await prisma.publicationAuthor.upsert({
+      where: { id: a.id },
+      create: {
+        id:                 a.id,
+        publicationId:      a.publicationId,
+        userId,                                                          // nullable for external KOLs
+        name:               a.name,
+        initials:           a.initials,
+        role:               a.role,
+        raci:               a.raci,
+        isExternal:         a.isExternal,
+        coiStatus:          a.coiStatus,
+        debarmentStatus:    a.debarmentStatus,
+        invitedAt:          a.invitedAt ? new Date(a.invitedAt) : null,
+        inviteEmail:        a.inviteEmail,
+        addedBy,
+        addedAt:            new Date(a.addedAt),
+        removedAt:          a.removedAt ? new Date(a.removedAt) : null,
+      },
+      update: { role: a.role, raci: a.raci, coiStatus: a.coiStatus, debarmentStatus: a.debarmentStatus },
+    })
+
+    // Ensure exactly four ICMJE criteria per author (model requirement).
+    for (const c of a.icmjeCriteria) {
+      await prisma.pubIcmjeCriterion.upsert({
+        where: { authorId_criterionIndex: { authorId: row.id, criterionIndex: c.criterionIndex } },
+        create: {
+          authorId:       row.id,
+          criterionIndex: c.criterionIndex,
+          met:            c.met,
+          confirmedBy:    c.confirmedBy,
+          confirmedAt:    c.confirmedAt ? new Date(c.confirmedAt) : null,
+        },
+        update: { met: c.met },
+      })
+    }
+
+    authorCount += 1
+  }
+  console.log(`   ${authorCount}/${authors.length} publication authors seeded`)
+
+  let citCount = 0
+  for (const c of cites) {
+    if (!seededPubIds.has(c.publicationId)) continue
+    await prisma.citation.upsert({
+      where: { id: c.id },
+      create: {
+        id:               c.id,
+        publicationId:    c.publicationId,
+        pmid:             c.pmid,
+        title:            c.title,
+        shortRef:         c.shortRef,
+        fullRef:          c.fullRef,
+        locus:            c.locus,
+        isSourceDocument: c.isSourceDocument,
+        insertedBy:       c.insertedBy,
+        insertedAt:       new Date(c.insertedAt),
+        removedBy:        c.removedBy,
+        removedAt:        c.removedAt ? new Date(c.removedAt) : null,
+      },
+      update: {
+        title:    c.title,
+        shortRef: c.shortRef,
+        fullRef:  c.fullRef,
+      },
+    })
+    citCount += 1
+  }
+  console.log(`   ${citCount}/${cites.length} citations seeded`)
 }
 
 main()

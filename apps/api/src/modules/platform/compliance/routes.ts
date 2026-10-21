@@ -73,7 +73,9 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
       action: 'audit_chain_verified',
       entityType: 'audit_events',
       entityId: 'chain',
-      details: { intact: result.intact, firstBreakAt: result.firstBreakAt, fromId, toId },
+      // Explicit nulls: an omitted range used to be stored as undefined, which
+      // broke the row's own hash (see canonicalJson in audit/hash.ts).
+      details: { intact: result.intact, firstBreakAt: result.firstBreakAt, fromId: fromId ?? null, toId: toId ?? null },
       ipAddress: request.ip ?? null,
     })
 

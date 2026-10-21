@@ -4,7 +4,7 @@
 // mutations with invalidation. All queries are cheap enough that we
 // stay with the project's default staleTime (no explicit tuning).
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   tenantsApi,
   membershipsApi,
@@ -172,6 +172,9 @@ export function useAuditQuery(q: AuditQuery) {
     // table fresh while a user is on the screen without hammering the
     // paginated endpoint on every keystroke.
     staleTime: 15_000,
+    // Keep the current table on screen while a new search / page loads, so
+    // live search doesn't flash "Loading…" after every pause in typing.
+    placeholderData: keepPreviousData,
   })
 }
 

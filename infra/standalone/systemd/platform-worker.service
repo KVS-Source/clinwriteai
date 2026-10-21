@@ -40,7 +40,11 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
-ReadWritePaths=/var/log/platform /run/platform
+# Same blob-writes rationale as platform-api.service — worker jobs
+# write exports + eCTD bundles + voice-note transcription artefacts
+# under /opt/platform/data/blob and need the ProtectSystem=strict
+# write-list to include that path.
+ReadWritePaths=/var/log/platform /run/platform /opt/platform/data/blob
 
 LimitNOFILE=65536
 MemoryMax=8G       # workers run heavier (AI calls hold context in memory)

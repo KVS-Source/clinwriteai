@@ -69,6 +69,45 @@ describe('computeRowHash', () => {
   })
 })
 
+// Rows are re-hashed on verify from what Postgres returns for the JSONB
+// `details` column, i.e. JSON.parse(JSON.stringify(details)). The hash must
+// survive that round trip or the row can never re-verify (staging #1953/#1963).
+describe('computeRowHash — survives the JSONB round trip', () => {
+  const roundTrip = (e: AuditEventShape): AuditEventShape =>
+    ({ ...e, details: JSON.parse(JSON.stringify(e.details)) as Record<string, unknown> })
+
+  it('pins the hash of a plain event (existing rows must keep verifying)', () => {
+    const event = sampleEvent({
+      details: { field: 'status', from: 'draft', to: 'in-authoring', nested: { n: 1, list: [1, 'a', null, true] } },
+    })
+    // Computed with the pre-fix canonicalJson — must never change.
+    expect(computeRowHash('', event, SECRET)).toBe('74e22f00fc2bc7c0d20091fd40200685a4cd10d98c27871c7ea13dfcd56eb697')
+  })
+
+  it('treats undefined detail values like JSONB does (key dropped)', () => {
+    const event = sampleEvent({ details: { intact: true, firstBreakAt: null, fromId: undefined, toId: undefined } })
+    expect(computeRowHash('', event, SECRET)).toBe(computeRowHash('', roundTrip(event), SECRET))
+    expect(computeRowHash('', event, SECRET))
+      .toBe(computeRowHash('', sampleEvent({ details: { intact: true, firstBreakAt: null } }), SECRET))
+  })
+
+  it('serialises undefined inside arrays as null, like JSON', () => {
+    const event = sampleEvent({ details: { ids: ['a', undefined, 'b'] } })
+    expect(computeRowHash('', event, SECRET)).toBe(computeRowHash('', roundTrip(event), SECRET))
+  })
+
+  it('serialises Date values through toJSON, like JSON', () => {
+    const event = sampleEvent({ details: { at: new Date('2026-10-19T10:51:36.340Z') } })
+    expect(computeRowHash('', event, SECRET)).toBe(computeRowHash('', roundTrip(event), SECRET))
+  })
+
+  it('still distinguishes null from a missing key', () => {
+    const withNull = computeRowHash('', sampleEvent({ details: { a: 1, b: null } }), SECRET)
+    const missing  = computeRowHash('', sampleEvent({ details: { a: 1 } }), SECRET)
+    expect(withNull).not.toBe(missing)
+  })
+})
+
 describe('findChainBreak', () => {
   it('returns -1 for an intact chain', () => {
     const e1 = sampleEvent({ action: 'a' })

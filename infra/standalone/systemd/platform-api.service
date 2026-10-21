@@ -52,7 +52,15 @@ ProtectSystem=strict
 ProtectHome=true
 PrivateTmp=true
 PrivateDevices=true
-ReadWritePaths=/var/log/platform /run/platform
+# ReadWritePaths — ProtectSystem=strict makes the entire filesystem
+# read-only except these dirs. Must include /opt/platform/data/blob so
+# BLOB_PROVIDER=local can write uploaded documents / voice notes /
+# exports / eCTD bundles under /opt/platform/data/blob/<bucket>/…
+# Without the blob path the upload route 500s with
+#   ENOENT: no such file or directory, mkdir '/opt/platform/data/blob/documents/…'
+# even after deploy.sh pre-creates the dirs — the kernel enforces the
+# write-protection regardless of filesystem perms.
+ReadWritePaths=/var/log/platform /run/platform /opt/platform/data/blob
 # Allow network for API calls (Anthropic, WorkOS, SendGrid, etc.)
 RestrictNetworkInterfaces=
 # Resource limits

@@ -76,11 +76,26 @@ export function plainShape(row: AuditEventShape): AuditEventShape {
   }
 }
 
-/** Stable JSON stringification with sorted keys at every level. */
+/**
+ * Stable JSON stringification with sorted keys at every level.
+ *
+ * Must serialise exactly what Postgres stores: details are written as
+ * JSON.stringify(details) into JSONB and re-hashed from what comes back on
+ * verify. So it follows JSON.stringify semantics — object keys whose value is
+ * undefined (or a function) are dropped, undefined inside arrays becomes null,
+ * and values with toJSON (e.g. Date) are serialised through it. Previously an
+ * undefined value was hashed as the bare word `undefined` while JSONB dropped
+ * the key, so such rows (#1953, #1963 on staging) can never re-verify.
+ * Events without undefined/Date values hash exactly as before.
+ */
 function canonicalJson(value: unknown): string {
-  if (value === null || typeof value !== 'object') return JSON.stringify(value)
+  if (value !== null && typeof value === 'object' && typeof (value as { toJSON?: unknown }).toJSON === 'function') {
+    return canonicalJson((value as { toJSON: () => unknown }).toJSON())
+  }
+  if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null'
   if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
   const entries = Object.entries(value as Record<string, unknown>)
+    .filter(([, v]) => v !== undefined && typeof v !== 'function')
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`)
   return `{${entries.join(',')}}`

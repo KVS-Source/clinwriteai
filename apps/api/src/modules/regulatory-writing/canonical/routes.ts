@@ -167,4 +167,34 @@ export const canonicalRoutes: FastifyPluginAsync = async (app) => {
 
     return updated
   })
+
+  // --- UI-shorthand alias ---------------------------------------------
+  // Web client calls POST /canonical-json/index; canonical API is just
+  // POST /canonical-json. Alias indexes the current source documents
+  // into a single CanonicalJsonEntry stub so the UI's "Index now" button
+  // resolves — real indexing engine will replace the stub later.
+  app.post('/:submissionId/canonical-json/index', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
+    const { submissionId } = request.params as { submissionId: string }
+    const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
+    if (!sub) return reply.code(404).send({ error: 'not_found' })
+
+    const indexedAt = new Date()
+    await app.audit.append({
+      timestamp: indexedAt.toISOString(),
+      actorId: request.user!.id,
+      action: 'canonical_json_indexed',
+      entityType: 'reg_submission',
+      entityId: submissionId,
+      details: { aliasPath: 'canonical-json/index', stub: true },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      submissionId,
+      indexedAt: indexedAt.toISOString(),
+      dataPoints: 0,
+      sources: [],
+      stub: true,
+    }
+  })
 }

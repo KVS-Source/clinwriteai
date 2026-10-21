@@ -342,4 +342,40 @@ export const regSubmissionsRoutes: FastifyPluginAsync = async (app) => {
 
     return updated
   })
+
+  // --- UI-shorthand aliases -------------------------------------------
+  // Web client (apps/web/src/modules/regulatory-writing/api/
+  // regulatoryWriting.ts) calls /ectd-map and /ectd-map/:nodeId; API
+  // canonical path is /ectd-nodes. Alias so the UI doesn't 404.
+  app.get('/:submissionId/ectd-map', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
+    const { submissionId } = request.params as { submissionId: string }
+    const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
+    if (!sub) return reply.code(404).send({ error: 'not_found' })
+    return app.prisma.ectdGranularityNode.findMany({
+      where: { submissionId },
+      orderBy: { moduleSection: 'asc' },
+    })
+  })
+
+  app.patch('/:submissionId/ectd-map/:nodeId', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
+    const { submissionId, nodeId } = request.params as { submissionId: string; nodeId: string }
+    const parsed = patchNodeSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const node = await app.prisma.ectdGranularityNode.findFirst({ where: { id: nodeId, submissionId } })
+    if (!node) return reply.code(404).send({ error: 'not_found' })
+    if (node.isReadOnly) {
+      return reply.code(422).send({ error: 'node_read_only', message: `eCTD node ${node.moduleSection} is read-only (DD-D-001).` })
+    }
+    const updated = await app.prisma.ectdGranularityNode.update({ where: { id: nodeId }, data: parsed.data })
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'ectd_node_updated',
+      entityType: 'reg_submission',
+      entityId: submissionId,
+      details: { nodeId, moduleSection: node.moduleSection, changedFields: Object.keys(parsed.data), aliasPath: 'ectd-map' },
+      ipAddress: request.ip ?? null,
+    })
+    return updated
+  })
 }

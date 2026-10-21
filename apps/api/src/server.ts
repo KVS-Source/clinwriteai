@@ -322,6 +322,16 @@ async function buildServer() {
   const { oddRoutes } = await import('./modules/regulatory-writing/odd/routes.js')
   await app.register(oddRoutes)
 
+  // Aliases + stubs — covers path mismatches (ectd-map, consistency-check,
+  // etc.) and externally-blocked endpoints (gateway, super-reviewers,
+  // library-cards, regulatory-alerts) with deterministic placeholder
+  // shapes so the UI's buttons + screens render instead of 404'ing.
+  // See apps/api/src/modules/regulatory-writing/aliases-and-stubs.ts.
+  const { regAliasesAndStubs, regulatoryAlertsStubRoutes } =
+    await import('./modules/regulatory-writing/aliases-and-stubs.js')
+  await app.register(regAliasesAndStubs, { prefix: '/reg-submissions' })
+  await app.register(regulatoryAlertsStubRoutes)                            // root — /regulatory-alerts
+
   // ---------- Module E — Ideation & Publishing ----------
   const { ideationProjectScopedRoutes, ideationRoutes } =
     await import('./modules/ideation/routes.js')

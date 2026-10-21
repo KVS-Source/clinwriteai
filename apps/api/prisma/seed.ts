@@ -453,6 +453,13 @@ async function main() {
     console.warn('   Module B seed skipped:', (e as Error).message)
   }
 
+  try {
+    console.log('→ Seeding Module D (Regulatory Writing)…')
+    await seedModuleD()
+  } catch (e) {
+    console.warn('   Module D seed skipped:', (e as Error).message)
+  }
+
   // --------------------------------------------------------------
   // Done.
   // --------------------------------------------------------------
@@ -473,6 +480,7 @@ async function main() {
     publications: await prisma.publication.count(),
     pubAuthors:   await prisma.publicationAuthor.count(),
     citations:    await prisma.citation.count(),
+    regSubmissions: await prisma.regulatorySubmission.count(),
   }
   console.log('✔ Seed complete.')
   console.table(counts)
@@ -1063,6 +1071,112 @@ async function seedModuleB() {
     citCount += 1
   }
   console.log(`   ${citCount}/${cites.length} citations seeded`)
+}
+
+// ---------- Module D seeding ----------
+//
+// Fixtures: regulatorySubmissions.json.
+// Vocab maps:
+//   - submissionType hyphen→snake (nda-maa → nda_maa; psur-pbrer →
+//     psur_pbrer; ha-response → ha_response; rmp-rems → rmp_rems)
+//   - status hyphen→snake (module2-authoring → module2_authoring; etc)
+// User alias map falls back to the base-seed users when fixture IDs
+// aren't resolvable (same pattern as Modules B and C).
+
+interface FixtureRegSubmission {
+  id: string
+  projectId: string
+  sourceModuleAProjectId: string | null
+  submissionType: string
+  status: string
+  stage: number
+  targetHAs: string[]
+  ectdVersion: string
+  taTag: string
+  validatorEngine: string | null
+  title: string
+  compound: string | null
+  indication: string | null
+  ownerId: string
+  createdBy: string
+  createdAt: string
+  updatedAt: string
+}
+
+const SUB_TYPE_UI_TO_DB: Record<string, string> = {
+  'ind':         'ind',
+  'nda-maa':     'nda_maa',
+  'nda_maa':     'nda_maa',
+  'psur-pbrer':  'psur_pbrer',
+  'psur_pbrer':  'psur_pbrer',
+  'rmp-rems':    'rmp_rems',
+  'rmp_rems':    'rmp_rems',
+  'ha-response': 'ha_response',
+  'ha_response': 'ha_response',
+  'cer':         'cer',
+  'orphan-drug': 'orphan_drug',
+  'orphan_drug': 'orphan_drug',
+}
+
+async function seedModuleD() {
+  const subs = readFixture<FixtureRegSubmission[]>('regulatorySubmissions.json')
+
+  const knownProjectIds = new Set(
+    (await prisma.project.findMany({ select: { id: true } })).map(p => p.id),
+  )
+  const knownUserIds = new Set(
+    (await prisma.user.findMany({ select: { id: true } })).map(u => u.id),
+  )
+  const resolveUserId = (id: string | null): string | null => {
+    if (!id) return null
+    if (knownUserIds.has(id)) return id
+    // Reuse Module B's alias map plus Module C's
+    const alias = MOD_B_USER_ALIAS[id] ?? MOD_C_USER_ALIAS[id]
+    if (alias && knownUserIds.has(alias)) return alias
+    return null
+  }
+
+  let count = 0
+  for (const s of subs) {
+    if (!knownProjectIds.has(s.projectId)) continue
+    const ownerId   = resolveUserId(s.ownerId)   ?? resolveUserId(s.createdBy)
+    const createdBy = resolveUserId(s.createdBy) ?? ownerId
+    if (!ownerId || !createdBy) continue
+
+    const dbType   = SUB_TYPE_UI_TO_DB[s.submissionType] ?? s.submissionType
+    const dbStatus = s.status.replace(/-/g, '_')
+
+    await prisma.regulatorySubmission.upsert({
+      where: { id: s.id },
+      create: {
+        id:                     s.id,
+        projectId:              s.projectId,
+        sourceModuleAProjectId: s.sourceModuleAProjectId ?? s.projectId,
+        submissionType:         dbType,
+        status:                 dbStatus,
+        stage:                  s.stage,
+        targetHAs:              s.targetHAs,
+        ectdVersion:            s.ectdVersion,
+        taTag:                  s.taTag,
+        validatorEngine:        s.validatorEngine ?? 'extedo',
+        title:                  s.title,
+        compound:               s.compound,
+        indication:             s.indication,
+        ownerId,
+        createdBy,
+        createdAt:              new Date(s.createdAt),
+        updatedAt:              new Date(s.updatedAt),
+      },
+      update: {
+        title:     s.title,
+        status:    dbStatus,
+        stage:     s.stage,
+        updatedAt: new Date(s.updatedAt),
+      },
+    })
+    count += 1
+  }
+  console.log(`   ${count}/${subs.length} regulatory submissions seeded`)
 }
 
 main()

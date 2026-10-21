@@ -530,4 +530,76 @@ export const publicationsRoutes: FastifyPluginAsync = async (app) => {
 
     return { publicationId, updated: results.length, totals: results }
   })
+
+  // --- Final output bundle (sB09) --------------------------------------
+  // Returns the publication + authors + citations + submission-check
+  // summary + latest review-round in one call so FinalOutput.tsx can
+  // render the "ready to ship" package without six round-trips. Light
+  // joins only — the heavier GPP PDF renderer lives at /gpp-report.pdf.
+  app.get('/:publicationId/final', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { publicationId } = request.params as { publicationId: string }
+    const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
+    if (!pub) return reply.code(404).send({ error: 'not_found' })
+
+    const [authors, citations, checks, latestRound] = await Promise.all([
+      app.prisma.publicationAuthor.findMany({ where: { publicationId, removedAt: null }, orderBy: { addedAt: 'asc' } }),
+      app.prisma.citation.findMany({ where: { publicationId, removedAt: null }, orderBy: { insertedAt: 'asc' } }),
+      app.prisma.submissionCheck.findMany({ where: { publicationId } }),
+      app.prisma.peerReviewRound.findFirst({ where: { publicationId }, orderBy: { roundNumber: 'desc' } }),
+    ])
+
+    const blockCount = checks.filter(c => c.state === 'block').length
+    const warnCount  = checks.filter(c => c.state === 'warn').length
+    const passCount  = checks.filter(c => c.state === 'pass').length
+
+    return {
+      publication: pub,
+      authors,
+      citations,
+      submissionReady: blockCount === 0,
+      submissionCheckSummary: {
+        total:  checks.length,
+        pass:   passCount,
+        warn:   warnCount,
+        block:  blockCount,
+      },
+      latestReviewRound: latestRound,
+      // No approvedAt/publishedAt yet in the Publication model —
+      // derived from stage/status instead so the UI can colour-code
+      // without a schema change.
+      publishedState: {
+        journal: pub.journal,
+        stage:   pub.stage,
+        status:  pub.status,
+      },
+    }
+  })
+
+  // Download the final package. Deferred to the real renderer (pandoc /
+  // puppeteer / zip pipeline — Phase 4). Stub returns a short-lived
+  // signed-URL shape so the UI can wire the button + logs the request.
+  app.post('/:publicationId/final/download', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { publicationId } = request.params as { publicationId: string }
+    const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
+    if (!pub) return reply.code(404).send({ error: 'not_found' })
+
+    const requestId = `pub-dl-${Date.now().toString(36)}`
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'publication_final_download_requested',
+      entityType: 'publication',
+      entityId: publicationId,
+      details: { requestId, stub: true },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      requestId,
+      downloadUrl: null,                                        // real signed URL when renderer lands
+      status: 'queued',
+      message: 'Download bundle pipeline is deferred (Phase 4 renderer); request logged to the audit trail.',
+      stub: true,
+    }
+  })
 }

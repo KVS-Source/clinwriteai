@@ -296,6 +296,11 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
     return {
       intact: result.intact,
       firstBreakAt: result.firstBreakAt,
+      // Known-bad entries whitelisted by the verifier (see
+      // audit/known-exceptions.ts). Surfaced so the Compliance UI shows
+      // them as a visible chip rather than silently masking the break.
+      exceptions: result.exceptions,
+      unexpectedBreaks: result.unexpectedBreaks,
       checkedRange: { from: parsed.data.fromId ?? null, to: parsed.data.toId ?? null },
       verifiedAt: new Date().toISOString(),
     }

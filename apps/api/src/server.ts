@@ -257,8 +257,11 @@ async function buildServer() {
   await app.register(publicationsProjectScopedRoutes, { prefix: '/projects' })
   await app.register(publicationsRoutes, { prefix: '/publications' })
 
-  const { citationsRoutes } = await import('./modules/scientific-writing/citations/routes.js')
+  const { citationsRoutes, pubmedRoutes } = await import('./modules/scientific-writing/citations/routes.js')
   await app.register(citationsRoutes, { prefix: '/publications' })
+  // pubmedRoutes mounts at root — the client's citation-search endpoint
+  // is GET /pubmed/search (not /publications/pubmed/search).
+  await app.register(pubmedRoutes)
 
   const { authorsRoutes } = await import('./modules/scientific-writing/authors/routes.js')
   await app.register(authorsRoutes, { prefix: '/publications' })
@@ -319,6 +322,16 @@ async function buildServer() {
   const { oddRoutes } = await import('./modules/regulatory-writing/odd/routes.js')
   await app.register(oddRoutes)
 
+  // Aliases + stubs — covers path mismatches (ectd-map, consistency-check,
+  // etc.) and externally-blocked endpoints (gateway, super-reviewers,
+  // library-cards, regulatory-alerts) with deterministic placeholder
+  // shapes so the UI's buttons + screens render instead of 404'ing.
+  // See apps/api/src/modules/regulatory-writing/aliases-and-stubs.ts.
+  const { regAliasesAndStubs, regulatoryAlertsStubRoutes } =
+    await import('./modules/regulatory-writing/aliases-and-stubs.js')
+  await app.register(regAliasesAndStubs, { prefix: '/reg-submissions' })
+  await app.register(regulatoryAlertsStubRoutes)                            // root — /regulatory-alerts
+
   // ---------- Module E — Ideation & Publishing ----------
   const { ideationProjectScopedRoutes, ideationRoutes } =
     await import('./modules/ideation/routes.js')
@@ -330,6 +343,15 @@ async function buildServer() {
 
   const { publishingRoutes } = await import('./modules/ideation/publishing/routes.js')
   await app.register(publishingRoutes, { prefix: '/ideation' })
+
+  // Aliases + stubs — the web client speaks /ideation-projects/*,
+  // /ideation-artefacts/*, /ideation-cards/*, /ideation-calendar/*,
+  // /ideation-adaptations/*, /ideation-orcid/*, /ideation-social-alerts/*,
+  // /kol-review/* at root (0/21 paths match the canonical API). See
+  // apps/api/src/modules/ideation/aliases-and-stubs.ts.
+  const { ideationAliasesAndStubs } =
+    await import('./modules/ideation/aliases-and-stubs.js')
+  await app.register(ideationAliasesAndStubs)
 
   // ---------- Phase 4 shared platform services ----------
   await app.register(import('./modules/platform/notifications/plugin.js'))

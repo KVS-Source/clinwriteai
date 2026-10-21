@@ -9,8 +9,9 @@
 
 import type { PrismaClient } from '@prisma/client'
 import type { AuditEventShape } from './hash.js'
-import type { AuditRepository } from './repository.js'
-import { computeRowHash, findChainBreak } from './hash.js'
+import type { AuditRepository, VerifyChainResult } from './repository.js'
+import { computeRowHash, plainShape } from './hash.js'
+import { AUDIT_CHAIN_KNOWN_EXCEPTIONS, isKnownAuditException } from './known-exceptions.js'
 
 // Deterministic 32-bit int derived from CRC32-like fold of 'audit_events'.
 // Must stay constant across deploys — rotating this key breaks the ordering
@@ -91,10 +92,11 @@ export class PostgresAuditRepository implements AuditRepository {
     return rows.map(toShape)
   }
 
-  async verifyChain(fromId?: string, toId?: string): Promise<{ intact: boolean; firstBreakAt: string | null }> {
+  async verifyChain(fromId?: string, toId?: string): Promise<VerifyChainResult> {
     // Walk the range in fixed-size batches (keyset on id) so memory stays
     // flat as the log grows. The expected prev_hash carries across batches,
     // so the result is identical to checking the whole range in one pass.
+    const unexpected: string[] = []
     let afterId: string | null = null
     let expectedPrev: string | null = null
     for (;;) {
@@ -110,18 +112,39 @@ export class PostgresAuditRepository implements AuditRepository {
         toId ?? null,
         afterId,
       )
-      if (rows.length === 0) return { intact: true, firstBreakAt: null }
+      if (rows.length === 0) break
 
-      // When starting from the middle of the chain, seed with the actual stored
-      // prev_hash of the first row; genesis-anchor only applies at id=1.
-      const genesisPrev: string = expectedPrev ?? rows[0]!.prev_hash
-      const breakIdx = findChainBreak(rows.map(toShape), this.auditSecret, genesisPrev)
-      if (breakIdx !== -1) return { intact: false, firstBreakAt: String(rows[breakIdx]!.id) }
+      // When starting from the middle of the chain, seed with the actual
+      // stored prev_hash of the first row; genesis-anchor only applies at
+      // id=1. Walk row-by-row so known-bad entries can be skipped without
+      // cascading-flagging every row after them.
+      let prev: string = expectedPrev ?? rows[0]!.prev_hash
+      for (const r of rows) {
+        const shape = toShape(r)
+        const prevMismatch = r.prev_hash !== prev
+        const expectedRowHash = computeRowHash(prev, plainShape(shape), this.auditSecret)
+        const hashMismatch = r.row_hash !== expectedRowHash
+        if (prevMismatch || hashMismatch) {
+          if (!isKnownAuditException(String(r.id))) {
+            unexpected.push(String(r.id))
+          }
+        }
+        // Carry the ACTUAL stored row_hash forward either way: a single bad
+        // row (known or unknown) must not poison the verification of every
+        // row after it.
+        prev = r.row_hash
+      }
 
       const last = rows[rows.length - 1]!
-      if (rows.length < VERIFY_BATCH_SIZE) return { intact: true, firstBreakAt: null }
+      if (rows.length < VERIFY_BATCH_SIZE) break
       expectedPrev = last.row_hash
       afterId = String(last.id)
+    }
+    return {
+      intact: unexpected.length === 0,
+      firstBreakAt: unexpected[0] ?? null,
+      unexpectedBreaks: unexpected,
+      exceptions: AUDIT_CHAIN_KNOWN_EXCEPTIONS,
     }
   }
 }

@@ -59,7 +59,10 @@ let enabledModulesCache: Set<ModuleKey> | null = null
 
 export function enabledModules(): Set<ModuleKey> {
   if (enabledModulesCache) return enabledModulesCache
-  const raw = process.env.FEATURE_MODULES_ENABLED ?? 'A'
+  // Default: every module (A|B|C|D|E) on. Matches the env.ts default.
+  // The 2026-10-06 pivot's 'A'-only default was flipped 2026-10-21 so
+  // new deployments get the full surface without a bespoke env.
+  const raw = process.env.FEATURE_MODULES_ENABLED ?? 'A,B,C,D,E'
   const parsed = raw
     .split(',')
     .map(s => s.trim().toUpperCase())

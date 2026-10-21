@@ -75,8 +75,21 @@ export class ComplianceGaugeScheduler {
       const r = await this.repo.verifyChain()
       this.opts.metrics.auditChainIntact.set(r.intact ? 1 : 0)
       this.opts.metrics.auditChainLastVerify.set(Date.now() / 1000)
+      // Only alarm on UNEXPECTED breaks. Documented known-exceptions (see
+      // apps/api/src/audit/known-exceptions.ts) are logged at info-level so
+      // operators + auditors still see them in the stream, but the hourly
+      // scheduled check doesn't page. r.intact=true already excludes known
+      // exceptions, so this guard matches the gauge.
       if (!r.intact) {
-        this.opts.logger.error({ firstBreakAt: r.firstBreakAt }, 'audit chain integrity broken')
+        this.opts.logger.error(
+          { firstBreakAt: r.firstBreakAt, unexpectedBreaks: r.unexpectedBreaks, knownExceptions: r.exceptions.length },
+          'audit chain integrity broken (unexpected)',
+        )
+      } else if (r.exceptions.length > 0) {
+        this.opts.logger.info(
+          { knownExceptions: r.exceptions.map(e => e.id) },
+          'audit chain intact — known exceptions skipped by verifier',
+        )
       }
     } catch (err) {
       // Keep the last-verify gauge pinned so AuditChainVerifyMissing fires

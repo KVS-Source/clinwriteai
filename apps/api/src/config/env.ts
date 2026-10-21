@@ -32,10 +32,15 @@ const EnvSchema = z.object({
   FEATURE_OPENAPI_DOCS: z.coerce.boolean().default(false),
 
   // Comma-separated list of enabled business modules (A|B|C|D|E).
-  // Default 'A' reflects the 2026-10-06 pivot — Clinical Writing + Tenant
-  // Admin only. Routes whose required-modules list doesn't intersect this
-  // set return 503 module_disabled. See docs/pivot-plan.md Arc 1.1.
-  FEATURE_MODULES_ENABLED: z.string().default('A'),
+  // Default 'A,B,C,D,E' — the 2026-10-06 pivot froze B/C/D/E to run
+  // Arcs 1-6, then Arc 11 re-enabled every module at runtime (commit
+  // 1e1c4f7, 2026-10-08). Default was flipped from 'A' to all-on
+  // 2026-10-21 so new deployments get the full module surface without
+  // a bespoke env override. Routes whose required-modules list doesn't
+  // intersect this set still return 503 module_disabled — set
+  // FEATURE_MODULES_ENABLED=A on a deployment to re-freeze B/C/D/E.
+  // See docs/pivot-plan.md Arc 1.1 + Arc 11.
+  FEATURE_MODULES_ENABLED: z.string().default('A,B,C,D,E'),
 
   // CORS
   CORS_ORIGIN: z.string().default('http://localhost:5173'),

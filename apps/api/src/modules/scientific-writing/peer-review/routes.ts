@@ -446,6 +446,104 @@ export const peerReviewRoutes: FastifyPluginAsync = async (app) => {
 
     return finalVersion
   })
+
+  // --- Bare-path aliases + AI draft stub -------------------------------
+  // The web client (apps/web/src/api/publications.ts) calls peer-review
+  // endpoints without the /publications/:pubId prefix:
+  //   GET   /review-rounds/:roundId/comments
+  //   PATCH /review-rounds/:roundId/comments/:commentId
+  //   POST  /review-rounds/:roundId/comments/:commentId/ai-draft
+  // Alias them to the existing handlers (pub-scoped versions above stay
+  // the canonical form; the bare paths are a client-ergonomics layer).
+
+  app.get('/review-rounds/:roundId/comments', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { roundId } = request.params as { roundId: string }
+    const round = await app.prisma.peerReviewRound.findUnique({ where: { id: roundId } })
+    if (!round) return reply.code(404).send({ error: 'not_found' })
+    const comments = await app.prisma.reviewerComment.findMany({
+      where: { roundId },
+      orderBy: [{ reviewerTab: 'asc' }, { commentNumber: 'asc' }],
+    })
+    return comments.map(reviewerCommentShape)
+  })
+
+  app.patch('/review-rounds/:roundId/comments/:commentId', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    // Forward to the existing /round-comments/:commentId handler by
+    // re-doing the same work. Round-level findFirst scoping ensures the
+    // client-supplied roundId matches the comment's round.
+    const { roundId, commentId } = request.params as { roundId: string; commentId: string }
+    const parsed = patchCommentSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const comment = await app.prisma.reviewerComment.findFirst({
+      where: { id: commentId, roundId },
+    })
+    if (!comment) return reply.code(404).send({ error: 'not_found' })
+
+    const data: Record<string, unknown> = {}
+    if (parsed.data.responseText !== undefined) data.responseText = parsed.data.responseText
+    if (parsed.data.status !== undefined) data.status = parsed.data.status
+    if (parsed.data.aiDrafted) {
+      data.aiDrafted = true
+      data.aiModel = parsed.data.aiModel
+      data.aiGeneratedAt = new Date()
+    }
+    if (parsed.data.status === 'responded') {
+      data.respondedBy = request.user!.id
+      data.respondedAt = new Date()
+    }
+
+    const updated = await app.prisma.reviewerComment.update({ where: { id: commentId }, data })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: parsed.data.aiDrafted ? 'peer_review_comment_ai_drafted' : 'peer_review_comment_updated',
+      entityType: 'reviewer_comment',
+      entityId: commentId,
+      details: { roundId, status: updated.status, aiDrafted: !!parsed.data.aiDrafted },
+      ipAddress: request.ip ?? null,
+    })
+
+    // Snapshot the letter version on every save so the audit trail
+    // includes the full response-letter progression.
+    await snapshotLetterVersion(app.prisma, roundId, request.user!.id, false)
+
+    return reviewerCommentShape(updated)
+  })
+
+  // AI draft stub — pending Anthropic connector (Arc 8.1). Returns a
+  // deterministic suggested response + flags the stored row as
+  // aiDrafted so the Part 11 provenance is correct the moment the real
+  // AI connector ships.
+  app.post('/review-rounds/:roundId/comments/:commentId/ai-draft', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { roundId, commentId } = request.params as { roundId: string; commentId: string }
+    const comment = await app.prisma.reviewerComment.findFirst({ where: { id: commentId, roundId } })
+    if (!comment) return reply.code(404).send({ error: 'not_found' })
+
+    const draft =
+      `[AI stub — Anthropic connector pending] Proposed response to reviewer comment #${comment.commentNumber}:\n\n` +
+      `We thank the reviewer for this comment. We have revised the ${comment.reviewerTab === 'ed' ? 'manuscript' : 'relevant section'} ` +
+      `to address this concern (please see tracked changes in the revised version). The revised text now reads: ` +
+      `"[placeholder — insert specific wording addressing the reviewer's point]".`
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'peer_review_ai_draft_generated',
+      entityType: 'reviewer_comment',
+      entityId: commentId,
+      details: { roundId, model: 'stub-advisor-v1', commentNumber: comment.commentNumber },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      draftText: draft,
+      aiModel: 'stub-advisor-v1',
+      generatedAt: new Date().toISOString(),
+      stub: true,
+    }
+  })
 }
 
 // --- helpers --------------------------------------------------------------

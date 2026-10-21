@@ -232,4 +232,88 @@ export const congressRoutes: FastifyPluginAsync = async (app) => {
 
     return updated
   })
+
+  // Convenience endpoint for the CongressAbstractExport screen's "Export"
+  // button. The screen posts a one-shot payload (congress metadata +
+  // abstract text) without a pre-existing submission id. This handler
+  // creates the submission on the fly if missing + immediately marks it
+  // exported. Returns a shape the UI expects — { exportId, format,
+  // congress, createdAt } — so the screen's success toast + download
+  // button both work without re-architecting the flow around the
+  // two-step canonical endpoints above.
+  const quickExportSchema = z.object({
+    congressId:       z.string().min(1).optional(),
+    congressName:     z.string().min(1),
+    format:           z.string().default('zip'),
+    abstractText:     z.string().min(1),
+    keywords:         z.array(z.string()).default([]),
+    authors:          z.array(z.string()).default([]),
+    // Optional overrides so the UI can prefill without a prior POST.
+    characterLimit:   z.number().int().positive().default(3000),
+    keywordsRequired: z.number().int().min(0).default(5),
+    deadline:         z.string().datetime().optional(),
+    portalUrl:        z.string().url().optional(),
+  })
+  app.post('/:publicationId/congress-export', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { publicationId } = request.params as { publicationId: string }
+    const parsed = quickExportSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
+    if (!pub) return reply.code(404).send({ error: 'not_found' })
+
+    // Find-or-create the submission by congressId (fallback name match).
+    const existing = parsed.data.congressId
+      ? await app.prisma.congressSubmission.findFirst({ where: { publicationId, congressId: parsed.data.congressId } })
+      : await app.prisma.congressSubmission.findFirst({ where: { publicationId, congressName: parsed.data.congressName } })
+
+    const sub = existing ?? await app.prisma.congressSubmission.create({
+      data: {
+        publicationId,
+        congressId:       parsed.data.congressId ?? parsed.data.congressName.toLowerCase().replace(/\s+/g, '-'),
+        congressName:     parsed.data.congressName,
+        characterLimit:   parsed.data.characterLimit,
+        keywordsRequired: parsed.data.keywordsRequired,
+        keywordsEntered:  parsed.data.keywords.length,
+        deadline:         parsed.data.deadline ? new Date(parsed.data.deadline) : new Date(Date.now() + 60 * 86_400_000),
+        portalUrl:        parsed.data.portalUrl ?? 'https://portal.example.congress',
+        characterCount:   parsed.data.abstractText.length,
+        status:           'draft',
+      },
+    })
+
+    const exportedAt = new Date()
+    await app.prisma.congressSubmission.update({
+      where: { id: sub.id },
+      data: {
+        status:          'exported',
+        exportedAt,
+        exportedBy:      request.user!.id,
+        characterCount:  parsed.data.abstractText.length,
+        keywordsEntered: parsed.data.keywords.length,
+      },
+    })
+
+    await app.audit.append({
+      timestamp: exportedAt.toISOString(),
+      actorId: request.user!.id,
+      action: 'congress_abstract_exported',
+      entityType: 'publication',
+      entityId: publicationId,
+      details: {
+        congressSubmissionId: sub.id,
+        congressName: parsed.data.congressName,
+        format: parsed.data.format,
+        characterCount: parsed.data.abstractText.length,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      exportId:   sub.id,
+      format:     parsed.data.format,
+      congress:   parsed.data.congressName,
+      createdAt:  exportedAt.toISOString(),
+    }
+  })
 }

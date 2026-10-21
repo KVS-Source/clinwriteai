@@ -156,6 +156,30 @@ log "Ensuring blob storage directories exist"
 mkdir -p /opt/platform/data/blob/{documents,voice,exports,ectd}
 chown -R platform:platform /opt/platform/data/blob
 
+# ---------- Sync systemd unit files from the repo ----------
+# Bootstrap-only installation leaves /etc/systemd/system/platform-*.service
+# frozen at whatever shape it had on first deploy. Any later change to
+# ReadWritePaths / Environment / ExecStart in the repo wouldn't take
+# effect until an operator manually copied + daemon-reload'd. Sync here
+# every deploy so systemd + the repo never drift. cmp -s skips the
+# daemon-reload when the units are unchanged.
+log "Syncing systemd unit files"
+UNITS_CHANGED=0
+for unit in platform-api platform-worker platform-collab; do
+  src="/opt/platform/repo/infra/standalone/systemd/${unit}.service"
+  dst="/etc/systemd/system/${unit}.service"
+  [[ -f "${src}" ]] || continue
+  if [[ ! -f "${dst}" ]] || ! cmp -s "${src}" "${dst}"; then
+    install -m 644 "${src}" "${dst}"
+    UNITS_CHANGED=1
+    log "  updated ${dst}"
+  fi
+done
+if [[ "${UNITS_CHANGED}" == "1" ]]; then
+  log "Running systemctl daemon-reload (unit files changed)"
+  systemctl daemon-reload
+fi
+
 # ---------- Restart services ----------
 log "Restarting platform-api"
 systemctl restart platform-api

@@ -43,8 +43,13 @@ StartLimitBurst=5
 KillSignal=SIGTERM
 TimeoutStopSec=30
 
-# Health check gate before marking service as ready
-ExecStartPost=/opt/platform/scripts/wait-for-health.sh http://127.0.0.1:3001/health 60
+# Health check gate before marking service as ready. ${PORT} is expanded
+# from EnvironmentFile=/run/platform/api.env (PORT=3001 by default, but
+# operators can override — nginx on this VPS fronts the API on 3011, so
+# the env has PORT=3011). Hardcoding 3001 here breaks start-up on any
+# VPS where PORT was tweaked, because the health probe times out even
+# while the API is serving requests on the real port.
+ExecStartPost=/opt/platform/scripts/wait-for-health.sh http://127.0.0.1:${PORT}/health 60
 
 # Hardening
 NoNewPrivileges=true

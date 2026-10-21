@@ -62,12 +62,16 @@ describe('isModuleEnabled (deployment kill-switch)', () => {
     _resetEnabledModulesCache()
   })
 
-  it('defaults to Module A when env is unset', () => {
+  it('defaults to every module (A,B,C,D,E) when env is unset', () => {
+    // The 2026-10-06 pivot's 'A'-only default was flipped 2026-10-21
+    // after Arc 11 re-enabled B/C/D/E for API+DB build-out. Deployments
+    // that want to re-freeze must explicitly set FEATURE_MODULES_ENABLED=A.
     delete process.env.FEATURE_MODULES_ENABLED
     _resetEnabledModulesCache()
-    expect(Array.from(enabledModules())).toEqual(['A'])
+    expect(new Set(Array.from(enabledModules()))).toEqual(new Set(['A', 'B', 'C', 'D', 'E']))
     expect(isModuleEnabled(['A'])).toBe(true)
-    expect(isModuleEnabled(['B'])).toBe(false)
+    expect(isModuleEnabled(['B'])).toBe(true)
+    expect(isModuleEnabled(['E'])).toBe(true)
   })
 
   it('parses comma-separated list, upper-casing and trimming', () => {

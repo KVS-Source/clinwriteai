@@ -33,6 +33,10 @@ docs/.env.example
 docs/.*.local.md
 docs/*.local.md
 
+# Local-only design/reference mockups (external HTML exports — not source).
+docs/mocups/
+docs/mockups/
+
 # Editors
 .vscode/*
 !.vscode/settings.json.example

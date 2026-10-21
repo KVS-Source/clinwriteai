@@ -95,9 +95,22 @@ export interface AuditFacets {
   entityTypes: string[]
 }
 
+export interface AuditChainException {
+  id:            string
+  reason:        string
+  fixedInCommit: string
+  incidentDoc:   string
+}
+
 export interface AuditVerifyResult {
+  /** True when every break (if any) is in the known-exceptions list. */
   intact: boolean
+  /** First UNEXPECTED break id — not a known exception. null when intact. */
   firstBreakAt: string | null
+  /** All real (unexpected) break ids in the checked range. */
+  unexpectedBreaks: string[]
+  /** Known-bad entries whitelisted by the verifier (surfaced, never hidden). */
+  exceptions: AuditChainException[]
   checkedRange: { from: string | null; to: string | null }
   verifiedAt: string
 }

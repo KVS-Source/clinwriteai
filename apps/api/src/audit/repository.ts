@@ -8,6 +8,26 @@
 
 import type { AuditEventShape } from './hash.js'
 import { computeRowHash, plainShape } from './hash.js'
+import {
+  AUDIT_CHAIN_KNOWN_EXCEPTIONS,
+  isKnownAuditException,
+  type AuditChainException,
+} from './known-exceptions.js'
+
+export interface VerifyChainResult {
+  /** True when every break (if any) is a documented known exception. */
+  intact:        boolean
+  /** First id whose row_hash or prev_hash didn't verify. null when intact. */
+  firstBreakAt:  string | null
+  /** All real (unexpected) break ids in the verified range. */
+  unexpectedBreaks: ReadonlyArray<string>
+  /**
+   * Known-bad entries encountered in the range. Always surfaced so the
+   * Compliance UI + auditors can see which rows were skipped and why —
+   * never hidden.
+   */
+  exceptions:    ReadonlyArray<AuditChainException>
+}
 
 export interface AuditRepository {
   /** Append a new audit event. Computes prev_hash + row_hash atomically. */
@@ -17,7 +37,7 @@ export interface AuditRepository {
   listForEntity(entityType: string, entityId: string, limit?: number): Promise<ReadonlyArray<AuditEventShape & { id: string; prevHash: string; rowHash: string }>>
 
   /** Verify the hash chain for a slice of the table. */
-  verifyChain(fromId?: string, toId?: string): Promise<{ intact: boolean; firstBreakAt: string | null }>
+  verifyChain(fromId?: string, toId?: string): Promise<VerifyChainResult>
 }
 
 /**
@@ -45,15 +65,27 @@ export class InMemoryAuditRepository implements AuditRepository {
       .slice(-limit)
   }
 
-  async verifyChain() {
+  async verifyChain(): Promise<VerifyChainResult> {
+    const unexpected: string[] = []
     let expectedPrev = ''
     for (const row of this.rows) {
-      if (row.prevHash !== expectedPrev) return { intact: false, firstBreakAt: row.id }
+      const prevMismatch = row.prevHash !== expectedPrev
       const expectedRowHash = computeRowHash(expectedPrev, plainShape(row), this.auditSecret)
-      if (row.rowHash !== expectedRowHash) return { intact: false, firstBreakAt: row.id }
+      const hashMismatch = row.rowHash !== expectedRowHash
+      if (prevMismatch || hashMismatch) {
+        if (!isKnownAuditException(row.id)) unexpected.push(row.id)
+        // Carry the ACTUAL stored row_hash forward either way so a single
+        // bad row doesn't cascade into every row after it being flagged
+        // too (otherwise known-exception rows would mask real breaks).
+      }
       expectedPrev = row.rowHash
     }
-    return { intact: true, firstBreakAt: null }
+    return {
+      intact: unexpected.length === 0,
+      firstBreakAt: unexpected[0] ?? null,
+      unexpectedBreaks: unexpected,
+      exceptions: AUDIT_CHAIN_KNOWN_EXCEPTIONS,
+    }
   }
 }
 

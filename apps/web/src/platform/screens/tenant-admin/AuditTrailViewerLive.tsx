@@ -499,17 +499,38 @@ export function AuditTrailViewerLive() {
         </section>
 
         {verify.data && (
-          <p
+          <div
             className={`rounded-md p-3 text-[13px] ${verify.data.intact ? 'bg-green-50 text-green-800' : 'bg-red-50 text-red-800'}`}
             data-verify-result={verify.data.intact ? 'ok' : 'fail'}
           >
-            {verify.data.intact
-              ? '✓ Chain intact'
-              : `✗ Chain break detected first at id ${verify.data.firstBreakAt}`}
-            {(verify.data.checkedRange.from || verify.data.checkedRange.to) &&
-              ` (ids ${verify.data.checkedRange.from ?? 'start'}–${verify.data.checkedRange.to ?? 'latest'})`}
-            {` · verified ${formatWhen(verify.data.verifiedAt, tz).primary}`}
-          </p>
+            <p>
+              {verify.data.intact
+                ? '✓ Chain intact'
+                : `✗ Chain break detected first at id ${verify.data.firstBreakAt}`}
+              {(verify.data.checkedRange.from || verify.data.checkedRange.to) &&
+                ` (ids ${verify.data.checkedRange.from ?? 'start'}–${verify.data.checkedRange.to ?? 'latest'})`}
+              {` · verified ${formatWhen(verify.data.verifiedAt, tz).primary}`}
+              {verify.data.exceptions.length > 0 && (
+                <span
+                  className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
+                  title={verify.data.exceptions.map(e => `#${e.id}: ${e.reason}`).join('\n')}
+                  data-known-exceptions={verify.data.exceptions.length}
+                >
+                  Known exceptions ({verify.data.exceptions.length})
+                </span>
+              )}
+            </p>
+            {verify.data.exceptions.length > 0 && (
+              <ul className="mt-2 space-y-1 text-[12px]">
+                {verify.data.exceptions.map(e => (
+                  <li key={e.id} className="text-amber-900">
+                    <span className="font-mono font-semibold">#{e.id}</span> — {e.reason}
+                    {' '}(fixed in <span className="font-mono">{e.fixedInCommit}</span>; see <span className="font-mono">{e.incidentDoc}</span>)
+                  </li>
+                ))}
+              </ul>
+            )}
+          </div>
         )}
         {verify.error && (
           <p className="rounded-md bg-red-50 p-3 text-[13px] text-red-800" data-verify-result="error">

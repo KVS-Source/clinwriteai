@@ -66,19 +66,23 @@ function fakePrisma(rows: StoredRow[]) {
 }
 
 describe('PostgresAuditRepository.verifyChain (batched)', () => {
+  // All assertions use toMatchObject on { intact, firstBreakAt } because
+  // the full VerifyChainResult now also includes `unexpectedBreaks` and
+  // `exceptions`; the test's only interest is the intact/firstBreakAt
+  // decision.
   it('verifies a chain spanning several batches', async () => {
     const { prisma, $queryRawUnsafe } = fakePrisma(buildChain(12_001))
     const result = await new PostgresAuditRepository(prisma, SECRET).verifyChain()
-    expect(result).toEqual({ intact: true, firstBreakAt: null })
+    expect(result).toMatchObject({ intact: true, firstBreakAt: null })
     expect($queryRawUnsafe.mock.calls.length).toBeGreaterThan(2)
   })
 
   it('verifies an exact multiple of the batch size and an empty table', async () => {
     const exact = fakePrisma(buildChain(10_000))
-    expect(await new PostgresAuditRepository(exact.prisma, SECRET).verifyChain()).toEqual({ intact: true, firstBreakAt: null })
+    expect(await new PostgresAuditRepository(exact.prisma, SECRET).verifyChain()).toMatchObject({ intact: true, firstBreakAt: null })
 
     const empty = fakePrisma([])
-    expect(await new PostgresAuditRepository(empty.prisma, SECRET).verifyChain()).toEqual({ intact: true, firstBreakAt: null })
+    expect(await new PostgresAuditRepository(empty.prisma, SECRET).verifyChain()).toMatchObject({ intact: true, firstBreakAt: null })
   })
 
   it('finds a tampered row in a later batch', async () => {
@@ -86,7 +90,7 @@ describe('PostgresAuditRepository.verifyChain (batched)', () => {
     rows[7_499]!.details = { seq: 'tampered' }   // id 7500
     const { prisma } = fakePrisma(rows)
     const result = await new PostgresAuditRepository(prisma, SECRET).verifyChain()
-    expect(result).toEqual({ intact: false, firstBreakAt: '7500' })
+    expect(result).toMatchObject({ intact: false, firstBreakAt: '7500' })
   })
 
   it('catches a broken link exactly at a batch boundary', async () => {
@@ -94,12 +98,12 @@ describe('PostgresAuditRepository.verifyChain (batched)', () => {
     rows[5_000]!.prev_hash = 'forged'             // id 5001, first row of batch 2
     const { prisma } = fakePrisma(rows)
     const result = await new PostgresAuditRepository(prisma, SECRET).verifyChain()
-    expect(result).toEqual({ intact: false, firstBreakAt: '5001' })
+    expect(result).toMatchObject({ intact: false, firstBreakAt: '5001' })
   })
 
   it('verifies a mid-chain range seeded from its first stored prev_hash', async () => {
     const { prisma } = fakePrisma(buildChain(8_000))
     const result = await new PostgresAuditRepository(prisma, SECRET).verifyChain('3000', '7000')
-    expect(result).toEqual({ intact: true, firstBreakAt: null })
+    expect(result).toMatchObject({ intact: true, firstBreakAt: null })
   })
 })

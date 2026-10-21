@@ -460,6 +460,13 @@ async function main() {
     console.warn('   Module D seed skipped:', (e as Error).message)
   }
 
+  try {
+    console.log('→ Seeding Module E (Ideation & Publishing)…')
+    await seedModuleE()
+  } catch (e) {
+    console.warn('   Module E seed skipped:', (e as Error).message)
+  }
+
   // --------------------------------------------------------------
   // Done.
   // --------------------------------------------------------------
@@ -481,6 +488,11 @@ async function main() {
     pubAuthors:   await prisma.publicationAuthor.count(),
     citations:    await prisma.citation.count(),
     regSubmissions: await prisma.regulatorySubmission.count(),
+    ideationProjects: await prisma.ideationProject.count(),
+    ideationArtefacts: await prisma.ideationArtefact.count(),
+    ideationCards: await prisma.ideationContentCard.count(),
+    kolContacts: await prisma.kolContact.count(),
+    calendarEntries: await prisma.calendarEntry.count(),
   }
   console.log('✔ Seed complete.')
   console.table(counts)
@@ -1177,6 +1189,339 @@ async function seedModuleD() {
     count += 1
   }
   console.log(`   ${count}/${subs.length} regulatory submissions seeded`)
+}
+
+// ---------- Module E seeding ----------
+//
+// Fixtures: ideationProjects.json, ideationArtefacts.json,
+// ideationContentCards.json, kolContacts.json, ideationCalendar.json.
+//
+// UI → DB enum conversions:
+//   sourceType     'master-library'            → 'master_library'
+//   status (stage) 'under-review'              → 'under_review'
+//                  'calendar-approved'         → 'calendar_approved'
+//   claimCurrency  'potentially-superseded'    → 'potentially_superseded'
+//   channel        'medical-affairs'           → 'medical_affairs'
+//
+// User alias: reuses MOD_B_USER_ALIAS + MOD_C_USER_ALIAS and adds the
+// Module E-specific personas (user-il, user-ma, user-cr).
+
+interface FixtureIdeationProject {
+  id:         string
+  projectId:  string
+  sourceType: string
+  taTag:      string
+  status:     string
+  createdBy:  string
+  createdAt:  string
+  updatedAt:  string
+}
+
+interface FixtureIdeationArtefact {
+  id:                    string
+  ideationProjectId:     string
+  sourceModule:          string | null
+  sourceDocId:           string | null
+  filePath?:             string
+  title:                 string
+  originalApprovalDate:  string | null
+  version:               string
+  sourceCurrencyStatus:  string
+  approvalStatusCheck:   string
+  masterLibraryPushDate: string | null
+}
+
+interface FixtureIdeationCard {
+  id:                   string
+  ideationArtefactId:   string
+  ideationProjectId:    string
+  sourceSection:        string
+  sourcePassage:        string
+  claimCurrencyStatus:  string
+  channelFormats:       string[]
+  kolStatus?:           string
+  maStatus?:            string
+  overallStatus?:       string
+  provenance?:          Record<string, unknown>
+}
+
+interface FixtureKolContact {
+  id:                string
+  ideationProjectId: string
+  name:              string
+  email:             string
+  reviewLinkToken:   string
+  reviewLinkExpiry:  string
+  signedOffAt:       string | null
+  reminder1SentAt:   string | null
+  reminder2SentAt:   string | null
+  escalatedAt:       string | null
+}
+
+interface FixtureCalendarEntry {
+  id:                     string
+  ideationContentCardId:  string
+  channel:                string
+  scheduledDate:          string
+  assignedCreativeId:     string | null
+  status:                 string
+  publishedAt:            string | null
+  publishedBy:            string | null
+}
+
+const MOD_E_USER_ALIAS: Record<string, string> = {
+  'user-il': 'user-admin',  // Ideation Lead  → admin
+  'user-ma': 'user-ma',     // MA Team Lead   ✓
+  'user-cr': 'user-rw',     // Creative       → writer
+  'user-mw': 'user-rw',     // Marcus Webb    → writer
+}
+
+const E_SOURCE_TYPE_UI_TO_DB: Record<string, string> = {
+  'master-library': 'master_library',
+  'master_library': 'master_library',
+  'upload':         'upload',
+  'external':       'external',
+}
+
+const E_STATUS_UI_TO_DB: Record<string, string> = {
+  'uploaded':           'uploaded',
+  'content-cards':      'content_cards',
+  'atomised':           'atomised',
+  'under-review':       'under_review',
+  'calendar-approved':  'calendar_approved',
+  'published':          'published',
+  'approved':           'calendar_approved',  // UI uses 'approved' loosely
+}
+
+const E_CLAIM_CURRENCY_UI_TO_DB: Record<string, string> = {
+  'current':                 'current',
+  'potentially-superseded':  'potentially_superseded',
+  'conflicting':             'conflicting',
+}
+
+const E_APPROVAL_UI_TO_DB: Record<string, string> = {
+  'passed':              'passed',
+  'blocked':             'blocked',
+  'confirmed-external':  'confirmed_external',
+  'pending':             'pending',
+}
+
+const E_SOURCE_CURRENCY_UI_TO_DB: Record<string, string> = {
+  'current':              'current',
+  'superseded':           'superseded',
+  'warned':               'warned',
+  'external-confirmed':   'external_confirmed',
+}
+
+const E_CHANNEL_UI_TO_DB: Record<string, string> = {
+  'linkedin':         'linkedin',
+  'twitter':          'twitter',
+  'blog':             'blog',
+  'email':            'email',
+  'hcp':              'hcp',
+  'medical-affairs':  'medical_affairs',
+  'medical_affairs':  'medical_affairs',
+  'instagram':        'instagram',
+  'facebook':         'facebook',
+}
+
+const E_REVIEW_STATUS_UI_TO_DB: Record<string, string> = {
+  'pending':  'pending',
+  'approved': 'approved',
+  'rejected': 'rejected',
+}
+
+async function seedModuleE() {
+  const ideationProjects = readFixture<FixtureIdeationProject[]>('ideationProjects.json')
+  const artefacts        = readFixture<FixtureIdeationArtefact[]>('ideationArtefacts.json')
+  const cards            = readFixture<FixtureIdeationCard[]>('ideationContentCards.json')
+  const kols             = readFixture<FixtureKolContact[]>('kolContacts.json')
+  const calendar         = readFixture<FixtureCalendarEntry[]>('ideationCalendar.json')
+
+  const knownProjectIds = new Set(
+    (await prisma.project.findMany({ select: { id: true } })).map(p => p.id),
+  )
+  const knownUserIds = new Set(
+    (await prisma.user.findMany({ select: { id: true } })).map(u => u.id),
+  )
+  const resolveUserId = (id: string | null): string | null => {
+    if (!id) return null
+    if (knownUserIds.has(id)) return id
+    const alias = MOD_E_USER_ALIAS[id] ?? MOD_B_USER_ALIAS[id] ?? MOD_C_USER_ALIAS[id]
+    if (alias && knownUserIds.has(alias)) return alias
+    return null
+  }
+
+  // --- Ideation projects --------------------------------------------------
+  let ipCount = 0
+  for (const ip of ideationProjects) {
+    if (!knownProjectIds.has(ip.projectId)) continue
+    const createdBy = resolveUserId(ip.createdBy)
+    if (!createdBy) continue
+
+    const dbSource = E_SOURCE_TYPE_UI_TO_DB[ip.sourceType] ?? ip.sourceType
+    const dbStatus = E_STATUS_UI_TO_DB[ip.status] ?? ip.status.replace(/-/g, '_')
+
+    await prisma.ideationProject.upsert({
+      where:  { id: ip.id },
+      create: {
+        id:         ip.id,
+        projectId:  ip.projectId,
+        sourceType: dbSource,
+        taTag:      ip.taTag,
+        status:     dbStatus,
+        createdBy,
+        createdAt:  new Date(ip.createdAt),
+        updatedAt:  new Date(ip.updatedAt),
+      },
+      update: {
+        status:    dbStatus,
+        updatedAt: new Date(ip.updatedAt),
+      },
+    })
+    ipCount += 1
+  }
+  console.log(`   ${ipCount}/${ideationProjects.length} ideation projects seeded`)
+
+  // --- Artefacts ---------------------------------------------------------
+  const knownIpIds = new Set(
+    (await prisma.ideationProject.findMany({ select: { id: true } })).map(r => r.id),
+  )
+  let artCount = 0
+  for (const a of artefacts) {
+    if (!knownIpIds.has(a.ideationProjectId)) continue
+
+    const dbApproval  = E_APPROVAL_UI_TO_DB[a.approvalStatusCheck]   ?? 'pending'
+    const dbCurrency  = E_SOURCE_CURRENCY_UI_TO_DB[a.sourceCurrencyStatus] ?? 'current'
+    // originalApprovalDate is required (non-null) on the DB; fall back to
+    // today when fixture leaves it null (blocked artefacts).
+    const approvalDate = a.originalApprovalDate ? new Date(a.originalApprovalDate) : new Date()
+
+    await prisma.ideationArtefact.upsert({
+      where:  { id: a.id },
+      create: {
+        id:                    a.id,
+        ideationProjectId:     a.ideationProjectId,
+        sourceModule:          a.sourceModule ?? null,
+        sourceDocId:           a.sourceDocId  ?? null,
+        filePath:              a.filePath     ?? null,
+        title:                 a.title,
+        originalApprovalDate:  approvalDate,
+        version:               a.version,
+        sourceCurrencyStatus:  dbCurrency,
+        approvalStatusCheck:   dbApproval,
+        masterLibraryPushDate: a.masterLibraryPushDate ? new Date(a.masterLibraryPushDate) : null,
+      },
+      update: {
+        title:                 a.title,
+        sourceCurrencyStatus:  dbCurrency,
+        approvalStatusCheck:   dbApproval,
+      },
+    })
+    artCount += 1
+  }
+  console.log(`   ${artCount}/${artefacts.length} ideation artefacts seeded`)
+
+  // --- Content cards -----------------------------------------------------
+  const knownArtefactIds = new Set(
+    (await prisma.ideationArtefact.findMany({ select: { id: true } })).map(r => r.id),
+  )
+  let cardCount = 0
+  for (const c of cards) {
+    if (!knownArtefactIds.has(c.ideationArtefactId)) continue
+
+    const dbCurrency = E_CLAIM_CURRENCY_UI_TO_DB[c.claimCurrencyStatus] ?? 'current'
+    const dbKol      = E_REVIEW_STATUS_UI_TO_DB[c.kolStatus ?? 'pending'] ?? 'pending'
+    const dbMa       = E_REVIEW_STATUS_UI_TO_DB[c.maStatus  ?? 'pending'] ?? 'pending'
+    const dbOverall  = E_STATUS_UI_TO_DB[c.overallStatus ?? 'uploaded'] ?? (c.overallStatus ?? 'uploaded').replace(/-/g, '_')
+    const dbChannels = c.channelFormats.map(ch => E_CHANNEL_UI_TO_DB[ch] ?? ch)
+
+    await prisma.ideationContentCard.upsert({
+      where:  { id: c.id },
+      create: {
+        id:                   c.id,
+        ideationArtefactId:   c.ideationArtefactId,
+        sourceSection:        c.sourceSection,
+        sourcePassage:        c.sourcePassage,
+        claimCurrencyStatus:  dbCurrency,
+        channelFormats:       dbChannels,
+        kolStatus:            dbKol,
+        maStatus:             dbMa,
+        overallStatus:        dbOverall === 'approved' ? 'approved' : dbOverall,
+        provenance:           (c.provenance ?? {}) as unknown as object,
+      },
+      update: {
+        kolStatus:    dbKol,
+        maStatus:     dbMa,
+        overallStatus: dbOverall === 'approved' ? 'approved' : dbOverall,
+      },
+    })
+    cardCount += 1
+  }
+  console.log(`   ${cardCount}/${cards.length} ideation content cards seeded`)
+
+  // --- KOL contacts ------------------------------------------------------
+  let kolCount = 0
+  for (const k of kols) {
+    if (!knownIpIds.has(k.ideationProjectId)) continue
+    await prisma.kolContact.upsert({
+      where:  { id: k.id },
+      create: {
+        id:                k.id,
+        ideationProjectId: k.ideationProjectId,
+        name:              k.name,
+        email:             k.email,
+        reviewLinkToken:   k.reviewLinkToken,
+        reviewLinkExpiry:  new Date(k.reviewLinkExpiry),
+        signedOffAt:       k.signedOffAt     ? new Date(k.signedOffAt)     : null,
+        reminder1SentAt:   k.reminder1SentAt ? new Date(k.reminder1SentAt) : null,
+        reminder2SentAt:   k.reminder2SentAt ? new Date(k.reminder2SentAt) : null,
+        escalatedAt:       k.escalatedAt     ? new Date(k.escalatedAt)     : null,
+      },
+      update: {
+        signedOffAt:     k.signedOffAt     ? new Date(k.signedOffAt)     : null,
+      },
+    })
+    kolCount += 1
+  }
+  console.log(`   ${kolCount}/${kols.length} kol contacts seeded`)
+
+  // --- Calendar entries --------------------------------------------------
+  const knownCardIds = new Set(
+    (await prisma.ideationContentCard.findMany({ select: { id: true } })).map(r => r.id),
+  )
+  const CAL_STATUS_UI_TO_DB: Record<string, string> = {
+    'scheduled': 'scheduled',
+    'published': 'published',
+    'overdue':   'overdue',
+    'cancelled': 'cancelled',
+  }
+  let calCount = 0
+  for (const e of calendar) {
+    if (!knownCardIds.has(e.ideationContentCardId)) continue
+    const assignedCreativeId = resolveUserId(e.assignedCreativeId)
+    const publishedBy        = resolveUserId(e.publishedBy)
+
+    await prisma.calendarEntry.upsert({
+      where:  { id: e.id },
+      create: {
+        id:                     e.id,
+        ideationContentCardId:  e.ideationContentCardId,
+        channel:                E_CHANNEL_UI_TO_DB[e.channel] ?? e.channel,
+        scheduledDate:          new Date(e.scheduledDate),
+        assignedCreativeId:     assignedCreativeId,
+        status:                 CAL_STATUS_UI_TO_DB[e.status] ?? e.status,
+        publishedAt:            e.publishedAt ? new Date(e.publishedAt) : null,
+        publishedBy:            publishedBy,
+      },
+      update: {
+        status:      CAL_STATUS_UI_TO_DB[e.status] ?? e.status,
+        publishedAt: e.publishedAt ? new Date(e.publishedAt) : null,
+      },
+    })
+    calCount += 1
+  }
+  console.log(`   ${calCount}/${calendar.length} calendar entries seeded`)
 }
 
 main()

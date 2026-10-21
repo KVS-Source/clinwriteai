@@ -344,6 +344,15 @@ async function buildServer() {
   const { publishingRoutes } = await import('./modules/ideation/publishing/routes.js')
   await app.register(publishingRoutes, { prefix: '/ideation' })
 
+  // Aliases + stubs — the web client speaks /ideation-projects/*,
+  // /ideation-artefacts/*, /ideation-cards/*, /ideation-calendar/*,
+  // /ideation-adaptations/*, /ideation-orcid/*, /ideation-social-alerts/*,
+  // /kol-review/* at root (0/21 paths match the canonical API). See
+  // apps/api/src/modules/ideation/aliases-and-stubs.ts.
+  const { ideationAliasesAndStubs } =
+    await import('./modules/ideation/aliases-and-stubs.js')
+  await app.register(ideationAliasesAndStubs)
+
   // ---------- Phase 4 shared platform services ----------
   await app.register(import('./modules/platform/notifications/plugin.js'))
 

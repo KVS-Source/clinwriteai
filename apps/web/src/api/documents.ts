@@ -7,7 +7,58 @@ import type {
   ResolveCommentBody, AISuggestBody, AcceptSuggestionBody,
 } from '@platform/types'
 
+// --- Source documents (per-project upload library) ---
+
+export type SourceDocState = 'linked' | 'pending' | 'rejected'
+export type SourceDocSort = 'title' | 'file' | 'type' | 'state' | 'size' | 'uploaded'
+
+export interface SourceDocument {
+  id: string
+  title: string
+  fileName: string
+  fileSizeBytes: number
+  contentType: string
+  documentType: string | null
+  /** 'document' = the linked document's real type; 'detected' = classifier guess; null = unknown */
+  documentTypeSource: 'document' | 'detected' | null
+  state: SourceDocState
+  virusScanStatus: string
+  documentId: string | null
+  documentTitle: string | null
+  uploadedBy: { id: string; name: string | null; email: string | null }
+  uploadedAt: string
+}
+
+export interface SourceDocumentPage {
+  items: SourceDocument[]
+  total: number
+  page: number
+  pageSize: number
+  summary: { files: number; linked: number; pending: number; rejected: number }
+}
+
+export interface SourceDocumentQuery {
+  q?: string
+  state?: SourceDocState | 'all'
+  sort?: SourceDocSort
+  dir?: 'asc' | 'desc'
+  page?: number
+  pageSize?: number
+}
+
 export const documentsApi = {
+  // Source documents
+  listSources: (projectId: string, query: SourceDocumentQuery = {}) => {
+    const qs = new URLSearchParams()
+    for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== '' && v !== 'all') qs.set(k, String(v))
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return api.get<SourceDocumentPage>(`/projects/${projectId}/source-documents${suffix}`)
+  },
+  // Original file, as a Blob. Goes through the shared client so auth, the demo-persona
+  // header and error bodies behave like every other call.
+  downloadSource: (projectId: string, uploadId: string) =>
+    api.download(`/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}/download`),
+
   // Documents
   list: (projectId: string) =>
     api.get<Document[]>(`/projects/${projectId}/documents`),

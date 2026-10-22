@@ -80,12 +80,32 @@ async function request<T>(endpoint: string, options?: RequestOptions): Promise<T
   return res.json() as Promise<T>
 }
 
+// Binary download through the same auth path as every other call (session cookie,
+// demo-persona header, 401 handling). Throws ApiError with the server's JSON body
+// on failure, so callers can show the real reason ("file_missing", "quarantined"...).
+async function download(endpoint: string, options?: Pick<RequestOptions, 'on401'>): Promise<{ blob: Blob; filename: string | null }> {
+  const { on401 = 'throw' } = options ?? {}
+  const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include', headers: { ...demoPersonaHeader() } })
+  if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined') {
+    window.location.assign(`${LOGIN_URL}?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`)
+    throw new ApiError(401, null)
+  }
+  if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null))
+  const cd = res.headers.get('content-disposition') ?? ''
+  const utf8 = /filename\*=UTF-8''([^;]+)/i.exec(cd)
+  const plain = /filename="([^"]*)"/i.exec(cd)
+  let filename: string | null = null
+  try { filename = utf8 ? decodeURIComponent(utf8[1]!) : (plain?.[1] ?? null) } catch { filename = plain?.[1] ?? null }
+  return { blob: await res.blob(), filename }
+}
+
 export const api = {
   get:    <T>(endpoint: string, options?: RequestOptions)                => request<T>(endpoint, options),
   post:   <T>(endpoint: string, body: unknown, options?: RequestOptions) => request<T>(endpoint, { ...options, method: 'POST',  body: JSON.stringify(body) }),
   patch:  <T>(endpoint: string, body: unknown, options?: RequestOptions) => request<T>(endpoint, { ...options, method: 'PATCH', body: JSON.stringify(body) }),
   put:    <T>(endpoint: string, body: unknown, options?: RequestOptions) => request<T>(endpoint, { ...options, method: 'PUT',   body: JSON.stringify(body) }),
   delete: <T>(endpoint: string, options?: RequestOptions)                => request<T>(endpoint, { ...options, method: 'DELETE' }),
+  download,
 }
 
 export const apiConfig = {

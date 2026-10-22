@@ -1,0 +1,379 @@
+// Source Documents tab — every file uploaded through "Upload source document"
+// for this project, in an evidence-library style list: counters, state filter,
+// search, sortable columns, paging and a download action per file.
+
+import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import {
+  documentsApi,
+  type SourceDocSort,
+  type SourceDocState,
+  type SourceDocument,
+} from '../../api/documents'
+import { ApiError } from '../../api/client'
+
+const PAGE_SIZES = [10, 25, 50, 100] as const
+type SortKey = SourceDocSort
+
+const STATE_STYLE: Record<SourceDocState, { label: string; bg: string; fg: string; hint: string }> = {
+  linked:   { label: 'Linked',   bg: '#F0FDF4', fg: '#166534', hint: 'Confirmed and turned into a document' },
+  pending:  { label: 'Pending',  bg: '#FFFBEB', fg: '#B45309', hint: 'Uploaded, classification not confirmed yet' },
+  rejected: { label: 'Rejected', bg: '#FEF2F2', fg: '#B91C1C', hint: 'Rejected' },
+}
+
+const SCAN_STYLE: Record<string, { label: string; fg: string }> = {
+  passed:  { label: 'Passed',  fg: '#166534' },
+  pending: { label: 'Pending', fg: '#B45309' },
+  failed:  { label: 'Failed',  fg: '#B91C1C' },
+}
+
+const ACRONYMS = new Set(['csr', 'ib', 'icf', 'dsur', 'sap', 'tlf', 'sae', 'ich', 'crf'])
+
+function typeLabel(t: string | null): string {
+  if (!t) return '—'
+  return t.replace(/[_-]+/g, ' ').split(' ')
+    .map(w => (ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
+    .join(' ')
+}
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
+}
+
+function formatUploaded(iso: string): string {
+  const d = new Date(iso)
+  const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  return `${date}, ${time}`
+}
+
+function SortIcon({ state }: { state: 'asc' | 'desc' | null }) {
+  return (
+    <svg width="10" height="12" viewBox="0 0 10 12" fill="none" aria-hidden="true" className="flex-none">
+      <path d="M5 1 2 4.5h6L5 1Z" fill={state === 'asc' ? '#1E293B' : '#CBD5E1'} />
+      <path d="M5 11 2 7.5h6L5 11Z" fill={state === 'desc' ? '#1E293B' : '#CBD5E1'} />
+    </svg>
+  )
+}
+
+function DownloadIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+      <path d="M8 2v8m0 0L5 7m3 3 3-3M2.5 13.5h11" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
+function Pill({ bg, fg, children, title }: { bg: string; fg: string; children: React.ReactNode; title?: string }) {
+  return (
+    <span title={title} className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: bg, color: fg }}>
+      {children}
+    </span>
+  )
+}
+
+interface Props {
+  projectId: string
+  onUpload: () => void
+}
+
+export function SourceDocumentsTab({ projectId, onUpload }: Props) {
+  const navigate = useNavigate()
+  const [search, setSearch] = useState('')
+  const [q, setQ] = useState('')                     // debounced value actually sent
+  const [state, setState] = useState<SourceDocState | 'all'>('all')
+  const [sort, setSort] = useState<SourceDocSort>('uploaded')
+  const [dir, setDir] = useState<'asc' | 'desc'>('desc')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState<number>(50)
+  // Download feedback. A row can exist whose stored file is gone (e.g. uploaded from
+  // another environment); we find out on click and say so instead of saving an error file.
+  const [busyId, setBusyId] = useState<string | null>(null)
+  const [missingIds, setMissingIds] = useState<Set<string>>(new Set())
+  const [notice, setNotice] = useState<string | null>(null)
+
+  const handleDownload = async (r: SourceDocument) => {
+    setBusyId(r.id)
+    setNotice(null)
+    try {
+      const { blob, filename } = await documentsApi.downloadSource(projectId, r.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename ?? r.fileName
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (e) {
+      const body = e instanceof ApiError ? (e.body as { error?: string; message?: string } | null) : null
+      if (body?.error === 'file_missing') {
+        setMissingIds(prev => new Set(prev).add(r.id))
+        setNotice(`"${r.fileName}" is listed here but its file is no longer in storage. Upload it again to restore it.`)
+      } else if (body?.error === 'quarantined') {
+        setNotice(body.message ?? `"${r.fileName}" failed the virus scan and cannot be downloaded.`)
+      } else if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
+        setNotice('You do not have permission to download this file.')
+      } else {
+        setNotice(`Could not download "${r.fileName}". Please try again.`)
+      }
+    } finally {
+      setBusyId(null)
+    }
+  }
+
+  useEffect(() => {
+    const t = setTimeout(() => { setQ(search.trim()); setPage(1) }, 250)
+    return () => clearTimeout(t)
+  }, [search])
+
+  const { data, isLoading, isFetching, isError, refetch } = useQuery({
+    queryKey: ['source-documents', projectId, { q, state, sort, dir, page, pageSize }],
+    queryFn: () => documentsApi.listSources(projectId, { q, state, sort, dir, page, pageSize }),
+    placeholderData: keepPreviousData,
+  })
+
+  const items = data?.items ?? []
+  const total = data?.total ?? 0
+  const summary = data?.summary ?? { files: 0, linked: 0, pending: 0, rejected: 0 }
+  const pageCount = Math.max(1, Math.ceil(total / pageSize))
+  const filtersDirty = q !== '' || state !== 'all'
+
+  const toggleSort = (key: SortKey) => {
+    if (sort === key) setDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSort(key); setDir(key === 'uploaded' || key === 'size' ? 'desc' : 'asc') }
+    setPage(1)
+  }
+  const clearFilters = () => { setSearch(''); setQ(''); setState('all'); setPage(1) }
+
+  // A render helper (not a nested component) so headers don't remount on every render.
+  const th = (label: string, k?: SortKey, className = '') => (
+    <th
+      key={label || 'actions'}
+      scope="col"
+      aria-sort={k && sort === k ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={`px-4 py-2.5 text-left font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500 ${className}`}
+    >
+      {k ? (
+        <button type="button" onClick={() => toggleSort(k)} className="inline-flex items-center gap-1.5 uppercase tracking-widest hover:text-slate-800" data-sort={k}>
+          {label}<SortIcon state={sort === k ? dir : null} />
+        </button>
+      ) : label}
+    </th>
+  )
+
+  return (
+    <div className="flex min-w-0 flex-1 flex-col gap-4" data-screen="source-documents">
+      {/* Header + counters */}
+      <div className="flex items-start justify-between gap-6">
+        <div>
+          <h2 className="text-[18px] font-bold text-slate-900">Source documents</h2>
+          <p className="mt-1 max-w-[640px] text-[13px] text-slate-500">
+            Every file uploaded to this project. Download the original, or open the document a source was turned into.
+            <span className="text-slate-400"> Files stay here after they are linked.</span>
+          </p>
+        </div>
+        <div className="flex flex-none items-stretch gap-6" data-source-counters>
+          <div className="text-right" title="Uploaded but not yet turned into a document">
+            <p className="text-[26px] font-bold leading-none text-slate-900" data-count="unlinked">{summary.pending}</p>
+            <p className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Unlinked</p>
+          </div>
+          <div className="w-px bg-slate-200" />
+          <div className="text-right">
+            <p className="text-[26px] font-bold leading-none text-slate-900" data-count="files">{summary.files}</p>
+            <p className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Files</p>
+          </div>
+        </div>
+      </div>
+
+      {notice && (
+        <div className="flex items-start justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900" role="alert" data-download-notice>
+          <span>{notice}</span>
+          <button type="button" onClick={() => setNotice(null)} className="flex-none font-semibold underline" aria-label="Dismiss">Dismiss</button>
+        </div>
+      )}
+
+      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
+        {/* Toolbar */}
+        <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-5 py-3.5">
+          <select
+            value={state}
+            onChange={e => { setState(e.currentTarget.value as SourceDocState | 'all'); setPage(1) }}
+            aria-label="Filter by state"
+            data-filter="state"
+            className="h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-900"
+          >
+            <option value="all">All states</option>
+            <option value="linked">Linked</option>
+            <option value="pending">Pending</option>
+            <option value="rejected">Rejected</option>
+          </select>
+          <div className="flex min-w-[240px] max-w-[460px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#94A3B8" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3.5 3.5" strokeLinecap="round" /></svg>
+            <input
+              type="text"
+              value={search}
+              onChange={e => setSearch(e.currentTarget.value)}
+              placeholder="Search file name, title, uploader…"
+              aria-label="Search source documents"
+              data-filter="search"
+              className="w-full border-none bg-transparent text-[13px] text-slate-900 outline-none placeholder:text-slate-400"
+            />
+          </div>
+          <div className="flex-1" />
+          {filtersDirty && (
+            <button type="button" onClick={clearFilters} className="text-[12px] font-semibold text-slate-600 hover:text-slate-900" data-action="clear-filters">
+              ✕ Clear filters
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={onUpload}
+            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50"
+            data-action="upload-source"
+          >
+            Upload source document
+          </button>
+        </div>
+
+        {/* Table */}
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[980px] text-[13px]" style={{ opacity: isFetching && !isLoading ? 0.7 : 1 }}>
+            <thead style={{ backgroundColor: '#F8FAFC' }}>
+              <tr className="border-b border-slate-200">
+                {th('Document title', 'title')}
+                {th('File', 'file')}
+                {th('Type', 'type')}
+                {th('State', 'state')}
+                {th('Scan')}
+                {th('Linked document')}
+                {th('Uploaded', 'uploaded')}
+                {th('', undefined, 'w-[1%]')}
+              </tr>
+            </thead>
+            <tbody>
+              {items.map(r => (
+                <Row
+                  key={r.id}
+                  r={r}
+                  busy={busyId === r.id}
+                  missing={missingIds.has(r.id)}
+                  onDownload={() => void handleDownload(r)}
+                  onOpenDoc={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
+                />
+              ))}
+              {isLoading && (
+                <tr><td colSpan={8} className="px-5 py-10 text-center text-[13px] text-slate-400">Loading source documents…</td></tr>
+              )}
+              {isError && !isLoading && (
+                <tr><td colSpan={8} className="px-5 py-10 text-center text-[13px] text-red-700" role="alert">
+                  Could not load source documents.{' '}
+                  <button type="button" onClick={() => void refetch()} className="font-semibold underline">Retry</button>
+                </td></tr>
+              )}
+              {!isLoading && !isError && items.length === 0 && (
+                <tr><td colSpan={8} className="px-5 py-12 text-center" data-empty>
+                  {summary.files === 0 ? (
+                    <>
+                      <p className="text-[14px] font-semibold text-slate-900">No source documents yet</p>
+                      <p className="mt-1 text-[13px] text-slate-500">Upload a protocol, SAP, listing or scan and it will be kept here for the whole project.</p>
+                      <button type="button" onClick={onUpload} className="mt-3 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700">Upload source document</button>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-[14px] font-semibold text-slate-900">No source documents match these filters</p>
+                      <button type="button" onClick={clearFilters} className="mt-2 text-[13px] font-semibold text-blue-600 hover:text-blue-700">Clear filters</button>
+                    </>
+                  )}
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Pager */}
+        <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-200 px-5 py-3">
+          <select
+            value={pageSize}
+            onChange={e => { setPageSize(Number(e.currentTarget.value)); setPage(1) }}
+            aria-label="Rows per page"
+            className="h-8 rounded-md border border-slate-200 bg-white px-2 text-[12px] text-slate-700"
+          >
+            {PAGE_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
+          </select>
+          <div className="flex items-center gap-3 text-[12px] text-slate-500">
+            <span data-pager-status>Page {Math.min(page, pageCount)} of {pageCount} · {total} {total === 1 ? 'file' : 'files'}</span>
+            <button type="button" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}
+              className="rounded-md border border-slate-200 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+            <button type="button" disabled={page >= pageCount} onClick={() => setPage(p => p + 1)}
+              className="rounded-md border border-slate-200 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function Row({ r, busy, missing, onDownload, onOpenDoc }: { r: SourceDocument; busy: boolean; missing: boolean; onDownload: () => void; onOpenDoc: (documentId: string) => void }) {
+  const st = STATE_STYLE[r.state]
+  const scan = SCAN_STYLE[r.virusScanStatus] ?? { label: r.virusScanStatus, fg: '#475569' }
+  const blocked = r.virusScanStatus === 'failed'
+  const who = r.uploadedBy.name ?? r.uploadedBy.email ?? r.uploadedBy.id
+  return (
+    <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60" data-source-row={r.id}>
+      <td className="max-w-[260px] px-4 py-3 align-top">
+        <p className="truncate font-semibold text-slate-900" title={r.title}>{r.title}</p>
+      </td>
+      <td className="max-w-[260px] px-4 py-3 align-top">
+        <p className="truncate font-mono text-[12px] text-slate-700" title={r.fileName}>{r.fileName}</p>
+        <p className="mt-0.5 text-[11px] text-slate-400">{formatSize(r.fileSizeBytes)}</p>
+      </td>
+      <td className="px-4 py-3 align-top">
+        {r.documentType ? (
+          <>
+            <span className="text-slate-700">{typeLabel(r.documentType)}</span>
+            {r.documentTypeSource === 'detected' && (
+              <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400" title="Guessed from the file name — confirm when you create the document">auto</span>
+            )}
+          </>
+        ) : (
+          <span className="text-slate-400" title="Not classified yet">Unclassified</span>
+        )}
+      </td>
+      <td className="px-4 py-3 align-top"><Pill bg={st.bg} fg={st.fg} title={st.hint}>{st.label}</Pill></td>
+      <td className="px-4 py-3 align-top"><span className="text-[12px] font-semibold" style={{ color: scan.fg }}>{scan.label}</span></td>
+      <td className="max-w-[220px] px-4 py-3 align-top">
+        {r.documentId ? (
+          <button type="button" onClick={() => onOpenDoc(r.documentId!)} className="truncate text-left text-[13px] font-semibold text-blue-600 hover:text-blue-700 hover:underline" title={r.documentTitle ?? r.documentId}>
+            {r.documentTitle ?? r.documentId}
+          </button>
+        ) : <span className="text-slate-400">—</span>}
+      </td>
+      <td className="px-4 py-3 align-top whitespace-nowrap">
+        <p className="text-slate-900">{formatUploaded(r.uploadedAt)}</p>
+        <p className="mt-0.5 max-w-[200px] truncate text-[11px] text-slate-500" title={r.uploadedBy.email ?? undefined}>{who}</p>
+      </td>
+      <td className="px-4 py-3 align-top text-right">
+        {blocked ? (
+          <span className="text-[11px] font-semibold text-red-700" title="Failed the virus scan">Blocked</span>
+        ) : missing ? (
+          <span className="text-[11px] font-semibold text-amber-700" title="The stored file could not be found">File missing</span>
+        ) : (
+          <button
+            type="button"
+            onClick={onDownload}
+            disabled={busy}
+            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
+            aria-label={`Download ${r.fileName}`}
+            data-action="download"
+          >
+            <DownloadIcon /> {busy ? 'Downloading…' : 'Download'}
+          </button>
+        )}
+      </td>
+    </tr>
+  )
+}

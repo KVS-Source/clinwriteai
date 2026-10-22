@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Document, DocumentStage, DocumentStatus, DocumentType } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { StatusPill, SlidePanel } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { NewDocumentForm } from './NewDocument'
 import { UploadDocumentForm } from './UploadDocument'
+import { SourceDocumentsTab } from './SourceDocumentsTab'
 
 // --- Enum → display label maps ---
 
@@ -98,6 +99,13 @@ export function ClinicalWritingHome() {
   // for a plain new-doc flow). `null` with the panel open means fresh.
   const [newDocOpen, setNewDocOpen] = useState<false | { duplicateSourceId: string | null }>(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  // 'documents' = the stage-filtered document table; 'sources' = the project's
+  // uploaded source-document library (tab next to "All Stages").
+  const [view, setView] = useState<'documents' | 'sources'>('documents')
+  const qc = useQueryClient()
+  // Set after "Confirm & create document" in the upload drawer: we stay on the
+  // Source Documents tab (no jump to the editor) and tell the user what happened.
+  const [justAdded, setJustAdded] = useState<{ documentId: string } | null>(null)
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -114,6 +122,22 @@ export function ClinicalWritingHome() {
   useEffect(() => {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
+
+  // Count for the "Source Documents" tab label (also refreshed after uploads).
+  const { data: sourceSummary } = useQuery({
+    queryKey: ['source-documents', projectId, 'summary'],
+    queryFn:  () => documentsApi.listSources(projectId!, { pageSize: 10 }),
+    enabled:  !!projectId,
+    staleTime: 30_000,
+  })
+  const sourceCount = sourceSummary?.summary.files
+
+  // Close the upload drawer and refresh the library: a file is stored as soon as
+  // it is uploaded, even if the user cancels before confirming the classification.
+  const closeUpload = () => {
+    setUploadOpen(false)
+    void qc.invalidateQueries({ queryKey: ['source-documents', projectId] })
+  }
 
   const teamById = useMemo(() => {
     const map = new Map<string, { name: string; initials: string }>()
@@ -244,13 +268,19 @@ export function ClinicalWritingHome() {
 
       {/* ============ Stage Tabs ============ */}
       <div className="flex flex-none gap-6 overflow-x-auto whitespace-nowrap border-b border-slate-200 bg-white px-8">
-        <TabButton label="All Stages"  active={selectedStage === 'all'} onClick={() => setSelectedStage('all')} />
+        <TabButton label="All Stages"  active={view === 'documents' && selectedStage === 'all'} onClick={() => { setView('documents'); setSelectedStage('all') }} />
+        <TabButton
+          label={sourceCount !== undefined ? `Source Documents (${sourceCount})` : 'Source Documents'}
+          active={view === 'sources'}
+          onClick={() => setView('sources')}
+        />
+        <span aria-hidden="true" className="my-3.5 w-px flex-none bg-slate-200" />
         {STAGES_ORDERED.map(stage => (
           <TabButton
             key={stage}
             label={STAGE_LABELS[stage]}
-            active={selectedStage === stage}
-            onClick={() => setSelectedStage(stage)}
+            active={view === 'documents' && selectedStage === stage}
+            onClick={() => { setView('documents'); setSelectedStage(stage) }}
           />
         ))}
       </div>
@@ -258,6 +288,26 @@ export function ClinicalWritingHome() {
       {/* ============ Content ============ */}
       <div className="flex flex-1 items-start gap-6 overflow-auto px-8 py-6">
 
+        {view === 'sources' && projectId ? (
+          <div className="flex min-w-0 flex-1 flex-col gap-4">
+            {justAdded && (
+              <div className="flex items-center justify-between gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-[13px] text-green-900" role="status" data-upload-success>
+                <span>Source document uploaded and added to this list. A document was created from it.</span>
+                <span className="flex flex-none items-center gap-4">
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${justAdded.documentId}`)}
+                    className="font-semibold underline"
+                    data-action="open-created-document"
+                  >Open document</button>
+                  <button type="button" onClick={() => setJustAdded(null)} className="font-semibold underline" aria-label="Dismiss">Dismiss</button>
+                </span>
+              </div>
+            )}
+            <SourceDocumentsTab projectId={projectId} onUpload={() => setUploadOpen(true)} />
+          </div>
+        ) : (
+          <>
         {/* Left column: document table card */}
         <div className="flex min-w-0 flex-1 flex-col gap-3.5">
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
@@ -434,6 +484,8 @@ export function ClinicalWritingHome() {
           </div>
 
         </div>
+          </>
+        )}
       </div>
 
       <SlidePanel
@@ -458,7 +510,7 @@ export function ClinicalWritingHome() {
 
       <SlidePanel
         open={uploadOpen}
-        onClose={() => setUploadOpen(false)}
+        onClose={closeUpload}
         title="Upload document"
         subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
         storageKey="panel-width-upload-document"
@@ -467,10 +519,14 @@ export function ClinicalWritingHome() {
           <UploadDocumentForm
             projectId={projectId}
             projectTA={project?.therapeuticArea}
-            onCancel={() => setUploadOpen(false)}
+            onCancel={closeUpload}
             onCreated={id => {
-              setUploadOpen(false)
-              navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)
+              // Stay on the project's source-document list instead of jumping to the
+              // editor: the new row appears here as "Linked", with a link to its document.
+              closeUpload()
+              setView('sources')
+              setJustAdded({ documentId: id })
+              void qc.invalidateQueries({ queryKey: ['documents', projectId] })
             }}
           />
         )}

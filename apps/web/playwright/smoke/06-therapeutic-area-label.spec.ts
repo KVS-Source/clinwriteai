@@ -16,12 +16,15 @@ import { PROTOTYPE_PROJECT_ID } from '../helpers/auth'
 
 const PROJECT_ID = process.env.E2E_PROJECT_ID ?? PROTOTYPE_PROJECT_ID
 
+// Pages are served by a remote API + database; a cold first load can take 20-50 s.
+test.setTimeout(120_000)
+
 async function open(page: Page, path: string) {
   await page.goto(path)
   // Wait for either real content (a filter dropdown) or the disabled-module screen.
   await Promise.race([
-    page.waitForSelector('select', { timeout: 30_000 }),
-    page.getByText(/temporarily disabled|not enabled/i).first().waitFor({ timeout: 30_000 }),
+    page.waitForSelector('select', { timeout: 60_000 }),
+    page.getByText(/temporarily disabled|not enabled/i).first().waitFor({ timeout: 60_000 }),
   ]).catch(() => undefined)
 }
 

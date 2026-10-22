@@ -7,6 +7,9 @@
 
 import { test, expect, type Page } from '@playwright/test'
 
+// Pages are served by a remote API + database; a cold first load can take 20-50 s.
+test.setTimeout(120_000)
+
 // [route, the one platform link that must be active]
 const CASES: Array<[string, string]> = [
   ['/admin', '/admin'],
@@ -30,7 +33,7 @@ async function activeLinks(page: Page) {
 for (const [route, expected] of CASES) {
   test(`${route} highlights only its own sidebar entry`, async ({ page }) => {
     await page.goto(route)
-    await page.waitForSelector('[data-platform-link]', { timeout: 30_000 })
+    await page.waitForSelector('[data-platform-link]', { timeout: 60_000 })
     await expect(page.locator(`[data-platform-link="${expected}"]`)).toHaveAttribute('aria-current', 'page')
     expect(await activeLinks(page)).toEqual([expected])
   })

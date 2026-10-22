@@ -17,6 +17,9 @@ const BASE_URL = process.env.E2E_BASE_URL ?? `http://localhost:${PORT}`
 export default defineConfig({
   testDir: './playwright',
   fullyParallel: false,          // one page under test at a time keeps selectors stable
+  workers: 1,                    // ...and files must not run side by side either: parallel files
+                                 // cold-compile the dev server together and trip the API's
+                                 // 100 req/min rate limit, so first-page loads time out
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? [['github'], ['list']] : [['list']],

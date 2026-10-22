@@ -223,6 +223,8 @@ async function buildServer() {
   await app.register(documentsUploadRoutes, { prefix: '/projects' })
   const { documentsSourceRoutes } = await import('./modules/clinical-writing/documents/source-routes.js')
   await app.register(documentsSourceRoutes, { prefix: '/projects' })
+  const { documentsReferencesRoutes } = await import('./modules/clinical-writing/documents/references-routes.js')
+  await app.register(documentsReferencesRoutes, { prefix: '/documents' })
 
   const { voiceNotesRoutes } = await import('./modules/clinical-writing/voice-notes/routes.js')
   await app.register(voiceNotesRoutes, { prefix: '/documents' })

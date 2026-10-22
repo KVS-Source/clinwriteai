@@ -36,9 +36,61 @@ test('tab sits right after "All Stages" and opens the library', async ({ page })
   await expect(page.getByRole('heading', { name: 'Source documents' })).toBeVisible()
   await expect(page.locator('[data-count="files"]')).toBeVisible()
   await expect(page.locator('[data-count="unlinked"]')).toBeVisible()
-  for (const col of ['Document title', 'File', 'Type', 'State', 'Scan', 'Linked document', 'Uploaded']) {
+  for (const col of ['Document title', 'File', 'Type', 'State', 'Scan', 'Linked document', 'Uploaded', 'Quick actions']) {
     await expect(page.getByRole('columnheader', { name: new RegExp(col, 'i') })).toBeVisible()
   }
+  // Quick actions is the last column, right after Uploaded
+  const headers = await page.getByRole('columnheader').allInnerTexts()
+  expect(headers.at(-1)?.trim().toLowerCase()).toBe('quick actions')
+  expect(headers.at(-2)?.trim().toLowerCase()).toBe('uploaded')
+})
+
+test('each row has an Open button and a "⋯" menu, like the document list', async ({ page }) => {
+  await openTab(page)
+  test.skip((await rows(page).count()) === 0, 'project has no source documents')
+  const row = rows(page).first()
+  await expect(row.locator('[data-action="open"]')).toBeVisible()
+  await row.locator('[data-action="more"]').click()
+  const menu = page.locator('[data-row-menu]')
+  await expect(menu).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Open linked document' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Download' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: /^Archive/ })).toBeDisabled()
+  await expect(menu.getByRole('menuitem', { name: /^Delete/ })).toBeDisabled()
+  await page.keyboard.press('Escape')
+  await expect(menu).toHaveCount(0)
+})
+
+test('Open is enabled only for linked files and goes to the linked document', async ({ page }) => {
+  await openTab(page)
+  const all = rows(page)
+  const n = await all.count()
+  test.skip(n === 0, 'project has no source documents')
+  for (let i = 0; i < n; i++) {
+    const row = all.nth(i)
+    const linked = (await row.locator('td:nth-child(4)').innerText()).trim() === 'Linked'
+    const open = row.locator('[data-action="open"]')
+    if (linked) await expect(open).toBeEnabled()
+    else { await expect(open).toBeDisabled(); await expect(open).toHaveAttribute('title', /Not linked/) }
+  }
+  const linkedRow = all.filter({ has: page.locator('[data-action="open"]:not([disabled])') }).first()
+  test.skip(await linkedRow.count() === 0, 'no linked source document')
+  await linkedRow.locator('[data-action="open"]').click()
+  await expect(page).toHaveURL(/\/clinical-writing\/documents\//, { timeout: 30_000 })
+})
+
+test('the menu is not clipped on the last row and closes on outside click', async ({ page }) => {
+  await openTab(page)
+  test.skip((await rows(page).count()) === 0, 'project has no source documents')
+  await rows(page).last().locator('[data-action="more"]').click()
+  const menu = page.locator('[data-row-menu]')
+  await expect(menu).toBeVisible()
+  const box = (await menu.boundingBox())!
+  const vp = page.viewportSize()!
+  expect(box.y).toBeGreaterThanOrEqual(0)
+  expect(box.y + box.height).toBeLessThanOrEqual(vp.height)
+  await page.locator('[data-screen="source-documents"] h2, [data-screen="source-documents"] h3').first().click()
+  await expect(menu).toHaveCount(0)
 })
 
 test('the counter matches the rows and the tab label', async ({ page }) => {
@@ -91,8 +143,18 @@ test('clicking a header sorts, and clicking again reverses', async ({ page }) =>
 
 test('Download delivers the stored file, or clearly explains why it cannot', async ({ page }) => {
   await openTab(page)
-  const buttons = page.locator('[data-source-row] [data-action="download"]')
-  test.skip((await buttons.count()) === 0, 'no downloadable source document')
+  // Download lives in each row's "⋯" menu. Rows already known to be missing are disabled in the menu.
+  const moreButtons = page.locator('[data-source-row]:not(:has-text("File missing")) [data-action="more"]')
+  test.skip((await moreButtons.count()) === 0, 'no downloadable source document')
+  const buttons = {
+    count: () => moreButtons.count(),
+    first: () => ({
+      click: async () => {
+        await moreButtons.first().click()
+        await page.locator('[data-row-menu] [data-action="download"]').click()
+      },
+    }),
+  }
 
   // A row can outlive its stored file (e.g. uploaded from another environment). Click
   // through until one downloads; any that fail must say so and stop offering Download.

@@ -7,7 +7,11 @@ import { usePresenceSnapshot } from '../../hooks/usePresence'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill } from '../../components/ui'
-import { useDocumentStore, useProjectStore, useAuthStore } from '../../store'
+import { useDocumentStore, useProjectStore, useAuthStore, useEditorStore } from '../../store'
+import { SourceReferencesPanel } from '../../panels/SourceReferencesPanel'
+import {
+  applyReferenceHighlights, clearReferenceHighlights, normalizeSpan, referenceAtPoint, type LinkedRange,
+} from './referenceHighlights'
 import { SectionNavigator } from './SectionNavigator'
 import { EditorToolbar }    from './EditorToolbar'
 import { EditorContent, useRichTextEditor } from './RichTextEditor'
@@ -24,7 +28,7 @@ import { AIAssistPanel }          from '../../panels/AIAssistPanel'
 // Panel titles for the right panel header
 const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
   'ai':                'AI Suggest',
-  'traceability':      'Traceability',
+  'traceability':      'Source References',
   'voice':             'Voice Note',
   'checklist':         'Input Checklist',
   'audit':             'Audit Trail',
@@ -300,6 +304,63 @@ export function DocumentEditor() {
     }
   }, [searchParams, setActivePanel, setSearchParams])
 
+  // ------- Reference links (FR-A-022) -------
+  // Reference-linked text is marked in the section (non-destructively), clicking it opens the source in the
+  // right panel, and text selected in the section is remembered for the "Add reference" form.
+  const sectionContentRef = useRef<HTMLDivElement>(null)
+  const linkedRangesRef = useRef<LinkedRange[]>([])
+  const setTraceabilityTarget = useEditorStore(s => s.setTraceabilityTarget)
+  const setSourceViewer = useEditorStore(s => s.setSourceViewer)
+  const { data: referencesData } = useQuery({
+    queryKey: ['references', documentId],
+    queryFn:  () => documentsApi.listReferences(documentId!),
+    enabled:  !!documentId,
+  })
+  const sectionReferences = useMemo(
+    () => (referencesData?.items ?? []).filter(r => r.sectionId === activeSection),
+    [referencesData, activeSection],
+  )
+
+  useEffect(() => {
+    const root = sectionContentRef.current
+    if (!root) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const apply = () => { linkedRangesRef.current = applyReferenceHighlights(root, sectionReferences) }
+    const schedule = () => { clearTimeout(timer); timer = setTimeout(apply, 80) }
+    schedule()
+    // TipTap renders after the section loads / mode toggles; re-apply when the content changes.
+    const observer = new MutationObserver(schedule)
+    observer.observe(root, { childList: true, subtree: true, characterData: true })
+    return () => { clearTimeout(timer); observer.disconnect(); clearReferenceHighlights(); linkedRangesRef.current = [] }
+  }, [sectionReferences, activeSectionData?.contentHtml, isEditing, document?.id])
+
+  useEffect(() => {
+    const onSelection = () => {
+      const sel = window.getSelection()
+      const root = sectionContentRef.current
+      if (!sel || sel.isCollapsed || !root || !sel.anchorNode || !sel.focusNode) return
+      if (!root.contains(sel.anchorNode) || !root.contains(sel.focusNode)) return
+      const text = normalizeSpan(sel.toString()).slice(0, 2000)
+      if (text) setTraceabilityTarget(text)
+    }
+    window.document.addEventListener('selectionchange', onSelection)
+    return () => window.document.removeEventListener('selectionchange', onSelection)
+  }, [setTraceabilityTarget])
+
+  // A new section starts without a stale selection / open source.
+  useEffect(() => { setTraceabilityTarget(null) }, [activeSection, setTraceabilityTarget])
+  // Closing the panel closes the viewer too.
+  useEffect(() => { if (activePanel !== 'traceability') setSourceViewer(null) }, [activePanel, setSourceViewer])
+
+  const onSectionContentClick = (e: React.MouseEvent) => {
+    if (isEditing || !window.getSelection()?.isCollapsed) return   // don't hijack text selection / editing
+    const id = referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)
+    const ref = id ? sectionReferences.find(r => r.id === id) : undefined
+    if (!ref) return
+    setSourceViewer({ uploadId: ref.uploadId, page: ref.page, spanText: ref.spanText })
+    setActivePanel('traceability')
+  }
+
   if (!document) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -510,7 +571,7 @@ export function DocumentEditor() {
           {/* Content — real section content, editable textarea for the
                MVP editor. Rich-text (TipTap) lands in Phase 2 per
                docs/decisions/module-a-defaults.md. */}
-          <div className="flex-1 overflow-y-auto px-12 pt-6 pb-8" data-section-content>
+          <div ref={sectionContentRef} onClick={onSectionContentClick} className="flex-1 overflow-y-auto px-12 pt-6 pb-8" data-section-content>
             <div className="flex max-w-[760px] flex-col">
               {activeSectionData ? (
                 <>
@@ -617,7 +678,8 @@ export function DocumentEditor() {
                     hour: '2-digit', minute: '2-digit',
                   })} UTC`
                 : ''
-              return `§${section.number} ${section.title} · ${section.status}${edited}`
+              const refs = sectionReferences.length ? ` · ${sectionReferences.length} source ${sectionReferences.length === 1 ? 'reference' : 'references'}` : ''
+              return `§${section.number} ${section.title} · ${section.status}${refs}${edited}`
             })()}
           </div>
 
@@ -629,7 +691,7 @@ export function DocumentEditor() {
                 width:           panel.width,
                 maxWidth:        '100%',
                 zIndex:          30,
-                backgroundColor: (activePanel === 'checklist' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra') ? '#FFFFFF' : '#F8FAFC',
+                backgroundColor: (activePanel === 'traceability' || activePanel === 'checklist' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra') ? '#FFFFFF' : '#F8FAFC',
                 boxShadow:       '-16px 0 40px rgba(15,23,42,0.12)',
               }}
             >
@@ -777,7 +839,15 @@ export function DocumentEditor() {
                 sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
               />
             )}
-            {activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && (
+            {activePanel === 'traceability' && documentId && projectId && (
+              <SourceReferencesPanel
+                documentId={documentId}
+                projectId={projectId}
+                sectionId={activeSection}
+                sectionLabel={activeSectionData ? `${activeSectionData.number.startsWith('§') ? '' : '§'}${activeSectionData.number} ${activeSectionData.title}` : undefined}
+              />
+            )}
+            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
                 <p className="mt-2 text-sm text-slate-700">

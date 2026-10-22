@@ -2,7 +2,7 @@
 // for this project, in an evidence-library style list: counters, state filter,
 // search, sortable columns, paging and a download action per file.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import {
@@ -55,14 +55,6 @@ function SortIcon({ state }: { state: 'asc' | 'desc' | null }) {
     <svg width="10" height="12" viewBox="0 0 10 12" fill="none" aria-hidden="true" className="flex-none">
       <path d="M5 1 2 4.5h6L5 1Z" fill={state === 'asc' ? '#1E293B' : '#CBD5E1'} />
       <path d="M5 11 2 7.5h6L5 11Z" fill={state === 'desc' ? '#1E293B' : '#CBD5E1'} />
-    </svg>
-  )
-}
-
-function DownloadIcon() {
-  return (
-    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-      <path d="M8 2v8m0 0L5 7m3 3 3-3M2.5 13.5h11" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }
@@ -251,7 +243,7 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
                 {th('Scan')}
                 {th('Linked document')}
                 {th('Uploaded', 'uploaded')}
-                {th('', undefined, 'w-[1%]')}
+                {th('Quick actions', undefined, 'w-[1%] whitespace-nowrap text-right')}
               </tr>
             </thead>
             <tbody>
@@ -317,6 +309,104 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
   )
 }
 
+// The "⋯" menu. Rendered with fixed positioning because the table scrolls horizontally
+// (overflow-x clips an absolutely positioned menu on the last rows).
+function RowMenu({ label, canOpen, canDownload, downloadHint, busy, onOpen, onDownload }: {
+  label: string
+  canOpen: boolean
+  canDownload: boolean
+  downloadHint?: string
+  busy: boolean
+  onOpen: () => void
+  onDownload: () => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
+  const btn = useRef<HTMLButtonElement>(null)
+  const menu = useRef<HTMLDivElement>(null)
+
+  const place = () => {
+    const b = btn.current?.getBoundingClientRect()
+    if (!b) return
+    const h = menu.current?.offsetHeight ?? 190
+    const below = b.bottom + 4
+    setPos({
+      top: below + h > window.innerHeight ? Math.max(8, b.top - h - 4) : below,   // flip up near the bottom
+      right: Math.max(8, window.innerWidth - b.right),
+    })
+  }
+  useLayoutEffect(() => { if (open) place() }, [open])
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    const outside = (e: MouseEvent) => {
+      if (!menu.current?.contains(e.target as Node) && !btn.current?.contains(e.target as Node)) close()
+    }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    window.document.addEventListener('mousedown', outside)
+    window.document.addEventListener('keydown', esc)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
+      window.document.removeEventListener('mousedown', outside)
+      window.document.removeEventListener('keydown', esc)
+    }
+  }, [open])
+
+  const item = (text: React.ReactNode, o: { onClick?: () => void; disabled?: boolean; danger?: boolean; title?: string; action?: string }) => (
+    <button
+      type="button"
+      role="menuitem"
+      disabled={o.disabled}
+      title={o.title}
+      data-action={o.action}
+      onClick={() => { setOpen(false); o.onClick?.() }}
+      className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-[13px] ${
+        o.disabled ? 'cursor-not-allowed text-slate-400' : o.danger ? 'text-red-600 hover:bg-red-50' : 'text-slate-700 hover:bg-slate-50'
+      }`}
+    >
+      {text}
+    </button>
+  )
+  const soon = <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
+
+  return (
+    <div className="relative">
+      <button
+        ref={btn}
+        type="button"
+        aria-label={`More actions for ${label}`}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen(o => !o)}
+        className="flex gap-[2.5px] rounded-md p-1.5 transition-colors hover:bg-slate-100"
+        data-action="more"
+      >
+        <span className="h-[3px] w-[3px] rounded-full" style={{ backgroundColor: '#64748B' }} />
+        <span className="h-[3px] w-[3px] rounded-full" style={{ backgroundColor: '#64748B' }} />
+        <span className="h-[3px] w-[3px] rounded-full" style={{ backgroundColor: '#64748B' }} />
+      </button>
+      {open && (
+        <div
+          ref={menu}
+          role="menu"
+          data-row-menu
+          className="fixed z-50 w-56 rounded-md border border-slate-200 bg-white py-1 text-left shadow-lg"
+          style={{ top: pos?.top ?? -9999, right: pos?.right ?? 0, visibility: pos ? 'visible' : 'hidden' }}
+        >
+          {item('Open linked document', { onClick: onOpen, disabled: !canOpen, title: canOpen ? undefined : 'Not linked to a document yet', action: 'open-linked' })}
+          {item(busy ? 'Downloading…' : 'Download', { onClick: onDownload, disabled: !canDownload, title: downloadHint, action: 'download' })}
+          <div className="my-1 border-t border-slate-100" />
+          {item(<>Archive {soon}</>, { disabled: true, title: 'Archive endpoint pending (Phase 2).' })}
+          {item(<>Delete {soon}</>, { disabled: true, danger: true, title: 'Delete endpoint pending (Phase 2); admin-only.' })}
+        </div>
+      )}
+    </div>
+  )
+}
+
 function Row({ r, busy, missing, onDownload, onOpenDoc }: { r: SourceDocument; busy: boolean; missing: boolean; onDownload: () => void; onOpenDoc: (documentId: string) => void }) {
   const st = STATE_STYLE[r.state]
   const scan = SCAN_STYLE[r.virusScanStatus] ?? { label: r.virusScanStatus, fg: '#475569' }
@@ -356,23 +446,31 @@ function Row({ r, busy, missing, onDownload, onOpenDoc }: { r: SourceDocument; b
         <p className="text-slate-900">{formatUploaded(r.uploadedAt)}</p>
         <p className="mt-0.5 max-w-[200px] truncate text-[11px] text-slate-500" title={r.uploadedBy.email ?? undefined}>{who}</p>
       </td>
-      <td className="px-4 py-3 align-top text-right">
-        {blocked ? (
-          <span className="text-[11px] font-semibold text-red-700" title="Failed the virus scan">Blocked</span>
-        ) : missing ? (
-          <span className="text-[11px] font-semibold text-amber-700" title="The stored file could not be found">File missing</span>
-        ) : (
+      {/* Quick actions — same pattern as the document list: primary "Open" + "⋯" menu */}
+      <td className="px-4 py-3 align-top">
+        <div className="flex items-center justify-end gap-2" data-quick-actions>
+          {blocked && <span className="text-[11px] font-semibold text-red-700" title="Failed the virus scan">Blocked</span>}
+          {!blocked && missing && <span className="text-[11px] font-semibold text-amber-700" title="The stored file could not be found">File missing</span>}
           <button
             type="button"
-            onClick={onDownload}
-            disabled={busy}
-            className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-60"
-            aria-label={`Download ${r.fileName}`}
-            data-action="download"
+            onClick={() => r.documentId && onOpenDoc(r.documentId)}
+            disabled={!r.documentId}
+            title={r.documentId ? `Open ${r.documentTitle ?? 'the linked document'}` : 'Not linked to a document yet'}
+            className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-900 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-white"
+            data-action="open"
           >
-            <DownloadIcon /> {busy ? 'Downloading…' : 'Download'}
+            Open
           </button>
-        )}
+          <RowMenu
+            label={r.fileName}
+            canOpen={!!r.documentId}
+            canDownload={!blocked && !missing && !busy}
+            downloadHint={blocked ? 'Failed the virus scan — cannot be downloaded.' : missing ? 'The stored file could not be found.' : undefined}
+            busy={busy}
+            onOpen={() => r.documentId && onOpenDoc(r.documentId)}
+            onDownload={onDownload}
+          />
+        </div>
       </td>
     </tr>
   )

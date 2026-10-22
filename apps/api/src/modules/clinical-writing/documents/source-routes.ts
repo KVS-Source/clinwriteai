@@ -69,6 +69,12 @@ function detectedType(classification: unknown): string | null {
   return typeof c.typeConfidence === 'number' && c.typeConfidence >= MIN_DETECTION_CONFIDENCE ? c.documentType : null
 }
 
+// Only formats the browser can render safely inside the viewer panel. Deliberately no SVG/HTML
+// (script-capable) and no Office formats (no converter yet).
+export const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
+export const isPreviewable = (contentType: string) =>
+  (PREVIEW_TYPES as readonly string[]).includes(contentType.toLowerCase().split(';')[0]!.trim())
+
 // Content-Disposition filename: an ASCII fallback plus the RFC 5987 UTF-8 form.
 export function contentDisposition(fileName: string): string {
   const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\;]/g, '_')
@@ -115,6 +121,7 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
         fileName: r.fileName,
         fileSizeBytes: r.fileSizeBytes,
         contentType: r.contentType,
+        previewable: isPreviewable(r.contentType),
         // Linked: the real document's type. Otherwise the classifier's guess (if confident).
         documentType: (doc?.type as string | undefined) ?? detectedType(r.classification),
         documentTypeSource: doc?.type ? ('document' as const) : detectedType(r.classification) ? ('detected' as const) : null,
@@ -197,6 +204,46 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     return reply
       .header('Content-Type', row.contentType || file.contentType || 'application/octet-stream')
       .header('Content-Disposition', contentDisposition(row.fileName))
+      .header('Content-Length', String(file.body.length))
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Cache-Control', 'private, no-store')
+      .send(file.body)
+  })
+
+  // Inline viewing in the right-hand panel. Same guards as download, but only for the
+  // allow-listed PDF / image types; the type is the one recorded at upload, never sniffed.
+  app.get('/:projectId/source-documents/:uploadId/preview', { preHandler: gate }, async (request, reply) => {
+    const { projectId, uploadId } = request.params as { projectId: string; uploadId: string }
+    const row = await app.prisma.documentUpload.findFirst({ where: { id: uploadId, projectId } }) as UploadRow | null
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    if (row.virusScanStatus === 'failed') {
+      return reply.code(403).send({ error: 'quarantined', message: 'This file failed the virus scan and cannot be opened.' })
+    }
+    if (!isPreviewable(row.contentType)) {
+      return reply.code(415).send({ error: 'not_previewable', message: 'Only PDF and image files can be viewed here. Download the file instead.' })
+    }
+
+    let file: { body: Buffer; contentType: string | null }
+    try {
+      file = await app.blob.get('documents', row.blobKey)
+    } catch (err) {
+      app.log.warn({ err, uploadId, blobKey: row.blobKey }, 'source document bytes missing from storage')
+      return reply.code(404).send({ error: 'file_missing', message: 'The stored file could not be found.' })
+    }
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'source_document_viewed',
+      entityType: 'document_upload',
+      entityId: row.id,
+      details: { projectId, fileName: row.fileName },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply
+      .header('Content-Type', row.contentType.split(';')[0]!.trim())
+      .header('Content-Disposition', contentDisposition(row.fileName).replace('attachment', 'inline'))
       .header('Content-Length', String(file.body.length))
       .header('X-Content-Type-Options', 'nosniff')
       .header('Cache-Control', 'private, no-store')

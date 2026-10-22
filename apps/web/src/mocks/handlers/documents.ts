@@ -12,6 +12,14 @@ const SOURCE_SAMPLES = [
   { id: 'src-4', title: 'crf-page-0042', fileName: 'crf-page-0042.png', fileSizeBytes: 640_000, contentType: 'image/png', documentType: null, documentTypeSource: null, state: 'pending', virusScanStatus: 'passed', documentId: null, documentTitle: null, uploadedBy: { id: 'user-ma', name: 'Dr Rebecca Morton', email: 'r.morton@genbioca.com' }, uploadedAt: '2026-10-21T08:12:00Z' },
 ] as const
 
+const isPreviewable = (t: string) => ['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(t)
+
+// Reference links (mock of /documents/:id/references) — in-memory, resets on reload.
+const MOCK_REFERENCES: Array<Record<string, unknown>> = []
+
+// A one-page PDF, enough for the viewer to render something.
+const TINY_PDF = '%PDF-1.1\n1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 300 200]>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF'
+
 function sourceDocumentPage(url: URL) {
   const q = (url.searchParams.get('q') ?? '').toLowerCase()
   const state = url.searchParams.get('state') ?? 'all'
@@ -31,7 +39,7 @@ function sourceDocumentPage(url: URL) {
       return (typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y))) * dir
     })
   return {
-    items: rows.slice((page - 1) * pageSize, page * pageSize),
+    items: rows.slice((page - 1) * pageSize, page * pageSize).map(r => ({ ...r, previewable: isPreviewable(r.contentType) })),
     total: rows.length, page, pageSize,
     summary: {
       files: SOURCE_SAMPLES.length,
@@ -54,6 +62,31 @@ export const documentHandlers = [
 `, {
       headers: { 'Content-Type': 'text/plain', 'Content-Disposition': `attachment; filename="${row.fileName}.txt"` },
     })
+  }),
+  http.get(`${BASE}/projects/:projectId/source-documents/:uploadId/preview`, async ({ params }) => {
+    const row = SOURCE_SAMPLES.find(r => r.id === params.uploadId)
+    if (!row) return HttpResponse.json({ error: 'not_found' }, { status: 404 })
+    if (!isPreviewable(row.contentType)) return HttpResponse.json({ error: 'not_previewable', message: 'Only PDF and image files can be viewed here. Download the file instead.' }, { status: 415 })
+    return new HttpResponse(TINY_PDF, { headers: { 'Content-Type': 'application/pdf' } })
+  }),
+  http.get(`${BASE}/documents/:documentId/references`, async ({ params, request }) => {
+    const sectionId = new URL(request.url).searchParams.get('sectionId')
+    return HttpResponse.json({
+      projectId: 'PROJ-AURORA',
+      items: MOCK_REFERENCES.filter(r => r.documentId === params.documentId && (!sectionId || r.sectionId === sectionId)),
+    })
+  }),
+  http.post(`${BASE}/documents/:documentId/references`, async ({ params, request }) => {
+    const body = await request.json() as { sectionId: string; spanText: string; uploadId: string; page?: number; locator?: string }
+    const src = SOURCE_SAMPLES.find(r => r.id === body.uploadId)
+    if (!src) return HttpResponse.json({ error: 'source_not_in_project', message: 'That source document is not part of this project.' }, { status: 422 })
+    const row = {
+      id: `ref-${MOCK_REFERENCES.length + 1}`, documentId: params.documentId, sectionId: body.sectionId, spanText: body.spanText,
+      uploadId: src.id, fileName: src.fileName, contentType: src.contentType, previewable: isPreviewable(src.contentType),
+      page: body.page ?? null, locator: body.locator ?? null, createdBy: { id: 'user-mock', name: 'Demo User' }, createdAt: new Date().toISOString(),
+    }
+    MOCK_REFERENCES.push(row)
+    return HttpResponse.json(row, { status: 201 })
   }),
   http.get(`${BASE}/projects/:projectId/documents`, async () => {
     await delay(200)

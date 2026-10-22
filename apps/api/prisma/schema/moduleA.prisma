@@ -132,6 +132,29 @@ model ProvenanceRecord {
 }
 
 // --------------------------------------------------------------------------
+// 4.4b source_references — immutable reference links (FR-A-022)
+// A span of text in a document section, linked to an uploaded source document
+// (optionally with a page / section locator). Append-only: a DB trigger rejects
+// UPDATE and DELETE, so the traceability record cannot be altered once created.
+// --------------------------------------------------------------------------
+
+model SourceReference {
+  id          String   @id @default(uuid())
+  documentId  String
+  sectionId   String
+  spanText    String                                           // the cited text, as selected in the editor
+  uploadId    String                                           // document_uploads.id (the source file)
+  page        Int?                                             // 1-based page in a PDF
+  locator     String?                                          // free-text pointer, e.g. "§9.4 Table 3"
+  createdBy   String
+  createdAt   DateTime @default(now())
+
+  @@map("source_references")
+  @@index([documentId, sectionId])
+  @@index([uploadId])
+}
+
+// --------------------------------------------------------------------------
 // 4.5 version_restore_jobs — async restore workflow
 // --------------------------------------------------------------------------
 

@@ -18,6 +18,8 @@ export interface SourceDocument {
   fileName: string
   fileSizeBytes: number
   contentType: string
+  /** PDF / raster image — can be opened in the viewer panel */
+  previewable: boolean
   documentType: string | null
   /** 'document' = the linked document's real type; 'detected' = classifier guess; null = unknown */
   documentTypeSource: 'document' | 'detected' | null
@@ -46,7 +48,42 @@ export interface SourceDocumentQuery {
   pageSize?: number
 }
 
+// --- Reference links (document text -> source document), FR-A-022 ---
+
+export interface SourceReference {
+  id: string
+  documentId: string
+  sectionId: string
+  spanText: string
+  uploadId: string
+  fileName: string | null
+  contentType: string | null
+  previewable: boolean
+  page: number | null
+  locator: string | null
+  createdBy: { id: string; name: string | null }
+  createdAt: string
+}
+
+export interface CreateSourceReferenceBody {
+  sectionId: string
+  spanText: string
+  uploadId: string
+  page?: number
+  locator?: string
+}
+
 export const documentsApi = {
+  // Reference links
+  listReferences: (documentId: string, sectionId?: string) =>
+    api.get<{ projectId: string; items: SourceReference[] }>(
+      `/documents/${documentId}/references${sectionId ? `?sectionId=${encodeURIComponent(sectionId)}` : ''}`),
+  createReference: (documentId: string, body: CreateSourceReferenceBody) =>
+    api.post<SourceReference>(`/documents/${documentId}/references`, body),
+  // PDF / image bytes for the viewer panel
+  previewSource: (projectId: string, uploadId: string) =>
+    api.download(`/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}/preview`),
+
   // Source documents
   listSources: (projectId: string, query: SourceDocumentQuery = {}) => {
     const qs = new URLSearchParams()

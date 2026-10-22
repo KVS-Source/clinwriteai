@@ -3,9 +3,18 @@ import { useEffect, useRef, useState } from 'react'
 import type { PanelMode } from '@platform/types'
 import { useDocumentStore } from '../../store'
 
-type ReferenceMode = 'ich-e3' | 'meddra' | 'tlf'
+type ReferenceMode = 'traceability' | 'ich-e3' | 'meddra' | 'tlf'
 
 const OPTIONS: { mode: ReferenceMode; label: string; Icon: () => React.ReactElement }[] = [
+  {
+    mode: 'traceability',
+    label: 'Source References',
+    Icon: () => (
+      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round">
+        <path d="M5.6 8.4l2.8-2.8M6.3 3.9l.9-.9a2.4 2.4 0 013.4 3.4l-.9.9M7.7 10.1l-.9.9a2.4 2.4 0 01-3.4-3.4l.9-.9" />
+      </svg>
+    ),
+  },
   {
     mode: 'ich-e3',
     label: 'ICH E3 Validator',
@@ -58,7 +67,7 @@ function CaretDownIcon() {
   )
 }
 
-const REFERENCE_MODES: ReferenceMode[] = ['ich-e3', 'meddra', 'tlf']
+const REFERENCE_MODES: ReferenceMode[] = ['traceability', 'ich-e3', 'meddra', 'tlf']
 
 export function ReferenceDropdown() {
   const activePanel    = useDocumentStore(s => s.activePanel)

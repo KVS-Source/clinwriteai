@@ -95,3 +95,10 @@
     margin-top: 12px;
   }
 }
+
+/* Reference-linked text in a document section (FR-A-022) — see referenceHighlights.ts */
+::highlight(source-ref) {
+  background-color: #dbeafe;
+  text-decoration: underline dotted #2563eb;
+  text-underline-offset: 3px;
+}

@@ -40,12 +40,23 @@ const LOCKED_MESSAGE: Record<string, string> = {
 }
 const lockedBody = (status: string) => ({ error: 'document_locked', status, message: LOCKED_MESSAGE[status] ?? 'The document is locked, so its references can’t be changed.' })
 
-// Range columns not available yet (migration 36 not applied, or a stale Prisma client):
-// P2022 = column missing; a client without the field rejects it as an unknown argument.
+// Range columns not available yet. Either the database lacks them (migration 36 not applied —
+// P2022, "column … does not exist") while the Prisma client knows them, or the client is older
+// than the columns and rejects the fields as unknown arguments.
 const isMissingRangeColumns = (err: unknown) => {
   const e = err as { code?: string; message?: string } | null
-  return e?.code === 'P2022' || /Unknown arg(ument)? `(startOffset|endOffset)`/.test(e?.message ?? '')
+  const msg = e?.message ?? ''
+  return e?.code === 'P2022'
+    || /Unknown arg(ument)? `(startOffset|endOffset)`/.test(msg)
+    || /column `?[\w.]*(startOffset|endOffset)`? does not exist/i.test(msg)
 }
+
+// The columns every database has. A plain query also reads startOffset/endOffset, so where they
+// don't exist yet each query is re-run selecting only these.
+const BASE_REF_SELECT = {
+  id: true, documentId: true, sectionId: true, spanText: true, uploadId: true,
+  page: true, locator: true, createdBy: true, createdAt: true,
+} as const
 
 // Removals not available yet: migration 36 not applied (Prisma P2021, table missing), or the
 // Prisma client was generated before the model existed (no delegate).
@@ -53,6 +64,22 @@ const isMissingTable = (err: unknown) => (err as { code?: string } | null)?.code
 
 export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
   const gate = requireAuth({ modules: ['A'] })
+
+  // Runs a source_references query with all columns; if the range columns are missing, re-runs it
+  // with BASE_REF_SELECT. Remembers "missing" for a minute, so applying migration 36 is picked up
+  // without a restart.
+  let rangeColumnsMissingUntil = 0
+  async function withRefColumns<T>(run: (select?: typeof BASE_REF_SELECT) => Promise<T>): Promise<T> {
+    if (Date.now() < rangeColumnsMissingUntil) return run(BASE_REF_SELECT)
+    try {
+      return await run()
+    } catch (err) {
+      if (!isMissingRangeColumns(err)) throw err
+      app.log.warn('source_references startOffset/endOffset columns missing — reading/writing references without positions until migration 36 is applied')
+      rangeColumnsMissingUntil = Date.now() + 60_000
+      return run(BASE_REF_SELECT)
+    }
+  }
 
   // Ids of the document's withdrawn links. Before the removals table exists nothing has been removed.
   const removedIds = async (documentId: string): Promise<Set<string>> => {
@@ -75,10 +102,11 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
 
     const [all, removed] = await Promise.all([
-      app.prisma.sourceReference.findMany({
+      withRefColumns(select => app.prisma.sourceReference.findMany({
         where: { documentId, ...(q.data.sectionId ? { sectionId: q.data.sectionId } : {}) },
         orderBy: { createdAt: 'asc' },
-      }),
+        ...(select ? { select } : {}),
+      })),
       removedIds(documentId),
     ])
     const rows = all.filter(r => !removed.has(r.id))
@@ -127,7 +155,7 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
 
     const [links, allRefs, removed] = await Promise.all([
       app.prisma.documentSource.findMany({ where: { documentId }, orderBy: { createdAt: 'asc' } }),
-      app.prisma.sourceReference.findMany({ where: { documentId }, orderBy: { createdAt: 'asc' } }),
+      withRefColumns(select => app.prisma.sourceReference.findMany({ where: { documentId }, orderBy: { createdAt: 'asc' }, ...(select ? { select } : {}) })),
       removedIds(documentId),
     ])
     const refs = allRefs.filter(r => !removed.has(r.id))
@@ -191,15 +219,10 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
       createdBy: request.user!.id,
     }
     const range = body.startOffset !== undefined ? { startOffset: body.startOffset, endOffset: body.endOffset! } : null
-    let created: Awaited<ReturnType<typeof app.prisma.sourceReference.create>>
-    try {
-      created = await app.prisma.sourceReference.create({ data: range ? { ...data, ...range } : data })
-    } catch (err) {
-      // Before the range columns exist, keep the link without its position (located by text, as before).
-      if (!range || !isMissingRangeColumns(err)) throw err
-      app.log.warn('source_references range columns missing — saved the reference without its position (apply migration 36)')
-      created = await app.prisma.sourceReference.create({ data })
-    }
+    // Before the range columns exist, the link is kept without its position (located by text, as before).
+    const created = await withRefColumns(select => select
+      ? app.prisma.sourceReference.create({ data, select })
+      : app.prisma.sourceReference.create({ data: range ? { ...data, ...range } : data }))
     const stored = created as typeof created & { startOffset?: number | null; endOffset?: number | null }
 
     await app.audit.append({
@@ -238,7 +261,7 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, projectId: true, status: true, deletedAt: true } })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
     if (referencesLocked(doc.status)) return reply.code(423).send(lockedBody(doc.status))
-    const ref = await app.prisma.sourceReference.findFirst({ where: { id: referenceId, documentId } })
+    const ref = await withRefColumns(select => app.prisma.sourceReference.findFirst({ where: { id: referenceId, documentId }, ...(select ? { select } : {}) }))
     if (!ref) return reply.code(404).send({ error: 'not_found', message: 'That reference is not part of this document.' })
     if ((await removedIds(documentId)).has(ref.id)) {
       return reply.code(409).send({ error: 'already_removed', message: 'That reference has already been removed.' })

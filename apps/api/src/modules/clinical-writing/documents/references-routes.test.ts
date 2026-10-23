@@ -125,6 +125,26 @@ describe('POST /documents/:id/references', () => {
     expect(created[0]).not.toHaveProperty('startOffset')
   })
 
+  it('works when the client knows the range columns but the database does not have them yet', async () => {
+    const { app, created } = await build()
+    const prisma = (app as unknown as { prisma: { sourceReference: Record<string, ReturnType<typeof vi.fn>> } }).prisma
+    // what Prisma throws when it reads/writes a column the database lacks
+    const missing = () => Object.assign(new Error('Invalid `prisma.sourceReference.create()` invocation: The column `source_references.startOffset` does not exist in the current database.'), { code: 'P2022' })
+    for (const op of ['create', 'findMany', 'findFirst'] as const) {
+      const real = prisma.sourceReference[op]!.getMockImplementation()!
+      prisma.sourceReference[op]!.mockImplementation(async (args: { select?: unknown }) => { if (!args.select) throw missing(); return real(args) })
+    }
+    const res = await post(app, { sectionId: 's1', spanText: 'PFS', uploadId: 'pdf1', startOffset: 1, endOffset: 4 })
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ startOffset: null, endOffset: null })
+    expect(created.at(-1)).not.toHaveProperty('startOffset')
+    const list = await app.inject({ method: 'GET', url: '/documents/DOC-1/references' })
+    expect(list.statusCode).toBe(200)
+    expect(list.json().items[0]).toMatchObject({ id: 'r1', startOffset: null, endOffset: null })
+    expect((await app.inject({ method: 'GET', url: '/documents/DOC-1/sources' })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'POST', url: '/documents/DOC-1/references/r1/remove', payload: {} })).statusCode).toBe(200)
+  })
+
   it('does not allow a source from another project', async () => {
     const { app, created } = await build()
     const res = await post(app, { sectionId: 's1', spanText: 'x', uploadId: 'foreign' })

@@ -335,12 +335,6 @@ export function ClinicalWritingHome() {
               <div className="flex items-center justify-between gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-[13px] text-green-900" role="status" data-upload-success>
                 <span>Source document saved to the library.</span>
                 <span className="flex flex-none items-center gap-4">
-                  <button
-                    type="button"
-                    onClick={() => { setNewDocOpen({ duplicateSourceId: null, sourceIds: [justAdded.uploadId] }); setJustAdded(null) }}
-                    className="font-semibold underline"
-                    data-action="create-from-saved-source"
-                  >Create document from it</button>
                   <button type="button" onClick={() => setJustAdded(null)} className="font-semibold underline" aria-label="Dismiss">Dismiss</button>
                 </span>
               </div>
@@ -348,7 +342,6 @@ export function ClinicalWritingHome() {
             <SourceDocumentsTab
               projectId={projectId}
               onUpload={() => setUploadOpen(true)}
-              onCreateFromSource={uploadId => setNewDocOpen({ duplicateSourceId: null, sourceIds: [uploadId] })}
             />
           </div>
         ) : (

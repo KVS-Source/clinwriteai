@@ -57,10 +57,9 @@ interface Props {
   projectId: string
   onUpload: () => void
   /** Open New Document with this source preselected */
-  onCreateFromSource: (uploadId: string) => void
 }
 
-export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: Props) {
+export function SourceDocumentsTab({ projectId, onUpload }: Props) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [q, setQ] = useState('')                     // debounced value actually sent
@@ -242,7 +241,6 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
                   missing={missingIds.has(r.id)}
                   onDownload={() => void handleDownload(r)}
                   onOpenDoc={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
-                  onCreate={() => onCreateFromSource(r.id)}
                   selected={selectedRow?.id === r.id}
                   onSelect={() => setSelected(cur => (cur?.id === r.id ? null : r))}
                 />
@@ -301,7 +299,6 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
         source={selectedRow}
         onClose={() => setSelected(null)}
         onOpenDoc={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
-        onCreateFromSource={uploadId => { setSelected(null); onCreateFromSource(uploadId) }}
       />
     </div>
   )
@@ -309,13 +306,11 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
 
 // The "⋯" menu. Rendered with fixed positioning because the table scrolls horizontally
 // (overflow-x clips an absolutely positioned menu on the last rows).
-function RowMenu({ label, canCreate, canDownload, downloadHint, busy, onCreate, onDownload }: {
+function RowMenu({ label, canDownload, downloadHint, busy, onDownload }: {
   label: string
-  canCreate: boolean
   canDownload: boolean
   downloadHint?: string
   busy: boolean
-  onCreate: () => void
   onDownload: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -394,7 +389,6 @@ function RowMenu({ label, canCreate, canDownload, downloadHint, busy, onCreate, 
           className="fixed z-50 w-56 rounded-md border border-slate-200 bg-white py-1 text-left shadow-lg"
           style={{ top: pos?.top ?? -9999, right: pos?.right ?? 0, visibility: pos ? 'visible' : 'hidden' }}
         >
-          {item('Create document from this source', { onClick: onCreate, disabled: !canCreate, title: canCreate ? undefined : 'Save the source to the library first', action: 'create-from-source' })}
           {item(busy ? 'Downloading…' : 'Download', { onClick: onDownload, disabled: !canDownload, title: downloadHint, action: 'download' })}
           <div className="my-1 border-t border-slate-100" />
           {item(<>Archive {soon}</>, { disabled: true, title: 'Archive endpoint pending (Phase 2).' })}
@@ -405,12 +399,11 @@ function RowMenu({ label, canCreate, canDownload, downloadHint, busy, onCreate, 
   )
 }
 
-function Row({ r, busy, missing, selected, onSelect, onDownload, onOpenDoc, onCreate }: { r: SourceDocument; busy: boolean; missing: boolean; selected: boolean; onSelect: () => void; onDownload: () => void; onOpenDoc: (documentId: string) => void; onCreate: () => void }) {
+function Row({ r, busy, missing, selected, onSelect, onDownload, onOpenDoc }: { r: SourceDocument; busy: boolean; missing: boolean; selected: boolean; onSelect: () => void; onDownload: () => void; onOpenDoc: (documentId: string) => void }) {
   const st = STATE_STYLE[r.state]
   const scan = SCAN_STYLE[r.virusScanStatus] ?? { label: r.virusScanStatus, fg: '#475569' }
   const blocked = r.virusScanStatus === 'failed'
   const who = r.uploadedBy.name ?? r.uploadedBy.email ?? r.uploadedBy.id
-  const canCreate = r.state === 'saved' && !blocked
   return (
     <tr
       onClick={onSelect}
@@ -447,28 +440,25 @@ function Row({ r, busy, missing, selected, onSelect, onDownload, onOpenDoc, onCr
         <p className="text-slate-900">{formatUploaded(r.uploadedAt)}</p>
         <p className="mt-0.5 max-w-[200px] truncate text-[11px] text-slate-500" title={r.uploadedBy.email ?? undefined}>{who}</p>
       </td>
-      {/* Quick actions — primary "Create document" + "⋯" menu */}
+      {/* Quick actions — "Open" + "⋯" menu */}
       <td className="px-4 py-3 align-top">
         <div className="flex items-center justify-end gap-2" data-quick-actions onClick={e => e.stopPropagation()}>
           {blocked && <span className="text-[11px] font-semibold text-red-700" title="Failed the virus scan">Blocked</span>}
           {!blocked && missing && <span className="text-[11px] font-semibold text-amber-700" title="The stored file could not be found">File missing</span>}
           <button
             type="button"
-            onClick={onCreate}
-            disabled={!canCreate}
-            title={canCreate ? 'Write a new document from this source' : 'Save the source to the library first'}
+            onClick={onSelect}
+            title="Open the details panel for this source"
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-900 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-white"
-            data-action="create-document"
+            data-action="open-source-row"
           >
-            Create document
+            Open
           </button>
           <RowMenu
             label={r.fileName}
-            canCreate={canCreate}
             canDownload={!blocked && !missing && !busy}
             downloadHint={blocked ? 'Failed the virus scan — cannot be downloaded.' : missing ? 'The stored file could not be found.' : undefined}
             busy={busy}
-            onCreate={onCreate}
             onDownload={onDownload}
           />
         </div>

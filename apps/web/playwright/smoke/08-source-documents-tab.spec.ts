@@ -45,15 +45,16 @@ test('tab sits right after "All Stages" and opens the library', async ({ page })
   expect(headers.at(-2)?.trim().toLowerCase()).toBe('uploaded')
 })
 
-test('each row has a Create document button and a "⋯" menu', async ({ page }) => {
+test('each row has an Open button and a "⋯" menu with Download', async ({ page }) => {
   await openTab(page)
   test.skip((await rows(page).count()) === 0, 'project has no source documents')
   const row = rows(page).first()
-  await expect(row.locator('[data-action="create-document"]')).toBeVisible()
+  await expect(row.locator('[data-action="open-source-row"]')).toBeVisible()
+  await expect(row.locator('[data-action="create-document"]')).toHaveCount(0)
   await row.locator('[data-action="more"]').click()
   const menu = page.locator('[data-row-menu]')
   await expect(menu).toBeVisible()
-  await expect(menu.getByRole('menuitem', { name: 'Create document from this source' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Create document from this source' })).toHaveCount(0)
   await expect(menu.getByRole('menuitem', { name: 'Download' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: /^Archive/ })).toBeDisabled()
   await expect(menu.getByRole('menuitem', { name: /^Delete/ })).toBeDisabled()
@@ -61,23 +62,15 @@ test('each row has a Create document button and a "⋯" menu', async ({ page }) 
   await expect(menu).toHaveCount(0)
 })
 
-test('Create document is enabled only for saved files and opens New Document with the source preselected', async ({ page }) => {
+test('row Open shows the detail panel with Open and Download, and no Create document', async ({ page }) => {
   await openTab(page)
-  const all = rows(page)
-  const n = await all.count()
-  test.skip(n === 0, 'project has no source documents')
-  for (let i = 0; i < n; i++) {
-    const row = all.nth(i)
-    const saved = (await row.locator('td:nth-child(3)').innerText()).trim() === 'Saved'
-    const create = row.locator('[data-action="create-document"]')
-    if (saved) await expect(create).toBeEnabled()
-    else { await expect(create).toBeDisabled(); await expect(create).toHaveAttribute('title', /Save the source/) }
-  }
-  const savedRow = all.filter({ has: page.locator('[data-action="create-document"]:not([disabled])') }).first()
-  test.skip(await savedRow.count() === 0, 'no saved source document')
-  await savedRow.locator('[data-action="create-document"]').click()
-  await expect(page.locator('[data-form="new-document"]')).toBeVisible({ timeout: 30_000 })
-  await expect(page.locator('[data-section="source-picker"] input[type="checkbox"]:checked')).toHaveCount(1)
+  test.skip((await rows(page).count()) === 0, 'project has no source documents')
+  await rows(page).first().locator('[data-action="open-source-row"]').click()
+  const panel = page.locator('[data-slide-panel]')
+  await expect(panel).toBeVisible()
+  await expect(panel.locator('[data-action="open-source"]')).toHaveText(/Open/)
+  await expect(panel.locator('[data-action="download-source"]')).toBeVisible()
+  await expect(panel.getByRole('button', { name: /Create document/ })).toHaveCount(0)
 })
 
 test('the menu is not clipped on the last row and closes on outside click', async ({ page }) => {
@@ -296,7 +289,7 @@ test('uploading a source document saves it to the library without creating a doc
   expect(h.confirm).toBe(0)   // no Document is created by an upload
 
   // the notice offers (but does not force) writing a document from the file
-  await expect(page.locator('[data-action="create-from-saved-source"]')).toBeVisible()
+  await expect(page.locator('[data-action="create-from-saved-source"]')).toHaveCount(0)
 })
 
 const uploadOne = async (page: Page) => {

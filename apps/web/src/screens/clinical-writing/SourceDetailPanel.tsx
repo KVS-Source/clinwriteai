@@ -20,23 +20,27 @@ interface Props {
   source: SourceDocument | null
   onClose: () => void
   onOpenDoc: (documentId: string) => void
-  onCreateFromSource: (uploadId: string) => void
 }
 
-export function SourceDetailPanel({ projectId, source, onClose, onOpenDoc, onCreateFromSource }: Props) {
+export function SourceDetailPanel({ projectId, source, onClose, onOpenDoc }: Props) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // true = the file is shown inside the panel (PDF / image) instead of the metadata
   const [viewing, setViewing] = useState(false)
   useEffect(() => { setViewing(false); setError(null) }, [source?.id])
 
-  const open = async () => {
+  const download = async () => {
     if (!source) return
-    if (source.previewable) { setViewing(true); return }
     setBusy(true); setError(null)
     try { await downloadSourceFile(projectId, source) }
     catch (e) { setError(sourceErrorMessage(e, source.fileName)) }
     finally { setBusy(false) }
+  }
+  // Open shows the file in the panel; types the viewer can't render are downloaded instead.
+  const open = async () => {
+    if (!source) return
+    if (source.previewable) { setViewing(true); return }
+    await download()
   }
 
   const blocked = source?.virusScanStatus === 'failed'
@@ -119,20 +123,21 @@ export function SourceDetailPanel({ projectId, source, onClose, onOpenDoc, onCre
                 type="button"
                 onClick={() => void open()}
                 disabled={busy || blocked}
-                title={blocked ? 'Failed the virus scan — cannot be opened.' : source.previewable ? undefined : 'This file type cannot be previewed — it will be downloaded.'}
+                title={blocked ? 'Failed the virus scan — cannot be opened.' : source.previewable ? undefined : 'This file type cannot be previewed here — it will be downloaded.'}
                 className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                 data-action="open-source"
               >
-                <EyeIcon /> {busy ? 'Opening…' : source.previewable ? 'Open' : 'Download'}
+                <EyeIcon /> Open
               </button>
               <button
                 type="button"
-                onClick={() => onCreateFromSource(source.id)}
-                disabled={source.state !== 'saved' || blocked}
-                className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                data-action="panel-create-document"
+                onClick={() => void download()}
+                disabled={busy || blocked}
+                title={blocked ? 'Failed the virus scan — cannot be downloaded.' : undefined}
+                className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
+                data-action="download-source"
               >
-                Create document
+                {busy ? 'Downloading…' : 'Download'}
               </button>
             </div>
           </div>

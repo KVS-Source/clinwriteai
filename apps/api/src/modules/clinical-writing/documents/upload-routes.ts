@@ -23,6 +23,7 @@ import { templateSections } from './templates.js'
 import { generateBlobKey } from '../../../modules/platform/blob/local-storage.js'
 import { DocumentService } from './service.js'
 import { isSupportedSourceFile, SUPPORTED_SOURCE_LABEL } from '../../platform/uploads/source-files.js'
+import { SOURCE_CATEGORIES, suggestSourceCategory } from './source-categories.js'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024   // 50 MB per API contract
 
@@ -33,6 +34,14 @@ const confirmSchema = z.object({
   version: z.string().min(1),
   therapeuticArea: z.string().min(1),
   assigneeId: z.string().min(1),
+  overrides: z.array(z.string()).default([]),
+})
+
+const saveSchema = z.object({
+  title: z.string().trim().min(1).max(300),
+  category: z.enum(SOURCE_CATEGORIES),
+  origin: z.string().trim().max(200).optional(),
+  version: z.string().trim().max(50).optional(),
   overrides: z.array(z.string()).default([]),
 })
 
@@ -50,7 +59,12 @@ export function classifyByFilename(filename: string) {
   else if (/dsur/.test(lc)) { documentType = 'dsur'; typeConfidence = 92 }
 
   const versionMatch = lc.match(/v(\d+(?:\.\d+)?)/)
+  const source = suggestSourceCategory(filename)
   return {
+    // Source category is what the upload flow uses; documentType is kept for the
+    // legacy confirm-classification shortcut (create a document straight from a file).
+    sourceCategory: source.category,
+    sourceCategoryConfidence: source.confidence,
     documentType,
     typeConfidence,
     studyTitle: '(unidentified — human review)',
@@ -140,6 +154,48 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // Save an uploaded file to the project's source-document library. No Document is
+  // created: a source is evidence, linked to documents later (document_sources).
+  app.post('/:projectId/source-documents/:uploadId/save', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { projectId, uploadId } = request.params as { projectId: string; uploadId: string }
+    const parsed = saveSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const upload = await app.prisma.documentUpload.findFirst({ where: { id: uploadId, projectId } })
+    if (!upload) return reply.code(404).send({ error: 'upload_not_found' })
+    if (upload.status === 'rejected') return reply.code(409).send({ error: 'already_rejected' })
+
+    const saved = await app.prisma.documentUpload.update({
+      where: { id: upload.id },
+      data: {
+        status: 'confirmed',
+        title: parsed.data.title,
+        sourceCategory: parsed.data.category,
+        origin: parsed.data.origin || null,
+        version: parsed.data.version || null,
+      },
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'source_document_saved',
+      entityType: 'document_upload',
+      entityId: saved.id,
+      details: {
+        projectId,
+        fileName: saved.fileName,
+        category: parsed.data.category,
+        origin: parsed.data.origin ?? null,
+        originalClassification: upload.classification,
+        overrides: parsed.data.overrides,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.code(200).send({ id: saved.id, title: saved.title, category: saved.sourceCategory, origin: saved.origin, version: saved.version })
+  })
+
   app.post('/:projectId/documents/confirm-classification', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = confirmSchema.safeParse(request.body)
@@ -187,6 +243,9 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
         status: 'confirmed',
         documentId: document.id,
       },
+    })
+    await app.prisma.documentSource.create({
+      data: { documentId: document.id, uploadId: upload.id, linkedBy: request.user!.id },
     })
 
     await app.audit.append({

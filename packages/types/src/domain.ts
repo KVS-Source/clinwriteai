@@ -294,6 +294,8 @@ export interface CreateDocumentBody {
   assigneeId: string
   targetCompletionDate?: string
   description?: string
+  /** Uploaded source documents (project library) the document is written from. */
+  sourceUploadIds?: string[]
 }
 
 export interface UpdateSectionBody {

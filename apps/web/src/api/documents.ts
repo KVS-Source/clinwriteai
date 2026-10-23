@@ -9,8 +9,8 @@ import type {
 
 // --- Source documents (per-project upload library) ---
 
-export type SourceDocState = 'linked' | 'pending' | 'rejected'
-export type SourceDocSort = 'title' | 'file' | 'type' | 'state' | 'size' | 'uploaded'
+export type SourceDocState = 'saved' | 'pending' | 'rejected'
+export type SourceDocSort = 'title' | 'file' | 'category' | 'state' | 'size' | 'uploaded'
 
 export interface SourceDocument {
   id: string
@@ -20,13 +20,16 @@ export interface SourceDocument {
   contentType: string
   /** PDF / raster image — can be opened in the viewer panel */
   previewable: boolean
-  documentType: string | null
-  /** 'document' = the linked document's real type; 'detected' = classifier guess; null = unknown */
-  documentTypeSource: 'document' | 'detected' | null
+  /** Source category key (see utils/sourceCategories.ts) */
+  category: string
+  /** 'set' = chosen when saved to the library; 'detected' = filename guess for an unsaved/legacy file */
+  categorySource: 'set' | 'detected'
+  origin: string | null
+  version: string | null
   state: SourceDocState
   virusScanStatus: string
-  documentId: string | null
-  documentTitle: string | null
+  /** Documents written from this source */
+  usedIn: Array<{ id: string; title: string }>
   uploadedBy: { id: string; name: string | null; email: string | null }
   uploadedAt: string
 }
@@ -36,7 +39,7 @@ export interface SourceDocumentPage {
   total: number
   page: number
   pageSize: number
-  summary: { files: number; linked: number; pending: number; rejected: number }
+  summary: { files: number; saved: number; pending: number; rejected: number }
 }
 
 export interface SourceDocumentQuery {
@@ -73,6 +76,14 @@ export interface CreateSourceReferenceBody {
   locator?: string
 }
 
+export interface SaveSourceBody {
+  title: string
+  category: string
+  origin?: string
+  version?: string
+  overrides?: string[]
+}
+
 export const documentsApi = {
   // Reference links
   listReferences: (documentId: string, sectionId?: string) =>
@@ -105,6 +116,9 @@ export const documentsApi = {
     api.post<Document>(`/projects/${projectId}/documents`, body),
   upload: (projectId: string, formData: FormData) =>
     fetch(`${import.meta.env.VITE_API_URL}/projects/${projectId}/documents/upload`, { method: 'POST', body: formData }).then(r => r.json()),
+  saveSource: (projectId: string, uploadId: string, body: SaveSourceBody) =>
+    api.post<{ id: string; title: string; category: string }>(
+      `/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}/save`, body),
   confirmClassification: (projectId: string, body: unknown) =>
     api.post<Document>(`/projects/${projectId}/documents/confirm-classification`, body),
   updateSection: (documentId: string, sectionId: string, body: UpdateSectionBody) =>

@@ -11,16 +11,18 @@ type Upload = {
   id: string; projectId: string; uploadedBy: string; blobKey: string; fileName: string
   fileSizeBytes: number; contentType: string; virusScanStatus: string; classification: unknown
   status: string; documentId: string | null; createdAt: Date
+  title: string | null; sourceCategory: string | null; origin: string | null; version: string | null
 }
 
 const up = (over: Partial<Upload> & Pick<Upload, 'id' | 'fileName'>): Upload => ({
   projectId: 'proj-1', uploadedBy: 'u1', blobKey: `proj-1/pending-uploads/${over.id}`, fileSizeBytes: 1000,
   contentType: 'application/pdf', virusScanStatus: 'passed', classification: { documentType: 'protocol', typeConfidence: 86 },
-  status: 'pending_classification', documentId: null, createdAt: new Date('2026-10-20T10:00:00Z'), ...over,
+  status: 'pending_classification', documentId: null, createdAt: new Date('2026-10-20T10:00:00Z'),
+  title: null, sourceCategory: null, origin: null, version: null, ...over,
 })
 
 const ROWS: Upload[] = [
-  up({ id: 'a', fileName: 'Protocol v2.docx', fileSizeBytes: 500, createdAt: new Date('2026-10-18T08:00:00Z'), status: 'confirmed', documentId: 'DOC-1', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
+  up({ id: 'a', fileName: 'Protocol v2.docx', fileSizeBytes: 500, createdAt: new Date('2026-10-18T08:00:00Z'), status: 'confirmed', title: 'Protocol — VELORA-301', sourceCategory: 'protocol', origin: 'Sponsor', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
   up({ id: 'b', fileName: 'lab-listing.csv', classification: { documentType: 'protocol', typeConfidence: 60 }, fileSizeBytes: 90, createdAt: new Date('2026-10-19T08:00:00Z'), uploadedBy: 'u2', contentType: 'text/csv' }),
   up({ id: 'c', fileName: 'scan-0042.png', fileSizeBytes: 4000, createdAt: new Date('2026-10-20T08:00:00Z'), status: 'rejected', contentType: 'image/png' }),
   up({ id: 'd', fileName: 'SAP draft.pdf', fileSizeBytes: 2500, createdAt: new Date('2026-10-21T08:00:00Z') }),
@@ -36,7 +38,8 @@ async function build(blob: { get: ReturnType<typeof vi.fn> } = { get: vi.fn() })
       findMany: vi.fn(async ({ where }: { where: { projectId: string } }) => ROWS.filter(r => r.projectId === where.projectId)),
       findFirst: vi.fn(async ({ where }: { where: { id: string; projectId: string } }) => ROWS.find(r => r.id === where.id && r.projectId === where.projectId) ?? null),
     },
-    document: { findMany: vi.fn(async () => [{ id: 'DOC-1', title: 'Protocol — VELORA-301', type: 'protocol' }]) },
+    documentSource: { findMany: vi.fn(async () => [{ documentId: 'DOC-9', uploadId: 'a', linkedBy: 'u1', createdAt: new Date() }]) },
+    document: { findMany: vi.fn(async () => [{ id: 'DOC-9', title: 'CSR — VELORA-301' }]) },
     user: { findMany: vi.fn(async () => [{ id: 'u1', name: 'Priya Nair', email: 'p@x.io' }, { id: 'u2', name: 'Dan Okafor', email: 'd@x.io' }]) },
   } as never)
   app.decorate('blob', blob as never)
@@ -65,36 +68,37 @@ describe('GET /projects/:id/source-documents', () => {
     expect(res.statusCode).toBe(200)
     expect(body.total).toBe(4)
     expect(body.items.map((i: { id: string }) => i.id)).toEqual(['a', 'b', 'c', 'd'])
-    const linked = body.items[0]
-    expect(linked).toMatchObject({ title: 'Protocol — VELORA-301', state: 'linked', documentId: 'DOC-1', documentType: 'protocol' })
-    expect(linked.uploadedBy).toMatchObject({ name: 'Priya Nair' })
-    // unlinked file falls back to its filename without the extension
-    expect(body.items[3]).toMatchObject({ title: 'SAP draft', state: 'pending' })
+    const saved = body.items[0]
+    expect(saved).toMatchObject({ title: 'Protocol — VELORA-301', state: 'saved', category: 'protocol', categorySource: 'set', origin: 'Sponsor' })
+    expect(saved.usedIn).toEqual([{ id: 'DOC-9', title: 'CSR — VELORA-301' }])
+    expect(saved.uploadedBy).toMatchObject({ name: 'Priya Nair' })
+    // unsaved file falls back to its filename without the extension
+    expect(body.items[3]).toMatchObject({ title: 'SAP draft', state: 'pending', usedIn: [] })
   })
 
-  it('only presents a type when it is known: linked document, or a confident detection', async () => {
+  it('categorises unsaved files from the file name and never defaults to a real category', async () => {
     const { body } = await list('?sort=uploaded&dir=asc')
     const byId = Object.fromEntries(body.items.map((i: { id: string }) => [i.id, i]))
-    expect(byId.a).toMatchObject({ documentType: 'protocol', documentTypeSource: 'document' })     // linked → real type
-    expect(byId.d).toMatchObject({ documentType: 'protocol', documentTypeSource: 'detected' })     // 86% → shown as detected
-    expect(byId.b).toMatchObject({ documentType: null, documentTypeSource: null })                 // 60% fallback guess → not shown
+    expect(byId.d).toMatchObject({ category: 'sap', categorySource: 'detected' })
+    expect(byId.b).toMatchObject({ category: 'lab_data', categorySource: 'detected' })
+    expect(byId.c).toMatchObject({ category: 'other', categorySource: 'detected' })
   })
 
   it('reports project-wide counts that ignore the active filter', async () => {
-    const { body } = await list('?state=linked')
+    const { body } = await list('?state=saved')
     expect(body.total).toBe(1)
-    expect(body.summary).toEqual({ files: 4, linked: 1, pending: 2, rejected: 1 })
+    expect(body.summary).toEqual({ files: 4, saved: 1, pending: 2, rejected: 1 })
   })
 
   it.each([
-    ['linked', ['a']], ['pending', ['b', 'd']], ['rejected', ['c']],
+    ['saved', ['a']], ['pending', ['b', 'd']], ['rejected', ['c']],
   ])('filters by state=%s', async (state, ids) => {
     const { body } = await list(`?state=${state}&sort=file&dir=asc`)
     expect(body.items.map((i: { id: string }) => i.id)).toEqual(ids)
   })
 
   it('searches title, filename and uploader, case-insensitively', async () => {
-    expect((await list('?q=VELORA')).body.items.map((i: { id: string }) => i.id)).toEqual(['a'])   // linked doc title
+    expect((await list('?q=VELORA')).body.items.map((i: { id: string }) => i.id)).toEqual(['a'])   // title / used-in document
     expect((await list('?q=LISTING')).body.items.map((i: { id: string }) => i.id)).toEqual(['b'])  // filename
     expect((await list('?q=okafor')).body.items.map((i: { id: string }) => i.id)).toEqual(['b'])   // uploader
     expect((await list('?q=nothing-matches')).body.total).toBe(0)

@@ -97,15 +97,15 @@ export function ClinicalWritingHome() {
   const [selectedType,   setSelectedType]  = useState<DocumentType | 'all'>('all')
   // Slider state — holds the id of the document being duplicated (null
   // for a plain new-doc flow). `null` with the panel open means fresh.
-  const [newDocOpen, setNewDocOpen] = useState<false | { duplicateSourceId: string | null }>(false)
+  const [newDocOpen, setNewDocOpen] = useState<false | { duplicateSourceId: string | null; sourceIds?: string[] }>(false)
   const [uploadOpen, setUploadOpen] = useState(false)
   // 'documents' = the stage-filtered document table; 'sources' = the project's
   // uploaded source-document library (tab next to "All Stages").
   const [view, setView] = useState<'documents' | 'sources'>('documents')
   const qc = useQueryClient()
-  // Set after "Confirm & create document" in the upload drawer: we stay on the
-  // Source Documents tab (no jump to the editor) and tell the user what happened.
-  const [justAdded, setJustAdded] = useState<{ documentId: string } | null>(null)
+  // Set after "Save to library" in the upload drawer: we stay on the Source Documents
+  // tab and offer to write a document from the file that was just saved.
+  const [justAdded, setJustAdded] = useState<{ uploadId: string } | null>(null)
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -133,7 +133,7 @@ export function ClinicalWritingHome() {
   const sourceCount = sourceSummary?.summary.files
 
   // Close the upload drawer and refresh the library: a file is stored as soon as
-  // it is uploaded, even if the user cancels before confirming the classification.
+  // it is uploaded, even if the user cancels before saving it to the library.
   const closeUpload = () => {
     setUploadOpen(false)
     void qc.invalidateQueries({ queryKey: ['source-documents', projectId] })
@@ -292,19 +292,23 @@ export function ClinicalWritingHome() {
           <div className="flex min-w-0 flex-1 flex-col gap-4">
             {justAdded && (
               <div className="flex items-center justify-between gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-[13px] text-green-900" role="status" data-upload-success>
-                <span>Source document uploaded and added to this list. A document was created from it.</span>
+                <span>Source document saved to the library.</span>
                 <span className="flex flex-none items-center gap-4">
                   <button
                     type="button"
-                    onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${justAdded.documentId}`)}
+                    onClick={() => { setNewDocOpen({ duplicateSourceId: null, sourceIds: [justAdded.uploadId] }); setJustAdded(null) }}
                     className="font-semibold underline"
-                    data-action="open-created-document"
-                  >Open document</button>
+                    data-action="create-from-saved-source"
+                  >Create document from it</button>
                   <button type="button" onClick={() => setJustAdded(null)} className="font-semibold underline" aria-label="Dismiss">Dismiss</button>
                 </span>
               </div>
             )}
-            <SourceDocumentsTab projectId={projectId} onUpload={() => setUploadOpen(true)} />
+            <SourceDocumentsTab
+              projectId={projectId}
+              onUpload={() => setUploadOpen(true)}
+              onCreateFromSource={uploadId => setNewDocOpen({ duplicateSourceId: null, sourceIds: [uploadId] })}
+            />
           </div>
         ) : (
           <>
@@ -499,6 +503,7 @@ export function ClinicalWritingHome() {
           <NewDocumentForm
             projectId={projectId}
             duplicateSourceId={newDocOpen.duplicateSourceId}
+            initialSourceIds={newDocOpen.sourceIds}
             onCancel={() => setNewDocOpen(false)}
             onCreated={id => {
               setNewDocOpen(false)
@@ -511,22 +516,19 @@ export function ClinicalWritingHome() {
       <SlidePanel
         open={uploadOpen}
         onClose={closeUpload}
-        title="Upload document"
+        title="Upload source document"
         subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
         storageKey="panel-width-upload-document"
       >
         {uploadOpen && projectId && (
           <UploadDocumentForm
             projectId={projectId}
-            projectTA={project?.therapeuticArea}
             onCancel={closeUpload}
-            onCreated={id => {
-              // Stay on the project's source-document list instead of jumping to the
-              // editor: the new row appears here as "Linked", with a link to its document.
+            onSaved={uploadId => {
+              // Stay on the project's source-document list: the new row appears here as "Saved".
               closeUpload()
               setView('sources')
-              setJustAdded({ documentId: id })
-              void qc.invalidateQueries({ queryKey: ['documents', projectId] })
+              setJustAdded({ uploadId })
             }}
           />
         )}

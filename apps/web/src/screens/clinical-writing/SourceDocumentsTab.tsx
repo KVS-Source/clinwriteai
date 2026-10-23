@@ -12,13 +12,14 @@ import {
   type SourceDocument,
 } from '../../api/documents'
 import { ApiError } from '../../api/client'
+import { sourceCategoryLabel } from '../../utils/sourceCategories'
 
 const PAGE_SIZES = [10, 25, 50, 100] as const
 type SortKey = SourceDocSort
 
 const STATE_STYLE: Record<SourceDocState, { label: string; bg: string; fg: string; hint: string }> = {
-  linked:   { label: 'Linked',   bg: '#F0FDF4', fg: '#166534', hint: 'Confirmed and turned into a document' },
-  pending:  { label: 'Pending',  bg: '#FFFBEB', fg: '#B45309', hint: 'Uploaded, classification not confirmed yet' },
+  saved:    { label: 'Saved',    bg: '#F0FDF4', fg: '#166534', hint: 'Saved to the project source library' },
+  pending:  { label: 'Pending',  bg: '#FFFBEB', fg: '#B45309', hint: 'Uploaded, not saved to the library yet' },
   rejected: { label: 'Rejected', bg: '#FEF2F2', fg: '#B91C1C', hint: 'Rejected' },
 }
 
@@ -26,15 +27,6 @@ const SCAN_STYLE: Record<string, { label: string; fg: string }> = {
   passed:  { label: 'Passed',  fg: '#166534' },
   pending: { label: 'Pending', fg: '#B45309' },
   failed:  { label: 'Failed',  fg: '#B91C1C' },
-}
-
-const ACRONYMS = new Set(['csr', 'ib', 'icf', 'dsur', 'sap', 'tlf', 'sae', 'ich', 'crf'])
-
-function typeLabel(t: string | null): string {
-  if (!t) return '—'
-  return t.replace(/[_-]+/g, ' ').split(' ')
-    .map(w => (ACRONYMS.has(w.toLowerCase()) ? w.toUpperCase() : w.charAt(0).toUpperCase() + w.slice(1)))
-    .join(' ')
 }
 
 function formatSize(bytes: number): string {
@@ -70,9 +62,11 @@ function Pill({ bg, fg, children, title }: { bg: string; fg: string; children: R
 interface Props {
   projectId: string
   onUpload: () => void
+  /** Open New Document with this source preselected */
+  onCreateFromSource: (uploadId: string) => void
 }
 
-export function SourceDocumentsTab({ projectId, onUpload }: Props) {
+export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: Props) {
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [q, setQ] = useState('')                     // debounced value actually sent
@@ -130,7 +124,7 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
 
   const items = data?.items ?? []
   const total = data?.total ?? 0
-  const summary = data?.summary ?? { files: 0, linked: 0, pending: 0, rejected: 0 }
+  const summary = data?.summary ?? { files: 0, saved: 0, pending: 0, rejected: 0 }
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
   const filtersDirty = q !== '' || state !== 'all'
 
@@ -164,14 +158,14 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
         <div>
           <h2 className="text-[18px] font-bold text-slate-900">Source documents</h2>
           <p className="mt-1 max-w-[640px] text-[13px] text-slate-500">
-            Every file uploaded to this project. Download the original, or open the document a source was turned into.
-            <span className="text-slate-400"> Files stay here after they are linked.</span>
+            Evidence for this project — protocols, SAPs, TLF outputs, lab exports and files from other systems.
+            <span className="text-slate-400"> Pick them under "Based on source documents" when you create a document.</span>
           </p>
         </div>
         <div className="flex flex-none items-stretch gap-6" data-source-counters>
-          <div className="text-right" title="Uploaded but not yet turned into a document">
+          <div className="text-right" title="Uploaded but not yet saved to the library">
             <p className="text-[26px] font-bold leading-none text-slate-900" data-count="unlinked">{summary.pending}</p>
-            <p className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Unlinked</p>
+            <p className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Pending</p>
           </div>
           <div className="w-px bg-slate-200" />
           <div className="text-right">
@@ -199,7 +193,7 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
             className="h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-900"
           >
             <option value="all">All states</option>
-            <option value="linked">Linked</option>
+            <option value="saved">Saved</option>
             <option value="pending">Pending</option>
             <option value="rejected">Rejected</option>
           </select>
@@ -209,7 +203,7 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
               type="text"
               value={search}
               onChange={e => setSearch(e.currentTarget.value)}
-              placeholder="Search file name, title, uploader…"
+              placeholder="Search title, file, origin, uploader…"
               aria-label="Search source documents"
               data-filter="search"
               className="w-full border-none bg-transparent text-[13px] text-slate-900 outline-none placeholder:text-slate-400"
@@ -236,12 +230,12 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
           <table className="w-full min-w-[980px] text-[13px]" style={{ opacity: isFetching && !isLoading ? 0.7 : 1 }}>
             <thead style={{ backgroundColor: '#F8FAFC' }}>
               <tr className="border-b border-slate-200">
-                {th('Document title', 'title')}
+                {th('Title', 'title')}
                 {th('File', 'file')}
-                {th('Type', 'type')}
+                {th('Category', 'category')}
                 {th('State', 'state')}
                 {th('Scan')}
-                {th('Linked document')}
+                {th('Used in')}
                 {th('Uploaded', 'uploaded')}
                 {th('Quick actions', undefined, 'w-[1%] whitespace-nowrap text-right')}
               </tr>
@@ -255,6 +249,7 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
                   missing={missingIds.has(r.id)}
                   onDownload={() => void handleDownload(r)}
                   onOpenDoc={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
+                  onCreate={() => onCreateFromSource(r.id)}
                 />
               ))}
               {isLoading && (
@@ -271,7 +266,7 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
                   {summary.files === 0 ? (
                     <>
                       <p className="text-[14px] font-semibold text-slate-900">No source documents yet</p>
-                      <p className="mt-1 text-[13px] text-slate-500">Upload a protocol, SAP, listing or scan and it will be kept here for the whole project.</p>
+                      <p className="mt-1 text-[13px] text-slate-500">Upload a protocol, SAP, listing or export and it will be kept here for the whole project.</p>
                       <button type="button" onClick={onUpload} className="mt-3 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700">Upload source document</button>
                     </>
                   ) : (
@@ -311,13 +306,13 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
 
 // The "⋯" menu. Rendered with fixed positioning because the table scrolls horizontally
 // (overflow-x clips an absolutely positioned menu on the last rows).
-function RowMenu({ label, canOpen, canDownload, downloadHint, busy, onOpen, onDownload }: {
+function RowMenu({ label, canCreate, canDownload, downloadHint, busy, onCreate, onDownload }: {
   label: string
-  canOpen: boolean
+  canCreate: boolean
   canDownload: boolean
   downloadHint?: string
   busy: boolean
-  onOpen: () => void
+  onCreate: () => void
   onDownload: () => void
 }) {
   const [open, setOpen] = useState(false)
@@ -396,7 +391,7 @@ function RowMenu({ label, canOpen, canDownload, downloadHint, busy, onOpen, onDo
           className="fixed z-50 w-56 rounded-md border border-slate-200 bg-white py-1 text-left shadow-lg"
           style={{ top: pos?.top ?? -9999, right: pos?.right ?? 0, visibility: pos ? 'visible' : 'hidden' }}
         >
-          {item('Open linked document', { onClick: onOpen, disabled: !canOpen, title: canOpen ? undefined : 'Not linked to a document yet', action: 'open-linked' })}
+          {item('Create document from this source', { onClick: onCreate, disabled: !canCreate, title: canCreate ? undefined : 'Save the source to the library first', action: 'create-from-source' })}
           {item(busy ? 'Downloading…' : 'Download', { onClick: onDownload, disabled: !canDownload, title: downloadHint, action: 'download' })}
           <div className="my-1 border-t border-slate-100" />
           {item(<>Archive {soon}</>, { disabled: true, title: 'Archive endpoint pending (Phase 2).' })}
@@ -407,67 +402,68 @@ function RowMenu({ label, canOpen, canDownload, downloadHint, busy, onOpen, onDo
   )
 }
 
-function Row({ r, busy, missing, onDownload, onOpenDoc }: { r: SourceDocument; busy: boolean; missing: boolean; onDownload: () => void; onOpenDoc: (documentId: string) => void }) {
+function Row({ r, busy, missing, onDownload, onOpenDoc, onCreate }: { r: SourceDocument; busy: boolean; missing: boolean; onDownload: () => void; onOpenDoc: (documentId: string) => void; onCreate: () => void }) {
   const st = STATE_STYLE[r.state]
   const scan = SCAN_STYLE[r.virusScanStatus] ?? { label: r.virusScanStatus, fg: '#475569' }
   const blocked = r.virusScanStatus === 'failed'
   const who = r.uploadedBy.name ?? r.uploadedBy.email ?? r.uploadedBy.id
+  const canCreate = r.state === 'saved' && !blocked
   return (
     <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60" data-source-row={r.id}>
       <td className="max-w-[260px] px-4 py-3 align-top">
         <p className="truncate font-semibold text-slate-900" title={r.title}>{r.title}</p>
+        {r.origin && <p className="mt-0.5 truncate text-[11px] text-slate-500" title={r.origin}>{r.origin}</p>}
       </td>
       <td className="max-w-[260px] px-4 py-3 align-top">
         <p className="truncate font-mono text-[12px] text-slate-700" title={r.fileName}>{r.fileName}</p>
         <p className="mt-0.5 text-[11px] text-slate-400">{formatSize(r.fileSizeBytes)}</p>
       </td>
       <td className="px-4 py-3 align-top">
-        {r.documentType ? (
-          <>
-            <span className="text-slate-700">{typeLabel(r.documentType)}</span>
-            {r.documentTypeSource === 'detected' && (
-              <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400" title="Guessed from the file name — confirm when you create the document">auto</span>
-            )}
-          </>
-        ) : (
-          <span className="text-slate-400" title="Not classified yet">Unclassified</span>
+        <span className="text-slate-700">{sourceCategoryLabel(r.category)}</span>
+        {r.categorySource === 'detected' && (
+          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400" title="Guessed from the file name">auto</span>
         )}
       </td>
       <td className="px-4 py-3 align-top"><Pill bg={st.bg} fg={st.fg} title={st.hint}>{st.label}</Pill></td>
       <td className="px-4 py-3 align-top"><span className="text-[12px] font-semibold" style={{ color: scan.fg }}>{scan.label}</span></td>
-      <td className="max-w-[220px] px-4 py-3 align-top">
-        {r.documentId ? (
-          <button type="button" onClick={() => onOpenDoc(r.documentId!)} className="truncate text-left text-[13px] font-semibold text-blue-600 hover:text-blue-700 hover:underline" title={r.documentTitle ?? r.documentId}>
-            {r.documentTitle ?? r.documentId}
-          </button>
-        ) : <span className="text-slate-400">—</span>}
+      <td className="max-w-[220px] px-4 py-3 align-top" data-used-in>
+        {r.usedIn.length === 0 ? <span className="text-slate-400">—</span> : (
+          <div className="flex flex-col gap-0.5">
+            {r.usedIn.slice(0, 2).map(d => (
+              <button key={d.id} type="button" onClick={() => onOpenDoc(d.id)} className="truncate text-left text-[13px] font-semibold text-blue-600 hover:text-blue-700 hover:underline" title={d.title}>
+                {d.title}
+              </button>
+            ))}
+            {r.usedIn.length > 2 && <span className="text-[11px] text-slate-500">+{r.usedIn.length - 2} more</span>}
+          </div>
+        )}
       </td>
       <td className="px-4 py-3 align-top whitespace-nowrap">
         <p className="text-slate-900">{formatUploaded(r.uploadedAt)}</p>
         <p className="mt-0.5 max-w-[200px] truncate text-[11px] text-slate-500" title={r.uploadedBy.email ?? undefined}>{who}</p>
       </td>
-      {/* Quick actions — same pattern as the document list: primary "Open" + "⋯" menu */}
+      {/* Quick actions — primary "Create document" + "⋯" menu */}
       <td className="px-4 py-3 align-top">
         <div className="flex items-center justify-end gap-2" data-quick-actions>
           {blocked && <span className="text-[11px] font-semibold text-red-700" title="Failed the virus scan">Blocked</span>}
           {!blocked && missing && <span className="text-[11px] font-semibold text-amber-700" title="The stored file could not be found">File missing</span>}
           <button
             type="button"
-            onClick={() => r.documentId && onOpenDoc(r.documentId)}
-            disabled={!r.documentId}
-            title={r.documentId ? `Open ${r.documentTitle ?? 'the linked document'}` : 'Not linked to a document yet'}
+            onClick={onCreate}
+            disabled={!canCreate}
+            title={canCreate ? 'Write a new document from this source' : 'Save the source to the library first'}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-900 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-white"
-            data-action="open"
+            data-action="create-document"
           >
-            Open
+            Create document
           </button>
           <RowMenu
             label={r.fileName}
-            canOpen={!!r.documentId}
+            canCreate={canCreate}
             canDownload={!blocked && !missing && !busy}
             downloadHint={blocked ? 'Failed the virus scan — cannot be downloaded.' : missing ? 'The stored file could not be found.' : undefined}
             busy={busy}
-            onOpen={() => r.documentId && onOpenDoc(r.documentId)}
+            onCreate={onCreate}
             onDownload={onDownload}
           />
         </div>

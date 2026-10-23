@@ -4,10 +4,11 @@
 //   GET /projects/:projectId/source-documents/:uploadId/download  the original file
 //
 // "Source documents" are the files uploaded through "Upload source document"
-// (document_uploads rows + the bytes in the 'documents' bucket). Until now they
-// were stored but could not be listed or opened. A source document is:
-//   - linked    → it was confirmed and became a Document (documentId set)
-//   - pending   → uploaded but classification not confirmed yet
+// (document_uploads rows + the bytes in the 'documents' bucket). They are evidence,
+// not authored documents; the documents written from them are in document_sources.
+// A source document is:
+//   - saved     → saved to the library (category / title set)
+//   - pending   → uploaded but not saved to the library yet
 //   - rejected  → explicitly rejected
 //
 // Filtering / sorting / paging happen in memory: a project holds tens to low
@@ -17,13 +18,14 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { suggestSourceCategory } from './source-categories.js'
 
-const SORT_KEYS = ['title', 'file', 'type', 'state', 'size', 'uploaded'] as const
+const SORT_KEYS = ['title', 'file', 'category', 'state', 'size', 'uploaded'] as const
 type SortKey = (typeof SORT_KEYS)[number]
 
 const listQuery = z.object({
   q: z.string().trim().max(200).optional(),
-  state: z.enum(['all', 'linked', 'pending', 'rejected']).default('all'),
+  state: z.enum(['all', 'saved', 'pending', 'rejected']).default('all'),
   sort: z.enum(SORT_KEYS).default('uploaded'),
   dir: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
@@ -42,31 +44,24 @@ type UploadRow = {
   classification: unknown
   status: string
   documentId: string | null
+  title: string | null
+  sourceCategory: string | null
+  origin: string | null
+  version: string | null
   createdAt: Date
 }
 
-export type SourceState = 'linked' | 'pending' | 'rejected'
+export type SourceState = 'saved' | 'pending' | 'rejected'
 
-function stateOf(row: Pick<UploadRow, 'status' | 'documentId'>): SourceState {
+function stateOf(row: Pick<UploadRow, 'status'>): SourceState {
   if (row.status === 'rejected') return 'rejected'
-  if (row.status === 'confirmed' && row.documentId) return 'linked'
+  if (row.status === 'confirmed') return 'saved'
   return 'pending'
 }
 
 function stripExt(name: string): string {
   const dot = name.lastIndexOf('.')
   return dot > 0 ? name.slice(0, dot) : name
-}
-
-// The upload classifier guesses from the file name and falls back to "protocol" at low
-// confidence when it can't tell. Surface a guess only when it was reasonably sure, so a
-// listing or a scan isn't presented as a Protocol.
-const MIN_DETECTION_CONFIDENCE = 70
-
-function detectedType(classification: unknown): string | null {
-  const c = classification as { documentType?: unknown; typeConfidence?: unknown } | null
-  if (typeof c?.documentType !== 'string') return null
-  return typeof c.typeConfidence === 'number' && c.typeConfidence >= MIN_DETECTION_CONFIDENCE ? c.documentType : null
 }
 
 // Only formats the browser can render safely inside the viewer panel. Deliberately no SVG/HTML
@@ -102,33 +97,46 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
       take: 5000,
     })) as UploadRow[]
 
-    // Names for the linked documents and the uploaders, fetched in two batched reads.
-    const docIds = [...new Set(rows.map(r => r.documentId).filter((x): x is string => !!x))]
+    // Documents each source is used in (document_sources) and the uploaders' names,
+    // fetched as batched reads.
+    const uploadIds = rows.map(r => r.id)
     const userIds = [...new Set(rows.map(r => r.uploadedBy))]
+    const links = uploadIds.length
+      ? await app.prisma.documentSource.findMany({ where: { uploadId: { in: uploadIds } }, orderBy: { createdAt: 'asc' } })
+      : []
+    const docIds = [...new Set(links.map(l => l.documentId))]
     const [docs, users] = await Promise.all([
-      docIds.length ? app.prisma.document.findMany({ where: { id: { in: docIds } }, select: { id: true, title: true, type: true } }) : Promise.resolve([]),
+      docIds.length ? app.prisma.document.findMany({ where: { id: { in: docIds }, deletedAt: null }, select: { id: true, title: true } }) : Promise.resolve([]),
       userIds.length ? app.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true, email: true } }) : Promise.resolve([]),
     ])
     const docById = new Map(docs.map(d => [d.id, d]))
     const userById = new Map(users.map(u => [u.id, u]))
+    const usedInByUpload = new Map<string, Array<{ id: string; title: string }>>()
+    for (const l of links) {
+      const d = docById.get(l.documentId)
+      if (!d) continue
+      usedInByUpload.set(l.uploadId, [...(usedInByUpload.get(l.uploadId) ?? []), { id: d.id, title: d.title }])
+    }
 
     const all = rows.map(r => {
-      const doc = r.documentId ? docById.get(r.documentId) : undefined
       const uploader = userById.get(r.uploadedBy)
+      // Rows saved before categories existed fall back to a filename guess (never to a real
+      // category it can't justify — see suggestSourceCategory).
+      const guess = r.sourceCategory ? null : suggestSourceCategory(r.fileName)
       return {
         id: r.id,
-        title: doc?.title ?? stripExt(r.fileName),
+        title: r.title ?? stripExt(r.fileName),
         fileName: r.fileName,
         fileSizeBytes: r.fileSizeBytes,
         contentType: r.contentType,
         previewable: isPreviewable(r.contentType),
-        // Linked: the real document's type. Otherwise the classifier's guess (if confident).
-        documentType: (doc?.type as string | undefined) ?? detectedType(r.classification),
-        documentTypeSource: doc?.type ? ('document' as const) : detectedType(r.classification) ? ('detected' as const) : null,
+        category: r.sourceCategory ?? guess!.category,
+        categorySource: r.sourceCategory ? ('set' as const) : ('detected' as const),
+        origin: r.origin,
+        version: r.version,
         state: stateOf(r),
         virusScanStatus: r.virusScanStatus,
-        documentId: r.documentId,
-        documentTitle: doc?.title ?? null,
+        usedIn: usedInByUpload.get(r.id) ?? [],
         uploadedBy: { id: r.uploadedBy, name: uploader?.name ?? null, email: uploader?.email ?? null },
         uploadedAt: r.createdAt.toISOString(),
       }
@@ -136,7 +144,7 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
 
     const summary = {
       files: all.length,
-      linked: all.filter(r => r.state === 'linked').length,
+      saved: all.filter(r => r.state === 'saved').length,
       pending: all.filter(r => r.state === 'pending').length,
       rejected: all.filter(r => r.state === 'rejected').length,
     }
@@ -144,14 +152,14 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     const needle = q?.toLowerCase()
     const filtered = all.filter(r =>
       (state === 'all' || r.state === state) &&
-      (!needle || [r.title, r.fileName, r.documentTitle ?? '', r.uploadedBy.name ?? '', r.uploadedBy.email ?? '']
+      (!needle || [r.title, r.fileName, r.origin ?? '', r.category, ...r.usedIn.map(d => d.title), r.uploadedBy.name ?? '', r.uploadedBy.email ?? '']
         .some(s => s.toLowerCase().includes(needle))),
     )
 
     const key: Record<SortKey, (r: (typeof all)[number]) => string | number> = {
       title: r => r.title,
       file: r => r.fileName,
-      type: r => r.documentType ?? '',
+      category: r => r.category,
       state: r => r.state,
       size: r => r.fileSizeBytes,
       uploaded: r => new Date(r.uploadedAt).getTime(),

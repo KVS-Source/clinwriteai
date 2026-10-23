@@ -155,6 +155,22 @@ model SourceReference {
 }
 
 // --------------------------------------------------------------------------
+// 4.4c document_sources — which uploaded source documents a document is based on.
+// Many-to-many; span-level citations stay in source_references.
+// --------------------------------------------------------------------------
+
+model DocumentSource {
+  documentId  String
+  uploadId    String
+  linkedBy    String
+  createdAt   DateTime @default(now())
+
+  @@id([documentId, uploadId])
+  @@map("document_sources")
+  @@index([uploadId])
+}
+
+// --------------------------------------------------------------------------
 // 4.5 version_restore_jobs — async restore workflow
 // --------------------------------------------------------------------------
 
@@ -286,6 +302,10 @@ model DocumentUpload {
   status               String   @default("pending_classification")      // pending_classification | confirmed | rejected
   documentId           String?                                          // set once /confirm-classification creates the Document
   rejectionReason      String?
+  title                String?                                          // library title; defaults to the file name
+  sourceCategory       String?                                          // protocol | sap | tlf | … | other (source-categories.ts)
+  origin               String?                                          // free text: system / party it came from
+  version              String?
   createdAt            DateTime @default(now())
   updatedAt            DateTime @updatedAt
 

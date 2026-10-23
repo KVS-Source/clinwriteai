@@ -37,6 +37,8 @@ const createSchema = z.object({
   assigneeId: z.string().min(1),
   templateId: z.string().optional(),
   targetCompletionDate: z.string().datetime().optional(),
+  // Source documents (uploads in this project) the document is written from.
+  sourceUploadIds: z.array(z.string().min(1)).max(100).optional(),
 })
 
 const sectionUpdateSchema = z.object({
@@ -174,6 +176,20 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       therapeuticArea = canonical
     }
 
+    // Sources must be this project's own, saved to the library and usable.
+    const sourceUploadIds = [...new Set(parsed.data.sourceUploadIds ?? [])]
+    if (sourceUploadIds.length) {
+      const found = await app.prisma.documentUpload.findMany({ where: { id: { in: sourceUploadIds }, projectId } })
+      const byId = new Map(found.map(u => [u.id, u]))
+      const bad = sourceUploadIds.find(id => {
+        const u = byId.get(id)
+        return !u || u.status !== 'confirmed' || u.virusScanStatus === 'failed'
+      })
+      if (bad) {
+        return reply.code(422).send({ error: 'source_unusable', uploadId: bad, message: 'A selected source document is not in this project, not saved to the library, or failed the virus scan.' })
+      }
+    }
+
     const { document, version } = await svc.create({
       projectId,
       type: parsed.data.type,
@@ -188,13 +204,20 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       targetCompletionDate: parsed.data.targetCompletionDate ? new Date(parsed.data.targetCompletionDate) : undefined,
     })
 
+    if (sourceUploadIds.length) {
+      await app.prisma.documentSource.createMany({
+        data: sourceUploadIds.map(uploadId => ({ documentId: document.id, uploadId, linkedBy: request.user!.id })),
+        skipDuplicates: true,
+      })
+    }
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'document_created',
       entityType: 'document',
       entityId: document.id,
-      details: { projectId, type: document.type, title: document.title, initialVersion: version.versionNumber },
+      details: { projectId, type: document.type, title: document.title, initialVersion: version.versionNumber, sourceUploadIds },
       ipAddress: request.ip ?? null,
     })
 

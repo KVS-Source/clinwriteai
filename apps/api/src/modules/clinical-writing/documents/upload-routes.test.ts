@@ -62,3 +62,22 @@ describe('classifyByFilename', () => {
     expect(classifyByFilename('whatever.pdf').stub).toBe(true)
   })
 })
+
+import { suggestSourceCategory } from './source-categories.js'
+
+describe('suggestSourceCategory', () => {
+  it.each([
+    ['01_Protocol_Synopsis_VELORA-301.pdf', 'protocol'],
+    ['02_Statistical_Analysis_Plan_VELORA-301.pdf', 'sap'],
+    ['SAP_v2_for_Protocol_X.docx', 'sap'],
+    ['07_TLF_Table_14.3.1_TEAE_Summary.csv', 'tlf'],
+    ['investigator-brochure-2024.pdf', 'ib'],
+    ['lab-listing-wk26.xlsx', 'lab_data'],
+  ])('%s → %s', (name, category) => {
+    expect(suggestSourceCategory(name).category).toBe(category)
+  })
+
+  it('falls back to other with zero confidence instead of guessing protocol', () => {
+    expect(suggestSourceCategory('random-export.pdf')).toEqual({ category: 'other', confidence: 0 })
+  })
+})

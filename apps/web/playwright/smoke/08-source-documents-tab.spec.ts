@@ -36,7 +36,7 @@ test('tab sits right after "All Stages" and opens the library', async ({ page })
   await expect(page.getByRole('heading', { name: 'Source documents' })).toBeVisible()
   await expect(page.locator('[data-count="files"]')).toBeVisible()
   await expect(page.locator('[data-count="unlinked"]')).toBeVisible()
-  for (const col of ['Document title', 'File', 'Type', 'State', 'Scan', 'Linked document', 'Uploaded', 'Quick actions']) {
+  for (const col of ['Title', 'File', 'Category', 'State', 'Scan', 'Used in', 'Uploaded', 'Quick actions']) {
     await expect(page.getByRole('columnheader', { name: new RegExp(col, 'i') })).toBeVisible()
   }
   // Quick actions is the last column, right after Uploaded
@@ -45,15 +45,15 @@ test('tab sits right after "All Stages" and opens the library', async ({ page })
   expect(headers.at(-2)?.trim().toLowerCase()).toBe('uploaded')
 })
 
-test('each row has an Open button and a "⋯" menu, like the document list', async ({ page }) => {
+test('each row has a Create document button and a "⋯" menu', async ({ page }) => {
   await openTab(page)
   test.skip((await rows(page).count()) === 0, 'project has no source documents')
   const row = rows(page).first()
-  await expect(row.locator('[data-action="open"]')).toBeVisible()
+  await expect(row.locator('[data-action="create-document"]')).toBeVisible()
   await row.locator('[data-action="more"]').click()
   const menu = page.locator('[data-row-menu]')
   await expect(menu).toBeVisible()
-  await expect(menu.getByRole('menuitem', { name: 'Open linked document' })).toBeVisible()
+  await expect(menu.getByRole('menuitem', { name: 'Create document from this source' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: 'Download' })).toBeVisible()
   await expect(menu.getByRole('menuitem', { name: /^Archive/ })).toBeDisabled()
   await expect(menu.getByRole('menuitem', { name: /^Delete/ })).toBeDisabled()
@@ -61,22 +61,23 @@ test('each row has an Open button and a "⋯" menu, like the document list', asy
   await expect(menu).toHaveCount(0)
 })
 
-test('Open is enabled only for linked files and goes to the linked document', async ({ page }) => {
+test('Create document is enabled only for saved files and opens New Document with the source preselected', async ({ page }) => {
   await openTab(page)
   const all = rows(page)
   const n = await all.count()
   test.skip(n === 0, 'project has no source documents')
   for (let i = 0; i < n; i++) {
     const row = all.nth(i)
-    const linked = (await row.locator('td:nth-child(4)').innerText()).trim() === 'Linked'
-    const open = row.locator('[data-action="open"]')
-    if (linked) await expect(open).toBeEnabled()
-    else { await expect(open).toBeDisabled(); await expect(open).toHaveAttribute('title', /Not linked/) }
+    const saved = (await row.locator('td:nth-child(4)').innerText()).trim() === 'Saved'
+    const create = row.locator('[data-action="create-document"]')
+    if (saved) await expect(create).toBeEnabled()
+    else { await expect(create).toBeDisabled(); await expect(create).toHaveAttribute('title', /Save the source/) }
   }
-  const linkedRow = all.filter({ has: page.locator('[data-action="open"]:not([disabled])') }).first()
-  test.skip(await linkedRow.count() === 0, 'no linked source document')
-  await linkedRow.locator('[data-action="open"]').click()
-  await expect(page).toHaveURL(/\/clinical-writing\/documents\//, { timeout: 30_000 })
+  const savedRow = all.filter({ has: page.locator('[data-action="create-document"]:not([disabled])') }).first()
+  test.skip(await savedRow.count() === 0, 'no saved source document')
+  await savedRow.locator('[data-action="create-document"]').click()
+  await expect(page.locator('[data-form="new-document"]')).toBeVisible({ timeout: 30_000 })
+  await expect(page.locator('[data-section="source-picker"] input[type="checkbox"]:checked')).toHaveCount(1)
 })
 
 test('the menu is not clipped on the last row and closes on outside click', async ({ page }) => {
@@ -174,25 +175,25 @@ test('Download delivers the stored file, or clearly explains why it cannot', asy
   if (explained > 0) await expect(page.locator('[data-source-row]', { hasText: 'File missing' }).first()).toBeVisible()
 })
 
-test('after uploading a source document you stay on the Source Documents tab (no redirect to the editor)', async ({ page }) => {
+test('uploading a source document saves it to the library without creating a document', async ({ page }) => {
   // The upload (XHR) and confirm (fetch) calls are answered inside the page, so this exercises
   // the UI flow WITHOUT writing to the database or storage. Done in-page because the app's mock
   // service worker would bypass page.route(), and blocking it stops the app from booting.
   await page.addInitScript(() => {
-    const w = window as unknown as { __hits: { upload: number; confirm: number } }
-    w.__hits = { upload: 0, confirm: 0 }
+    const w = window as unknown as { __hits: { upload: number; save: number; confirm: number } }
+    w.__hits = { upload: 0, save: 0, confirm: 0 }
     const classification = {
-      documentType: 'protocol', typeConfidence: 90, studyTitle: 'E2E Protocol', studyConfidence: 90,
-      version: 'v1.0', versionConfidence: 90, therapeuticArea: 'Oncology', taConfidence: 90, frameworks: ['ICH E6(R3)'], stub: false,
+      sourceCategory: 'protocol', sourceCategoryConfidence: 90, version: 'v1.0', versionConfidence: 90, stub: false,
     }
     const upload = { uploadId: 'e2e-upload-1', fileName: 'e2e-protocol-v1.pdf', fileSizeMB: 0.01, virusScanStatus: 'passed', classification }
 
     const realFetch = window.fetch.bind(window)
     window.fetch = (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
-      if (/\/projects\/[^/]+\/documents\/confirm-classification/.test(url)) {
-        w.__hits.confirm++
-        return Promise.resolve(new Response(JSON.stringify({ id: 'DOC-E2E-MOCK', title: 'E2E Protocol' }), { status: 201, headers: { 'Content-Type': 'application/json' } }))
+      if (/\/projects\/[^/]+\/documents\/confirm-classification/.test(url)) w.__hits.confirm++
+      if (/\/projects\/[^/]+\/source-documents\/[^/]+\/save/.test(url)) {
+        w.__hits.save++
+        return Promise.resolve(new Response(JSON.stringify({ id: 'e2e-upload-1', title: 'E2E Protocol', category: 'protocol' }), { status: 200, headers: { 'Content-Type': 'application/json' } }))
       }
       return realFetch(input, init)
     }
@@ -217,7 +218,7 @@ test('after uploading a source document you stay on the Source Documents tab (no
       return send.call(this, body)
     }
   })
-  const hits = () => page.evaluate(() => (window as unknown as { __hits: { upload: number; confirm: number } }).__hits)
+  const hits = () => page.evaluate(() => (window as unknown as { __hits: { upload: number; save: number; confirm: number } }).__hits)
 
   await openTab(page)
   const tabUrl = page.url()
@@ -229,30 +230,26 @@ test('after uploading a source document you stay on the Source Documents tab (no
   // Safety: the upload was answered by the in-page mock, never by the real API.
   expect((await hits()).upload).toBe(1)
 
-  // fill everything the review form requires, whatever it prefilled
+  // the review form is a library form: category + title, no assignee / TA / output type
   const review = page.locator('[data-form="upload-document-review"]')
-  const text = review.locator('input:not([type="radio"])')
-  await text.nth(0).fill('E2E Protocol')       // study title
-  await text.nth(1).fill('v1.0')               // version
-  const ta = page.locator('[data-ta-select]')
-  if (!(await ta.inputValue())) await ta.selectOption({ index: 1 })
-  const assignee = review.locator('select').last()
-  await expect(assignee.locator('option')).not.toHaveCount(1, { timeout: 30_000 })   // owners loaded
-  await assignee.selectOption({ index: 1 })
+  await expect(review.locator('[data-source-category]')).toHaveValue('protocol')
+  await expect(review.locator('input[type="radio"]')).toHaveCount(0)
+  await expect(review.locator('[data-ta-select]')).toHaveCount(0)
+  await review.locator('input').first().fill('E2E Protocol')   // title
   // Submit with Enter: in dev builds the "MSW: n groups" badge floats over this button and
   // swallows the click (it isn't in production builds). The button must still be enabled.
-  await expect(page.getByRole('button', { name: /Confirm & create document/ })).toBeEnabled()
-  await text.nth(1).press('Enter')
+  await expect(page.getByRole('button', { name: 'Save to library' })).toBeEnabled()
+  await review.locator('input').first().press('Enter')
 
-  // drawer closes, success notice shows, and we are STILL on the project's Clinical Writing
-  // page with the Source Documents tab selected — not on /documents/DOC-E2E-MOCK
+  // drawer closes, notice shows, and we are STILL on the Source Documents tab
   await expect(page.locator('[data-upload-success]')).toBeVisible({ timeout: 30_000 })
   await expect(page.locator('[data-form="upload-document-review"]')).toHaveCount(0)
   await expect(page.locator('[data-screen="source-documents"]')).toBeVisible()
   expect(page.url()).toBe(tabUrl)
-  expect(page.url()).not.toContain('/documents/')
-  expect((await hits()).confirm).toBe(1)
+  const h = await hits()
+  expect(h.save).toBe(1)
+  expect(h.confirm).toBe(0)   // no Document is created by an upload
 
-  // the notice offers (but does not force) a way to the editor
-  await expect(page.locator('[data-action="open-created-document"]')).toBeVisible()
+  // the notice offers (but does not force) writing a document from the file
+  await expect(page.locator('[data-action="create-from-saved-source"]')).toBeVisible()
 })

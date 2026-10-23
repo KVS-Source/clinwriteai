@@ -1,76 +1,43 @@
-// Upload Document form — rendered inside a SlidePanel from
-// ClinicalWritingHome. Three progressive states:
-//   1. dropzone        — before any file is selected
-//   2. uploading       — bytes transferring + classifier running
-//   3. review          — classifier result shown; user can override + confirm
+// Upload source document form — rendered inside a SlidePanel from
+// ClinicalWritingHome. A source document is evidence (protocol, SAP, TLF, lab
+// export, anything from another system), NOT an authored document: this flow
+// only stores the file in the project's source library. Documents are written
+// from sources later, via New Document → "Based on source documents".
 //
-// API: POST /projects/:id/documents/upload           (multipart)
-//      POST /projects/:id/documents/confirm-classification
-// Both already exist in apps/api/src/modules/clinical-writing/documents/upload-routes.ts.
+// Three progressive states:
+//   1. dropzone  — before any file is selected
+//   2. uploading — bytes transferring + category suggestion running
+//   3. review    — suggestion shown; user can edit and "Save to library"
 //
-// The classifier is a filename-heuristic stub in dev (`stub: true`); the
+// API: POST /projects/:id/documents/upload                  (multipart)
+//      POST /projects/:id/source-documents/:uploadId/save
+//
+// The category suggestion is a filename heuristic in dev (`stub: true`); the
 // panel surfaces that so reviewers know to double-check the fields.
 
-import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { SOURCE_FILE_ACCEPT, SOURCE_FILE_ERROR, SOURCE_FILE_EXT_RE, SOURCE_FILE_HINT } from '../../utils/sourceFileTypes'
-import { useMemo, useRef, useState } from 'react'
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { DocumentType, PlatformUser } from '@platform/types'
+import { SOURCE_CATEGORIES } from '../../utils/sourceCategories'
+import { useRef, useState } from 'react'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { documentsApi } from '../../api'
 import { ApiError } from '../../api/client'
-import { platformApi } from '../../platform/api/platformApi'
-import { useTaLabels } from '../../hooks'
 
 interface Props {
   projectId:   string
-  projectTA?:  string
-  onCreated?:  (documentId: string) => void
+  onSaved?:    (uploadId: string) => void
   onCancel?:   () => void
 }
-
-// Classifier returns snake_case; the UI radio + Document.type use hyphenated.
-// Keep both maps so we can round-trip without losing meaning.
-const CLASSIFIER_TO_UI: Record<string, DocumentType> = {
-  'csr_full':             'csr-full',
-  'csr_synopsis':         'csr-synopsis',
-  'protocol':             'protocol',
-  'protocol_amendment':   'protocol-amendment',
-  'ib':                   'ib',
-  'icf':                  'icf',
-  'safety_narrative':     'safety-narrative',
-  'dsur':                 'dsur',
-  'end_of_study_summary': 'end-of-study-summary',
-  'patient_narrative':    'patient-narrative',
-}
-
-const DOC_TYPE_OPTIONS: { value: DocumentType; label: string }[] = [
-  { value: 'csr-full',             label: 'CSR (Full)' },
-  { value: 'csr-synopsis',         label: 'CSR Synopsis' },
-  { value: 'protocol',             label: 'Protocol' },
-  { value: 'protocol-amendment',   label: 'Protocol Amendment' },
-  { value: 'ib',                   label: "Investigator's Brochure" },
-  { value: 'icf',                  label: 'Informed Consent Form' },
-  { value: 'safety-narrative',     label: 'Safety Narrative' },
-  { value: 'dsur',                 label: 'DSUR' },
-  { value: 'end-of-study-summary', label: 'End of Study Summary' },
-  { value: 'patient-narrative',    label: 'Patient Narrative' },
-]
 
 const MAX_BYTES = 50 * 1024 * 1024
 const ACCEPT_MIME = SOURCE_FILE_ACCEPT
 const ACCEPT_EXT_RE = SOURCE_FILE_EXT_RE
 
 interface Classification {
-  documentType:       string
-  typeConfidence:     number
-  studyTitle:         string
-  studyConfidence:    number
-  version:            string
-  versionConfidence:  number
-  therapeuticArea:    string
-  taConfidence:       number
-  frameworks:         string[]
-  stub:               boolean
+  sourceCategory:           string
+  sourceCategoryConfidence: number
+  version:                  string
+  versionConfidence:        number
+  stub:                     boolean
 }
 
 interface UploadResponse {
@@ -87,7 +54,7 @@ function confidenceColour(pct: number) {
   return { bg: '#FEE2E2', fg: '#991B1B' }
 }
 
-export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }: Props) {
+export function UploadDocumentForm({ projectId, onSaved, onCancel }: Props) {
   const qc = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
 
@@ -98,34 +65,11 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
   const [isDragging,setIsDragging]= useState(false)
 
   // Review-state form fields. Initialised when upload resolves.
-  const [docType,   setDocType]   = useState<DocumentType>('protocol')
+  const [category,  setCategory]  = useState('other')
   const [title,     setTitle]     = useState('')
+  const [origin,    setOrigin]    = useState('')
   const [version,   setVersion]   = useState('')
-  const [ta,        setTa]        = useState('')
-
-  // Master-list TAs, plus the project's own TA (always allowed to inherit,
-  // even if it predates the list) and whatever the classifier suggested.
-  const { labels: taLabels } = useTaLabels()
-  const taOptions = useMemo(() => {
-    const out = [...taLabels]
-    for (const extra of [projectTA, ta]) {
-      if (extra && !out.some(l => l.toLowerCase() === extra.toLowerCase())) out.push(extra)
-    }
-    return out
-  }, [taLabels, projectTA, ta])
-  const [assignee,  setAssignee]  = useState('')
   const [touched,   setTouched]   = useState<Set<string>>(new Set())
-
-  const { data: users = [] } = useQuery<PlatformUser[]>({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
-    enabled:  !!upload,
-  })
-
-  const assigneeOptions = useMemo(
-    () => users.filter(u => ['clinical-writer', 'scientific-writer', 'medical-writer', 'regulatory-writer', 'admin'].includes(u.role)),
-    [users],
-  )
 
   const markTouched = (field: string) => setTouched(s => (s.has(field) ? s : new Set(s).add(field)))
 
@@ -155,13 +99,13 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
         try {
           const resp = JSON.parse(xhr.responseText) as UploadResponse
           setUpload(resp)
-          // Pre-fill review state from classifier output
-          const uiType = CLASSIFIER_TO_UI[resp.classification.documentType] ?? 'protocol'
-          setDocType(uiType)
-          setTitle(resp.classification.studyTitle === '(unidentified — human review)' ? '' : resp.classification.studyTitle)
-          setVersion(resp.classification.version)
-          setTa(resp.classification.therapeuticArea === '(inherit from project)' ? (projectTA ?? '') : resp.classification.therapeuticArea)
-          setAssignee('')
+          // Pre-fill review state from the suggestion
+          const c = resp.classification
+          setCategory(SOURCE_CATEGORIES.some(o => o.value === c.sourceCategory) ? c.sourceCategory : 'other')
+          setTitle(f.name.replace(/\.[^.]+$/, ''))
+          setVersion(c.versionConfidence >= 50 ? c.version : '')
+          setOrigin('')
+          setTouched(new Set())
         } catch {
           setUploadErr('Unexpected response from upload endpoint.')
           setFile(null)
@@ -188,40 +132,32 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
     xhr.send(form)
   }
 
-  const confirm = useMutation({
+  const save = useMutation({
     mutationFn: () => {
       if (!upload) throw new Error('no_upload')
-      const overrides = Array.from(touched)
-      return documentsApi.confirmClassification(projectId, {
-        uploadId:        upload.uploadId,
-        documentType:    docType,
-        title:           title.trim(),
-        version:         version.trim(),
-        therapeuticArea: ta.trim(),
-        assigneeId:      assignee,
-        overrides,
+      return documentsApi.saveSource(projectId, upload.uploadId, {
+        title:     title.trim(),
+        category,
+        origin:    origin.trim() || undefined,
+        version:   version.trim() || undefined,
+        overrides: Array.from(touched),
       })
     },
-    onSuccess: (doc) => {
-      qc.invalidateQueries({ queryKey: ['documents', projectId] })
-      onCreated?.((doc as { id: string }).id)
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['source-documents', projectId] })
+      onSaved?.(upload!.uploadId)
     },
   })
 
-  const confirmError = confirm.isError
-    ? confirm.error instanceof ApiError
-      ? confirm.error.status === 503 ? 'Clinical Writing (Module A) is not enabled on this deployment.'
-      : confirm.error.status === 403 ? 'You do not have permission to create documents in this project.'
-      : `Could not confirm (HTTP ${confirm.error.status}).`
-      : 'Could not confirm — see console for details.'
+  const saveError = save.isError
+    ? save.error instanceof ApiError
+      ? save.error.status === 503 ? 'Clinical Writing (Module A) is not enabled on this deployment.'
+      : save.error.status === 403 ? 'You do not have permission to add source documents to this project.'
+      : `Could not save (HTTP ${save.error.status}).`
+      : 'Could not save — see console for details.'
     : null
 
-  const canConfirm = !!upload
-    && title.trim().length > 0
-    && version.trim().length > 0
-    && ta.trim().length > 0
-    && assignee.length > 0
-    && !confirm.isPending
+  const canSave = !!upload && title.trim().length > 0 && !save.isPending
 
   // State 1 — nothing uploaded yet
   if (!file) {
@@ -230,7 +166,8 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
         <section className="rounded-lg border border-slate-200 bg-slate-50 p-5">
           <h3 className="text-[13px] font-semibold text-slate-900">Upload source document</h3>
           <p className="mt-0.5 text-[12px] text-slate-500">
-            Drop a PDF, Word, PowerPoint, Excel, or image file. We'll auto-classify the document type, study title, and version so you only need to confirm.
+            Add evidence to this project's source library — a protocol, SAP, TLF output, lab export, or a file from another system.
+            Documents are written from these later; uploading does not create a document.
           </p>
         </section>
 
@@ -322,135 +259,82 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
     )
   }
 
-  // State 3 — review + confirm
-  const typeConf = upload.classification.typeConfidence
-  const titleConf = upload.classification.studyConfidence
+  // State 3 — review + save to library
+  const catConf = upload.classification.sourceCategoryConfidence
   const versionConf = upload.classification.versionConfidence
-  const taConf = upload.classification.taConfidence
 
   return (
     <form
       onSubmit={e => {
         e.preventDefault()
-        if (!canConfirm) return
-        confirm.mutate()
+        if (!canSave) return
+        save.mutate()
       }}
       className="flex flex-col gap-4 p-5"
       data-form="upload-document-review"
     >
       {upload.classification.stub && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-800" role="status">
-          <strong>Classifier is in stub mode.</strong> Fields below are filename-based guesses — review each before confirming.
+          <strong>Suggestions are filename-based guesses.</strong> Review the category before saving.
         </div>
       )}
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
-        <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <p className="truncate text-[13px] font-semibold text-slate-900">{upload.fileName}</p>
-            <p className="text-[11px] text-slate-500">
-              {upload.fileSizeMB} MB · virus scan {upload.virusScanStatus}
-            </p>
-          </div>
-          <ConfidenceBadge pct={typeConf} label={`type ${typeConf}%`} />
-        </div>
+        <p className="truncate text-[13px] font-semibold text-slate-900">{upload.fileName}</p>
+        <p className="text-[11px] text-slate-500">
+          {upload.fileSizeMB} MB · virus scan {upload.virusScanStatus}
+        </p>
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <div className="flex items-center justify-between">
-          <h3 className="text-[13px] font-semibold text-slate-900">Document type</h3>
-          <AiChip touched={touched.has('documentType')} />
-        </div>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          {DOC_TYPE_OPTIONS.map(t => (
-            <label key={t.value}
-              className={`flex cursor-pointer items-center gap-2 rounded-md border p-2.5 ${
-                docType === t.value ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'
-              }`}>
-              <input
-                type="radio"
-                name="documentType"
-                value={t.value}
-                checked={docType === t.value}
-                onChange={() => { setDocType(t.value); markTouched('documentType') }}
-              />
-              <span className="text-[12px] font-semibold text-slate-900">{t.label}</span>
-            </label>
-          ))}
-        </div>
-      </section>
-
-      <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <h3 className="text-[13px] font-semibold text-slate-900">Details</h3>
+        <h3 className="text-[13px] font-semibold text-slate-900">Source details</h3>
         <div className="mt-3 flex flex-col gap-3">
-          <FieldLabel label="Study title *" conf={titleConf} touched={touched.has('title')}>
-            <input
-              value={title}
-              onChange={e => { setTitle(e.currentTarget.value); markTouched('title') }}
-              required
-              placeholder="VELORA-301 CSR v1.0 — Primary Analysis"
-              className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
-            />
-          </FieldLabel>
-
-          <FieldLabel label="Version *" conf={versionConf} touched={touched.has('version')}>
-            <input
-              value={version}
-              onChange={e => { setVersion(e.currentTarget.value); markTouched('version') }}
-              required
-              placeholder="v1.0"
-              className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
-            />
-          </FieldLabel>
-
-          <FieldLabel label={`${THERAPEUTIC_AREA_LABEL} *`} conf={taConf} touched={touched.has('therapeuticArea')}>
+          <FieldLabel label="Category *" conf={catConf} touched={touched.has('category')}>
             <select
-              value={ta}
-              onChange={e => { setTa(e.currentTarget.value); markTouched('therapeuticArea') }}
+              value={category}
+              onChange={e => { setCategory(e.currentTarget.value); markTouched('category') }}
               required
-              data-ta-select
+              data-source-category
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
             >
-              <option value="" disabled>Select a therapeutic area</option>
-              {taOptions.map(opt => (
-                <option key={opt} value={opt}>
-                  {opt}{projectTA && opt.toLowerCase() === projectTA.toLowerCase() ? ' (inherited from project)' : ''}
-                </option>
-              ))}
+              {SOURCE_CATEGORIES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
           </FieldLabel>
 
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Assigned writer *</span>
-            <select
-              value={assignee}
-              onChange={e => { setAssignee(e.currentTarget.value); markTouched('assigneeId') }}
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Title *</span>
+            <input
+              value={title}
+              onChange={e => { setTitle(e.currentTarget.value); markTouched('title') }}
               required
-              className="h-9 rounded-md border border-slate-300 px-3 text-[13px]"
-            >
-              <option value="">Select an assignee…</option>
-              {assigneeOptions.map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-              ))}
-            </select>
+              className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
+            />
           </label>
 
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Frameworks applied</span>
-            <div className="flex flex-wrap gap-1.5">
-              {upload.classification.frameworks.map(f => (
-                <span key={f} className="rounded-full px-2.5 py-0.5 font-mono text-[11px] text-slate-700" style={{ backgroundColor: '#F1F5F9' }}>
-                  {f}
-                </span>
-              ))}
-            </div>
-          </div>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Origin / system</span>
+            <input
+              value={origin}
+              onChange={e => { setOrigin(e.currentTarget.value); markTouched('origin') }}
+              placeholder="e.g. Sponsor, EDC, SAS output, CRO"
+              className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
+            />
+          </label>
+
+          <FieldLabel label="Version" conf={versionConf} touched={touched.has('version')}>
+            <input
+              value={version}
+              onChange={e => { setVersion(e.currentTarget.value); markTouched('version') }}
+              placeholder="v1.0 (optional)"
+              className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
+            />
+          </FieldLabel>
         </div>
       </section>
 
-      {confirmError && (
+      {saveError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700" role="alert">
-          {confirmError}
+          {saveError}
         </div>
       )}
 
@@ -459,9 +343,9 @@ export function UploadDocumentForm({ projectId, projectTA, onCreated, onCancel }
           className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
           Cancel upload
         </button>
-        <button type="submit" disabled={!canConfirm}
+        <button type="submit" disabled={!canSave}
           className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
-          {confirm.isPending ? 'Creating…' : 'Confirm & create document'}
+          {save.isPending ? 'Saving…' : 'Save to library'}
         </button>
       </div>
     </form>

@@ -8,6 +8,7 @@ import type { CreateDocumentBody, DocumentType, PlatformUser } from '@platform/t
 import { documentsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { platformApi } from '../../platform/api/platformApi'
+import { sourceCategoryLabel } from '../../utils/sourceCategories'
 
 const DOC_TYPES: { value: DocumentType; label: string; description: string }[] = [
   { value: 'csr-full',             label: 'CSR (Full)',             description: 'Full Clinical Study Report — ICH E3 structure.' },
@@ -27,11 +28,13 @@ interface Props {
   // Optional id of an existing document to prefill the form from
   // (duplicate flow). Only type + title + assignee are copied.
   duplicateSourceId?: string | null
+  // Source documents (uploads) to preselect — "Create document from this source".
+  initialSourceIds?: string[]
   onCreated?: (documentId: string) => void
   onCancel?:  () => void
 }
 
-export function NewDocumentForm({ projectId, duplicateSourceId, onCreated, onCancel }: Props) {
+export function NewDocumentForm({ projectId, duplicateSourceId, initialSourceIds, onCreated, onCancel }: Props) {
   const qc = useQueryClient()
 
   const [type,                 setType]                 = useState<DocumentType>('csr-full')
@@ -39,6 +42,16 @@ export function NewDocumentForm({ projectId, duplicateSourceId, onCreated, onCan
   const [assigneeId,           setAssigneeId]           = useState('')
   const [targetCompletionDate, setTargetCompletionDate] = useState('')
   const [description,          setDescription]          = useState('')
+  const [sourceIds,            setSourceIds]            = useState<string[]>(initialSourceIds ?? [])
+
+  // Saved source documents in this project's library (evidence the document is written from).
+  const { data: sourcePage } = useQuery({
+    queryKey: ['source-documents', projectId, 'picker'],
+    queryFn:  () => documentsApi.listSources(projectId, { state: 'saved', sort: 'title', dir: 'asc', pageSize: 100 }),
+  })
+  const sources = sourcePage?.items ?? []
+  const toggleSource = (id: string) =>
+    setSourceIds(cur => (cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]))
 
   const { data: users = [] } = useQuery<PlatformUser[]>({
     queryKey: ['platform-users'],
@@ -70,11 +83,13 @@ export function NewDocumentForm({ projectId, duplicateSourceId, onCreated, onCan
         assigneeId,
         targetCompletionDate: targetCompletionDate ? new Date(targetCompletionDate).toISOString() : undefined,
         description: description || undefined,
+        sourceUploadIds: sourceIds.length ? sourceIds : undefined,
       }
       return documentsApi.create(projectId, body)
     },
     onSuccess: (doc) => {
       qc.invalidateQueries({ queryKey: ['documents', projectId] })
+      if (sourceIds.length) qc.invalidateQueries({ queryKey: ['source-documents', projectId] })
       onCreated?.((doc as { id: string }).id)
     },
   })
@@ -87,7 +102,9 @@ export function NewDocumentForm({ projectId, duplicateSourceId, onCreated, onCan
         ? 'Clinical Writing (Module A) is not enabled on this deployment.'
         : create.error.status === 403
           ? 'You do not have write access to this project.'
-          : `Could not create document (HTTP ${create.error.status}).`
+          : create.error.status === 422
+            ? 'A selected source document is no longer usable. Deselect it and try again.'
+            : `Could not create document (HTTP ${create.error.status}).`
       : 'Could not create document — see console for details.'
     : null
 
@@ -151,6 +168,30 @@ export function NewDocumentForm({ projectId, duplicateSourceId, onCreated, onCan
               className="rounded-md border border-slate-300 px-3 py-2 text-[13px]" />
           </label>
         </div>
+      </section>
+
+      <section className="rounded-lg border border-slate-200 bg-slate-50 p-4" data-section="source-picker">
+        <h3 className="text-[13px] font-semibold text-slate-900">Based on source documents</h3>
+        <p className="mt-0.5 text-[11px] text-slate-500">Optional. Pick the evidence this document is written from. Upload more under Source Documents.</p>
+        {sources.length === 0 ? (
+          <p className="mt-3 text-[12px] text-slate-400">No source documents in this project's library yet.</p>
+        ) : (
+          <div className="mt-3 flex max-h-56 flex-col gap-1.5 overflow-y-auto">
+            {sources.map(src => (
+              <label key={src.id}
+                className={`flex cursor-pointer items-start gap-2 rounded-md border p-2.5 ${
+                  sourceIds.includes(src.id) ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'
+                }`}>
+                <input type="checkbox" className="mt-0.5" checked={sourceIds.includes(src.id)} onChange={() => toggleSource(src.id)} data-source-id={src.id} />
+                <span className="min-w-0">
+                  <span className="block truncate text-[12px] font-semibold text-slate-900">{src.title}</span>
+                  <span className="block truncate text-[11px] text-slate-500">{sourceCategoryLabel(src.category)} · {src.fileName}</span>
+                </span>
+              </label>
+            ))}
+          </div>
+        )}
+        {sourceIds.length > 0 && <p className="mt-2 text-[11px] text-slate-500">{sourceIds.length} selected</p>}
       </section>
 
       {errorMsg && (

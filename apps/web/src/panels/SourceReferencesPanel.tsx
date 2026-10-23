@@ -30,12 +30,13 @@ function reason(err: unknown): string {
 
 // ---------------------------------------------------------------- viewer
 
-function SourceViewer({ projectId, source, page, quote, onBack }: {
+export function SourceViewer({ projectId, source, page, quote, onBack, backLabel = '← References' }: {
   projectId: string
   source: Pick<SourceDocument, 'id' | 'fileName' | 'contentType' | 'previewable'> | null
   page: number | null
   quote?: string
   onBack: () => void
+  backLabel?: string
 }) {
   const uploadId = source?.id ?? ''
   const previewable = source?.previewable ?? false
@@ -81,7 +82,7 @@ function SourceViewer({ projectId, source, page, quote, onBack }: {
       <div className="flex flex-none items-center gap-2 border-b border-slate-200 px-4 py-2">
         <button type="button" onClick={onBack} data-action="viewer-back"
           className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-          ← References
+          {backLabel}
         </button>
         <p className="min-w-0 flex-1 truncate text-xs font-semibold text-slate-800" title={source?.fileName}>{source?.fileName ?? 'Source document'}</p>
         <button type="button" onClick={download} data-action="viewer-download"

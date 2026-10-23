@@ -13,13 +13,13 @@ import {
 } from '../../api/documents'
 import { ApiError } from '../../api/client'
 import { sourceCategoryLabel } from '../../utils/sourceCategories'
+import { SourceDetailPanel } from './SourceDetailPanel'
 
 const PAGE_SIZES = [10, 25, 50, 100] as const
 type SortKey = SourceDocSort
 
 const STATE_STYLE: Record<SourceDocState, { label: string; bg: string; fg: string; hint: string }> = {
   saved:    { label: 'Saved',    bg: '#F0FDF4', fg: '#166534', hint: 'Saved to the project source library' },
-  pending:  { label: 'Pending',  bg: '#FFFBEB', fg: '#B45309', hint: 'Uploaded, not saved to the library yet' },
   rejected: { label: 'Rejected', bg: '#FEF2F2', fg: '#B91C1C', hint: 'Rejected' },
 }
 
@@ -27,12 +27,6 @@ const SCAN_STYLE: Record<string, { label: string; fg: string }> = {
   passed:  { label: 'Passed',  fg: '#166534' },
   pending: { label: 'Pending', fg: '#B45309' },
   failed:  { label: 'Failed',  fg: '#B91C1C' },
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`
 }
 
 function formatUploaded(iso: string): string {
@@ -80,6 +74,9 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
   const [busyId, setBusyId] = useState<string | null>(null)
   const [missingIds, setMissingIds] = useState<Set<string>>(new Set())
   const [notice, setNotice] = useState<string | null>(null)
+  // The row whose detail panel is open. Kept as the row itself so the panel survives a
+  // filter / page change that drops the row from the current list.
+  const [selected, setSelected] = useState<SourceDocument | null>(null)
 
   const handleDownload = async (r: SourceDocument) => {
     setBusyId(r.id)
@@ -99,6 +96,8 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
       if (body?.error === 'file_missing') {
         setMissingIds(prev => new Set(prev).add(r.id))
         setNotice(`"${r.fileName}" is listed here but its file is no longer in storage. Upload it again to restore it.`)
+      } else if (body?.error === 'storage_unavailable') {
+        setNotice(body.message ?? 'The file storage could not be reached. Please try again shortly.')
       } else if (body?.error === 'quarantined') {
         setNotice(body.message ?? `"${r.fileName}" failed the virus scan and cannot be downloaded.`)
       } else if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
@@ -123,8 +122,9 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
   })
 
   const items = data?.items ?? []
+  const selectedRow = selected ? (items.find(i => i.id === selected.id) ?? selected) : null
   const total = data?.total ?? 0
-  const summary = data?.summary ?? { files: 0, saved: 0, pending: 0, rejected: 0 }
+  const summary = data?.summary ?? { files: 0, saved: 0, rejected: 0 }
   const pageCount = Math.max(1, Math.ceil(total / pageSize))
   const filtersDirty = q !== '' || state !== 'all'
 
@@ -163,11 +163,6 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
           </p>
         </div>
         <div className="flex flex-none items-stretch gap-6" data-source-counters>
-          <div className="text-right" title="Uploaded but not yet saved to the library">
-            <p className="text-[26px] font-bold leading-none text-slate-900" data-count="unlinked">{summary.pending}</p>
-            <p className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Pending</p>
-          </div>
-          <div className="w-px bg-slate-200" />
           <div className="text-right">
             <p className="text-[26px] font-bold leading-none text-slate-900" data-count="files">{summary.files}</p>
             <p className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Files</p>
@@ -194,7 +189,6 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
           >
             <option value="all">All states</option>
             <option value="saved">Saved</option>
-            <option value="pending">Pending</option>
             <option value="rejected">Rejected</option>
           </select>
           <div className="flex min-w-[240px] max-w-[460px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
@@ -227,15 +221,14 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
 
         {/* Table */}
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-[13px]" style={{ opacity: isFetching && !isLoading ? 0.7 : 1 }}>
+          <table className="w-full min-w-[820px] text-[13px]" style={{ opacity: isFetching && !isLoading ? 0.7 : 1 }}>
             <thead style={{ backgroundColor: '#F8FAFC' }}>
               <tr className="border-b border-slate-200">
                 {th('Title', 'title')}
-                {th('File', 'file')}
                 {th('Category', 'category')}
                 {th('State', 'state')}
-                {th('Scan')}
-                {th('Used in')}
+                {th('Scan', 'scan')}
+                {th('Used in', 'usedIn')}
                 {th('Uploaded', 'uploaded')}
                 {th('Quick actions', undefined, 'w-[1%] whitespace-nowrap text-right')}
               </tr>
@@ -250,19 +243,21 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
                   onDownload={() => void handleDownload(r)}
                   onOpenDoc={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
                   onCreate={() => onCreateFromSource(r.id)}
+                  selected={selectedRow?.id === r.id}
+                  onSelect={() => setSelected(cur => (cur?.id === r.id ? null : r))}
                 />
               ))}
               {isLoading && (
-                <tr><td colSpan={8} className="px-5 py-10 text-center text-[13px] text-slate-400">Loading source documents…</td></tr>
+                <tr><td colSpan={7} className="px-5 py-10 text-center text-[13px] text-slate-400">Loading source documents…</td></tr>
               )}
               {isError && !isLoading && (
-                <tr><td colSpan={8} className="px-5 py-10 text-center text-[13px] text-red-700" role="alert">
+                <tr><td colSpan={7} className="px-5 py-10 text-center text-[13px] text-red-700" role="alert">
                   Could not load source documents.{' '}
                   <button type="button" onClick={() => void refetch()} className="font-semibold underline">Retry</button>
                 </td></tr>
               )}
               {!isLoading && !isError && items.length === 0 && (
-                <tr><td colSpan={8} className="px-5 py-12 text-center" data-empty>
+                <tr><td colSpan={7} className="px-5 py-12 text-center" data-empty>
                   {summary.files === 0 ? (
                     <>
                       <p className="text-[14px] font-semibold text-slate-900">No source documents yet</p>
@@ -300,6 +295,14 @@ export function SourceDocumentsTab({ projectId, onUpload, onCreateFromSource }: 
           </div>
         </div>
       </div>
+
+      <SourceDetailPanel
+        projectId={projectId}
+        source={selectedRow}
+        onClose={() => setSelected(null)}
+        onOpenDoc={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
+        onCreateFromSource={uploadId => { setSelected(null); onCreateFromSource(uploadId) }}
+      />
     </div>
   )
 }
@@ -402,21 +405,23 @@ function RowMenu({ label, canCreate, canDownload, downloadHint, busy, onCreate, 
   )
 }
 
-function Row({ r, busy, missing, onDownload, onOpenDoc, onCreate }: { r: SourceDocument; busy: boolean; missing: boolean; onDownload: () => void; onOpenDoc: (documentId: string) => void; onCreate: () => void }) {
+function Row({ r, busy, missing, selected, onSelect, onDownload, onOpenDoc, onCreate }: { r: SourceDocument; busy: boolean; missing: boolean; selected: boolean; onSelect: () => void; onDownload: () => void; onOpenDoc: (documentId: string) => void; onCreate: () => void }) {
   const st = STATE_STYLE[r.state]
   const scan = SCAN_STYLE[r.virusScanStatus] ?? { label: r.virusScanStatus, fg: '#475569' }
   const blocked = r.virusScanStatus === 'failed'
   const who = r.uploadedBy.name ?? r.uploadedBy.email ?? r.uploadedBy.id
   const canCreate = r.state === 'saved' && !blocked
   return (
-    <tr className="border-b border-slate-100 last:border-0 hover:bg-slate-50/60" data-source-row={r.id}>
-      <td className="max-w-[260px] px-4 py-3 align-top">
+    <tr
+      onClick={onSelect}
+      data-panel-trigger
+      aria-selected={selected}
+      className={`cursor-pointer border-b border-slate-100 last:border-0 hover:bg-slate-50/60 ${selected ? 'bg-blue-50/50' : ''}`}
+      data-source-row={r.id}
+    >
+      <td className="max-w-[300px] px-4 py-3 align-top">
         <p className="truncate font-semibold text-slate-900" title={r.title}>{r.title}</p>
         {r.origin && <p className="mt-0.5 truncate text-[11px] text-slate-500" title={r.origin}>{r.origin}</p>}
-      </td>
-      <td className="max-w-[260px] px-4 py-3 align-top">
-        <p className="truncate font-mono text-[12px] text-slate-700" title={r.fileName}>{r.fileName}</p>
-        <p className="mt-0.5 text-[11px] text-slate-400">{formatSize(r.fileSizeBytes)}</p>
       </td>
       <td className="px-4 py-3 align-top">
         <span className="text-slate-700">{sourceCategoryLabel(r.category)}</span>
@@ -430,7 +435,7 @@ function Row({ r, busy, missing, onDownload, onOpenDoc, onCreate }: { r: SourceD
         {r.usedIn.length === 0 ? <span className="text-slate-400">—</span> : (
           <div className="flex flex-col gap-0.5">
             {r.usedIn.slice(0, 2).map(d => (
-              <button key={d.id} type="button" onClick={() => onOpenDoc(d.id)} className="truncate text-left text-[13px] font-semibold text-blue-600 hover:text-blue-700 hover:underline" title={d.title}>
+              <button key={d.id} type="button" onClick={e => { e.stopPropagation(); onOpenDoc(d.id) }} className="truncate text-left text-[13px] font-semibold text-blue-600 hover:text-blue-700 hover:underline" title={d.title}>
                 {d.title}
               </button>
             ))}
@@ -444,7 +449,7 @@ function Row({ r, busy, missing, onDownload, onOpenDoc, onCreate }: { r: SourceD
       </td>
       {/* Quick actions — primary "Create document" + "⋯" menu */}
       <td className="px-4 py-3 align-top">
-        <div className="flex items-center justify-end gap-2" data-quick-actions>
+        <div className="flex items-center justify-end gap-2" data-quick-actions onClick={e => e.stopPropagation()}>
           {blocked && <span className="text-[11px] font-semibold text-red-700" title="Failed the virus scan">Blocked</span>}
           {!blocked && missing && <span className="text-[11px] font-semibold text-amber-700" title="The stored file could not be found">File missing</span>}
           <button

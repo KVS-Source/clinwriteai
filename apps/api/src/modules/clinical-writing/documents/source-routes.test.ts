@@ -23,19 +23,22 @@ const up = (over: Partial<Upload> & Pick<Upload, 'id' | 'fileName'>): Upload => 
 
 const ROWS: Upload[] = [
   up({ id: 'a', fileName: 'Protocol v2.docx', fileSizeBytes: 500, createdAt: new Date('2026-10-18T08:00:00Z'), status: 'confirmed', title: 'Protocol — VELORA-301', sourceCategory: 'protocol', origin: 'Sponsor', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
-  up({ id: 'b', fileName: 'lab-listing.csv', classification: { documentType: 'protocol', typeConfidence: 60 }, fileSizeBytes: 90, createdAt: new Date('2026-10-19T08:00:00Z'), uploadedBy: 'u2', contentType: 'text/csv' }),
+  up({ id: 'b', status: 'confirmed', fileName: 'lab-listing.csv', classification: { documentType: 'protocol', typeConfidence: 60 }, fileSizeBytes: 90, createdAt: new Date('2026-10-19T08:00:00Z'), uploadedBy: 'u2', contentType: 'text/csv' }),
   up({ id: 'c', fileName: 'scan-0042.png', fileSizeBytes: 4000, createdAt: new Date('2026-10-20T08:00:00Z'), status: 'rejected', contentType: 'image/png' }),
-  up({ id: 'd', fileName: 'SAP draft.pdf', fileSizeBytes: 2500, createdAt: new Date('2026-10-21T08:00:00Z') }),
+  up({ id: 'd', status: 'confirmed', fileName: 'SAP draft.pdf', fileSizeBytes: 2500, createdAt: new Date('2026-10-21T08:00:00Z') }),
+  up({ id: 'unsaved', fileName: 'never-saved.pdf', createdAt: new Date('2026-10-22T08:00:00Z') }),   // uploaded, "Save to library" never pressed
   up({ id: 'other', projectId: 'proj-2', fileName: 'someone-elses.pdf' }),
 ]
 
-async function build(blob: { get: ReturnType<typeof vi.fn> } = { get: vi.fn() }) {
+async function build(blob: { get: ReturnType<typeof vi.fn>; del?: ReturnType<typeof vi.fn> } = { get: vi.fn() }) {
   const audit = vi.fn(async () => undefined)
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => (where.id === 'proj-1' ? { id: 'proj-1' } : null)) },
     documentUpload: {
-      findMany: vi.fn(async ({ where }: { where: { projectId: string } }) => ROWS.filter(r => r.projectId === where.projectId)),
+      findMany: vi.fn(async ({ where }: { where: { projectId: string; status?: { in: string[] } } }) =>
+        ROWS.filter(r => r.projectId === where.projectId && (!where.status || where.status.in.includes(r.status)))),
+      delete: vi.fn(async ({ where }: { where: { id: string } }) => { const i = ROWS.findIndex(r => r.id === where.id); return ROWS.splice(i, 1)[0] }),
       findFirst: vi.fn(async ({ where }: { where: { id: string; projectId: string } }) => ROWS.find(r => r.id === where.id && r.projectId === where.projectId) ?? null),
     },
     documentSource: { findMany: vi.fn(async () => [{ documentId: 'DOC-9', uploadId: 'a', linkedBy: 'u1', createdAt: new Date() }]) },
@@ -73,7 +76,14 @@ describe('GET /projects/:id/source-documents', () => {
     expect(saved.usedIn).toEqual([{ id: 'DOC-9', title: 'CSR — VELORA-301' }])
     expect(saved.uploadedBy).toMatchObject({ name: 'Priya Nair' })
     // unsaved file falls back to its filename without the extension
-    expect(body.items[3]).toMatchObject({ title: 'SAP draft', state: 'pending', usedIn: [] })
+    expect(body.items[3]).toMatchObject({ title: 'SAP draft', state: 'saved', usedIn: [] })
+  })
+
+  it('does not list an upload that was never saved to the library', async () => {
+    const { body } = await list('?pageSize=100')
+    expect(body.items.map((i: { id: string }) => i.id)).not.toContain('unsaved')
+    expect(body.summary.files).toBe(4)
+    expect((await list('?q=never-saved')).body.total).toBe(0)
   })
 
   it('categorises unsaved files from the file name and never defaults to a real category', async () => {
@@ -85,13 +95,13 @@ describe('GET /projects/:id/source-documents', () => {
   })
 
   it('reports project-wide counts that ignore the active filter', async () => {
-    const { body } = await list('?state=saved')
+    const { body } = await list('?state=rejected')
     expect(body.total).toBe(1)
-    expect(body.summary).toEqual({ files: 4, saved: 1, pending: 2, rejected: 1 })
+    expect(body.summary).toEqual({ files: 4, saved: 3, rejected: 1 })
   })
 
   it.each([
-    ['saved', ['a']], ['pending', ['b', 'd']], ['rejected', ['c']],
+    ['saved', ['b', 'a', 'd']], ['rejected', ['c']],
   ])('filters by state=%s', async (state, ids) => {
     const { body } = await list(`?state=${state}&sort=file&dir=asc`)
     expect(body.items.map((i: { id: string }) => i.id)).toEqual(ids)
@@ -160,11 +170,59 @@ describe('GET /projects/:id/source-documents/:uploadId/download', () => {
   })
 
   it('returns 404 file_missing when the bytes are gone from storage', async () => {
-    const { app, audit } = await build({ get: vi.fn(async () => { throw new Error('NoSuchKey') }) })
+    const { app, audit } = await build({ get: vi.fn(async () => { throw Object.assign(new Error('The specified key does not exist.'), { name: 'NoSuchKey' }) }) })
     const res = await app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/d/download' })
     expect(res.statusCode).toBe(404)
     expect(res.json().error).toBe('file_missing')
     expect(audit).not.toHaveBeenCalled()
+  })
+
+  it.each([
+    ['local ENOENT', Object.assign(new Error('no such file'), { code: 'ENOENT' }), 404, 'file_missing'],
+    ['S3 404', Object.assign(new Error('x'), { name: 'S3ServiceException', $metadata: { httpStatusCode: 404 } }), 404, 'file_missing'],
+    ['unreachable storage', Object.assign(new Error('connect ECONNREFUSED'), { code: 'ECONNREFUSED' }), 502, 'storage_unavailable'],
+    ['bad credentials', Object.assign(new Error('denied'), { name: 'AccessDenied', $metadata: { httpStatusCode: 403 } }), 502, 'storage_unavailable'],
+  ])('tells a missing object apart from unhealthy storage (%s)', async (_label, err, status, code) => {
+    const { app } = await build({ get: vi.fn(async () => { throw err }) })
+    for (const route of ['download', 'preview']) {
+      const res = await app.inject({ method: 'GET', url: `/projects/proj-1/source-documents/d/${route}` })
+      expect(res.statusCode).toBe(status)
+      expect(res.json().error).toBe(code)
+    }
+  })
+})
+
+describe('DELETE /projects/:id/source-documents/:uploadId (discard an unsaved upload)', () => {
+  it('removes the row and its bytes and audits it', async () => {
+    const del = vi.fn(async () => true)
+    const { app, audit } = await build({ get: vi.fn(), del })
+    const res = await app.inject({ method: 'DELETE', url: '/projects/proj-1/source-documents/unsaved' })
+    expect(res.statusCode).toBe(204)
+    expect(del).toHaveBeenCalledWith('documents', 'proj-1/pending-uploads/unsaved')
+    expect(ROWS.some(r => r.id === 'unsaved')).toBe(false)
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'source_upload_discarded', entityId: 'unsaved' }))
+    ROWS.push(up({ id: 'unsaved', fileName: 'never-saved.pdf', createdAt: new Date('2026-10-22T08:00:00Z') }))   // restore for later tests
+  })
+
+  it('never deletes a source that was saved to the library', async () => {
+    const del = vi.fn()
+    const { app } = await build({ get: vi.fn(), del })
+    const res = await app.inject({ method: 'DELETE', url: '/projects/proj-1/source-documents/a' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('not_discardable')
+    expect(del).not.toHaveBeenCalled()
+  })
+
+  it('is scoped to the project and 404s for unknown uploads', async () => {
+    const { app } = await build({ get: vi.fn(), del: vi.fn() })
+    expect((await app.inject({ method: 'DELETE', url: '/projects/proj-1/source-documents/other' })).statusCode).toBe(404)
+    expect((await app.inject({ method: 'DELETE', url: '/projects/proj-1/source-documents/nope' })).statusCode).toBe(404)
+  })
+
+  it('still discards the row when the stored bytes are already gone', async () => {
+    const { app } = await build({ get: vi.fn(), del: vi.fn(async () => { throw new Error('gone') }) })
+    expect((await app.inject({ method: 'DELETE', url: '/projects/proj-1/source-documents/unsaved' })).statusCode).toBe(204)
+    ROWS.push(up({ id: 'unsaved', fileName: 'never-saved.pdf', createdAt: new Date('2026-10-22T08:00:00Z') }))
   })
 })
 

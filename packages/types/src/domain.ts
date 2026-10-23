@@ -87,6 +87,8 @@ export interface Document {
   therapeuticArea: string
   assigneeId: string
   updatedAt: string | null
+  createdAt?: string
+  targetCompletionDate?: string | null
   sections: Section[]
 }
 

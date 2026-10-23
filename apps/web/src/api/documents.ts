@@ -9,8 +9,8 @@ import type {
 
 // --- Source documents (per-project upload library) ---
 
-export type SourceDocState = 'saved' | 'pending' | 'rejected'
-export type SourceDocSort = 'title' | 'file' | 'category' | 'state' | 'size' | 'uploaded'
+export type SourceDocState = 'saved' | 'rejected'
+export type SourceDocSort = 'title' | 'file' | 'category' | 'state' | 'scan' | 'usedIn' | 'size' | 'uploaded'
 
 export interface SourceDocument {
   id: string
@@ -39,7 +39,7 @@ export interface SourceDocumentPage {
   total: number
   page: number
   pageSize: number
-  summary: { files: number; saved: number; pending: number; rejected: number }
+  summary: { files: number; saved: number; rejected: number }
 }
 
 export interface SourceDocumentQuery {
@@ -68,6 +68,20 @@ export interface SourceReference {
   createdAt: string
 }
 
+// A source a document is based on, with the sections that cite it.
+export interface DocumentSourceLink {
+  uploadId: string
+  title: string
+  fileName: string
+  category: string
+  origin: string | null
+  version: string | null
+  contentType: string
+  previewable: boolean
+  linkedAt: string
+  sections: Array<{ sectionId: string; number: string | null; title: string; references: number }>
+}
+
 export interface CreateSourceReferenceBody {
   sectionId: string
   spanText: string
@@ -85,6 +99,9 @@ export interface SaveSourceBody {
 }
 
 export const documentsApi = {
+  // Sources a document is based on
+  listDocumentSources: (documentId: string) =>
+    api.get<{ documentId: string; items: DocumentSourceLink[] }>(`/documents/${documentId}/sources`),
   // Reference links
   listReferences: (documentId: string, sectionId?: string) =>
     api.get<{ projectId: string; items: SourceReference[] }>(
@@ -116,6 +133,9 @@ export const documentsApi = {
     api.post<Document>(`/projects/${projectId}/documents`, body),
   upload: (projectId: string, formData: FormData) =>
     fetch(`${import.meta.env.VITE_API_URL}/projects/${projectId}/documents/upload`, { method: 'POST', body: formData }).then(r => r.json()),
+  // Throw away an upload the user never saved to the library (cancelled the upload form).
+  discardSource: (projectId: string, uploadId: string) =>
+    api.delete<void>(`/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}`),
   saveSource: (projectId: string, uploadId: string, body: SaveSourceBody) =>
     api.post<{ id: string; title: string; category: string }>(
       `/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}/save`, body),

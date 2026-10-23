@@ -9,8 +9,11 @@
 //     preferred size sticks across sessions
 //   - Resizable via a drag-handle on the left edge (grab + drag)
 //   - Escape key closes
-//   - No backdrop overlay (non-modal); click-outside does NOT close
-//     (prevents accidental loss of unsaved form state)
+//   - No backdrop overlay (non-modal); click-outside does NOT close by
+//     default (prevents accidental loss of unsaved form state). Read-only
+//     detail panels opt in with `closeOnOutsideClick`; a click on another
+//     slide panel or on an element marked `data-panel-trigger` (e.g. the
+//     table row that opens the panel) never counts as "outside".
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
@@ -27,6 +30,9 @@ interface SlidePanelProps {
   defaultWidth?: number
   minWidth?:    number
   maxWidth?:    number
+  closeOnOutsideClick?: boolean
+  // Temporarily widen to at least this many px (not persisted) — e.g. while a PDF is shown.
+  expandedWidth?: number
 }
 
 export function SlidePanel({
@@ -39,6 +45,8 @@ export function SlidePanel({
   defaultWidth = 480,
   minWidth = 360,
   maxWidth = 960,
+  closeOnOutsideClick = false,
+  expandedWidth,
 }: SlidePanelProps) {
   const [width, setWidth] = useState<number>(() => {
     if (!storageKey) return defaultWidth
@@ -64,6 +72,19 @@ export function SlidePanel({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [open, onClose])
+
+  // Outside click closes (opt-in)
+  useEffect(() => {
+    if (!open || !closeOnOutsideClick) return
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Element | null
+      if (!t || panelRef.current?.contains(t)) return
+      if (t.closest('[data-slide-panel], [data-panel-trigger], [data-row-menu]')) return
+      onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [open, closeOnOutsideClick, onClose])
 
   // Drag-to-resize
   useEffect(() => {
@@ -93,6 +114,8 @@ export function SlidePanel({
 
   if (!open) return null
 
+  const shownWidth = expandedWidth ? Math.min(Math.max(width, expandedWidth), Math.round(window.innerWidth * 0.92)) : width
+
   return (
     <aside
       ref={panelRef}
@@ -102,7 +125,7 @@ export function SlidePanel({
       data-slide-panel
       className="fixed right-0 top-0 z-30 flex h-full flex-col bg-white shadow-xl"
       style={{
-        width,
+        width: shownWidth,
         borderLeft: '1px solid #E2E8F0',
         transform: 'translateX(0)',
         transition: dragging ? 'none' : 'transform 180ms ease-out',

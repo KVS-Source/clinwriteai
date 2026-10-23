@@ -6,9 +6,10 @@
 // "Source documents" are the files uploaded through "Upload source document"
 // (document_uploads rows + the bytes in the 'documents' bucket). They are evidence,
 // not authored documents; the documents written from them are in document_sources.
-// A source document is:
+// Only files the user saved to the library are listed. An upload that was never saved
+// ("Save to library" not pressed) stays status='pending_classification' and is invisible
+// here; cancelling the upload form discards it (DELETE below). A listed source is:
 //   - saved     → saved to the library (category / title set)
-//   - pending   → uploaded but not saved to the library yet
 //   - rejected  → explicitly rejected
 //
 // Filtering / sorting / paging happen in memory: a project holds tens to low
@@ -20,12 +21,12 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { suggestSourceCategory } from './source-categories.js'
 
-const SORT_KEYS = ['title', 'file', 'category', 'state', 'size', 'uploaded'] as const
+const SORT_KEYS = ['title', 'file', 'category', 'state', 'scan', 'usedIn', 'size', 'uploaded'] as const
 type SortKey = (typeof SORT_KEYS)[number]
 
 const listQuery = z.object({
   q: z.string().trim().max(200).optional(),
-  state: z.enum(['all', 'saved', 'pending', 'rejected']).default('all'),
+  state: z.enum(['all', 'saved', 'rejected']).default('all'),
   sort: z.enum(SORT_KEYS).default('uploaded'),
   dir: z.enum(['asc', 'desc']).default('desc'),
   page: z.coerce.number().int().min(1).default(1),
@@ -51,15 +52,13 @@ type UploadRow = {
   createdAt: Date
 }
 
-export type SourceState = 'saved' | 'pending' | 'rejected'
+export type SourceState = 'saved' | 'rejected'
 
 function stateOf(row: Pick<UploadRow, 'status'>): SourceState {
-  if (row.status === 'rejected') return 'rejected'
-  if (row.status === 'confirmed') return 'saved'
-  return 'pending'
+  return row.status === 'rejected' ? 'rejected' : 'saved'
 }
 
-function stripExt(name: string): string {
+export function stripExt(name: string): string {
   const dot = name.lastIndexOf('.')
   return dot > 0 ? name.slice(0, dot) : name
 }
@@ -74,6 +73,13 @@ export const isPreviewable = (contentType: string) =>
 export function contentDisposition(fileName: string): string {
   const ascii = fileName.replace(/[^\x20-\x7e]/g, '_').replace(/["\\;]/g, '_')
   return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`
+}
+
+// A blob read can fail because the object really isn't there (local ENOENT / S3 NoSuchKey) or because
+// storage itself is unhealthy (unreachable, bad credentials, timeout). Only the first is "file missing".
+export function isMissingBlob(err: unknown): boolean {
+  const e = err as { name?: string; code?: string; $metadata?: { httpStatusCode?: number } } | null
+  return e?.code === 'ENOENT' || e?.name === 'NoSuchKey' || e?.name === 'NotFound' || e?.$metadata?.httpStatusCode === 404
 }
 
 const cmp = (a: string | number, b: string | number) =>
@@ -92,7 +98,7 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
     const rows = (await app.prisma.documentUpload.findMany({
-      where: { projectId },
+      where: { projectId, status: { in: ['confirmed', 'rejected'] } },
       orderBy: { createdAt: 'desc' },
       take: 5000,
     })) as UploadRow[]
@@ -145,7 +151,6 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     const summary = {
       files: all.length,
       saved: all.filter(r => r.state === 'saved').length,
-      pending: all.filter(r => r.state === 'pending').length,
       rejected: all.filter(r => r.state === 'rejected').length,
     }
 
@@ -161,6 +166,8 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
       file: r => r.fileName,
       category: r => r.category,
       state: r => r.state,
+      scan: r => r.virusScanStatus,
+      usedIn: r => r.usedIn.length,
       size: r => r.fileSizeBytes,
       uploaded: r => new Date(r.uploadedAt).getTime(),
     }
@@ -180,6 +187,32 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // Discard an upload that was never saved to the library (the user cancelled the upload form).
+  // Saved sources are never deleted here — only status='pending_classification'.
+  app.delete('/:projectId/source-documents/:uploadId', { preHandler: gate }, async (request, reply) => {
+    const { projectId, uploadId } = request.params as { projectId: string; uploadId: string }
+    const row = await app.prisma.documentUpload.findFirst({ where: { id: uploadId, projectId } }) as UploadRow | null
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    if (row.status !== 'pending_classification') {
+      return reply.code(409).send({ error: 'not_discardable', message: 'Only an upload that was not saved to the library can be discarded.' })
+    }
+
+    // Best effort: the row is what makes the file visible, so it goes even if the bytes are already gone.
+    await app.blob.del('documents', row.blobKey).catch(err => app.log.warn({ err, uploadId, blobKey: row.blobKey }, 'discarded upload: blob delete failed'))
+    await app.prisma.documentUpload.delete({ where: { id: row.id } })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'source_upload_discarded',
+      entityType: 'document_upload',
+      entityId: row.id,
+      details: { projectId, fileName: row.fileName, fileSizeBytes: row.fileSizeBytes },
+      ipAddress: request.ip ?? null,
+    })
+    return reply.code(204).send()
+  })
+
   app.get('/:projectId/source-documents/:uploadId/download', { preHandler: gate }, async (request, reply) => {
     const { projectId, uploadId } = request.params as { projectId: string; uploadId: string }
     // Scope by project so one project's upload id can't be fetched through another's URL.
@@ -193,8 +226,12 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     try {
       file = await app.blob.get('documents', row.blobKey)
     } catch (err) {
-      app.log.warn({ err, uploadId, blobKey: row.blobKey }, 'source document bytes missing from storage')
-      return reply.code(404).send({ error: 'file_missing', message: 'The stored file could not be found.' })
+      if (isMissingBlob(err)) {
+        app.log.warn({ err, uploadId, blobKey: row.blobKey }, 'source document bytes missing from storage')
+        return reply.code(404).send({ error: 'file_missing', message: 'The stored file could not be found.' })
+      }
+      app.log.error({ err, uploadId, blobKey: row.blobKey }, 'source document storage read failed')
+      return reply.code(502).send({ error: 'storage_unavailable', message: 'The file storage could not be reached. Try again shortly, or contact an administrator if it keeps happening.' })
     }
 
     await app.audit.append({
@@ -235,8 +272,12 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     try {
       file = await app.blob.get('documents', row.blobKey)
     } catch (err) {
-      app.log.warn({ err, uploadId, blobKey: row.blobKey }, 'source document bytes missing from storage')
-      return reply.code(404).send({ error: 'file_missing', message: 'The stored file could not be found.' })
+      if (isMissingBlob(err)) {
+        app.log.warn({ err, uploadId, blobKey: row.blobKey }, 'source document bytes missing from storage')
+        return reply.code(404).send({ error: 'file_missing', message: 'The stored file could not be found.' })
+      }
+      app.log.error({ err, uploadId, blobKey: row.blobKey }, 'source document storage read failed')
+      return reply.code(502).send({ error: 'storage_unavailable', message: 'The file storage could not be reached. Try again shortly, or contact an administrator if it keeps happening.' })
     }
 
     await app.audit.append({

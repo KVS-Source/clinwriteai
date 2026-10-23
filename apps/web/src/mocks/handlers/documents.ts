@@ -8,8 +8,8 @@ const BASE = import.meta.env.VITE_API_URL ?? '/api'
 const SOURCE_SAMPLES = [
   { id: 'src-1', title: 'Informed Consent Form v2', fileName: 'ICF-English-v2.docx', fileSizeBytes: 38_400, contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', category: 'icf', categorySource: 'set', origin: 'Sponsor', version: 'v2', state: 'saved', virusScanStatus: 'passed', usedIn: [{ id: 'DOC-008', title: 'Informed Consent Form v2' }], uploadedBy: { id: 'user-il', name: 'Ms Priya Nair', email: 'p.nair@genbioca.com' }, uploadedAt: '2026-10-14T09:43:00Z' },
   { id: 'src-2', title: 'VELORA-301 Protocol v3.2', fileName: 'GBC-4471_Protocol_v3.2_FINAL.pdf', fileSizeBytes: 2_516_582, contentType: 'application/pdf', category: 'protocol', categorySource: 'set', origin: 'Sponsor', version: 'v3.2', state: 'saved', virusScanStatus: 'passed', usedIn: [{ id: 'DOC-001', title: 'VELORA-301 Protocol v3.2' }], uploadedBy: { id: 'user-cl', name: 'Dr Elena Vasquez', email: 'e.vasquez@genbioca.com' }, uploadedAt: '2026-10-12T11:05:00Z' },
-  { id: 'src-3', title: 'lab-listing-wk26', fileName: 'lab-listing-wk26.xlsx', fileSizeBytes: 187_392, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', category: 'other', categorySource: 'detected', origin: null, version: null, state: 'pending', virusScanStatus: 'passed', usedIn: [], uploadedBy: { id: 'user-rw', name: 'Dr Sarah Chen', email: 's.chen@genbioca.com' }, uploadedAt: '2026-10-20T15:30:00Z' },
-  { id: 'src-4', title: 'crf-page-0042', fileName: 'crf-page-0042.png', fileSizeBytes: 640_000, contentType: 'image/png', category: 'other', categorySource: 'detected', origin: null, version: null, state: 'pending', virusScanStatus: 'passed', usedIn: [], uploadedBy: { id: 'user-ma', name: 'Dr Rebecca Morton', email: 'r.morton@genbioca.com' }, uploadedAt: '2026-10-21T08:12:00Z' },
+  { id: 'src-3', title: 'lab-listing-wk26', fileName: 'lab-listing-wk26.xlsx', fileSizeBytes: 187_392, contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', category: 'other', categorySource: 'detected', origin: null, version: null, state: 'saved', virusScanStatus: 'passed', usedIn: [], uploadedBy: { id: 'user-rw', name: 'Dr Sarah Chen', email: 's.chen@genbioca.com' }, uploadedAt: '2026-10-20T15:30:00Z' },
+  { id: 'src-4', title: 'crf-page-0042', fileName: 'crf-page-0042.png', fileSizeBytes: 640_000, contentType: 'image/png', category: 'other', categorySource: 'detected', origin: null, version: null, state: 'saved', virusScanStatus: 'passed', usedIn: [], uploadedBy: { id: 'user-ma', name: 'Dr Rebecca Morton', email: 'r.morton@genbioca.com' }, uploadedAt: '2026-10-21T08:12:00Z' },
 ] as const
 
 const isPreviewable = (t: string) => ['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp'].includes(t)
@@ -44,13 +44,21 @@ function sourceDocumentPage(url: URL) {
     summary: {
       files: SOURCE_SAMPLES.length,
       saved: SOURCE_SAMPLES.filter(r => r.state === 'saved').length,
-      pending: SOURCE_SAMPLES.filter(r => r.state === 'pending').length,
       rejected: 0,
     },
   }
 }
 
 export const documentHandlers = [
+  http.get(`${BASE}/documents/:documentId/sources`, async ({ params }) => {
+    await delay(150)
+    const items = params.documentId === 'DOC-001' ? [{
+      uploadId: 'src-2', title: 'VELORA-301 Protocol v3.2', fileName: 'GBC-4471_Protocol_v3.2_FINAL.pdf', category: 'protocol',
+      origin: 'Sponsor', version: 'v3.2', contentType: 'application/pdf', previewable: true, linkedAt: '2026-10-12T11:05:00Z',
+      sections: [{ sectionId: 's9', number: '9', title: 'Study Design', references: 1 }, { sectionId: 's11_4', number: '11.4', title: 'Efficacy Results', references: 2 }],
+    }] : []
+    return HttpResponse.json({ documentId: params.documentId, items })
+  }),
   http.get(`${BASE}/projects/:projectId/source-documents`, async ({ request }) => {
     await delay(150)
     return HttpResponse.json(sourceDocumentPage(new URL(request.url)))
@@ -106,6 +114,7 @@ export const documentHandlers = [
     await delay(1500)
     return HttpResponse.json({ uploadId: `upload-${crypto.randomUUID()}`, fileName: 'GBC-4471_Protocol_v3.2_FINAL.pdf', fileSizeMB: 2.4, virusScanStatus: 'passed', classification: { sourceCategory: 'protocol', sourceCategoryConfidence: 90, version: 'v3.2', versionConfidence: 85, stub: false } })
   }),
+  http.delete(`${BASE}/projects/:projectId/source-documents/:uploadId`, async () => new HttpResponse(null, { status: 204 })),
   http.post(`${BASE}/projects/:projectId/source-documents/:uploadId/save`, async ({ request, params }) => {
     const body = await request.json() as { title: string; category: string }
     await delay(300)

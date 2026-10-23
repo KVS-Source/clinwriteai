@@ -23,6 +23,7 @@ const UPLOADS: Upload[] = [
   up({ id: 'svg1', fileName: 'x.svg', contentType: 'image/svg+xml' }),
   up({ id: 'bad', fileName: 'bad.pdf', virusScanStatus: 'failed' }),
   up({ id: 'rej', fileName: 'rej.pdf', status: 'rejected' }),
+  up({ id: 'unsaved', fileName: 'unsaved.pdf', status: 'pending_classification' }),
   up({ id: 'foreign', projectId: 'proj-2', fileName: 'foreign.pdf' }),
 ]
 
@@ -87,7 +88,7 @@ describe('POST /documents/:id/references', () => {
     expect(created).toHaveLength(0)
   })
 
-  it.each(['bad', 'rej'])('refuses an unusable source (%s)', async (uploadId) => {
+  it.each(['bad', 'rej', 'unsaved'])('refuses an unusable source (%s)', async (uploadId) => {
     const { app } = await build()
     const res = await post(app, { sectionId: 's1', spanText: 'x', uploadId })
     expect(res.statusCode).toBe(422)
@@ -154,7 +155,7 @@ describe('GET /projects/:id/source-documents/:uploadId/preview', () => {
     const { app } = await build()
     expect((await app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/foreign/preview' })).statusCode).toBe(404)
     expect((await app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/bad/preview' })).statusCode).toBe(403)
-    const gone = await build(vi.fn(async () => { throw new Error('NoSuchKey') }))
+    const gone = await build(vi.fn(async () => { throw Object.assign(new Error('NoSuchKey'), { name: 'NoSuchKey' }) }))
     const res = await gone.app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/pdf1/preview' })
     expect(res.statusCode).toBe(404)
     expect(res.json().error).toBe('file_missing')

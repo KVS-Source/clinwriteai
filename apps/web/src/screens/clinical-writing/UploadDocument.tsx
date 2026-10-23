@@ -17,7 +17,7 @@
 
 import { SOURCE_FILE_ACCEPT, SOURCE_FILE_ERROR, SOURCE_FILE_EXT_RE, SOURCE_FILE_HINT } from '../../utils/sourceFileTypes'
 import { SOURCE_CATEGORIES } from '../../utils/sourceCategories'
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { documentsApi } from '../../api'
 import { ApiError } from '../../api/client'
@@ -26,6 +26,9 @@ interface Props {
   projectId:   string
   onSaved?:    (uploadId: string) => void
   onCancel?:   () => void
+  // The upload that is stored but not yet saved to the library (null once saved / none).
+  // The parent discards it if the panel is closed without "Save to library".
+  onPendingChange?: (uploadId: string | null) => void
 }
 
 const MAX_BYTES = 50 * 1024 * 1024
@@ -54,9 +57,12 @@ function confidenceColour(pct: number) {
   return { bg: '#FEE2E2', fg: '#991B1B' }
 }
 
-export function UploadDocumentForm({ projectId, onSaved, onCancel }: Props) {
+export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChange }: Props) {
   const qc = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const xhrRef = useRef<XMLHttpRequest | null>(null)
+  // Closing the panel mid-transfer stops the upload
+  useEffect(() => () => xhrRef.current?.abort(), [])
 
   const [file,      setFile]      = useState<File | null>(null)
   const [progress,  setProgress]  = useState(0)
@@ -88,6 +94,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel }: Props) {
 
     // XHR for progress events — fetch() doesn't surface upload progress.
     const xhr = new XMLHttpRequest()
+    xhrRef.current = xhr
     const url = `${import.meta.env.VITE_API_URL}/projects/${projectId}/documents/upload`
     xhr.open('POST', url)
     xhr.withCredentials = true
@@ -99,6 +106,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel }: Props) {
         try {
           const resp = JSON.parse(xhr.responseText) as UploadResponse
           setUpload(resp)
+          onPendingChange?.(resp.uploadId)
           // Pre-fill review state from the suggestion
           const c = resp.classification
           setCategory(SOURCE_CATEGORIES.some(o => o.value === c.sourceCategory) ? c.sourceCategory : 'other')
@@ -144,6 +152,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel }: Props) {
       })
     },
     onSuccess: () => {
+      onPendingChange?.(null)
       qc.invalidateQueries({ queryKey: ['source-documents', projectId] })
       onSaved?.(upload!.uploadId)
     },

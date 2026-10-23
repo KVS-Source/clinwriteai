@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Document, DocumentStage, DocumentStatus, DocumentType } from '@platform/types'
@@ -8,6 +8,7 @@ import { useProjectStore } from '../../store'
 import { NewDocumentForm } from './NewDocument'
 import { UploadDocumentForm } from './UploadDocument'
 import { SourceDocumentsTab } from './SourceDocumentsTab'
+import { DocumentDetailPanel } from './DocumentDetailPanel'
 
 // --- Enum → display label maps ---
 
@@ -50,6 +51,12 @@ const STAGES_ORDERED: DocumentStage[] = [
   'crm',
   'final-output',
 ]
+
+type DocSortKey = 'title' | 'type' | 'stage' | 'status' | 'updated' | 'assignee'
+
+// Click cycle per column: ascending → descending → back to the list's natural order.
+const nextSort = (cur: { key: DocSortKey; dir: 'asc' | 'desc' } | null, key: DocSortKey) =>
+  cur?.key !== key ? { key, dir: 'asc' as const } : cur.dir === 'asc' ? { key, dir: 'desc' as const } : null
 
 // Stage progress states — first two complete, post-study in progress, rest pending
 const STAGE_PROGRESS: Record<DocumentStage, 'complete' | 'in-progress' | 'pending'> = {
@@ -99,6 +106,9 @@ export function ClinicalWritingHome() {
   // for a plain new-doc flow). `null` with the panel open means fresh.
   const [newDocOpen, setNewDocOpen] = useState<false | { duplicateSourceId: string | null; sourceIds?: string[] }>(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  // Document whose detail panel is open (row click) and the table's column sort.
+  const [detailDoc, setDetailDoc] = useState<Document | null>(null)
+  const [docSort, setDocSort] = useState<{ key: DocSortKey; dir: 'asc' | 'desc' } | null>(null)
   // 'documents' = the stage-filtered document table; 'sources' = the project's
   // uploaded source-document library (tab next to "All Stages").
   const [view, setView] = useState<'documents' | 'sources'>('documents')
@@ -106,6 +116,8 @@ export function ClinicalWritingHome() {
   // Set after "Save to library" in the upload drawer: we stay on the Source Documents
   // tab and offer to write a document from the file that was just saved.
   const [justAdded, setJustAdded] = useState<{ uploadId: string } | null>(null)
+
+  useEffect(() => { if (view !== 'documents') setDetailDoc(null) }, [view])
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -134,9 +146,16 @@ export function ClinicalWritingHome() {
 
   // Close the upload drawer and refresh the library: a file is stored as soon as
   // it is uploaded, even if the user cancels before saving it to the library.
+  // An upload is stored as soon as the file transfers, but it only joins the library when the
+  // user presses "Save to library". Closing the panel any other way discards it.
+  const pendingUploadRef = useRef<string | null>(null)
   const closeUpload = () => {
+    const pending = pendingUploadRef.current
+    pendingUploadRef.current = null
     setUploadOpen(false)
-    void qc.invalidateQueries({ queryKey: ['source-documents', projectId] })
+    const refresh = () => { void qc.invalidateQueries({ queryKey: ['source-documents', projectId] }) }
+    if (pending && projectId) void documentsApi.discardSource(projectId, pending).catch(() => undefined).finally(refresh)
+    else refresh()
   }
 
   const teamById = useMemo(() => {
@@ -155,6 +174,28 @@ export function ClinicalWritingHome() {
       return matchSearch && matchStage && matchStatus && matchType
     })
   }, [documents, search, selectedStage, selectedStatus, selectedType])
+
+  const sortedDocs = useMemo(() => {
+    if (!docSort) return filtered
+    const stageOrder = Object.keys(STAGE_LABELS)
+    const statusOrder = Object.keys(STATUS_LABELS)
+    const val = (d: Document): string | number => {
+      switch (docSort.key) {
+        case 'title':    return d.title
+        case 'type':     return TYPE_LABELS[d.type]
+        case 'stage':    return stageOrder.indexOf(d.stage)
+        case 'status':   return statusOrder.indexOf(d.status)
+        case 'updated':  return d.updatedAt ? Date.parse(d.updatedAt) : 0
+        case 'assignee': return teamById.get(d.assigneeId)?.name ?? ''
+      }
+    }
+    const sign = docSort.dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      const x = val(a), y = val(b)
+      const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { sensitivity: 'base', numeric: true })
+      return c * sign || a.id.localeCompare(b.id)
+    })
+  }, [filtered, docSort, teamById])
 
   const filtersDirty = search !== '' || selectedStage !== 'all' || selectedStatus !== 'all' || selectedType !== 'all'
 
@@ -317,49 +358,40 @@ export function ClinicalWritingHome() {
           <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
 
             {/* Filter bar */}
-            <div className="flex flex-col gap-3 border-b border-slate-200 px-5 py-4">
-              <div className="flex items-center gap-3">
-                <div className="flex max-w-[300px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
-                  <SearchIcon />
-                  <input
-                    type="text"
-                    value={search}
-                    onChange={e => setSearch(e.target.value)}
-                    placeholder="Search documents..."
-                    className="w-full border-none bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
-                  />
-                </div>
-                <div className="flex-1" />
-                {filtersDirty && (
-                  <button onClick={resetFilters} className="p-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
-                    Reset filters
-                  </button>
-                )}
+            <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 px-5 py-4">
+              <div className="flex min-w-[200px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
+                <SearchIcon />
+                <input
+                  type="text"
+                  value={search}
+                  onChange={e => setSearch(e.target.value)}
+                  placeholder="Search documents..."
+                  className="w-full border-none bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
+                />
               </div>
-
-              <ChipRow label="Type">
-                <FilterChip label="All" active={selectedType === 'all'} onClick={() => setSelectedType('all')} />
-                {activeTypes.map(t => (
-                  <FilterChip
-                    key={t}
-                    label={TYPE_LABELS[t]}
-                    active={selectedType === t}
-                    onClick={() => setSelectedType(t)}
-                  />
-                ))}
-              </ChipRow>
-
-              <ChipRow label="Status">
-                <FilterChip label="All" active={selectedStatus === 'all'} onClick={() => setSelectedStatus('all')} />
-                {activeStatuses.map(s => (
-                  <FilterChip
-                    key={s}
-                    label={STATUS_LABELS[s]}
-                    active={selectedStatus === s}
-                    onClick={() => setSelectedStatus(s)}
-                  />
-                ))}
-              </ChipRow>
+              <select
+                value={selectedType}
+                onChange={e => setSelectedType(e.target.value as DocumentType | 'all')}
+                aria-label="Filter by type"
+                className="h-[38px] rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900"
+              >
+                <option value="all">All Types</option>
+                {activeTypes.map(t => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
+              </select>
+              <select
+                value={selectedStatus}
+                onChange={e => setSelectedStatus(e.target.value as DocumentStatus | 'all')}
+                aria-label="Filter by status"
+                className="h-[38px] rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900"
+              >
+                <option value="all">All Statuses</option>
+                {activeStatuses.map(st => <option key={st} value={st}>{STATUS_LABELS[st]}</option>)}
+              </select>
+              {filtersDirty && (
+                <button onClick={resetFilters} className="p-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
+                  Reset filters
+                </button>
+              )}
             </div>
 
             {/* Column headers */}
@@ -367,12 +399,21 @@ export function ClinicalWritingHome() {
               className="border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold text-slate-500"
               style={{ display: 'grid', gridTemplateColumns: COL_TEMPLATE }}
             >
-              <div>Document Title</div>
-              <div>Type</div>
-              <div>Stage</div>
-              <div>Status</div>
-              <div>Last Updated</div>
-              <div>Assigned To</div>
+              {([
+                ['Document Title', 'title'], ['Type', 'type'], ['Stage', 'stage'],
+                ['Status', 'status'], ['Last Updated', 'updated'], ['Assigned To', 'assignee'],
+              ] as Array<[string, DocSortKey]>).map(([label, key]) => (
+                <div key={key} aria-sort={docSort?.key === key ? (docSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                  <button
+                    type="button"
+                    onClick={() => setDocSort(cur => nextSort(cur, key))}
+                    className="inline-flex items-center gap-1.5 font-semibold hover:text-slate-800"
+                    data-sort={key}
+                  >
+                    {label}<SortIcon state={docSort?.key === key ? docSort.dir : null} />
+                  </button>
+                </div>
+              ))}
               <div className="text-right">Quick Actions</div>
             </div>
 
@@ -390,17 +431,20 @@ export function ClinicalWritingHome() {
               </div>
             )}
 
-            {!isLoading && filtered.map((doc: Document, i: number) => {
+            {!isLoading && sortedDocs.map((doc: Document, i: number) => {
               const assignee = teamById.get(doc.assigneeId) ?? { name: '—', initials: '—' }
               return (
                 <div
                   key={doc.id}
-                  onClick={() => handleDocClick(doc)}
-                  className="cursor-pointer items-center border-b border-slate-100 px-5 py-4 text-sm hover:bg-slate-50 transition-colors"
+                  onClick={() => setDetailDoc(cur => (cur?.id === doc.id ? null : doc))}
+                  data-panel-trigger
+                  data-doc-row={doc.id}
+                  aria-selected={detailDoc?.id === doc.id}
+                  className={`cursor-pointer items-center border-b border-slate-100 px-5 py-4 text-sm hover:bg-slate-50 transition-colors ${detailDoc?.id === doc.id ? 'bg-blue-50/50' : ''}`}
                   style={{
                     display: 'grid',
                     gridTemplateColumns: COL_TEMPLATE,
-                    borderBottom: i === filtered.length - 1 ? 'none' : undefined,
+                    borderBottom: i === sortedDocs.length - 1 ? 'none' : undefined,
                   }}
                 >
                   <div className="pr-4 font-semibold text-slate-900 truncate">{doc.title}</div>
@@ -417,7 +461,7 @@ export function ClinicalWritingHome() {
                     </div>
                     <div className="truncate text-slate-900">{assignee.name}</div>
                   </div>
-                  <div className="flex items-center justify-end gap-2">
+                  <div className="flex items-center justify-end gap-2" onClick={e => e.stopPropagation()}>
                     <button
                       type="button"
                       onClick={e => { e.stopPropagation(); handleDocClick(doc) }}
@@ -492,12 +536,25 @@ export function ClinicalWritingHome() {
         )}
       </div>
 
+      {view === 'documents' && projectId && (
+        <DocumentDetailPanel
+          projectId={projectId}
+          doc={detailDoc}
+          typeLabel={detailDoc ? TYPE_LABELS[detailDoc.type] : ''}
+          stageLabel={detailDoc ? STAGE_LABELS[detailDoc.stage] : ''}
+          assigneeName={detailDoc ? (teamById.get(detailDoc.assigneeId)?.name ?? '—') : ''}
+          onClose={() => setDetailDoc(null)}
+          onOpen={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
+        />
+      )}
+
       <SlidePanel
         open={newDocOpen !== false}
         onClose={() => setNewDocOpen(false)}
         title={newDocOpen && newDocOpen.duplicateSourceId ? 'Duplicate document' : 'New document'}
         subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
         storageKey="panel-width-new-document"
+        closeOnOutsideClick
       >
         {newDocOpen !== false && projectId && (
           <NewDocumentForm
@@ -519,11 +576,13 @@ export function ClinicalWritingHome() {
         title="Upload source document"
         subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
         storageKey="panel-width-upload-document"
+        closeOnOutsideClick
       >
         {uploadOpen && projectId && (
           <UploadDocumentForm
             projectId={projectId}
             onCancel={closeUpload}
+            onPendingChange={id => { pendingUploadRef.current = id }}
             onSaved={uploadId => {
               // Stay on the project's source-document list: the new row appears here as "Saved".
               closeUpload()
@@ -556,34 +615,12 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
   )
 }
 
-function FilterChip({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
+function SortIcon({ state }: { state: 'asc' | 'desc' | null }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="h-7 rounded-md px-2.5 text-xs transition-colors"
-      style={active ? {
-        backgroundColor: '#EFF6FF',
-        color: '#2563EB',
-        border: '1px solid #DBEAFE',
-        fontWeight: 600,
-      } : {
-        backgroundColor: '#F8FAFC',
-        color: '#64748B',
-        border: '1px solid #E2E8F0',
-      }}
-    >
-      {label}
-    </button>
-  )
-}
-
-function ChipRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center gap-2">
-      <span className="text-xs font-semibold text-slate-500">{label}</span>
-      {children}
-    </div>
+    <svg width="10" height="12" viewBox="0 0 10 12" fill="none" aria-hidden="true" className="flex-none">
+      <path d="M5 1 2 4.5h6L5 1Z" fill={state === 'asc' ? '#1E293B' : '#CBD5E1'} />
+      <path d="M5 11 2 7.5h6L5 11Z" fill={state === 'desc' ? '#1E293B' : '#CBD5E1'} />
+    </svg>
   )
 }
 

@@ -7,57 +7,109 @@
 
 export const HIGHLIGHT_NAME = 'source-ref'
 
-export interface LinkedRange { id: string; range: Range }
+export interface LinkedRange { id: string; range: Range; start: number; end: number }
 
 /** Collapse runs of whitespace the same way when saving a selection and when searching for it. */
 export const normalizeSpan = (s: string) => s.replace(/\s+/g, ' ').trim()
 
 /**
- * Find `text` (whitespace-insensitive) inside `root`'s text nodes. Returns a Range or null.
- * Matches the first occurrence only.
+ * The section's text with whitespace collapsed (block boundaries read as one space), and for each
+ * character the text node + offset it came from. Reference offsets (startOffset / endOffset) are
+ * positions in this collapsed text.
  */
-export function findTextRange(root: Node, text: string): Range | null {
-  const needle = normalizeSpan(text)
-  if (!needle) return null
+export interface TextIndex { text: string; origin: Array<{ node: Text; offset: number }> }
 
-  // Build a whitespace-collapsed copy of the text, remembering where each character came from.
+export function buildTextIndex(root: Node): TextIndex {
   const walker = window.document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
-  let haystack = ''
-  const origin: Array<{ node: Text; offset: number }> = []
+  let text = ''
+  const origin: TextIndex['origin'] = []
   let lastWasSpace = true   // swallow leading whitespace
   for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
     const value = n.nodeValue ?? ''
     for (let i = 0; i < value.length; i++) {
       const isSpace = /\s/.test(value[i]!)
       if (isSpace && lastWasSpace) continue
-      haystack += isSpace ? ' ' : value[i]
+      text += isSpace ? ' ' : value[i]
       origin.push({ node: n, offset: i })
       lastWasSpace = isSpace
     }
     // block boundaries read as a space between text nodes
-    if (!lastWasSpace) { haystack += ' '; origin.push({ node: n, offset: value.length }); lastWasSpace = true }
+    if (!lastWasSpace) { text += ' '; origin.push({ node: n, offset: value.length }); lastWasSpace = true }
   }
+  return { text, origin }
+}
 
-  const at = haystack.indexOf(needle)
-  if (at < 0) return null
-  const start = origin[at]!
-  const end = origin[at + needle.length - 1]!
+/**
+ * Where `text` sits in the index. With a stored `near` offset: the exact spot if the wording is
+ * still there, else the occurrence closest to it (the section was edited around it). Without
+ * one (older references): the first occurrence.
+ */
+export function locateSpan(index: TextIndex, text: string, near?: number | null): { start: number; end: number } | null {
+  const needle = normalizeSpan(text)
+  if (!needle) return null
+  if (near != null && index.text.slice(near, near + needle.length) === needle) return { start: near, end: near + needle.length }
+  let best = -1
+  for (let at = index.text.indexOf(needle); at >= 0; at = index.text.indexOf(needle, at + 1)) {
+    if (near == null) { best = at; break }
+    if (best < 0 || Math.abs(at - near) < Math.abs(best - near)) best = at
+  }
+  return best < 0 ? null : { start: best, end: best + needle.length }
+}
+
+/** A DOM Range covering index characters [start, end). */
+export function rangeFromSpan(index: TextIndex, span: { start: number; end: number }): Range | null {
+  const a = index.origin[span.start]
+  const b = index.origin[span.end - 1]
+  if (!a || !b) return null
   const range = window.document.createRange()
-  range.setStart(start.node, start.offset)
-  range.setEnd(end.node, Math.min(end.offset + 1, end.node.length))
+  range.setStart(a.node, a.offset)
+  range.setEnd(b.node, Math.min(b.offset + 1, b.node.length))
   return range
+}
+
+/** Where a DOM selection Range sits in the index (spaces at either end trimmed), or null if it's outside. */
+export function spanOfRange(index: TextIndex, range: Range): { start: number; end: number } | null {
+  const inside = (node: Text, offset: number) => {
+    try { return range.comparePoint(node, offset) === 0 } catch { return false }
+  }
+  let start = -1
+  let end = -1
+  index.origin.forEach(({ node, offset }, i) => {
+    if (inside(node, offset) && inside(node, Math.min(offset + 1, node.length))) {
+      if (start < 0) start = i
+      end = i + 1
+    }
+  })
+  while (start >= 0 && start < end && index.text[start] === ' ') start++
+  while (end > start && index.text[end - 1] === ' ') end--
+  return start < 0 || end <= start ? null : { start, end }
+}
+
+/** Two spans share at least one character. */
+export const spansOverlap = (a: { start: number; end: number }, b: { start: number; end: number }) => a.start < b.end && b.start < a.end
+
+/**
+ * Find `text` (whitespace-insensitive) inside `root`'s text nodes. Returns a Range or null.
+ * Matches the first occurrence only.
+ */
+export function findTextRange(root: Node, text: string): Range | null {
+  const index = buildTextIndex(root)
+  const span = locateSpan(index, text)
+  return span ? rangeFromSpan(index, span) : null
 }
 
 type HighlightRegistry = { set(name: string, h: unknown): void; delete(name: string): void }
 const registry = (): HighlightRegistry | null =>
   (typeof CSS !== 'undefined' && (CSS as unknown as { highlights?: HighlightRegistry }).highlights) || null
 
-/** Highlight each reference's text. Returns the ranges (for click hit-testing). */
-export function applyReferenceHighlights(root: Node, refs: Array<{ id: string; spanText: string }>): LinkedRange[] {
+/** Highlight each reference's text, at its stored position when it has one. Returns the ranges (for hit-testing and overlap checks). */
+export function applyReferenceHighlights(root: Node, refs: Array<{ id: string; spanText: string; startOffset?: number | null }>): LinkedRange[] {
   const found: LinkedRange[] = []
+  const index = buildTextIndex(root)
   for (const r of refs) {
-    const range = findTextRange(root, r.spanText)
-    if (range) found.push({ id: r.id, range })
+    const span = locateSpan(index, r.spanText, r.startOffset)
+    const range = span && rangeFromSpan(index, span)
+    if (span && range) found.push({ id: r.id, range, ...span })
   }
   const reg = registry()
   const HighlightCtor = (globalThis as unknown as { Highlight?: new (...r: Range[]) => unknown }).Highlight

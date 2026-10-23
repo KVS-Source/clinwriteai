@@ -2,19 +2,31 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { documentsApi, type SourceDocument, type SourceReference } from '../api/documents'
 import { ApiError } from '../api/client'
+import type { DocumentStatus } from '@platform/types'
 import { useEditorStore } from '../store'
-import { normalizeSpan } from '../screens/clinical-writing/referenceHighlights'
+import { normalizeSpan, spansOverlap } from '../screens/clinical-writing/referenceHighlights'
 
 // Source references panel (FR-A-022). Two views in the right-hand panel:
 //   list   — reference links for the active section + "add a reference" from selected text
 //   viewer — the linked source document (PDF / image), opened at the cited page
-// Reference links are immutable once created; there is no edit or delete.
+// "Already linked" is per text range, not per section: when the selected text overlaps a
+// linked range the panel points at that reference (View source / Remove) instead of the add
+// form; any other selection can be linked, so a section can hold many references. Removing
+// keeps the original record (the API appends a removal and audits it).
 
 interface Props {
   documentId: string
   projectId: string
   sectionId: string | null
   sectionLabel?: string
+  /** document status — references can't change while it's in review, awaiting signature or signed */
+  documentStatus?: DocumentStatus
+}
+
+const LOCKED_NOTE: Partial<Record<DocumentStatus, string>> = {
+  'in-review':         'The document is in review and locked for authoring, so references can’t be added or removed.',
+  'pending-signature': 'The document is awaiting signature, so references can’t be added or removed.',
+  'signed':            'The document is signed, so references can’t be added or removed.',
 }
 
 const excerpt = (s: string, n = 90) => (s.length > n ? `${s.slice(0, n).trimEnd()}…` : s)
@@ -30,8 +42,10 @@ function reason(err: unknown): string {
 
 // ---------------------------------------------------------------- viewer
 
-export function SourceViewer({ projectId, source, page, quote, onBack, backLabel = '← References' }: {
+export function SourceViewer({ projectId, documentId, source, page, quote, onBack, backLabel = '← References' }: {
   projectId: string
+  /** opened from this document — the view/download is logged on its audit trail */
+  documentId?: string
   source: Pick<SourceDocument, 'id' | 'fileName' | 'contentType' | 'previewable'> | null
   page: number | null
   quote?: string
@@ -44,8 +58,8 @@ export function SourceViewer({ projectId, source, page, quote, onBack, backLabel
   useEffect(() => setPageJump(page), [page, uploadId])
 
   const file = useQuery({
-    queryKey: ['source-preview', projectId, uploadId],
-    queryFn: () => documentsApi.previewSource(projectId, uploadId),
+    queryKey: ['source-preview', projectId, uploadId, documentId ?? null],
+    queryFn: () => documentsApi.previewSource(projectId, uploadId, documentId),
     enabled: !!uploadId && previewable,
     staleTime: 5 * 60_000,
     retry: false,
@@ -65,7 +79,7 @@ export function SourceViewer({ projectId, source, page, quote, onBack, backLabel
   const download = async () => {
     setDownloadError(null)
     try {
-      const { blob, filename } = await documentsApi.downloadSource(projectId, uploadId)
+      const { blob, filename } = await documentsApi.downloadSource(projectId, uploadId, documentId)
       const a = window.document.createElement('a')
       const href = URL.createObjectURL(blob)
       a.href = href
@@ -131,10 +145,12 @@ export function SourceViewer({ projectId, source, page, quote, onBack, backLabel
 
 // ------------------------------------------------------------------ list
 
-export function SourceReferencesPanel({ documentId, projectId, sectionId, sectionLabel }: Props) {
+export function SourceReferencesPanel({ documentId, projectId, sectionId, sectionLabel, documentStatus }: Props) {
   const qc = useQueryClient()
   const selected = useEditorStore(s => s.traceabilityTarget)
   const setSelected = useEditorStore(s => s.setTraceabilityTarget)
+  const selectedSpan = useEditorStore(s => s.traceabilityRange)
+  const linkedSpans = useEditorStore(s => s.linkedSpans)
   const viewer = useEditorStore(s => s.sourceViewer)
   const setViewer = useEditorStore(s => s.setSourceViewer)
 
@@ -164,6 +180,7 @@ export function SourceReferencesPanel({ documentId, projectId, sectionId, sectio
       sectionId: sectionId!,
       spanText: normalizeSpan(selected ?? ''),
       uploadId,
+      ...(selectedSpan ? { startOffset: selectedSpan.start, endOffset: selectedSpan.end } : {}),
       ...(page ? { page: Number(page) } : {}),
       ...(locator.trim() ? { locator: locator.trim() } : {}),
     }),
@@ -175,10 +192,29 @@ export function SourceReferencesPanel({ documentId, projectId, sectionId, sectio
 
   const canAdd = !!sectionId && !!selected && !!uploadId && (page === '' || Number(page) >= 1)
 
+  // Remove: inline confirm with an optional reason (kept on the audit trail).
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [removeReason, setRemoveReason] = useState('')
+  useEffect(() => { setConfirmingId(null); setRemoveReason('') }, [sectionId])
+  const remove = useMutation({
+    mutationFn: (referenceId: string) => documentsApi.removeReference(documentId, referenceId, removeReason.trim() || undefined),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['references', documentId] })
+      void qc.invalidateQueries({ queryKey: ['document-sources', documentId] })
+      setConfirmingId(null); setRemoveReason(''); setUploadId(''); setPage(''); setLocator('')
+    },
+  })
+  // references whose marked text the current selection overlaps
+  const selectionRefIds = new Set(selected && selectedSpan
+    ? inSection.filter(r => linkedSpans[r.id] && spansOverlap(selectedSpan, linkedSpans[r.id]!)).map(r => r.id)
+    : [])
+  const linked = selectionRefIds.size > 0
+  const lockedNote = documentStatus ? LOCKED_NOTE[documentStatus] : undefined
+
   if (viewer) {
     const src = sourceById.get(viewer.uploadId) ?? null
     return (
-      <SourceViewer projectId={projectId} source={src} page={viewer.page ?? null} quote={viewer.spanText} onBack={() => setViewer(null)} />
+      <SourceViewer projectId={projectId} documentId={documentId} source={src} page={viewer.page ?? null} quote={viewer.spanText} onBack={() => setViewer(null)} />
     )
   }
 
@@ -186,7 +222,19 @@ export function SourceReferencesPanel({ documentId, projectId, sectionId, sectio
 
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto" data-panel="source-references">
-      <section className="border-b border-slate-200 p-4">
+      {lockedNote ? (
+        <section className="border-b border-slate-200 p-4" data-reference-locked>
+          <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">References locked{sectionLabel ? ` · ${sectionLabel}` : ''}</h4>
+          <p className="mt-1 text-xs text-slate-500">{lockedNote}</p>
+        </section>
+      ) : linked ? (
+        <section className="border-b border-slate-200 p-4" data-reference-linked>
+          <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">Source linked{sectionLabel ? ` · ${sectionLabel}` : ''}</h4>
+          <p className="mt-1 text-xs text-slate-500">The selected text is already linked to a source document (highlighted below). Remove that reference to link it to a different one, or select other text.</p>
+          <button type="button" onClick={() => setSelected(null)} data-action="clear-selection" className="mt-1 text-[11px] font-semibold text-blue-700 hover:underline">Clear selection</button>
+        </section>
+      ) : (
+      <section className="border-b border-slate-200 p-4" data-reference-form>
         <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">Add a reference{sectionLabel ? ` · ${sectionLabel}` : ''}</h4>
         <p className="mt-1 text-xs text-slate-500">Select text in the section, then choose the source it comes from.</p>
 
@@ -222,8 +270,9 @@ export function SourceReferencesPanel({ documentId, projectId, sectionId, sectio
           {create.isPending ? 'Adding…' : 'Add reference'}
         </button>
         {create.isError && <p role="alert" className="mt-2 text-xs text-red-700" data-reference-error>{reason(create.error)}</p>}
-        <p className="mt-2 text-[11px] text-slate-400">References are permanent once added (audit requirement) and can’t be edited or removed.</p>
+        <p className="mt-2 text-[11px] text-slate-400">Every reference you add or remove is recorded in the document’s audit trail.</p>
       </section>
+      )}
 
       <section className="p-4">
         <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">
@@ -236,17 +285,45 @@ export function SourceReferencesPanel({ documentId, projectId, sectionId, sectio
         )}
         <ul className="mt-2 space-y-2">
           {inSection.map(r => (
-            <li key={r.id} data-reference={r.id} className="rounded-md border border-slate-200 bg-white p-3">
+            <li key={r.id} data-reference={r.id} data-selected={selectionRefIds.has(r.id) || undefined}
+              className={`rounded-md border bg-white p-3 ${selectionRefIds.has(r.id) ? 'border-blue-400 ring-2 ring-blue-100' : 'border-slate-200'}`}>
               <p className="text-xs italic text-slate-700">“{excerpt(r.spanText)}”</p>
               <p className="mt-1.5 text-xs font-semibold text-slate-900">{r.fileName ?? 'Source no longer available'}</p>
               <p className="text-[11px] text-slate-500">
                 {[r.page ? `p. ${r.page}` : null, r.locator].filter(Boolean).join(' · ') || 'No page or section noted'}
                 {' · '}{r.createdBy.name ?? 'Unknown'} · {new Date(r.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
               </p>
-              <button type="button" onClick={() => open(r)} data-action="open-source"
-                className="mt-2 rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100">
-                View source
-              </button>
+              {confirmingId === r.id ? (
+                <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2" data-remove-confirm>
+                  <p className="text-xs font-semibold text-red-800">Remove this reference?</p>
+                  <input value={removeReason} onChange={e => setRemoveReason(e.target.value)} maxLength={500} placeholder="Reason (optional)" data-field="remove-reason"
+                    className="mt-1.5 w-full rounded border border-red-200 bg-white px-2 py-1 text-xs" />
+                  <div className="mt-2 flex gap-2">
+                    <button type="button" disabled={remove.isPending} onClick={() => remove.mutate(r.id)} data-action="confirm-remove-reference"
+                      className="rounded-md bg-red-600 px-2 py-1 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-60">
+                      {remove.isPending ? 'Removing…' : 'Remove'}
+                    </button>
+                    <button type="button" disabled={remove.isPending} onClick={() => { setConfirmingId(null); setRemoveReason(''); remove.reset() }} data-action="cancel-remove-reference"
+                      className="rounded-md border border-slate-300 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                      Cancel
+                    </button>
+                  </div>
+                  {remove.isError && <p role="alert" className="mt-1.5 text-xs text-red-700" data-remove-error>{reason(remove.error)}</p>}
+                </div>
+              ) : (
+                <div className="mt-2 flex gap-2">
+                  <button type="button" onClick={() => open(r)} data-action="open-source"
+                    className="rounded-md border border-blue-200 bg-blue-50 px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100">
+                    View source
+                  </button>
+                  {!lockedNote && (
+                    <button type="button" onClick={() => { setConfirmingId(r.id); setRemoveReason(''); remove.reset() }} data-action="remove-reference"
+                      className="rounded-md border border-red-200 bg-white px-2 py-1 text-xs font-semibold text-red-700 hover:bg-red-50">
+                      Remove
+                    </button>
+                  )}
+                </div>
+              )}
             </li>
           ))}
         </ul>

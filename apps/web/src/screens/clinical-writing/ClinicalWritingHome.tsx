@@ -251,6 +251,7 @@ export function ClinicalWritingHome() {
                 type="button"
                 onClick={() => setUploadOpen(true)}
                 className="rounded-md border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] font-semibold text-slate-900 transition-colors hover:bg-slate-50"
+                data-action="upload-source"
               >
                 Upload source document
               </button>

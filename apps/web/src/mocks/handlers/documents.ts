@@ -85,16 +85,23 @@ export const documentHandlers = [
     })
   }),
   http.post(`${BASE}/documents/:documentId/references`, async ({ params, request }) => {
-    const body = await request.json() as { sectionId: string; spanText: string; uploadId: string; page?: number; locator?: string }
+    const body = await request.json() as { sectionId: string; spanText: string; uploadId: string; page?: number; locator?: string; startOffset?: number; endOffset?: number }
     const src = SOURCE_SAMPLES.find(r => r.id === body.uploadId)
     if (!src) return HttpResponse.json({ error: 'source_not_in_project', message: 'That source document is not part of this project.' }, { status: 422 })
     const row = {
       id: `ref-${MOCK_REFERENCES.length + 1}`, documentId: params.documentId, sectionId: body.sectionId, spanText: body.spanText,
       uploadId: src.id, fileName: src.fileName, contentType: src.contentType, previewable: isPreviewable(src.contentType),
-      page: body.page ?? null, locator: body.locator ?? null, createdBy: { id: 'user-mock', name: 'Demo User' }, createdAt: new Date().toISOString(),
+      page: body.page ?? null, locator: body.locator ?? null, startOffset: body.startOffset ?? null, endOffset: body.endOffset ?? null,
+      createdBy: { id: 'user-mock', name: 'Demo User' }, createdAt: new Date().toISOString(),
     }
     MOCK_REFERENCES.push(row)
     return HttpResponse.json(row, { status: 201 })
+  }),
+  http.post(`${BASE}/documents/:documentId/references/:referenceId/remove`, async ({ params }) => {
+    const i = MOCK_REFERENCES.findIndex(r => r.id === params.referenceId && r.documentId === params.documentId)
+    if (i < 0) return HttpResponse.json({ error: 'not_found', message: 'That reference is not part of this document.' }, { status: 404 })
+    MOCK_REFERENCES.splice(i, 1)
+    return HttpResponse.json({ id: params.referenceId, removedAt: new Date().toISOString() })
   }),
   http.get(`${BASE}/projects/:projectId/documents`, async () => {
     await delay(200)

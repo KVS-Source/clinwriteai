@@ -208,14 +208,6 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
               ✕ Clear filters
             </button>
           )}
-          <button
-            type="button"
-            onClick={onUpload}
-            className="rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50"
-            data-action="upload-source"
-          >
-            Upload source document
-          </button>
         </div>
 
         {/* Table */}

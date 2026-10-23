@@ -27,29 +27,51 @@ const UPLOADS: Upload[] = [
   up({ id: 'foreign', projectId: 'proj-2', fileName: 'foreign.pdf' }),
 ]
 
-async function build(blobGet = vi.fn(async () => ({ body: Buffer.from('%PDF-1.4'), contentType: 'application/pdf' }))) {
+const REFS = [
+  { id: 'r1', documentId: 'DOC-1', sectionId: 's1', spanText: 'PFS was 11.2 months', uploadId: 'pdf1', page: 42, locator: '§9.4', createdBy: 'viewer', createdAt: new Date('2026-10-22T09:00:00Z') },
+  { id: 'r2', documentId: 'DOC-1', sectionId: 's2', spanText: 'AE listing', uploadId: 'docx1', page: null, locator: null, createdBy: 'viewer', createdAt: new Date('2026-10-22T09:05:00Z') },
+]
+
+async function build(
+  blobGet = vi.fn(async () => ({ body: Buffer.from('%PDF-1.4'), contentType: 'application/pdf' })),
+  { removalsTable = true, docStatus = 'in_authoring' }: { removalsTable?: boolean; docStatus?: string } = {},
+) {
   const created: Array<Record<string, unknown>> = []
+  const removals: Array<{ id: string; referenceId: string; documentId: string; reason: string | null; removedBy: string; removedAt: Date }> = []
+  const missingTable = () => { throw Object.assign(new Error('table does not exist'), { code: 'P2021' }) }
   const audit = vi.fn(async () => undefined)
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1' })) },
     document: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
-        where.id === 'DOC-1' ? { id: 'DOC-1', projectId: 'proj-1', deletedAt: null } : where.id === 'DOC-GONE' ? { id: 'DOC-GONE', projectId: 'proj-1', deletedAt: new Date() } : null),
+        where.id === 'DOC-1' ? { id: 'DOC-1', projectId: 'proj-1', status: docStatus, deletedAt: null } : where.id === 'DOC-GONE' ? { id: 'DOC-GONE', projectId: 'proj-1', status: 'in_authoring', deletedAt: new Date() } : null),
       findMany: vi.fn(async () => []),
+      findFirst: vi.fn(async ({ where }: { where: { id: string; projectId: string } }) =>
+        where.id === 'DOC-1' && where.projectId === 'proj-1' ? { id: 'DOC-1' } : null),
     },
     documentUpload: {
       findFirst: vi.fn(async ({ where }: { where: { id: string; projectId: string } }) => UPLOADS.find(u => u.id === where.id && u.projectId === where.projectId) ?? null),
       findMany: vi.fn(async ({ where }: { where: { id?: { in: string[] } } }) => UPLOADS.filter(u => where.id?.in.includes(u.id))),
     },
     user: { findMany: vi.fn(async () => [{ id: 'viewer', name: 'Priya Nair', email: 'p@x.io' }]) },
+    documentSource: { findMany: vi.fn(async () => []) },
     sourceReference: {
       create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { const row = { id: 'ref-1', createdAt: new Date('2026-10-22T09:00:00Z'), ...data }; created.push(row); return row }),
       findMany: vi.fn(async ({ where }: { where: { documentId: string; sectionId?: string } }) =>
-        [
-          { id: 'r1', documentId: 'DOC-1', sectionId: 's1', spanText: 'PFS was 11.2 months', uploadId: 'pdf1', page: 42, locator: '§9.4', createdBy: 'viewer', createdAt: new Date('2026-10-22T09:00:00Z') },
-          { id: 'r2', documentId: 'DOC-1', sectionId: 's2', spanText: 'AE listing', uploadId: 'docx1', page: null, locator: null, createdBy: 'viewer', createdAt: new Date('2026-10-22T09:05:00Z') },
-        ].filter(r => r.documentId === where.documentId && (!where.sectionId || r.sectionId === where.sectionId))),
+        REFS.filter(r => r.documentId === where.documentId && (!where.sectionId || r.sectionId === where.sectionId))),
+      findFirst: vi.fn(async ({ where }: { where: { id: string; documentId: string } }) =>
+        REFS.find(r => r.id === where.id && r.documentId === where.documentId) ?? null),
+    },
+    sourceReferenceRemoval: {
+      findMany: vi.fn(async ({ where }: { where: { documentId: string } }) =>
+        removalsTable ? removals.filter(r => r.documentId === where.documentId) : missingTable()),
+      create: vi.fn(async ({ data }: { data: { referenceId: string; documentId: string; reason: string | null; removedBy: string } }) => {
+        if (!removalsTable) missingTable()
+        const row = { id: `rm-${removals.length + 1}`, removedAt: new Date('2026-10-23T09:00:00Z'), ...data }
+        removals.push(row)
+        return row
+      }),
     },
   } as never)
   app.decorate('blob', { get: blobGet } as never)
@@ -62,7 +84,7 @@ async function build(blobGet = vi.fn(async () => ({ body: Buffer.from('%PDF-1.4'
   await app.register(documentsReferencesRoutes, { prefix: '/documents' })
   await app.register(documentsSourceRoutes, { prefix: '/projects' })
   await app.ready()
-  return { app, created, audit, blobGet }
+  return { app, created, removals, audit, blobGet }
 }
 
 beforeEach(() => { process.env.FEATURE_MODULES_ENABLED = 'A,B,C,D,E' })
@@ -78,6 +100,29 @@ describe('POST /documents/:id/references', () => {
     expect(res.json()).toMatchObject({ id: 'ref-1', spanText: 'PFS was 11.2 months', fileName: 'Protocol.pdf', previewable: true, page: 42, locator: '§9.4' })
     expect(created[0]).toMatchObject({ documentId: 'DOC-1', sectionId: 's1', uploadId: 'pdf1', page: 42, createdBy: 'viewer' })
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({ action: 'source_reference_created', entityId: 'DOC-1', actorId: 'viewer' }))
+  })
+
+  it('stores the span’s range in the section, so repeated wording links to the right place', async () => {
+    const { app, created } = await build()
+    const res = await post(app, { sectionId: 's1', spanText: 'PFS', uploadId: 'pdf1', startOffset: 120, endOffset: 123 })
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ startOffset: 120, endOffset: 123 })
+    expect(created[0]).toMatchObject({ startOffset: 120, endOffset: 123 })
+    // offsets come as a pair, end after start
+    expect((await post(app, { sectionId: 's1', spanText: 'x', uploadId: 'pdf1', startOffset: 5 })).statusCode).toBe(400)
+    expect((await post(app, { sectionId: 's1', spanText: 'x', uploadId: 'pdf1', startOffset: 5, endOffset: 5 })).statusCode).toBe(400)
+  })
+
+  it('still saves the link (without its range) before the range columns exist', async () => {
+    const { app, created } = await build()
+    const prisma = (app as unknown as { prisma: { sourceReference: { create: ReturnType<typeof vi.fn> } } }).prisma
+    const real = prisma.sourceReference.create.getMockImplementation()!
+    prisma.sourceReference.create.mockImplementationOnce(async () => { throw Object.assign(new Error('column does not exist'), { code: 'P2022' }) })
+    prisma.sourceReference.create.mockImplementation(real)
+    const res = await post(app, { sectionId: 's1', spanText: 'PFS', uploadId: 'pdf1', startOffset: 1, endOffset: 4 })
+    expect(res.statusCode).toBe(201)
+    expect(res.json()).toMatchObject({ startOffset: null, endOffset: null })
+    expect(created[0]).not.toHaveProperty('startOffset')
   })
 
   it('does not allow a source from another project', async () => {
@@ -128,7 +173,77 @@ describe('GET /documents/:id/references', () => {
   })
 })
 
+describe('POST /documents/:id/references/:referenceId/remove', () => {
+  const remove = (app: Awaited<ReturnType<typeof build>>['app'], refId: string, payload: unknown = {}) =>
+    app.inject({ method: 'POST', url: `/documents/DOC-1/references/${refId}/remove`, payload: payload as never })
+
+  it('records the removal, audits it, and drops the link from lists', async () => {
+    const { app, removals, audit } = await build()
+    const res = await remove(app, 'r1', { reason: 'Wrong source picked' })
+    expect(res.statusCode).toBe(200)
+    expect(removals).toEqual([expect.objectContaining({ referenceId: 'r1', documentId: 'DOC-1', reason: 'Wrong source picked', removedBy: 'viewer' })])
+    expect(audit).toHaveBeenCalledWith(expect.objectContaining({
+      action: 'source_reference_removed', entityType: 'document', entityId: 'DOC-1', actorId: 'viewer',
+      details: expect.objectContaining({ referenceId: 'r1', sectionId: 's1', uploadId: 'pdf1', fileName: 'Protocol.pdf', reason: 'Wrong source picked' }),
+    }))
+    const list = (await app.inject({ method: 'GET', url: '/documents/DOC-1/references' })).json()
+    expect(list.items.map((i: { id: string }) => i.id)).toEqual(['r2'])
+    const sources = (await app.inject({ method: 'GET', url: '/documents/DOC-1/sources' })).json()
+    expect(sources.items.map((i: { uploadId: string }) => i.uploadId)).toEqual(['docx1'])
+  })
+
+  it('refuses a second removal and unknown references', async () => {
+    const { app } = await build()
+    expect((await remove(app, 'r1')).statusCode).toBe(200)
+    const again = await remove(app, 'r1')
+    expect(again.statusCode).toBe(409)
+    expect(again.json().error).toBe('already_removed')
+    expect((await remove(app, 'nope')).statusCode).toBe(404)
+  })
+
+  it('explains when the removals table has not been migrated yet, and lists still work', async () => {
+    const { app, audit } = await build(undefined, { removalsTable: false })
+    const res = await remove(app, 'r1')
+    expect(res.statusCode).toBe(503)
+    expect(res.json().error).toBe('migration_pending')
+    expect(audit).not.toHaveBeenCalled()
+    const list = (await app.inject({ method: 'GET', url: '/documents/DOC-1/references' })).json()
+    expect(list.items).toHaveLength(2)
+  })
+})
+
+describe('locked documents', () => {
+  it.each(['in_review', 'pending_signature', 'signed'])('refuses to add or remove references while %s', async (docStatus) => {
+    const { app, created, removals, audit } = await build(undefined, { docStatus })
+    const add = await post(app, { sectionId: 's1', spanText: 'x', uploadId: 'pdf1' })
+    expect(add.statusCode).toBe(423)
+    expect(add.json()).toMatchObject({ error: 'document_locked', status: docStatus })
+    const rm = await app.inject({ method: 'POST', url: '/documents/DOC-1/references/r1/remove', payload: {} })
+    expect(rm.statusCode).toBe(423)
+    expect(created).toHaveLength(0)
+    expect(removals).toHaveLength(0)
+    expect(audit).not.toHaveBeenCalled()
+    // reading still works
+    expect((await app.inject({ method: 'GET', url: '/documents/DOC-1/references' })).statusCode).toBe(200)
+  })
+
+  it.each(['not_started', 'in_authoring', 'crm_in_progress'])('allows changes while %s', async (docStatus) => {
+    const { app } = await build(undefined, { docStatus })
+    expect((await post(app, { sectionId: 's1', spanText: 'x', uploadId: 'pdf1' })).statusCode).toBe(201)
+    expect((await app.inject({ method: 'POST', url: '/documents/DOC-1/references/r1/remove', payload: {} })).statusCode).toBe(200)
+  })
+})
+
 describe('GET /projects/:id/source-documents/:uploadId/preview', () => {
+  it("audits on the document when opened from one of the project's documents", async () => {
+    const { app, audit } = await build()
+    expect((await app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/pdf1/preview?documentId=DOC-1' })).statusCode).toBe(200)
+    expect(audit).toHaveBeenLastCalledWith(expect.objectContaining({ action: 'source_document_viewed', entityType: 'document', entityId: 'DOC-1', details: expect.objectContaining({ uploadId: 'pdf1' }) }))
+    // a document from elsewhere is ignored: the entry stays on the upload
+    await app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/pdf1/preview?documentId=OTHER' })
+    expect(audit).toHaveBeenLastCalledWith(expect.objectContaining({ entityType: 'document_upload', entityId: 'pdf1' }))
+  })
+
   it('serves PDFs and images inline with safe headers and audits the view', async () => {
     const { app, audit } = await build()
     const res = await app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/pdf1/preview' })

@@ -88,6 +88,15 @@ const cmp = (a: string | number, b: string | number) =>
 export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
   const gate = requireAuth({ modules: ['A'] })
 
+  // `?documentId=` on view/download: the file was opened from that document (editor source
+  // panel), so the audit entry goes on the document's trail instead of the upload's.
+  const openedFromDocument = async (query: unknown, projectId: string): Promise<string | null> => {
+    const id = (query as { documentId?: unknown } | null)?.documentId
+    if (typeof id !== 'string' || !id) return null
+    const doc = await app.prisma.document.findFirst({ where: { id, projectId, deletedAt: null }, select: { id: true } })
+    return doc?.id ?? null
+  }
+
   app.get('/:projectId/source-documents', { preHandler: gate }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = listQuery.safeParse(request.query)
@@ -234,13 +243,14 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(502).send({ error: 'storage_unavailable', message: 'The file storage could not be reached. Try again shortly, or contact an administrator if it keeps happening.' })
     }
 
+    const fromDoc = await openedFromDocument(request.query, projectId)
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'source_document_downloaded',
-      entityType: 'document_upload',
-      entityId: row.id,
-      details: { projectId, fileName: row.fileName, fileSizeBytes: row.fileSizeBytes },
+      entityType: fromDoc ? 'document' : 'document_upload',
+      entityId: fromDoc ?? row.id,
+      details: { projectId, uploadId: row.id, fileName: row.fileName, fileSizeBytes: row.fileSizeBytes },
       ipAddress: request.ip ?? null,
     })
 
@@ -280,13 +290,14 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(502).send({ error: 'storage_unavailable', message: 'The file storage could not be reached. Try again shortly, or contact an administrator if it keeps happening.' })
     }
 
+    const fromDoc = await openedFromDocument(request.query, projectId)
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'source_document_viewed',
-      entityType: 'document_upload',
-      entityId: row.id,
-      details: { projectId, fileName: row.fileName },
+      entityType: fromDoc ? 'document' : 'document_upload',
+      entityId: fromDoc ?? row.id,
+      details: { projectId, uploadId: row.id, fileName: row.fileName },
       ipAddress: request.ip ?? null,
     })
 

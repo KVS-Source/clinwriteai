@@ -43,6 +43,7 @@ async function build() {
         { documentId: 'DOC-1', sectionId: 's9', uploadId: 'sap-file', createdAt: new Date() },   // cited but never picked at creation
       ],
     },
+    sourceReferenceRemoval: { findMany: async () => [] },
     documentUpload: {
       findMany: async ({ where }: { where: { id: { in: string[] }; projectId: string } }) =>
         UPLOADS.filter(u => where.id.in.includes(u.id) && u.projectId === where.projectId),

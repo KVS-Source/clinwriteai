@@ -146,12 +146,32 @@ model SourceReference {
   uploadId    String                                           // document_uploads.id (the source file)
   page        Int?                                             // 1-based page in a PDF
   locator     String?                                          // free-text pointer, e.g. "§9.4 Table 3"
+  startOffset Int?                                             // range in the section's whitespace-collapsed text
+  endOffset   Int?                                             //   (null on references made before ranges were stored)
   createdBy   String
   createdAt   DateTime @default(now())
 
   @@map("source_references")
   @@index([documentId, sectionId])
   @@index([uploadId])
+}
+
+// --------------------------------------------------------------------------
+// 4.4c source_reference_removals — a reference link withdrawn by a user
+// The reference row itself stays (immutable, FR-A-022); a removal is a separate
+// append-only record, and lists skip references that have one. Same trigger.
+// --------------------------------------------------------------------------
+
+model SourceReferenceRemoval {
+  id          String   @id @default(uuid())
+  referenceId String   @unique                                  // source_references.id
+  documentId  String
+  reason      String?
+  removedBy   String
+  removedAt   DateTime @default(now())
+
+  @@map("source_reference_removals")
+  @@index([documentId])
 }
 
 // --------------------------------------------------------------------------

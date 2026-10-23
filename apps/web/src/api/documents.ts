@@ -64,6 +64,9 @@ export interface SourceReference {
   previewable: boolean
   page: number | null
   locator: string | null
+  /** range in the section's whitespace-collapsed text; null on older references (located by text) */
+  startOffset: number | null
+  endOffset: number | null
   createdBy: { id: string; name: string | null }
   createdAt: string
 }
@@ -88,6 +91,8 @@ export interface CreateSourceReferenceBody {
   uploadId: string
   page?: number
   locator?: string
+  startOffset?: number
+  endOffset?: number
 }
 
 export interface SaveSourceBody {
@@ -108,9 +113,12 @@ export const documentsApi = {
       `/documents/${documentId}/references${sectionId ? `?sectionId=${encodeURIComponent(sectionId)}` : ''}`),
   createReference: (documentId: string, body: CreateSourceReferenceBody) =>
     api.post<SourceReference>(`/documents/${documentId}/references`, body),
-  // PDF / image bytes for the viewer panel
-  previewSource: (projectId: string, uploadId: string) =>
-    api.download(`/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}/preview`),
+  // Withdraw a link — the API keeps the original record and logs the removal
+  removeReference: (documentId: string, referenceId: string, reason?: string) =>
+    api.post<{ id: string; removedAt: string }>(`/documents/${documentId}/references/${encodeURIComponent(referenceId)}/remove`, reason ? { reason } : {}),
+  // PDF / image bytes for the viewer panel. `fromDocumentId` puts the view on that document's audit trail.
+  previewSource: (projectId: string, uploadId: string, fromDocumentId?: string) =>
+    api.download(`/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}/preview${fromDocumentId ? `?documentId=${encodeURIComponent(fromDocumentId)}` : ''}`),
 
   // Source documents
   listSources: (projectId: string, query: SourceDocumentQuery = {}) => {
@@ -121,8 +129,8 @@ export const documentsApi = {
   },
   // Original file, as a Blob. Goes through the shared client so auth, the demo-persona
   // header and error bodies behave like every other call.
-  downloadSource: (projectId: string, uploadId: string) =>
-    api.download(`/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}/download`),
+  downloadSource: (projectId: string, uploadId: string, fromDocumentId?: string) =>
+    api.download(`/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}/download${fromDocumentId ? `?documentId=${encodeURIComponent(fromDocumentId)}` : ''}`),
 
   // Documents
   list: (projectId: string) =>

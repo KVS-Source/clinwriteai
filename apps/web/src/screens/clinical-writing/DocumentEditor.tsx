@@ -10,7 +10,7 @@ import { StatusPill } from '../../components/ui'
 import { useDocumentStore, useProjectStore, useAuthStore, useEditorStore } from '../../store'
 import { SourceReferencesPanel } from '../../panels/SourceReferencesPanel'
 import {
-  applyReferenceHighlights, clearReferenceHighlights, normalizeSpan, referenceAtPoint, type LinkedRange,
+  applyReferenceHighlights, buildTextIndex, clearReferenceHighlights, normalizeSpan, referenceAtPoint, spanOfRange, type LinkedRange,
 } from './referenceHighlights'
 import { SectionNavigator } from './SectionNavigator'
 import { EditorToolbar }    from './EditorToolbar'
@@ -287,7 +287,7 @@ export function DocumentEditor() {
     // the submit-for-review form needs more room than the other panels
     preferredWidth: p => (p === 'review-assignment' ? 440 : undefined),
   })
-  const panelExpanded         = panel.expanded
+  // const panelExpanded      = panel.expanded   // read only by the hidden expand button below
   const panelDragging         = panel.dragging
   const togglePanelExpanded   = panel.toggleExpanded
 
@@ -310,6 +310,7 @@ export function DocumentEditor() {
   const sectionContentRef = useRef<HTMLDivElement>(null)
   const linkedRangesRef = useRef<LinkedRange[]>([])
   const setTraceabilityTarget = useEditorStore(s => s.setTraceabilityTarget)
+  const setLinkedSpans = useEditorStore(s => s.setLinkedSpans)
   const setSourceViewer = useEditorStore(s => s.setSourceViewer)
   const { data: referencesData } = useQuery({
     queryKey: ['references', documentId],
@@ -325,14 +326,17 @@ export function DocumentEditor() {
     const root = sectionContentRef.current
     if (!root) return
     let timer: ReturnType<typeof setTimeout> | undefined
-    const apply = () => { linkedRangesRef.current = applyReferenceHighlights(root, sectionReferences) }
+    const apply = () => {
+      linkedRangesRef.current = applyReferenceHighlights(root, sectionReferences)
+      setLinkedSpans(Object.fromEntries(linkedRangesRef.current.map(l => [l.id, { start: l.start, end: l.end }])))
+    }
     const schedule = () => { clearTimeout(timer); timer = setTimeout(apply, 80) }
     schedule()
     // TipTap renders after the section loads / mode toggles; re-apply when the content changes.
     const observer = new MutationObserver(schedule)
     observer.observe(root, { childList: true, subtree: true, characterData: true })
-    return () => { clearTimeout(timer); observer.disconnect(); clearReferenceHighlights(); linkedRangesRef.current = [] }
-  }, [sectionReferences, activeSectionData?.contentHtml, isEditing, document?.id])
+    return () => { clearTimeout(timer); observer.disconnect(); clearReferenceHighlights(); linkedRangesRef.current = []; setLinkedSpans({}) }
+  }, [sectionReferences, activeSectionData?.contentHtml, isEditing, document?.id, setLinkedSpans])
 
   useEffect(() => {
     const onSelection = () => {
@@ -340,8 +344,14 @@ export function DocumentEditor() {
       const root = sectionContentRef.current
       if (!sel || sel.isCollapsed || !root || !sel.anchorNode || !sel.focusNode) return
       if (!root.contains(sel.anchorNode) || !root.contains(sel.focusNode)) return
+      // Remember where it sits, so the link points at this occurrence and the panel can tell
+      // whether this exact text is already linked. The text comes from the same index, so it
+      // always matches the span (paragraph breaks read as one space).
+      const index = buildTextIndex(root)
+      const span = spanOfRange(index, sel.getRangeAt(0))
+      if (span && span.end - span.start <= 2000) { setTraceabilityTarget(index.text.slice(span.start, span.end), span); return }
       const text = normalizeSpan(sel.toString()).slice(0, 2000)
-      if (text) setTraceabilityTarget(text)
+      if (text) setTraceabilityTarget(text, null)
     }
     window.document.addEventListener('selectionchange', onSelection)
     return () => window.document.removeEventListener('selectionchange', onSelection)
@@ -351,6 +361,34 @@ export function DocumentEditor() {
   useEffect(() => { setTraceabilityTarget(null) }, [activeSection, setTraceabilityTarget])
   // Closing the panel closes the viewer too.
   useEffect(() => { if (activePanel !== 'traceability') setSourceViewer(null) }, [activePanel, setSourceViewer])
+
+  // Source References closes on a click outside it. A click in the section still counts as
+  // outside, except when it ends a text selection (picking the text to link) or lands on
+  // reference-marked text (which opens that source in the panel). A press that starts in the
+  // panel (resizing, selecting) or the Reference menu never closes it — checked on mousedown,
+  // since the menu is gone from the page by the time the click fires.
+  const rightPanelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (activePanel !== 'traceability') return
+    let pressedExempt = false
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Element | null
+      pressedExempt = !t || !!rightPanelRef.current?.contains(t) || !!t.closest('[data-reference-dropdown], [data-slide-panel]')
+    }
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as Element | null
+      if (!t || pressedExempt || !t.isConnected || rightPanelRef.current?.contains(t)) return
+      if (!window.getSelection()?.isCollapsed) return   // the click ended a text selection
+      if (sectionContentRef.current?.contains(t) && referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)) return
+      setActivePanel(null)
+    }
+    window.document.addEventListener('mousedown', onDown, true)
+    window.document.addEventListener('click', onClick)
+    return () => {
+      window.document.removeEventListener('mousedown', onDown, true)
+      window.document.removeEventListener('click', onClick)
+    }
+  }, [activePanel, setActivePanel])
 
   const onSectionContentClick = (e: React.MouseEvent) => {
     if (isEditing || !window.getSelection()?.isCollapsed) return   // don't hijack text selection / editing
@@ -686,6 +724,7 @@ export function DocumentEditor() {
           {/* Right panel — Pattern 6: absolute overlay on editor column, editor width stays constant */}
           {activePanel !== null && (
             <div
+              ref={rightPanelRef}
               className="fixed top-14 right-0 bottom-0 flex flex-col border-l border-slate-200"
               style={{
                 width:           panel.width,
@@ -772,6 +811,7 @@ export function DocumentEditor() {
                 </span>
               )}
               <div className="flex-1" />
+              {/* Expand button — hidden for now (QA request); drag the left edge or double-click it to resize instead.
               <button
                 type="button"
                 onClick={togglePanelExpanded}
@@ -789,6 +829,7 @@ export function DocumentEditor() {
                   </svg>
                 )}
               </button>
+              */}
               <button
                 type="button"
                 onClick={() => setActivePanel(null)}
@@ -845,6 +886,7 @@ export function DocumentEditor() {
                 projectId={projectId}
                 sectionId={activeSection}
                 sectionLabel={activeSectionData ? `${activeSectionData.number.startsWith('§') ? '' : '§'}${activeSectionData.number} ${activeSectionData.title}` : undefined}
+                documentStatus={document?.status}
               />
             )}
             {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && (

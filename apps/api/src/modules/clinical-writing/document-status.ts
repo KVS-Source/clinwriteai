@@ -50,3 +50,11 @@ export class InvalidDocumentTransitionError extends Error {
     this.name = 'InvalidDocumentTransitionError'
   }
 }
+
+// Statuses where the document's source references can't be added or removed: with
+// the reviewers (locked for authoring), awaiting signature, or signed.
+export const REFERENCE_LOCKED_STATUSES: ReadonlyArray<DocumentStatus> = ['in_review', 'pending_signature', 'signed']
+
+export function referencesLocked(status: string): boolean {
+  return (REFERENCE_LOCKED_STATUSES as ReadonlyArray<string>).includes(status)
+}

@@ -32,11 +32,13 @@ interface Props {
   initialSourceIds?: string[]
   // The project's therapeutic area — every document inherits it (FR-A-002)
   projectTherapeuticArea?: string | null
+  // The project's short title — used in the Title field's example text
+  projectShortTitle?: string | null
   onCreated?: (documentId: string) => void
   onCancel?:  () => void
 }
 
-export function NewDocumentForm({ projectId, duplicateSourceId, initialSourceIds, projectTherapeuticArea, onCreated, onCancel }: Props) {
+export function NewDocumentForm({ projectId, duplicateSourceId, initialSourceIds, projectTherapeuticArea, projectShortTitle, onCreated, onCancel }: Props) {
   const qc = useQueryClient()
 
   const [type,                 setType]                 = useState<DocumentType>('csr-full')
@@ -146,7 +148,7 @@ export function NewDocumentForm({ projectId, duplicateSourceId, initialSourceIds
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Title *</span>
             <input value={title} onChange={e => setTitle(e.currentTarget.value)} required
-              placeholder="VELORA-301 CSR v1.0 — Primary Analysis"
+              placeholder={projectShortTitle ? `${projectShortTitle} CSR v1.0 — Primary Analysis` : 'e.g. CSR v1.0 — Primary Analysis'}
               className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
           </label>
           {/* FR-A-002 / AC-A-007: mandatory, inherited from the project, fixed after creation (Admin-only change) */}

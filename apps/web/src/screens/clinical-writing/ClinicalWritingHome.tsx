@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Comment, CommentSeverity, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
@@ -102,10 +102,32 @@ export function ClinicalWritingHome() {
   const navigate         = useNavigate()
   const setActiveProject = useProjectStore(s => s.setActiveProject)
 
-  const [search,         setSearch]        = useState('')
-  const [selectedStage,  setSelectedStage] = useState<DocumentStage | 'all'>('all')
-  const [selectedStatus, setSelectedStatus]= useState<DocumentStatus | 'all'>('all')
-  const [selectedType,   setSelectedType]  = useState<DocumentType | 'all'>('all')
+  // Tab, filters and search live in the URL (?tab=sources&stage=…&status=…&type=…&q=…), so Back
+  // from a document and a page refresh keep them (PRD A §8.4).
+  const [searchParams, setSearchParams] = useSearchParams()
+  const setParams = (patch: Record<string, string | null>) =>
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null || v === '' || v === 'all') next.delete(k)
+        else next.set(k, v)
+      }
+      return next
+    }, { replace: true })
+  const pick = <T extends string>(key: string, allowed: readonly string[]): T | 'all' => {
+    const v = searchParams.get(key)
+    return v && allowed.includes(v) ? (v as T) : 'all'
+  }
+  const search         = searchParams.get('q') ?? ''
+  const selectedStage  = pick<DocumentStage>('stage', Object.keys(STAGE_LABELS))
+  const selectedStatus = pick<DocumentStatus>('status', Object.keys(STATUS_LABELS))
+  const selectedType   = pick<DocumentType>('type', Object.keys(TYPE_LABELS))
+  const view: 'documents' | 'sources' = searchParams.get('tab') === 'sources' ? 'sources' : 'documents'
+  const setSearch         = (v: string) => setParams({ q: v })
+  const setSelectedStatus = (v: DocumentStatus | 'all') => setParams({ status: v })
+  const setSelectedType   = (v: DocumentType | 'all') => setParams({ type: v })
+  const showStage         = (stage: DocumentStage | 'all') => setParams({ tab: null, stage })
+  const showSources       = () => setParams({ tab: 'sources' })
   // Slider state — holds the id of the document being duplicated (null
   // for a plain new-doc flow). `null` with the panel open means fresh.
   const [newDocOpen, setNewDocOpen] = useState<false | { duplicateSourceId: string | null; sourceIds?: string[] }>(false)
@@ -113,9 +135,6 @@ export function ClinicalWritingHome() {
   // Document whose detail panel is open (row click) and the table's column sort.
   const [detailDoc, setDetailDoc] = useState<Document | null>(null)
   const [docSort, setDocSort] = useState<{ key: DocSortKey; dir: 'asc' | 'desc' } | null>(null)
-  // 'documents' = the stage-filtered document table; 'sources' = the project's
-  // uploaded source-document library (tab next to "All Stages").
-  const [view, setView] = useState<'documents' | 'sources'>('documents')
   const qc = useQueryClient()
   // Set after "Save to library" in the upload drawer: we stay on the Source Documents
   // tab and offer to write a document from the file that was just saved.
@@ -179,15 +198,26 @@ export function ClinicalWritingHome() {
   }, [project, users])
 
   const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
     return documents.filter((d: Document) => {
-      const matchSearch = search === '' ||
-        d.title.toLowerCase().includes(search.toLowerCase())
+      // Search covers the list's text columns: title, type and assignee (PRD A §8.4).
+      const matchSearch = q === '' ||
+        d.title.toLowerCase().includes(q) ||
+        (TYPE_LABELS[d.type] ?? '').toLowerCase().includes(q) ||
+        (teamById.get(d.assigneeId)?.name ?? '').toLowerCase().includes(q)
       const matchStage  = selectedStage  === 'all' || d.stage  === selectedStage
       const matchStatus = selectedStatus === 'all' || d.status === selectedStatus
       const matchType   = selectedType   === 'all' || d.type   === selectedType
       return matchSearch && matchStage && matchStatus && matchType
     })
-  }, [documents, search, selectedStage, selectedStatus, selectedType])
+  }, [documents, search, selectedStage, selectedStatus, selectedType, teamById])
+
+  // Document count per stage, shown on the stage tabs.
+  const stageCounts = useMemo(() => {
+    const counts = new Map<string, number>()
+    documents.forEach((d: Document) => counts.set(d.stage, (counts.get(d.stage) ?? 0) + 1))
+    return counts
+  }, [documents])
 
   const sortedDocs = useMemo(() => {
     if (!docSort) return filtered
@@ -213,12 +243,7 @@ export function ClinicalWritingHome() {
 
   const filtersDirty = search !== '' || selectedStage !== 'all' || selectedStatus !== 'all' || selectedType !== 'all'
 
-  const resetFilters = () => {
-    setSearch('')
-    setSelectedStage('all')
-    setSelectedStatus('all')
-    setSelectedType('all')
-  }
+  const resetFilters = () => setParams({ q: null, stage: null, status: null, type: null })
 
   const handleDocClick = (doc: Document) => {
     navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}`)
@@ -349,19 +374,19 @@ export function ClinicalWritingHome() {
 
       {/* ============ Stage Tabs ============ */}
       <div className="flex flex-none gap-6 overflow-x-auto whitespace-nowrap border-b border-slate-200 bg-white px-8">
-        <TabButton label="All Stages"  active={view === 'documents' && selectedStage === 'all'} onClick={() => { setView('documents'); setSelectedStage('all') }} />
+        <TabButton label={`All Stages (${documents.length})`}  active={view === 'documents' && selectedStage === 'all'} onClick={() => showStage('all')} />
         <TabButton
           label={sourceCount !== undefined ? `Source Documents (${sourceCount})` : 'Source Documents'}
           active={view === 'sources'}
-          onClick={() => setView('sources')}
+          onClick={showSources}
         />
         <span aria-hidden="true" className="my-3.5 w-px flex-none bg-slate-200" />
         {STAGES_ORDERED.map(stage => (
           <TabButton
             key={stage}
-            label={STAGE_LABELS[stage]}
+            label={`${STAGE_LABELS[stage]} (${stageCounts.get(stage) ?? 0})`}
             active={view === 'documents' && selectedStage === stage}
-            onClick={() => { setView('documents'); setSelectedStage(stage) }}
+            onClick={() => showStage(stage)}
           />
         ))}
       </div>
@@ -625,6 +650,7 @@ export function ClinicalWritingHome() {
             duplicateSourceId={newDocOpen.duplicateSourceId}
             initialSourceIds={newDocOpen.sourceIds}
             projectTherapeuticArea={project?.therapeuticArea}
+            projectShortTitle={project?.shortTitle}
             onCancel={() => setNewDocOpen(false)}
             onCreated={id => {
               setNewDocOpen(false)
@@ -650,7 +676,7 @@ export function ClinicalWritingHome() {
             onSaved={uploadId => {
               // Stay on the project's source-document list: the new row appears here as "Saved".
               closeUpload()
-              setView('sources')
+              showSources()
               setJustAdded({ uploadId })
             }}
           />

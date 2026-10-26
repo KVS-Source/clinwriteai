@@ -122,6 +122,10 @@ export function ProjectDashboard() {
   }
 
   const leadName = project.team.find(t => t.raci === 'R')?.name ?? project.team[0]?.name ?? '—'
+  // Time summary (architecture §44.3): days elapsed since the project's start date.
+  const startMs = project.startDate ? new Date(project.startDate).getTime() : NaN
+  const daysSinceStart = Number.isNaN(startMs) ? null : Math.floor((Date.now() - startMs) / (24 * 60 * 60 * 1000))
+  const startLabel = Number.isNaN(startMs) ? null : new Date(startMs).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   // Stored phases vary ("Phase III", "IIb", "Preclinical") — only add the "Phase" prefix when it's missing.
   const phaseLabel = /^phase\b|preclinical/i.test(project.phase) ? project.phase : `Phase ${project.phase}`
   const activeSlugs = new Set(project.activeModules.map(k => MODULE_KEY_TO_SLUG[k as ModuleKey] ?? k))
@@ -163,6 +167,16 @@ export function ProjectDashboard() {
               <span>{phaseLabel}{project.indication ? ` · ${project.indication}` : ''}</span>
               <span className="text-slate-300">·</span>
               <span>Project lead {leadName}</span>
+              {daysSinceStart !== null && (
+                <>
+                  <span className="text-slate-300">·</span>
+                  <span data-days-since-start>
+                    {daysSinceStart >= 0
+                      ? `Started ${startLabel} · ${daysSinceStart} day${daysSinceStart === 1 ? '' : 's'} ago`
+                      : `Starts ${startLabel}`}
+                  </span>
+                </>
+              )}
             </div>
           </div>
 
@@ -282,7 +296,7 @@ export function ProjectDashboard() {
                   <div className="flex gap-8">
                     <KV label="Documents"      value={`${stats.inFlight} active · ${stats.signed} completed`} />
                     <KV label="Current focus"  value={stats.current ? `${stats.current.title} · ${STATUS_META[stats.current.status]?.label ?? stats.current.status}` : 'No active document'} />
-                    <KV label="Last updated"   value={stats.current?.updatedAt ? new Date(stats.current.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} />
+                    <KV label="Last updated"   value={stats.lastActivity ? new Date(stats.lastActivity).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} />
                   </div>
 
                   {(() => {

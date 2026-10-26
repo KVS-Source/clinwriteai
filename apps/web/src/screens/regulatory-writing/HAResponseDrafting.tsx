@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { HACorrespondence, HAQuestion } from '@platform/types'
 import { regulatoryWritingApi } from '../../modules/regulatory-writing/api/regulatoryWriting'
+import { HAResponseHistoryPanel } from '../../panels/HAResponseHistoryPanel'
 
 const CATEGORY_META = {
   clinical:       { bg: '#EFF6FF', fg: '#2563EB', label: 'Clinical' },
@@ -37,6 +38,8 @@ export function HAResponseDrafting() {
 
   const [haRecords, setHARecords]           = useState<HACorrespondence[]>([])
   const [activeQuestionId, setActiveId]     = useState<string>('q-003')
+  // Edit-history overlay target for the HA response draft chain.
+  const [historyTarget, setHistoryTarget]   = useState<null | { questionId: string; label: string }>(null)
   const [draftText, setDraftText]           = useState(DEFAULT_DRAFT)
   const [aiFootprintPct, setAiFootprintPct] = useState(72)
   const [isGenerating, setGenerating]       = useState(false)
@@ -226,6 +229,19 @@ export function HAResponseDrafting() {
                       data-save-draft
                       className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700"
                     >Save draft</button>
+                    <button
+                      type="button"
+                      onClick={() => setHistoryTarget({ questionId: activeQuestion.questionId, label: `Q${activeQuestion.number} · ${CATEGORY_META[activeQuestion.category].label}` })}
+                      title="Edit history for this HA response"
+                      aria-label="Edit history"
+                      data-ha-draft-history
+                      className="flex items-center justify-center rounded-md border border-slate-300 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                    >
+                      <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="7" cy="7" r="5.6" />
+                        <polyline points="7,3.4 7,7 9.4,8.4" />
+                      </svg>
+                    </button>
                   </div>
                 </div>
 
@@ -263,6 +279,38 @@ export function HAResponseDrafting() {
         >
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#B0200D' }} />
           {toast}
+        </div>
+      )}
+
+      {historyTarget && (
+        <div
+          role="dialog"
+          aria-modal="false"
+          className="fixed inset-0 z-40 flex justify-end"
+          onClick={() => setHistoryTarget(null)}
+          onKeyDown={e => { if (e.key === 'Escape') setHistoryTarget(null) }}
+          data-ha-history-overlay
+        >
+          <div
+            className="flex h-full w-[380px] flex-col border-l border-slate-200 bg-white shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex h-10 flex-none items-center justify-between border-b border-slate-200 px-3">
+              <p className="text-[12px] font-semibold text-slate-700">Edit history</p>
+              <button
+                type="button"
+                onClick={() => setHistoryTarget(null)}
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M3 3l8 8M11 3l-8 8" /></svg>
+              </button>
+            </div>
+            <HAResponseHistoryPanel
+              questionId={historyTarget.questionId}
+              label={historyTarget.label}
+            />
+          </div>
         </div>
       )}
     </div>

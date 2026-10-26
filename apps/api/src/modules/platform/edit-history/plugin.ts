@@ -101,6 +101,41 @@ const editHistoryPlugin: FastifyPluginAsync = async (app) => {
     return { previousHtml, contentAfter: editHistoryRow.beforeHtml }
   })
 
+  // --- Module D: ha_response_draft revert handler ---------------------------
+  // HA drafts use an append-only version chain per question — unlike A/B/E
+  // which mutate in place. Revert here creates a NEW draft version with
+  // the restored text so the chain integrity (monotonic versionNumber per
+  // question, UNIQUE(questionId, versionNumber)) is preserved. The caller
+  // gets back the restored text; the UI invalidates its draft list and
+  // refetches to see the new version at the top.
+  svc.registerRevertHandler('ha_response_draft', async (prisma, { editHistoryRow, currentUserId }) => {
+    if (editHistoryRow.beforeHtml === null) throw new Error('cannot_revert_no_snapshot')
+    const questionId = editHistoryRow.entityId
+    const question = await prisma.haLoqQuestion.findUnique({ where: { id: questionId } })
+    if (!question) throw new Error('ha_question_not_found')
+    if (question.status === 'closed') throw new Error('cannot_revert_closed_question')
+
+    const latest = await prisma.haResponseDraft.findFirst({
+      where: { questionId },
+      orderBy: { versionNumber: 'desc' },
+      select: { versionNumber: true, draftText: true },
+    })
+    const previousHtml = latest?.draftText ?? ''
+    const nextVersion = (latest?.versionNumber ?? 0) + 1
+
+    await prisma.haResponseDraft.create({
+      data: {
+        questionId,
+        versionNumber: nextVersion,
+        draftText:     editHistoryRow.beforeHtml,
+        sourceRefs:    [],
+        aiFootprintPct: 0,                                       // revert output is human-attributed
+        createdBy:     currentUserId,
+      },
+    })
+    return { previousHtml, contentAfter: editHistoryRow.beforeHtml }
+  })
+
   // --- Module E: atomised_content revert handler ----------------------------
   // AtomisedContent is one row per (card, channel). Revert = restore the
   // contentText to beforeHtml. No version/hash machinery here; the AI

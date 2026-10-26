@@ -7,6 +7,7 @@ import { CHANNEL_META } from '@platform/types'
 import { ProvenanceChip } from '../../components/ui/ProvenanceChip'
 import { ClaimCurrencyBadge } from '../../components/ui/ClaimCurrencyBadge'
 import { ChannelAdaptationCard } from '../../components/ui/ChannelAdaptationCard'
+import { AtomisedHistoryPanel } from '../../panels/AtomisedHistoryPanel'
 import { AtomisationSpinner } from '../../components/ui/AtomisationSpinner'
 import { useIdeationStore } from '../../modules/ideation-publishing/store'
 import { useAtomisationStore } from '../../modules/ideation-publishing/store'
@@ -94,6 +95,11 @@ export function ContentCardTagging() {
   const cards = useMemo(() => CARDS.filter(c => c.ideationProjectId === ideationProjectId), [ideationProjectId])
   const project = useMemo(() => PROJECTS.find(p => p.id === ideationProjectId), [ideationProjectId])
   const [activeCardId, setActiveCardId] = useState<string>(cards[0]?.id ?? '')
+
+  // Edit-history overlay target — one adaptation's history at a time. Click
+  // the clock icon on any ChannelAdaptationCard to open the right-rail
+  // panel; click the backdrop or Esc to close.
+  const [historyTarget, setHistoryTarget] = useState<null | { cardId: string; channel: string; label: string }>(null)
 
   useEffect(() => { setCards(cards) }, [cards, setCards])
   useEffect(() => { setAdaptations(ADAPTATIONS) }, [setAdaptations])
@@ -273,7 +279,16 @@ export function ContentCardTagging() {
             {/* Channel adaptations (one per channel — DD-E-004) */}
             <div className="flex flex-col gap-3" data-adaptations>
               {cardAdaptations.map(a => (
-                <ChannelAdaptationCard key={a.id} adaptation={a} onEdit={() => {}} />
+                <ChannelAdaptationCard
+                  key={a.id}
+                  adaptation={a}
+                  onEdit={() => {}}
+                  onShowHistory={() => setHistoryTarget({
+                    cardId:  a.ideationContentCardId,
+                    channel: a.channel,
+                    label:   `${a.channelLabel} · ${activeCard?.title ?? a.ideationContentCardId}`,
+                  })}
+                />
               ))}
               {cardAdaptations.length === 0 && (
                 <p className="rounded-md border border-dashed border-slate-300 p-4 text-center text-[12px] text-slate-500">
@@ -284,6 +299,40 @@ export function ContentCardTagging() {
           </section>
         </div>
       </div>
+
+      {/* Edit-history overlay — fixed right-side panel; backdrop click + Esc close. */}
+      {historyTarget && (
+        <div
+          role="dialog"
+          aria-modal="false"
+          className="fixed inset-0 z-40 flex justify-end"
+          onClick={() => setHistoryTarget(null)}
+          onKeyDown={e => { if (e.key === 'Escape') setHistoryTarget(null) }}
+          data-adaptation-history-overlay
+        >
+          <div
+            className="flex h-full w-[380px] flex-col border-l border-slate-200 bg-white shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex h-10 flex-none items-center justify-between border-b border-slate-200 px-3">
+              <p className="text-[12px] font-semibold text-slate-700">Edit history</p>
+              <button
+                type="button"
+                onClick={() => setHistoryTarget(null)}
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M3 3l8 8M11 3l-8 8" /></svg>
+              </button>
+            </div>
+            <AtomisedHistoryPanel
+              cardId={historyTarget.cardId}
+              channel={historyTarget.channel}
+              label={historyTarget.label}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

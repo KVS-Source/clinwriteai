@@ -100,6 +100,40 @@ export const publicationsApi = {
       `/review-rounds/${roundId}/comments/${commentId}/ai-draft`, {},
     ),
 
+  // Polymorphic edit history for peer-review response text (sPM-edit-history-polymorphic).
+  // Same shape as Module A /sections/:id/history + Module E /atomised/:ch/history.
+  getPeerReviewHistory: (roundId: string, commentId: string, filters: { mine?: boolean; origin?: 'manual' | 'ai' | 'undo' | 'restore' } = {}) => {
+    const qs = new URLSearchParams()
+    if (filters.mine)   qs.set('mine', 'true')
+    if (filters.origin) qs.set('origin', filters.origin)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return api.get<{
+      entityType: 'peer_review_response'
+      entityId: string
+      subUnitId: string
+      entries: Array<{
+        id: string
+        actorId: string
+        actorName: string
+        origin: 'manual' | 'ai' | 'undo' | 'restore'
+        createdAt: string
+        beforeHtml: string | null
+        afterHtml: string
+        aiCallRecordId: string | null
+        revertedFromId: string | null
+        promptText: string | null
+        aiModel: string | null
+        interveningCount: number
+        interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
+        canRevert: boolean
+      }>
+    }>(`/review-rounds/${roundId}/comments/${commentId}/history${suffix}`)
+  },
+  revertPeerReviewEdit: (editHistoryId: string) =>
+    api.post<{ ok: true; responseText: string; revertedAt: string }>(
+      `/peer-review-edits/${editHistoryId}/revert`, {},
+    ),
+
   // Congress export
   congressExport: (publicationId: string, body: CongressExportBody) =>
     api.post<{ exportId: string; format: string; congress: string; createdAt: string }>(

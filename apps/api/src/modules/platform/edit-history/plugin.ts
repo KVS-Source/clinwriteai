@@ -83,6 +83,24 @@ const editHistoryPlugin: FastifyPluginAsync = async (app) => {
     return { previousHtml, contentAfter: editHistoryRow.beforeHtml }
   })
 
+  // --- Module B: peer_review_response revert handler ------------------------
+  // ReviewerComment.responseText is the editable surface. Revert = swap it
+  // back to beforeHtml. entityId is the comment id; subUnitId carries the
+  // roundId for scoping. The letter-version snapshot happens on the NEXT
+  // regular PATCH save (via the route handler) — we don't duplicate the
+  // snapshot here to avoid a cross-module import cycle.
+  svc.registerRevertHandler('peer_review_response', async (prisma, { editHistoryRow }) => {
+    if (editHistoryRow.beforeHtml === null) throw new Error('cannot_revert_no_snapshot')
+    const comment = await prisma.reviewerComment.findUnique({ where: { id: editHistoryRow.entityId } })
+    if (!comment) throw new Error('reviewer_comment_not_found')
+    const previousHtml = comment.responseText ?? ''
+    await prisma.reviewerComment.update({
+      where: { id: comment.id },
+      data:  { responseText: editHistoryRow.beforeHtml },
+    })
+    return { previousHtml, contentAfter: editHistoryRow.beforeHtml }
+  })
+
   // --- Module E: atomised_content revert handler ----------------------------
   // AtomisedContent is one row per (card, channel). Revert = restore the
   // contentText to beforeHtml. No version/hash machinery here; the AI

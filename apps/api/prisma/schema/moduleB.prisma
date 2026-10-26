@@ -52,6 +52,7 @@ model Publication {
   submissionChecks     SubmissionCheck[]
   reviewRounds         PeerReviewRound[]
   congressSubmissions  CongressSubmission[]
+  slideDeckJobs        SlideDeckJob[]
 
   @@map("publications")
   @@index([projectId])
@@ -345,4 +346,65 @@ model ResponseLetterVersion {
 
   @@map("response_letter_versions")
   @@index([roundId])
+}
+
+
+// --------------------------------------------------------------------------
+// Slide deck backend (sPM-slide-deck-backend)
+// First real backing for the SlidedeckGenerator UI. One SlideDeckJob per
+// generation run (status flows draft → generating → ready → exported).
+// Content fields are plain prose (not HTML) — the UI edits in textareas.
+// Edit history uses the polymorphic EditHistory table with
+// entityType='slide' + entityId=slide.id + beforeHtml/afterHtml as JSON
+// payload (title + bodyText + speakerNotes serialised together).
+// --------------------------------------------------------------------------
+
+model SlideDeckJob {
+  id                String   @id @default(uuid())
+  publicationId     String
+  source            String   @default("full-manuscript")
+  congressTarget    String?
+  slideCountLimit   Int      @default(20)
+  status            String   @default("draft")                    // draft|generating|ready|exported
+  aiModel           String   @default("claude-sonnet-4-6")
+  aiFootprintPct    Int      @default(0)
+  generatedAt       DateTime @default(now())
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  publication       Publication @relation(fields: [publicationId], references: [id], onDelete: Cascade)
+  slides            Slide[]
+
+  @@map("slide_deck_jobs")
+  @@index([publicationId])
+}
+
+model Slide {
+  id              String   @id @default(uuid())
+  slideDeckJobId  String
+  position        Int
+  title           String   @default("")
+  bodyText        String   @default("")
+  speakerNotes    String   @default("")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  slideDeckJob    SlideDeckJob @relation(fields: [slideDeckJobId], references: [id], onDelete: Cascade)
+  figures         SlideFigure[]
+
+  @@map("slides")
+  @@index([slideDeckJobId, position])
+}
+
+model SlideFigure {
+  id                String   @id @default(uuid())
+  slideId           String
+  figureRef         String
+  altText           String?
+  figureDescription String?
+
+  slide             Slide    @relation(fields: [slideId], references: [id], onDelete: Cascade)
+
+  @@map("slide_figures")
+  @@index([slideId])
 }

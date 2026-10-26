@@ -136,6 +136,36 @@ const editHistoryPlugin: FastifyPluginAsync = async (app) => {
     return { previousHtml, contentAfter: editHistoryRow.beforeHtml }
   })
 
+  // --- Module B (slides): slide revert handler ------------------------------
+  // Slide content is serialised as JSON {title, bodyText, speakerNotes}
+  // in beforeHtml/afterHtml. Revert parses the JSON + swaps all three
+  // fields in place on the current Slide row. In-place mutation (same
+  // mental model as Module A sections — no new row per edit).
+  svc.registerRevertHandler('slide', async (prisma, { editHistoryRow }) => {
+    if (editHistoryRow.beforeHtml === null) throw new Error('cannot_revert_no_snapshot')
+    const slide = await prisma.slide.findUnique({ where: { id: editHistoryRow.entityId } })
+    if (!slide) throw new Error('slide_not_found')
+    let parsed: { title: string; bodyText: string; speakerNotes: string }
+    try {
+      const obj = JSON.parse(editHistoryRow.beforeHtml)
+      parsed = {
+        title:        typeof obj.title === 'string'        ? obj.title        : slide.title,
+        bodyText:     typeof obj.bodyText === 'string'     ? obj.bodyText     : slide.bodyText,
+        speakerNotes: typeof obj.speakerNotes === 'string' ? obj.speakerNotes : slide.speakerNotes,
+      }
+    } catch {
+      throw new Error('cannot_revert_malformed_snapshot')
+    }
+    const previousHtml = JSON.stringify({
+      title: slide.title, bodyText: slide.bodyText, speakerNotes: slide.speakerNotes,
+    })
+    await prisma.slide.update({
+      where: { id: slide.id },
+      data:  { title: parsed.title, bodyText: parsed.bodyText, speakerNotes: parsed.speakerNotes },
+    })
+    return { previousHtml, contentAfter: editHistoryRow.beforeHtml }
+  })
+
   // --- Module E: atomised_content revert handler ----------------------------
   // AtomisedContent is one row per (card, channel). Revert = restore the
   // contentText to beforeHtml. No version/hash machinery here; the AI

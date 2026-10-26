@@ -25,12 +25,12 @@ import { ICHValidatorPanel }      from '../../panels/ICHValidatorPanel'
 import { MedDRAPanel }            from '../../panels/MedDRAPanel'
 import { CommentsPanel }          from '../../panels/CommentsPanel'
 import { AIAssistPanel }          from '../../panels/AIAssistPanel'
-import { AIHistoryPanel }         from '../../panels/AIHistoryPanel'
+import { SectionHistoryPanel }    from '../../panels/SectionHistoryPanel'
 
 // Panel titles for the right panel header
 const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
   'ai':                'AI Suggest',
-  'ai-history':        'AI History',
+  'history':           'Section History',
   'traceability':      'Source References',
   'voice':             'Voice Note',
   'checklist':         'Input Checklist',
@@ -728,13 +728,14 @@ export function DocumentEditor() {
                     <h2 className="text-[22px] font-bold tracking-tight">
                       {activeSectionData.number} {activeSectionData.title}
                     </h2>
-                    {/* AI prompt history — per section (sPM-history). Opens
-                        the right-rail AIHistoryPanel scoped to this section. */}
+                    {/* Section edit history — per section (sPM-section-history).
+                        Opens the right-rail SectionHistoryPanel listing manual +
+                        AI edits + reverts, with per-row Revert. */}
                     <button
                       type="button"
-                      onClick={() => setActivePanel('ai-history')}
-                      title="AI prompt history for this section"
-                      aria-label="AI prompt history"
+                      onClick={() => setActivePanel('history')}
+                      title="Edit history for this section"
+                      aria-label="Section edit history"
                       className="flex items-center justify-center rounded-md border border-slate-300 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                     >
                       <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
@@ -1011,14 +1012,14 @@ export function DocumentEditor() {
                 documentStatus={document?.status}
               />
             )}
-            {activePanel === 'ai-history' && documentId && (
-              <AIHistoryPanel
+            {activePanel === 'history' && documentId && (
+              <SectionHistoryPanel
                 documentId={documentId}
                 sectionId={activeSection}
                 sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
               />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'ai-history' && (
+            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
                 <p className="mt-2 text-sm text-slate-700">

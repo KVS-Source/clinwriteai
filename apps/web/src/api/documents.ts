@@ -198,12 +198,16 @@ export const documentsApi = {
     api.post<AISuggestion>(`/documents/${documentId}/ai-suggest`, body),
   acceptSuggestion: (documentId: string, body: AcceptSuggestionBody) =>
     api.post<Document>(`/documents/${documentId}/ai-accept`, body),
-  // AI prompt history (per section) + Undo. The history endpoint returns
-  // every AiCallRecord for this doc+section across all versions; the Undo
-  // endpoint is only live when `canUndo` is true (last non-undone entry
-  // whose post-call version is the document's current version).
-  getAiHistory: (documentId: string, sectionId: string) =>
-    api.get<{
+  // Unified per-section edit history (sPM-section-history). Every save
+  // writes a row — manual, AI accept, undo, restore. The optional filters
+  // let the UI switch between the user's own feed and the team-wide view,
+  // or restrict to one origin kind.
+  getSectionHistory: (documentId: string, sectionId: string, filters: { mine?: boolean; origin?: 'manual' | 'ai' | 'undo' | 'restore' } = {}) => {
+    const qs = new URLSearchParams()
+    if (filters.mine)   qs.set('mine', 'true')
+    if (filters.origin) qs.set('origin', filters.origin)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return api.get<{
       documentId: string
       sectionId: string
       currentVersionId: string | null
@@ -211,20 +215,23 @@ export const documentsApi = {
         id: string
         actorId: string
         actorName: string
-        intent: string
-        model: string
-        promptText: string | null
-        documentVersionId: string | null
-        postCallDocumentVersionId: string | null
+        origin: 'manual' | 'ai' | 'undo' | 'restore'
         createdAt: string
-        undoneAt: string | null
-        undoneBy: string | null
-        canUndo: boolean
+        documentVersionId: string
+        aiCallRecordId: string | null
+        revertedFromId: string | null
+        promptText: string | null
+        aiIntent:  string | null
+        aiModel:   string | null
+        interveningCount: number
+        interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
+        canRevert: boolean
       }>
-    }>(`/documents/${documentId}/sections/${sectionId}/ai-history`),
-  undoAiCall: (aiCallRecordId: string) =>
-    api.post<{ ok: true; undoneAt: string; documentId: string; sectionId: string; contentHtml: string }>(
-      `/ai-calls/${aiCallRecordId}/undo`, {},
+    }>(`/documents/${documentId}/sections/${sectionId}/history${suffix}`)
+  },
+  revertSectionEdit: (editHistoryId: string) =>
+    api.post<{ ok: true; documentId: string; sectionId: string; contentHtml: string; revertedAt: string }>(
+      `/section-edits/${editHistoryId}/revert`, {},
     ),
   // Signatures
   // The API at /documents/:id/signature-chains returns SignatureChain[]

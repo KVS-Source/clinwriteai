@@ -21,6 +21,7 @@ function fakePrisma(opts: FakeOpts) {
   const versionUpdates: Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = []
   const docUpdates:     Array<{ where: Record<string, unknown>; data: Record<string, unknown> }> = []
   const provenance:     Array<{ data: Record<string, unknown> }> = []
+  const historyWrites:  Array<{ data: Record<string, unknown> }> = []
 
   const sections = [
     { id: 'row-uuid-1', sectionId: 'sae1', sectionNumber: '§1', sectionTitle: 'Case Identification',   contentHtml: '<p>a</p>',  ichStatus: 'complete',    wordCount: 1, lastEditedBy: null, lastEditedAt: null, aiSpanCount: 0, humanSpanCount: 0 },
@@ -62,9 +63,12 @@ function fakePrisma(opts: FakeOpts) {
     provenanceRecord: {
       create: async (args: { data: Record<string, unknown> }) => { provenance.push(args); calls.push('provenance'); return {} },
     },
+    sectionEditHistory: {
+      create: async (args: { data: Record<string, unknown> }) => { historyWrites.push(args); calls.push('history-write'); return {} },
+    },
   }
   const prisma = { $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx) } as unknown as PrismaClient
-  return { prisma, calls, flagClears, createdVersions, sectionUpdates, sectionCreates, versionUpdates, docUpdates, provenance }
+  return { prisma, calls, flagClears, createdVersions, sectionUpdates, sectionCreates, versionUpdates, docUpdates, provenance, historyWrites }
 }
 
 // ---------- updateSection — in-place path (default) --------------------------
@@ -114,6 +118,31 @@ describe('DocumentService.updateSection — in-place mutation (default)', () => 
     expect(provenance).toHaveLength(1)
     expect(provenance[0].data.sourceType).toBe('ai_draft')
     expect(provenance[0].data.aiModel).toBe('claude-sonnet-4-6')
+  })
+
+  it('writes a SectionEditHistory row with origin=manual (or ai) and before/after HTML', async () => {
+    const { prisma, historyWrites } = fakePrisma({ allVersions: ['v0.2'], currentVersion: 'v0.2' })
+    await new DocumentService(prisma).updateSection({
+      documentId: 'DOC-005', sectionId: 'sae4', contentHtml: '<p>new</p>', editorUserId: 'u1',
+    })
+    expect(historyWrites).toHaveLength(1)
+    const data = historyWrites[0].data as {
+      origin: string; beforeHtml: string | null; afterHtml: string; sectionId: string; actorId: string
+    }
+    expect(data.origin).toBe('manual')
+    expect(data.beforeHtml).toBe('<p>old</p>')
+    expect(data.afterHtml).toBe('<p>new</p>')
+    expect(data.sectionId).toBe('sae4')
+    expect(data.actorId).toBe('u1')
+
+    const { prisma: p2, historyWrites: aiHistory } = fakePrisma({ allVersions: ['v0.2'], currentVersion: 'v0.2' })
+    await new DocumentService(p2).updateSection({
+      documentId: 'DOC-005', sectionId: 'sae4', contentHtml: '<p>new</p>', editorUserId: 'u1',
+      aiDrafted: true, aiModel: 'claude-sonnet-4-6', aiCallRecordId: 'air-99',
+    })
+    const aiData = aiHistory[0].data as { origin: string; aiCallRecordId: string | null }
+    expect(aiData.origin).toBe('ai')
+    expect(aiData.aiCallRecordId).toBe('air-99')
   })
 
   it('takes the per-document advisory lock before any read or write', async () => {

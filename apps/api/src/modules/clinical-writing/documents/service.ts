@@ -148,6 +148,10 @@ export class DocumentService {
     aiDrafted?: boolean
     aiModel?: string
     sourceRef?: string
+    // When the save originates from Accept on an AI Suggest response, the
+    // route passes the AiCallRecord id so the SectionEditHistory row can
+    // back-link into the AI metadata (prompt text, cost, model).
+    aiCallRecordId?: string
   }) {
     return this.prisma.$transaction(async (tx) => {
       // One writer per document at a time. Prevents a double-save from
@@ -282,7 +286,112 @@ export class DocumentService {
         })
       }
 
+      // SectionEditHistory — one row per non-noop save, powers the unified
+      // SectionHistoryPanel. origin tracks where the edit came from so the
+      // UI's filter chips (All / AI / Manual) work without inferring from
+      // metadata.
+      await tx.sectionEditHistory.create({
+        data: {
+          documentId:        doc.id,
+          sectionId:         args.sectionId,
+          documentVersionId: current.id,
+          actorId:           args.editorUserId,
+          origin:            args.aiDrafted ? 'ai' : 'manual',
+          beforeHtml:        existing?.contentHtml ?? null,
+          afterHtml:         args.contentHtml,
+          aiCallRecordId:    args.aiDrafted ? args.aiCallRecordId ?? null : null,
+        },
+      })
+
       return { document: doc, version: nextVersion, created: false, mutated: true }
+    })
+  }
+
+  /**
+   * Revert a section to the state captured by a specific
+   * SectionEditHistory row. Mutates SectionContent in place on the current
+   * version (same mechanism as the normal in-place save path), writes a
+   * matching origin='undo' history row so the revert itself is undoable,
+   * and audits the change with before/after hashes.
+   *
+   * `interveningCount` + `interveningActors` are precomputed and returned
+   * so the UI's confirmation dialog can tell the user how many later edits
+   * are about to be dropped — but the service does NOT block on them; the
+   * decision stays with the UI (confirmation gate).
+   */
+  async revertSection(args: {
+    editHistoryId: string
+    editorUserId: string
+  }) {
+    return this.prisma.$transaction(async (tx) => {
+      const target = await tx.sectionEditHistory.findUnique({ where: { id: args.editHistoryId } })
+      if (!target) throw new Error(`Edit history ${args.editHistoryId} not found`)
+      if (target.beforeHtml === null) {
+        throw new Error('cannot_revert_no_snapshot')
+      }
+
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${target.documentId}))`
+
+      const doc = await tx.document.findUnique({
+        where: { id: target.documentId },
+        include: { currentVersion: { include: { sections: true } } },
+      })
+      if (!doc?.currentVersion) throw new Error('document_not_found')
+
+      // Only sanction a revert when the section is still on the version the
+      // edit was made on — crossing versions would require merging the
+      // reverted content into a new section snapshot, out of scope here.
+      if (target.documentVersionId !== doc.currentVersionId) {
+        throw new Error('cannot_revert_cross_version')
+      }
+      // Safety net: never clobber signed content.
+      const sealed = await isVersionSealed(tx, doc.id, doc.currentVersion.versionNumber)
+      if (sealed) {
+        throw new Error('cannot_revert_sealed_version')
+      }
+
+      const sectionRow = doc.currentVersion.sections.find(s => s.sectionId === target.sectionId)
+      if (!sectionRow) throw new Error('section_not_found')
+
+      const previousHtml = sectionRow.contentHtml ?? ''
+      await tx.sectionContent.update({
+        where: { documentVersionId_sectionId: { documentVersionId: doc.currentVersionId!, sectionId: target.sectionId } },
+        data: {
+          contentHtml:  target.beforeHtml,
+          lastEditedBy: args.editorUserId,
+          lastEditedAt: new Date(),
+        },
+      })
+
+      // Recompute hash so Part 11 re-verification sees the real content.
+      const nextSections: SectionPayload[] = doc.currentVersion.sections.map(s =>
+        s.sectionId === target.sectionId
+          ? { sectionId: s.sectionId, sectionNumber: s.sectionNumber, sectionTitle: s.sectionTitle, contentHtml: target.beforeHtml!, ichStatus: s.ichStatus }
+          : { sectionId: s.sectionId, sectionNumber: s.sectionNumber, sectionTitle: s.sectionTitle, contentHtml: s.contentHtml, ichStatus: s.ichStatus },
+      )
+      await tx.documentVersion.update({
+        where: { id: doc.currentVersionId! },
+        data:  { contentHash: hashSections(nextSections) },
+      })
+
+      await tx.sectionEditHistory.create({
+        data: {
+          documentId:        target.documentId,
+          sectionId:         target.sectionId,
+          documentVersionId: doc.currentVersionId!,
+          actorId:           args.editorUserId,
+          origin:            'undo',
+          beforeHtml:        previousHtml,
+          afterHtml:         target.beforeHtml,
+          revertedFromId:    target.id,
+        },
+      })
+
+      return {
+        documentId:  target.documentId,
+        sectionId:   target.sectionId,
+        contentHtml: target.beforeHtml,
+      }
     })
   }
 

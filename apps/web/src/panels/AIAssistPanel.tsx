@@ -79,7 +79,7 @@ export function AIAssistPanel({ documentId, sectionId, sectionLabel, onAccepted 
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['document', documentId] })
       qc.invalidateQueries({ queryKey: ['versions', documentId] })
-      qc.invalidateQueries({ queryKey: ['ai-history', documentId, sectionId] })
+      qc.invalidateQueries({ queryKey: ['section-history', documentId, sectionId] })
       setResult(null)
       setEdited('')
       onAccepted?.()

@@ -281,6 +281,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       aiDrafted: parsed.data.aiDrafted,
       aiModel: parsed.data.aiModel,
       sourceRef: parsed.data.sourceRef,
+      aiCallRecordId: parsed.data.aiCallRecordId,
     }).catch((err: Error) => {
       if (err.message.includes('not found')) return 'notfound' as const
       throw err
@@ -667,10 +668,155 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // ------------------------------------------------------------------------
-  // Prompt history — list AiCallRecord rows for a specific section across
-  // all versions. UI (AiHistoryPanel) renders them grouped by version with
-  // Undo on the last non-undone entry when the section's current version
-  // matches postCallDocumentVersionId.
+  // Unified per-section edit history (sPM-section-history).
+  //
+  // Lists every save on this section — manual, AI accept, undo, restore —
+  // in reverse chronological order. UI's SectionHistoryPanel filters at
+  // query time via ?mine=true and ?origin=ai|manual|undo|restore. "Mine"
+  // means the current authed user; "all" is any team member.
+  //
+  // interveningCount on each row = how many history rows are newer; the UI
+  // uses this to show "Reverting will discard N later edits" in the
+  // confirmation modal before firing /revert.
+  // ------------------------------------------------------------------------
+  app.get('/:documentId/sections/:sectionId/history', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
+    const q = request.query as { mine?: string; origin?: string }
+
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      include: { currentVersion: { include: { sections: { where: { OR: [{ sectionId }, { id: sectionId }] } } } } },
+    })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    const section = doc.currentVersion?.sections[0]
+    if (!section) return reply.code(404).send({ error: 'section_not_found' })
+
+    const rows = await app.prisma.sectionEditHistory.findMany({
+      where: {
+        documentId,
+        sectionId: section.sectionId,
+        ...(q.mine === 'true' && { actorId: request.user!.id }),
+        ...(q.origin && ['manual', 'ai', 'undo', 'restore'].includes(q.origin) && { origin: q.origin }),
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    // Side query for AI metadata (prompt + model) — only for origin='ai' rows.
+    const aiCallIds = rows
+      .map(r => r.aiCallRecordId)
+      .filter((x): x is string => !!x)
+    const aiMap = aiCallIds.length === 0
+      ? new Map<string, { promptText: string | null; model: string; intent: string }>()
+      : new Map(
+          (await app.prisma.aiCallRecord.findMany({
+            where: { id: { in: aiCallIds } },
+            select: { id: true, promptText: true, model: true, intent: true },
+          })).map(r => [r.id, { promptText: r.promptText, model: r.model, intent: r.intent }]),
+        )
+
+    const actorIds = Array.from(new Set(rows.map(r => r.actorId)))
+    const actors = actorIds.length === 0
+      ? []
+      : await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+    const actorMap = new Map(actors.map(a => [a.id, a.name]))
+
+    // Precompute intervening-edit counts: for row i (0 = newest), how many
+    // ROWS ACROSS ALL USERS are newer than it on the same section. We walk
+    // the full set (not just the filtered view) so the modal's warning is
+    // accurate even when a user filtered to just their own edits.
+    const allRows = (q.mine === 'true' || q.origin)
+      ? await app.prisma.sectionEditHistory.findMany({
+          where:   { documentId, sectionId: section.sectionId },
+          orderBy: { createdAt: 'desc' },
+          select:  { id: true, actorId: true, origin: true, createdAt: true },
+        })
+      : rows.map(r => ({ id: r.id, actorId: r.actorId, origin: r.origin, createdAt: r.createdAt }))
+    const positionOf = new Map(allRows.map((r, i) => [r.id, i]))
+
+    return {
+      documentId,
+      sectionId:        section.sectionId,
+      currentVersionId: doc.currentVersionId,
+      entries: rows.map(r => {
+        const idx = positionOf.get(r.id) ?? 0
+        const intervening = allRows.slice(0, idx)
+        const interveningByActor = Array.from(
+          intervening.reduce((m, row) => m.set(row.actorId, (m.get(row.actorId) ?? 0) + 1), new Map<string, number>()),
+        ).map(([actorId, count]) => ({ actorId, actorName: actorMap.get(actorId) ?? actorId, count }))
+
+        const ai = r.aiCallRecordId ? aiMap.get(r.aiCallRecordId) ?? null : null
+        return {
+          id:                 r.id,
+          actorId:            r.actorId,
+          actorName:          actorMap.get(r.actorId) ?? r.actorId,
+          origin:             r.origin,
+          createdAt:          r.createdAt.toISOString(),
+          documentVersionId:  r.documentVersionId,
+          aiCallRecordId:     r.aiCallRecordId,
+          revertedFromId:     r.revertedFromId,
+          promptText:         ai?.promptText ?? null,
+          aiIntent:           ai?.intent ?? null,
+          aiModel:            ai?.model ?? null,
+          interveningCount:   intervening.length,
+          interveningByActor,
+          // Can revert if the snapshot exists and the section is still on
+          // the version this edit was made on. Sealed-version check happens
+          // in the service.
+          canRevert:          !!r.beforeHtml
+                                && r.documentVersionId === doc.currentVersionId,
+        }
+      }),
+    }
+  })
+
+  // Revert — restores the section to the beforeHtml of the chosen history
+  // row. In-place mutation + hash recompute (same mechanism as save). The
+  // revert itself writes a SectionEditHistory row with origin='undo' so
+  // the chain stays complete.
+  app.post('/section-edits/:editHistoryId/revert', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { editHistoryId } = request.params as { editHistoryId: string }
+    try {
+      const result = await svc.revertSection({
+        editHistoryId,
+        editorUserId: request.user!.id,
+      })
+
+      const { createHash } = await import('node:crypto')
+      const hashOf = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 32)
+      const beforeHashes = { afterHash: hashOf(result.contentHtml) }
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: request.user!.id,
+        action: 'section_reverted',
+        entityType: 'document',
+        entityId: result.documentId,
+        details: {
+          sectionId:     result.sectionId,
+          editHistoryId,
+          afterHash:     beforeHashes.afterHash,
+          inPlace:       true,
+        },
+        ipAddress: request.ip ?? null,
+      })
+      return { ok: true, ...result, revertedAt: new Date().toISOString() }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'revert_failed'
+      if (msg === 'cannot_revert_cross_version')
+        return reply.code(409).send({ error: 'stale', message: 'Section has moved to a newer version; revert no longer applies.' })
+      if (msg === 'cannot_revert_sealed_version')
+        return reply.code(409).send({ error: 'sealed', message: 'This version is signed; create a new version to continue editing.' })
+      if (msg === 'cannot_revert_no_snapshot')
+        return reply.code(422).send({ error: 'no_snapshot' })
+      if (msg.includes('not_found') || msg.includes('not found'))
+        return reply.code(404).send({ error: 'not_found' })
+      throw err
+    }
+  })
+
+  // ------------------------------------------------------------------------
+  // Legacy /ai-history + /ai-calls/:id/undo — thin shims kept for mid-
+  // session clients already fetching from them. New callers should use
+  // /sections/:id/history?origin=ai and /section-edits/:id/revert.
   // ------------------------------------------------------------------------
   app.get('/:documentId/sections/:sectionId/ai-history', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }

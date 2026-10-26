@@ -216,6 +216,36 @@ model AiCallRecord {
 }
 
 // --------------------------------------------------------------------------
+// Unified per-section edit history (sPM-section-history).
+// One row per non-noop save on any origin: manual edits, AI accepts, undos,
+// restores. Powers the right-rail SectionHistoryPanel + its Revert action.
+// --------------------------------------------------------------------------
+
+model SectionEditHistory {
+  id                  String    @id @default(uuid())
+  documentId          String
+  sectionId           String
+  documentVersionId   String
+  actorId             String
+  // 'manual' | 'ai' | 'undo' | 'restore'
+  origin              String
+  beforeHtml          String?
+  afterHtml           String
+  // Non-null when origin='ai' — back-link to the AiCallRecord carrying the
+  // prompt + cost metadata (no FK; AI retention policy is separate).
+  aiCallRecordId      String?
+  // Non-null when origin='undo' — the SectionEditHistory row this revert
+  // undid, so the UI can show "undone by X".
+  revertedFromId      String?
+  createdAt           DateTime  @default(now())
+
+  @@map("section_edit_history")
+  @@index([documentId, sectionId, createdAt])
+  @@index([actorId])
+  @@index([aiCallRecordId])
+}
+
+// --------------------------------------------------------------------------
 // Rate cards — DB-backed with version history. Replaces the in-code RATES
 // array for new calls; old AiCallRecord rows stay valid via nullable FK.
 //

@@ -25,6 +25,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Editor } from '@tiptap/react'
 import { api, ApiError } from '../api/client'
 import { documentsApi } from '../api'
+import { sanitizeAiHtml } from '../screens/clinical-writing/SectionAIPrompt'
 
 interface Props {
   documentId: string
@@ -64,7 +65,9 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   const qc = useQueryClient()
   const [prompt, setPrompt] = useState('')
   const [scope, setScope]   = useState<Scope>('section')
-  const [intent, setIntent] = useState<'custom' | 'explain'>('custom')
+  // 'edit' = the backend's HTML-returning path (same as the bottom dock).
+  // 'explain' = plain-prose answer, no Accept button.
+  const [intent, setIntent] = useState<'edit' | 'explain'>('edit')
   const inputRef    = useRef<HTMLTextAreaElement>(null)
   const bottomRef   = useRef<HTMLDivElement>(null)
   // Captured editor selection — stored on mousedown of the panel's input
@@ -107,7 +110,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   }, [prompt])
 
   const send = useMutation({
-    mutationFn: (vars: { instruction: string; intentValue: 'custom' | 'explain'; scopeValue: Scope; selectionText?: string }) => {
+    mutationFn: (vars: { instruction: string; intentValue: 'edit' | 'explain'; scopeValue: Scope; selectionText?: string }) => {
       if (!sectionId) throw new Error('no_active_section')
       return api.post<AiResult>(
         `/documents/${documentId}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
@@ -215,7 +218,18 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                     Scope: {SCOPE_LABEL[m.scope as Scope]}
                   </p>
                 )}
-                <p className="whitespace-pre-wrap">{m.content}</p>
+                {/* Suggest responses come back as HTML (intent='edit'). Render
+                    them sanitised so the user sees proper paragraphs/lists.
+                    Everything else (user turns, explain responses) renders
+                    as pre-wrapped text. */}
+                {m.role === 'assistant' && m.kind === 'suggest' ? (
+                  <div
+                    className="prose prose-sm max-w-none text-[13px] leading-relaxed [&_h3]:mt-2 [&_h3]:text-[14px] [&_h3]:font-semibold [&_li]:ml-5 [&_ol]:list-decimal [&_p]:mb-2 [&_ul]:list-disc"
+                    dangerouslySetInnerHTML={{ __html: sanitizeAiHtml(m.content) }}
+                  />
+                ) : (
+                  <p className="whitespace-pre-wrap">{m.content}</p>
+                )}
                 {m.role === 'assistant' && (
                   <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 text-[10px] text-slate-500">
                     <span>
@@ -225,7 +239,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                     {m.kind === 'suggest' && !m.appliedToSection && (
                       <button
                         type="button"
-                        onClick={() => accept.mutate({ messageId: m.id, html: m.content, model: m.aiModel ?? 'ai' })}
+                        onClick={() => accept.mutate({ messageId: m.id, html: sanitizeAiHtml(m.content), model: m.aiModel ?? 'ai' })}
                         disabled={accept.isPending}
                         className="rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300"
                       >
@@ -299,14 +313,14 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                 >{SCOPE_LABEL[s]}</button>
               ))}
               <span className="mx-1 h-3 w-px bg-slate-200" />
-              {(['custom', 'explain'] as const).map(k => (
+              {(['edit', 'explain'] as const).map(k => (
                 <button
                   key={k}
                   type="button"
                   onClick={() => setIntent(k)}
-                  title={k === 'custom' ? 'Ask for a change — produces replacement text with an Accept button' : 'Ask a question — gets a plain-English answer in the chat'}
+                  title={k === 'edit' ? 'Ask for a change — produces replacement text with an Accept button' : 'Ask a question — gets a plain-English answer in the chat'}
                   className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors ${intent === k ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >{k === 'custom' ? 'Edit' : 'Explain'}</button>
+                >{k === 'edit' ? 'Edit' : 'Explain'}</button>
               ))}
             </div>
             <button

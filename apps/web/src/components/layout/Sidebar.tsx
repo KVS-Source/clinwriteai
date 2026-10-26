@@ -64,6 +64,10 @@ interface NavItem {
 
 interface Props {
   activeModule?: string
+  /** When true, the sidebar shrinks to an icon-only rail (56px). AppShell
+   *  flips this on when the user is inside a document editor so the content
+   *  pane has more room; the icons stay clickable for cross-module nav. */
+  collapsed?: boolean
 }
 
 // Per-module nav items — each module only exposes routes that exist in the router.
@@ -77,7 +81,7 @@ const MODULE_NAV: Record<string, NavKey[]> = {
   'ideation-publishing': ['home', 'calendar', 'publishing'],
 }
 
-export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
+export function Sidebar({ activeModule = 'clinical-writing', collapsed = false }: Props) {
   const { projectId } = useParams()
   const navigate = useNavigate()
   const currentUser = usePlatformStore(s => s.currentUser)
@@ -125,19 +129,35 @@ export function Sidebar({ activeModule = 'clinical-writing' }: Props) {
     : []
 
   return (
-    <aside className="flex w-56 flex-none flex-col overflow-y-auto" style={{ backgroundColor: '#1E293B' }}>
+    <aside
+      className={`flex ${
+        collapsed
+          ? 'w-14 [&_span]:hidden [&_a]:justify-center [&_a]:gap-0 [&_a]:px-0 [&_[data-sidebar-section]]:px-0 [&_nav]:items-center'
+          : 'w-56'
+      } flex-none flex-col overflow-y-auto transition-[width] duration-200`}
+      style={{ backgroundColor: '#1E293B' }}
+      data-collapsed={collapsed || undefined}
+    >
 
       {/* Brand wordmark — official ClinWrite logo on a white pill (green/red brand
-          colours are unreadable directly on the dark navy sidebar). */}
-      <div className="flex h-14 flex-none flex-col items-start justify-center gap-1 px-4 border-b border-slate-700">
-        <div className="flex w-full items-center justify-center rounded-md bg-white px-3 py-1.5">
-          <img
-            src="/logo/clinwrite.svg"
-            alt="ClinWrite.AI"
-            className="h-6 w-auto"
-            data-brand-logo
-          />
-        </div>
+          colours are unreadable directly on the dark navy sidebar). Collapsed
+          rail shows just a monogram so it doesn't overflow the 56px width. */}
+      <div className="flex h-14 flex-none flex-col items-center justify-center gap-1 border-b border-slate-700 px-2">
+        {collapsed ? (
+          <div
+            className="flex h-8 w-8 items-center justify-center rounded-md bg-white font-bold text-[11px] text-slate-900"
+            data-brand-mark
+          >CW</div>
+        ) : (
+          <div className="flex w-full items-center justify-center rounded-md bg-white px-3 py-1.5">
+            <img
+              src="/logo/clinwrite.svg"
+              alt="ClinWrite.AI"
+              className="h-6 w-auto"
+              data-brand-logo
+            />
+          </div>
+        )}
       </div>
 
       {/* My workspace — role-specific landing page */}

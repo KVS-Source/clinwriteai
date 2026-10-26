@@ -451,17 +451,87 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       data: { status: to },
     })
 
+    // Review-bounce auto-snapshot: any transition from a non-authoring state
+    // *into* in_authoring means the document is "coming back for edits" —
+    // from a reviewer bounce, a CRM bounce, or a signer refusal. Per the
+    // new versioning policy (Oct 2026), each of these creates a new
+    // DocumentVersion so the previous reviewed/signed state is preserved
+    // as its own row and the author edits a fresh in-place-mutable version.
+    let snapshotVersion: Awaited<ReturnType<DocumentService['createVersionSnapshot']>>['version'] | null = null
+    if (to === 'in_authoring' && from !== 'in_authoring' && from !== 'not_started') {
+      const reason =
+        from === 'in_review'          ? 'review_bounce' :
+        from === 'crm_in_progress'    ? 'crm_bounce' :
+        from === 'pending_signature'  ? 'signature_bounce' :
+        'explicit'                                           // defensive
+      const snap = await svc.createVersionSnapshot({
+        documentId,
+        createdBy: request.user!.id,
+        reason,
+        note: parsed.data.reason,
+      })
+      snapshotVersion = snap.version
+    }
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'document_status_changed',
       entityType: 'document',
       entityId: documentId,
-      details: { from, to, reason: parsed.data.reason ?? null },
+      details: {
+        from,
+        to,
+        reason: parsed.data.reason ?? null,
+        snapshotVersionId:     snapshotVersion?.id ?? null,
+        snapshotVersionNumber: snapshotVersion?.versionNumber ?? null,
+      },
       ipAddress: request.ip ?? null,
     })
 
     return updated
+  })
+
+  // Explicit "Create new version" — snapshots the current section set into
+  // a brand-new DocumentVersion row. Normal section saves mutate in place;
+  // this endpoint is how a user asks for a checkpoint.
+  app.post('/:documentId/versions', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const bodySchema = z.object({
+      label: z.enum(['Draft', 'For Review', 'Final']).optional(),
+      note:  z.string().max(500).optional(),
+    })
+    const parsed = bodySchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+
+    const snap = await svc.createVersionSnapshot({
+      documentId,
+      createdBy: request.user!.id,
+      label: parsed.data.label,
+      reason: 'explicit',
+      note:   parsed.data.note,
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'document_version_created',
+      entityType: 'document',
+      entityId: documentId,
+      details: {
+        reason: 'explicit',
+        versionId:     snap.version.id,
+        versionNumber: snap.version.versionNumber,
+        label:         snap.version.label,
+        note:          parsed.data.note ?? null,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.code(201).send(snap.version)
   })
 
   // Admin override of a document's TA (FR-A-002: set at creation, changeable

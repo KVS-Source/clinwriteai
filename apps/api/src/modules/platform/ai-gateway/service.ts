@@ -79,9 +79,9 @@ class StubLlmClient implements LlmClient {
  * See apps/api/src/modules/platform/ai-gateway/anthropic-client.ts.
  */
 export function createLlmClient(): LlmClient {
-  // A plain import: this package is ESM, where `require` doesn't exist — the old
-  // require() crashed the API at startup as soon as ANTHROPIC_API_KEY was set.
-  // anthropic-client.ts still loads @anthropic-ai/sdk lazily, on the first call.
+  // anthropic-client.ts loads @anthropic-ai/sdk lazily on the first real
+  // call, so importing it here costs nothing when the key isn't set.
+  // (A CommonJS `require` here crashed startup — the API runs as ESM.)
   if (!process.env.ANTHROPIC_API_KEY?.trim()) return new StubLlmClient()
   return createAnthropicClientFromEnv() ?? new StubLlmClient()
 }

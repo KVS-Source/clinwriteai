@@ -11,7 +11,7 @@ import type { PrismaClient } from '@prisma/client'
 import type { AuditEventShape } from './hash.js'
 import type { AuditRepository, VerifyChainResult } from './repository.js'
 import { computeRowHash, plainShape } from './hash.js'
-import { AUDIT_CHAIN_KNOWN_EXCEPTIONS, isKnownAuditException } from './known-exceptions.js'
+import { isKnownAuditException, knownExceptionsInRange } from './known-exceptions.js'
 
 // Deterministic 32-bit int derived from CRC32-like fold of 'audit_events'.
 // Must stay constant across deploys — rotating this key breaks the ordering
@@ -144,7 +144,7 @@ export class PostgresAuditRepository implements AuditRepository {
       intact: unexpected.length === 0,
       firstBreakAt: unexpected[0] ?? null,
       unexpectedBreaks: unexpected,
-      exceptions: AUDIT_CHAIN_KNOWN_EXCEPTIONS,
+      exceptions: knownExceptionsInRange(fromId, toId),
     }
   }
 }

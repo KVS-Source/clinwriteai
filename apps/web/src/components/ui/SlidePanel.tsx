@@ -33,6 +33,8 @@ interface SlidePanelProps {
   closeOnOutsideClick?: boolean
   // Temporarily widen to at least this many px (not persisted) — e.g. while a PDF is shown.
   expandedWidth?: number
+  // Show an Expand / Shrink button in the header (expands to most of the window).
+  expandable?: boolean
 }
 
 export function SlidePanel({
@@ -47,7 +49,9 @@ export function SlidePanel({
   maxWidth = 960,
   closeOnOutsideClick = false,
   expandedWidth,
+  expandable = false,
 }: SlidePanelProps) {
+  const [expanded, setExpanded] = useState(false)
   const [width, setWidth] = useState<number>(() => {
     if (!storageKey) return defaultWidth
     const saved = typeof window !== 'undefined' ? window.localStorage.getItem(storageKey) : null
@@ -114,7 +118,9 @@ export function SlidePanel({
 
   if (!open) return null
 
-  const shownWidth = expandedWidth ? Math.min(Math.max(width, expandedWidth), Math.round(window.innerWidth * 0.92)) : width
+  const shownWidth = expanded
+    ? Math.round(window.innerWidth * 0.92)
+    : expandedWidth ? Math.min(Math.max(width, expandedWidth), Math.round(window.innerWidth * 0.92)) : width
 
   return (
     <aside
@@ -149,6 +155,21 @@ export function SlidePanel({
           <h2 className="truncate text-[16px] font-bold text-slate-900">{title}</h2>
           {subtitle && <p className="mt-0.5 truncate text-[12px] text-slate-500">{subtitle}</p>}
         </div>
+        {expandable && (
+          <button
+            type="button"
+            onClick={() => setExpanded(v => !v)}
+            aria-label={expanded ? 'Shrink panel' : 'Expand panel'}
+            title={expanded ? 'Shrink' : 'Expand'}
+            className="flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              {expanded
+                ? <path d="M9 2v3h3M5 12V9H2M9 5l3-3M5 9l-3 3" />
+                : <path d="M8 2h4v4M6 12H2V8M12 2 8 6M2 12l4-4" />}
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           onClick={onClose}

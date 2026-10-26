@@ -60,6 +60,7 @@ function IconButton({
   return (
     <button
       type="button"
+      data-panel-trigger
       onClick={onClick}
       title={title}
       className="flex h-7 w-7 flex-none items-center justify-center rounded-md border transition-colors hover:bg-slate-100"

@@ -48,6 +48,39 @@ export function ReviewerView() {
   // Side panel: drag the edge to resize, or expand it to the whole working area.
   const panel = useResizablePanel({ activePanel })
 
+  // The Audit Trail panel is read-only, so a click outside it or Esc closes it. (Comments and
+  // Checklist stay open — they hold drafts.) The toolbar buttons that open panels are marked
+  // [data-panel-trigger] and handle their own toggle. Outside clicks are judged on mousedown +
+  // click so a press that starts inside the panel (resizing, selecting) never closes it.
+  const rightPanelRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (activePanel !== 'audit') return
+    let pressedOutside = false
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Element | null
+      pressedOutside = !!t && !rightPanelRef.current?.contains(t)
+        && !t.closest('[data-slide-panel], [data-panel-trigger]')
+    }
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as Element | null
+      const outside = pressedOutside
+      pressedOutside = false
+      if (!outside || !t?.isConnected || rightPanelRef.current?.contains(t)) return
+      setActivePanel(null)
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) setActivePanel(null)
+    }
+    window.document.addEventListener('mousedown', onDown, true)
+    window.document.addEventListener('click', onClick)
+    window.document.addEventListener('keydown', onKey)
+    return () => {
+      window.document.removeEventListener('mousedown', onDown, true)
+      window.document.removeEventListener('click', onClick)
+      window.document.removeEventListener('keydown', onKey)
+    }
+  }, [activePanel, setActivePanel])
+
   const [commentText,     setCommentText]     = useState('')
   const [severity,        setSeverity]        = useState<CommentSeverity>('minor')
   const [flagged,         setFlagged]         = useState(false)
@@ -563,6 +596,7 @@ export function ReviewerView() {
           {/* Right panel — absolute overlay per Pattern 6 */}
           {activePanel !== null && (
             <div
+              ref={rightPanelRef}
               className="fixed top-14 right-0 bottom-0 flex flex-col border-l border-slate-200"
               style={{
                 width:           panel.width,

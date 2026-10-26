@@ -408,25 +408,42 @@ export function DocumentEditor() {
     // so only clicks whose mousedown we saw count.
     let pressed = false
     let pressedExempt = false
+    let pressedInContent = false
     const onDown = (e: MouseEvent) => {
       const t = e.target as Element | null
       pressed = true
       pressedExempt = !t || !!rightPanelRef.current?.contains(t) || !!t.closest('[data-reference-dropdown], [data-slide-panel], [data-panel-trigger]')
+      pressedInContent = !!t && !!sectionContentRef.current?.contains(t)
     }
     const onClick = (e: MouseEvent) => {
       const t = e.target as Element | null
       if (!pressed) return
       pressed = false
       if (!t || pressedExempt || !t.isConnected || rightPanelRef.current?.contains(t)) return
-      if (!window.getSelection()?.isCollapsed) return   // the click ended a text selection
+      // The click ended a text selection made in the section: keep the panel (the user is
+      // picking text to link). A selection left over from earlier doesn't count — clicking a
+      // button elsewhere doesn't clear it, and that click must still close the panel.
+      if (pressedInContent && !window.getSelection()?.isCollapsed) return
       if (sectionContentRef.current?.contains(t) && referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)) return
+      setActivePanel(null)
+    }
+    // Esc closes the panel too — unless something else already used the key (a menu, an
+    // input cancelling an edit), or the AI panel's own prompt field has focus.
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      if (window.document.querySelector('[data-reference-menu]')) return   // an open Reference menu takes the key
+      const el = window.document.activeElement as HTMLElement | null
+      const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
+      if (typing && activePanel === 'ai' && rightPanelRef.current?.contains(el)) return
       setActivePanel(null)
     }
     window.document.addEventListener('mousedown', onDown, true)
     window.document.addEventListener('click', onClick)
+    window.document.addEventListener('keydown', onKey)
     return () => {
       window.document.removeEventListener('mousedown', onDown, true)
       window.document.removeEventListener('click', onClick)
+      window.document.removeEventListener('keydown', onKey)
     }
   }, [activePanel, setActivePanel])
 

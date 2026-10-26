@@ -85,6 +85,25 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
   const activePanel  = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
   const qc = useQueryClient()
+  // Captured editor selection — stored on textarea mouseDown so it survives
+  // the focus moving away from the editor to the prompt input. TipTap's
+  // internal selection state can collapse on blur; this gives us a stable
+  // record of what the user had highlighted when they clicked the prompt.
+  // Cleared after each successful send so stale ranges don't leak forward.
+  const [savedSel, setSavedSel] = useState<{ from: number; to: number; text: string } | null>(null)
+
+  // Capture before focus moves. mousedown fires BEFORE the browser transfers
+  // focus to the textarea, so the editor's state.selection still reflects
+  // what the user had highlighted. onPointerDown would also work; mousedown
+  // is kept for broader browser consistency.
+  const captureSelectionFromEditor = () => {
+    if (!editor) return
+    const { from, to } = editor.state.selection
+    if (from === to) return                                             // nothing selected — don't overwrite a prior capture
+    const text = editor.state.doc.textBetween(from, to, ' ', ' ').trim()
+    if (text.length === 0) return
+    setSavedSel({ from, to, text })
+  }
 
   // Listen for pick events fired by AIPromptHelpPanel. CustomEvent payload
   // = the prompt text to pre-fill. We don't auto-submit — give the user a
@@ -111,7 +130,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
   }, [prompt])
 
   const ask = useMutation({
-    mutationFn: (vars: { instruction: string; selectionText: string | undefined }) => api.post<AiEditResult>(
+    mutationFn: (vars: { instruction: string; selectionText: string | undefined; savedRange?: { from: number; to: number } }) => api.post<AiEditResult>(
       `/documents/${documentId}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
       {
         intent:         'edit',
@@ -123,31 +142,39 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
     ),
     onSuccess: (data, vars) => {
       const scope = data.scope ?? (vars.selectionText ? 'selection' : 'section')
-      // Capture the selection range now so Accept can swap it later even if
-      // the user has clicked elsewhere in the meantime.
-      const sel = editor?.state.selection
+      // Pull from/to from the saved selection (captured on mouseDown before
+      // focus moved) rather than the live editor state, which may have
+      // collapsed when the user clicked the textarea.
+      const range = vars.savedRange
       setResult({
         html:        sanitizeAiHtml(data.responseText),
         model:       data.model,
         instruction: vars.instruction,
         scope,
-        from:        scope === 'selection' && sel ? sel.from : undefined,
-        to:          scope === 'selection' && sel ? sel.to   : undefined,
+        from:        scope === 'selection' && range ? range.from : undefined,
+        to:          scope === 'selection' && range ? range.to   : undefined,
       })
       // Server also wrote user+assistant turns to the chat thread for this
       // (user, section). Refresh the AIChatPanel so it reflects the new
       // exchange immediately regardless of which surface the user looks at.
       qc.invalidateQueries({ queryKey: ['ai-chat', documentId, sectionId] })
       setPrompt('')
+      // Clear the saved selection so it doesn't leak into the next prompt.
+      setSavedSel(null)
     },
   })
 
-  const readSelectionText = (): string | undefined => {
-    if (!editor) return undefined
+  // Prefer the mouseDown-captured range so a selection isn't lost the moment
+  // the user clicks the prompt input. Falls back to the live editor state
+  // when nothing was captured (e.g. the user used the keyboard to jump
+  // straight to the prompt without clicking).
+  const readSelection = (): { from: number; to: number; text: string } | null => {
+    if (savedSel) return savedSel
+    if (!editor) return null
     const { from, to } = editor.state.selection
-    if (from === to) return undefined
+    if (from === to) return null
     const text = editor.state.doc.textBetween(from, to, ' ', ' ').trim()
-    return text.length === 0 ? undefined : text
+    return text.length === 0 ? null : { from, to, text }
   }
 
   const send = () => {
@@ -155,7 +182,8 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
     if (!instruction || ask.isPending) return
     if (!isEditing) onRequestEdit()
     setResult(null)
-    ask.mutate({ instruction, selectionText: readSelectionText() })
+    const sel = readSelection()
+    ask.mutate({ instruction, selectionText: sel?.text, savedRange: sel ? { from: sel.from, to: sel.to } : undefined })
   }
 
   const applyAccept = () => {
@@ -185,7 +213,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
       : 'The AI request failed. Try again.'
     : null
 
-  const hasSelection = !!readSelectionText()
+  const hasSelection = !!readSelection()
   const placeholder = hasSelection
     ? 'Edit the highlighted selection — e.g. "convert kg to lbs"'
     : 'Select text to edit a passage, or type to edit the entire section'
@@ -222,7 +250,14 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
       {/* True single-row layout — textarea + buttons share one line. Still
           grows vertically when the user Shift+Enters, but starts at a
           single row's height so the widget's resting state is minimal. */}
-      <div className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+      <div
+        // mousedown fires before focus moves. Catching it on the wrapper
+        // means any click inside the prompt dock (textarea, scope chip,
+        // help button, send button) captures the editor selection before
+        // it collapses from focus loss.
+        onMouseDown={captureSelectionFromEditor}
+        className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100"
+      >
         <textarea
           ref={inputRef}
           value={prompt}

@@ -182,8 +182,16 @@ export function DocumentEditor() {
   // TipTap editor instance (Phase 2.1). Mounted once per editor-pane
   // lifecycle; useRichTextEditor handles solo-mode hydration + collab
   // extension mounting.
+  // Content prop tracks draftContent, NOT activeSectionData.contentHtml.
+  // Why: useRichTextEditor re-creates the editor whenever `editable`
+  // changes (its deps array). On Accept from the chat panel (view mode →
+  // edit mode), the editor is destroyed and recreated — its initial
+  // content comes from this `content` prop. If we passed the raw section
+  // HTML, the AI response (just set via setDraftContent) would be lost.
+  // draftContent is the single source of truth; the section-switch
+  // useEffect below resets it when the active section changes.
   const editor = useRichTextEditor({
-    content:  activeSectionData?.contentHtml ?? '',
+    content:  draftContent,
     editable: isEditing,
     onChange: html => setDraftContent(html),
     placeholder: 'Start writing this section…',

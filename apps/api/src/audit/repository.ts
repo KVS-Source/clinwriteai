@@ -29,12 +29,34 @@ export interface VerifyChainResult {
   exceptions:    ReadonlyArray<AuditChainException>
 }
 
+export type StoredAuditEvent = AuditEventShape & { id: string; prevHash: string; rowHash: string }
+
+export interface EntityPageOptions {
+  limit?:  number
+  offset?: number
+  action?: string
+}
+
+export interface EntityPage {
+  /** Newest first. */
+  rows:  ReadonlyArray<StoredAuditEvent>
+  /** Every matching event, not just this page. */
+  total: number
+}
+
 export interface AuditRepository {
   /** Append a new audit event. Computes prev_hash + row_hash atomically. */
   append(event: AuditEventShape): Promise<{ id: string; rowHash: string }>
 
   /** Fetch recent events for an entity (read-only). */
   listForEntity(entityType: string, entityId: string, limit?: number): Promise<ReadonlyArray<AuditEventShape & { id: string; prevHash: string; rowHash: string }>>
+
+  /**
+   * One page of an entity's events, NEWEST first, with the true total.
+   * `action` narrows to a single action (e.g. the latest 'qa_review_logged'
+   * is `{ limit: 1, action }`).
+   */
+  pageForEntity(entityType: string, entityId: string, opts?: EntityPageOptions): Promise<EntityPage>
 
   /** Verify the hash chain for a slice of the table. */
   verifyChain(fromId?: string, toId?: string): Promise<VerifyChainResult>
@@ -63,6 +85,14 @@ export class InMemoryAuditRepository implements AuditRepository {
     return this.rows
       .filter(r => r.entityType === entityType && r.entityId === entityId)
       .slice(-limit)
+  }
+
+  async pageForEntity(entityType: string, entityId: string, opts: EntityPageOptions = {}): Promise<EntityPage> {
+    const { limit = 100, offset = 0, action } = opts
+    const matching = this.rows
+      .filter(r => r.entityType === entityType && r.entityId === entityId && (!action || r.action === action))
+      .reverse()
+    return { rows: matching.slice(offset, offset + limit), total: matching.length }
   }
 
   async verifyChain(): Promise<VerifyChainResult> {

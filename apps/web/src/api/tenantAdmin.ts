@@ -97,6 +97,8 @@ export interface AuditFacets {
 
 export interface AuditChainException {
   id:            string
+  /** Plain-language explanation for admins. Absent on servers older than this field. */
+  summary?:      string
   reason:        string
   fixedInCommit: string
   incidentDoc:   string

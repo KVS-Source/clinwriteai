@@ -48,6 +48,28 @@ describe('InMemoryAuditRepository', () => {
     expect(forDoc1.map(e => e.actorId)).toEqual(['user-1', 'user-3'])
   })
 
+  it('pageForEntity returns newest first with the true total, honouring offset and action', async () => {
+    const repo = new InMemoryAuditRepository(SECRET)
+    for (let i = 1; i <= 10; i++) {
+      await repo.append({ ...makeEvent(i), action: i % 4 === 0 ? 'review' : 'read', entityType: 'doc', entityId: 'X' })
+    }
+    await repo.append({ ...makeEvent(99), entityType: 'doc', entityId: 'OTHER' })
+
+    const first = await repo.pageForEntity('doc', 'X', { limit: 3 })
+    expect(first.total).toBe(10)
+    expect(first.rows.map(e => e.actorId)).toEqual(['user-10', 'user-9', 'user-8'])
+
+    const second = await repo.pageForEntity('doc', 'X', { limit: 3, offset: 3 })
+    expect(second.rows.map(e => e.actorId)).toEqual(['user-7', 'user-6', 'user-5'])
+
+    const lastReview = await repo.pageForEntity('doc', 'X', { limit: 1, action: 'review' })
+    expect(lastReview.total).toBe(2)
+    expect(lastReview.rows.map(e => e.actorId)).toEqual(['user-8'])
+
+    expect((await repo.pageForEntity('doc', 'X', { offset: 50 })).rows).toEqual([])
+    expect(await repo.pageForEntity('doc', 'NONE')).toEqual({ rows: [], total: 0 })
+  })
+
   it('respects the limit on listForEntity', async () => {
     const repo = new InMemoryAuditRepository(SECRET)
     for (let i = 1; i <= 10; i++) {

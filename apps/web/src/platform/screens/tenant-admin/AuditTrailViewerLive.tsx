@@ -130,7 +130,8 @@ function ActionBadge({ action }: { action: string }) {
   )
 }
 
-// One-click filters on the Action column (a "contains" match).
+// Event categories: each is a group of related actions, matched on the Action
+// column with a "contains" match (e.g. "user." covers user.suspend, user.invite…).
 const QUICK_FILTERS: { label: string; action: string }[] = [
   { label: 'PHI access', action: 'phi' },
   { label: 'Sign-in', action: 'auth' },
@@ -139,7 +140,17 @@ const QUICK_FILTERS: { label: string; action: string }[] = [
   { label: 'Documents', action: 'document' },
   { label: 'HTTP writes', action: 'http.' },
   { label: 'Audit access', action: 'audit.' },
+  { label: 'Document viewing', action: 'document_presence' },
+  { label: 'Security probes', action: 'security.' },
 ]
+
+// Dropdown options from the server's distinct values, plus the current value
+// when it isn't one of them (e.g. a quick-filter prefix like "phi" or a
+// ?action= deep link) so the select never shows a value it can't display.
+function withCurrent(values: string[] | undefined, current: string): string[] {
+  const list = values ?? []
+  return current && !list.includes(current) ? [current, ...list] : list
+}
 
 const SORT_COLUMNS: { key: AuditSortKey; label: string }[] = [
   { key: 'id',        label: 'ID' },
@@ -147,7 +158,6 @@ const SORT_COLUMNS: { key: AuditSortKey; label: string }[] = [
   { key: 'action',    label: 'Action' },
   { key: 'entity',    label: 'Entity' },
   { key: 'actor',     label: 'Actor' },
-  { key: 'ip',        label: 'IP' },
 ]
 
 function SortHeader({ col, sortBy, order, onSort }: {
@@ -300,14 +310,13 @@ function AuditRow({ entry, tz, selected, onSelect }: {
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(entry) } }}
       >
         <td className="px-4 py-3 font-mono text-[11px] text-slate-500 align-top">{entry.id}</td>
-        <td className="px-4 py-3 font-mono text-[11px] text-slate-700 align-top" title={when.secondary}>{when.primary}</td>
+        <td className="px-4 py-3 font-mono text-[11px] text-slate-700 align-top" title={`${tz === 'utc' ? 'Local time' : 'UTC'}: ${when.secondary}`}>{when.primary}</td>
         <td className="px-4 py-3 align-top"><ActionBadge action={entry.action} /></td>
         <td className="px-4 py-3 text-slate-700 align-top">
           <p className="font-semibold">{entry.entityType}</p>
           <p className="break-all font-mono text-[10px] text-slate-500">{entry.entityId}</p>
         </td>
         <td className="px-4 py-3 align-top"><ActorCell entry={entry} /></td>
-        <td className="px-4 py-3 font-mono text-[11px] text-slate-500 align-top">{entry.ipAddress ?? '—'}</td>
       </tr>
     </>
   )
@@ -515,7 +524,7 @@ export function AuditTrailViewerLive() {
               {verify.data.exceptions.length > 0 && (
                 <span
                   className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
-                  title={verify.data.exceptions.map(e => `#${e.id}: ${e.reason}`).join('\n')}
+                  title={verify.data.exceptions.map(e => `Entry #${e.id}: ${e.summary ?? e.reason}`).join('\n')}
                   data-known-exceptions={verify.data.exceptions.length}
                 >
                   Known exceptions ({verify.data.exceptions.length})
@@ -523,14 +532,26 @@ export function AuditTrailViewerLive() {
               )}
             </p>
             {verify.data.exceptions.length > 0 && (
-              <ul className="mt-2 space-y-1 text-[12px]">
-                {verify.data.exceptions.map(e => (
-                  <li key={e.id} className="text-amber-900">
-                    <span className="font-mono font-semibold">#{e.id}</span> — {e.reason}
-                    {' '}(fixed in <span className="font-mono">{e.fixedInCommit}</span>; see <span className="font-mono">{e.incidentDoc}</span>)
-                  </li>
-                ))}
-              </ul>
+              <div className="mt-2 space-y-2 text-[12px] text-amber-900">
+                <p className="font-semibold">
+                  Known exceptions: {verify.data.exceptions.length === 1 ? 'one entry' : `${verify.data.exceptions.length} entries`} in
+                  this range could not be re-checked because of a past, fixed software defect. They are listed so nothing is hidden.
+                </p>
+                <ul className="space-y-2">
+                  {verify.data.exceptions.map(e => (
+                    <li key={e.id}>
+                      <span className="font-semibold">Entry #{e.id}</span> — {e.summary ?? e.reason}
+                      <details className="mt-1 text-[11px] text-slate-600">
+                        <summary className="cursor-pointer select-none">Technical details (for support and auditors)</summary>
+                        <p className="mt-1">{e.reason}</p>
+                        <p className="mt-1">
+                          Fixed in <span className="font-mono">{e.fixedInCommit}</span> · Incident record: <span className="font-mono">{e.incidentDoc}</span>
+                        </p>
+                      </details>
+                    </li>
+                  ))}
+                </ul>
+              </div>
             )}
           </div>
         )}
@@ -554,21 +575,18 @@ export function AuditTrailViewerLive() {
             />
           </label>
           <div className="mb-3 flex flex-wrap items-center gap-2" data-section="quick-filters">
-            <span className="text-[11px] text-slate-500">Quick filters</span>
-            {QUICK_FILTERS.map(f => {
-              const on = applied.action.trim() === f.action
-              return (
-                <button
-                  key={f.action}
-                  type="button"
-                  onClick={() => quickFilter(f.action)}
-                  aria-pressed={on}
-                  className={`rounded-full border px-3 py-1 text-[11px] font-semibold ${
-                    on ? 'border-slate-800 bg-slate-800 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
-                  }`}
-                >{on ? '✓ ' : ''}{f.label}</button>
-              )
-            })}
+            <label className="flex items-center gap-2 text-[11px] text-slate-500">
+              Event category
+              <select
+                className={`${inputClass} w-56`}
+                value={QUICK_FILTERS.some(f => f.action === applied.action.trim()) ? applied.action.trim() : ''}
+                onChange={e => quickFilter(e.target.value)}
+                data-field="quick-filter"
+              >
+                <option value="">Select event category…</option>
+                {QUICK_FILTERS.map(f => <option key={f.action} value={f.action}>{f.label}</option>)}
+              </select>
+            </label>
           </div>
           <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
             <label className={labelClass}>
@@ -577,20 +595,24 @@ export function AuditTrailViewerLive() {
                 onChange={e => setDraft({ ...draft, actor: e.target.value })} />
             </label>
             <label className={labelClass}>
-              Action (contains)
-              <input className={inputClass} list="audit-actions" value={draft.action}
-                onChange={e => setDraft({ ...draft, action: e.target.value })} />
-              <datalist id="audit-actions">
-                {facets.data?.actions.map(a => <option key={a} value={a} />)}
-              </datalist>
+              Action
+              <select className={inputClass} value={draft.action} data-field="action"
+                onChange={e => setDraft({ ...draft, action: e.target.value })}>
+                <option value="">All actions</option>
+                {withCurrent(facets.data?.actions, draft.action).map(a => (
+                  <option key={a} value={a}>{facets.data?.actions.includes(a) ? a : `${a} (group)`}</option>
+                ))}
+              </select>
             </label>
             <label className={labelClass}>
-              Entity type (contains)
-              <input className={inputClass} list="audit-entity-types" value={draft.entityType}
-                onChange={e => setDraft({ ...draft, entityType: e.target.value })} />
-              <datalist id="audit-entity-types">
-                {facets.data?.entityTypes.map(t => <option key={t} value={t} />)}
-              </datalist>
+              Entity type
+              <select className={inputClass} value={draft.entityType} data-field="entity-type"
+                onChange={e => setDraft({ ...draft, entityType: e.target.value })}>
+                <option value="">All entity types</option>
+                {withCurrent(facets.data?.entityTypes, draft.entityType).map(t => (
+                  <option key={t} value={t}>{t}</option>
+                ))}
+              </select>
             </label>
             <label className={labelClass}>
               Entity id (exact)
@@ -672,7 +694,7 @@ export function AuditTrailViewerLive() {
                   <AuditRow key={row.id} entry={row} tz={tz} selected={selectedEntry?.id === row.id} onSelect={setSelectedEntry} />
                 ))}
                 {data.rows.length === 0 && (
-                  <tr><td colSpan={6} className="px-4 py-6 text-center text-[12px] text-slate-500">No audit entries match your filters.</td></tr>
+                  <tr><td colSpan={5}className="px-4 py-6 text-center text-[12px] text-slate-500">No audit entries match your filters.</td></tr>
                 )}
               </tbody>
             </table>

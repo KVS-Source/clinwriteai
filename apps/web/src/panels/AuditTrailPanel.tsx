@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useInfiniteQuery } from '@tanstack/react-query'
 import type { AuditEntry } from '@platform/types'
 import { documentsApi } from '../api'
 import { apiConfig } from '../api/client'
@@ -7,6 +7,8 @@ import { apiConfig } from '../api/client'
 interface Props {
   documentId: string
 }
+
+const PAGE_SIZE = 100
 
 type FilterKey = 'all' | 'edits' | 'ai' | 'comments' | 'signatures'
 type EventType = AuditEntry['eventType']
@@ -55,15 +57,20 @@ const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
   AI: { bg: '#F5F3FF', fg: '#7C3AED' },
 }
 
-// Format ISO → "2024-10-22 16:47 UTC"
+// Format ISO → "2024-10-22 16:47 GMT+5:30" in the viewer's own time zone.
+const localParts = new Intl.DateTimeFormat('en-CA', {
+  year: 'numeric', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short',
+})
 function formatTimestamp(iso: string): string {
-  const d = new Date(iso)
-  const yyyy = d.getUTCFullYear()
-  const mm   = String(d.getUTCMonth() + 1).padStart(2, '0')
-  const dd   = String(d.getUTCDate()).padStart(2, '0')
-  const hh   = String(d.getUTCHours()).padStart(2, '0')
-  const min  = String(d.getUTCMinutes()).padStart(2, '0')
-  return `${yyyy}-${mm}-${dd} ${hh}:${min} UTC`
+  const p = Object.fromEntries(localParts.formatToParts(new Date(iso)).map(x => [x.type, x.value]))
+  const hh = p.hour === '24' ? '00' : p.hour
+  return `${p.year}-${p.month}-${p.day} ${hh}:${p.minute} ${p.timeZoneName}`
+}
+
+// Same moment in UTC, shown as the hover text.
+function formatTimestampUtc(iso: string): string {
+  return `${new Date(iso).toISOString().slice(0, 16).replace('T', ' ')} UTC`
 }
 
 function SparkleIcon({ colour = '#7C3AED' }: { colour?: string }) {
@@ -105,14 +112,20 @@ function actionPhrase(eventType: EventType): string {
 export function AuditTrailPanel({ documentId }: Props) {
   const [filter, setFilter] = useState<FilterKey>('all')
 
-  const { data, isLoading } = useQuery({
-    queryKey: ['audit', documentId],
-    queryFn:  () => documentsApi.getAuditTrail(documentId),
+  // The trail is loaded a page at a time, newest first; "Load more" fetches the next page.
+  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
+    queryKey: ['audit', documentId, 'pages'],
+    queryFn:  ({ pageParam }) => documentsApi.getAuditTrail(documentId, { limit: PAGE_SIZE, offset: pageParam }),
+    initialPageParam: 0,
+    getNextPageParam: (last, all) => {
+      const loaded = all.reduce((n, p) => n + p.entries.length, 0)
+      return last.entries.length > 0 && loaded < last.total ? loaded : undefined
+    },
     enabled:  !!documentId,
   })
 
-  const entries: AuditEntry[] = data?.entries ?? []
-  const total   = data?.total   ?? 0
+  const entries: AuditEntry[] = useMemo(() => data?.pages.flatMap(p => p.entries) ?? [], [data])
+  const total   = data?.pages[0]?.total ?? 0
 
   // Newest first
   const sorted = useMemo(() => {
@@ -201,7 +214,16 @@ export function AuditTrailPanel({ documentId }: Props) {
 
         {!isLoading && filtered.length === 0 && (
           <div className="p-8 text-center">
-            <p className="text-sm font-semibold text-slate-900">No matching events</p>
+            <p className="text-sm font-semibold text-slate-900">No matching events{hasNextPage ? ' in the entries loaded so far' : ''}</p>
+            {hasNextPage && filter !== 'all' && (
+              <button
+                type="button"
+                onClick={() => { void fetchNextPage() }}
+                disabled={isFetchingNextPage}
+                className="mt-1 mr-3 text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-60"
+                data-action="load-more-audit"
+              >{isFetchingNextPage ? 'Loading…' : 'Load older entries'}</button>
+            )}
             <button
               type="button"
               onClick={() => setFilter('all')}
@@ -228,7 +250,7 @@ export function AuditTrailPanel({ documentId }: Props) {
             >
               {/* Row 1: timestamp + badge */}
               <div className="flex items-center justify-between gap-2.5">
-                <p className="font-mono text-[10px] text-slate-500">{formatTimestamp(entry.timestamp)}</p>
+                <p className="font-mono text-[10px] text-slate-500" title={`UTC: ${formatTimestampUtc(entry.timestamp)}`}>{formatTimestamp(entry.timestamp)}</p>
                 <span
                   className="whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wider"
                   style={{ backgroundColor: badge.bg, color: badge.fg }}
@@ -252,14 +274,36 @@ export function AuditTrailPanel({ documentId }: Props) {
           )
         })}
 
-        {/* Load-more footer inside scroll list */}
-        {!isLoading && total > filtered.length && (
-          <div className="flex items-center justify-between px-4 py-3">
-            <p className="text-xs text-slate-500">Showing {filtered.length} of {total} entries</p>
-            <button className="text-xs font-semibold text-blue-600 hover:text-blue-700">Load more →</button>
+        {/* Footer. The API returns the whole trail in one response, so there is
+            nothing more to load — when a chip hides entries, offer to clear it. */}
+        {!isLoading && hasNextPage && (
+          <div className="flex items-center justify-between gap-3 px-4 py-3">
+            <p className="text-xs text-slate-500">
+              {filter === 'all'
+                ? `Showing ${entries.length} of ${total} entries`
+                : `${filtered.length} match in the ${entries.length} loaded (${total} entries in total)`}
+            </p>
+            <button
+              type="button"
+              onClick={() => { void fetchNextPage() }}
+              disabled={isFetchingNextPage}
+              className="flex-none text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:cursor-wait disabled:opacity-60"
+              data-action="load-more-audit"
+            >{isFetchingNextPage ? 'Loading…' : 'Load more →'}</button>
           </div>
         )}
-        {!isLoading && total <= filtered.length && filtered.length > 0 && (
+        {!isLoading && !hasNextPage && filter !== 'all' && filtered.length > 0 && total > filtered.length && (
+          <div className="flex items-center justify-between px-4 py-3">
+            <p className="text-xs text-slate-500">Showing {filtered.length} of {total} entries (filtered)</p>
+            <button
+              type="button"
+              onClick={() => setFilter('all')}
+              className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+              data-action="show-all-audit"
+            >Show all {total} →</button>
+          </div>
+        )}
+        {!isLoading && !hasNextPage && (filter === 'all' || total <= filtered.length) && filtered.length > 0 && (
           <p className="px-4 py-3 text-xs text-slate-500">Showing all {filtered.length} entries</p>
         )}
       </div>

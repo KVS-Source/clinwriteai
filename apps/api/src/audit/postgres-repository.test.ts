@@ -65,6 +65,33 @@ function fakePrisma(rows: StoredRow[]) {
   return { prisma: { $queryRawUnsafe } as unknown as PrismaClient, $queryRawUnsafe }
 }
 
+describe('PostgresAuditRepository.pageForEntity', () => {
+  it('asks for newest first, with the page window and action filter, and returns the true total', async () => {
+    const sqls: Array<{ sql: string; args: unknown[] }> = []
+    const $queryRawUnsafe = vi.fn(async (sql: string, ...args: unknown[]) => {
+      sqls.push({ sql, args })
+      return /COUNT\(\*\)/.test(sql) ? [{ n: 231n }] : []
+    })
+    const repo = new PostgresAuditRepository({ $queryRawUnsafe } as unknown as PrismaClient, SECRET)
+
+    const page = await repo.pageForEntity('document', 'DOC-1', { limit: 100, offset: 200, action: 'qa_review_logged' })
+
+    expect(page).toEqual({ rows: [], total: 231 })
+    const rowsQuery = sqls.find(q => /ORDER BY id DESC/.test(q.sql))!
+    expect(rowsQuery.args).toEqual(['document', 'DOC-1', 'qa_review_logged', 100, 200])
+    const countQuery = sqls.find(q => /COUNT\(\*\)/.test(q.sql))!
+    expect(countQuery.args).toEqual(['document', 'DOC-1', 'qa_review_logged'])
+  })
+
+  it('passes null when no action filter is given', async () => {
+    const $queryRawUnsafe = vi.fn(async (sql: string) => (/COUNT\(\*\)/.test(sql) ? [{ n: 0n }] : []))
+    const repo = new PostgresAuditRepository({ $queryRawUnsafe } as unknown as PrismaClient, SECRET)
+    await repo.pageForEntity('document', 'DOC-1')
+    const rowsCall = $queryRawUnsafe.mock.calls.find(c => /ORDER BY id DESC/.test(String(c[0])))!
+    expect(rowsCall.slice(1)).toEqual(['document', 'DOC-1', null, 100, 0])
+  })
+})
+
 describe('PostgresAuditRepository.verifyChain (batched)', () => {
   // All assertions use toMatchObject on { intact, firstBreakAt } because
   // the full VerifyChainResult now also includes `unexpectedBreaks` and
@@ -105,5 +132,50 @@ describe('PostgresAuditRepository.verifyChain (batched)', () => {
     const { prisma } = fakePrisma(buildChain(8_000))
     const result = await new PostgresAuditRepository(prisma, SECRET).verifyChain('3000', '7000')
     expect(result).toMatchObject({ intact: true, firstBreakAt: null })
+  })
+
+  // Known exceptions (#1953, #1963) are listed only when they fall inside the
+  // range that was checked.
+  describe('known exceptions in the response', () => {
+    const ids = (r: { exceptions: ReadonlyArray<{ id: string }> }) => r.exceptions.map(e => e.id)
+
+    it('lists none for a range that does not contain them', async () => {
+      const { prisma } = fakePrisma(buildChain(2_100))
+      const repo = new PostgresAuditRepository(prisma, SECRET)
+      expect(ids(await repo.verifyChain('1', '100'))).toEqual([])
+      expect(ids(await repo.verifyChain('1500', '1900'))).toEqual([])
+    })
+
+    it('lists both for a range that contains both, and for the whole chain', async () => {
+      const { prisma } = fakePrisma(buildChain(2_100))
+      const repo = new PostgresAuditRepository(prisma, SECRET)
+      expect(ids(await repo.verifyChain('1500', '2000'))).toEqual(['1953', '1963'])
+      expect(ids(await repo.verifyChain())).toEqual(['1953', '1963'])
+    })
+
+    it('lists only the one inside a range that contains just one', async () => {
+      const { prisma } = fakePrisma(buildChain(2_100))
+      const repo = new PostgresAuditRepository(prisma, SECRET)
+      expect(ids(await repo.verifyChain('1900', '1960'))).toEqual(['1953'])
+    })
+
+    it('still gives each exception a plain-language summary', async () => {
+      const { prisma } = fakePrisma(buildChain(2_100))
+      const result = await new PostgresAuditRepository(prisma, SECRET).verifyChain('1950', '1970')
+      for (const e of result.exceptions as ReadonlyArray<{ summary: string; reason: string }>) {
+        expect(e.summary.length).toBeGreaterThan(20)
+        expect(e.summary).not.toMatch(/fromId|NULL|undefined|canonical/i)
+        expect(e.reason).toMatch(/seal/i)  // the technical text is still there
+      }
+    })
+
+    it('skips a known-exception row without flagging it, but still flags a real break next to it', async () => {
+      const rows = buildChain(2_100)
+      rows[1952]!.details = { seq: 'sealed differently' }   // id 1953, a known exception
+      rows[1999]!.details = { seq: 'tampered' }              // id 2000, not an exception
+      const { prisma } = fakePrisma(rows)
+      const result = await new PostgresAuditRepository(prisma, SECRET).verifyChain('1900', '2050')
+      expect(result).toMatchObject({ intact: false, firstBreakAt: '2000', unexpectedBreaks: ['2000'] })
+    })
   })
 })

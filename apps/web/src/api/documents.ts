@@ -180,8 +180,11 @@ export const documentsApi = {
       ...body, resolutionType: body.resolutionType.replace(/-/g, '_'),
     }),
   // Audit
-  getAuditTrail: (documentId: string) =>
-    api.get<{ entries: AuditEntry[]; total: number; limit: number; offset: number }>(`/documents/${documentId}/audit`),
+  // Newest first. Without `page` the server returns up to its default page.
+  getAuditTrail: (documentId: string, page?: { limit: number; offset: number }) =>
+    api.get<{ entries: AuditEntry[]; total: number; limit: number; offset: number }>(
+      `/documents/${documentId}/audit${page ? `?limit=${page.limit}&offset=${page.offset}` : ''}`,
+    ),
   // Voice notes
   getVoiceNotes: (documentId: string) =>
     api.get<VoiceNote[]>(`/documents/${documentId}/voice-notes`),

@@ -14,6 +14,18 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import PDFDocument from 'pdfkit'
 import { requireAuth } from '../../../auth/rbac.js'
+import type { StoredAuditEvent } from '../../../audit/repository.js'
+
+// Document audit panel paging. The default limit keeps older callers that send
+// no parameters (the Audit Review screen) getting the same size as before.
+const AUDIT_PAGE_MAX = 500
+const auditPageQuery = z.object({
+  limit:  z.coerce.number().int().min(1).max(AUDIT_PAGE_MAX).default(AUDIT_PAGE_MAX),
+  offset: z.coerce.number().int().min(0).default(0),
+})
+// CSV / PDF export: newest events up to this many, fetched in pages.
+const EXPORT_ENTRY_CAP = 10_000
+const EXPORT_PAGE_SIZE = 1_000
 
 // --- Document audit-trail shape (UI `AuditEntry`) ---------------------------
 // The panel renders eventType/actor/initials/detail; the audit chain stores
@@ -289,11 +301,16 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
-    const entries = await loadAuditEntries(documentId)
+    const parsedPage = auditPageQuery.safeParse(request.query)
+    if (!parsedPage.success) return reply.code(400).send({ error: 'validation', issues: parsedPage.error.issues })
+    const { limit, offset } = parsedPage.data
+
+    // Newest first, with the TRUE total so the panel can page through the rest.
     // UI (documentsApi.getAuditTrail) expects a paginated envelope rather
     // than a bare array — a bare array causes `(auditData?.entries ?? []).map`
     // in AuditReviewAlert.tsx to throw "d.map is not a function".
-    return { entries, total: entries.length, limit: 500, offset: 0 }
+    const page = await app.audit.pageForEntity('document', documentId, { limit, offset })
+    return { entries: await shapeAuditRows(page.rows), total: page.total, limit, offset }
   })
 
   // Export the document's audit trail (panel "Export audit trail" / "Download
@@ -333,10 +350,24 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     return reply.send(pdf)
   })
 
-  // Shaped entries (oldest-first from the chain), with actor names resolved
-  // in one batched query.
+  // Entries for the CSV / PDF export, oldest first. Takes the newest
+  // EXPORT_ENTRY_CAP events (the first 500 used to be returned, which dropped
+  // everything recent on a busy document), then puts them in chronological order.
   async function loadAuditEntries(documentId: string) {
-    const rows = await app.audit.listForEntity('document', documentId, 500)
+    const rows: StoredAuditEvent[] = []
+    while (rows.length < EXPORT_ENTRY_CAP) {
+      const page = await app.audit.pageForEntity('document', documentId, {
+        limit: Math.min(EXPORT_PAGE_SIZE, EXPORT_ENTRY_CAP - rows.length),
+        offset: rows.length,
+      })
+      rows.push(...page.rows)
+      if (page.rows.length === 0 || rows.length >= page.total) break
+    }
+    return shapeAuditRows(rows.reverse())
+  }
+
+  // Shape audit rows for the UI, with actor names resolved in one batched query.
+  async function shapeAuditRows(rows: ReadonlyArray<StoredAuditEvent>) {
     const actorIds = [...new Set(rows.map(r => r.actorId))]
     const users = await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
     const nameById = new Map(users.map(u => [u.id, u.name]))
@@ -370,8 +401,9 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
     const cadenceDays = 30
-    const rows = await app.audit.listForEntity('document', documentId, 500)
-    const lastReview = rows.find(r => r.action === 'qa_review_logged') ?? null
+    // Newest review only (the old oldest-500 scan returned the FIRST review).
+    const { rows } = await app.audit.pageForEntity('document', documentId, { limit: 1, action: 'qa_review_logged' })
+    const lastReview = rows[0] ?? null
     const lastReviewedAt = lastReview?.timestamp ?? null
     const nextDue = new Date((lastReviewedAt ? new Date(lastReviewedAt) : new Date(doc.createdAt)).getTime() + cadenceDays * 86_400_000)
     const now = Date.now()

@@ -17,7 +17,9 @@
 export interface AuditChainException {
   /** audit_events.id (BIGSERIAL, string on the wire). */
   id:             string
-  /** Human-readable explanation shown in the Compliance screen. */
+  /** Plain-language explanation for tenant IT admins (no code terms). */
+  summary:        string
+  /** Technical explanation for engineers and auditors. */
   reason:         string
   /** Git commit that fixed the sealing bug so no new breaks occur. */
   fixedInCommit:  string
@@ -28,7 +30,11 @@ export interface AuditChainException {
 export const AUDIT_CHAIN_KNOWN_EXCEPTIONS: ReadonlyArray<AuditChainException> = [
   {
     id:            '1953',
-    reason:        'audit_chain_verified sealed with fromId=undefined (as the literal string) ' +
+    summary:       'This entry records an earlier "Verify chain" run. A software defect saved it in a ' +
+                   'form that cannot be re-checked by the integrity check. The entry itself is ' +
+                   'unchanged and nothing was lost or altered. The defect is fixed and entries ' +
+                   'created after the fix are not affected. No action is needed.',
+    reason:       'audit_chain_verified sealed with fromId=undefined (as the literal string) ' +
                    'but Postgres stored the value as NULL — hash cannot be reproduced. Row ' +
                    'content itself is intact and inspectable.',
     fixedInCommit: '27e7ea5',
@@ -36,7 +42,10 @@ export const AUDIT_CHAIN_KNOWN_EXCEPTIONS: ReadonlyArray<AuditChainException> = 
   },
   {
     id:            '1963',
-    reason:        'Same sealing-vs-storage mismatch as #1953 — second audit_chain_verified ' +
+    summary:       'This entry records a second "Verify chain" run made before the same defect was ' +
+                   'fixed. It cannot be re-checked for the same reason as #1953. Its content is ' +
+                   'unchanged and nothing was lost or altered. No action is needed.',
+    reason:       'Same sealing-vs-storage mismatch as #1953 — second audit_chain_verified ' +
                    "run against the same empty-range input before the sealing fix shipped.",
     fixedInCommit: '27e7ea5',
     incidentDoc:   'docs/compliance/audit-chain-incident-2026-10-21.md',

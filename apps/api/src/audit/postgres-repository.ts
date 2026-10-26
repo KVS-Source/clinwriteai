@@ -9,7 +9,7 @@
 
 import type { PrismaClient } from '@prisma/client'
 import type { AuditEventShape } from './hash.js'
-import type { AuditRepository, VerifyChainResult } from './repository.js'
+import type { AuditRepository, EntityPage, EntityPageOptions, VerifyChainResult } from './repository.js'
 import { computeRowHash, plainShape } from './hash.js'
 import { isKnownAuditException, knownExceptionsInRange } from './known-exceptions.js'
 
@@ -90,6 +90,32 @@ export class PostgresAuditRepository implements AuditRepository {
       limit,
     )
     return rows.map(toShape)
+  }
+
+  async pageForEntity(entityType: string, entityId: string, opts: EntityPageOptions = {}): Promise<EntityPage> {
+    const { limit = 100, offset = 0, action } = opts
+    const [rows, counts] = await Promise.all([
+      this.prisma.$queryRawUnsafe<AuditRow[]>(
+        `SELECT id, "timestamp", actor_id, action, entity_type, entity_id, details, ip_address, prev_hash, row_hash
+         FROM audit_events
+         WHERE entity_type = $1 AND entity_id = $2 AND ($3::text IS NULL OR action = $3::text)
+         ORDER BY id DESC
+         LIMIT $4 OFFSET $5`,
+        entityType,
+        entityId,
+        action ?? null,
+        limit,
+        offset,
+      ),
+      this.prisma.$queryRawUnsafe<Array<{ n: bigint }>>(
+        `SELECT COUNT(*) AS n FROM audit_events
+         WHERE entity_type = $1 AND entity_id = $2 AND ($3::text IS NULL OR action = $3::text)`,
+        entityType,
+        entityId,
+        action ?? null,
+      ),
+    ])
+    return { rows: rows.map(toShape), total: Number(counts[0]?.n ?? 0) }
   }
 
   async verifyChain(fromId?: string, toId?: string): Promise<VerifyChainResult> {

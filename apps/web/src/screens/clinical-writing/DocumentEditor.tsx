@@ -891,20 +891,21 @@ export function DocumentEditor() {
                moved to the section-meta line under the title (above). The
                AI prompt dock is now the actual bottom of the editor pane. */}
 
-        </div>
-
-          {/* Right panel — in-flow sibling of the editor pane. The editor
-              shrinks to make room; the panel is draggable from its left
-              edge (useResizablePanel still computes width from the right
-              edge of the window, which stays accurate here). */}
+          {/* Right panel — overlays on the editor pane only (not the full
+              three-panel row), so SectionNav keeps its natural width and
+              doesn't get squeezed when the panel opens. Editor content
+              behind the panel is hidden; the panel is draggable from its
+              left edge via useResizablePanel. */}
           {activePanel !== null && (
             <div
               ref={rightPanelRef}
-              className="relative flex flex-none flex-col border-l border-slate-200"
+              className="absolute inset-y-0 right-0 flex flex-col border-l border-slate-200"
               style={{
                 width:           panel.width,
                 maxWidth:        '100%',
+                zIndex:          20,
                 backgroundColor: (activePanel === 'traceability' || activePanel === 'checklist' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra') ? '#FFFFFF' : '#F8FAFC',
+                boxShadow:       '-16px 0 40px rgba(15,23,42,0.12)',
               }}
             >
             {/* Drag handle on the left edge: drag to resize, double-click to expand/shrink */}
@@ -1103,6 +1104,7 @@ export function DocumentEditor() {
             )}
           </div>
           )}
+      </div>
       </div>
     </div>
   )

@@ -95,6 +95,41 @@ export const ideationPublishingApi = {
   runComplianceScreen: (adaptationId: string) =>
     api.post<ComplianceScreenResponse>(`/ideation-adaptations/${adaptationId}/compliance-screen`, {}),
 
+  // Polymorphic edit history for atomised content (sPM-edit-history-polymorphic).
+  // Shares the same shape as /sections/:id/history + /section-edits/:id/revert
+  // in Module A, served from the shared EditHistoryService.
+  getAtomisedHistory: (cardId: string, channel: string, filters: { mine?: boolean; origin?: 'manual' | 'ai' | 'undo' | 'restore' } = {}) => {
+    const qs = new URLSearchParams()
+    if (filters.mine)   qs.set('mine', 'true')
+    if (filters.origin) qs.set('origin', filters.origin)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return api.get<{
+      entityType: 'atomised_content'
+      entityId: string
+      subUnitId: string
+      entries: Array<{
+        id: string
+        actorId: string
+        actorName: string
+        origin: 'manual' | 'ai' | 'undo' | 'restore'
+        createdAt: string
+        beforeHtml: string | null
+        afterHtml: string
+        aiCallRecordId: string | null
+        revertedFromId: string | null
+        promptText: string | null
+        aiModel: string | null
+        interveningCount: number
+        interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
+        canRevert: boolean
+      }>
+    }>(`/cards/${cardId}/atomised/${channel}/history${suffix}`)
+  },
+  revertAtomisedEdit: (editHistoryId: string) =>
+    api.post<{ ok: true; contentText: string; revertedAt: string }>(
+      `/atomised-edits/${editHistoryId}/revert`, {},
+    ),
+
   // KOL review (Stages 2-3) — PUBLIC route, no auth
   getKOLReview: (token: string) =>
     fetch(`${RAW_API_BASE}/kol-review/${token}`, { headers: { 'Content-Type': 'application/json' } })

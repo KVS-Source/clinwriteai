@@ -286,12 +286,15 @@ export class DocumentService {
         })
       }
 
-      // SectionEditHistory — one row per non-noop save, powers the unified
-      // SectionHistoryPanel. origin tracks where the edit came from so the
-      // UI's filter chips (All / AI / Manual) work without inferring from
-      // metadata.
-      await tx.sectionEditHistory.create({
+      // EditHistory — one row per non-noop save, powers the unified
+      // SectionHistoryPanel. Uses the polymorphic EditHistory table +
+      // populates the clinical-section convenience columns so Module A
+      // queries don't need to change.
+      await tx.editHistory.create({
         data: {
+          entityType:        'clinical_section',
+          entityId:          doc.id,
+          subUnitId:         args.sectionId,
           documentId:        doc.id,
           sectionId:         args.sectionId,
           documentVersionId: current.id,
@@ -324,10 +327,19 @@ export class DocumentService {
     editorUserId: string
   }) {
     return this.prisma.$transaction(async (tx) => {
-      const target = await tx.sectionEditHistory.findUnique({ where: { id: args.editHistoryId } })
+      const target = await tx.editHistory.findUnique({ where: { id: args.editHistoryId } })
       if (!target) throw new Error(`Edit history ${args.editHistoryId} not found`)
+      if (target.entityType !== 'clinical_section') {
+        // revertSection only handles Module A's clinical_section rows; other
+        // entity types revert through app.editHistory.revert() with their own
+        // handlers registered in the EditHistory plugin.
+        throw new Error(`wrong_entity_type:${target.entityType}`)
+      }
       if (target.beforeHtml === null) {
         throw new Error('cannot_revert_no_snapshot')
+      }
+      if (!target.documentId || !target.sectionId) {
+        throw new Error('cannot_revert_no_section_scope')
       }
 
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${target.documentId}))`
@@ -374,8 +386,11 @@ export class DocumentService {
         data:  { contentHash: hashSections(nextSections) },
       })
 
-      await tx.sectionEditHistory.create({
+      await tx.editHistory.create({
         data: {
+          entityType:        'clinical_section',
+          entityId:          target.documentId,
+          subUnitId:         target.sectionId,
           documentId:        target.documentId,
           sectionId:         target.sectionId,
           documentVersionId: doc.currentVersionId!,

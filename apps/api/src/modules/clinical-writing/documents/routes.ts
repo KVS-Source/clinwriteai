@@ -721,8 +721,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const section = doc.currentVersion?.sections[0]
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
 
-    const rows = await app.prisma.sectionEditHistory.findMany({
+    const rows = await app.prisma.editHistory.findMany({
       where: {
+        entityType: 'clinical_section',
         documentId,
         sectionId: section.sectionId,
         ...(q.mine === 'true' && { actorId: request.user!.id }),
@@ -755,8 +756,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // the full set (not just the filtered view) so the modal's warning is
     // accurate even when a user filtered to just their own edits.
     const allRows = (q.mine === 'true' || q.origin)
-      ? await app.prisma.sectionEditHistory.findMany({
-          where:   { documentId, sectionId: section.sectionId },
+      ? await app.prisma.editHistory.findMany({
+          where:   { entityType: 'clinical_section', documentId, sectionId: section.sectionId },
           orderBy: { createdAt: 'desc' },
           select:  { id: true, actorId: true, origin: true, createdAt: true },
         })
@@ -772,7 +773,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         const intervening = allRows.slice(0, idx)
         const interveningByActor = Array.from(
           intervening.reduce((m, row) => m.set(row.actorId, (m.get(row.actorId) ?? 0) + 1), new Map<string, number>()),
-        ).map(([actorId, count]) => ({ actorId, actorName: actorMap.get(actorId) ?? actorId, count }))
+        ).map((entry) => {
+          const [actorId, count] = entry as [string, number]
+          return { actorId, actorName: actorMap.get(actorId) ?? actorId, count }
+        })
 
         const ai = r.aiCallRecordId ? aiMap.get(r.aiCallRecordId) ?? null : null
         return {

@@ -216,30 +216,51 @@ model AiCallRecord {
 }
 
 // --------------------------------------------------------------------------
-// Unified per-section edit history (sPM-section-history).
-// One row per non-noop save on any origin: manual edits, AI accepts, undos,
-// restores. Powers the right-rail SectionHistoryPanel + its Revert action.
+// Polymorphic edit history (sPM-edit-history-polymorphic).
+//
+// One row per non-noop content save across ANY module. Entity scoping is
+// (entityType, entityId, subUnitId) — e.g. clinical_section / documentId /
+// sectionId; atomised_content / contentCardId / channel.
+//
+// For Module A (clinical_section) the convenience columns documentId,
+// sectionId, documentVersionId are also populated — kept for query
+// convenience + backward compat with the pre-polymorphic schema. New entity
+// types leave those columns NULL and rely purely on the polymorphic keys.
 // --------------------------------------------------------------------------
 
-model SectionEditHistory {
+model EditHistory {
   id                  String    @id @default(uuid())
-  documentId          String
-  sectionId           String
-  documentVersionId   String
+  // Polymorphic scope — identifies what was edited across modules.
+  // 'clinical_section' | 'atomised_content' | 'peer_review_response' |
+  // 'ha_response_draft' | 'slide' | …
+  entityType          String
+  entityId            String                                 // document id, publication id, submission id, deck id, …
+  subUnitId           String?                                // section id, channel, question id, slide id, …
+
   actorId             String
   // 'manual' | 'ai' | 'undo' | 'restore'
   origin              String
+  // beforeHtml / afterHtml deliberately named for backward compat with
+  // Module A — in practice they hold whatever text/html the entity's edit
+  // is. Non-text entities (future slides-as-JSON) can serialise into these.
   beforeHtml          String?
   afterHtml           String
   // Non-null when origin='ai' — back-link to the AiCallRecord carrying the
   // prompt + cost metadata (no FK; AI retention policy is separate).
   aiCallRecordId      String?
-  // Non-null when origin='undo' — the SectionEditHistory row this revert
-  // undid, so the UI can show "undone by X".
+  // Non-null when origin='undo' — the EditHistory row this revert undid.
   revertedFromId      String?
   createdAt           DateTime  @default(now())
 
-  @@map("section_edit_history")
+  // --- Clinical-section convenience columns (Module A compatibility) ---
+  // Populated when entityType='clinical_section'; NULL otherwise. Lets
+  // Module A code + queries keep working untouched; new modules ignore.
+  documentId          String?
+  sectionId           String?
+  documentVersionId   String?
+
+  @@map("edit_history")
+  @@index([entityType, entityId, subUnitId, createdAt])
   @@index([documentId, sectionId, createdAt])
   @@index([actorId])
   @@index([aiCallRecordId])

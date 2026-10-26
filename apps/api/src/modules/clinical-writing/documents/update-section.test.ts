@@ -63,7 +63,7 @@ function fakePrisma(opts: FakeOpts) {
     provenanceRecord: {
       create: async (args: { data: Record<string, unknown> }) => { provenance.push(args); calls.push('provenance'); return {} },
     },
-    sectionEditHistory: {
+    editHistory: {
       create: async (args: { data: Record<string, unknown> }) => { historyWrites.push(args); calls.push('history-write'); return {} },
     },
   }

@@ -143,6 +143,10 @@ async function buildServer() {
   // ---------- Core data + audit plumbing ----------
   await app.register(import('./prisma/plugin.js'))
   await app.register(import('./audit/plugin.js'))
+  // Polymorphic edit history — one service used by every module that
+  // tracks revertable content edits (Module A sections, Module E atomised
+  // content; Modules B/D/PPT come later). Must register AFTER prisma.
+  await app.register(import('./modules/platform/edit-history/plugin.js'))
 
   // ---------- Queue (BullMQ producer side; worker runs in apps/worker) ----------
   await app.register(import('./modules/platform/queue/plugin.js'))

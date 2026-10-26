@@ -192,6 +192,34 @@ export const documentsApi = {
     api.post<AISuggestion>(`/documents/${documentId}/ai-suggest`, body),
   acceptSuggestion: (documentId: string, body: AcceptSuggestionBody) =>
     api.post<Document>(`/documents/${documentId}/ai-accept`, body),
+  // AI prompt history (per section) + Undo. The history endpoint returns
+  // every AiCallRecord for this doc+section across all versions; the Undo
+  // endpoint is only live when `canUndo` is true (last non-undone entry
+  // whose post-call version is the document's current version).
+  getAiHistory: (documentId: string, sectionId: string) =>
+    api.get<{
+      documentId: string
+      sectionId: string
+      currentVersionId: string | null
+      entries: Array<{
+        id: string
+        actorId: string
+        actorName: string
+        intent: string
+        model: string
+        promptText: string | null
+        documentVersionId: string | null
+        postCallDocumentVersionId: string | null
+        createdAt: string
+        undoneAt: string | null
+        undoneBy: string | null
+        canUndo: boolean
+      }>
+    }>(`/documents/${documentId}/sections/${sectionId}/ai-history`),
+  undoAiCall: (aiCallRecordId: string) =>
+    api.post<{ ok: true; undoneAt: string; documentId: string; sectionId: string; contentHtml: string }>(
+      `/ai-calls/${aiCallRecordId}/undo`, {},
+    ),
   // Signatures
   // The API at /documents/:id/signature-chains returns SignatureChain[]
   // (each with nested records). The UI consumes a flat SignatureRecord[]

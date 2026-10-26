@@ -54,6 +54,11 @@ const sectionUpdateSchema = z.object({
   aiDrafted: z.boolean().optional(),
   aiModel: z.string().optional(),
   sourceRef: z.string().optional(),
+  // When the edit originates from Accept-AI-response, the UI passes the
+  // AiCallRecord id. The route stamps that record with
+  // postCallDocumentVersionId so AI History can later tie prompt → version +
+  // show Undo on the last non-undone one on the current version.
+  aiCallRecordId: z.string().optional(),
 }).refine(
   v => !v.aiDrafted || !!v.aiModel,
   { message: 'aiModel is required when aiDrafted is true (Part 11 provenance)' },
@@ -283,6 +288,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
     if (result === 'notfound') return reply.code(404).send({ error: 'not_found' })
 
+    // AI-origin acceptance: stamp the AiCallRecord with the version that was
+    // just created so the AI History panel can tie prompt → version and show
+    // Undo on the latest non-undone row.
+    if (parsed.data.aiCallRecordId) {
+      await app.prisma.aiCallRecord.updateMany({
+        where: { id: parsed.data.aiCallRecordId },
+        data:  { postCallDocumentVersionId: result.version.id },
+      })
+    }
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
@@ -293,6 +308,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         sectionId,
         versionCreated: result.created,
         versionNumber: result.version.versionNumber,
+        aiCallRecordId: parsed.data.aiCallRecordId ?? null,
       },
       ipAddress: request.ip ?? null,
     })
@@ -558,6 +574,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         model,
         prompt,
         maxOutputTokens: parsed.data.intent === 'edit' ? 4096 : 2048,
+        // Prompt-history + Undo context (sPM-history). Scopes the AiCallRecord
+        // to the section and snapshots pre-call HTML so the UI can later Undo
+        // the last AI change on this section in place.
+        documentId,
+        sectionId:         section.sectionId,
+        documentVersionId: doc.currentVersionId ?? undefined,
+        preCallSectionHtml: currentContent,
+        promptText:        (parsed.data.intent === 'custom' || parsed.data.intent === 'edit')
+          ? (parsed.data.customPrompt ?? '')
+          : parsed.data.intent,
       })
       // Models sometimes wrap HTML in a code fence despite being asked not to.
       if (parsed.data.intent === 'edit') return { ...result, responseText: stripCodeFence(result.responseText) }
@@ -567,6 +593,140 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(429).send({ error: 'quota_reached', message: err.message })
       }
       throw err
+    }
+  })
+
+  // ------------------------------------------------------------------------
+  // Prompt history — list AiCallRecord rows for a specific section across
+  // all versions. UI (AiHistoryPanel) renders them grouped by version with
+  // Undo on the last non-undone entry when the section's current version
+  // matches postCallDocumentVersionId.
+  // ------------------------------------------------------------------------
+  app.get('/:documentId/sections/:sectionId/ai-history', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      // Normalise sectionId — same alias handling as /ai-suggest.
+      include: { currentVersion: { include: { sections: { where: { OR: [{ sectionId }, { id: sectionId }] } } } } },
+    })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    const section = doc.currentVersion?.sections[0]
+    if (!section) return reply.code(404).send({ error: 'section_not_found' })
+
+    const rows = await app.prisma.aiCallRecord.findMany({
+      where: { documentId, sectionId: section.sectionId },
+      orderBy: { createdAt: 'desc' },
+    })
+    const actorIds = Array.from(new Set(rows.map(r => r.actorId)))
+    const actors = actorIds.length === 0
+      ? []
+      : await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+    const actorMap = new Map(actors.map(a => [a.id, a.name]))
+
+    return {
+      documentId,
+      sectionId:        section.sectionId,
+      currentVersionId: doc.currentVersionId,
+      entries: rows.map(r => ({
+        id:                        r.id,
+        actorId:                   r.actorId,
+        actorName:                 actorMap.get(r.actorId) ?? r.actorId,
+        intent:                    r.intent,
+        model:                     r.model,
+        promptText:                r.promptText,
+        documentVersionId:         r.documentVersionId,
+        postCallDocumentVersionId: r.postCallDocumentVersionId,
+        createdAt:                 r.createdAt.toISOString(),
+        undoneAt:                  r.undoneAt ? r.undoneAt.toISOString() : null,
+        undoneBy:                  r.undoneBy,
+        // Can only undo if: (a) not already undone, (b) a pre-call snapshot
+        // exists, (c) this prompt's post-call version is the document's
+        // current version (otherwise someone else has since edited past it).
+        canUndo:                   !r.undoneAt
+                                     && !!r.preCallSectionHtml
+                                     && r.postCallDocumentVersionId === doc.currentVersionId,
+      })),
+    }
+  })
+
+  // ------------------------------------------------------------------------
+  // Undo the last AI change on this section — IN PLACE on the current
+  // DocumentVersion (no new version row). Rationale: AI Suggest + Undo
+  // behave like Ctrl+Z; they don't clutter the version timeline. Part 11
+  // traceability is kept via an audit_events row with before/after hashes
+  // (hash chain already seals the trail).
+  //
+  // Preconditions enforced:
+  //   - AiCallRecord exists, has a preCallSectionHtml snapshot, is not
+  //     already undone, has postCallDocumentVersionId == doc.currentVersionId
+  //   - The section still exists on the current version
+  //
+  // Mutation: SectionContent.update() under @@unique(documentVersionId,
+  // sectionId). No DocumentVersion row created; Document.currentVersionId
+  // untouched.
+  // ------------------------------------------------------------------------
+  app.post('/ai-calls/:aiCallRecordId/undo', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { aiCallRecordId } = request.params as { aiCallRecordId: string }
+    const rec = await app.prisma.aiCallRecord.findUnique({ where: { id: aiCallRecordId } })
+    if (!rec) return reply.code(404).send({ error: 'not_found' })
+    if (rec.undoneAt) return reply.code(409).send({ error: 'already_undone' })
+    if (!rec.preCallSectionHtml) return reply.code(422).send({ error: 'no_snapshot' })
+    if (!rec.documentId || !rec.sectionId) return reply.code(422).send({ error: 'not_section_scoped' })
+
+    const doc = await app.prisma.document.findUnique({
+      where: { id: rec.documentId },
+      include: { currentVersion: { include: { sections: { where: { sectionId: rec.sectionId } } } } },
+    })
+    if (!doc || !doc.currentVersion) return reply.code(404).send({ error: 'not_found' })
+    if (rec.postCallDocumentVersionId !== doc.currentVersionId) {
+      return reply.code(409).send({ error: 'stale', message: 'Section has been edited since this AI call; Undo no longer applies.' })
+    }
+    const sectionRow = doc.currentVersion.sections[0]
+    if (!sectionRow) return reply.code(404).send({ error: 'section_not_found' })
+
+    const previousHtml = sectionRow.contentHtml ?? ''
+    // In-place swap. The unique key (documentVersionId, sectionId) means
+    // the row is addressable without touching Document.currentVersionId or
+    // creating a new DocumentVersion.
+    await app.prisma.sectionContent.update({
+      where: { documentVersionId_sectionId: { documentVersionId: doc.currentVersionId!, sectionId: rec.sectionId } },
+      data:  { contentHtml: rec.preCallSectionHtml },
+    })
+    const undoneAt = new Date()
+    await app.prisma.aiCallRecord.update({
+      where: { id: rec.id },
+      data:  { undoneAt, undoneBy: request.user!.id },
+    })
+
+    // Audit trail — carries before/after hashes so Part 11 reviewers can
+    // reconstruct the change without a DocumentVersion row.
+    const { createHash } = await import('node:crypto')
+    const hashOf = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 32)
+    await app.audit.append({
+      timestamp: undoneAt.toISOString(),
+      actorId: request.user!.id,
+      action: 'ai_prompt_undone',
+      entityType: 'document',
+      entityId: rec.documentId,
+      details: {
+        sectionId:         rec.sectionId,
+        documentVersionId: doc.currentVersionId,
+        aiCallRecordId:    rec.id,
+        intent:            rec.intent,
+        model:             rec.model,
+        beforeHash:        hashOf(previousHtml),
+        afterHash:         hashOf(rec.preCallSectionHtml),
+        inPlace:           true,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      ok: true,
+      undoneAt: undoneAt.toISOString(),
+      documentId: rec.documentId,
+      sectionId:  rec.sectionId,
+      contentHtml: rec.preCallSectionHtml,
     }
   })
 }

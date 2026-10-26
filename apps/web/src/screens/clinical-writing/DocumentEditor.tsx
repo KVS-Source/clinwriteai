@@ -325,8 +325,15 @@ export function DocumentEditor() {
   // ------- Right panel: drag-to-resize, expand to the full working area, remembered width -------
   const panel = useResizablePanel({
     activePanel,
-    // the submit-for-review form needs more room than the other panels
-    preferredWidth: p => (p === 'review-assignment' ? 440 : undefined),
+    // Per-panel default widths. AI Chat gets 480px so there's room for a
+    // readable conversation; submit-for-review form needs 440px. Users
+    // can still drag wider via the left-edge handle or double-click to
+    // expand to the full working area.
+    preferredWidth: p => (
+      p === 'ai'                ? 480 :
+      p === 'review-assignment' ? 440 :
+      undefined
+    ),
   })
   // const panelExpanded      = panel.expanded   // read only by the hidden expand button below
   const panelDragging         = panel.dragging
@@ -411,7 +418,11 @@ export function DocumentEditor() {
   // on mousedown, since the menu is gone from the page by the time the click fires.
   const rightPanelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'ai') return
+    // AI Chat is intentionally sticky — the user wants it alongside the
+    // editor while they work, not auto-closing on every editor click.
+    // Close via the X in the panel header, Esc with focus outside the
+    // chat input, or by opening a different panel.
+    if (activePanel !== 'traceability' && activePanel !== 'audit') return
     // The click that opened the panel is still being dispatched when this listener is added,
     // so only clicks whose mousedown we saw count.
     let pressed = false
@@ -435,14 +446,11 @@ export function DocumentEditor() {
       if (sectionContentRef.current?.contains(t) && referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)) return
       setActivePanel(null)
     }
-    // Esc closes the panel too — unless something else already used the key (a menu, an
-    // input cancelling an edit), or the AI panel's own prompt field has focus.
+    // Esc closes the panel too — unless something else already used the key
+    // (a menu, an input cancelling an edit).
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       if (window.document.querySelector('[data-reference-menu]')) return   // an open Reference menu takes the key
-      const el = window.document.activeElement as HTMLElement | null
-      const typing = !!el && (el.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName))
-      if (typing && activePanel === 'ai' && rightPanelRef.current?.contains(el)) return
       setActivePanel(null)
     }
     window.document.addEventListener('mousedown', onDown, true)

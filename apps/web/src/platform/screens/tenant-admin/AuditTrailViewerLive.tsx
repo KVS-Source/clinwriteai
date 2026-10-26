@@ -11,6 +11,8 @@
 
 import { useEffect, useMemo, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { SlidePanel } from '../../../components/ui/SlidePanel'
+import { MODULE_KEY_TO_LABEL, type ModuleKey } from '../../../config/modules'
 import {
   useAuditQuery, useAuditVerify, useAuditFacets, auditExportUrl, type AuditQuery,
 } from '../../../hooks'
@@ -98,10 +100,6 @@ function formatWhen(iso: string, tz: TimeZoneMode): { primary: string; secondary
   return tz === 'utc'
     ? { primary: formatUTC(iso), secondary: formatLocal(iso) }
     : { primary: formatLocal(iso), secondary: formatUTC(iso) }
-}
-
-function shortHash(hash: string): string {
-  return hash ? `${hash.slice(0, 8)}…` : '—'
 }
 
 // Badge palette by action family. Destructive verbs win over namespace so
@@ -203,33 +201,24 @@ function ActorCell({ entry }: { entry: AuditEntry }) {
   return <p className="font-mono text-[11px] text-slate-500">{entry.actorId}</p>
 }
 
-function CopyButton({ value }: { value: string }) {
-  const [copied, setCopied] = useState(false)
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value)
-      setCopied(true)
-      setTimeout(() => setCopied(false), 1500)
-    } catch { /* clipboard blocked (insecure context / permissions) — no-op */ }
-  }
-  return (
-    <button type="button" onClick={copy} className="ml-2 text-[10px] font-semibold text-slate-500 hover:underline">
-      {copied ? 'Copied' : 'Copy'}
-    </button>
-  )
-}
-
 function detailValue(v: unknown): string {
   if (v === null || v === undefined) return '—'
   if (typeof v === 'string') return v
   return JSON.stringify(v)
 }
 
-function DetailPanel({ entry }: { entry: AuditEntry }) {
+function DetailPanel({ entry, tz }: { entry: AuditEntry; tz: TimeZoneMode }) {
   const [showRaw, setShowRaw] = useState(false)
   const pairs = Object.entries(entry.details ?? {})
+  const when = formatWhen(entry.timestamp, tz)
   // FR-A-061 fields, always shown so a missing value reads as "not recorded".
   const identity: [string, string][] = [
+    ['When', when.secondary ? `${when.primary} (${when.secondary})` : when.primary],
+    ['Action', entry.action],
+    ['Entity type', entry.entityType],
+    ['Entity id', entry.entityId],
+    ['Actor', entry.actorName ? `${entry.actorName}${entry.actorEmail ? ` <${entry.actorEmail}>` : ''}` : (entry.actorEmail ?? entry.actorId)],
+    ['IP address', entry.ipAddress ?? '—'],
     ['Actor role', entry.actorRole ? `${entry.actorRole}${entry.actorRoleRecorded ? '' : ' (current role — not recorded on this entry)'}` : 'not recorded'],
     ['Session id', entry.sessionId ?? 'not recorded'],
     ['Old value', entry.oldValue === null || entry.oldValue === undefined ? '—' : detailValue(entry.oldValue)],
@@ -253,7 +242,11 @@ function DetailPanel({ entry }: { entry: AuditEntry }) {
             {pairs.map(([k, v]) => (
               <tr key={k}>
                 <td className="w-40 py-0.5 pr-3 align-top font-semibold text-slate-500">{k}</td>
-                <td className="break-all py-0.5 font-mono">{detailValue(v)}</td>
+                <td className="break-all py-0.5 font-mono">
+                  {k === 'module' && typeof v === 'string' && v in MODULE_KEY_TO_LABEL
+                    ? MODULE_KEY_TO_LABEL[v as ModuleKey]
+                    : detailValue(v)}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -261,10 +254,20 @@ function DetailPanel({ entry }: { entry: AuditEntry }) {
       ) : (
         <p className="text-slate-500">No details recorded.</p>
       )}
-      <div className="flex flex-wrap gap-x-6 gap-y-1 font-mono text-[10px] text-slate-500">
-        <span title={entry.rowHash}>Row hash: {shortHash(entry.rowHash)}<CopyButton value={entry.rowHash} /></span>
-        <span title={entry.prevHash}>Prev hash: {shortHash(entry.prevHash)}</span>
-        <span>Actor id: {entry.actorId}</span>
+      <div className="rounded-md border border-slate-200 bg-white p-3" data-section="chain-context">
+        <p className="mb-2 text-[12px] font-bold text-slate-800">Chain context (Part 11)</p>
+        <dl className="flex flex-col gap-2">
+          {([
+            ['Entry hash', entry.rowHash],
+            ['Prev hash', entry.prevHash],
+            ['Actor id', entry.actorId],
+          ] as const).map(([k, v]) => (
+            <div key={k}>
+              <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{k}</dt>
+              <dd className="break-all font-mono text-[11px] text-slate-800">{v}</dd>
+            </div>
+          ))}
+        </dl>
       </div>
       <div>
         <button type="button" onClick={() => setShowRaw(v => !v)} className="text-[10px] font-semibold text-slate-600 hover:underline">
@@ -280,12 +283,22 @@ function DetailPanel({ entry }: { entry: AuditEntry }) {
   )
 }
 
-function AuditRow({ entry, tz }: { entry: AuditEntry; tz: TimeZoneMode }) {
-  const [expanded, setExpanded] = useState(false)
+function AuditRow({ entry, tz, selected, onSelect }: {
+  entry: AuditEntry; tz: TimeZoneMode; selected: boolean; onSelect: (e: AuditEntry) => void
+}) {
   const when = formatWhen(entry.timestamp, tz)
   return (
     <>
-      <tr className="border-t border-slate-200" data-audit-row={entry.id}>
+      <tr
+        className={`cursor-pointer border-t border-slate-200 hover:bg-slate-50 ${selected ? 'bg-slate-100' : ''}`}
+        data-audit-row={entry.id}
+        data-panel-trigger
+        tabIndex={0}
+        aria-selected={selected}
+        title="Click to view details"
+        onClick={() => onSelect(entry)}
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(entry) } }}
+      >
         <td className="px-4 py-3 font-mono text-[11px] text-slate-500 align-top">{entry.id}</td>
         <td className="px-4 py-3 font-mono text-[11px] text-slate-700 align-top" title={when.secondary}>{when.primary}</td>
         <td className="px-4 py-3 align-top"><ActionBadge action={entry.action} /></td>
@@ -295,20 +308,7 @@ function AuditRow({ entry, tz }: { entry: AuditEntry; tz: TimeZoneMode }) {
         </td>
         <td className="px-4 py-3 align-top"><ActorCell entry={entry} /></td>
         <td className="px-4 py-3 font-mono text-[11px] text-slate-500 align-top">{entry.ipAddress ?? '—'}</td>
-        <td className="px-4 py-3 align-top">
-          <button
-            type="button"
-            onClick={() => setExpanded(v => !v)}
-            className="text-[11px] font-semibold text-slate-600 hover:underline"
-            aria-expanded={expanded}
-          >{expanded ? 'Hide' : 'Show'} details</button>
-        </td>
       </tr>
-      {expanded && (
-        <tr data-audit-detail={entry.id}>
-          <td colSpan={7} className="px-4 pb-3"><DetailPanel entry={entry} /></td>
-        </tr>
-      )}
     </>
   )
 }
@@ -328,6 +328,8 @@ export function AuditTrailViewerLive() {
   // Cursor for each visited page; index 0 (page 1) has no cursor.
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined])
   const pageIndex = cursors.length - 1
+  // Row whose details are open in the right-hand panel.
+  const [selectedEntry, setSelectedEntry] = useState<AuditEntry | null>(null)
 
   const baseQuery = useMemo(() => ({ ...toAuditQuery(applied, tz), sortBy, order }), [applied, tz, sortBy, order])
   const query: AuditQuery = { ...baseQuery, limit: PAGE_SIZE, cursor: cursors[pageIndex] }
@@ -663,13 +665,14 @@ export function AuditTrailViewerLive() {
                   {SORT_COLUMNS.map(col => (
                     <SortHeader key={col.key} col={col} sortBy={sortBy} order={order} onSort={sortColumn} />
                   ))}
-                  <th className="px-4 py-2">Details</th>
                 </tr>
               </thead>
               <tbody>
-                {data.rows.map(row => <AuditRow key={row.id} entry={row} tz={tz} />)}
+                {data.rows.map(row => (
+                  <AuditRow key={row.id} entry={row} tz={tz} selected={selectedEntry?.id === row.id} onSelect={setSelectedEntry} />
+                ))}
                 {data.rows.length === 0 && (
-                  <tr><td colSpan={7} className="px-4 py-6 text-center text-[12px] text-slate-500">No audit entries match your filters.</td></tr>
+                  <tr><td colSpan={6} className="px-4 py-6 text-center text-[12px] text-slate-500">No audit entries match your filters.</td></tr>
                 )}
               </tbody>
             </table>
@@ -693,6 +696,20 @@ export function AuditTrailViewerLive() {
           </div>
         )}
       </div>
+
+      {/* Row details — right-hand panel. Esc, the X, or a click outside closes it. */}
+      <SlidePanel
+        open={selectedEntry !== null}
+        onClose={() => setSelectedEntry(null)}
+        title={selectedEntry ? `Audit entry #${selectedEntry.id}` : 'Audit entry'}
+        subtitle={selectedEntry?.action}
+        storageKey="clinwrite.auditPanelWidth"
+        defaultWidth={520}
+        maxWidth={1100}
+        closeOnOutsideClick
+      >
+        {selectedEntry && <div className="p-5"><DetailPanel entry={selectedEntry} tz={tz} /></div>}
+      </SlidePanel>
     </div>
   )
 }

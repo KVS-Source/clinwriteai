@@ -8,6 +8,7 @@ import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill } from '../../components/ui'
 import { useDocumentStore, useProjectStore, useAuthStore, useEditorStore } from '../../store'
+import { SectionAIPrompt } from './SectionAIPrompt'
 import { SourceReferencesPanel } from '../../panels/SourceReferencesPanel'
 import {
   applyReferenceHighlights, buildTextIndex, clearReferenceHighlights, normalizeSpan, referenceAtPoint, spanOfRange, type LinkedRange,
@@ -125,12 +126,16 @@ export function DocumentEditor() {
   )
   const [draftContent, setDraftContent] = useState<string>('')
   const [isEditing, setIsEditing] = useState<boolean>(false)
+  // Set when an AI edit from the prompt box was accepted into the draft — the save is then
+  // recorded as AI-drafted with this model (Part 11 provenance, FR-A-021).
+  const [aiEditModel, setAiEditModel] = useState<string | null>(null)
 
   // Switching sections starts the new section fresh. The editor's save pattern is explicit (click
   // Save), so leaving a section mid-edit IS a discard.
   useEffect(() => {
     setDraftContent(activeSectionData?.contentHtml ?? '')
     setIsEditing(false)
+    setAiEditModel(null)
   }, [activeSectionData?.id])
 
   // A reload that changes the section's saved text (someone else saved, or your own save came back)
@@ -144,10 +149,12 @@ export function DocumentEditor() {
       if (!documentId || !activeSectionData) throw new Error('no_active_section')
       return documentsApi.updateSection(documentId, activeSectionData.id, {
         contentHtml: draftContent,
+        ...(aiEditModel ? { aiDrafted: true, aiModel: aiEditModel } : {}),
       })
     },
     onSuccess: () => {
       setIsEditing(false)
+      setAiEditModel(null)
       // Server auto-creates a new DocumentVersion on content hash
       // change — invalidate both so the version chip updates too.
       qc.invalidateQueries({ queryKey: ['document', documentId] })
@@ -362,21 +369,28 @@ export function DocumentEditor() {
   // Closing the panel closes the viewer too.
   useEffect(() => { if (activePanel !== 'traceability') setSourceViewer(null) }, [activePanel, setSourceViewer])
 
-  // Source References closes on a click outside it. A click in the section still counts as
-  // outside, except when it ends a text selection (picking the text to link) or lands on
-  // reference-marked text (which opens that source in the panel). A press that starts in the
-  // panel (resizing, selecting) or the Reference menu never closes it — checked on mousedown,
-  // since the menu is gone from the page by the time the click fires.
+  // Source References, Audit Trail and AI Suggest close on a click outside the panel. A click
+  // in the section still counts as outside, except when it ends a text selection (picking the
+  // text to link) or lands on reference-marked text (which opens that source in the panel). A press that starts in the
+  // panel (resizing, selecting), the Reference menu or a button that opens a panel
+  // ([data-panel-trigger] — it toggles/switches the panel itself) never closes it. Checked
+  // on mousedown, since the menu is gone from the page by the time the click fires.
   const rightPanelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (activePanel !== 'traceability') return
+    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'ai') return
+    // The click that opened the panel is still being dispatched when this listener is added,
+    // so only clicks whose mousedown we saw count.
+    let pressed = false
     let pressedExempt = false
     const onDown = (e: MouseEvent) => {
       const t = e.target as Element | null
-      pressedExempt = !t || !!rightPanelRef.current?.contains(t) || !!t.closest('[data-reference-dropdown], [data-slide-panel]')
+      pressed = true
+      pressedExempt = !t || !!rightPanelRef.current?.contains(t) || !!t.closest('[data-reference-dropdown], [data-slide-panel], [data-panel-trigger]')
     }
     const onClick = (e: MouseEvent) => {
       const t = e.target as Element | null
+      if (!pressed) return
+      pressed = false
       if (!t || pressedExempt || !t.isConnected || rightPanelRef.current?.contains(t)) return
       if (!window.getSelection()?.isCollapsed) return   // the click ended a text selection
       if (sectionContentRef.current?.contains(t) && referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)) return
@@ -604,7 +618,14 @@ export function DocumentEditor() {
 
         {/* Editor pane — position:relative so right panel can overlay */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar editor={editor} />
+          <EditorToolbar
+            editor={editor}
+            editSection={activeSectionData && !isEditing ? {
+              onClick: () => setIsEditing(true),
+              disabled: document.status === 'in-review',
+              title: document.status === 'in-review' ? 'Locked for authoring while the document is in review' : undefined,
+            } : undefined}
+          />
 
           {/* Content — real section content, editable textarea for the
                MVP editor. Rich-text (TipTap) lands in Phase 2 per
@@ -622,10 +643,24 @@ export function DocumentEditor() {
                       <div className="mt-4" data-section-editor>
                         <EditorContent editor={editor} />
                       </div>
+                      {documentId && (
+                        <SectionAIPrompt
+                          documentId={documentId}
+                          sectionId={activeSectionData.id}
+                          currentHtml={draftContent}
+                          onAccept={(html, model) => {
+                            editor?.commands.setContent(html, { emitUpdate: false })
+                            setDraftContent(html)
+                            setAiEditModel(model)
+                          }}
+                        />
+                      )}
                       <div className="mt-3 flex items-center justify-between">
                         <p className="text-xs text-slate-500">
                           {isDirty
-                            ? 'Unsaved changes — click Save Section to commit.'
+                            ? aiEditModel
+                              ? 'Unsaved AI-assisted changes — review, then click Save Section to commit.'
+                              : 'Unsaved changes — click Save Section to commit.'
                             : 'No changes yet.'}
                         </p>
                         <div className="flex items-center gap-2">
@@ -635,6 +670,7 @@ export function DocumentEditor() {
                               setDraftContent(activeSectionData.contentHtml)
                               editor?.commands.setContent(activeSectionData.contentHtml, { emitUpdate: false })
                               setIsEditing(false)
+                              setAiEditModel(null)
                             }}
                             className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                           >
@@ -664,29 +700,9 @@ export function DocumentEditor() {
                         </div>
                       ) : (
                         <p className="mt-4 text-[14px] italic text-slate-400">
-                          This section is empty. Click Edit to add content, or open the AI Suggest panel to draft it from source documents.
+                          This section is empty. Click Edit section above to add content, or open AI Suggest to draft it from source documents.
                         </p>
                       )}
-                      <div className="mt-6 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setIsEditing(true)}
-                          disabled={document.status === 'in-review'}
-                          title={document.status === 'in-review' ? 'Locked for authoring while the document is in review' : undefined}
-                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
-                        >
-                          Edit section
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActivePanel('ai')}
-                          className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-bold transition-colors hover:bg-blue-100"
-                          style={{ borderColor: '#BFDBFE', backgroundColor: '#EFF6FF', color: '#1D4ED8' }}
-                        >
-                          <svg width="11" height="11" viewBox="0 0 14 14"><polygon points="7,1.2 8.6,5.4 12.8,7 8.6,8.6 7,12.8 5.4,8.6 1.2,7 5.4,5.4" fill="#2563EB"/></svg>
-                          AI Suggest
-                        </button>
-                      </div>
                     </>
                   )}
                 </>

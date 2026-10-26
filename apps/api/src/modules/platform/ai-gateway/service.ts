@@ -18,6 +18,7 @@
 import type { PrismaClient } from '@prisma/client'
 import { computeCostUsdWithCard, getActiveRateCard } from './rate-card.js'
 import { scrubPii } from './pii-scrub.js'
+import { createAnthropicClientFromEnv } from './anthropic-client.js'
 
 export interface ChatArgs {
   tenantId: string | null
@@ -78,11 +79,10 @@ class StubLlmClient implements LlmClient {
  * See apps/api/src/modules/platform/ai-gateway/anthropic-client.ts.
  */
 export function createLlmClient(): LlmClient {
-  // Dynamic require pattern avoids pulling @anthropic-ai/sdk into the
-  // bundle when the key isn't set.
+  // A plain import: this package is ESM, where `require` doesn't exist — the old
+  // require() crashed the API at startup as soon as ANTHROPIC_API_KEY was set.
+  // anthropic-client.ts still loads @anthropic-ai/sdk lazily, on the first call.
   if (!process.env.ANTHROPIC_API_KEY?.trim()) return new StubLlmClient()
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { createAnthropicClientFromEnv } = require('./anthropic-client.js')
   return createAnthropicClientFromEnv() ?? new StubLlmClient()
 }
 

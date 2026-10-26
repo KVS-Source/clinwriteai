@@ -13,9 +13,28 @@ describe('templateSections', () => {
     expect(templateSections('csr-full', ['EU', 'us']).some(x => x.sectionId === 's16_4')).toBe(true)
   })
 
-  it('accepts snake_case types and leaves untemplated types empty', () => {
+  it('accepts snake_case types and leaves unknown types empty', () => {
     expect(templateSections('csr_synopsis')).toHaveLength(17)
-    expect(templateSections('protocol')).toEqual([])
+    expect(templateSections('protocol_amendment')).toHaveLength(7)
+    expect(templateSections('not-a-type')).toEqual([])
+  })
+
+  // Every type the New Document form offers must open with sections — a document
+  // created with none can't be edited at all.
+  it.each([
+    'csr-full', 'csr-synopsis', 'protocol', 'protocol-amendment', 'ib', 'icf',
+    'safety-narrative', 'dsur', 'end-of-study-summary', 'patient-narrative',
+  ])('gives %s a starter skeleton with unique section ids', (type) => {
+    const s = templateSections(type)
+    expect(s.length).toBeGreaterThan(0)
+    expect(new Set(s.map(x => x.sectionId)).size).toBe(s.length)
+    for (const x of s) expect(x).toMatchObject({ contentHtml: '', ichStatus: 'not_started' })
+  })
+
+  it('uses the ICH E2F structure for a DSUR', () => {
+    const s = templateSections('dsur')
+    expect(s).toHaveLength(22)
+    expect(s[0]).toMatchObject({ sectionId: 'd_es', sectionTitle: 'Executive Summary' })
   })
 })
 

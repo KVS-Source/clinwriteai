@@ -41,6 +41,12 @@ const createSchema = z.object({
   sourceUploadIds: z.array(z.string().min(1)).max(100).optional(),
 })
 
+// "```html\n…\n```" → "…"
+export function stripCodeFence(text: string): string {
+  const m = /^\s*```[a-zA-Z]*\s*\n([\s\S]*?)\n?```\s*$/.exec(text)
+  return (m ? m[1]! : text).trim()
+}
+
 const sectionUpdateSchema = z.object({
   contentHtml: z.string(),
   sectionNumber: z.string().optional(),
@@ -486,10 +492,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // When ANTHROPIC_API_KEY is set, this calls real Anthropic; otherwise
   // deterministic stub (Arc 8.1).
   const aiSuggestSchema = z.object({
-    intent: z.enum(['draft_from_source', 'tighten', 'explain', 'custom']),
+    intent: z.enum(['draft_from_source', 'tighten', 'explain', 'custom', 'edit']),
     customPrompt: z.string().min(1).max(2000).optional(),
+    // 'edit' (editor prompt box): the section as it stands in the editor, unsaved changes included
+    currentContent: z.string().max(200_000).optional(),
     model: z.string().optional(),            // omitted -> the engine saved in Admin Panel -> AI Engine
-  })
+  }).refine(b => b.intent !== 'edit' || !!b.customPrompt?.trim(), { message: 'Tell the AI what to change', path: ['customPrompt'] })
 
   app.post('/:documentId/sections/:sectionId/ai-suggest', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
@@ -508,8 +516,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const section = doc.currentVersion?.sections[0]
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
 
-    const sectionHeader = `§${section.sectionNumber} ${section.sectionTitle}`
-    const currentContent = section.contentHtml ?? ''
+    const sectionHeader = `${section.sectionNumber.startsWith('§') ? '' : '§'}${section.sectionNumber} ${section.sectionTitle}`
+    const currentContent = (parsed.data.intent === 'edit' ? parsed.data.currentContent : undefined) ?? section.contentHtml ?? ''
 
     let prompt: string
     switch (parsed.data.intent) {
@@ -525,6 +533,18 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       case 'custom':
         prompt = `Section: ${sectionHeader}\n\nCurrent content:\n${currentContent}\n\nUser request:\n${parsed.data.customPrompt ?? ''}`
         break
+      case 'edit':
+        prompt = [
+          `You are editing the "${sectionHeader}" section of a regulated clinical document (${hyphenate(doc.type)}).`,
+          'Apply the instruction below to the current section content and return the COMPLETE revised section.',
+          'Return only HTML using these tags: p, h3, h4, strong, em, u, ul, ol, li, blockquote, table, thead, tbody, tr, th, td. No attributes, no explanations, no code fences.',
+          'Do not invent data, numbers, dates, names or references that are not in the current content. If the instruction needs information you do not have, insert a placeholder such as [TBD: what is needed].',
+          '',
+          `Instruction:\n${parsed.data.customPrompt!.trim()}`,
+          '',
+          `Current section content (HTML):\n${currentContent || '(empty)'}`,
+        ].join('\n')
+        break
     }
 
     const model = await chooseModel(app.prisma, parsed.data.model)
@@ -537,8 +557,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         intent: parsed.data.intent,
         model,
         prompt,
-        maxOutputTokens: 2048,
+        maxOutputTokens: parsed.data.intent === 'edit' ? 4096 : 2048,
       })
+      // Models sometimes wrap HTML in a code fence despite being asked not to.
+      if (parsed.data.intent === 'edit') return { ...result, responseText: stripCodeFence(result.responseText) }
       return result
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'RateLimitedError') {

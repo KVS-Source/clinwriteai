@@ -21,9 +21,11 @@ test.setTimeout(120_000)
 test.beforeEach(async ({ page }) => {
   await page.addInitScript(({ docId, projectId, sentence }) => {
     const refs: Array<Record<string, unknown>> = []
-    const w = window as unknown as { __refPosts: Array<Record<string, unknown>>; __refRemovals: Array<Record<string, unknown>> }
+    const w = window as unknown as { __refPosts: Array<Record<string, unknown>>; __refRemovals: Array<Record<string, unknown>>; __aiEdits: Array<Record<string, unknown>>; __sectionSaves: Array<Record<string, unknown>> }
     w.__refPosts = []
     w.__refRemovals = []
+    w.__aiEdits = []
+    w.__sectionSaves = []
     const json = (body: unknown, status = 200) =>
       Promise.resolve(new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } }))
     const realFetch = window.fetch.bind(window)
@@ -63,6 +65,16 @@ test.beforeEach(async ({ page }) => {
         w.__refRemovals.push({ id: rm[1], ...JSON.parse(String(init?.body ?? '{}')) })
         refs.splice(i, 1)
         return json({ id: rm[1], removedAt: new Date().toISOString() })
+      }
+      if (/^\/sections\/[^/]+\/ai-suggest$/.test(sub) && method === 'POST') {
+        const body = JSON.parse(String(init?.body ?? '{}'))
+        w.__aiEdits.push(body)
+        // a fenced answer with a script tag — the preview must strip both
+        return json({ responseText: '<p>One-sentence revision.</p><script>window.__pwned = 1</script>', model: 'claude-test', recordId: 'rec-1', inputTokens: 1, outputTokens: 1, costUsd: 0, limitDecision: 'allowed', piiScrubbed: false, piiCategories: [] })
+      }
+      if (/^\/sections\/[^/]+$/.test(sub) && method === 'PATCH') {
+        w.__sectionSaves.push(JSON.parse(String(init?.body ?? '{}')))
+        return json({})
       }
       if (sub.includes('presence')) return json({ documentId: docId, sections: [] })
       return json(sub === '/versions' || sub.endsWith('s') ? [] : {})
@@ -294,6 +306,82 @@ test('the panel closes on an outside click, including the editor area, but not w
   await open()
   await page.locator('[data-provenance-bar]').click()                  // footer bar
   await expect(panel).toHaveCount(0)
+})
+
+test('Audit Trail and AI Suggest also close on a click outside them', async ({ page }) => {
+  await openEditor(page)
+  const panelTitle = (name: string) => page.getByRole('heading', { name, level: 3 })
+
+  // Audit Trail: opened from the toolbar, a click inside it keeps it, the section text closes it
+  await page.getByRole('button', { name: 'Audit trail' }).click()
+  await expect(panelTitle('Audit Trail')).toBeVisible()
+  await panelTitle('Audit Trail').click()
+  await expect(panelTitle('Audit Trail')).toBeVisible()
+  await page.getByText(OTHER).click()
+  await expect(panelTitle('Audit Trail')).toHaveCount(0)
+
+  // AI Suggest: opened from the toolbar; the footer bar (outside) closes it
+  await page.getByRole('button', { name: /AI Suggest/ }).first().click()
+  await expect(panelTitle('AI Suggest')).toBeVisible()
+  await page.locator('[data-provenance-bar]').click()
+  await expect(panelTitle('AI Suggest')).toHaveCount(0)
+})
+
+test('Edit section and AI Suggest sit in the toolbar, not under the section', async ({ page }) => {
+  await openEditor(page)
+  await expect(page.locator('[data-section-content]').getByRole('button', { name: /edit section|ai suggest/i })).toHaveCount(0)
+  const edit = page.locator('[data-action="edit-section"]')
+  await expect(edit).toBeEnabled()
+  await edit.click()
+  await expect(page.locator('[data-section-editor]')).toBeVisible()
+  await expect(edit).toHaveCount(0)                                   // hidden while editing
+  await page.getByRole('button', { name: 'Discard' }).click()
+  await expect(edit).toBeVisible()
+})
+
+test('in edit mode, the AI prompt box edits the section; the change applies only on Accept and saves as AI-drafted', async ({ page }) => {
+  await openEditor(page)
+  await expect(page.locator('[data-section-ai-prompt]')).toHaveCount(0)            // only while editing
+  await page.locator('[data-action="edit-section"]').click()
+  const box = page.locator('[data-field="ai-edit-prompt"]')
+  await expect(box).toBeVisible()
+  await expect(page.locator('[data-action="ai-edit-send"]')).toBeDisabled()
+
+  await box.fill('Make it one sentence')
+  await box.press('Enter')
+  const preview = page.locator('[data-ai-edit-preview]')
+  await expect(preview).toContainText('One-sentence revision.')
+  await expect(preview).toContainText('claude-test')
+  expect(await page.locator('[data-ai-edit-html] script').count()).toBe(0)        // sanitised
+  expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBeUndefined()
+  const sent = await page.evaluate(() => (window as unknown as { __aiEdits: Array<{ intent: string; customPrompt: string; currentContent: string }> }).__aiEdits)
+  expect(sent[0]).toMatchObject({ intent: 'edit', customPrompt: 'Make it one sentence' })
+  expect(sent[0]!.currentContent).toContain('Median progression-free survival')
+
+  // nothing changed yet
+  await expect(page.locator('[data-section-editor]')).toContainText('Median progression-free survival')
+
+  // Discard keeps the text; ask again and Accept puts the suggestion in the editor
+  await page.locator('[data-action="ai-edit-discard"]').click()
+  await expect(preview).toHaveCount(0)
+  await box.fill('Make it one sentence')
+  await page.locator('[data-action="ai-edit-send"]').click()
+  await page.locator('[data-action="ai-edit-accept"]').click()
+  await expect(page.locator('[data-section-editor]')).toContainText('One-sentence revision.')
+  await expect(page.locator('[data-section-editor]')).not.toContainText('Median progression-free survival')
+  await expect(page.getByText('Unsaved AI-assisted changes')).toBeVisible()
+
+  await page.getByRole('button', { name: /Save Section/ }).click()
+  await expect.poll(() => page.evaluate(() => (window as unknown as { __sectionSaves: unknown[] }).__sectionSaves.length)).toBe(1)
+  const saves = await page.evaluate(() => (window as unknown as { __sectionSaves: Array<{ contentHtml: string; aiDrafted?: boolean; aiModel?: string }> }).__sectionSaves)
+  expect(saves[0]).toMatchObject({ aiDrafted: true, aiModel: 'claude-test' })
+  expect(saves[0]!.contentHtml).toContain('One-sentence revision.')
+})
+
+test('Edit section is disabled while the document is in review', async ({ page }) => {
+  await page.addInitScript(() => { (window as unknown as { __docStatus: string }).__docStatus = 'in-review' })
+  await openEditor(page)
+  await expect(page.locator('[data-action="edit-section"]')).toBeDisabled()
 })
 
 test('the expand button is hidden for now; the panel still resizes from its left edge', async ({ page }) => {

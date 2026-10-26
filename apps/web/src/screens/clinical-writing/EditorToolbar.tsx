@@ -84,16 +84,20 @@ function IconButton({
   active,
   disabled,
   title,
+  panelTrigger,
   children,
 }: {
   onClick?: () => void
   active?:  boolean
   disabled?: boolean
   title?:   string
+  /** opens a right-hand panel — clicking it doesn't count as an outside click */
+  panelTrigger?: boolean
   children: React.ReactNode
 }) {
   return (
     <button
+      data-panel-trigger={panelTrigger || undefined}
       type="button"
       onClick={onClick}
       title={title}
@@ -118,9 +122,11 @@ interface EditorToolbarProps {
   // Phase 2.1 — TipTap editor instance drives the formatting cluster.
   // Null while no section is active (buttons render disabled).
   editor?: import('@tiptap/react').Editor | null
+  // "Edit section" beside AI Suggest — omitted while editing or with no section open.
+  editSection?: { onClick: () => void; disabled?: boolean; title?: string }
 }
 
-export function EditorToolbar({ editor }: EditorToolbarProps = {}) {
+export function EditorToolbar({ editor, editSection }: EditorToolbarProps = {}) {
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
@@ -205,18 +211,32 @@ export function EditorToolbar({ editor }: EditorToolbarProps = {}) {
       <Divider />
 
       {/* Panel triggers */}
-      <IconButton title="Voice note"      active={activePanel === 'voice'}     onClick={() => toggle('voice')}><VoiceIcon /></IconButton>
-      <IconButton title="Input checklist" active={activePanel === 'checklist'} onClick={() => toggle('checklist')}><ChecklistIcon /></IconButton>
-      <IconButton title="Audit trail"     active={activePanel === 'audit'}     onClick={() => toggle('audit')}><AuditIcon /></IconButton>
+      <IconButton title="Voice note"      active={activePanel === 'voice'}     panelTrigger onClick={() => toggle('voice')}><VoiceIcon /></IconButton>
+      <IconButton title="Input checklist" active={activePanel === 'checklist'} panelTrigger onClick={() => toggle('checklist')}><ChecklistIcon /></IconButton>
+      <IconButton title="Audit trail"     active={activePanel === 'audit'}     panelTrigger onClick={() => toggle('audit')}><AuditIcon /></IconButton>
 
       {/* Spacer */}
       <div className="flex-1" />
+
+      {editSection && (
+        <button
+          type="button"
+          onClick={editSection.onClick}
+          disabled={editSection.disabled}
+          title={editSection.title}
+          data-action="edit-section"
+          className="flex h-7 flex-none items-center rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
+        >
+          Edit section
+        </button>
+      )}
 
       {/* AI Suggest — accent button */}
       <button
         type="button"
         title="Open AI Suggest (⌘J)"
         onClick={() => toggle('ai')}
+        data-panel-trigger
         className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-bold transition-colors"
         style={{
           borderColor:     activePanel === 'ai' ? '#93C5FD' : '#BFDBFE',

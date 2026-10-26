@@ -555,6 +555,7 @@ export function ClinicalWritingHome() {
             projectId={projectId}
             duplicateSourceId={newDocOpen.duplicateSourceId}
             initialSourceIds={newDocOpen.sourceIds}
+            projectTherapeuticArea={project?.therapeuticArea}
             onCancel={() => setNewDocOpen(false)}
             onCreated={id => {
               setNewDocOpen(false)

@@ -248,4 +248,39 @@ export const platformApi = {
     api.post<{ exportedAt: string; downloadUrl: string }>(
       `/publications/${publicationId}/slides/${jobId}/export`, {},
     ),
+
+  // Polymorphic edit history for slides (sPM-edit-history-polymorphic).
+  // In-place mutation (same model as Module A sections). History payload
+  // serialises title + bodyText + speakerNotes together so revert restores
+  // the slide atomically.
+  getSlideHistory: (slideId: string, filters: { mine?: boolean; origin?: 'manual' | 'ai' | 'undo' | 'restore' } = {}) => {
+    const qs = new URLSearchParams()
+    if (filters.mine)   qs.set('mine', 'true')
+    if (filters.origin) qs.set('origin', filters.origin)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return api.get<{
+      entityType: 'slide'
+      entityId: string
+      entries: Array<{
+        id: string
+        actorId: string
+        actorName: string
+        origin: 'manual' | 'ai' | 'undo' | 'restore'
+        createdAt: string
+        beforeHtml: string | null
+        afterHtml: string
+        aiCallRecordId: string | null
+        revertedFromId: string | null
+        promptText: string | null
+        aiModel: string | null
+        interveningCount: number
+        interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
+        canRevert: boolean
+      }>
+    }>(`/slides/${slideId}/history${suffix}`)
+  },
+  revertSlideEdit: (editHistoryId: string) =>
+    api.post<{ ok: true; revertedAt: string; restored: { title: string; bodyText: string; speakerNotes: string } | null }>(
+      `/slide-edits/${editHistoryId}/revert`, {},
+    ),
 }

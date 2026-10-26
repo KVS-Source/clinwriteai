@@ -286,6 +286,11 @@ async function buildServer() {
   const { congressRoutes } = await import('./modules/scientific-writing/congress/routes.js')
   await app.register(congressRoutes, { prefix: '/publications' })
 
+  // Slide deck backend (sPM-slide-deck-backend) — real backing for the
+  // Module B SlidedeckGenerator UI + per-slide edit history/revert.
+  const { slidesRoutes } = await import('./modules/scientific-writing/slides/routes.js')
+  await app.register(slidesRoutes)
+
   // ---------- Module C — Medical Writing ----------
   const { medContentProjectScopedRoutes, medContentRoutes } =
     await import('./modules/medical-writing/content/routes.js')

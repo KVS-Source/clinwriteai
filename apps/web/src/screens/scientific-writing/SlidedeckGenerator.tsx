@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { SlideDeckJob, Slide } from '@platform/types'
 import { MODULE_B_SB10_ACCENT } from '@platform/types'
 import { platformApi } from '../../platform/api/platformApi'
+import { SlideHistoryPanel } from '../../panels/SlideHistoryPanel'
 
 const DEMO_PUB_ID = 'pub-velora-301-manuscript'
 const DEMO_JOB_ID = 'sdj-001'
@@ -46,6 +47,8 @@ export function SlidedeckGenerator() {
   const [source, setSource]         = useState<typeof SOURCES[number]>('Full manuscript')
   const [rightTab, setRightTab]     = useState<RightTab>('content')
   const [activeSlideId, setActiveSlideId] = useState<string>('slide-001')
+  // Edit-history overlay target for the active slide.
+  const [historyTarget, setHistoryTarget] = useState<null | { slideId: string; label: string }>(null)
   const [altText, setAltText]       = useState<string>('')
   const [altSaved, setAltSaved]     = useState<boolean>(false)
   const [acceptedIds, setAcceptedIds] = useState<Set<string>>(new Set())
@@ -210,7 +213,22 @@ export function SlidedeckGenerator() {
 
             {/* Canvas */}
             <div className="rounded-lg border border-slate-200 bg-white p-6" data-slide-canvas>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Slide {activePosition} of {totalSlides} · 16:9</p>
+              <div className="flex items-center justify-between">
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Slide {activePosition} of {totalSlides} · 16:9</p>
+                <button
+                  type="button"
+                  onClick={() => setHistoryTarget({ slideId: activeSlide.id, label: `Slide ${activePosition} · ${activeSlide.title}` })}
+                  title="Edit history for this slide"
+                  aria-label="Edit history"
+                  data-slide-history={activeSlide.id}
+                  className="flex items-center justify-center rounded-md border border-slate-300 bg-white p-1 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                >
+                  <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="7" cy="7" r="5.6" />
+                    <polyline points="7,3.4 7,7 9.4,8.4" />
+                  </svg>
+                </button>
+              </div>
               <h2 className="mt-3 text-[20px] font-bold text-slate-900" data-slide-title>{activeSlide.title}</h2>
               <p className="mt-3 whitespace-pre-line text-[13px] text-slate-700" data-slide-body>{activeSlide.bodyText}</p>
             </div>
@@ -343,6 +361,38 @@ export function SlidedeckGenerator() {
           </p>
         </section>
       </div>
+
+      {historyTarget && (
+        <div
+          role="dialog"
+          aria-modal="false"
+          className="fixed inset-0 z-40 flex justify-end"
+          onClick={() => setHistoryTarget(null)}
+          onKeyDown={e => { if (e.key === 'Escape') setHistoryTarget(null) }}
+          data-slide-history-overlay
+        >
+          <div
+            className="flex h-full w-[380px] flex-col border-l border-slate-200 bg-white shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex h-10 flex-none items-center justify-between border-b border-slate-200 px-3">
+              <p className="text-[12px] font-semibold text-slate-700">Edit history</p>
+              <button
+                type="button"
+                onClick={() => setHistoryTarget(null)}
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M3 3l8 8M11 3l-8 8" /></svg>
+              </button>
+            </div>
+            <SlideHistoryPanel
+              slideId={historyTarget.slideId}
+              label={historyTarget.label}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

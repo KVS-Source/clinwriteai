@@ -208,7 +208,10 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
         </div>
       )}
 
-      <div className="rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+      {/* True single-row layout — textarea + buttons share one line. Still
+          grows vertically when the user Shift+Enters, but starts at a
+          single row's height so the widget's resting state is minimal. */}
+      <div className="flex items-center gap-2 rounded-xl border border-slate-300 bg-white px-3 py-1.5 shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
         <textarea
           ref={inputRef}
           value={prompt}
@@ -220,40 +223,32 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
           rows={1}
           maxLength={2000}
           disabled={ask.isPending}
-          placeholder={placeholder}
+          placeholder={ask.isPending ? (hasSelection ? 'Editing the selection…' : 'Editing the section…') : placeholder}
           aria-label="Ask AI to edit this section or selection"
+          title="Enter to send · Shift+Enter for new line"
           data-field="ai-edit-prompt"
-          className="block max-h-40 min-h-[40px] w-full resize-none rounded-t-xl border-0 bg-transparent px-4 pt-3 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
+          className="block max-h-40 min-h-[28px] flex-1 resize-none border-0 bg-transparent py-1 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
         />
-        <div className="flex items-center justify-between gap-2 px-3 pb-2">
-          <p className="text-[11px] text-slate-400">
-            {ask.isPending
-              ? (hasSelection ? 'Editing the selection…' : 'Editing the section…')
-              : 'Enter to send · Shift+Enter for new line'}
-          </p>
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={() => setActivePanel(activePanel === 'ai-help' ? null : 'ai-help')}
-              aria-label="Show prompt suggestions"
-              title="Prompt suggestions"
-              data-ai-help-button
-              className={`flex h-8 w-8 flex-none items-center justify-center rounded-lg border transition-colors ${activePanel === 'ai-help' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-500 hover:bg-slate-50'}`}
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <circle cx="8" cy="8" r="6.4" />
-                <path d="M6.2 6.3a1.8 1.8 0 1 1 2.6 1.5c-.5.3-.8.6-.8 1.2" />
-                <circle cx="8" cy="11.6" r="0.4" fill="currentColor" />
-              </svg>
-            </button>
-            <button type="button" onClick={send} disabled={!prompt.trim() || ask.isPending} aria-label="Send to AI" data-action="ai-edit-send"
-              className="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
-              {ask.isPending
-                ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />
-                : <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>}
-            </button>
-          </div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setActivePanel(activePanel === 'ai-help' ? null : 'ai-help')}
+          aria-label="Show prompt suggestions"
+          title="Prompt suggestions"
+          data-ai-help-button
+          className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg border transition-colors ${activePanel === 'ai-help' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-500 hover:bg-slate-50'}`}
+        >
+          <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <circle cx="8" cy="8" r="6.4" />
+            <path d="M6.2 6.3a1.8 1.8 0 1 1 2.6 1.5c-.5.3-.8.6-.8 1.2" />
+            <circle cx="8" cy="11.6" r="0.4" fill="currentColor" />
+          </svg>
+        </button>
+        <button type="button" onClick={send} disabled={!prompt.trim() || ask.isPending} aria-label="Send to AI" title="Enter to send · Shift+Enter for new line" data-action="ai-edit-send"
+          className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
+          {ask.isPending
+            ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />
+            : <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" /></svg>}
+        </button>
       </div>
       {error && <p role="alert" className="mt-2 text-xs text-red-700" data-ai-edit-error>{error}</p>}
     </div>

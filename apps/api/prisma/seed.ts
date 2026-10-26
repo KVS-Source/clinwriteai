@@ -467,6 +467,13 @@ async function main() {
     console.warn('   Module E seed skipped:', (e as Error).message)
   }
 
+  try {
+    console.log('→ Seeding Module B slide deck (SlidedeckGenerator fixture)…')
+    await seedSlideDeck()
+  } catch (e) {
+    console.warn('   Slide deck seed skipped:', (e as Error).message)
+  }
+
   // --------------------------------------------------------------
   // Done.
   // --------------------------------------------------------------
@@ -493,6 +500,9 @@ async function main() {
     ideationCards: await prisma.ideationContentCard.count(),
     kolContacts: await prisma.kolContact.count(),
     calendarEntries: await prisma.calendarEntry.count(),
+    slideDeckJobs: await prisma.slideDeckJob.count(),
+    slides: await prisma.slide.count(),
+    slideFigures: await prisma.slideFigure.count(),
   }
   console.log('✔ Seed complete.')
   console.table(counts)
@@ -1525,6 +1535,113 @@ async function seedModuleE() {
     calCount += 1
   }
   console.log(`   ${calCount}/${calendar.length} calendar entries seeded`)
+}
+
+// ---------- Slide deck seeding (Module B SlidedeckGenerator) ----------
+//
+// Fixture: apps/web/src/data/slidedeckJob.json (one deck, 6 slides, 3
+// figures). The fixture's publicationId `pub-velora-301-manuscript` is a
+// frontend demo constant and doesn't exist in publications.json — we
+// re-point to pub-001 (same VELORA-301 manuscript) so the FK resolves.
+// The SlidedeckGenerator UI's DEMO_PUB_ID has been updated to match.
+
+interface FixtureSlideFigure {
+  figureId:          string
+  altText:           string | null
+  figureDescription?: string
+}
+interface FixtureSlide {
+  id:           string
+  position:     number
+  title:        string
+  bodyText:     string
+  figures:      FixtureSlideFigure[]
+  speakerNotes: string
+}
+interface FixtureSlideDeck {
+  id:               string
+  publicationId:    string
+  source:           string
+  congressTarget?:  string | null
+  slideCountLimit:  number
+  status:           string
+  aiModel:          string
+  aiFootprintPct:   number
+  generatedAt:      string
+  slides:           FixtureSlide[]
+}
+
+// The fixture's demo publicationId doesn't match any seeded Publication; map it.
+const SLIDE_DECK_PUB_ALIAS: Record<string, string> = {
+  'pub-velora-301-manuscript': 'pub-001',
+}
+
+async function seedSlideDeck() {
+  const deck = readFixture<FixtureSlideDeck>('slidedeckJob.json')
+  const resolvedPubId = SLIDE_DECK_PUB_ALIAS[deck.publicationId] ?? deck.publicationId
+  const pub = await prisma.publication.findUnique({ where: { id: resolvedPubId } })
+  if (!pub) {
+    console.log(`   publication ${resolvedPubId} not found — skipping slide deck seed`)
+    return
+  }
+
+  await prisma.slideDeckJob.upsert({
+    where:  { id: deck.id },
+    create: {
+      id:              deck.id,
+      publicationId:   resolvedPubId,
+      source:          deck.source,
+      congressTarget:  deck.congressTarget ?? null,
+      slideCountLimit: deck.slideCountLimit,
+      status:          deck.status,
+      aiModel:         deck.aiModel,
+      aiFootprintPct:  deck.aiFootprintPct,
+      generatedAt:     new Date(deck.generatedAt),
+    },
+    update: {
+      status:         deck.status,
+      aiFootprintPct: deck.aiFootprintPct,
+      congressTarget: deck.congressTarget ?? null,
+    },
+  })
+
+  let slideCount = 0
+  let figureCount = 0
+  for (const s of deck.slides) {
+    await prisma.slide.upsert({
+      where:  { id: s.id },
+      create: {
+        id:             s.id,
+        slideDeckJobId: deck.id,
+        position:       s.position,
+        title:          s.title,
+        bodyText:       s.bodyText,
+        speakerNotes:   s.speakerNotes,
+      },
+      update: {
+        position:     s.position,
+        title:        s.title,
+        bodyText:     s.bodyText,
+        speakerNotes: s.speakerNotes,
+      },
+    })
+    slideCount += 1
+
+    // Figures — delete + re-create so re-runs stay consistent with the fixture.
+    await prisma.slideFigure.deleteMany({ where: { slideId: s.id } })
+    for (const f of s.figures) {
+      await prisma.slideFigure.create({
+        data: {
+          slideId:           s.id,
+          figureRef:         f.figureId,
+          altText:           f.altText,
+          figureDescription: f.figureDescription ?? null,
+        },
+      })
+      figureCount += 1
+    }
+  }
+  console.log(`   ${slideCount}/${deck.slides.length} slides seeded, ${figureCount} figures`)
 }
 
 main()

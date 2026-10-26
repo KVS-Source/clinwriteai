@@ -6,7 +6,11 @@ import { MODULE_B_SB10_ACCENT } from '@platform/types'
 import { platformApi } from '../../platform/api/platformApi'
 import { SlideHistoryPanel } from '../../panels/SlideHistoryPanel'
 
-const DEMO_PUB_ID = 'pub-velora-301-manuscript'
+// Demo IDs — seeded by apps/api/prisma/seed.ts seedSlideDeck(). The slide
+// deck fixture references pub-velora-301-manuscript (a frontend constant)
+// but the seeded Publication is pub-001; the seed re-points it so the FK
+// resolves. If you change the DB-side id, update seed.ts too.
+const DEMO_PUB_ID = 'pub-001'
 const DEMO_JOB_ID = 'sdj-001'
 
 type RightTab = 'content' | 'notes' | 'figures'

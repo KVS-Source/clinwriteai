@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Document, DocumentStage, DocumentStatus, DocumentType } from '@platform/types'
+import type { Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill, SlidePanel } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { NewDocumentForm } from './NewDocument'
@@ -158,11 +159,21 @@ export function ClinicalWritingHome() {
     else refresh()
   }
 
+  // Documents are assigned to user accounts (any writer can be picked in New Document), not only to
+  // project-team members — so resolve names from the user directory, with the team as a fallback.
+  // The directory is admin-only; for other roles the request is refused and only team names resolve.
+  const { data: users = [] } = useQuery<PlatformUser[]>({
+    queryKey: ['platform-users'],
+    queryFn:  () => platformApi.listUsers(),
+    staleTime: 60_000,
+    retry: false,
+  })
   const teamById = useMemo(() => {
     const map = new Map<string, { name: string; initials: string }>()
     project?.team.forEach(t => map.set(t.userId, { name: t.name, initials: t.initials }))
+    users.forEach(u => map.set(u.id, { name: u.name, initials: initialsOf(u.name) }))
     return map
-  }, [project])
+  }, [project, users])
 
   const filtered = useMemo(() => {
     return documents.filter((d: Document) => {
@@ -237,7 +248,14 @@ export function ClinicalWritingHome() {
               <h1 className="text-2xl font-bold tracking-tight text-slate-900">Clinical Writing</h1>
             </div>
             <p className="text-sm text-slate-500">
-              {project?.shortTitle ?? '—'} · {project?.therapeuticArea ?? '—'} · Phase {project?.phase ?? '—'} NSCLC · {documents.length} documents · {openCommentCount} open comments
+              {[
+                project?.shortTitle ?? '—',
+                project?.therapeuticArea ?? '—',
+                project ? phaseLabel(project.phase) : '—',
+                project?.indication,
+                `${documents.length} documents`,
+                `${openCommentCount} open comments`,
+              ].filter(Boolean).join(' · ')}
             </p>
             <div className="flex gap-2.5 pt-1">
               <button
@@ -268,8 +286,8 @@ export function ClinicalWritingHome() {
                 const isLast = i === STAGES_ORDERED.length - 1
                 const nextComplete = !isLast && STAGE_PROGRESS[STAGES_ORDERED[i+1]] === 'complete'
                 return (
-                  <>
-                    <div key={stage} className="flex flex-none flex-col items-center gap-2" style={{ width }}>
+                  <Fragment key={stage}>
+                    <div className="flex flex-none flex-col items-center gap-2" style={{ width }}>
                       {state === 'complete' && (
                         <div className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[11px] font-extrabold text-white" style={{ backgroundColor: '#2563EB' }}>
                           ✓
@@ -295,12 +313,11 @@ export function ClinicalWritingHome() {
                     </div>
                     {!isLast && (
                       <div
-                        key={`${stage}-line`}
                         className="mt-[10px] h-[2px] flex-1"
                         style={{ backgroundColor: state === 'complete' || nextComplete ? '#2563EB' : '#E2E8F0' }}
                       />
                     )}
-                  </>
+                  </Fragment>
                 )
               })}
             </div>
@@ -591,6 +608,14 @@ export function ClinicalWritingHome() {
 }
 
 // --- Small helpers ---
+
+// Initials skip honorifics, so "Dr Elena Vasquez" → "EV", not "DE".
+const initialsOf = (name: string) =>
+  name.trim().split(/\s+/).filter(w => !/^(dr|mr|mrs|ms|prof)\.?$/i.test(w))
+    .slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('') || '?'
+
+// Stored phases vary ("Phase III", "IIb", "Preclinical") — only add the "Phase" prefix when it's missing.
+const phaseLabel = (phase: string) => (/^phase\b|preclinical/i.test(phase) ? phase : `Phase ${phase}`)
 
 function TabButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (

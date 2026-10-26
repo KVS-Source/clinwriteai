@@ -20,7 +20,7 @@
 // text to avoid wrapping it in a <p> that would break inline edits.
 
 import { useEffect, useRef, useState } from 'react'
-import { useMutation } from '@tanstack/react-query'
+import { useMutation, useQueryClient } from '@tanstack/react-query'
 import type { Editor } from '@tiptap/react'
 import { api, ApiError } from '../../api/client'
 import { useDocumentStore } from '../../store'
@@ -76,9 +76,15 @@ interface Props {
 export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, isEditing, onRequestEdit, onAccept }: Props) {
   const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState<{ html: string; model: string; instruction: string; scope: 'selection' | 'section'; from?: number; to?: number } | null>(null)
+  // Context scope — user chooses what the AI sees for this prompt.
+  // Default 'section' matches the pre-chat behaviour; 'document' and
+  // 'source' expand context server-side when the chat endpoint builds
+  // the prompt.
+  const [promptScope, setPromptScope] = useState<'section' | 'document' | 'source'>('section')
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const activePanel  = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
+  const qc = useQueryClient()
 
   // Listen for pick events fired by AIPromptHelpPanel. CustomEvent payload
   // = the prompt text to pre-fill. We don't auto-submit — give the user a
@@ -111,6 +117,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
         intent:         'edit',
         customPrompt:   vars.instruction,
         currentContent: currentHtml,
+        scope:          promptScope,
         ...(vars.selectionText ? { selectionText: vars.selectionText } : {}),
       },
     ),
@@ -127,6 +134,10 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
         from:        scope === 'selection' && sel ? sel.from : undefined,
         to:          scope === 'selection' && sel ? sel.to   : undefined,
       })
+      // Server also wrote user+assistant turns to the chat thread for this
+      // (user, section). Refresh the AIChatPanel so it reflects the new
+      // exchange immediately regardless of which surface the user looks at.
+      qc.invalidateQueries({ queryKey: ['ai-chat', documentId, sectionId] })
       setPrompt('')
     },
   })
@@ -229,6 +240,20 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
           data-field="ai-edit-prompt"
           className="block max-h-40 min-h-[28px] flex-1 resize-none border-0 bg-transparent py-1 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
         />
+        {/* Scope chip — picks what context the AI sees for this prompt.
+            Default 'section' matches the pre-chat behaviour. */}
+        <select
+          value={promptScope}
+          onChange={e => setPromptScope(e.currentTarget.value as 'section' | 'document' | 'source')}
+          disabled={ask.isPending}
+          title="Context scope — what content the AI sees for this prompt"
+          data-ai-prompt-scope
+          className="rounded-md border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 outline-none hover:bg-slate-50 disabled:opacity-60"
+        >
+          <option value="section">Section</option>
+          <option value="document">Document</option>
+          <option value="source">Source docs</option>
+        </select>
         <button
           type="button"
           onClick={() => setActivePanel(activePanel === 'ai-help' ? null : 'ai-help')}

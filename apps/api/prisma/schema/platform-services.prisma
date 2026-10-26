@@ -216,6 +216,46 @@ model AiCallRecord {
 }
 
 // --------------------------------------------------------------------------
+// Per-user, per-section AI chat conversation thread (sPM-ai-chat).
+//
+// One row per turn (user prompt + assistant response alternating). Powers
+// the AIChatPanel (replaces the old AIAssistPanel). Private per user — the
+// (actorId, documentId, sectionId) composite scopes each thread.
+//
+// Each prompt is single-shot — the LLM only sees whatever the user's scope
+// chip said to attach (section / document / source). The thread exists as
+// a VIEWING history, not a conversation context payload. So "memory"
+// visible in the UI; "memory" at the LLM level opt-in via scope.
+// --------------------------------------------------------------------------
+
+model AiConversationMessage {
+  id                 String    @id @default(uuid())
+  actorId            String                                             // user id (per-user private thread)
+  documentId         String
+  sectionId          String
+  role               String                                             // 'user' | 'assistant' | 'system'
+  content            String
+  // User turn: records which scope the user chose for context attachment.
+  // Assistant turn: null.
+  scope              String?                                            // 'section' | 'document' | 'source'
+  // Assistant turn: 'suggest' when it's replacement text (Accept button
+  // active) or 'explain' when it's commentary (no Accept). User turns: null.
+  kind               String?
+  intent             String?                                            // 'tighten' | 'explain' | 'custom' | 'edit' | 'draft_from_source'
+  aiCallRecordId     String?                                            // back-link to AiCallRecord (assistant turns only)
+  aiModel            String?                                            // denorm so the UI doesn't need a join
+  // Flipped true when the user clicks Accept on the assistant turn + the
+  // text gets copied to the section.
+  appliedToSection   Boolean   @default(false)
+  appliedAt          DateTime?
+  createdAt          DateTime  @default(now())
+
+  @@map("ai_conversation_messages")
+  @@index([actorId, documentId, sectionId, createdAt])
+  @@index([aiCallRecordId])
+}
+
+// --------------------------------------------------------------------------
 // Polymorphic edit history (sPM-edit-history-polymorphic).
 //
 // One row per non-noop content save across ANY module. Entity scoping is

@@ -236,6 +236,33 @@ export const documentsApi = {
     api.post<{ ok: true; documentId: string; sectionId: string; contentHtml: string; revertedAt: string }>(
       `/section-edits/${editHistoryId}/revert`, {},
     ),
+
+  // AI chat (sPM-ai-chat) — per-user, per-section conversation thread.
+  // Every /ai-suggest call writes two rows (user turn + assistant turn)
+  // into this thread; the panel renders them chronologically oldest-first.
+  getAiChat: (documentId: string, sectionId: string) =>
+    api.get<{
+      documentId: string
+      sectionId:  string
+      actorId:    string
+      messages: Array<{
+        id:               string
+        role:             'user' | 'assistant' | 'system'
+        content:          string
+        scope:            'section' | 'document' | 'source' | null
+        kind:             'suggest' | 'explain' | null
+        intent:           string | null
+        aiModel:          string | null
+        aiCallRecordId:   string | null
+        appliedToSection: boolean
+        appliedAt:        string | null
+        createdAt:        string
+      }>
+    }>(`/documents/${documentId}/sections/${sectionId}/ai-chat`),
+  acceptAiChatMessage: (messageId: string) =>
+    api.post<{ id: string; appliedToSection: boolean; appliedAt: string | null }>(
+      `/ai-chat-messages/${messageId}/accept`, {},
+    ),
   // Signatures
   // The API at /documents/:id/signature-chains returns SignatureChain[]
   // (each with nested records). The UI consumes a flat SignatureRecord[]

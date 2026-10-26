@@ -588,6 +588,13 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // revised passage (not the whole section) and the UI swaps it in
     // place. Keeps edits surgical and avoids collateral changes.
     selectionText: z.string().max(50_000).optional(),
+    // Context scope — user-chosen via the scope selector chip. Controls
+    // which content the LLM sees for this prompt (one-shot, per prompt).
+    // 'section' (default) — just this section's HTML
+    // 'document'          — all sections' HTML concatenated with headers
+    // 'source'            — list of linked source document titles (full
+    //                       text attachment not yet wired; placeholder note)
+    scope: z.enum(['section', 'document', 'source']).optional(),
     model: z.string().optional(),            // omitted -> the engine saved in Admin Panel -> AI Engine
   }).refine(b => b.intent !== 'edit' || !!b.customPrompt?.trim(), { message: 'Tell the AI what to change', path: ['customPrompt'] })
 
@@ -610,6 +617,45 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
     const sectionHeader = `${section.sectionNumber.startsWith('§') ? '' : '§'}${section.sectionNumber} ${section.sectionTitle}`
     const currentContent = (parsed.data.intent === 'edit' ? parsed.data.currentContent : undefined) ?? section.contentHtml ?? ''
+
+    // --- Scope-aware context attachment (sPM-ai-chat) ---------------------
+    // Default is 'section' (today's behaviour — only this section's HTML
+    // was already passed via currentContent). For 'document' and 'source'
+    // we expand what the LLM sees without changing the prompt wording;
+    // the base prompts (tighten/explain/edit/draft) already reference
+    // currentContent, so attaching extra context goes in a separate
+    // "Additional context" block the AI treats as reference-only.
+    const scope = parsed.data.scope ?? 'section'
+    let additionalContext = ''
+    if (scope === 'document') {
+      const allSections = doc.currentVersion?.sections ?? []
+      additionalContext = allSections
+        .filter(s => s.sectionId !== section.sectionId)                 // exclude the current section (already in currentContent)
+        .map(s => `§${s.sectionNumber} ${s.sectionTitle}:\n${s.contentHtml ?? '(empty)'}`)
+        .join('\n\n')
+    } else if (scope === 'source') {
+      // Full source-document text attachment is not yet wired (needs blob
+      // text extraction). For now list the linked source document titles
+      // so the AI knows what's referenced; replace with real text in a
+      // follow-up when source-doc blob extraction lands.
+      try {
+        const sources = await app.prisma.documentSource.findMany({
+          where:  { documentId },
+          select: { uploadId: true },
+        })
+        if (sources.length === 0) {
+          additionalContext = 'No source documents are linked to this document.'
+        } else {
+          const uploads = await app.prisma.contentUpload.findMany({
+            where:  { id: { in: sources.map(s => s.uploadId) } },
+            select: { fileName: true },
+          })
+          additionalContext = `Linked source documents (titles only; full text not yet attached in this context):\n${
+            uploads.map(u => `• ${u.fileName}`).join('\n')
+          }`
+        }
+      } catch { additionalContext = '' }                                 // non-fatal if source-docs table shape differs
+    }
 
     let prompt: string
     switch (parsed.data.intent) {
@@ -658,7 +704,16 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         break
     }
 
+    // Append the scope context (if any) to whatever prompt the intent built.
+    const promptWithScope = additionalContext
+      ? `${prompt}\n\n----\nAdditional context (scope=${scope}):\n${additionalContext}`
+      : prompt
+
     const model = await chooseModel(app.prisma, parsed.data.model)
+    const promptTextForHistory = (parsed.data.intent === 'custom' || parsed.data.intent === 'edit')
+      ? (parsed.data.customPrompt ?? '')
+      : parsed.data.intent
+
     try {
       const result = await app.aiGateway.chat({
         tenantId: request.user!.tenantId,
@@ -667,7 +722,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         module: 'A',
         intent: parsed.data.intent,
         model,
-        prompt,
+        prompt: promptWithScope,
         maxOutputTokens: parsed.data.intent === 'edit' ? 4096 : 2048,
         // Prompt-history + Undo context (sPM-history). Scopes the AiCallRecord
         // to the section and snapshots pre-call HTML so the UI can later Undo
@@ -676,15 +731,47 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         sectionId:         section.sectionId,
         documentVersionId: doc.currentVersionId ?? undefined,
         preCallSectionHtml: currentContent,
-        promptText:        (parsed.data.intent === 'custom' || parsed.data.intent === 'edit')
-          ? (parsed.data.customPrompt ?? '')
-          : parsed.data.intent,
+        promptText:        promptTextForHistory,
       })
+
+      // --- Write the exchange to the user's conversation thread -----------
+      // Two rows: the user's turn + the assistant's turn. The dock + the
+      // chat panel both read from here so every AI interaction is visible
+      // regardless of where it was initiated.
+      const kind = parsed.data.intent === 'explain' ? 'explain' : 'suggest'
+      const responseText = parsed.data.intent === 'edit' ? stripCodeFence(result.responseText) : result.responseText
+      try {
+        await app.prisma.aiConversationMessage.create({
+          data: {
+            actorId:    request.user!.id,
+            documentId,
+            sectionId:  section.sectionId,
+            role:       'user',
+            content:    promptTextForHistory,
+            scope:      scope,
+            intent:     parsed.data.intent,
+          },
+        })
+        await app.prisma.aiConversationMessage.create({
+          data: {
+            actorId:        request.user!.id,
+            documentId,
+            sectionId:      section.sectionId,
+            role:           'assistant',
+            content:        responseText,
+            kind,
+            intent:         parsed.data.intent,
+            aiCallRecordId: result.recordId,
+            aiModel:        result.model,
+          },
+        })
+      } catch { /* non-fatal — chat log shouldn't block the AI response */ }
+
       // Models sometimes wrap HTML in a code fence despite being asked not to.
       if (parsed.data.intent === 'edit') {
         return {
           ...result,
-          responseText: stripCodeFence(result.responseText),
+          responseText,
           scope: parsed.data.selectionText ? 'selection' : 'section',
         }
       }
@@ -694,6 +781,72 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(429).send({ error: 'quota_reached', message: err.message })
       }
       throw err
+    }
+  })
+
+  // ------------------------------------------------------------------------
+  // AI chat thread — per-user, per-section (sPM-ai-chat).
+  //
+  // GET /documents/:docId/sections/:secId/ai-chat
+  //   Returns the current user's conversation thread for this section,
+  //   oldest-first (so the UI can append new messages at the bottom
+  //   naturally). Private — scoped to request.user!.id.
+  //
+  // POST /ai-chat-messages/:messageId/accept
+  //   Marks an assistant message as applied (user clicked Accept + the
+  //   section save flow fired). Lets the panel render the "✓ Applied"
+  //   badge on the message without second-guessing.
+  // ------------------------------------------------------------------------
+
+  app.get('/:documentId/sections/:sectionId/ai-chat', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      include: { currentVersion: { include: { sections: { where: { OR: [{ sectionId }, { id: sectionId }] } } } } },
+    })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    const section = doc.currentVersion?.sections[0]
+    if (!section) return reply.code(404).send({ error: 'section_not_found' })
+
+    const rows = await app.prisma.aiConversationMessage.findMany({
+      where:   { actorId: request.user!.id, documentId, sectionId: section.sectionId },
+      orderBy: { createdAt: 'asc' },
+    })
+    return {
+      documentId,
+      sectionId:  section.sectionId,
+      actorId:    request.user!.id,
+      messages: rows.map(r => ({
+        id:               r.id,
+        role:             r.role,
+        content:          r.content,
+        scope:            r.scope,
+        kind:             r.kind,
+        intent:           r.intent,
+        aiModel:          r.aiModel,
+        aiCallRecordId:   r.aiCallRecordId,
+        appliedToSection: r.appliedToSection,
+        appliedAt:        r.appliedAt ? r.appliedAt.toISOString() : null,
+        createdAt:        r.createdAt.toISOString(),
+      })),
+    }
+  })
+
+  app.post('/ai-chat-messages/:messageId/accept', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { messageId } = request.params as { messageId: string }
+    const msg = await app.prisma.aiConversationMessage.findUnique({ where: { id: messageId } })
+    if (!msg) return reply.code(404).send({ error: 'not_found' })
+    if (msg.actorId !== request.user!.id) return reply.code(403).send({ error: 'not_your_message' })
+    if (msg.role !== 'assistant') return reply.code(422).send({ error: 'not_an_assistant_message' })
+
+    const updated = await app.prisma.aiConversationMessage.update({
+      where: { id: messageId },
+      data:  { appliedToSection: true, appliedAt: new Date() },
+    })
+    return {
+      id:               updated.id,
+      appliedToSection: updated.appliedToSection,
+      appliedAt:        updated.appliedAt?.toISOString() ?? null,
     }
   })
 

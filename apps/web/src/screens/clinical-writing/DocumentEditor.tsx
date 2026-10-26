@@ -24,13 +24,13 @@ import { ReviewAssignmentPanel }  from '../../panels/ReviewAssignmentPanel'
 import { ICHValidatorPanel }      from '../../panels/ICHValidatorPanel'
 import { MedDRAPanel }            from '../../panels/MedDRAPanel'
 import { CommentsPanel }          from '../../panels/CommentsPanel'
-import { AIAssistPanel }          from '../../panels/AIAssistPanel'
+import { AIChatPanel }            from '../../panels/AIChatPanel'
 import { SectionHistoryPanel }    from '../../panels/SectionHistoryPanel'
 import { AIPromptHelpPanel }      from '../../panels/AIPromptHelpPanel'
 
 // Panel titles for the right panel header
 const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
-  'ai':                'AI Suggest',
+  'ai':                'AI Chat',
   'ai-help':           'Prompt library',
   'history':           'Section History',
   'traceability':      'Source References',
@@ -1028,10 +1028,16 @@ export function DocumentEditor() {
               />
             )}
             {activePanel === 'ai' && documentId && (
-              <AIAssistPanel
+              <AIChatPanel
                 documentId={documentId}
                 sectionId={activeSection}
                 sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
+                onAcceptSuggestion={(html, model) => {
+                  if (!isEditing) setIsEditing(true)
+                  editor?.commands.setContent(html, { emitUpdate: false })
+                  setDraftContent(html)
+                  setAiEditModel(model)
+                }}
               />
             )}
             {activePanel === 'traceability' && documentId && projectId && (

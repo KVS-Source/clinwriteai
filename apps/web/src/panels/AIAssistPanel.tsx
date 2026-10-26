@@ -71,11 +71,15 @@ export function AIAssistPanel({ documentId, sectionId, sectionLabel, onAccepted 
         contentHtml: isEditing ? edited : result.responseText,
         aiDrafted: true,
         aiModel: result.model,
+        // Pass the AiCallRecord id so the server stamps it with
+        // postCallDocumentVersionId — enables Undo in AIHistoryPanel.
+        aiCallRecordId: result.recordId,
       })
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['document', documentId] })
       qc.invalidateQueries({ queryKey: ['versions', documentId] })
+      qc.invalidateQueries({ queryKey: ['section-history', documentId, sectionId] })
       setResult(null)
       setEdited('')
       onAccepted?.()

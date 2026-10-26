@@ -296,7 +296,7 @@ export const haCorrespondenceRoutes: FastifyPluginAsync = async (app) => {
     const latest = await app.prisma.haResponseDraft.findFirst({
       where: { questionId },
       orderBy: { versionNumber: 'desc' },
-      select: { versionNumber: true },
+      select: { versionNumber: true, draftText: true },
     })
     const nextVersion = (latest?.versionNumber ?? 0) + 1
 
@@ -329,7 +329,91 @@ export const haCorrespondenceRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
+    // Polymorphic edit history — entityId is the questionId since HA drafts
+    // form a per-question append chain. origin='ai' when the draft carries a
+    // 100% AI footprint (today's /generate stub); otherwise manual.
+    await app.editHistory.recordEdit({
+      entityType: 'ha_response_draft',
+      entityId:   questionId,
+      subUnitId:  String(nextVersion),
+      actorId:    request.user!.id,
+      origin:     (parsed.data.aiFootprintPct ?? 0) === 100 ? 'ai' : 'manual',
+      beforeHtml: latest?.draftText ?? null,
+      afterHtml:  parsed.data.draftText,
+    })
+
     return reply.code(201).send(draft)
+  })
+
+  // --- Edit history + revert (polymorphic EditHistory, Module D consumer) ---
+  //
+  // Each HA question has its own append chain of HaResponseDraft rows. The
+  // history endpoint returns every version keyed by questionId. Revert
+  // creates a NEW draft version with the restored text (preserves append
+  // integrity) via the shared EditHistoryService handler.
+  app.get('/ha-questions/:questionId/history', { preHandler: requireAuth({ modules: ['D'] }) }, async (request) => {
+    const { questionId } = request.params as { questionId: string }
+    const q = request.query as { mine?: string; origin?: string }
+
+    const rows = await app.editHistory.listHistory({
+      entityType: 'ha_response_draft',
+      entityId:   questionId,
+      actorId:    q.mine === 'true' ? request.user!.id : undefined,
+      origin:     (q.origin && ['manual', 'ai', 'undo', 'restore'].includes(q.origin))
+                    ? q.origin as 'manual' | 'ai' | 'undo' | 'restore'
+                    : undefined,
+    })
+
+    const actorIds = Array.from(new Set(rows.map(r => r.actorId)))
+    const actors = actorIds.length === 0
+      ? []
+      : await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+    const actorMap = new Map(actors.map(a => [a.id, a.name]))
+
+    return {
+      entityType: 'ha_response_draft',
+      entityId:   questionId,
+      entries: rows.map(r => ({
+        id:                 r.id,
+        actorId:            r.actorId,
+        actorName:          actorMap.get(r.actorId) ?? r.actorId,
+        origin:             r.origin,
+        createdAt:          r.createdAt.toISOString(),
+        beforeHtml:         r.beforeHtml,
+        afterHtml:          r.afterHtml,
+        aiCallRecordId:     r.aiCallRecordId,
+        revertedFromId:     r.revertedFromId,
+        promptText:         null,
+        aiModel:            null,
+        interveningCount:   r.interveningCount,
+        interveningByActor: r.interveningByActor.map(a => ({ ...a, actorName: actorMap.get(a.actorId) ?? a.actorId })),
+        canRevert:          r.beforeHtml !== null,
+      })),
+    }
+  })
+
+  app.post('/ha-draft-edits/:editId/revert', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
+    const { editId } = request.params as { editId: string }
+    try {
+      const result = await app.editHistory.revert(editId, request.user!.id)
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: request.user!.id,
+        action: 'ha_response_reverted',
+        entityType: 'ha_question',
+        entityId: editId,
+        details: { editId, inPlace: false, note: 'created a new draft version with restored text' },
+        ipAddress: request.ip ?? null,
+      })
+      return { ok: true, draftText: result.contentAfter, revertedAt: new Date().toISOString() }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'revert_failed'
+      if (msg === 'cannot_revert_no_snapshot')
+        return reply.code(422).send({ error: 'no_snapshot' })
+      if (msg.includes('not_found'))
+        return reply.code(404).send({ error: 'not_found' })
+      throw err
+    }
   })
 
   // --- Review a draft (approve or reject) --------------------------------

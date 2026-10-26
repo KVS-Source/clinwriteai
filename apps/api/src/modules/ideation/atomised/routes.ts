@@ -129,6 +129,19 @@ export const atomisedRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
+    // Polymorphic edit history — origin='ai' because atomised content is
+    // always AI-drafted (aiGenerated defaults true in the schema). First
+    // write has no beforeHtml snapshot — nothing existed before.
+    await app.editHistory.recordEdit({
+      entityType: 'atomised_content',
+      entityId:   cardId,
+      subUnitId:  parsed.data.channel,
+      actorId:    request.user!.id,
+      origin:     parsed.data.aiGenerated ? 'ai' : 'manual',
+      beforeHtml: null,
+      afterHtml:  parsed.data.contentText,
+    })
+
     return reply.code(201).send(atomisedShape(created))
   })
 
@@ -164,6 +177,20 @@ export const atomisedRoutes: FastifyPluginAsync = async (app) => {
       details: { atomisedId: updated.id, channel, aiFootprintHash: hash.slice(0, 16) },
       ipAddress: request.ip ?? null,
     })
+
+    // Polymorphic edit history — only write if the text actually changed
+    // (keeps history honest; a no-op PUT shouldn't clutter the feed).
+    if ((existing.contentText ?? '') !== parsed.data.contentText) {
+      await app.editHistory.recordEdit({
+        entityType: 'atomised_content',
+        entityId:   cardId,
+        subUnitId:  channel,
+        actorId:    request.user!.id,
+        origin:     parsed.data.aiGenerated ? 'ai' : 'manual',
+        beforeHtml: existing.contentText ?? null,
+        afterHtml:  parsed.data.contentText,
+      })
+    }
 
     return updated
   })
@@ -238,5 +265,86 @@ export const atomisedRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
     return updated
+  })
+
+  // --- Edit history + revert (polymorphic EditHistory, Module E first consumer) ---
+  //
+  // GET /cards/:cardId/atomised/:channel/history
+  //   Returns the full per-channel edit history for that card+channel pair.
+  //   Supports ?mine=true and ?origin=ai|manual|undo|restore like Module A.
+  //
+  // POST /atomised-edits/:editId/revert
+  //   Restores the channel's contentText to the beforeHtml of that history
+  //   row via the shared EditHistoryService + its atomised_content handler.
+  //
+  // Rows persist independent of the atomised row's lifecycle — if a user
+  // deletes + recreates a channel adaptation, the earlier edits still show
+  // in the panel (chronology preserved).
+
+  app.get('/cards/:cardId/atomised/:channel/history', { preHandler: requireAuth({ modules: ['E'] }) }, async (request) => {
+    const { cardId, channel } = request.params as { cardId: string; channel: string }
+    const q = request.query as { mine?: string; origin?: string }
+
+    const rows = await app.editHistory.listHistory({
+      entityType: 'atomised_content',
+      entityId:   cardId,
+      subUnitId:  channel,
+      actorId:    q.mine === 'true' ? request.user!.id : undefined,
+      origin:     (q.origin && ['manual', 'ai', 'undo', 'restore'].includes(q.origin))
+                    ? q.origin as 'manual' | 'ai' | 'undo' | 'restore'
+                    : undefined,
+    })
+
+    const actorIds = Array.from(new Set(rows.map(r => r.actorId)))
+    const actors = actorIds.length === 0
+      ? []
+      : await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+    const actorMap = new Map(actors.map(a => [a.id, a.name]))
+
+    return {
+      entityType: 'atomised_content',
+      entityId:   cardId,
+      subUnitId:  channel,
+      entries: rows.map(r => ({
+        id:                 r.id,
+        actorId:            r.actorId,
+        actorName:          actorMap.get(r.actorId) ?? r.actorId,
+        origin:             r.origin,
+        createdAt:          r.createdAt.toISOString(),
+        beforeHtml:         r.beforeHtml,
+        afterHtml:          r.afterHtml,
+        aiCallRecordId:     r.aiCallRecordId,
+        revertedFromId:     r.revertedFromId,
+        promptText:         null,                     // AI integration for atomised comes later
+        aiModel:            null,
+        interveningCount:   r.interveningCount,
+        interveningByActor: r.interveningByActor.map(a => ({ ...a, actorName: actorMap.get(a.actorId) ?? a.actorId })),
+        canRevert:          !!r.beforeHtml,
+      })),
+    }
+  })
+
+  app.post('/atomised-edits/:editId/revert', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
+    const { editId } = request.params as { editId: string }
+    try {
+      const result = await app.editHistory.revert(editId, request.user!.id)
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: request.user!.id,
+        action: 'atomised_content_reverted',
+        entityType: 'ideation_card',
+        entityId: editId,
+        details: { editId, inPlace: true },
+        ipAddress: request.ip ?? null,
+      })
+      return { ok: true, contentText: result.contentAfter, revertedAt: new Date().toISOString() }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'revert_failed'
+      if (msg === 'cannot_revert_no_snapshot')
+        return reply.code(422).send({ error: 'no_snapshot' })
+      if (msg.includes('not_found'))
+        return reply.code(404).send({ error: 'not_found' })
+      throw err
+    }
   })
 }

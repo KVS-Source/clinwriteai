@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom'
 import type { ReviewComment, ReviewerTab } from '@platform/types'
 import { publicationsApi } from '../../api'
 import { useReviewStore } from '../../modules/scientific-writing/store'
+import { PeerReviewHistoryPanel } from '../../panels/PeerReviewHistoryPanel'
 
 // --- Static config ---
 
@@ -152,6 +153,8 @@ export function PeerReviewResponse() {
   const [aiFlags,     setAiFlags]     = useState<Record<string, boolean>>({})
   const [doneMap,     setDoneMap]     = useState<Record<string, boolean>>({})
   const [previewOpen, setPreviewOpen] = useState(false)
+  // Edit-history overlay target — one comment's history at a time.
+  const [historyTarget, setHistoryTarget] = useState<null | { roundId: string; commentId: string; label: string }>(null)
   const [toast,       setToast]       = useState<string | null>(null)
 
   // Fetch rounds → get first (latest)
@@ -473,6 +476,24 @@ export function PeerReviewResponse() {
                           </svg>
                           Draft with AI
                         </button>
+                        <button
+                          type="button"
+                          onClick={() => round && setHistoryTarget({
+                            roundId:   round.id,
+                            commentId: comment.id,
+                            label:     `${comment.reviewerTab.toUpperCase()} · Comment ${comment.commentNumber}`,
+                          })}
+                          disabled={!round}
+                          title="Edit history for this response"
+                          aria-label="Edit history for this response"
+                          data-comment-history={comment.id}
+                          className="flex items-center justify-center rounded-md border border-slate-300 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="7" cy="7" r="5.6" />
+                            <polyline points="7,3.4 7,7 9.4,8.4" />
+                          </svg>
+                        </button>
                       </div>
 
                       {/* Textarea */}
@@ -604,6 +625,39 @@ export function PeerReviewResponse() {
         >
           <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ backgroundColor: '#0D9488' }} />
           <span className="leading-relaxed">{toast}</span>
+        </div>
+      )}
+
+      {historyTarget && (
+        <div
+          role="dialog"
+          aria-modal="false"
+          className="fixed inset-0 z-40 flex justify-end"
+          onClick={() => setHistoryTarget(null)}
+          onKeyDown={e => { if (e.key === 'Escape') setHistoryTarget(null) }}
+          data-peer-review-history-overlay
+        >
+          <div
+            className="flex h-full w-[380px] flex-col border-l border-slate-200 bg-white shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex h-10 flex-none items-center justify-between border-b border-slate-200 px-3">
+              <p className="text-[12px] font-semibold text-slate-700">Edit history</p>
+              <button
+                type="button"
+                onClick={() => setHistoryTarget(null)}
+                className="rounded p-1 text-slate-500 hover:bg-slate-100"
+                aria-label="Close"
+              >
+                <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M3 3l8 8M11 3l-8 8" /></svg>
+              </button>
+            </div>
+            <PeerReviewHistoryPanel
+              roundId={historyTarget.roundId}
+              commentId={historyTarget.commentId}
+              label={historyTarget.label}
+            />
+          </div>
         </div>
       )}
     </div>

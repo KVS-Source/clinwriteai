@@ -154,6 +154,12 @@ export const documentsApi = {
   // Versions
   getVersions: (documentId: string) =>
     api.get<DocumentVersion[]>(`/documents/${documentId}/versions`),
+  // Explicit "Create new version" — snapshots the current section set into a
+  // brand-new DocumentVersion row. Normal section saves mutate in place; this
+  // is one of the three sanctioned triggers for a new version (the others are
+  // review-bounce and restore).
+  createVersion: (documentId: string, body: { label?: 'Draft' | 'For Review' | 'Final'; note?: string } = {}) =>
+    api.post<DocumentVersion>(`/documents/${documentId}/versions`, body),
   restoreSections: (documentId: string, body: RestoreSectionsBody) =>
     api.post<Document>(`/documents/${documentId}/restore`, body),
   // Review
@@ -195,6 +201,41 @@ export const documentsApi = {
     api.post<AISuggestion>(`/documents/${documentId}/ai-suggest`, body),
   acceptSuggestion: (documentId: string, body: AcceptSuggestionBody) =>
     api.post<Document>(`/documents/${documentId}/ai-accept`, body),
+  // Unified per-section edit history (sPM-section-history). Every save
+  // writes a row — manual, AI accept, undo, restore. The optional filters
+  // let the UI switch between the user's own feed and the team-wide view,
+  // or restrict to one origin kind.
+  getSectionHistory: (documentId: string, sectionId: string, filters: { mine?: boolean; origin?: 'manual' | 'ai' | 'undo' | 'restore' } = {}) => {
+    const qs = new URLSearchParams()
+    if (filters.mine)   qs.set('mine', 'true')
+    if (filters.origin) qs.set('origin', filters.origin)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return api.get<{
+      documentId: string
+      sectionId: string
+      currentVersionId: string | null
+      entries: Array<{
+        id: string
+        actorId: string
+        actorName: string
+        origin: 'manual' | 'ai' | 'undo' | 'restore'
+        createdAt: string
+        documentVersionId: string
+        aiCallRecordId: string | null
+        revertedFromId: string | null
+        promptText: string | null
+        aiIntent:  string | null
+        aiModel:   string | null
+        interveningCount: number
+        interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
+        canRevert: boolean
+      }>
+    }>(`/documents/${documentId}/sections/${sectionId}/history${suffix}`)
+  },
+  revertSectionEdit: (editHistoryId: string) =>
+    api.post<{ ok: true; documentId: string; sectionId: string; contentHtml: string; revertedAt: string }>(
+      `/section-edits/${editHistoryId}/revert`, {},
+    ),
   // Signatures
   // The API at /documents/:id/signature-chains returns SignatureChain[]
   // (each with nested records). The UI consumes a flat SignatureRecord[]

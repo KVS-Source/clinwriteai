@@ -158,6 +158,40 @@ export const regulatoryWritingApi = {
       `/reg-submissions/${submissionId}/ha-correspondence/${correspondenceId}/submit-response`, body,
     ),
 
+  // Polymorphic edit history for HA response drafts (sPM-edit-history-polymorphic).
+  // Append model — each entry corresponds to a HaResponseDraft version. Revert
+  // creates a NEW draft version with the restored text, preserving the chain.
+  getHAResponseHistory: (questionId: string, filters: { mine?: boolean; origin?: 'manual' | 'ai' | 'undo' | 'restore' } = {}) => {
+    const qs = new URLSearchParams()
+    if (filters.mine)   qs.set('mine', 'true')
+    if (filters.origin) qs.set('origin', filters.origin)
+    const suffix = qs.toString() ? `?${qs}` : ''
+    return api.get<{
+      entityType: 'ha_response_draft'
+      entityId: string
+      entries: Array<{
+        id: string
+        actorId: string
+        actorName: string
+        origin: 'manual' | 'ai' | 'undo' | 'restore'
+        createdAt: string
+        beforeHtml: string | null
+        afterHtml: string
+        aiCallRecordId: string | null
+        revertedFromId: string | null
+        promptText: string | null
+        aiModel: string | null
+        interveningCount: number
+        interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
+        canRevert: boolean
+      }>
+    }>(`/ha-questions/${questionId}/history${suffix}`)
+  },
+  revertHAResponseEdit: (editHistoryId: string) =>
+    api.post<{ ok: true; draftText: string; revertedAt: string }>(
+      `/ha-draft-edits/${editHistoryId}/revert`, {},
+    ),
+
   // Regulatory intelligence
   listRegulatoryAlerts: () =>
     api.get<RegulatoryAlert[]>(`/regulatory-alerts`),

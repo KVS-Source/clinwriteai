@@ -171,6 +171,40 @@ model AiCallRecord {
   rateCardVersionId String?
   createdAt       DateTime @default(now())
 
+  // --- Prompt history + section-level Undo (sPM-history) ---------------------
+  // Populated for ai_suggest-style calls originating from a specific document
+  // section. Older rows (and gateway calls that aren't tied to a section —
+  // e.g. module-level claims harvest) leave these null.
+  //
+  // promptText: the exact prompt text the user typed / was composed. Plaintext
+  // for now; column-level encryption deferred along with Kol/MaContact mobile.
+  //
+  // preCallSectionHtml: snapshot of the section's HTML immediately BEFORE
+  // the LLM ran. Used by Undo to swap the section back in place. Response
+  // text is NOT stored (the Accepted response lives in SectionContent).
+  //
+  // documentId + sectionId + documentVersionId: scope. The Undo UI filters
+  // "last non-undone prompt for this section on the current version".
+  //
+  // postCallDocumentVersionId: filled by the section-update route when the
+  // user clicks Accept, so history can link each prompt to the version that
+  // got created from it (for the "view change" diff).
+  //
+  // undoneAt / undoneBy: once a prompt is undone, keep the row for history
+  // (strike-through in UI) but exclude it from "last undo-able" calc.
+  //
+  // promptMeta: forward-compat slot for the selection-level prompt feature
+  // another team is adding (anchor offsets, selected text, etc.).
+  promptText                 String?
+  preCallSectionHtml         String?
+  documentId                 String?
+  sectionId                  String?
+  documentVersionId          String?
+  postCallDocumentVersionId  String?
+  undoneAt                   DateTime?
+  undoneBy                   String?
+  promptMeta                 Json?
+
   rateCardVersion RateCardVersion? @relation(fields: [rateCardVersionId], references: [id])
 
   @@map("ai_call_records")
@@ -178,6 +212,58 @@ model AiCallRecord {
   @@index([projectId, createdAt])
   @@index([actorId, createdAt])
   @@index([module, createdAt])
+  @@index([documentId, sectionId, createdAt])
+}
+
+// --------------------------------------------------------------------------
+// Polymorphic edit history (sPM-edit-history-polymorphic).
+//
+// One row per non-noop content save across ANY module. Entity scoping is
+// (entityType, entityId, subUnitId) — e.g. clinical_section / documentId /
+// sectionId; atomised_content / contentCardId / channel.
+//
+// For Module A (clinical_section) the convenience columns documentId,
+// sectionId, documentVersionId are also populated — kept for query
+// convenience + backward compat with the pre-polymorphic schema. New entity
+// types leave those columns NULL and rely purely on the polymorphic keys.
+// --------------------------------------------------------------------------
+
+model EditHistory {
+  id                  String    @id @default(uuid())
+  // Polymorphic scope — identifies what was edited across modules.
+  // 'clinical_section' | 'atomised_content' | 'peer_review_response' |
+  // 'ha_response_draft' | 'slide' | …
+  entityType          String
+  entityId            String                                 // document id, publication id, submission id, deck id, …
+  subUnitId           String?                                // section id, channel, question id, slide id, …
+
+  actorId             String
+  // 'manual' | 'ai' | 'undo' | 'restore'
+  origin              String
+  // beforeHtml / afterHtml deliberately named for backward compat with
+  // Module A — in practice they hold whatever text/html the entity's edit
+  // is. Non-text entities (future slides-as-JSON) can serialise into these.
+  beforeHtml          String?
+  afterHtml           String
+  // Non-null when origin='ai' — back-link to the AiCallRecord carrying the
+  // prompt + cost metadata (no FK; AI retention policy is separate).
+  aiCallRecordId      String?
+  // Non-null when origin='undo' — the EditHistory row this revert undid.
+  revertedFromId      String?
+  createdAt           DateTime  @default(now())
+
+  // --- Clinical-section convenience columns (Module A compatibility) ---
+  // Populated when entityType='clinical_section'; NULL otherwise. Lets
+  // Module A code + queries keep working untouched; new modules ignore.
+  documentId          String?
+  sectionId           String?
+  documentVersionId   String?
+
+  @@map("edit_history")
+  @@index([entityType, entityId, subUnitId, createdAt])
+  @@index([documentId, sectionId, createdAt])
+  @@index([actorId])
+  @@index([aiCallRecordId])
 }
 
 // --------------------------------------------------------------------------

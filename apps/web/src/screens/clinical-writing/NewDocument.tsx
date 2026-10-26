@@ -30,11 +30,13 @@ interface Props {
   duplicateSourceId?: string | null
   // Source documents (uploads) to preselect — "Create document from this source".
   initialSourceIds?: string[]
+  // The project's therapeutic area — every document inherits it (FR-A-002)
+  projectTherapeuticArea?: string | null
   onCreated?: (documentId: string) => void
   onCancel?:  () => void
 }
 
-export function NewDocumentForm({ projectId, duplicateSourceId, initialSourceIds, onCreated, onCancel }: Props) {
+export function NewDocumentForm({ projectId, duplicateSourceId, initialSourceIds, projectTherapeuticArea, onCreated, onCancel }: Props) {
   const qc = useQueryClient()
 
   const [type,                 setType]                 = useState<DocumentType>('csr-full')
@@ -147,6 +149,17 @@ export function NewDocumentForm({ projectId, duplicateSourceId, initialSourceIds
               placeholder="VELORA-301 CSR v1.0 — Primary Analysis"
               className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
           </label>
+          {/* FR-A-002 / AC-A-007: mandatory, inherited from the project, fixed after creation (Admin-only change) */}
+          <div className="flex flex-col gap-1" data-field="therapeutic-area">
+            <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Therapeutic area *
+              <span className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-blue-700" data-ta-inherited>INHERITED</span>
+            </span>
+            <div className="flex h-9 items-center rounded-md border border-slate-200 bg-slate-100 px-3 text-[13px] text-slate-700" aria-readonly="true">
+              {projectTherapeuticArea || 'Loading…'}
+            </div>
+            <span className="text-[11px] text-slate-500">Set by the project. Only an Admin can change it after the document is created.</span>
+          </div>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Assigned writer *</span>
             <select value={assigneeId} onChange={e => setAssigneeId(e.currentTarget.value)} required

@@ -5,9 +5,11 @@ import type { AtomisedContent } from '@platform/types'
 interface Props {
   adaptation: AtomisedContent
   onEdit?: () => void
+  /** Open the per-channel edit history panel (sPM-edit-history-polymorphic). */
+  onShowHistory?: () => void
 }
 
-export function ChannelAdaptationCard({ adaptation, onEdit }: Props) {
+export function ChannelAdaptationCard({ adaptation, onEdit, onShowHistory }: Props) {
   const hasFix = adaptation.complianceFixes.length > 0
   return (
     <article
@@ -34,6 +36,21 @@ export function ChannelAdaptationCard({ adaptation, onEdit }: Props) {
           <span>{adaptation.characterCount} chars</span>
           <span>·</span>
           <span>{adaptation.wordCount} words</span>
+          {onShowHistory && (
+            <button
+              type="button"
+              onClick={onShowHistory}
+              data-adaptation-history={adaptation.id}
+              title="Edit history for this channel"
+              aria-label="Edit history for this channel"
+              className="flex items-center justify-center rounded border border-slate-300 bg-white p-1 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+            >
+              <svg width="11" height="11" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="7" cy="7" r="5.6" />
+                <polyline points="7,3.4 7,7 9.4,8.4" />
+              </svg>
+            </button>
+          )}
           {onEdit && (
             <button
               type="button"

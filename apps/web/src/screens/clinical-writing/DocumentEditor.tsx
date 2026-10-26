@@ -8,6 +8,7 @@ import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill } from '../../components/ui'
 import { useDocumentStore, useProjectStore, useAuthStore, useEditorStore } from '../../store'
+import { SectionAIPrompt } from './SectionAIPrompt'
 import { SourceReferencesPanel } from '../../panels/SourceReferencesPanel'
 import {
   applyReferenceHighlights, buildTextIndex, clearReferenceHighlights, normalizeSpan, referenceAtPoint, spanOfRange, type LinkedRange,
@@ -24,10 +25,14 @@ import { ICHValidatorPanel }      from '../../panels/ICHValidatorPanel'
 import { MedDRAPanel }            from '../../panels/MedDRAPanel'
 import { CommentsPanel }          from '../../panels/CommentsPanel'
 import { AIAssistPanel }          from '../../panels/AIAssistPanel'
+import { SectionHistoryPanel }    from '../../panels/SectionHistoryPanel'
+import { AIPromptHelpPanel }      from '../../panels/AIPromptHelpPanel'
 
 // Panel titles for the right panel header
 const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
   'ai':                'AI Suggest',
+  'ai-help':           'Prompt library',
+  'history':           'Section History',
   'traceability':      'Source References',
   'voice':             'Voice Note',
   'checklist':         'Input Checklist',
@@ -125,12 +130,16 @@ export function DocumentEditor() {
   )
   const [draftContent, setDraftContent] = useState<string>('')
   const [isEditing, setIsEditing] = useState<boolean>(false)
+  // Set when an AI edit from the prompt box was accepted into the draft — the save is then
+  // recorded as AI-drafted with this model (Part 11 provenance, FR-A-021).
+  const [aiEditModel, setAiEditModel] = useState<string | null>(null)
 
   // Switching sections starts the new section fresh. The editor's save pattern is explicit (click
   // Save), so leaving a section mid-edit IS a discard.
   useEffect(() => {
     setDraftContent(activeSectionData?.contentHtml ?? '')
     setIsEditing(false)
+    setAiEditModel(null)
   }, [activeSectionData?.id])
 
   // A reload that changes the section's saved text (someone else saved, or your own save came back)
@@ -144,10 +153,12 @@ export function DocumentEditor() {
       if (!documentId || !activeSectionData) throw new Error('no_active_section')
       return documentsApi.updateSection(documentId, activeSectionData.id, {
         contentHtml: draftContent,
+        ...(aiEditModel ? { aiDrafted: true, aiModel: aiEditModel } : {}),
       })
     },
     onSuccess: () => {
       setIsEditing(false)
+      setAiEditModel(null)
       // Server auto-creates a new DocumentVersion on content hash
       // change — invalidate both so the version chip updates too.
       qc.invalidateQueries({ queryKey: ['document', documentId] })
@@ -262,6 +273,28 @@ export function DocumentEditor() {
   // the diff against the current version.
   const [versionMenuOpen, setVersionMenuOpen] = useState(false)
   const versionMenuRef = useRef<HTMLDivElement>(null)
+  // Create-new-version inline form state. Hidden by default inside the
+  // version dropdown; expands when the user clicks "Create new version".
+  const [createVersionFormOpen, setCreateVersionFormOpen] = useState(false)
+  const [newVersionLabel, setNewVersionLabel] = useState<'Draft' | 'For Review' | 'Final'>('Draft')
+  const [newVersionNote,  setNewVersionNote]  = useState('')
+  const createVersion = useMutation({
+    mutationFn: () => {
+      if (!documentId) throw new Error('no_document')
+      return documentsApi.createVersion(documentId, {
+        label: newVersionLabel,
+        note:  newVersionNote.trim() || undefined,
+      })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['versions', documentId] })
+      qc.invalidateQueries({ queryKey: ['document', documentId] })
+      setCreateVersionFormOpen(false)
+      setNewVersionNote('')
+      setNewVersionLabel('Draft')
+      setVersionMenuOpen(false)
+    },
+  })
   useEffect(() => {
     if (!versionMenuOpen) return
     const handler = (e: MouseEvent) => {
@@ -362,21 +395,28 @@ export function DocumentEditor() {
   // Closing the panel closes the viewer too.
   useEffect(() => { if (activePanel !== 'traceability') setSourceViewer(null) }, [activePanel, setSourceViewer])
 
-  // Source References closes on a click outside it. A click in the section still counts as
-  // outside, except when it ends a text selection (picking the text to link) or lands on
-  // reference-marked text (which opens that source in the panel). A press that starts in the
-  // panel (resizing, selecting) or the Reference menu never closes it — checked on mousedown,
-  // since the menu is gone from the page by the time the click fires.
+  // Source References, Audit Trail and AI Suggest close on a click outside the panel. A click
+  // in the section still counts as outside, except when it ends a text selection (picking the
+  // text to link) or lands on reference-marked text (which opens that source in the panel). A press that starts in the
+  // panel (resizing, selecting), the Reference menu or a button that opens a panel
+  // ([data-panel-trigger] — it toggles/switches the panel itself) never closes it. Checked
+  // on mousedown, since the menu is gone from the page by the time the click fires.
   const rightPanelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (activePanel !== 'traceability') return
+    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'ai') return
+    // The click that opened the panel is still being dispatched when this listener is added,
+    // so only clicks whose mousedown we saw count.
+    let pressed = false
     let pressedExempt = false
     const onDown = (e: MouseEvent) => {
       const t = e.target as Element | null
-      pressedExempt = !t || !!rightPanelRef.current?.contains(t) || !!t.closest('[data-reference-dropdown], [data-slide-panel]')
+      pressed = true
+      pressedExempt = !t || !!rightPanelRef.current?.contains(t) || !!t.closest('[data-reference-dropdown], [data-slide-panel], [data-panel-trigger]')
     }
     const onClick = (e: MouseEvent) => {
       const t = e.target as Element | null
+      if (!pressed) return
+      pressed = false
       if (!t || pressedExempt || !t.isConnected || rightPanelRef.current?.contains(t)) return
       if (!window.getSelection()?.isCollapsed) return   // the click ended a text selection
       if (sectionContentRef.current?.contains(t) && referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)) return
@@ -491,6 +531,72 @@ export function DocumentEditor() {
                       data-version-compare-previous
                     >Compare with previous version ({previousVersion} → {currentVersion})</button>
                   )}
+
+                  {/* --- Create new version — explicit snapshot ----------------
+                       Section saves mutate the current version in place. This
+                       button is one of the three sanctioned ways to create a
+                       new DocumentVersion row (the other two happen on
+                       review-bounce and section restore). */}
+                  {!createVersionFormOpen && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => setCreateVersionFormOpen(true)}
+                      className="mt-1 rounded border-t border-slate-100 px-3 py-2 text-left text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                      data-version-create
+                    >+ Create new version</button>
+                  )}
+                  {createVersionFormOpen && (
+                    <form
+                      onSubmit={e => { e.preventDefault(); createVersion.mutate() }}
+                      className="mt-1 flex flex-col gap-2 border-t border-slate-100 px-3 py-3"
+                      data-version-create-form
+                    >
+                      <label className="flex flex-col gap-1">
+                        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Label</span>
+                        <select
+                          value={newVersionLabel}
+                          onChange={e => setNewVersionLabel(e.currentTarget.value as 'Draft' | 'For Review' | 'Final')}
+                          className="rounded-md border border-slate-300 px-2 py-1 text-[12px]"
+                          disabled={createVersion.isPending}
+                        >
+                          <option value="Draft">Draft</option>
+                          <option value="For Review">For Review</option>
+                          <option value="Final">Final</option>
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Note (optional)</span>
+                        <textarea
+                          value={newVersionNote}
+                          onChange={e => setNewVersionNote(e.currentTarget.value)}
+                          rows={2}
+                          maxLength={500}
+                          placeholder="e.g. Pre-review checkpoint before Dr Chen's bounce"
+                          className="rounded-md border border-slate-300 p-2 text-[12px]"
+                          disabled={createVersion.isPending}
+                        />
+                      </label>
+                      {createVersion.isError && (
+                        <p className="text-[11px] text-rose-600" role="alert">
+                          Could not create version — please try again.
+                        </p>
+                      )}
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setCreateVersionFormOpen(false); setNewVersionNote('') }}
+                          disabled={createVersion.isPending}
+                          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        >Cancel</button>
+                        <button
+                          type="submit"
+                          disabled={createVersion.isPending}
+                          className="rounded-md bg-emerald-600 px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300"
+                        >{createVersion.isPending ? 'Creating…' : 'Create'}</button>
+                      </div>
+                    </form>
+                  )}
                 </div>
               )}
             </div>
@@ -604,7 +710,14 @@ export function DocumentEditor() {
 
         {/* Editor pane — position:relative so right panel can overlay */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar editor={editor} />
+          <EditorToolbar
+            editor={editor}
+            editSection={activeSectionData && !isEditing ? {
+              onClick: () => setIsEditing(true),
+              disabled: document.status === 'in-review',
+              title: document.status === 'in-review' ? 'Locked for authoring while the document is in review' : undefined,
+            } : undefined}
+          />
 
           {/* Content — real section content, editable textarea for the
                MVP editor. Rich-text (TipTap) lands in Phase 2 per
@@ -613,9 +726,26 @@ export function DocumentEditor() {
             <div className="flex max-w-[760px] flex-col">
               {activeSectionData ? (
                 <>
-                  <h2 className="text-[22px] font-bold tracking-tight">
-                    {activeSectionData.number} {activeSectionData.title}
-                  </h2>
+                  <div className="flex items-center gap-2">
+                    <h2 className="text-[22px] font-bold tracking-tight">
+                      {activeSectionData.number} {activeSectionData.title}
+                    </h2>
+                    {/* Section edit history — per section (sPM-section-history).
+                        Opens the right-rail SectionHistoryPanel listing manual +
+                        AI edits + reverts, with per-row Revert. */}
+                    <button
+                      type="button"
+                      onClick={() => setActivePanel('history')}
+                      title="Edit history for this section"
+                      aria-label="Section edit history"
+                      className="flex items-center justify-center rounded-md border border-slate-300 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
+                    >
+                      <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                        <circle cx="7" cy="7" r="5.6" />
+                        <polyline points="7,3.4 7,7 9.4,8.4" />
+                      </svg>
+                    </button>
+                  </div>
 
                   {isEditing ? (
                     <>
@@ -625,7 +755,9 @@ export function DocumentEditor() {
                       <div className="mt-3 flex items-center justify-between">
                         <p className="text-xs text-slate-500">
                           {isDirty
-                            ? 'Unsaved changes — click Save Section to commit.'
+                            ? aiEditModel
+                              ? 'Unsaved AI-assisted changes — review, then click Save Section to commit.'
+                              : 'Unsaved changes — click Save Section to commit.'
                             : 'No changes yet.'}
                         </p>
                         <div className="flex items-center gap-2">
@@ -635,6 +767,7 @@ export function DocumentEditor() {
                               setDraftContent(activeSectionData.contentHtml)
                               editor?.commands.setContent(activeSectionData.contentHtml, { emitUpdate: false })
                               setIsEditing(false)
+                              setAiEditModel(null)
                             }}
                             className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
                           >
@@ -664,30 +797,30 @@ export function DocumentEditor() {
                         </div>
                       ) : (
                         <p className="mt-4 text-[14px] italic text-slate-400">
-                          This section is empty. Click Edit to add content, or open the AI Suggest panel to draft it from source documents.
+                          This section is empty. Click Edit section above to add content, or type a prompt below to draft with AI.
                         </p>
                       )}
-                      <div className="mt-6 flex items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setIsEditing(true)}
-                          disabled={document.status === 'in-review'}
-                          title={document.status === 'in-review' ? 'Locked for authoring while the document is in review' : undefined}
-                          className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
-                        >
-                          Edit section
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setActivePanel('ai')}
-                          className="flex items-center gap-1.5 rounded-md border px-2.5 py-1.5 text-xs font-bold transition-colors hover:bg-blue-100"
-                          style={{ borderColor: '#BFDBFE', backgroundColor: '#EFF6FF', color: '#1D4ED8' }}
-                        >
-                          <svg width="11" height="11" viewBox="0 0 14 14"><polygon points="7,1.2 8.6,5.4 12.8,7 8.6,8.6 7,12.8 5.4,8.6 1.2,7 5.4,5.4" fill="#2563EB"/></svg>
-                          AI Suggest
-                        </button>
-                      </div>
                     </>
+                  )}
+
+                  {/* AI prompt box — always visible at the bottom of the
+                      section (view OR edit mode). First prompt in view mode
+                      auto-switches to edit mode so the AI output lands. */}
+                  {documentId && (
+                    <SectionAIPrompt
+                      documentId={documentId}
+                      sectionId={activeSectionData.id}
+                      currentHtml={draftContent}
+                      editor={editor}
+                      isEditing={isEditing}
+                      onRequestEdit={() => setIsEditing(true)}
+                      onAccept={(html, model) => {
+                        if (!isEditing) setIsEditing(true)
+                        editor?.commands.setContent(html, { emitUpdate: false })
+                        setDraftContent(html)
+                        setAiEditModel(model)
+                      }}
+                    />
                   )}
                 </>
               ) : (
@@ -889,7 +1022,17 @@ export function DocumentEditor() {
                 documentStatus={document?.status}
               />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && (
+            {activePanel === 'history' && documentId && (
+              <SectionHistoryPanel
+                documentId={documentId}
+                sectionId={activeSection}
+                sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
+              />
+            )}
+            {activePanel === 'ai-help' && (
+              <AIPromptHelpPanel documentType={document?.type} />
+            )}
+            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
                 <p className="mt-2 text-sm text-slate-700">

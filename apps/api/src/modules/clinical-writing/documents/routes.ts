@@ -41,6 +41,12 @@ const createSchema = z.object({
   sourceUploadIds: z.array(z.string().min(1)).max(100).optional(),
 })
 
+// "```html\n…\n```" → "…"
+export function stripCodeFence(text: string): string {
+  const m = /^\s*```[a-zA-Z]*\s*\n([\s\S]*?)\n?```\s*$/.exec(text)
+  return (m ? m[1]! : text).trim()
+}
+
 const sectionUpdateSchema = z.object({
   contentHtml: z.string(),
   sectionNumber: z.string().optional(),
@@ -48,6 +54,11 @@ const sectionUpdateSchema = z.object({
   aiDrafted: z.boolean().optional(),
   aiModel: z.string().optional(),
   sourceRef: z.string().optional(),
+  // When the edit originates from Accept-AI-response, the UI passes the
+  // AiCallRecord id. The route stamps that record with
+  // postCallDocumentVersionId so AI History can later tie prompt → version +
+  // show Undo on the last non-undone one on the current version.
+  aiCallRecordId: z.string().optional(),
 }).refine(
   v => !v.aiDrafted || !!v.aiModel,
   { message: 'aiModel is required when aiDrafted is true (Part 11 provenance)' },
@@ -270,12 +281,23 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       aiDrafted: parsed.data.aiDrafted,
       aiModel: parsed.data.aiModel,
       sourceRef: parsed.data.sourceRef,
+      aiCallRecordId: parsed.data.aiCallRecordId,
     }).catch((err: Error) => {
       if (err.message.includes('not found')) return 'notfound' as const
       throw err
     })
 
     if (result === 'notfound') return reply.code(404).send({ error: 'not_found' })
+
+    // AI-origin acceptance: stamp the AiCallRecord with the version that was
+    // just created so the AI History panel can tie prompt → version and show
+    // Undo on the latest non-undone row.
+    if (parsed.data.aiCallRecordId) {
+      await app.prisma.aiCallRecord.updateMany({
+        where: { id: parsed.data.aiCallRecordId },
+        data:  { postCallDocumentVersionId: result.version.id },
+      })
+    }
 
     await app.audit.append({
       timestamp: new Date().toISOString(),
@@ -287,6 +309,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         sectionId,
         versionCreated: result.created,
         versionNumber: result.version.versionNumber,
+        aiCallRecordId: parsed.data.aiCallRecordId ?? null,
       },
       ipAddress: request.ip ?? null,
     })
@@ -429,17 +452,87 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       data: { status: to },
     })
 
+    // Review-bounce auto-snapshot: any transition from a non-authoring state
+    // *into* in_authoring means the document is "coming back for edits" —
+    // from a reviewer bounce, a CRM bounce, or a signer refusal. Per the
+    // new versioning policy (Oct 2026), each of these creates a new
+    // DocumentVersion so the previous reviewed/signed state is preserved
+    // as its own row and the author edits a fresh in-place-mutable version.
+    let snapshotVersion: Awaited<ReturnType<DocumentService['createVersionSnapshot']>>['version'] | null = null
+    if (to === 'in_authoring' && from !== 'in_authoring' && from !== 'not_started') {
+      const reason =
+        from === 'in_review'          ? 'review_bounce' :
+        from === 'crm_in_progress'    ? 'crm_bounce' :
+        from === 'pending_signature'  ? 'signature_bounce' :
+        'explicit'                                           // defensive
+      const snap = await svc.createVersionSnapshot({
+        documentId,
+        createdBy: request.user!.id,
+        reason,
+        note: parsed.data.reason,
+      })
+      snapshotVersion = snap.version
+    }
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'document_status_changed',
       entityType: 'document',
       entityId: documentId,
-      details: { from, to, reason: parsed.data.reason ?? null },
+      details: {
+        from,
+        to,
+        reason: parsed.data.reason ?? null,
+        snapshotVersionId:     snapshotVersion?.id ?? null,
+        snapshotVersionNumber: snapshotVersion?.versionNumber ?? null,
+      },
       ipAddress: request.ip ?? null,
     })
 
     return updated
+  })
+
+  // Explicit "Create new version" — snapshots the current section set into
+  // a brand-new DocumentVersion row. Normal section saves mutate in place;
+  // this endpoint is how a user asks for a checkpoint.
+  app.post('/:documentId/versions', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const bodySchema = z.object({
+      label: z.enum(['Draft', 'For Review', 'Final']).optional(),
+      note:  z.string().max(500).optional(),
+    })
+    const parsed = bodySchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+
+    const snap = await svc.createVersionSnapshot({
+      documentId,
+      createdBy: request.user!.id,
+      label: parsed.data.label,
+      reason: 'explicit',
+      note:   parsed.data.note,
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'document_version_created',
+      entityType: 'document',
+      entityId: documentId,
+      details: {
+        reason: 'explicit',
+        versionId:     snap.version.id,
+        versionNumber: snap.version.versionNumber,
+        label:         snap.version.label,
+        note:          parsed.data.note ?? null,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.code(201).send(snap.version)
   })
 
   // Admin override of a document's TA (FR-A-002: set at creation, changeable
@@ -486,10 +579,17 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // When ANTHROPIC_API_KEY is set, this calls real Anthropic; otherwise
   // deterministic stub (Arc 8.1).
   const aiSuggestSchema = z.object({
-    intent: z.enum(['draft_from_source', 'tighten', 'explain', 'custom']),
+    intent: z.enum(['draft_from_source', 'tighten', 'explain', 'custom', 'edit']),
     customPrompt: z.string().min(1).max(2000).optional(),
+    // 'edit' (editor prompt box): the section as it stands in the editor, unsaved changes included
+    currentContent: z.string().max(200_000).optional(),
+    // Selection scope — when the editor has text selected, UI passes the
+    // highlighted passage here. If present, the AI returns only the
+    // revised passage (not the whole section) and the UI swaps it in
+    // place. Keeps edits surgical and avoids collateral changes.
+    selectionText: z.string().max(50_000).optional(),
     model: z.string().optional(),            // omitted -> the engine saved in Admin Panel -> AI Engine
-  })
+  }).refine(b => b.intent !== 'edit' || !!b.customPrompt?.trim(), { message: 'Tell the AI what to change', path: ['customPrompt'] })
 
   app.post('/:documentId/sections/:sectionId/ai-suggest', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
@@ -508,8 +608,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const section = doc.currentVersion?.sections[0]
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
 
-    const sectionHeader = `§${section.sectionNumber} ${section.sectionTitle}`
-    const currentContent = section.contentHtml ?? ''
+    const sectionHeader = `${section.sectionNumber.startsWith('§') ? '' : '§'}${section.sectionNumber} ${section.sectionTitle}`
+    const currentContent = (parsed.data.intent === 'edit' ? parsed.data.currentContent : undefined) ?? section.contentHtml ?? ''
 
     let prompt: string
     switch (parsed.data.intent) {
@@ -525,6 +625,37 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       case 'custom':
         prompt = `Section: ${sectionHeader}\n\nCurrent content:\n${currentContent}\n\nUser request:\n${parsed.data.customPrompt ?? ''}`
         break
+      case 'edit':
+        if (parsed.data.selectionText && parsed.data.selectionText.trim().length > 0) {
+          // Selection-scoped edit: return ONLY the revised passage. UI will
+          // swap it into the selected range; the rest of the section stays
+          // untouched (no risk of collateral AI changes outside the selection).
+          prompt = [
+            `You are editing a highlighted passage inside the "${sectionHeader}" section of a regulated clinical document (${hyphenate(doc.type)}).`,
+            'Apply the instruction below to the passage and return ONLY the revised passage (not the whole section).',
+            'Return only HTML using these tags: p, h3, h4, strong, em, u, ul, ol, li, blockquote, table, thead, tbody, tr, th, td. No attributes, no explanations, no code fences.',
+            'If the instruction only requires inline text (no block tags), return just the revised text with no surrounding tags.',
+            'Do not invent data, numbers, dates, names or references that are not in the passage or the surrounding section. If the instruction needs information you do not have, insert a placeholder such as [TBD: what is needed].',
+            '',
+            `Instruction:\n${parsed.data.customPrompt!.trim()}`,
+            '',
+            `Highlighted passage:\n${parsed.data.selectionText}`,
+            '',
+            `Full section (for context only — do not include in the response):\n${currentContent || '(empty)'}`,
+          ].join('\n')
+        } else {
+          prompt = [
+            `You are editing the "${sectionHeader}" section of a regulated clinical document (${hyphenate(doc.type)}).`,
+            'Apply the instruction below to the current section content and return the COMPLETE revised section.',
+            'Return only HTML using these tags: p, h3, h4, strong, em, u, ul, ol, li, blockquote, table, thead, tbody, tr, th, td. No attributes, no explanations, no code fences.',
+            'Do not invent data, numbers, dates, names or references that are not in the current content. If the instruction needs information you do not have, insert a placeholder such as [TBD: what is needed].',
+            '',
+            `Instruction:\n${parsed.data.customPrompt!.trim()}`,
+            '',
+            `Current section content (HTML):\n${currentContent || '(empty)'}`,
+          ].join('\n')
+        }
+        break
     }
 
     const model = await chooseModel(app.prisma, parsed.data.model)
@@ -537,14 +668,315 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         intent: parsed.data.intent,
         model,
         prompt,
-        maxOutputTokens: 2048,
+        maxOutputTokens: parsed.data.intent === 'edit' ? 4096 : 2048,
+        // Prompt-history + Undo context (sPM-history). Scopes the AiCallRecord
+        // to the section and snapshots pre-call HTML so the UI can later Undo
+        // the last AI change on this section in place.
+        documentId,
+        sectionId:         section.sectionId,
+        documentVersionId: doc.currentVersionId ?? undefined,
+        preCallSectionHtml: currentContent,
+        promptText:        (parsed.data.intent === 'custom' || parsed.data.intent === 'edit')
+          ? (parsed.data.customPrompt ?? '')
+          : parsed.data.intent,
       })
+      // Models sometimes wrap HTML in a code fence despite being asked not to.
+      if (parsed.data.intent === 'edit') {
+        return {
+          ...result,
+          responseText: stripCodeFence(result.responseText),
+          scope: parsed.data.selectionText ? 'selection' : 'section',
+        }
+      }
       return result
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'RateLimitedError') {
         return reply.code(429).send({ error: 'quota_reached', message: err.message })
       }
       throw err
+    }
+  })
+
+  // ------------------------------------------------------------------------
+  // Unified per-section edit history (sPM-section-history).
+  //
+  // Lists every save on this section — manual, AI accept, undo, restore —
+  // in reverse chronological order. UI's SectionHistoryPanel filters at
+  // query time via ?mine=true and ?origin=ai|manual|undo|restore. "Mine"
+  // means the current authed user; "all" is any team member.
+  //
+  // interveningCount on each row = how many history rows are newer; the UI
+  // uses this to show "Reverting will discard N later edits" in the
+  // confirmation modal before firing /revert.
+  // ------------------------------------------------------------------------
+  app.get('/:documentId/sections/:sectionId/history', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
+    const q = request.query as { mine?: string; origin?: string }
+
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      include: { currentVersion: { include: { sections: { where: { OR: [{ sectionId }, { id: sectionId }] } } } } },
+    })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    const section = doc.currentVersion?.sections[0]
+    if (!section) return reply.code(404).send({ error: 'section_not_found' })
+
+    const rows = await app.prisma.editHistory.findMany({
+      where: {
+        entityType: 'clinical_section',
+        documentId,
+        sectionId: section.sectionId,
+        ...(q.mine === 'true' && { actorId: request.user!.id }),
+        ...(q.origin && ['manual', 'ai', 'undo', 'restore'].includes(q.origin) && { origin: q.origin }),
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+
+    // Side query for AI metadata (prompt + model) — only for origin='ai' rows.
+    const aiCallIds = rows
+      .map(r => r.aiCallRecordId)
+      .filter((x): x is string => !!x)
+    const aiMap = aiCallIds.length === 0
+      ? new Map<string, { promptText: string | null; model: string; intent: string }>()
+      : new Map(
+          (await app.prisma.aiCallRecord.findMany({
+            where: { id: { in: aiCallIds } },
+            select: { id: true, promptText: true, model: true, intent: true },
+          })).map(r => [r.id, { promptText: r.promptText, model: r.model, intent: r.intent }]),
+        )
+
+    const actorIds = Array.from(new Set(rows.map(r => r.actorId)))
+    const actors = actorIds.length === 0
+      ? []
+      : await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+    const actorMap = new Map(actors.map(a => [a.id, a.name]))
+
+    // Precompute intervening-edit counts: for row i (0 = newest), how many
+    // ROWS ACROSS ALL USERS are newer than it on the same section. We walk
+    // the full set (not just the filtered view) so the modal's warning is
+    // accurate even when a user filtered to just their own edits.
+    const allRows = (q.mine === 'true' || q.origin)
+      ? await app.prisma.editHistory.findMany({
+          where:   { entityType: 'clinical_section', documentId, sectionId: section.sectionId },
+          orderBy: { createdAt: 'desc' },
+          select:  { id: true, actorId: true, origin: true, createdAt: true },
+        })
+      : rows.map(r => ({ id: r.id, actorId: r.actorId, origin: r.origin, createdAt: r.createdAt }))
+    const positionOf = new Map(allRows.map((r, i) => [r.id, i]))
+
+    return {
+      documentId,
+      sectionId:        section.sectionId,
+      currentVersionId: doc.currentVersionId,
+      entries: rows.map(r => {
+        const idx = positionOf.get(r.id) ?? 0
+        const intervening = allRows.slice(0, idx)
+        const interveningByActor = Array.from(
+          intervening.reduce((m, row) => m.set(row.actorId, (m.get(row.actorId) ?? 0) + 1), new Map<string, number>()),
+        ).map((entry) => {
+          const [actorId, count] = entry as [string, number]
+          return { actorId, actorName: actorMap.get(actorId) ?? actorId, count }
+        })
+
+        const ai = r.aiCallRecordId ? aiMap.get(r.aiCallRecordId) ?? null : null
+        return {
+          id:                 r.id,
+          actorId:            r.actorId,
+          actorName:          actorMap.get(r.actorId) ?? r.actorId,
+          origin:             r.origin,
+          createdAt:          r.createdAt.toISOString(),
+          documentVersionId:  r.documentVersionId,
+          aiCallRecordId:     r.aiCallRecordId,
+          revertedFromId:     r.revertedFromId,
+          promptText:         ai?.promptText ?? null,
+          aiIntent:           ai?.intent ?? null,
+          aiModel:            ai?.model ?? null,
+          interveningCount:   intervening.length,
+          interveningByActor,
+          // Can revert if the snapshot exists and the section is still on
+          // the version this edit was made on. Sealed-version check happens
+          // in the service.
+          canRevert:          !!r.beforeHtml
+                                && r.documentVersionId === doc.currentVersionId,
+        }
+      }),
+    }
+  })
+
+  // Revert — restores the section to the beforeHtml of the chosen history
+  // row. In-place mutation + hash recompute (same mechanism as save). The
+  // revert itself writes a SectionEditHistory row with origin='undo' so
+  // the chain stays complete.
+  app.post('/section-edits/:editHistoryId/revert', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { editHistoryId } = request.params as { editHistoryId: string }
+    try {
+      const result = await svc.revertSection({
+        editHistoryId,
+        editorUserId: request.user!.id,
+      })
+
+      const { createHash } = await import('node:crypto')
+      const hashOf = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 32)
+      const beforeHashes = { afterHash: hashOf(result.contentHtml) }
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: request.user!.id,
+        action: 'section_reverted',
+        entityType: 'document',
+        entityId: result.documentId,
+        details: {
+          sectionId:     result.sectionId,
+          editHistoryId,
+          afterHash:     beforeHashes.afterHash,
+          inPlace:       true,
+        },
+        ipAddress: request.ip ?? null,
+      })
+      return { ok: true, ...result, revertedAt: new Date().toISOString() }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'revert_failed'
+      if (msg === 'cannot_revert_cross_version')
+        return reply.code(409).send({ error: 'stale', message: 'Section has moved to a newer version; revert no longer applies.' })
+      if (msg === 'cannot_revert_sealed_version')
+        return reply.code(409).send({ error: 'sealed', message: 'This version is signed; create a new version to continue editing.' })
+      if (msg === 'cannot_revert_no_snapshot')
+        return reply.code(422).send({ error: 'no_snapshot' })
+      if (msg.includes('not_found') || msg.includes('not found'))
+        return reply.code(404).send({ error: 'not_found' })
+      throw err
+    }
+  })
+
+  // ------------------------------------------------------------------------
+  // Legacy /ai-history + /ai-calls/:id/undo — thin shims kept for mid-
+  // session clients already fetching from them. New callers should use
+  // /sections/:id/history?origin=ai and /section-edits/:id/revert.
+  // ------------------------------------------------------------------------
+  app.get('/:documentId/sections/:sectionId/ai-history', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      // Normalise sectionId — same alias handling as /ai-suggest.
+      include: { currentVersion: { include: { sections: { where: { OR: [{ sectionId }, { id: sectionId }] } } } } },
+    })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    const section = doc.currentVersion?.sections[0]
+    if (!section) return reply.code(404).send({ error: 'section_not_found' })
+
+    const rows = await app.prisma.aiCallRecord.findMany({
+      where: { documentId, sectionId: section.sectionId },
+      orderBy: { createdAt: 'desc' },
+    })
+    const actorIds = Array.from(new Set(rows.map(r => r.actorId)))
+    const actors = actorIds.length === 0
+      ? []
+      : await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+    const actorMap = new Map(actors.map(a => [a.id, a.name]))
+
+    return {
+      documentId,
+      sectionId:        section.sectionId,
+      currentVersionId: doc.currentVersionId,
+      entries: rows.map(r => ({
+        id:                        r.id,
+        actorId:                   r.actorId,
+        actorName:                 actorMap.get(r.actorId) ?? r.actorId,
+        intent:                    r.intent,
+        model:                     r.model,
+        promptText:                r.promptText,
+        documentVersionId:         r.documentVersionId,
+        postCallDocumentVersionId: r.postCallDocumentVersionId,
+        createdAt:                 r.createdAt.toISOString(),
+        undoneAt:                  r.undoneAt ? r.undoneAt.toISOString() : null,
+        undoneBy:                  r.undoneBy,
+        // Can only undo if: (a) not already undone, (b) a pre-call snapshot
+        // exists, (c) this prompt's post-call version is the document's
+        // current version (otherwise someone else has since edited past it).
+        canUndo:                   !r.undoneAt
+                                     && !!r.preCallSectionHtml
+                                     && r.postCallDocumentVersionId === doc.currentVersionId,
+      })),
+    }
+  })
+
+  // ------------------------------------------------------------------------
+  // Undo the last AI change on this section — IN PLACE on the current
+  // DocumentVersion (no new version row). Rationale: AI Suggest + Undo
+  // behave like Ctrl+Z; they don't clutter the version timeline. Part 11
+  // traceability is kept via an audit_events row with before/after hashes
+  // (hash chain already seals the trail).
+  //
+  // Preconditions enforced:
+  //   - AiCallRecord exists, has a preCallSectionHtml snapshot, is not
+  //     already undone, has postCallDocumentVersionId == doc.currentVersionId
+  //   - The section still exists on the current version
+  //
+  // Mutation: SectionContent.update() under @@unique(documentVersionId,
+  // sectionId). No DocumentVersion row created; Document.currentVersionId
+  // untouched.
+  // ------------------------------------------------------------------------
+  app.post('/ai-calls/:aiCallRecordId/undo', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { aiCallRecordId } = request.params as { aiCallRecordId: string }
+    const rec = await app.prisma.aiCallRecord.findUnique({ where: { id: aiCallRecordId } })
+    if (!rec) return reply.code(404).send({ error: 'not_found' })
+    if (rec.undoneAt) return reply.code(409).send({ error: 'already_undone' })
+    if (!rec.preCallSectionHtml) return reply.code(422).send({ error: 'no_snapshot' })
+    if (!rec.documentId || !rec.sectionId) return reply.code(422).send({ error: 'not_section_scoped' })
+
+    const doc = await app.prisma.document.findUnique({
+      where: { id: rec.documentId },
+      include: { currentVersion: { include: { sections: { where: { sectionId: rec.sectionId } } } } },
+    })
+    if (!doc || !doc.currentVersion) return reply.code(404).send({ error: 'not_found' })
+    if (rec.postCallDocumentVersionId !== doc.currentVersionId) {
+      return reply.code(409).send({ error: 'stale', message: 'Section has been edited since this AI call; Undo no longer applies.' })
+    }
+    const sectionRow = doc.currentVersion.sections[0]
+    if (!sectionRow) return reply.code(404).send({ error: 'section_not_found' })
+
+    const previousHtml = sectionRow.contentHtml ?? ''
+    // In-place swap. The unique key (documentVersionId, sectionId) means
+    // the row is addressable without touching Document.currentVersionId or
+    // creating a new DocumentVersion.
+    await app.prisma.sectionContent.update({
+      where: { documentVersionId_sectionId: { documentVersionId: doc.currentVersionId!, sectionId: rec.sectionId } },
+      data:  { contentHtml: rec.preCallSectionHtml },
+    })
+    const undoneAt = new Date()
+    await app.prisma.aiCallRecord.update({
+      where: { id: rec.id },
+      data:  { undoneAt, undoneBy: request.user!.id },
+    })
+
+    // Audit trail — carries before/after hashes so Part 11 reviewers can
+    // reconstruct the change without a DocumentVersion row.
+    const { createHash } = await import('node:crypto')
+    const hashOf = (s: string) => createHash('sha256').update(s).digest('hex').slice(0, 32)
+    await app.audit.append({
+      timestamp: undoneAt.toISOString(),
+      actorId: request.user!.id,
+      action: 'ai_prompt_undone',
+      entityType: 'document',
+      entityId: rec.documentId,
+      details: {
+        sectionId:         rec.sectionId,
+        documentVersionId: doc.currentVersionId,
+        aiCallRecordId:    rec.id,
+        intent:            rec.intent,
+        model:             rec.model,
+        beforeHash:        hashOf(previousHtml),
+        afterHash:         hashOf(rec.preCallSectionHtml),
+        inPlace:           true,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      ok: true,
+      undoneAt: undoneAt.toISOString(),
+      documentId: rec.documentId,
+      sectionId:  rec.sectionId,
+      contentHtml: rec.preCallSectionHtml,
     }
   })
 }

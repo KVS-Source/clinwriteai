@@ -29,6 +29,21 @@ export interface ChatArgs {
   model: string
   prompt: string
   maxOutputTokens?: number
+  // Prompt-history + section-level Undo scope (sPM-history).
+  // All optional — gateway calls that aren't tied to a document section
+  // (module-level claims harvest, platform jobs) leave them unset. When
+  // populated, the AiCallRecord stores them so the UI can later show
+  // "what was in the section before this ran" and offer Undo.
+  documentId?: string
+  sectionId?: string
+  documentVersionId?: string
+  preCallSectionHtml?: string
+  // promptText: what to STORE in AiCallRecord.promptText (may differ from
+  // `prompt` which is forwarded to the LLM — e.g. caller may want to store
+  // the user's natural-language instruction while sending a composed prompt
+  // with system context). Defaults to the forwarded prompt when unset.
+  promptText?: string
+  promptMeta?: Record<string, unknown>
 }
 
 export interface ChatResult {
@@ -145,6 +160,12 @@ export class AiGatewayService {
           piiScrubbed: piiFound,
           errorCode: 'rate_limited',
           rateCardVersionId: rateCard.versionId,
+          promptText:        args.promptText ?? args.prompt,
+          preCallSectionHtml: args.preCallSectionHtml ?? null,
+          documentId:        args.documentId ?? null,
+          sectionId:         args.sectionId  ?? null,
+          documentVersionId: args.documentVersionId ?? null,
+          promptMeta:        (args.promptMeta ?? undefined) as object | undefined,
         },
       })
       throw Object.assign(new RateLimitedError('Monthly AI spend cap reached for this tenant'), {
@@ -193,6 +214,12 @@ export class AiGatewayService {
           piiScrubbed: piiFound,
           errorCode,
           rateCardVersionId: rateCard.versionId,
+          promptText:        args.promptText ?? args.prompt,
+          preCallSectionHtml: args.preCallSectionHtml ?? null,
+          documentId:        args.documentId ?? null,
+          sectionId:         args.sectionId  ?? null,
+          documentVersionId: args.documentVersionId ?? null,
+          promptMeta:        (args.promptMeta ?? undefined) as object | undefined,
         },
       })
       // Attach record id so callers can log it alongside their own audit.

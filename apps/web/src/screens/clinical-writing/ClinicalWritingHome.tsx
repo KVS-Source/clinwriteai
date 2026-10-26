@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
+import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { Comment, CommentSeverity, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill, SlidePanel } from '../../components/ui'
@@ -78,11 +78,14 @@ const STAGE_STEPPER_WIDTHS: Record<DocumentStage, string> = {
   'final-output':            '72px',
 }
 
-const FIXED_COMMENTS = [
-  { id: 'CMT-041', section: '§11.4.1', by: 'Dr. Elena Vasquez', initials: 'EV', snippet: 'CI decimal places',           age: '6 days ago' },
-  { id: 'CMT-042', section: '§12.2',   by: 'Dr. Amir Hossain',  initials: 'AH', snippet: 'Patient 0042 cross-reference', age: '3 days ago' },
-  { id: 'CMT-044', section: '§12.2',   by: 'Dr. Elena Vasquez', initials: 'EV', snippet: 'MedDRA v27.0 confirm',        age: 'yesterday' },
-]
+// Open Comments sidebar — how many of the newest open comments to show.
+const SIDEBAR_COMMENT_LIMIT = 4
+
+const SEVERITY_BADGE: Record<CommentSeverity, { label: string; bg: string; fg: string }> = {
+  major: { label: 'Major', bg: '#FEE2E2', fg: '#DC2626' },
+  minor: { label: 'Minor', bg: '#FFFBEB', fg: '#B45309' },
+  query: { label: 'Query', bg: '#EFF6FF', fg: '#2563EB' },
+}
 
 const CHECKLIST_SUMMARY = [
   { label: 'Complete',    count: 4, colour: '#16A34A' },
@@ -221,7 +224,26 @@ export function ClinicalWritingHome() {
     navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}`)
   }
 
-  const openCommentCount = FIXED_COMMENTS.length
+  // Open review comments across the project's documents (FR-A-052). Comments are fetched per
+  // document, sharing the cache key the Comments panel uses. Reviewer "approve" verdicts are
+  // stored as comments but aren't open issues, so they're left out.
+  const commentQueries = useQueries({
+    queries: documents.map((d: Document) => ({
+      queryKey: ['comments', d.id],
+      queryFn:  () => documentsApi.getComments(d.id),
+      staleTime: 30_000,
+    })),
+  })
+  const commentsLoading = isLoading || commentQueries.some(q => q.isLoading)
+  const commentsFailed  = commentQueries.some(q => q.isError)
+  const docTitleById = new Map(documents.map((d: Document) => [d.id, d.title]))
+  const openComments = commentQueries
+    .flatMap(q => (q.data ?? []) as Comment[])
+    .filter(c => c.status === 'open' && c.verdict !== 'approve')
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+  const openCommentDoc = (c: Comment) => docTitleById.get(c.documentId) ?? ''
+  const openCommentCount = openComments.length
+  const openCommentLabel = commentsLoading ? '…' : String(openCommentCount)
   const activeTypes  = Array.from(new Set(documents.map((d: Document) => d.type))) as DocumentType[]
   const activeStatuses = Array.from(new Set(documents.map((d: Document) => d.status))) as DocumentStatus[]
 
@@ -254,7 +276,7 @@ export function ClinicalWritingHome() {
                 project ? phaseLabel(project.phase) : '—',
                 project?.indication,
                 `${documents.length} documents`,
-                `${openCommentCount} open comments`,
+                `${openCommentLabel} open comment${openCommentCount === 1 ? '' : 's'}`,
               ].filter(Boolean).join(' · ')}
             </p>
             <div className="flex gap-2.5 pt-1">
@@ -502,26 +524,56 @@ export function ClinicalWritingHome() {
 
           <div className="flex flex-col gap-2.5">
             <div className="flex items-baseline justify-between">
-              <p className="text-xs font-semibold text-slate-500">Open Comments ({openCommentCount})</p>
-              <button className="text-xs font-semibold text-blue-600 hover:text-blue-700">View all</button>
+              <p className="text-xs font-semibold text-slate-500">Open Comments ({openCommentLabel})</p>
+              <button
+                type="button"
+                onClick={() => navigate(`/projects/${projectId}/clinical-writing/comments`)}
+                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                data-action="view-all-comments"
+              >
+                View all
+              </button>
             </div>
-            {FIXED_COMMENTS.map(c => (
-              <div key={c.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3">
-                <div className="flex items-center gap-2">
-                  <span className="font-mono text-[10px] text-slate-500">{c.id}</span>
-                  <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{c.section}</span>
-                  <div className="flex-1" />
-                  <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}>Open</span>
-                </div>
-                <div className="flex items-center gap-2 min-w-0">
-                  <div className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>
-                    {c.initials}
+            {commentsLoading && (
+              <p className="rounded-lg border border-slate-200 bg-white p-3 text-[12px] text-slate-400">Loading comments…</p>
+            )}
+            {!commentsLoading && openCommentCount === 0 && (
+              <p className="rounded-lg border border-slate-200 bg-white p-3 text-[12px] text-slate-500" data-empty-comments>
+                {commentsFailed ? 'Some comments could not be loaded.' : 'No open comments.'}
+              </p>
+            )}
+            {!commentsLoading && openComments.slice(0, SIDEBAR_COMMENT_LIMIT).map(c => {
+              const sev = SEVERITY_BADGE[c.severity] ?? SEVERITY_BADGE.minor
+              return (
+                <div
+                  key={c.id}
+                  className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3"
+                  data-comment-card={c.id}
+                >
+                  <div className="flex w-full items-center gap-2">
+                    <span className="font-mono text-[10px] text-slate-500">{c.id}</span>
+                    {c.sectionRef && (
+                      <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{c.sectionRef}</span>
+                    )}
+                    <div className="flex-1" />
+                    <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: sev.bg, color: sev.fg }}>{sev.label}</span>
                   </div>
-                  <div className="truncate text-[13px] text-slate-900">{c.snippet}</div>
+                  <div className="flex w-full min-w-0 items-center gap-2">
+                    <div className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>
+                      {initialsOf(c.reviewerName ?? '')}
+                    </div>
+                    <div className="truncate text-[13px] text-slate-900">{c.text || <span className="italic text-slate-400">No comment text</span>}</div>
+                  </div>
+                  <p className="w-full truncate text-[11px] text-slate-500">{openCommentDoc(c)}</p>
+                  <p className="text-[11px] text-slate-500">{c.reviewerName} · {c.age}</p>
                 </div>
-                <p className="text-[11px] text-slate-500">{c.by} · {c.age}</p>
-              </div>
-            ))}
+              )
+            })}
+            {!commentsLoading && openCommentCount > SIDEBAR_COMMENT_LIMIT && (
+              <p className="text-[11px] text-slate-500">
+                + {openCommentCount - SIDEBAR_COMMENT_LIMIT} more open comments
+              </p>
+            )}
           </div>
 
           <div className="flex flex-col gap-2.5">

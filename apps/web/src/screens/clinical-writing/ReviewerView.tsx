@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CommentSeverity } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
@@ -70,9 +70,12 @@ export function ReviewerView() {
   // Start with no side panel open. The panel state is shared with the Editor, so also clear
   // anything left open there (e.g. Submit for review) — the reviewer only has Comments,
   // Checklist and Audit. Reviewers open them from the toolbar when they want them.
+  // ?panel=comments (e.g. from a comment card on the module home) opens Comments instead.
+  const [searchParams] = useSearchParams()
+  const openCommentsOnLoad = searchParams.get('panel') === 'comments'
   useEffect(() => {
-    setActivePanel(null)
-  }, [setActivePanel])
+    setActivePanel(openCommentsOnLoad ? 'comments' : null)
+  }, [setActivePanel, openCommentsOnLoad])
 
   // Choose the starting section once per document; a reload of the same document keeps the
   // reviewer on the section they are reading.

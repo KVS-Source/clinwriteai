@@ -271,6 +271,28 @@ export function DocumentEditor() {
   // the diff against the current version.
   const [versionMenuOpen, setVersionMenuOpen] = useState(false)
   const versionMenuRef = useRef<HTMLDivElement>(null)
+  // Create-new-version inline form state. Hidden by default inside the
+  // version dropdown; expands when the user clicks "Create new version".
+  const [createVersionFormOpen, setCreateVersionFormOpen] = useState(false)
+  const [newVersionLabel, setNewVersionLabel] = useState<'Draft' | 'For Review' | 'Final'>('Draft')
+  const [newVersionNote,  setNewVersionNote]  = useState('')
+  const createVersion = useMutation({
+    mutationFn: () => {
+      if (!documentId) throw new Error('no_document')
+      return documentsApi.createVersion(documentId, {
+        label: newVersionLabel,
+        note:  newVersionNote.trim() || undefined,
+      })
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['versions', documentId] })
+      qc.invalidateQueries({ queryKey: ['document', documentId] })
+      setCreateVersionFormOpen(false)
+      setNewVersionNote('')
+      setNewVersionLabel('Draft')
+      setVersionMenuOpen(false)
+    },
+  })
   useEffect(() => {
     if (!versionMenuOpen) return
     const handler = (e: MouseEvent) => {
@@ -506,6 +528,72 @@ export function DocumentEditor() {
                       className="mt-1 rounded border-t border-slate-100 px-3 py-2 text-left text-[12px] font-semibold text-blue-700 hover:bg-slate-50"
                       data-version-compare-previous
                     >Compare with previous version ({previousVersion} → {currentVersion})</button>
+                  )}
+
+                  {/* --- Create new version — explicit snapshot ----------------
+                       Section saves mutate the current version in place. This
+                       button is one of the three sanctioned ways to create a
+                       new DocumentVersion row (the other two happen on
+                       review-bounce and section restore). */}
+                  {!createVersionFormOpen && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => setCreateVersionFormOpen(true)}
+                      className="mt-1 rounded border-t border-slate-100 px-3 py-2 text-left text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                      data-version-create
+                    >+ Create new version</button>
+                  )}
+                  {createVersionFormOpen && (
+                    <form
+                      onSubmit={e => { e.preventDefault(); createVersion.mutate() }}
+                      className="mt-1 flex flex-col gap-2 border-t border-slate-100 px-3 py-3"
+                      data-version-create-form
+                    >
+                      <label className="flex flex-col gap-1">
+                        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Label</span>
+                        <select
+                          value={newVersionLabel}
+                          onChange={e => setNewVersionLabel(e.currentTarget.value as 'Draft' | 'For Review' | 'Final')}
+                          className="rounded-md border border-slate-300 px-2 py-1 text-[12px]"
+                          disabled={createVersion.isPending}
+                        >
+                          <option value="Draft">Draft</option>
+                          <option value="For Review">For Review</option>
+                          <option value="Final">Final</option>
+                        </select>
+                      </label>
+                      <label className="flex flex-col gap-1">
+                        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Note (optional)</span>
+                        <textarea
+                          value={newVersionNote}
+                          onChange={e => setNewVersionNote(e.currentTarget.value)}
+                          rows={2}
+                          maxLength={500}
+                          placeholder="e.g. Pre-review checkpoint before Dr Chen's bounce"
+                          className="rounded-md border border-slate-300 p-2 text-[12px]"
+                          disabled={createVersion.isPending}
+                        />
+                      </label>
+                      {createVersion.isError && (
+                        <p className="text-[11px] text-rose-600" role="alert">
+                          Could not create version — please try again.
+                        </p>
+                      )}
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => { setCreateVersionFormOpen(false); setNewVersionNote('') }}
+                          disabled={createVersion.isPending}
+                          className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                        >Cancel</button>
+                        <button
+                          type="submit"
+                          disabled={createVersion.isPending}
+                          className="rounded-md bg-emerald-600 px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300"
+                        >{createVersion.isPending ? 'Creating…' : 'Create'}</button>
+                      </div>
+                    </form>
                   )}
                 </div>
               )}

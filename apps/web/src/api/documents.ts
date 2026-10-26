@@ -154,6 +154,12 @@ export const documentsApi = {
   // Versions
   getVersions: (documentId: string) =>
     api.get<DocumentVersion[]>(`/documents/${documentId}/versions`),
+  // Explicit "Create new version" — snapshots the current section set into a
+  // brand-new DocumentVersion row. Normal section saves mutate in place; this
+  // is one of the three sanctioned triggers for a new version (the others are
+  // review-bounce and restore).
+  createVersion: (documentId: string, body: { label?: 'Draft' | 'For Review' | 'Final'; note?: string } = {}) =>
+    api.post<DocumentVersion>(`/documents/${documentId}/versions`, body),
   restoreSections: (documentId: string, body: RestoreSectionsBody) =>
     api.post<Document>(`/documents/${documentId}/restore`, body),
   // Review

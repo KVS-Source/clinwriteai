@@ -22,6 +22,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import type { Editor } from '@tiptap/react'
 import { api, ApiError } from '../api/client'
 import { documentsApi } from '../api'
 
@@ -29,9 +30,13 @@ interface Props {
   documentId: string
   sectionId: string | null
   sectionLabel?: string
+  /** TipTap editor instance — needed to read the selection on mouseDown
+   *  so a highlight isn't lost the moment the user clicks the chat input. */
+  editor: Editor | null
   /** Called when the user clicks Accept on an assistant message that
-   *  carried replacement text. Copies the HTML into the section editor. */
-  onAcceptSuggestion: (html: string, model: string) => void
+   *  carried replacement text. If `range` is provided, the parent should
+   *  replace just that editor range; otherwise swap the whole section. */
+  onAcceptSuggestion: (html: string, model: string, range?: { from: number; to: number }) => void
 }
 
 type Scope = 'section' | 'document' | 'source'
@@ -55,13 +60,32 @@ const SCOPE_TITLE: Record<Scope, string> = {
   source:   'Linked source documents (titles only for now; full-text attachment lands later)',
 }
 
-export function AIChatPanel({ documentId, sectionId, sectionLabel, onAcceptSuggestion }: Props) {
+export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcceptSuggestion }: Props) {
   const qc = useQueryClient()
   const [prompt, setPrompt] = useState('')
   const [scope, setScope]   = useState<Scope>('section')
   const [intent, setIntent] = useState<'custom' | 'explain'>('custom')
   const inputRef    = useRef<HTMLTextAreaElement>(null)
   const bottomRef   = useRef<HTMLDivElement>(null)
+  // Captured editor selection — stored on mousedown of the panel's input
+  // wrapper so it survives focus moving from the editor to the chat input.
+  // Same pattern as SectionAIPrompt.
+  const [savedSel, setSavedSel] = useState<{ from: number; to: number; text: string } | null>(null)
+  // Range tracked per-assistant-message so Accept can swap just the right
+  // span even after other turns have landed. Populated on send-success.
+  const [rangesByMessageId, setRangesByMessageId] = useState<Record<string, { from: number; to: number }>>({})
+
+  // mousedown fires before focus moves. Click on the textarea, scope chip,
+  // intent chip, or send button — all catch here so the editor selection
+  // doesn't collapse before we read it.
+  const captureSelectionFromEditor = () => {
+    if (!editor) return
+    const { from, to } = editor.state.selection
+    if (from === to) return
+    const text = editor.state.doc.textBetween(from, to, ' ', ' ').trim()
+    if (text.length === 0) return
+    setSavedSel({ from, to, text })
+  }
 
   const chatQ = useQuery({
     queryKey: ['ai-chat', documentId, sectionId],
@@ -83,7 +107,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, onAcceptSugge
   }, [prompt])
 
   const send = useMutation({
-    mutationFn: (vars: { instruction: string; intentValue: 'custom' | 'explain'; scopeValue: Scope }) => {
+    mutationFn: (vars: { instruction: string; intentValue: 'custom' | 'explain'; scopeValue: Scope; selectionText?: string }) => {
       if (!sectionId) throw new Error('no_active_section')
       return api.post<AiResult>(
         `/documents/${documentId}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
@@ -91,12 +115,25 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, onAcceptSugge
           intent:       vars.intentValue,
           customPrompt: vars.instruction,
           scope:        vars.scopeValue,
+          ...(vars.selectionText ? { selectionText: vars.selectionText } : {}),
         },
       )
     },
-    onSuccess: () => {
+    onSuccess: async (_data, vars) => {
       setPrompt('')
-      qc.invalidateQueries({ queryKey: ['ai-chat', documentId, sectionId] })
+      // Refresh the thread, then if this prompt had a selection, map the
+      // newest assistant message id to the captured range so Accept can
+      // replace just that span.
+      await qc.invalidateQueries({ queryKey: ['ai-chat', documentId, sectionId] })
+      if (vars.selectionText && savedSel) {
+        const latest = await documentsApi.getAiChat(documentId, sectionId!)
+        const assistant = [...latest.messages].reverse().find(m => m.role === 'assistant')
+        if (assistant) {
+          setRangesByMessageId(prev => ({ ...prev, [assistant.id]: { from: savedSel.from, to: savedSel.to } }))
+        }
+      }
+      // Clear captured selection so stale ranges don't leak into the next prompt.
+      setSavedSel(null)
     },
   })
 
@@ -104,7 +141,8 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, onAcceptSugge
     mutationFn: ({ messageId }: { messageId: string; html: string; model: string }) =>
       documentsApi.acceptAiChatMessage(messageId),
     onSuccess: (_data, vars) => {
-      onAcceptSuggestion(vars.html, vars.model)
+      const range = rangesByMessageId[vars.messageId]
+      onAcceptSuggestion(vars.html, vars.model, range)
       qc.invalidateQueries({ queryKey: ['ai-chat', documentId, sectionId] })
     },
   })
@@ -112,7 +150,12 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, onAcceptSugge
   const handleSend = () => {
     const text = prompt.trim()
     if (!text || send.isPending) return
-    send.mutate({ instruction: text, intentValue: intent, scopeValue: scope })
+    send.mutate({
+      instruction:   text,
+      intentValue:   intent,
+      scopeValue:    scope,
+      selectionText: savedSel?.text,
+    })
   }
 
   if (!sectionId) {
@@ -210,7 +253,23 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, onAcceptSugge
         {errorText && (
           <p role="alert" className="mb-2 text-[11px] text-rose-700">{errorText}</p>
         )}
-        <div className="rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100">
+        {savedSel && (
+          <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800" data-selection-badge>
+            <span className="truncate">
+              <strong>Selected:</strong> "{savedSel.text.length > 60 ? `${savedSel.text.slice(0, 60)}…` : savedSel.text}"
+            </span>
+            <button
+              type="button"
+              onClick={() => setSavedSel(null)}
+              className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
+              aria-label="Clear selection"
+            >Clear</button>
+          </div>
+        )}
+        <div
+          onMouseDown={captureSelectionFromEditor}
+          className="rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100"
+        >
           <textarea
             ref={inputRef}
             value={prompt}

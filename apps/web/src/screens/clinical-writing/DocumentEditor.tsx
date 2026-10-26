@@ -1032,10 +1032,25 @@ export function DocumentEditor() {
                 documentId={documentId}
                 sectionId={activeSection}
                 sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
-                onAcceptSuggestion={(html, model) => {
+                editor={editor}
+                onAcceptSuggestion={(html, model, range) => {
                   if (!isEditing) setIsEditing(true)
-                  editor?.commands.setContent(html, { emitUpdate: false })
-                  setDraftContent(html)
+                  if (range && editor) {
+                    // Selection-scoped accept: swap just the range the user
+                    // had highlighted when they sent the prompt. Plain
+                    // inline text inserts without wrapping tags so a word
+                    // swap doesn't get wrapped in <p>.
+                    const inline = !/<(p|h3|h4|ul|ol|li|blockquote|table|thead|tbody|tr|th|td)[>\s]/i.test(html)
+                    editor.chain().focus().setTextSelection(range)
+                      .deleteSelection()
+                      .insertContent(inline ? html.replace(/<\/?(p|br)\s*\/?>/gi, '').trim() : html)
+                      .run()
+                    const next = editor.getHTML()
+                    setDraftContent(next)
+                  } else {
+                    editor?.commands.setContent(html, { emitUpdate: false })
+                    setDraftContent(html)
+                  }
                   setAiEditModel(model)
                 }}
               />

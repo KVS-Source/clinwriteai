@@ -247,6 +247,19 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
         </div>
       )}
 
+      {savedSel && (
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800" data-selection-badge>
+          <span className="truncate">
+            <strong>Selected:</strong> "{savedSel.text.length > 60 ? `${savedSel.text.slice(0, 60)}…` : savedSel.text}"
+          </span>
+          <button
+            type="button"
+            onClick={() => setSavedSel(null)}
+            className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
+            aria-label="Clear selection"
+          >Clear</button>
+        </div>
+      )}
       {/* True single-row layout — textarea + buttons share one line. Still
           grows vertically when the user Shift+Enters, but starts at a
           single row's height so the widget's resting state is minimal. */}

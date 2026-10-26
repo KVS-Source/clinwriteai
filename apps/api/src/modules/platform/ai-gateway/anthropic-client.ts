@@ -6,9 +6,7 @@
 //
 // Design notes:
 //   - This file imports @anthropic-ai/sdk lazily (dynamic import inside
-//     send()). The dependency isn't in package.json yet — procurement
-//     for the API key is pending. When procurement completes, add the
-//     dep and the env var; no code change elsewhere needed.
+//     send()), so the SDK is only loaded once a real call is made.
 //   - send() shape matches the LlmClient interface exactly, so swapping
 //     is a single factory decision rather than a call-site change.
 //   - Prompt caching: Anthropic's SDK reports `cache_creation_input_tokens`
@@ -29,10 +27,7 @@ export class AnthropicLlmClient implements LlmClient {
   }
 
   async send(args: { model: string; prompt: string; maxOutputTokens?: number }) {
-    // Lazy-load the SDK so the dependency can be added without touching
-    // this file. Will throw at runtime if the dep isn't installed yet —
-    // the factory catches this and logs a clear message.
-    // @ts-expect-error — dep not installed until ANTHROPIC_API_KEY is set in prod
+    // Lazy-load the SDK; a missing install surfaces as a clear message.
     const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
       throw new Error(
         'ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed. Run `npm i @anthropic-ai/sdk` in apps/api.',

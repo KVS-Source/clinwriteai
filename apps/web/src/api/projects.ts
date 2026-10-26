@@ -11,4 +11,7 @@ export const projectsApi = {
   get:    (projectId: string) => api.get<Project>(`/projects/${projectId}`),
   create: (body: Omit<Project, 'id' | 'team' | 'activeModules'>) =>
     api.post<Project>('/projects', body),
+  // TLF packages delivered to the project (Clinical Writing). Newest first.
+  listTlfPackages: (projectId: string) =>
+    api.get<Array<{ id: string; version: string; createdAt: string; _count?: { items: number } }>>(`/projects/${projectId}/tlf-packages`),
 }

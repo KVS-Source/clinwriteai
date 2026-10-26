@@ -5,6 +5,7 @@ import { STATUS_META, type Document } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { ProjectStatusPill } from '../../components/ui'
 import { useProjectStore } from '../../store'
+import { usePlatformStore } from '../../platform/store'
 import { MODULE_KEY_TO_SLUG, type ModuleKey, type ModuleSlug } from '../../config/modules'
 
 // --- Module metadata for the "Available modules" grid (filtered against project.activeModules) ---
@@ -49,6 +50,19 @@ export function ProjectDashboard() {
     enabled:  !!projectId,
   })
 
+  // TLF packages decide whether the data-cut banner may say final TLFs are available.
+  const { data: tlfPackages } = useQuery({
+    queryKey: ['tlf-packages', projectId],
+    queryFn:  () => projectsApi.listTlfPackages(projectId!),
+    enabled:  !!projectId,
+    retry:    false,
+  })
+  const hasTlfs = (tlfPackages?.length ?? 0) > 0
+
+  // The audit trail page is admin-only — don't offer the button to anyone else.
+  const role = usePlatformStore(s => s.currentUser.role)
+  const isAdmin = role === 'admin' || role === 'super-admin'
+
   useEffect(() => {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
@@ -67,7 +81,10 @@ export function ProjectDashboard() {
     const unsigned = documents.filter(d => d.status !== 'signed' && d.updatedAt)
     const current = [...unsigned.filter(d => d.status !== 'not-started')].sort(byNewest)[0]
       ?? [...unsigned].sort(byNewest)[0]
-    return { inFlight, inReview, awaitingSign, signed, inAuthoring, notStarted, inCrm, current }
+    // Last activity = newest update on any document, signed ones included.
+    const lastActivity = documents.reduce<string | null>(
+      (max, d) => (d.updatedAt && (!max || d.updatedAt > max) ? d.updatedAt : max), null)
+    return { inFlight, inReview, awaitingSign, signed, inAuthoring, notStarted, inCrm, current, lastActivity }
   }, [documents])
 
   // Team role breakdown — real counts from project.team.raci instead
@@ -156,8 +173,8 @@ export function ProjectDashboard() {
               style={{ backgroundColor: '#F1F5F9', color: '#475569' }}
             >
               <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ backgroundColor: '#16A34A' }} />
-              {stats.current?.updatedAt
-                ? `Last activity ${new Date(stats.current.updatedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+              {stats.lastActivity
+                ? `Last activity ${new Date(stats.lastActivity).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
                 : 'No activity yet'}
             </div>
             <button
@@ -168,14 +185,16 @@ export function ProjectDashboard() {
             >
               Project settings
             </button>
-            <button
-              type="button"
-              onClick={() => navigate(`/admin/audit?entityId=${encodeURIComponent(projectId ?? '')}`)}
-              title="Admin · Hash-chained audit trail (admin role required)"
-              className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
-            >
-              Audit trail
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => navigate(`/admin/audit?entityId=${encodeURIComponent(projectId ?? '')}`)}
+                title="Admin · Hash-chained audit trail"
+                className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
+              >
+                Audit trail
+              </button>
+            )}
           </div>
 
         </div>
@@ -198,7 +217,9 @@ export function ProjectDashboard() {
                 ✓
               </div>
               <div className="flex-1 text-[13px] leading-relaxed text-slate-900">
-                Database lock confirmed {project.dataCutoff?.slice(0, 10)}. Final TLFs are available in the Master Library — sections dependent on data lock are unblocked for authoring.
+                {hasTlfs
+                  ? <>Data cut-off passed on {project.dataCutoff?.slice(0, 10)}. Final TLFs are available in the Master Library — sections dependent on data lock are unblocked for authoring.</>
+                  : <>Data cut-off passed on {project.dataCutoff?.slice(0, 10)}.</>}
               </div>
             </div>
           )}

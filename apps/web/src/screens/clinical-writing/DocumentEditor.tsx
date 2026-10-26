@@ -763,6 +763,23 @@ export function DocumentEditor() {
                       </svg>
                     </button>
                   </div>
+                  {/* Section meta — demoted from the pre-f196934 bottom bar so
+                      the AI prompt dock owns the bottom of the pane. Lives
+                      inline under the title. */}
+                  <p className="mt-1 overflow-hidden truncate whitespace-nowrap text-[11px] text-slate-500" data-section-meta>
+                    {(() => {
+                      const edited = document.updatedAt
+                        ? `Last edited ${new Date(document.updatedAt).toLocaleString('en-GB', {
+                            day: '2-digit', month: 'short', year: 'numeric',
+                            hour: '2-digit', minute: '2-digit',
+                          })} UTC`
+                        : null
+                      const refs = sectionReferences.length
+                        ? `${sectionReferences.length} source ${sectionReferences.length === 1 ? 'reference' : 'references'}`
+                        : null
+                      return [activeSectionData.status, refs, edited].filter(Boolean).join(' · ')
+                    })()}
+                  </p>
 
                   {isEditing ? (
                     <>
@@ -854,28 +871,9 @@ export function DocumentEditor() {
             </div>
           )}
 
-          {/* Provenance bar (40px) — real section metadata from the
-               loaded document. AI-drafted / human-authored span counts
-               come from the Traceability panel endpoint when that lands
-               (CD prompt 04-traceability-panel.md). */}
-          <div
-            className="flex h-10 flex-none items-center overflow-hidden truncate whitespace-nowrap border-t border-slate-200 px-5 text-xs text-slate-500"
-            style={{ backgroundColor: '#F8FAFC' }}
-            data-provenance-bar
-          >
-            {(() => {
-              const section = document.sections.find(s => s.id === activeSection)
-              if (!section) return 'No section selected'
-              const edited = document.updatedAt
-                ? ` · Last edited ${new Date(document.updatedAt).toLocaleString('en-GB', {
-                    day: '2-digit', month: 'short', year: 'numeric',
-                    hour: '2-digit', minute: '2-digit',
-                  })} UTC`
-                : ''
-              const refs = sectionReferences.length ? ` · ${sectionReferences.length} source ${sectionReferences.length === 1 ? 'reference' : 'references'}` : ''
-              return `§${section.number} ${section.title} · ${section.status}${refs}${edited}`
-            })()}
-          </div>
+          {/* The pre-f196934 bottom "provenance bar" is gone — its data
+               moved to the section-meta line under the title (above). The
+               AI prompt dock is now the actual bottom of the editor pane. */}
 
           {/* Right panel — Pattern 6: absolute overlay on editor column, editor width stays constant */}
           {activePanel !== null && (

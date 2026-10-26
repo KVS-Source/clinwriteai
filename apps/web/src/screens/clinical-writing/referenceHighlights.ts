@@ -124,7 +124,36 @@ export function clearReferenceHighlights() {
   registry()?.delete(HIGHLIGHT_NAME)
 }
 
-/** Which reference (if any) is under the given viewport point. */
+/**
+ * Viewport rectangles of the text a range covers, one per line fragment. Range.getClientRects()
+ * would also return the full-width boxes of block elements inside the range, which would make
+ * the blank space beside a short line count as "on the text".
+ */
+function textRects(range: Range): DOMRect[] {
+  const root = range.commonAncestorContainer
+  const nodes: Text[] = []
+  if (root.nodeType === Node.TEXT_NODE) nodes.push(root as Text)
+  else {
+    const walker = window.document.createTreeWalker(root, NodeFilter.SHOW_TEXT)
+    for (let n = walker.nextNode() as Text | null; n; n = walker.nextNode() as Text | null) {
+      if (range.intersectsNode(n)) nodes.push(n)
+    }
+  }
+  const rects: DOMRect[] = []
+  for (const n of nodes) {
+    const part = window.document.createRange()
+    part.setStart(n, n === range.startContainer ? range.startOffset : 0)
+    part.setEnd(n, n === range.endContainer ? range.endOffset : n.length)
+    rects.push(...Array.from(part.getClientRects()))
+  }
+  return rects
+}
+
+/**
+ * Which reference (if any) is under the given viewport point. The point has to be on the text
+ * itself: the browser's caret lookup snaps a click in blank space (beside a line, below the
+ * text) to the nearest character, which would otherwise count as a click on that text.
+ */
 export function referenceAtPoint(found: LinkedRange[], x: number, y: number): string | null {
   const d = window.document as Document & {
     caretPositionFromPoint?: (x: number, y: number) => { offsetNode: Node; offset: number } | null
@@ -140,8 +169,13 @@ export function referenceAtPoint(found: LinkedRange[], x: number, y: number): st
     if (r) { node = r.startContainer; offset = r.startOffset }
   }
   if (!node) return null
+  const slop = 1   // px
   for (const f of found) {
-    try { if (f.range.isPointInRange(node, offset)) return f.id } catch { /* detached range */ }
+    try {
+      if (!f.range.isPointInRange(node, offset)) continue
+      const onText = textRects(f.range).some(r => x >= r.left - slop && x <= r.right + slop && y >= r.top - slop && y <= r.bottom + slop)
+      if (onText) return f.id
+    } catch { /* detached range */ }
   }
   return null
 }

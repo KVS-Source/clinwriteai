@@ -325,6 +325,34 @@ function AuditRow({ entry, tz, selected, onSelect }: {
 const inputClass = 'rounded-md border border-slate-300 px-2 py-1.5 text-[12px]'
 const labelClass = 'flex flex-col gap-1 text-[11px] text-slate-500'
 
+// A dropdown showing its "All…" / "Select…" placeholder reads grey, like an empty input.
+const selectTone = (isPlaceholder: boolean) => (isPlaceholder ? 'text-slate-500' : 'text-slate-900')
+
+// Date input that shows a text placeholder ("From date") while empty, instead of dd-mm-yyyy.
+// The native input is still there (calendar picker, keyboard entry); its own text is hidden
+// until a date is chosen or the field is focused.
+function DateField({ value, onChange, placeholder, className = '' }: { value: string; onChange: (v: string) => void; placeholder: string; className?: string }) {
+  const [focused, setFocused] = useState(false)
+  const showPlaceholder = value === '' && !focused
+  return (
+    <div className={`relative ${className}`}>
+      <input
+        type="date"
+        aria-label={placeholder}
+        className={`${inputClass} w-full`}
+        style={showPlaceholder ? { color: 'transparent' } : undefined}
+        value={value}
+        onChange={e => onChange(e.target.value)}
+        onFocus={() => setFocused(true)}
+        onBlur={() => setFocused(false)}
+      />
+      {showPlaceholder && (
+        <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[12px] text-slate-500">{placeholder}</span>
+      )}
+    </div>
+  )
+}
+
 export function AuditTrailViewerLive() {
   const [searchParams] = useSearchParams()
   const initialFilters = useMemo(() => filtersFromUrl(searchParams), [searchParams])
@@ -563,72 +591,51 @@ export function AuditTrailViewerLive() {
 
         {/* Filter form */}
         <form onSubmit={applyFilter} className="rounded-lg border border-slate-200 bg-white p-4" data-section="filters">
-          <label className={`${labelClass} mb-3`}>
-            Search
+          {/* Fields carry their own placeholder text (no labels above them); aria-labels keep them named for screen readers. */}
+          {/* One wrapping row: the search box takes the space the fixed-width filters leave over
+              (and drops to its own line on a narrow screen). */}
+          <div className="flex flex-wrap items-center gap-2" data-section="quick-filters">
             <input
               type="search"
-              className={`${inputClass} w-full`}
-              placeholder="Search action, entity, actor, IP or details…"
+              aria-label="Search"
+              className={`${inputClass} min-w-[200px] flex-1 basis-[220px]`}
+              placeholder="Search actor, action, entity…"
               value={draft.search}
               onChange={e => setDraft({ ...draft, search: e.target.value })}
               data-field="search"
             />
-          </label>
-          <div className="mb-3 flex flex-wrap items-center gap-2" data-section="quick-filters">
-            <label className="flex items-center gap-2 text-[11px] text-slate-500">
-              Event category
-              <select
-                className={`${inputClass} w-56`}
-                value={QUICK_FILTERS.some(f => f.action === applied.action.trim()) ? applied.action.trim() : ''}
-                onChange={e => quickFilter(e.target.value)}
-                data-field="quick-filter"
-              >
-                <option value="">Select event category…</option>
-                {QUICK_FILTERS.map(f => <option key={f.action} value={f.action}>{f.label}</option>)}
-              </select>
-            </label>
-          </div>
-          <div className="grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-            <label className={labelClass}>
-              Actor (name, email or id)
-              <input className={inputClass} value={draft.actor}
-                onChange={e => setDraft({ ...draft, actor: e.target.value })} />
-            </label>
-            <label className={labelClass}>
-              Action
-              <select className={inputClass} value={draft.action} data-field="action"
-                onChange={e => setDraft({ ...draft, action: e.target.value })}>
-                <option value="">All actions</option>
-                {withCurrent(facets.data?.actions, draft.action).map(a => (
-                  <option key={a} value={a}>{facets.data?.actions.includes(a) ? a : `${a} (group)`}</option>
-                ))}
-              </select>
-            </label>
-            <label className={labelClass}>
-              Entity type
-              <select className={inputClass} value={draft.entityType} data-field="entity-type"
-                onChange={e => setDraft({ ...draft, entityType: e.target.value })}>
-                <option value="">All entity types</option>
-                {withCurrent(facets.data?.entityTypes, draft.entityType).map(t => (
-                  <option key={t} value={t}>{t}</option>
-                ))}
-              </select>
-            </label>
-            <label className={labelClass}>
-              Entity id (exact)
-              <input className={inputClass} value={draft.entityId}
-                onChange={e => setDraft({ ...draft, entityId: e.target.value })} />
-            </label>
-            <label className={labelClass}>
-              From date
-              <input type="date" className={inputClass} value={draft.fromDay}
-                onChange={e => setDraft({ ...draft, fromDay: e.target.value })} />
-            </label>
-            <label className={labelClass}>
-              To date
-              <input type="date" className={inputClass} value={draft.toDay}
-                onChange={e => setDraft({ ...draft, toDay: e.target.value })} />
-            </label>
+            <select
+              aria-label="Event category"
+              className={`${inputClass} w-44 ${selectTone(applied.action.trim() === '' || !QUICK_FILTERS.some(f => f.action === applied.action.trim()))}`}
+              value={QUICK_FILTERS.some(f => f.action === applied.action.trim()) ? applied.action.trim() : ''}
+              onChange={e => quickFilter(e.target.value)}
+              data-field="quick-filter"
+            >
+              <option value="">Select event category…</option>
+              {QUICK_FILTERS.map(f => <option key={f.action} value={f.action}>{f.label}</option>)}
+            </select>
+            {/* No Actor box: the Search field already matches actor name, email and id.
+                `actor` stays in the filter state for ?actor= deep links. */}
+            <select aria-label="Action" className={`${inputClass} w-36 ${selectTone(draft.action === '')}`} value={draft.action} data-field="action"
+              onChange={e => setDraft({ ...draft, action: e.target.value })}>
+              <option value="">All actions</option>
+              {withCurrent(facets.data?.actions, draft.action).map(a => (
+                <option key={a} value={a}>{facets.data?.actions.includes(a) ? a : `${a} (group)`}</option>
+              ))}
+            </select>
+            <select aria-label="Entity type" className={`${inputClass} w-36 ${selectTone(draft.entityType === '')}`} value={draft.entityType} data-field="entity-type"
+              onChange={e => setDraft({ ...draft, entityType: e.target.value })}>
+              <option value="">All entity types</option>
+              {withCurrent(facets.data?.entityTypes, draft.entityType).map(t => (
+                <option key={t} value={t}>{t}</option>
+              ))}
+            </select>
+            <input aria-label="Entity id (exact match)" placeholder="Entity id (exact)" className={`${inputClass} w-32`} value={draft.entityId}
+              onChange={e => setDraft({ ...draft, entityId: e.target.value })} />
+            <DateField className="w-32" placeholder="From date" value={draft.fromDay}
+              onChange={v => setDraft({ ...draft, fromDay: v })} />
+            <DateField className="w-32" placeholder="To date" value={draft.toDay}
+              onChange={v => setDraft({ ...draft, toDay: v })} />
           </div>
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600">

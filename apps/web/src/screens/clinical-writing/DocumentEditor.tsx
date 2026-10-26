@@ -741,7 +741,11 @@ export function DocumentEditor() {
 
         <SectionNavigator sections={document.sections} />
 
-        {/* Editor pane — position:relative so right panel can overlay */}
+        {/* Editor pane — split: section content column + right panel column.
+            Toolbar and AI prompt dock span full editor-pane width; the
+            scrollable content + panel are side-by-side within the middle
+            band so content narrows (text wraps) instead of being hidden
+            when the panel opens. */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
           <EditorToolbar
             editor={editor}
@@ -751,6 +755,10 @@ export function DocumentEditor() {
               title: document.status === 'in-review' ? 'Locked for authoring while the document is in review' : undefined,
             } : undefined}
           />
+
+          {/* Split row — content column (flex-1, scrollable) + optional
+              right panel column (fixed width, draggable). */}
+          <div className="flex min-h-0 flex-1">
 
           {/* Content — real section content, editable textarea for the
                MVP editor. Rich-text (TipTap) lands in Phase 2 per
@@ -861,51 +869,23 @@ export function DocumentEditor() {
             </div>
           </div>
 
-          {/* AI prompt dock — pinned to the bottom of the editor pane, just
-              above the provenance bar. Lives OUTSIDE the scrollable content
-              area so it stays visible as the user scrolls through the
-              section text. First prompt in view mode auto-switches to edit
-              mode so the AI output has somewhere to land. */}
-          {activeSectionData && documentId && (
-            <div className="flex-none border-t border-slate-200 bg-white px-12 py-3" data-section-ai-prompt-dock>
-              <div className="max-w-[760px]">
-                <SectionAIPrompt
-                  documentId={documentId}
-                  sectionId={activeSectionData.id}
-                  currentHtml={draftContent}
-                  editor={editor}
-                  isEditing={isEditing}
-                  onRequestEdit={() => setIsEditing(true)}
-                  onAccept={(html, model) => {
-                    if (!isEditing) setIsEditing(true)
-                    editor?.commands.setContent(html, { emitUpdate: false })
-                    setDraftContent(html)
-                    setAiEditModel(model)
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
           {/* The pre-f196934 bottom "provenance bar" is gone — its data
                moved to the section-meta line under the title (above). The
                AI prompt dock is now the actual bottom of the editor pane. */}
 
-          {/* Right panel — overlays on the editor pane only (not the full
-              three-panel row), so SectionNav keeps its natural width and
-              doesn't get squeezed when the panel opens. Editor content
-              behind the panel is hidden; the panel is draggable from its
-              left edge via useResizablePanel. */}
+          {/* Right panel — in-flow split sibling of the content column.
+              The content column (flex-1) shrinks horizontally when this
+              opens so section text wraps narrower and stays visible
+              alongside the panel. SectionNav outside the editor pane
+              keeps its natural width either way. */}
           {activePanel !== null && (
             <div
               ref={rightPanelRef}
-              className="absolute inset-y-0 right-0 flex flex-col border-l border-slate-200"
+              className="relative flex flex-none flex-col border-l border-slate-200"
               style={{
                 width:           panel.width,
                 maxWidth:        '100%',
-                zIndex:          20,
                 backgroundColor: (activePanel === 'traceability' || activePanel === 'checklist' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra') ? '#FFFFFF' : '#F8FAFC',
-                boxShadow:       '-16px 0 40px rgba(15,23,42,0.12)',
               }}
             >
             {/* Drag handle on the left edge: drag to resize, double-click to expand/shrink */}
@@ -1103,6 +1083,32 @@ export function DocumentEditor() {
               </div>
             )}
           </div>
+          )}
+      </div>
+
+          {/* AI prompt dock — pinned to the bottom of the editor pane, below
+              the content+panel split so it spans full width. First prompt in
+              view mode auto-switches to edit mode so the AI output has
+              somewhere to land. */}
+          {activeSectionData && documentId && (
+            <div className="flex-none border-t border-slate-200 bg-white px-12 py-3" data-section-ai-prompt-dock>
+              <div className="max-w-[760px]">
+                <SectionAIPrompt
+                  documentId={documentId}
+                  sectionId={activeSectionData.id}
+                  currentHtml={draftContent}
+                  editor={editor}
+                  isEditing={isEditing}
+                  onRequestEdit={() => setIsEditing(true)}
+                  onAccept={(html, model) => {
+                    if (!isEditing) setIsEditing(true)
+                    editor?.commands.setContent(html, { emitUpdate: false })
+                    setDraftContent(html)
+                    setAiEditModel(model)
+                  }}
+                />
+              </div>
+            </div>
           )}
       </div>
       </div>

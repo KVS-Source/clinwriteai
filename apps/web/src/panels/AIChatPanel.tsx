@@ -90,6 +90,23 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
     setSavedSel({ from, to, text })
   }
 
+  // Also subscribe to TipTap's selectionUpdate — same reasoning as in
+  // SectionAIPrompt. Catches keyboard selections and situations where
+  // mousedown fires too late to see the selection. Does NOT clear on
+  // collapse; the Clear button on the badge is the explicit drop path.
+  useEffect(() => {
+    if (!editor) return
+    const update = () => {
+      const { from, to } = editor.state.selection
+      if (from === to) return
+      const text = editor.state.doc.textBetween(from, to, ' ', ' ').trim()
+      if (text.length === 0) return
+      setSavedSel({ from, to, text })
+    }
+    editor.on('selectionUpdate', update)
+    return () => { editor.off('selectionUpdate', update) }
+  }, [editor])
+
   const chatQ = useQuery({
     queryKey: ['ai-chat', documentId, sectionId],
     queryFn:  () => documentsApi.getAiChat(documentId, sectionId!),

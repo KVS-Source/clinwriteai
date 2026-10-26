@@ -105,6 +105,26 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
     setSavedSel({ from, to, text })
   }
 
+  // Also subscribe to TipTap's selectionUpdate — any time the editor has
+  // a non-collapsed selection, mirror it into savedSel. Catches keyboard-
+  // only selections (shift+arrow) and situations where mousedown on the
+  // dock wrapper fires too late (editor already blurred). Does NOT clear
+  // on collapse — the user may click away to deselect visually but still
+  // intend to prompt against the earlier selection; the Clear badge is
+  // the explicit way to drop it.
+  useEffect(() => {
+    if (!editor) return
+    const update = () => {
+      const { from, to } = editor.state.selection
+      if (from === to) return
+      const text = editor.state.doc.textBetween(from, to, ' ', ' ').trim()
+      if (text.length === 0) return
+      setSavedSel({ from, to, text })
+    }
+    editor.on('selectionUpdate', update)
+    return () => { editor.off('selectionUpdate', update) }
+  }, [editor])
+
   // Listen for pick events fired by AIPromptHelpPanel. CustomEvent payload
   // = the prompt text to pre-fill. We don't auto-submit — give the user a
   // chance to tweak before sending.

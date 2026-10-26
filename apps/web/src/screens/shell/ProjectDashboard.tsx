@@ -1,14 +1,16 @@
 import { useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { Document } from '@platform/types'
+import { STATUS_META, type Document } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { ProjectStatusPill } from '../../components/ui'
 import { useProjectStore } from '../../store'
+import { usePlatformStore } from '../../platform/store'
 import { MODULE_KEY_TO_SLUG, type ModuleKey, type ModuleSlug } from '../../config/modules'
 
-// --- Static module metadata for the "Available modules" grid ---
+// --- Module metadata for the "Available modules" grid (filtered against project.activeModules) ---
 const INACTIVE_MODULES = [
+  { key: 'clinical-writing',     label: 'Clinical Writing',      colour: '#2563EB', desc: 'Clinical study reports, protocols and regulated clinical documents.' },
   { key: 'scientific-writing',   label: 'Scientific Writing',    colour: '#0D9488', desc: 'Manuscripts, abstracts, congress materials.' },
   { key: 'medical-writing',      label: 'Medical Writing',       colour: '#7C3AED', desc: 'Medical information, MSL and payer content.' },
   { key: 'regulatory-writing',   label: 'Regulatory Writing',    colour: '#B0200D', desc: 'CTD/eCTD dossier authoring and submission.' },
@@ -20,7 +22,8 @@ const ACTIVE_MODULE_META: Record<string, { label: string; colour: string; descri
   'clinical-writing': {
     label: 'Clinical Writing',
     colour: '#2563EB',
-    description: 'Clinical study report authoring, TLF integration and QC cycle for VELORA-301.',
+    // {project} is replaced with the project's short title at render time.
+    description: 'Clinical study report authoring, TLF integration and QC cycle for {project}.',
   },
   'scientific-writing':  { label: 'Scientific Writing',    colour: '#0D9488', description: 'Manuscripts, abstracts, congress materials.' },
   'medical-writing':     { label: 'Medical Writing',       colour: '#7C3AED', description: 'Medical information, MSL and payer content.' },
@@ -47,6 +50,19 @@ export function ProjectDashboard() {
     enabled:  !!projectId,
   })
 
+  // TLF packages decide whether the data-cut banner may say final TLFs are available.
+  const { data: tlfPackages } = useQuery({
+    queryKey: ['tlf-packages', projectId],
+    queryFn:  () => projectsApi.listTlfPackages(projectId!),
+    enabled:  !!projectId,
+    retry:    false,
+  })
+  const hasTlfs = (tlfPackages?.length ?? 0) > 0
+
+  // The audit trail page is admin-only — don't offer the button to anyone else.
+  const role = usePlatformStore(s => s.currentUser.role)
+  const isAdmin = role === 'admin' || role === 'super-admin'
+
   useEffect(() => {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
@@ -57,11 +73,18 @@ export function ProjectDashboard() {
     const awaitingSign = documents.filter(d => d.status === 'pending-signature').length
     const signed       = documents.filter(d => d.status === 'signed').length
     const inAuthoring  = documents.filter(d => d.status === 'in-authoring').length
-    // Most recently updated non-signed doc = the "current focus"
-    const current = [...documents]
-      .filter(d => d.status !== 'signed' && d.updatedAt)
-      .sort((a, b) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? ''))[0]
-    return { inFlight, inReview, awaitingSign, signed, inAuthoring, current }
+    const notStarted   = documents.filter(d => d.status === 'not-started').length
+    const inCrm        = documents.filter(d => d.status === 'crm-in-progress').length
+    // "Current focus" = the most recently updated document that is being worked on.
+    // Not-started documents only count when nothing has been started yet.
+    const byNewest = (a: Document, b: Document) => (b.updatedAt ?? '').localeCompare(a.updatedAt ?? '')
+    const unsigned = documents.filter(d => d.status !== 'signed' && d.updatedAt)
+    const current = [...unsigned.filter(d => d.status !== 'not-started')].sort(byNewest)[0]
+      ?? [...unsigned].sort(byNewest)[0]
+    // Last activity = newest update on any document, signed ones included.
+    const lastActivity = documents.reduce<string | null>(
+      (max, d) => (d.updatedAt && (!max || d.updatedAt > max) ? d.updatedAt : max), null)
+    return { inFlight, inReview, awaitingSign, signed, inAuthoring, notStarted, inCrm, current, lastActivity }
   }, [documents])
 
   // Team role breakdown — real counts from project.team.raci instead
@@ -99,6 +122,10 @@ export function ProjectDashboard() {
   }
 
   const leadName = project.team.find(t => t.raci === 'R')?.name ?? project.team[0]?.name ?? '—'
+  // Stored phases vary ("Phase III", "IIb", "Preclinical") — only add the "Phase" prefix when it's missing.
+  const phaseLabel = /^phase\b|preclinical/i.test(project.phase) ? project.phase : `Phase ${project.phase}`
+  const activeSlugs = new Set(project.activeModules.map(k => MODULE_KEY_TO_SLUG[k as ModuleKey] ?? k))
+  const availableModules = INACTIVE_MODULES.filter(m => !activeSlugs.has(m.key))
 
   return (
     <div className="flex h-full flex-col" data-screen="project-dashboard">
@@ -133,7 +160,7 @@ export function ProjectDashboard() {
             <div className="flex flex-wrap items-center gap-3.5 text-sm text-slate-500">
               <span>{project.client}</span>
               <span className="text-slate-300">·</span>
-              <span>Phase {project.phase}{project.indication ? ` · ${project.indication}` : ''}</span>
+              <span>{phaseLabel}{project.indication ? ` · ${project.indication}` : ''}</span>
               <span className="text-slate-300">·</span>
               <span>Project lead {leadName}</span>
             </div>
@@ -146,8 +173,8 @@ export function ProjectDashboard() {
               style={{ backgroundColor: '#F1F5F9', color: '#475569' }}
             >
               <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ backgroundColor: '#16A34A' }} />
-              {stats.current?.updatedAt
-                ? `Last activity ${new Date(stats.current.updatedAt).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
+              {stats.lastActivity
+                ? `Last activity ${new Date(stats.lastActivity).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
                 : 'No activity yet'}
             </div>
             <button
@@ -158,14 +185,16 @@ export function ProjectDashboard() {
             >
               Project settings
             </button>
-            <button
-              type="button"
-              onClick={() => navigate(`/admin/audit?entityId=${encodeURIComponent(projectId ?? '')}`)}
-              title="Admin · Hash-chained audit trail (admin role required)"
-              className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
-            >
-              Audit trail
-            </button>
+            {isAdmin && (
+              <button
+                type="button"
+                onClick={() => navigate(`/admin/audit?entityId=${encodeURIComponent(projectId ?? '')}`)}
+                title="Admin · Hash-chained audit trail"
+                className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
+              >
+                Audit trail
+              </button>
+            )}
           </div>
 
         </div>
@@ -188,7 +217,9 @@ export function ProjectDashboard() {
                 ✓
               </div>
               <div className="flex-1 text-[13px] leading-relaxed text-slate-900">
-                Database lock confirmed {project.dataCutoff?.slice(0, 10)}. Final TLFs are available in the Master Library — sections dependent on data lock are unblocked for authoring.
+                {hasTlfs
+                  ? <>Data cut-off passed on {project.dataCutoff?.slice(0, 10)}. Final TLFs are available in the Master Library — sections dependent on data lock are unblocked for authoring.</>
+                  : <>Data cut-off passed on {project.dataCutoff?.slice(0, 10)}.</>}
               </div>
             </div>
           )}
@@ -198,7 +229,7 @@ export function ProjectDashboard() {
             <KpiCard
               label="Documents In Flight"
               value={String(stats.inFlight)}
-              sub={`${stats.inReview} in review · ${stats.awaitingSign} awaiting sign-off`}
+              sub={`${stats.inReview} in review · ${stats.inCrm} in CRM · ${stats.awaitingSign} awaiting sign-off`}
             />
             <KpiCard
               label="Completed Documents"
@@ -245,12 +276,12 @@ export function ProjectDashboard() {
                         Active
                       </span>
                     </div>
-                    <p className="text-sm leading-relaxed text-slate-500">{meta.description}</p>
+                    <p className="text-sm leading-relaxed text-slate-500">{meta.description.replace('{project}', project.shortTitle)}</p>
                   </div>
 
                   <div className="flex gap-8">
                     <KV label="Documents"      value={`${stats.inFlight} active · ${stats.signed} completed`} />
-                    <KV label="Current focus"  value={stats.current ? `${stats.current.title} · ${stats.current.status.replace(/-/g, ' ')}` : 'No active document'} />
+                    <KV label="Current focus"  value={stats.current ? `${stats.current.title} · ${STATUS_META[stats.current.status]?.label ?? stats.current.status}` : 'No active document'} />
                     <KV label="Last updated"   value={stats.current?.updatedAt ? new Date(stats.current.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} />
                   </div>
 
@@ -283,6 +314,12 @@ export function ProjectDashboard() {
                   </button>
                   <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3.5">
                     <p className="text-xs font-semibold text-slate-500">Document status</p>
+                    {stats.notStarted > 0 && (
+                      <div className="flex justify-between text-[13px]">
+                        <span>Not started</span>
+                        <span className="font-semibold text-slate-500">{stats.notStarted}</span>
+                      </div>
+                    )}
                     {stats.inAuthoring > 0 && (
                       <div className="flex justify-between text-[13px]">
                         <span>In authoring</span>
@@ -293,6 +330,12 @@ export function ProjectDashboard() {
                       <div className="flex justify-between text-[13px]">
                         <span>In review</span>
                         <span className="font-semibold" style={{ color: '#B45309' }}>{stats.inReview}</span>
+                      </div>
+                    )}
+                    {stats.inCrm > 0 && (
+                      <div className="flex justify-between text-[13px]">
+                        <span>CRM in progress</span>
+                        <span className="font-semibold" style={{ color: '#7C3AED' }}>{stats.inCrm}</span>
                       </div>
                     )}
                     {stats.awaitingSign > 0 && (
@@ -316,7 +359,8 @@ export function ProjectDashboard() {
             )
           })}
 
-          {/* Available (inactive) modules */}
+          {/* Available (inactive) modules — only those not already active on this project */}
+          {availableModules.length > 0 && (
           <div className="flex flex-col gap-3">
             <div className="flex items-baseline justify-between">
               <p className="text-xs font-semibold text-slate-500">Available modules</p>
@@ -325,7 +369,7 @@ export function ProjectDashboard() {
               </button>
             </div>
             <div className="grid grid-cols-4 gap-4">
-              {INACTIVE_MODULES.map(m => (
+              {availableModules.map(m => (
                 <div
                   key={m.key}
                   className="flex flex-col gap-3 rounded-lg border border-dashed border-slate-200 bg-white p-4.5 hover:border-slate-300 transition-colors"
@@ -345,6 +389,7 @@ export function ProjectDashboard() {
               ))}
             </div>
           </div>
+          )}
 
           {/* Cost & Performance — estimates derived from real doc counts
               (14 hrs/doc avg × $200/hr blended rate, industry rough-

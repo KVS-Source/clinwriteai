@@ -26,10 +26,12 @@ import { MedDRAPanel }            from '../../panels/MedDRAPanel'
 import { CommentsPanel }          from '../../panels/CommentsPanel'
 import { AIAssistPanel }          from '../../panels/AIAssistPanel'
 import { SectionHistoryPanel }    from '../../panels/SectionHistoryPanel'
+import { AIPromptHelpPanel }      from '../../panels/AIPromptHelpPanel'
 
 // Panel titles for the right panel header
 const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
   'ai':                'AI Suggest',
+  'ai-help':           'Prompt library',
   'history':           'Section History',
   'traceability':      'Source References',
   'voice':             'Voice Note',
@@ -750,18 +752,6 @@ export function DocumentEditor() {
                       <div className="mt-4" data-section-editor>
                         <EditorContent editor={editor} />
                       </div>
-                      {documentId && (
-                        <SectionAIPrompt
-                          documentId={documentId}
-                          sectionId={activeSectionData.id}
-                          currentHtml={draftContent}
-                          onAccept={(html, model) => {
-                            editor?.commands.setContent(html, { emitUpdate: false })
-                            setDraftContent(html)
-                            setAiEditModel(model)
-                          }}
-                        />
-                      )}
                       <div className="mt-3 flex items-center justify-between">
                         <p className="text-xs text-slate-500">
                           {isDirty
@@ -807,10 +797,30 @@ export function DocumentEditor() {
                         </div>
                       ) : (
                         <p className="mt-4 text-[14px] italic text-slate-400">
-                          This section is empty. Click Edit section above to add content, or open AI Suggest to draft it from source documents.
+                          This section is empty. Click Edit section above to add content, or type a prompt below to draft with AI.
                         </p>
                       )}
                     </>
+                  )}
+
+                  {/* AI prompt box — always visible at the bottom of the
+                      section (view OR edit mode). First prompt in view mode
+                      auto-switches to edit mode so the AI output lands. */}
+                  {documentId && (
+                    <SectionAIPrompt
+                      documentId={documentId}
+                      sectionId={activeSectionData.id}
+                      currentHtml={draftContent}
+                      editor={editor}
+                      isEditing={isEditing}
+                      onRequestEdit={() => setIsEditing(true)}
+                      onAccept={(html, model) => {
+                        if (!isEditing) setIsEditing(true)
+                        editor?.commands.setContent(html, { emitUpdate: false })
+                        setDraftContent(html)
+                        setAiEditModel(model)
+                      }}
+                    />
                   )}
                 </>
               ) : (
@@ -1019,7 +1029,10 @@ export function DocumentEditor() {
                 sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
               />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && (
+            {activePanel === 'ai-help' && (
+              <AIPromptHelpPanel documentType={document?.type} />
+            )}
+            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
                 <p className="mt-2 text-sm text-slate-700">

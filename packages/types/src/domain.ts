@@ -21,7 +21,7 @@ export type DocumentType =
 export type RACIRole = 'R' | 'A' | 'C' | 'I'
 
 export type PanelMode =
-  | 'ai' | 'history' | 'traceability' | 'voice' | 'checklist' | 'audit' | 'comments'
+  | 'ai' | 'ai-help' | 'history' | 'traceability' | 'voice' | 'checklist' | 'audit' | 'comments'
   | 'review-assignment' | 'crm-resolution' | 'ich-e3' | 'meddra' | 'tlf'
   | null
 

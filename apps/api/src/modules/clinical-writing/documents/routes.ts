@@ -583,6 +583,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     customPrompt: z.string().min(1).max(2000).optional(),
     // 'edit' (editor prompt box): the section as it stands in the editor, unsaved changes included
     currentContent: z.string().max(200_000).optional(),
+    // Selection scope — when the editor has text selected, UI passes the
+    // highlighted passage here. If present, the AI returns only the
+    // revised passage (not the whole section) and the UI swaps it in
+    // place. Keeps edits surgical and avoids collateral changes.
+    selectionText: z.string().max(50_000).optional(),
     model: z.string().optional(),            // omitted -> the engine saved in Admin Panel -> AI Engine
   }).refine(b => b.intent !== 'edit' || !!b.customPrompt?.trim(), { message: 'Tell the AI what to change', path: ['customPrompt'] })
 
@@ -621,16 +626,35 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         prompt = `Section: ${sectionHeader}\n\nCurrent content:\n${currentContent}\n\nUser request:\n${parsed.data.customPrompt ?? ''}`
         break
       case 'edit':
-        prompt = [
-          `You are editing the "${sectionHeader}" section of a regulated clinical document (${hyphenate(doc.type)}).`,
-          'Apply the instruction below to the current section content and return the COMPLETE revised section.',
-          'Return only HTML using these tags: p, h3, h4, strong, em, u, ul, ol, li, blockquote, table, thead, tbody, tr, th, td. No attributes, no explanations, no code fences.',
-          'Do not invent data, numbers, dates, names or references that are not in the current content. If the instruction needs information you do not have, insert a placeholder such as [TBD: what is needed].',
-          '',
-          `Instruction:\n${parsed.data.customPrompt!.trim()}`,
-          '',
-          `Current section content (HTML):\n${currentContent || '(empty)'}`,
-        ].join('\n')
+        if (parsed.data.selectionText && parsed.data.selectionText.trim().length > 0) {
+          // Selection-scoped edit: return ONLY the revised passage. UI will
+          // swap it into the selected range; the rest of the section stays
+          // untouched (no risk of collateral AI changes outside the selection).
+          prompt = [
+            `You are editing a highlighted passage inside the "${sectionHeader}" section of a regulated clinical document (${hyphenate(doc.type)}).`,
+            'Apply the instruction below to the passage and return ONLY the revised passage (not the whole section).',
+            'Return only HTML using these tags: p, h3, h4, strong, em, u, ul, ol, li, blockquote, table, thead, tbody, tr, th, td. No attributes, no explanations, no code fences.',
+            'If the instruction only requires inline text (no block tags), return just the revised text with no surrounding tags.',
+            'Do not invent data, numbers, dates, names or references that are not in the passage or the surrounding section. If the instruction needs information you do not have, insert a placeholder such as [TBD: what is needed].',
+            '',
+            `Instruction:\n${parsed.data.customPrompt!.trim()}`,
+            '',
+            `Highlighted passage:\n${parsed.data.selectionText}`,
+            '',
+            `Full section (for context only — do not include in the response):\n${currentContent || '(empty)'}`,
+          ].join('\n')
+        } else {
+          prompt = [
+            `You are editing the "${sectionHeader}" section of a regulated clinical document (${hyphenate(doc.type)}).`,
+            'Apply the instruction below to the current section content and return the COMPLETE revised section.',
+            'Return only HTML using these tags: p, h3, h4, strong, em, u, ul, ol, li, blockquote, table, thead, tbody, tr, th, td. No attributes, no explanations, no code fences.',
+            'Do not invent data, numbers, dates, names or references that are not in the current content. If the instruction needs information you do not have, insert a placeholder such as [TBD: what is needed].',
+            '',
+            `Instruction:\n${parsed.data.customPrompt!.trim()}`,
+            '',
+            `Current section content (HTML):\n${currentContent || '(empty)'}`,
+          ].join('\n')
+        }
         break
     }
 
@@ -657,7 +681,13 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           : parsed.data.intent,
       })
       // Models sometimes wrap HTML in a code fence despite being asked not to.
-      if (parsed.data.intent === 'edit') return { ...result, responseText: stripCodeFence(result.responseText) }
+      if (parsed.data.intent === 'edit') {
+        return {
+          ...result,
+          responseText: stripCodeFence(result.responseText),
+          scope: parsed.data.selectionText ? 'selection' : 'section',
+        }
+      }
       return result
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'RateLimitedError') {

@@ -819,26 +819,6 @@ export function DocumentEditor() {
                       )}
                     </>
                   )}
-
-                  {/* AI prompt box — always visible at the bottom of the
-                      section (view OR edit mode). First prompt in view mode
-                      auto-switches to edit mode so the AI output lands. */}
-                  {documentId && (
-                    <SectionAIPrompt
-                      documentId={documentId}
-                      sectionId={activeSectionData.id}
-                      currentHtml={draftContent}
-                      editor={editor}
-                      isEditing={isEditing}
-                      onRequestEdit={() => setIsEditing(true)}
-                      onAccept={(html, model) => {
-                        if (!isEditing) setIsEditing(true)
-                        editor?.commands.setContent(html, { emitUpdate: false })
-                        setDraftContent(html)
-                        setAiEditModel(model)
-                      }}
-                    />
-                  )}
                 </>
               ) : (
                 <p className="mt-4 text-[14px] text-slate-400">
@@ -847,6 +827,32 @@ export function DocumentEditor() {
               )}
             </div>
           </div>
+
+          {/* AI prompt dock — pinned to the bottom of the editor pane, just
+              above the provenance bar. Lives OUTSIDE the scrollable content
+              area so it stays visible as the user scrolls through the
+              section text. First prompt in view mode auto-switches to edit
+              mode so the AI output has somewhere to land. */}
+          {activeSectionData && documentId && (
+            <div className="flex-none border-t border-slate-200 bg-white px-12 py-3" data-section-ai-prompt-dock>
+              <div className="max-w-[760px]">
+                <SectionAIPrompt
+                  documentId={documentId}
+                  sectionId={activeSectionData.id}
+                  currentHtml={draftContent}
+                  editor={editor}
+                  isEditing={isEditing}
+                  onRequestEdit={() => setIsEditing(true)}
+                  onAccept={(html, model) => {
+                    if (!isEditing) setIsEditing(true)
+                    editor?.commands.setContent(html, { emitUpdate: false })
+                    setDraftContent(html)
+                    setAiEditModel(model)
+                  }}
+                />
+              </div>
+            </div>
+          )}
 
           {/* Provenance bar (40px) — real section metadata from the
                loaded document. AI-drafted / human-authored span counts

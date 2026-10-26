@@ -180,7 +180,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
     : 'Select text to edit a passage, or type to edit the entire section'
 
   return (
-    <div className="mt-4" data-section-ai-prompt>
+    <div data-section-ai-prompt>
       {result && (
         <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50/40" data-ai-edit-preview>
           <div className="flex items-center justify-between gap-2 border-b border-blue-100 px-4 py-2">

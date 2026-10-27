@@ -1,3 +1,4 @@
+import { useMemo, useState } from 'react'
 import type { Section } from '@platform/types'
 import { useDocumentStore } from '../../store'
 
@@ -54,6 +55,20 @@ export function SectionNavigator({
   const activeSection    = useDocumentStore(s => s.activeSection)
   const setActiveSection = useDocumentStore(s => s.setActiveSection)
 
+  // Filter — writers wanted to jump to a section by name/number instead of
+  // scrolling the full ToC. Case-insensitive, matches on both "11.4" and
+  // "primary efficacy". Footer progress still reports the FULL counts so
+  // a filtered view doesn't look like sections went missing.
+  const [query, setQuery] = useState('')
+  const visibleSections = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return sections
+    return sections.filter(s =>
+      s.number.toLowerCase().includes(q) ||
+      s.title.toLowerCase().includes(q),
+    )
+  }, [sections, query])
+
   const completeCount = sections.filter(s => s.status === 'complete').length
   const pct = sections.length > 0 ? Math.round((completeCount / sections.length) * 100) : 0
 
@@ -61,13 +76,61 @@ export function SectionNavigator({
     <div className="flex w-[220px] flex-none flex-col border-r border-slate-200" style={{ backgroundColor: '#F8FAFC', minHeight: 0 }} data-section-nav>
 
       {/* Header */}
-      <div className="flex-none px-5 pt-4 pb-2 font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-        Sections
+      <div className="flex flex-none items-center justify-between px-5 pt-4 pb-2 font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
+        <span>Sections</span>
+        {query && (
+          <span className="font-sans text-[10px] font-normal normal-case text-slate-400">
+            {visibleSections.length} of {sections.length}
+          </span>
+        )}
+      </div>
+
+      {/* Section search — filters by number ("11.4") or title ("efficacy").
+          Esc clears the query so the writer can abort without reaching for
+          the mouse. The data-section-search hook lets Playwright target it. */}
+      <div className="flex-none px-3 pb-2">
+        <div className="relative">
+          <input
+            type="search"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Escape') setQuery('') }}
+            placeholder="Search sections…"
+            data-section-search
+            className="h-7 w-full rounded border border-slate-200 bg-white pl-7 pr-7 text-[12px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100"
+          />
+          <svg
+            width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4"
+            className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-slate-400"
+            aria-hidden="true"
+          >
+            <circle cx="6" cy="6" r="4" />
+            <line x1="9" y1="9" x2="12" y2="12" strokeLinecap="round" />
+          </svg>
+          {query && (
+            <button
+              type="button"
+              onClick={() => setQuery('')}
+              aria-label="Clear search"
+              className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
+                <line x1="3" y1="3" x2="9" y2="9" />
+                <line x1="9" y1="3" x2="3" y2="9" />
+              </svg>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Scroll list */}
       <div className="flex-1 overflow-y-auto">
-        {sections.map(section => {
+        {visibleSections.length === 0 && (
+          <p className="px-5 py-6 text-center text-[12px] italic text-slate-400">
+            No sections match "{query}".
+          </p>
+        )}
+        {visibleSections.map(section => {
           const isActive     = activeSection === section.id
           const isLocked     = section.isLocked === true
           const lockOwner    = section.lockedByUserId ? TEAM_INITIALS[section.lockedByUserId] : null

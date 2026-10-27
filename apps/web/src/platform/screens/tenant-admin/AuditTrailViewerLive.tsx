@@ -31,13 +31,14 @@ interface Filters {
   action: string
   entityType: string
   entityId: string
+  projectId: string   // from ?projectId= (a project's "Audit trail" button); no box in the form
   from: string      // YYYY-MM-DDTHH:mm from <input type="datetime-local">, in the chosen timezone
   to: string
 }
 
 const SEARCH_MIN_CHARS = 3
 
-const EMPTY_FILTERS: Filters ={ search: '', actor: '', action: '', entityType: '', entityId: '', from: '', to: '' }
+const EMPTY_FILTERS: Filters ={ search: '', actor: '', action: '', entityType: '', entityId: '', projectId: '', from: '', to: '' }
 
 function filtersFromUrl(params: URLSearchParams): Filters {
   return {
@@ -46,9 +47,10 @@ function filtersFromUrl(params: URLSearchParams): Filters {
     action:     params.get('action') ?? '',
     entityType: params.get('entityType') ?? '',
     entityId:   params.get('entityId') ?? '',
+    projectId:  params.get('projectId') ?? '',
     // A deep link to one entity (e.g. a project's "Audit trail" button) opens on its
     // whole history; otherwise the page opens on the one-month default, in local time.
-    ...(params.get('entityId') ? { from: '', to: '' } : defaultRange('local')),
+    ...(params.get('entityId') || params.get('projectId') ? { from: '', to: '' } : defaultRange('local')),
   }
 }
 
@@ -83,6 +85,7 @@ function toAuditQuery(f: Filters, tz: TimeZoneMode): Omit<AuditQuery, 'limit' | 
     action:     val(f.action),
     entityType: val(f.entityType),
     entityId:   val(f.entityId),
+    projectId:  val(f.projectId),
     fromDate:   rangeToIso(f.from, 'start', tz),
     toDate:     rangeToIso(f.to, 'end', tz),
   }
@@ -589,8 +592,10 @@ export function AuditTrailViewerLive() {
   const [draft, setDraft] = useState<Filters>(initialFilters)
   const [applied, setApplied] = useState<Filters>(initialFilters)
 
-  // Name the entity chip when the scoped id is a project; anything else shows as "Entity".
-  const scopedEntityId = applied.entityId.trim()
+  // Scope from a deep link: ?projectId= (whole project) or ?entityId= (one record).
+  // Name the chip when the scoped id is a project; anything else shows as "Entity".
+  const scopedProjectId = applied.projectId.trim()
+  const scopedEntityId = scopedProjectId || applied.entityId.trim()
   const scopedProject = useQuery({
     queryKey: ['projects', scopedEntityId],
     queryFn:  () => projectsApi.get(scopedEntityId),
@@ -681,10 +686,15 @@ export function AuditTrailViewerLive() {
     setApplied(draft)
     resetView()
   }
-  // Drop ?entityId= from the address too, so a reload doesn't bring the scope back.
+  // Drop ?entityId= / ?projectId= from the address too, so a reload doesn't bring the scope back.
   function dropEntityParam() {
-    if (!searchParams.has('entityId')) return
-    setSearchParams(prev => { const next = new URLSearchParams(prev); next.delete('entityId'); return next }, { replace: true })
+    if (!searchParams.has('entityId') && !searchParams.has('projectId')) return
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev)
+      next.delete('entityId')
+      next.delete('projectId')
+      return next
+    }, { replace: true })
   }
   function resetFilter() {
     const defaults = { ...EMPTY_FILTERS, ...defaultRange(tz) }
@@ -699,8 +709,8 @@ export function AuditTrailViewerLive() {
   // (the deep link had opened it with no range so the entity's full history showed).
   function clearEntityScope() {
     const range = defaultRange(tz)
-    setDraft(d => ({ ...d, entityId: '', ...range }))
-    setApplied(a => ({ ...a, entityId: '', ...range }))
+    setDraft(d => ({ ...d, entityId: '', projectId: '', ...range }))
+    setApplied(a => ({ ...a, entityId: '', projectId: '', ...range }))
     dropEntityParam()
     resetView()
   }
@@ -898,17 +908,18 @@ export function AuditTrailViewerLive() {
           className="rounded-lg border border-slate-200 bg-white p-4"
           data-section="filters"
         >
-          {/* Entity scope from a deep link (?entityId=…, e.g. a project's "Audit trail" button).
-              There is no Entity id box; this chip shows the scope and removes it. */}
-          {applied.entityId.trim() && (
+          {/* Scope from a deep link: ?projectId=… (a project's "Audit trail" button — everything
+              in the project) or ?entityId=… (one record). No box in the form; this chip shows the
+              scope and removes it. */}
+          {scopedEntityId && (
             <div className="mb-3 flex items-center gap-2" data-section="entity-scope">
               <span
                 className="inline-flex items-center gap-1.5 rounded-full border border-slate-300 bg-slate-50 py-0.5 pl-3 pr-1 text-[12px] text-slate-800"
-                data-entity-chip={applied.entityId.trim()}
+                data-entity-chip={scopedEntityId}
               >
                 {scopedProject.data
-                  ? <><span className="font-semibold">Project: {scopedProject.data.name}</span><span className="font-mono text-[10px] text-slate-500">{applied.entityId.trim()}</span></>
-                  : <><span className="font-semibold">Entity:</span><span className="font-mono text-[11px]">{applied.entityId.trim()}</span></>}
+                  ? <><span className="font-semibold">Project: {scopedProject.data.name}</span><span className="font-mono text-[10px] text-slate-500">{scopedEntityId}</span></>
+                  : <><span className="font-semibold">{scopedProjectId ? 'Project:' : 'Entity:'}</span><span className="font-mono text-[11px]">{scopedEntityId}</span></>}
                 <button
                   type="button"
                   onClick={clearEntityScope}
@@ -919,7 +930,11 @@ export function AuditTrailViewerLive() {
                   <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M3 3l6 6M9 3l-6 6" /></svg>
                 </button>
               </span>
-              <span className="text-[11px] text-slate-500">Showing entries recorded against this {scopedProject.data ? 'project' : 'entity'} only.</span>
+              <span className="text-[11px] text-slate-500">
+                {scopedProjectId
+                  ? "Showing everything in this project — the project record, its documents and its uploads."
+                  : `Showing entries recorded against this ${scopedProject.data ? 'project' : 'entity'} only.`}
+              </span>
             </div>
           )}
           {/* Fields carry their own placeholder text (no labels above them); aria-labels keep them named for screen readers. */}

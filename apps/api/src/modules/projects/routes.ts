@@ -46,6 +46,29 @@ type ProjectWithTeam = Awaited<ReturnType<typeof import('@prisma/client').Prisma
   ? P & { teamMembers: Array<{ userId: string; name: string; initials: string | null; role: string; raci: string; colourKey: string | null }> }
   : never
 
+// A field value as plain JSON for the audit chain (Dates → ISO text, undefined → null),
+// so the row hashes the same after a JSONB round-trip.
+function auditValue(v: unknown): unknown {
+  if (v === undefined) return null
+  if (v instanceof Date) return v.toISOString()
+  return JSON.parse(JSON.stringify(v)) as unknown
+}
+
+// { field: { from, to } } for the submitted fields whose stored value actually changed.
+export function projectChanges(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+  fields: string[],
+): Record<string, { from: unknown; to: unknown }> {
+  const out: Record<string, { from: unknown; to: unknown }> = {}
+  for (const f of fields) {
+    const from = auditValue(before[f])
+    const to = auditValue(after[f])
+    if (JSON.stringify(from) !== JSON.stringify(to)) out[f] = { from, to }
+  }
+  return out
+}
+
 function projectShape(p: ProjectWithTeam) {
   if (!p) return p
   return {
@@ -150,6 +173,13 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       },
     })
 
+    // FR-A-061: old → new for every field this request actually changed.
+    const changes = projectChanges(
+      existing as unknown as Record<string, unknown>,
+      updated as unknown as Record<string, unknown>,
+      Object.keys(parsed.data),
+    )
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
@@ -157,11 +187,11 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       entityType: 'project',
       entityId: id,
       details: {
-        changedFields: Object.keys(parsed.data),
-        // TA stays editable (not locked), so record the before/after values.
-        ...(therapeuticArea !== undefined && !sameTa(therapeuticArea, existing.therapeuticArea) && {
-          therapeuticArea: { from: existing.therapeuticArea, to: therapeuticArea },
-        }),
+        projectId: id,
+        changedFields: Object.keys(changes),
+        changes,
+        // Kept for existing consumers that read the TA change from this key.
+        ...(changes.therapeuticArea && { therapeuticArea: changes.therapeuticArea }),
       },
       ipAddress: request.ip ?? null,
     })

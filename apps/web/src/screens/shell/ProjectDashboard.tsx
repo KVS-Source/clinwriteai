@@ -210,7 +210,7 @@ export function ProjectDashboard() {
             {isAdmin && (
               <button
                 type="button"
-                onClick={() => navigate(`/admin/audit?entityId=${encodeURIComponent(projectId ?? '')}`)}
+                onClick={() => navigate(`/admin/audit?projectId=${encodeURIComponent(projectId ?? '')}`)}
                 title="Admin · Hash-chained audit trail"
                 className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
               >

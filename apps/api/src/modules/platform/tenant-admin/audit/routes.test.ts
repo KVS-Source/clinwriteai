@@ -458,3 +458,34 @@ describe('sorting, search and audit-of-audit', () => {
     expect((await app.inject({ method: 'GET', url: '/admin/audit/export' })).statusCode).toBe(500)
   })
 })
+
+describe('project scope (?projectId=)', () => {
+  it('matches the project record, entries carrying its projectId, and its documents — one bound parameter', async () => {
+    const { app, calls } = await setupApp({ rows: [makeRow(2), makeRow(1)] })
+    const res = await app.inject({ method: 'GET', url: '/admin/audit?projectId=PROJ-1' })
+    expect(res.statusCode).toBe(200)
+    const page = pageSql(calls)
+    expect(page.sql).toContain(`a.entity_type = 'project' AND a.entity_id = $1`)
+    expect(page.sql).toContain(`a.details->>'projectId' = $1`)
+    expect(page.sql).toMatch(/EXISTS \(\s*SELECT 1 FROM documents d WHERE d\.id = a\.entity_id AND d\."projectId" = \$1/)
+    expect(page.sql).not.toMatch(/JOIN documents/)   // EXISTS, not a join — no row can be returned twice
+    expect(page.params[0]).toBe('PROJ-1')
+  })
+
+  it('applies to export and the "newer entries" check too', async () => {
+    const { app, calls } = await setupApp({ rows: [makeRow(1)] })
+    await app.inject({ method: 'GET', url: '/admin/audit/export?projectId=PROJ-1' })
+    await app.inject({ method: 'GET', url: '/admin/audit/newer?projectId=PROJ-1&afterId=1' })
+    const scoped = calls.filter(c => c.sql.includes(`a.details->>'projectId'`))
+    expect(scoped.length).toBeGreaterThanOrEqual(2)
+    for (const c of scoped) expect(c.params).toContain('PROJ-1')
+  })
+
+  it('combines with the tenant scope for admins, tenant first', async () => {
+    const { app, calls } = await setupApp({ role: 'admin', tenantId: 'TENANT-ACME' })
+    await app.inject({ method: 'GET', url: '/admin/audit?projectId=PROJ-1' })
+    const page = pageSql(calls)
+    expect(page.sql).toMatch(/u\."tenantId" = \$1 AND \(/)
+    expect(page.params.slice(0, 2)).toEqual(['TENANT-ACME', 'PROJ-1'])
+  })
+})

@@ -160,6 +160,8 @@ export interface AuditEntry {
     | 'checklist-waived' | 'checklist-completed' | 'document-signed'
     | 'version-restore' | 'voice-note-added' | 'qa-review-completed'
   detail: string
+  // Raw audit details (sectionId / sectionRef, before / after for section edits, …).
+  details?: Record<string, unknown> | null
 }
 
 export interface DocumentVersion {

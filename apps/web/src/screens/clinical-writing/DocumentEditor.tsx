@@ -32,6 +32,7 @@ import { cleanSectionRef, withSectionMark } from '../../panels/CommentComposer'
 import { AIChatPanel }            from '../../panels/AIChatPanel'
 import { SectionHistoryPanel }    from '../../panels/SectionHistoryPanel'
 import { AIPromptHelpPanel }      from '../../panels/AIPromptHelpPanel'
+import { TlfPanel }               from '../../panels/TlfPanel'
 
 // Panel titles for the right panel header
 const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
@@ -488,6 +489,32 @@ export function DocumentEditor() {
   // Closing the panel closes the viewer too.
   useEffect(() => { if (activePanel !== 'traceability') setSourceViewer(null) }, [activePanel, setSourceViewer])
 
+  // ⌘J / Ctrl+J — toggle the AI Chat panel. The EditorToolbar advertises
+  // this shortcut via the ⌘J kbd tag; this is where it's actually wired.
+  // preventDefault is critical: Chrome binds Ctrl+J to the Downloads panel,
+  // and leaving it unhandled would open Downloads every time the writer
+  // tried to toggle the chat.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return
+      if (e.key.toLowerCase() !== 'j') return
+      // Don't hijack when the user is editing a form input (e.g. the search
+      // box in Sidebar) — but allow it while the editor is focused since the
+      // editor doesn't use Ctrl+J for anything.
+      const t = e.target as Element | null
+      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.getAttribute('contenteditable') === 'true')) {
+        // Exception: TipTap sets contenteditable="true" on the editor; still
+        // let the shortcut through there so writers can toggle the chat
+        // without leaving the editor.
+        if (!t.closest('[data-section-editor]')) return
+      }
+      e.preventDefault()
+      setActivePanel(activePanel === 'ai' ? null : 'ai')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [activePanel, setActivePanel])
+
   // Source References, Audit Trail, Comments and AI Chat close on a click outside the panel (so does a click
   // on another button). Comments stays open when you pick another section: it re-scopes to that section. A click
   // in the section still counts as outside, except when it ends a text selection (picking the
@@ -725,7 +752,7 @@ export function DocumentEditor() {
 
           {/* Right: autosave + presence + Save + Submit */}
           <div className="flex flex-none items-center gap-3.5">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500" title="Last synced from the server. Click Save to refresh.">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500" title="Time of the last document body refresh. Click Sync to pull every side panel at once.">
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: isRefetching ? '#F59E0B' : '#16A34A' }} />
               {isRefetching
                 ? 'Syncing…'
@@ -774,10 +801,38 @@ export function DocumentEditor() {
 
             <button
               type="button"
-              onClick={() => refetchDocument()}
+              onClick={() => {
+                // Broad refresh — the document body + every side panel keyed
+                // off this documentId (comments, sources, references, section
+                // history, stage, signatures, checklist, presence, AI history,
+                // audit). Individual panels keep their own React Query sub-
+                // scriptions, so invalidating here fans out without needing
+                // each panel to subscribe to a global tick. The document body
+                // refetch is awaited inside refetchDocument(); the other keys
+                // use fire-and-forget invalidation so the UI starts refreshing
+                // in parallel.
+                void refetchDocument()
+                const keys: readonly unknown[][] = [
+                  ['comments',          documentId],
+                  ['document-sources',  documentId],
+                  ['document-references', documentId],
+                  ['section-history',   documentId],
+                  ['document-stage',    documentId],
+                  ['signature-chains',  documentId],
+                  ['checklist',         documentId],
+                  ['presence',          documentId],
+                  ['ai-history',        documentId],
+                  ['ai-chat',           documentId],
+                  ['audit',             documentId],
+                ]
+                for (const key of keys) {
+                  void qc.invalidateQueries({ queryKey: key })
+                }
+              }}
               disabled={isRefetching}
-              title="Pull the latest version from the server (collaborator edits, new comments, etc.)"
+              title="Pull the latest from the server across every panel on this document (body, comments, references, history, stage, signatures, checklist, presence, AI)."
               className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors disabled:cursor-wait disabled:opacity-60"
+              data-action="sync-document"
             >
               {isRefetching ? 'Syncing…' : 'Sync'}
             </button>
@@ -1196,7 +1251,14 @@ export function DocumentEditor() {
             {activePanel === 'ai-help' && (
               <AIPromptHelpPanel documentType={document?.type} />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && (
+            {activePanel === 'tlf' && documentId && (
+              <TlfPanel
+                documentId={documentId}
+                activeSectionId={activeSection}
+                activeSectionLabel={activeSectionData ? `${withSectionMark(activeSectionData.number)} ${activeSectionData.title}` : undefined}
+              />
+            )}
+            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
                 <p className="mt-2 text-sm text-slate-700">

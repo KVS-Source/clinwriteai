@@ -1,4 +1,4 @@
-import { ResolveForm } from '../../panels/ResolveCommentForm'
+import { ResolveForm, parseResolutionNote } from '../../panels/ResolveCommentForm'
 import { cleanSectionRef } from '../../panels/CommentComposer'
 import { useMemo, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -71,23 +71,6 @@ const initialsOf = (name: string) =>
 
 const fmtDate = (iso: string | null | undefined) =>
   iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''
-
-const RESOLUTION_LABEL: Record<string, string> = {
-  accept:                   'Accepted',
-  accept_with_modification: 'Accepted with modification',
-  reject:                   'Rejected',
-}
-
-// Resolution notes are stored with a tag in front: "[accept] text" when resolved directly, or
-// "[CRM:CRM-002:accept_with_modification] text" when resolved in a CRM meeting. Split it off.
-function parseResolutionNote(note: string | null | undefined): { text: string; viaCrm: string | null; decision: string | null } {
-  const raw = note ?? ''
-  const crm = /^\[CRM:([^:\]]+):([^\]]*)\]\s*/.exec(raw)
-  if (crm) return { text: raw.slice(crm[0].length), viaCrm: crm[1], decision: RESOLUTION_LABEL[crm[2]] ?? null }
-  const plain = /^\[([a-z_]+)\]\s*/.exec(raw)
-  if (plain && RESOLUTION_LABEL[plain[1]]) return { text: raw.slice(plain[0].length), viaCrm: null, decision: RESOLUTION_LABEL[plain[1]] }
-  return { text: raw, viaCrm: null, decision: null }
-}
 
 const csvCell = (v: unknown) => {
   const s = v == null ? '' : String(v)

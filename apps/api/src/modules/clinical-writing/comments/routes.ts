@@ -130,7 +130,8 @@ const addSchema = z.object({
 
 const resolveSchema = z.object({
   resolutionType: z.enum(['accept', 'accept_with_modification', 'reject']),
-  note: z.string().min(1),
+  // Trimmed: a whitespace-only note is no note (AC-A-055). 500 matches the UI's limit.
+  note: z.string().trim().min(1).max(500),
 })
 
 const listQuerySchema = z.object({

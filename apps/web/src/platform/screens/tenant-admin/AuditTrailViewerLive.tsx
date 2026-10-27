@@ -922,7 +922,7 @@ export function AuditTrailViewerLive() {
                 aria-label="Search"
                 aria-describedby="audit-search-hint"
                 className={`${inputClass} w-full`}
-                placeholder="Search actor, action, entity… (3+ characters)"
+                placeholder="Search actor, action, entity…"
                 value={draft.search}
                 onChange={e => setDraft({ ...draft, search: e.target.value })}
                 data-field="search"

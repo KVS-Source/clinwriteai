@@ -48,4 +48,26 @@ export const crmApi = {
       resolutionNote: (body.resolutionNote as string | undefined) ?? note ?? '',
     })
   },
+
+  // --- AI Note-Taker (Phase 1 — sPM-ai-notetaker) --------------------------
+  // Audio is never stored. The chair pastes a pre-transcribed text (Zoom
+  // "Save transcript" / Teams export / Otter for now; Recall.ai bot in
+  // Phase 3). The server extracts per-comment draft notes and can also
+  // generate a minutes HTML.
+  uploadTranscript: (meetingId: string, body: { rawText: string; source?: 'manual_paste' | 'zoom_native' | 'teams_export' | 'otter' | 'bot' }) =>
+    api.post<{
+      transcript: { id: string; meetingId: string; wordCount: number; source: string; uploadedBy: string; uploadedAt: string }
+      drafts: number
+      aiModel: string
+    }>(`/crm/${meetingId}/transcript`, body),
+  getAiDrafts: (meetingId: string) =>
+    api.get<{
+      meetingId: string
+      drafts: Array<{ commentId: string; draftText: string; aiModel: string; generatedAt: string }>
+      transcript: { wordCount: number; source: string; uploadedAt: string } | null
+    }>(`/crm/${meetingId}/ai-drafts`),
+  generateMinutes: (meetingId: string) =>
+    api.post<{ meetingId: string; minutesHtml: string; generatedAt: string | null }>(
+      `/crm/${meetingId}/minutes`, {},
+    ),
 }

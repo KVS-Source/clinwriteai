@@ -255,19 +255,7 @@ export function PortfolioDashboard() {
 
       {/* ============ Header ============ */}
       <div className="flex flex-none flex-col gap-2.5 border-b border-slate-200 bg-white px-8 py-5">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
-            {project?.shortTitle ?? '…'}
-          </button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900 transition-colors">
-            Clinical Writing
-          </button>
-          <span className="text-slate-300">›</span>
-          <span className="font-semibold text-slate-900">Portfolio</span>
-        </div>
+        {/* Breadcrumb moved to TopNav (Projects / Project / Clinical Writing / Portfolio). */}
 
         <div className="flex items-end justify-between gap-6">
           <div className="flex flex-col gap-1.5">

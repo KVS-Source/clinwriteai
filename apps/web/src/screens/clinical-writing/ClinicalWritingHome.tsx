@@ -327,15 +327,7 @@ export function ClinicalWritingHome() {
 
       {/* ============ Page Header ============ */}
       <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-8 pt-5 pb-[22px]">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
-            {project?.shortTitle ?? '…'}
-          </button>
-          <span className="text-slate-300">›</span>
-          <span className="font-semibold text-slate-900">Clinical Writing</span>
-        </div>
+        {/* Breadcrumb moved to TopNav (Projects / Project / Clinical Writing). */}
 
         <div className="flex items-start justify-between gap-8">
           {/* Left: title + meta + buttons */}

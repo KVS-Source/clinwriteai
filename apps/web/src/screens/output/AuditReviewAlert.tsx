@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { AuditEntry } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
@@ -123,7 +123,6 @@ function AuditRow({ entry }: AuditRowProps) {
 
 export function AuditReviewAlert() {
   const { projectId }    = useParams()
-  const navigate         = useNavigate()
   const qc               = useQueryClient()
   const setActiveProject = useProjectStore(s => s.setActiveProject)
 
@@ -202,19 +201,7 @@ export function AuditReviewAlert() {
 
       {/* ============ Header ============ */}
       <div className="flex flex-none flex-col gap-2.5 border-b border-slate-200 bg-white px-8 py-5">
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
-            {project?.shortTitle ?? '…'}
-          </button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900 transition-colors">
-            Clinical Writing
-          </button>
-          <span className="text-slate-300">›</span>
-          <span className="font-semibold text-slate-900">Audit Review</span>
-        </div>
+        {/* Breadcrumb moved to TopNav (Projects / Project / Clinical Writing / Audit Review). */}
 
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-1.5">

@@ -17,6 +17,16 @@ const MODULE_LABEL: Record<string, string> = {
   'ideation-publishing': 'Ideation & Publishing',
 }
 
+// Within-module leaf slugs (e.g. /clinical-writing/comments) → human label.
+// Only slugs that appear here get a leaf crumb; anything else falls through
+// without a trailing crumb (the module landing page is enough context).
+const LEAF_LABEL: Record<string, string> = {
+  'comments':     'Comments',
+  'portfolio':    'Portfolio',
+  'audit-review': 'Audit Review',
+  'crm':          'CRM',
+}
+
 function BellIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
@@ -91,26 +101,39 @@ export function TopNav() {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  // Enriched breadcrumb when inside a document editor so the in-screen
-  // "All Projects › … › Clinical Writing › DSUR Year 2" row can be dropped
-  // and the content area gets a free ~24px of vertical space. The last
-  // crumb is the document title; shown as a label (non-link) because the
-  // user is already on it.
+  // Enriched breadcrumbs so every screen under /projects/* can drop its own
+  // in-screen "All Projects › Project › Module › Leaf" row and reclaim a
+  // full line of vertical space. Four shapes we handle:
+  //   /projects                                    → Projects
+  //   /projects/:projectId                         → Projects / <Project>
+  //   /projects/:projectId/<module>                → Projects / <Project> / <ModuleLabel>
+  //   /projects/:projectId/<module>/<leaf>         → Projects / <Project> / <ModuleLabel> / <LeafLabel>
+  //   /projects/:projectId/<module>/documents/:id  → Projects / <Project> / <ModuleLabel> / <DocTitle>
   //
-  // Route shape: /projects/:projectId/<module-slug>/documents/:documentId...
-  const docRouteMatch = /\/projects\/([^/]+)\/([^/]+)\/documents\/([^/]+)/.exec(pathname)
-  const moduleSlug    = docRouteMatch?.[2]
-  const moduleLabel   = moduleSlug ? MODULE_LABEL[moduleSlug] : null
+  // The last crumb is a label (href=null) because the user is already on
+  // that resource; everything prior is clickable.
+  const projectRouteMatch = /^\/projects\/([^/]+)(?:\/([^/]+)(?:\/(.+))?)?/.exec(pathname)
+  const inProjectRoute = !!projectRouteMatch
+  const moduleSlug     = projectRouteMatch?.[2] ?? null
+  const moduleLabel    = moduleSlug ? MODULE_LABEL[moduleSlug] ?? null : null
+  const trailing       = projectRouteMatch?.[3] ?? ''      // whatever follows /module/
+  const docMatch       = /^documents\/([^/]+)/.exec(trailing)
+  const leafSlug       = !docMatch && trailing ? trailing.split('/')[0]! : null
+  const leafLabel      = leafSlug ? LEAF_LABEL[leafSlug] ?? null : null
 
   const crumbs: Array<{ label: string; href: string | null }> = [
     { label: 'Projects', href: '/projects' },
-    project ? { label: project.shortTitle, href: `/projects/${project.id}` } : null,
-    docRouteMatch && moduleLabel && project
+    inProjectRoute && project ? { label: project.shortTitle, href: `/projects/${project.id}` } : null,
+    inProjectRoute && moduleLabel && project
       ? { label: moduleLabel, href: `/projects/${project.id}/${moduleSlug}` }
       : null,
-    docRouteMatch && activeDocument
+    // Leaf OR document title — mutually exclusive since docMatch and
+    // leafSlug can't both be truthy by construction above.
+    docMatch && activeDocument
       ? { label: activeDocument.title, href: null }
-      : null,
+      : leafLabel
+        ? { label: leafLabel, href: null }
+        : null,
   ].filter(Boolean) as Array<{ label: string; href: string | null }>
 
   const currentRoleLabel = PLATFORM_USER_ROLE_LABEL[currentUser.role] ?? currentUser.role

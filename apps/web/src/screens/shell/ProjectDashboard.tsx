@@ -145,14 +145,7 @@ export function ProjectDashboard() {
       {/* ============ Page Header ============ */}
       <div className="flex flex-col gap-3.5 border-b border-slate-200 bg-white px-8 pt-5 pb-[22px]">
 
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">
-            All Projects
-          </button>
-          <span className="text-slate-300">›</span>
-          <span className="font-semibold text-slate-900">{project.shortTitle}</span>
-        </div>
+        {/* Breadcrumb moved to TopNav (Projects / Project). */}
 
         {/* Title row + right actions */}
         <div className="flex items-start justify-between gap-6">

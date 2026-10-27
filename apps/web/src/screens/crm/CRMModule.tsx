@@ -399,13 +399,10 @@ export function CRMModule() {
 
       {/* Page header */}
       <div className="flex flex-none flex-col gap-2.5 border-b border-slate-200 bg-white px-8 py-5">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900 transition-colors">Clinical Writing</button>
-          <span className="text-slate-300">›</span>
-          <span className="font-semibold text-slate-900">CRM</span>
-          <div className="flex-1" />
+        {/* Breadcrumb moved to TopNav; the doc picker it used to share this
+            row with now sits on its own, right-aligned, so the layout grid
+            doesn't change height. */}
+        <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-slate-500">
           {docPicker}
         </div>
         <div className="flex flex-wrap items-center gap-4">

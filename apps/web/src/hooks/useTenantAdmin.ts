@@ -178,6 +178,26 @@ export function useAuditQuery(q: AuditQuery) {
   })
 }
 
+// How often the open Audit Trail page asks whether anything new arrived.
+export const AUDIT_POLL_MS = 8_000
+
+/**
+ * Polls the cheap "anything newer than entry #afterId?" endpoint while the page is showing
+ * the newest entries. Pauses while the browser tab is hidden. Only when it reports something
+ * does the screen re-fetch the full table.
+ */
+export function useAuditNewer(filters: Omit<AuditQuery, 'limit' | 'cursor' | 'sortBy' | 'order'>, afterId: string | null, enabled: boolean) {
+  return useQuery({
+    queryKey: ['audit', 'newer', filters, afterId],
+    queryFn:  () => auditApi.newer(filters, afterId!),
+    enabled:  enabled && afterId !== null,
+    refetchInterval: AUDIT_POLL_MS,
+    refetchIntervalInBackground: false,
+    staleTime: 0,
+    gcTime: 30_000,
+  })
+}
+
 // Distinct actions + entity types for the filter dropdowns. New action
 // names appear rarely, so a long staleTime is fine.
 export function useAuditFacets() {

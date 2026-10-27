@@ -9,12 +9,12 @@
 // Initial filters can come from the URL (?entityId=…&action=…), which is
 // how ProjectDashboard deep-links here.
 
-import { useEffect, useMemo, useState, type FormEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { SlidePanel } from '../../../components/ui/SlidePanel'
 import { MODULE_KEY_TO_LABEL, type ModuleKey } from '../../../config/modules'
 import {
-  useAuditQuery, useAuditVerify, useAuditFacets, auditExportUrl, type AuditQuery,
+  useAuditQuery, useAuditVerify, useAuditFacets, useAuditNewer, auditExportUrl, type AuditQuery,
 } from '../../../hooks'
 import { describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry, type AuditSortKey } from '../../../api'
 
@@ -373,6 +373,19 @@ export function AuditTrailViewerLive() {
   const { data, isLoading, isFetching, error, refetch } = useAuditQuery(query)
   const facets = useAuditFacets()
 
+  // Keeping the table current. While the page shows the newest entries (page 1, newest first)
+  // it asks a cheap question every few seconds — "anything newer than the top row?" — and only
+  // re-fetches the table when the answer is yes. If the user is reading (a row's panel is open,
+  // the table is scrolled off the top, or a filter is being edited) the table is left alone and
+  // a "N new entries" bar offers the refresh instead.
+  const canFollow = pageIndex === 0 && sortBy === 'id' && order === 'desc' && !!data
+  const newestShownId = data ? (data.rows[0]?.id ?? '0') : null
+  const newerFilters = useMemo(() => toAuditQuery(applied, tz), [applied, tz])
+  const newer = useAuditNewer(newerFilters, newestShownId, canFollow)
+  const newCount = newer.data?.count ?? 0
+  const tableRef = useRef<HTMLDivElement>(null)
+  const [heldBack, setHeldBack] = useState(false)
+
   const verify = useAuditVerify()
   const [verifyFromId, setVerifyFromId] = useState('')
   const [verifyToId, setVerifyToId] = useState('')
@@ -388,21 +401,37 @@ export function AuditTrailViewerLive() {
     verify.reset()
   }
 
-  // Search applies itself once typing pauses (debounced); the other filter
-  // fields still wait for Apply. Only the search term is taken from the draft,
-  // so half-typed actor/date fields aren't applied behind the user's back.
-  const draftSearch = draft.search
-  const appliedSearch = applied.search
+  // Filters apply as soon as they change: dropdowns and dates right away, the text boxes
+  // (search, entity id) once typing pauses. A From date after the To date is held back
+  // until it's fixed. Enter in a text box applies immediately.
+  const typing = draft.search.trim() !== applied.search.trim() || draft.entityId.trim() !== applied.entityId.trim()
   useEffect(() => {
-    if (draftSearch.trim() === appliedSearch.trim()) return
+    if (!dirty || dateRangeInvalid) return
     const timer = setTimeout(() => {
-      setApplied(a => ({ ...a, search: draftSearch }))
+      setApplied(draft)
       setCursors([undefined])
       verify.reset()
-    }, SEARCH_DEBOUNCE_MS)
+    }, typing ? SEARCH_DEBOUNCE_MS : 0)
     return () => clearTimeout(timer)
     // verify.reset is stable for the life of the mutation, so it isn't a dependency.
-  }, [draftSearch, appliedSearch])
+  }, [draft, applied, dirty, dateRangeInvalid, typing])
+
+  // New entries were reported: refresh the table now if that is safe, otherwise hold back.
+  useEffect(() => {
+    if (newCount === 0) { setHeldBack(false); return }
+    const scrolledAway = (tableRef.current?.getBoundingClientRect().top ?? 0) < -40
+    if (selectedEntry || scrolledAway || dirty) { setHeldBack(true); return }
+    setHeldBack(false)
+    void refetch()
+    // Runs when a new answer arrives (count or the row it was measured from changes).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newCount, newestShownId])
+
+  function showNewEntries() {
+    setHeldBack(false)
+    void refetch()
+    tableRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }
 
   function applyFilter(e?: FormEvent) {
     e?.preventDefault()
@@ -426,15 +455,6 @@ export function AuditTrailViewerLive() {
   function sortColumn(key: AuditSortKey) {
     if (key === sortBy) setOrder(o => (o === 'asc' ? 'desc' : 'asc'))
     else { setSortBy(key); setOrder(key === 'id' || key === 'timestamp' ? 'desc' : 'asc') }
-    resetView()
-  }
-  function refresh() {
-    verify.reset()
-    void refetch()
-  }
-  function changeOrder(next: 'desc' | 'asc') {
-    setOrder(next)
-    setSortBy('id')
     resetView()
   }
   function changeTz(next: TimeZoneMode) {
@@ -483,7 +503,7 @@ export function AuditTrailViewerLive() {
                 <button
                   type="button"
                   disabled
-                  title="Apply your filter changes first so the export matches the table"
+                  title={dateRangeInvalid ? 'Fix the date range first' : 'The filters are still updating'}
                   className="cursor-not-allowed rounded-md bg-slate-400 px-3 py-1.5 text-[12px] font-semibold text-white"
                   data-action="export-csv"
                 >Export CSV</button>
@@ -497,7 +517,7 @@ export function AuditTrailViewerLive() {
             </div>
             <p className="text-[10px] text-slate-500">
               {dirty
-                ? 'Apply filters first to export them.'
+                ? (dateRangeInvalid ? 'Fix the date range to export.' : 'Updating filters…')
                 : `Exports up to ${AUDIT_EXPORT_ROW_CAP.toLocaleString()} rows, in table order.`}
             </p>
           </div>
@@ -590,7 +610,13 @@ export function AuditTrailViewerLive() {
         )}
 
         {/* Filter form */}
-        <form onSubmit={applyFilter} className="rounded-lg border border-slate-200 bg-white p-4" data-section="filters">
+        <form
+          onSubmit={applyFilter}
+          // With no submit button the browser won't submit on Enter, so apply it here.
+          onKeyDown={e => { if (e.key === 'Enter' && (e.target as HTMLElement).tagName === 'INPUT') applyFilter(e) }}
+          className="rounded-lg border border-slate-200 bg-white p-4"
+          data-section="filters"
+        >
           {/* Fields carry their own placeholder text (no labels above them); aria-labels keep them named for screen readers. */}
           {/* One wrapping row: the search box takes the space the fixed-width filters leave over
               (and drops to its own line on a narrow screen). */}
@@ -646,25 +672,12 @@ export function AuditTrailViewerLive() {
                   <option value="utc">UTC</option>
                 </select>
               </label>
-              <label className="flex items-center gap-1">
-                Order
-                <select className={inputClass} value={sortBy === 'id' ? order : 'custom'} onChange={e => changeOrder(e.target.value as 'desc' | 'asc')}>
-                  {sortBy !== 'id' && <option value="custom" disabled>By column ({sortBy}, {order === 'asc' ? 'asc' : 'desc'})</option>}
-                  <option value="desc">Newest first</option>
-                  <option value="asc">Oldest first</option>
-                </select>
-              </label>
               {dateRangeInvalid && <span className="text-red-700">From date is after To date.</span>}
-              {dirty && !dateRangeInvalid && <span className="text-amber-700">Filters changed — click Apply.</span>}
             </div>
             <div className="flex gap-2">
               {filtersActive && (
                 <button type="button" onClick={resetFilter} className="rounded-md px-3 py-1.5 text-[12px] text-slate-600 hover:bg-slate-100" data-action="reset-filters">Reset</button>
               )}
-              <button type="submit" disabled={dateRangeInvalid} className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50" data-action="apply-filter">Apply</button>
-              <button type="button" onClick={refresh} className="rounded-md border border-slate-300 px-3 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50">
-                {isFetching && !isLoading ? 'Refreshing…' : 'Refresh'}
-              </button>
             </div>
           </div>
         </form>
@@ -673,8 +686,19 @@ export function AuditTrailViewerLive() {
         {isLoading && <p className="text-[13px] text-slate-500">Loading…</p>}
         {error && <p className="rounded-md bg-red-50 p-3 text-[13px] text-red-800">{describeApiError(error).message}</p>}
 
+        {canFollow && heldBack && newCount > 0 && (
+          <button
+            type="button"
+            onClick={showNewEntries}
+            className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-left text-[12px] font-semibold text-blue-800 hover:bg-blue-100"
+            data-action="show-new-entries"
+          >
+            {newCount}{newer.data?.capped ? '+' : ''} new {newCount === 1 && !newer.data?.capped ? 'entry' : 'entries'} — click to show
+          </button>
+        )}
+
         {data && (
-          <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
+          <div ref={tableRef} className="overflow-x-auto rounded-lg border border-slate-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[12px] text-slate-600">
               <span>
                 {data.rows.length > 0
@@ -686,7 +710,14 @@ export function AuditTrailViewerLive() {
                   </span>
                 )}
               </span>
-              <span className="text-[11px] text-slate-500">Page {pageIndex + 1}</span>
+              <span className="flex items-center gap-3 text-[11px] text-slate-500">
+                {canFollow ? (
+                  <span className="text-green-700" title="New entries appear here automatically" data-live="on">● Live</span>
+                ) : (
+                  <span title="Live updates run on page 1 sorted newest first" data-live="paused">Live updates paused</span>
+                )}
+                <span>Page {pageIndex + 1}</span>
+              </span>
             </div>
             <table className="w-full text-[13px]">
               <thead style={{ backgroundColor: '#F8FAFC' }}>

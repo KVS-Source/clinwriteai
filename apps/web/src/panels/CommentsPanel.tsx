@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Comment, ResolutionType } from '@platform/types'
 import { documentsApi, describeApiError } from '../api'
-import { ResolveForm } from './ResolveCommentForm'
+import { ResolveForm, parseResolutionNote } from './ResolveCommentForm'
 import { CommentComposer, cleanSectionRef, sectionOfRef, withSectionMark, type ComposerSection } from './CommentComposer'
 
 interface Props {
@@ -58,6 +58,23 @@ const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
   AH: { bg: '#E0F2FE', fg: '#0369A1' },
   RT: { bg: '#FCE7F3', fg: '#9D174D' },
   LP: { bg: '#F3F4F6', fg: '#374151' },
+}
+
+// Every comment carries a severity (FR-A-052); same colours as the Comments dashboard.
+const SEVERITY_PILL: Record<string, { bg: string; fg: string; label: string }> = {
+  major: { bg: '#FEE2E2', fg: '#DC2626', label: 'Major' },
+  minor: { bg: '#FFFBEB', fg: '#B45309', label: 'Minor' },
+  query: { bg: '#EFF6FF', fg: '#2563EB', label: 'Query' },
+}
+
+function SeverityPill({ severity }: { severity: string }) {
+  const s = SEVERITY_PILL[severity]
+  if (!s) return null
+  return (
+    <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: s.bg, color: s.fg }} data-severity={severity}>
+      {s.label}
+    </span>
+  )
 }
 
 function Avatar({ initials }: { initials: string }) {
@@ -127,6 +144,7 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
         >
           {comment.status === 'open' ? 'Open' : 'Resolved'}
         </span>
+        <SeverityPill severity={comment.severity} />
         {comment.verdict === 'request_changes' && (
           <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#FFF7ED', color: '#C2410C' }} data-verdict="request_changes">
             ↩ Returned for revision
@@ -150,22 +168,20 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
             data-action="resolve-comment"
             className="text-xs font-semibold text-blue-600 hover:text-blue-700"
           >Resolve</button>
-          {/* Replies are not part of the PRD (no reply entity or endpoint), so the control is shown but inactive. */}
-          <button
-            type="button"
-            disabled
-            title="Replies aren't available yet"
-            className="cursor-not-allowed text-xs font-semibold text-slate-400"
-          >Reply</button>
+          {/* No Reply control: replies aren't part of the PRD (FR-A-052) — a comment's answer is its
+              resolution note, and discussion happens in the CRM meeting. */}
         </div>
       )}
     </div>
   )
 }
 
-// A resolved comment: read-only record (there is no reopen).
+// A resolved comment: read-only record (there is no reopen). Shows the resolution record —
+// type, resolver, when and the note (AC-A-055). The API returns the resolver + time as
+// lastEditedByName / lastEditedAge and the note (with its type tag) as resolutionNote.
 function ResolvedCard({ comment, focused, section }: { comment: Comment; focused?: boolean; section?: ComposerSection | null }) {
   const { ref, ring } = useFocusRing(focused)
+  const resolution = parseResolutionNote((comment as Comment & { resolutionNote?: string | null }).resolutionNote)
   return (
     <div
       ref={ref}
@@ -184,9 +200,21 @@ function ResolvedCard({ comment, focused, section }: { comment: Comment; focused
         <div className="flex-1" />
         <p className="whitespace-nowrap font-mono text-[10px] text-slate-500">{comment.id}</p>
       </div>
-      <span className="w-fit rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>Resolved</span>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>Resolved</span>
+        <SeverityPill severity={comment.severity} />
+      </div>
       <p className="text-[13px] leading-relaxed text-slate-900">{comment.text}</p>
       <CommentMeta comment={comment} section={section} />
+      <div className="flex flex-col gap-0.5 rounded-md px-2.5 py-2 text-[11px] leading-relaxed" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }} data-resolution>
+        <p className="font-semibold">
+          {resolution.decision ?? 'Resolved'}
+          {comment.lastEditedByName ? ` · by ${comment.lastEditedByName}` : ''}
+          {comment.lastEditedAge ? ` · ${comment.lastEditedAge}` : ''}
+          {resolution.viaCrm ? ` · in CRM ${resolution.viaCrm}` : ''}
+        </p>
+        {resolution.text && <p className="text-slate-700">{resolution.text}</p>}
+      </div>
     </div>
   )
 }

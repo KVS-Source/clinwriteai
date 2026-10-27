@@ -107,6 +107,7 @@ export function AllProjects() {
         </div>
         <button
           onClick={() => setNewProjectOpen(true)}
+          data-panel-trigger
           className="flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-4 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
         >
           <span className="text-base leading-none">+</span>
@@ -246,6 +247,7 @@ export function AllProjects() {
         title="New project"
         subtitle="Create a new study + its downstream deliverables"
         storageKey="panel-width-new-project"
+        closeOnOutsideClick
       >
         <NewProjectForm
           onCancel={() => setNewProjectOpen(false)}

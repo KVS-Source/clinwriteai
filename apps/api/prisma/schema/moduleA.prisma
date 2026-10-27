@@ -46,6 +46,7 @@ model Document {
   currentVersion         DocumentVersion?    @relation("DocumentCurrentVersion", fields: [currentVersionId], references: [id])
   checklistInstance      ChecklistInstance?
   comments               Comment[]
+  ichWaivers             IchSectionWaiver[]
 
   @@map("documents")
   @@index([projectId])
@@ -490,6 +491,32 @@ model Comment {
   @@index([documentId, status])
   @@index([documentId, sectionRef])
   @@index([documentId, verdict])
+}
+
+// --------------------------------------------------------------------------
+// 11b. ICH E3 section waivers — FR-A-026 § amber "waived" state.
+// One row per (document, sectionCode) when a reviewer waives an ICH E3
+// mandatory section (e.g. §16.4 Individual Patient Data Listings when the
+// trial doesn't submit to the US). The validator endpoint joins the
+// Document's section rows to these waivers to compute per-section status.
+// Section codes are the ICH E3 shorthand (§1, §2, …, §16.3) kept as plain
+// strings so the catalog can evolve without a schema migration.
+// --------------------------------------------------------------------------
+
+model IchSectionWaiver {
+  id               String   @id @default(uuid())
+  documentId       String
+  sectionCode      String                                              // '§16.4', '§15', etc.
+  waivedBy         String                                              // User.id
+  waivedAt         DateTime @default(now())
+  reason           String                                              // free-text, Part 11 trail
+  versionAtWaiver  String                                              // DocumentVersion.versionNumber at waive time
+
+  document         Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("ich_section_waivers")
+  @@unique([documentId, sectionCode])
+  @@index([documentId])
 }
 
 // --------------------------------------------------------------------------

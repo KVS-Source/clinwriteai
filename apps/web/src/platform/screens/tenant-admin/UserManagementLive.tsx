@@ -50,8 +50,10 @@ interface InviteLink {
   inviteExpiresAt: string
 }
 
+// Role dropdown for the invite / edit forms. 'super-admin' retired on
+// 2026-10-27 — a platform admin is now `role='admin'` with `tenantId=null`.
 const ROLE_OPTIONS = [
-  'super-admin', 'admin', 'clinical-writer', 'scientific-writer',
+  'admin', 'clinical-writer', 'scientific-writer',
   'medical-writer', 'regulatory-writer', 'ideation-lead', 'reviewer', 'read-only',
 ] as const
 

@@ -97,6 +97,7 @@ describe('PATCH /documents/:id/comments/:commentId/resolve', () => {
   it('refuses a resolution without a note, or with the hyphenated type the API does not accept', async () => {
     const { app } = await setup()
     expect((await resolve(app, { resolutionType: 'accept', note: '' })).statusCode).toBe(400)
+    expect((await resolve(app, { resolutionType: 'accept', note: '   ' })).statusCode).toBe(400)
     expect((await resolve(app, { resolutionType: 'accept-with-modification', note: 'x' })).statusCode).toBe(400)
   })
 

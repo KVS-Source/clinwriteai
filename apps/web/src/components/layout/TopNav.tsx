@@ -1,9 +1,21 @@
 import { useEffect, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../../store/projectStore'
+import { useDocumentStore } from '../../store/documentStore'
 import { usePlatformStore, PLATFORM_DEMO_USERS, hasPersonaOverride, clearPersonaOverride } from '../../platform/store'
 import { PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import type { PlatformUser } from '@platform/types'
+
+// Module slug → label for the breadcrumb crumb between the project and the
+// document. Kept inline since this is the only consumer of the mapping;
+// adding a module here needs no other code change.
+const MODULE_LABEL: Record<string, string> = {
+  'clinical-writing':    'Clinical Writing',
+  'scientific-writing':  'Scientific Writing',
+  'medical-writing':     'Medical Writing',
+  'regulatory-writing':  'Regulatory Writing',
+  'ideation-publishing': 'Ideation & Publishing',
+}
 
 function BellIcon() {
   return (
@@ -60,7 +72,9 @@ const ROLE_COLOUR: Record<string, string> = {
 
 export function TopNav() {
   const navigate       = useNavigate()
+  const { pathname }   = useLocation()
   const project        = useProjectStore(s => s.activeProject)
+  const activeDocument = useDocumentStore(s => s.activeDocument)
   const currentUser    = usePlatformStore(s => s.currentUser)
   const setCurrentUser = usePlatformStore(s => s.setCurrentUser)
 
@@ -77,10 +91,27 @@ export function TopNav() {
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  const crumbs = [
+  // Enriched breadcrumb when inside a document editor so the in-screen
+  // "All Projects › … › Clinical Writing › DSUR Year 2" row can be dropped
+  // and the content area gets a free ~24px of vertical space. The last
+  // crumb is the document title; shown as a label (non-link) because the
+  // user is already on it.
+  //
+  // Route shape: /projects/:projectId/<module-slug>/documents/:documentId...
+  const docRouteMatch = /\/projects\/([^/]+)\/([^/]+)\/documents\/([^/]+)/.exec(pathname)
+  const moduleSlug    = docRouteMatch?.[2]
+  const moduleLabel   = moduleSlug ? MODULE_LABEL[moduleSlug] : null
+
+  const crumbs: Array<{ label: string; href: string | null }> = [
     { label: 'Projects', href: '/projects' },
-    project && { label: project.shortTitle, href: `/projects/${project.id}` },
-  ].filter(Boolean) as { label: string; href: string }[]
+    project ? { label: project.shortTitle, href: `/projects/${project.id}` } : null,
+    docRouteMatch && moduleLabel && project
+      ? { label: moduleLabel, href: `/projects/${project.id}/${moduleSlug}` }
+      : null,
+    docRouteMatch && activeDocument
+      ? { label: activeDocument.title, href: null }
+      : null,
+  ].filter(Boolean) as Array<{ label: string; href: string | null }>
 
   const currentRoleLabel = PLATFORM_USER_ROLE_LABEL[currentUser.role] ?? currentUser.role
   const groups = groupPersonas(PLATFORM_DEMO_USERS)
@@ -104,17 +135,29 @@ export function TopNav() {
       data-topnav
     >
 
-      {/* Left — breadcrumb */}
-      <nav className="flex items-center gap-2">
+      {/* Left — breadcrumb. Last crumb is a label (not a link) when the user
+          is already on that resource — e.g. inside a document editor, the
+          document title crumb has href=null and renders as a non-clickable
+          span so there's no self-navigation. Truncate the document title on
+          narrow screens so the persona switcher never gets squeezed. */}
+      <nav className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
         {crumbs.map((crumb, i) => (
-          <span key={crumb.href} className="flex items-center gap-2">
-            {i > 0 && <span className="text-slate-500">/</span>}
-            <button
-              onClick={() => navigate(crumb.href)}
-              className="text-sm font-medium text-slate-400 hover:text-white transition-colors"
-            >
-              {crumb.label}
-            </button>
+          <span key={`${i}-${crumb.label}`} className="flex min-w-0 items-center gap-2">
+            {i > 0 && <span className="flex-none text-slate-500">/</span>}
+            {crumb.href
+              ? (
+                <button
+                  onClick={() => navigate(crumb.href!)}
+                  className="flex-none text-sm font-medium text-slate-400 hover:text-white transition-colors"
+                >
+                  {crumb.label}
+                </button>
+              )
+              : (
+                <span className="truncate text-sm font-semibold text-white" title={crumb.label}>
+                  {crumb.label}
+                </span>
+              )}
           </span>
         ))}
       </nav>

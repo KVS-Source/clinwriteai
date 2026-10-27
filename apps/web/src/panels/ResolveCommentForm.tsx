@@ -20,12 +20,31 @@ const OPTIONS: { type: ResolutionType; label: string; hint: string }[] = [
 
 export const RESOLVE_NOTE_MAX = 500
 
+export const RESOLUTION_LABEL: Record<string, string> = {
+  accept:                   'Accepted',
+  accept_with_modification: 'Accepted with modification',
+  reject:                   'Rejected',
+}
+
+// Resolution notes are stored with a tag in front: "[accept] text" when resolved directly, or
+// "[CRM:CRM-002:accept_with_modification] text" when resolved in a CRM meeting. Split it off.
+export function parseResolutionNote(note: string | null | undefined): { text: string; viaCrm: string | null; decision: string | null } {
+  const raw = note ?? ''
+  const crm = /^\[CRM:([^:\]]+):([^\]]*)\]\s*/.exec(raw)
+  if (crm) return { text: raw.slice(crm[0].length), viaCrm: crm[1], decision: RESOLUTION_LABEL[crm[2]] ?? null }
+  const plain = /^\[([a-z_]+)\]\s*/.exec(raw)
+  if (plain && RESOLUTION_LABEL[plain[1]]) return { text: raw.slice(plain[0].length), viaCrm: null, decision: RESOLUTION_LABEL[plain[1]] }
+  return { text: raw, viaCrm: null, decision: null }
+}
+
 export function ResolveForm({ onCancel, onConfirm, isPending, error }: ResolveFormProps) {
   const [type, setType] = useState<ResolutionType>('accept')
   const [note, setNote] = useState('')
   const [err,  setErr]  = useState<string | null>(null)
 
   const submit = () => {
+    // Enter in the note field bypasses the disabled button; don't send a second request.
+    if (isPending) return
     if (!note.trim()) { setErr('Resolution note is required'); return }
     onConfirm(type, note.trim())
   }

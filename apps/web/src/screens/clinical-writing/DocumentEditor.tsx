@@ -32,6 +32,7 @@ import { cleanSectionRef, withSectionMark } from '../../panels/CommentComposer'
 import { AIChatPanel }            from '../../panels/AIChatPanel'
 import { SectionHistoryPanel }    from '../../panels/SectionHistoryPanel'
 import { AIPromptHelpPanel }      from '../../panels/AIPromptHelpPanel'
+import { TlfPanel }               from '../../panels/TlfPanel'
 
 // Panel titles for the right panel header
 const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
@@ -497,6 +498,10 @@ export function DocumentEditor() {
   // Closing the panel closes the viewer too.
   useEffect(() => { if (activePanel !== 'traceability') setSourceViewer(null) }, [activePanel, setSourceViewer])
 
+  // ⌘J / Ctrl+J — the shortcut was moved to AppShell so it works even on
+  // first-paint before this component mounts and survives route changes
+  // without a listener leak. Nothing to wire here.
+
   // Source References, Audit Trail, Comments and AI Chat close on a click outside the panel (so does a click
   // on another button). Comments stays open when you pick another section: it re-scopes to that section. A click
   // in the section still counts as outside, except when it ends a text selection (picking the
@@ -506,11 +511,8 @@ export function DocumentEditor() {
   // on mousedown, since the menu is gone from the page by the time the click fires.
   const rightPanelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    // AI Chat is intentionally sticky — the user wants it alongside the
-    // editor while they work, not auto-closing on every editor click.
-    // Close via the X in the panel header, Esc with focus outside the
-    // chat input, or by opening a different panel.
-    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments') return
+    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments'
+      && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'ai' && activePanel !== 'history') return
     // The click that opened the panel is still being dispatched when this listener is added,
     // so only clicks whose mousedown we saw count.
     let pressed = false
@@ -544,6 +546,9 @@ export function DocumentEditor() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       if (window.document.querySelector('[data-reference-menu]')) return   // an open Reference menu takes the key
+      // Esc while typing in the AI Chat box keeps the chat (and the unsent prompt).
+      const focused = window.document.activeElement
+      if (activePanel === 'ai' && focused?.matches('input, textarea') && rightPanelRef.current?.contains(focused)) return
       setActivePanel(null)
     }
     window.document.addEventListener('mousedown', onDown, true)
@@ -557,16 +562,15 @@ export function DocumentEditor() {
   }, [activePanel, setActivePanel])
 
   const onSectionContentClick = (e: React.MouseEvent) => {
-    // Don't hijack text selection or in-progress typing. The old "if editing"
-    // guard is gone post-autosave since the editor is always editable when
-    // we hold the lock; a collapsed selection + a focused editor is enough
-    // signal to tell "the user is reading, not writing".
-    if (canEditSection && window.document.activeElement?.closest('[data-section-editor]')) return
+    // Don't hijack text selection. A plain click on referenced text opens the
+    // References panel whether the section is editable or read-only; the
+    // caret still lands where the user clicked.
     if (!window.getSelection()?.isCollapsed) return
     const id = referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)
     const ref = id ? sectionReferences.find(r => r.id === id) : undefined
     if (!ref) return
-    setSourceViewer({ uploadId: ref.uploadId, page: ref.page, spanText: ref.spanText })
+    // Always land on the References list; "View source" opens the file from there.
+    setSourceViewer(null)
     setActivePanel('traceability')
   }
 
@@ -586,20 +590,10 @@ export function DocumentEditor() {
         className="flex flex-none flex-col gap-2 border-b border-slate-200 bg-white px-6 pt-3"
         style={{ position: 'relative', zIndex: 6 }}
       >
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
-            {project?.shortTitle ?? '…'}
-          </button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900 transition-colors">
-            Clinical Writing
-          </button>
-          <span className="text-slate-300">›</span>
-          <span className="overflow-hidden text-ellipsis font-semibold text-slate-900">{document.title}</span>
-        </div>
+        {/* Breadcrumb — moved to TopNav (TopNav renders Projects / Project /
+            Clinical Writing / <document title> when inside a document editor
+            route). Dropping the in-screen row frees a ~24px band for the
+            section content. */}
 
         {/* Title row */}
         <div className="flex h-14 items-center justify-between gap-6">
@@ -735,7 +729,7 @@ export function DocumentEditor() {
 
           {/* Right: autosave + presence + Save + Submit */}
           <div className="flex flex-none items-center gap-3.5">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500" title="Last synced from the server. Click Save to refresh.">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500" title="Time of the last document body refresh. Click Sync to pull every side panel at once.">
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: isRefetching ? '#F59E0B' : '#16A34A' }} />
               {isRefetching
                 ? 'Syncing…'
@@ -784,10 +778,38 @@ export function DocumentEditor() {
 
             <button
               type="button"
-              onClick={() => refetchDocument()}
+              onClick={() => {
+                // Broad refresh — the document body + every side panel keyed
+                // off this documentId (comments, sources, references, section
+                // history, stage, signatures, checklist, presence, AI history,
+                // audit). Individual panels keep their own React Query sub-
+                // scriptions, so invalidating here fans out without needing
+                // each panel to subscribe to a global tick. The document body
+                // refetch is awaited inside refetchDocument(); the other keys
+                // use fire-and-forget invalidation so the UI starts refreshing
+                // in parallel.
+                void refetchDocument()
+                const keys: readonly unknown[][] = [
+                  ['comments',          documentId],
+                  ['document-sources',  documentId],
+                  ['document-references', documentId],
+                  ['section-history',   documentId],
+                  ['document-stage',    documentId],
+                  ['signature-chains',  documentId],
+                  ['checklist',         documentId],
+                  ['presence',          documentId],
+                  ['ai-history',        documentId],
+                  ['ai-chat',           documentId],
+                  ['audit',             documentId],
+                ]
+                for (const key of keys) {
+                  void qc.invalidateQueries({ queryKey: key })
+                }
+              }}
               disabled={isRefetching}
-              title="Pull the latest version from the server (collaborator edits, new comments, etc.)"
+              title="Pull the latest from the server across every panel on this document (body, comments, references, history, stage, signatures, checklist, presence, AI)."
               className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors disabled:cursor-wait disabled:opacity-60"
+              data-action="sync-document"
             >
               {isRefetching ? 'Syncing…' : 'Sync'}
             </button>
@@ -886,6 +908,7 @@ export function DocumentEditor() {
                     <button
                       type="button"
                       onClick={() => setActivePanel('history')}
+                      data-panel-trigger
                       title="Edit history for this section"
                       aria-label="Section edit history"
                       className="flex items-center justify-center rounded-md border border-slate-300 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
@@ -1209,7 +1232,14 @@ export function DocumentEditor() {
             {activePanel === 'ai-help' && (
               <AIPromptHelpPanel documentType={document?.type} />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && (
+            {activePanel === 'tlf' && documentId && (
+              <TlfPanel
+                documentId={documentId}
+                activeSectionId={activeSection}
+                activeSectionLabel={activeSectionData ? `${withSectionMark(activeSectionData.number)} ${activeSectionData.title}` : undefined}
+              />
+            )}
+            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
                 <p className="mt-2 text-sm text-slate-700">

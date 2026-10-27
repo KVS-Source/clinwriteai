@@ -107,7 +107,9 @@ interface FixtureDocument {
 // schema's z.enum() doesn't reject these users on re-save.
 const ROLE_MAP: Record<string, string> = {
   'admin':                     'admin',
-  'super-admin':               'super-admin',
+  // Post 2026-10-27 role consolidation: 'super-admin' retired; map
+  // legacy fixture entries to 'admin' so re-seeds don't resurrect it.
+  'super-admin':               'admin',
   'clinical-writer':           'clinical-writer',
   'scientific-writer':         'scientific-writer',
   'medical-writer':            'medical-writer',
@@ -136,7 +138,7 @@ function underscored(v: string): string {
 // 'writer', reviewers get 'reviewer', one anchor gets 'owner'. Rough
 // mapping; refined by the UI role picker if the operator cares.
 function membershipRoleFor(user: FixtureUser): 'owner' | 'admin' | 'writer' | 'reviewer' | 'viewer' {
-  if (user.role === 'admin' || user.role === 'super-admin') return 'admin'
+  if (user.role === 'admin') return 'admin'
   if (user.role === 'reviewer' || user.role === 'clinical-lead' || user.role === 'ma-team-lead') return 'reviewer'
   if (user.role.endsWith('-writer') || user.role === 'author' || user.role === 'cmc-lead' || user.role === 'ideation-lead' || user.role === 'content-calendar-manager') return 'writer'
   return 'viewer'
@@ -184,14 +186,15 @@ async function main() {
 
   // --------------------------------------------------------------
   // 2. Users — 9 personas from users.json.
-  //    Admins (role=admin / super-admin) are cross-tenant so get no
-  //    tenantId. Everyone else lands in Acme.
+  //    Admins are cross-tenant when they're platform admins (tenantId=null).
+  //    Everyone else lands in Acme. (Post 2026-10-27 role consolidation —
+  //    'super-admin' retired, mapped to 'admin' by ROLE_MAP.)
   // --------------------------------------------------------------
   console.log('→ Seeding users...')
   const upsertedUsers: Record<string, Awaited<ReturnType<typeof prisma.user.upsert>>> = {}
   for (const u of users) {
     const role = mapRole(u.role)
-    const isPlatformAdmin = role === 'admin' || role === 'super-admin'
+    const isPlatformAdmin = role === 'admin'
     const row = await prisma.user.upsert({
       where: { email: u.email },
       create: {
@@ -220,21 +223,20 @@ async function main() {
   // so operators who memorised admin@/writer@/reviewer@ still have
   // working logins alongside the richer fixture users.
   //
-  // a.thornton@clinwrite.ai is the demo super-admin persona wired in
-  // apps/web/src/platform/store/platformStore.ts (SUPER_ADMIN const —
-  // id user-sa, email a.thornton@...). Must exist in the DB so the
-  // X-Demo-Persona header can resolve it to a super-admin role when the
-  // user picks Alex Thornton in the persona switcher — otherwise every
-  // call still lands as the admin AUTH_BYPASS_EMAIL and 403s hit the
-  // super-admin screens (Tenants, Rate Cards, Analytics…).
+  // a.thornton@clinwrite.ai is the demo platform-admin persona wired in
+  // apps/web/src/platform/store/platformStore.ts (role='admin',
+  // tenantId=null — what used to be 'super-admin' before the
+  // 2026-10-27 role consolidation). Must exist in the DB so the
+  // X-Demo-Persona header resolves her; otherwise persona-switch calls
+  // land as AUTH_BYPASS_EMAIL (also an admin) and the platform-admin
+  // screens (Tenants, Rate Cards, Analytics…) 403.
   for (const legacy of [
-    { id: null,       email: 'admin@clinwrite.ai',       name: 'Mr Rohan Iyer',   role: 'super-admin',     modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
-    // Alex Thornton — demo super-admin persona in the UI's
-    // PLATFORM_DEMO_USERS (store/platformStore.ts SUPER_ADMIN const).
-    // Explicit id='user-sa' + email so the X-Demo-Persona header can
-    // resolve her by either; without this the id lookup falls back to
-    // AUTH_BYPASS_EMAIL (an admin) and super-admin screens 403.
-    { id: 'user-sa',  email: 'a.thornton@clinwrite.ai',  name: 'Alex Thornton',   role: 'super-admin',     modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
+    { id: null,       email: 'admin@clinwrite.ai',       name: 'Mr Rohan Iyer',   role: 'admin',           modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
+    // Alex Thornton — demo platform-admin persona in the UI's
+    // PLATFORM_DEMO_USERS. Explicit id='user-sa' + email so the
+    // X-Demo-Persona header can resolve her by either; without this
+    // the id lookup falls back to AUTH_BYPASS_EMAIL.
+    { id: 'user-sa',  email: 'a.thornton@clinwrite.ai',  name: 'Alex Thornton',   role: 'admin',           modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
     { id: null,       email: 'writer@clinwrite.ai',      name: 'Ms Ananya Rao',   role: 'clinical-writer', modules: ['A'],                     tenantId: acme.id },
     { id: null,       email: 'reviewer@clinwrite.ai',    name: 'Dr Vikram Mehta', role: 'reviewer',        modules: ['A'],                     tenantId: acme.id },
   ]) {
@@ -263,7 +265,7 @@ async function main() {
     const row = upsertedUsers[u.id]
     if (!row) continue
     const role = mapRole(u.role)
-    if (role === 'admin' || role === 'super-admin') continue
+    if (role === 'admin') continue
     await prisma.membership.upsert({
       where: { tenantId_userId: { tenantId: acme.id, userId: row.id } },
       create: {
@@ -1654,7 +1656,7 @@ async function seedSlideDeck() {
   // Prefer an existing admin as the audit actor; falls back to the
   // deterministic 'system' sentinel on a bare database.
   const baselineActor = await prisma.user.findFirst({
-    where: { role: { in: ['admin', 'super-admin'] } },
+    where: { role: { in: ['admin'] } },
     select: { id: true },
   })
   const baselineReport = await seedChecklistBaseline(prisma, {

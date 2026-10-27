@@ -19,7 +19,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { auditApi, projectsApi, describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry, type AuditSortKey } from '../../../api'
 
-const PAGE_SIZE = 100
+const PAGE_SIZE = 25
 // Pause after the last keystroke before the search box applies itself.
 const SEARCH_DEBOUNCE_MS = 400
 
@@ -476,9 +476,10 @@ function presetRange(p: RangePreset, tz: TimeZoneMode): { from: string; to: stri
 // One "Date & time" filter: a button showing the current range that opens a popover
 // with From / To (date + time, to the minute), quick presets and Clear. Values are in
 // the "Times in" timezone the viewer picked.
-function DateTimeRangeFilter({ from, to, tz, invalid, onChange }: {
+function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChange }: {
   from: string; to: string; tz: TimeZoneMode; invalid: boolean
   onChange: (range: { from: string; to: string }) => void
+  onTzChange: (tz: TimeZoneMode) => void
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -510,7 +511,6 @@ function DateTimeRangeFilter({ from, to, tz, invalid, onChange }: {
     setOpen(false)
   }
 
-  const tzLabel = tz === 'utc' ? 'UTC' : Intl.DateTimeFormat().resolvedOptions().timeZone
   const fieldLabel = 'flex flex-col gap-1 text-[11px] font-semibold text-slate-600'
 
   return (
@@ -561,7 +561,17 @@ function DateTimeRangeFilter({ from, to, tz, invalid, onChange }: {
           </div>
 
           {invalid && <p className="mt-2 text-[11px] text-red-700">"From" is after "To".</p>}
-          <p className="mt-2 font-mono text-[10px] text-slate-500">Times in {tzLabel}. "To" includes that whole minute.</p>
+          {/* Which timezone the From / To above (and the table's times) are in. Switching keeps
+              the range pointing at the same moments. */}
+          <label className="mt-3 flex items-center justify-between gap-2 text-[11px] font-semibold text-slate-600">
+            Times in
+            <select className={`${inputClass} w-[200px] font-normal text-slate-900`} value={tz}
+              onChange={e => onTzChange(e.target.value as TimeZoneMode)} data-field="timezone">
+              <option value="local">Local ({Intl.DateTimeFormat().resolvedOptions().timeZone})</option>
+              <option value="utc">UTC</option>
+            </select>
+          </label>
+          <p className="mt-1.5 font-mono text-[10px] text-slate-500">"To" includes that whole minute.</p>
 
           <div className="mt-3 flex justify-between border-t border-slate-200 pt-3">
             <button type="button" onClick={() => onChange({ from: '', to: '' })} disabled={!from && !to}
@@ -937,7 +947,7 @@ export function AuditTrailViewerLive() {
                 aria-label="Search"
                 aria-describedby="audit-search-hint"
                 className={`${inputClass} w-full`}
-                placeholder="Search actor, action, entity… (3+ characters)"
+                placeholder="Search actor, action, entity…"
                 value={draft.search}
                 onChange={e => setDraft({ ...draft, search: e.target.value })}
                 data-field="search"
@@ -975,7 +985,7 @@ export function AuditTrailViewerLive() {
               ))}
             </select>
             <DateTimeRangeFilter from={draft.from} to={draft.to} tz={tz} invalid={dateRangeInvalid}
-              onChange={r => setDraft({ ...draft, ...r })} />
+              onChange={r => setDraft({ ...draft, ...r })} onTzChange={changeTz} />
             <button
               type="button"
               onClick={resetFilter}
@@ -991,18 +1001,9 @@ export function AuditTrailViewerLive() {
               </svg>
             </button>
           </div>
-          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
-            <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600">
-              <label className="flex items-center gap-1">
-                Times in
-                <select className={inputClass} value={tz} onChange={e => changeTz(e.target.value as TimeZoneMode)}>
-                  <option value="local">Local ({Intl.DateTimeFormat().resolvedOptions().timeZone})</option>
-                  <option value="utc">UTC</option>
-                </select>
-              </label>
-              {dateRangeInvalid && <span className="text-red-700">The range's "From" is after its "To".</span>}
-            </div>
-          </div>
+          {dateRangeInvalid && (
+            <p className="mt-3 text-[11px] text-red-700">The range's "From" is after its "To".</p>
+          )}
         </form>
 
         {/* Results */}

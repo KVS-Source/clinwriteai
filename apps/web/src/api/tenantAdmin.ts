@@ -179,6 +179,13 @@ export interface AuditQuery {
   cursor?: string
 }
 
+export interface AuditNewer {
+  /** Matching entries newer than the one asked about, up to 100. */
+  count:  number
+  /** True when there are more than `count` (shown as "100+"). */
+  capped: boolean
+}
+
 // Max rows a single CSV export carries — mirrors EXPORT_ROW_CAP in the API.
 export const AUDIT_EXPORT_ROW_CAP = 10_000
 
@@ -193,6 +200,10 @@ function toQueryString(params: Record<string, string | number | undefined>): str
 export const auditApi = {
   query:  (q: AuditQuery = {}) => api.get<AuditPage>(`/admin/audit${toQueryString({ ...q })}`),
   facets: () => api.get<AuditFacets>('/admin/audit/facets'),
+  // Cheap "anything newer than entry #afterId that matches these filters?" check used to
+  // keep the open table current (the server stops counting at 100 and flags `capped`).
+  newer: (filters: Omit<AuditQuery, 'limit' | 'cursor' | 'sortBy' | 'order'>, afterId: string) =>
+    api.get<AuditNewer>(`/admin/audit/newer${toQueryString({ ...filters, afterId })}`),
   verify: (fromId?: string, toId?: string) =>
     api.get<AuditVerifyResult>(`/admin/audit/verify${toQueryString({ fromId, toId })}`),
   // CSV export URL — not called via api.get because the response is a

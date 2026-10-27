@@ -24,6 +24,8 @@ export const EXPORT_ROW_CAP = 10_000
 // Above this many matches the list endpoint reports "N+" instead of an exact
 // count, so a broad filter never turns into a full-table count.
 export const COUNT_CAP = 10_000
+// The "new entries" check stops counting here and reports "100+".
+export const NEWER_CAP = 100
 
 // Sortable columns -> SQL expression. Every sort tie-breaks on id so paging is
 // stable. 'id' (the default) pages by keyset cursor; the other columns page by
@@ -54,6 +56,12 @@ const queryBaseSchema = z.object({
 const pagedSchema = queryBaseSchema.extend({
   limit:  z.coerce.number().int().min(1).max(500).default(100),
   cursor: bigintId.optional(),
+})
+
+// Filters only: new entries always appear at the top of a newest-first list, so the
+// sort options don't apply.
+const newerSchema = queryBaseSchema.omit({ sortBy: true, order: true }).extend({
+  afterId: bigintId,
 })
 
 const verifySchema = z.object({
@@ -263,6 +271,28 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
       total: Math.min(matched, COUNT_CAP),
       totalCapped: matched > COUNT_CAP,
     }
+  })
+
+  // "Is there anything newer than entry #afterId that matches these filters?" The open
+  // Audit Trail page asks this every few seconds instead of re-running the full list
+  // query. It only looks at rows after afterId (an index range on the primary key) and
+  // stops counting at NEWER_CAP, so it stays cheap however large the log grows and
+  // however broad the search. Nothing is read from the list itself and nothing is audited.
+  app.get('/admin/audit/newer', { preHandler: auditGate }, async (request, reply) => {
+    const parsed = newerSchema.safeParse(request.query)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const { afterId, ...filters } = parsed.data
+
+    const { where, params } = buildFilter(filters, scopeOf(request))
+    params.push(afterId)
+    const sql = `
+      SELECT count(*)::int AS n FROM (
+        SELECT 1 ${FROM_CLAUSE} ${where ? `${where} AND` : 'WHERE'} a.id > $${params.length}::bigint LIMIT ${NEWER_CAP + 1}
+      ) capped
+    `
+    const rows = await app.prisma.$queryRawUnsafe<Array<{ n: number }>>(sql, ...params)
+    const n = Number(rows[0]?.n ?? 0)
+    return { count: Math.min(n, NEWER_CAP), capped: n > NEWER_CAP }
   })
 
   // Distinct values for the filter dropdowns. Small, indexed columns; the

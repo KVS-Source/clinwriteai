@@ -30,6 +30,18 @@ async function build() {
     },
     documentVersion: { create: vi.fn(async () => ({ id: 'ver-1', versionNumber: 'v0.1' })) },
     sectionContent: { createMany: vi.fn(async () => ({ count: 0 })) },
+    // DocumentService.create now materialises the ChecklistInstance up front
+    // (used to be lazy on first GET), so the tx stub needs to model the
+    // checklist tables ensureChecklistInstance walks: lookup → auto-create
+    // the fallback empty template → create the instance.
+    checklistInstance: {
+      findUnique: vi.fn(async () => null),
+      create: vi.fn(async () => ({ id: 'inst-1', items: [] })),
+    },
+    checklistTemplate: {
+      findFirst: vi.fn(async () => null),
+      create: vi.fn(async () => ({ id: 'tmpl-1', version: 1 })),
+    },
   }
   const app = Fastify()
   app.decorate('prisma', {

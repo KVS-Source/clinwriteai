@@ -59,14 +59,42 @@ type DocSortKey = 'title' | 'type' | 'stage' | 'status' | 'updated' | 'assignee'
 const nextSort = (cur: { key: DocSortKey; dir: 'asc' | 'desc' } | null, key: DocSortKey) =>
   cur?.key !== key ? { key, dir: 'asc' as const } : cur.dir === 'asc' ? { key, dir: 'desc' as const } : null
 
-// Stage progress states — first two complete, post-study in progress, rest pending
-const STAGE_PROGRESS: Record<DocumentStage, 'complete' | 'in-progress' | 'pending'> = {
-  'study-start-up':          'complete',
-  'during-study':            'complete',
-  'post-study':              'in-progress',
-  'cross-functional-review': 'pending',
-  'crm':                     'pending',
-  'final-output':            'pending',
+// Stepper state derived at render time from each document's real stage
+// (PRD A, FR-A-010). Rule:
+//   complete    = every document has moved past this stage
+//   in-progress = at least one document is currently at this stage
+//   pending     = no document has reached this stage yet
+// Multiple stages can be in-progress at the same time (the project genuinely
+// has parallel work streams); the stepper renders each independently.
+type StageProgressState = 'complete' | 'in-progress' | 'pending'
+
+function computeStageProgress(
+  documents: ReadonlyArray<{ stage: DocumentStage }>,
+): Record<DocumentStage, StageProgressState> {
+  const stageIdx = (s: DocumentStage) => STAGES_ORDERED.indexOf(s)
+  const indices = documents
+    .map(d => stageIdx(d.stage))
+    .filter(i => i >= 0)
+  // Fallback when a project has no documents yet — treat Study Start-Up as
+  // the "earliest with work" so the stepper visibly shows that's where
+  // things start.
+  const occupied = new Set(indices)
+  const minIdx = indices.length === 0 ? 0 : Math.min(...indices)
+
+  const out = {} as Record<DocumentStage, StageProgressState>
+  for (let i = 0; i < STAGES_ORDERED.length; i++) {
+    const stage = STAGES_ORDERED[i]!
+    if (indices.length === 0) {
+      out[stage] = i === 0 ? 'in-progress' : 'pending'
+    } else if (occupied.has(i)) {
+      out[stage] = 'in-progress'
+    } else if (i < minIdx) {
+      out[stage] = 'complete'
+    } else {
+      out[stage] = 'pending'
+    }
+  }
+  return out
 }
 
 const STAGE_STEPPER_WIDTHS: Record<DocumentStage, string> = {
@@ -87,12 +115,11 @@ const SEVERITY_BADGE: Record<CommentSeverity, { label: string; bg: string; fg: s
   query: { label: 'Query', bg: '#EFF6FF', fg: '#2563EB' },
 }
 
-const CHECKLIST_SUMMARY = [
-  { label: 'Complete',    count: 4, colour: '#16A34A' },
-  { label: 'In progress', count: 1, colour: '#2563EB' },
-  { label: 'Pending',     count: 1, colour: '#CBD5E1' },
-  { label: 'Waived',      count: 1, colour: '#D97706' },
-]
+const CHECKLIST_ROW_COLOURS = {
+  complete: '#16A34A',
+  pending:  '#CBD5E1',
+  waived:   '#D97706',
+}
 
 // --- Column widths (matches prototype grid-template) ---
 const COL_TEMPLATE = '2.1fr 1fr 1.2fr 1.1fr 0.9fr 1.1fr 0.8fr'
@@ -219,6 +246,17 @@ export function ClinicalWritingHome() {
     return counts
   }, [documents])
 
+  // Live stepper state driven by real document stages (FR-A-010).
+  const stageProgress = useMemo(() => computeStageProgress(documents), [documents])
+
+  // Project-level checklist rollup. Read-only (never materialises instances).
+  const { data: checklistSummary, isLoading: checklistLoading } = useQuery({
+    queryKey: ['project-checklist-summary', projectId],
+    queryFn:  () => documentsApi.getProjectChecklistSummary(projectId!),
+    enabled:  !!projectId,
+    staleTime: 30_000,
+  })
+
   const sortedDocs = useMemo(() => {
     if (!docSort) return filtered
     const stageOrder = Object.keys(STAGE_LABELS)
@@ -328,13 +366,22 @@ export function ClinicalWritingHome() {
             <p className="text-xs font-semibold text-slate-500">Stage progress</p>
             <div className="flex items-start">
               {STAGES_ORDERED.map((stage, i) => {
-                const state = STAGE_PROGRESS[stage]
+                const state = stageProgress[stage]
                 const width = STAGE_STEPPER_WIDTHS[stage]
+                const count = stageCounts.get(stage) ?? 0
                 const isLast = i === STAGES_ORDERED.length - 1
-                const nextComplete = !isLast && STAGE_PROGRESS[STAGES_ORDERED[i+1]] === 'complete'
+                const nextComplete = !isLast && stageProgress[STAGES_ORDERED[i+1]] === 'complete'
                 return (
                   <Fragment key={stage}>
-                    <div className="flex flex-none flex-col items-center gap-2" style={{ width }}>
+                    <button
+                      type="button"
+                      onClick={() => showStage(stage)}
+                      className="flex flex-none flex-col items-center gap-2 rounded-md px-1 py-1 hover:bg-slate-50"
+                      style={{ width }}
+                      aria-label={`${STAGE_LABELS[stage]}: ${count} document${count === 1 ? '' : 's'}`}
+                      data-stage-step={stage}
+                      data-stage-state={state}
+                    >
                       {state === 'complete' && (
                         <div className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[11px] font-extrabold text-white" style={{ backgroundColor: '#2563EB' }}>
                           ✓
@@ -352,12 +399,10 @@ export function ClinicalWritingHome() {
                       >
                         {STAGE_LABELS[stage]}
                       </div>
-                      {state === 'in-progress' && (
-                        <p className="font-mono text-[10px] font-medium tracking-widest" style={{ color: '#2563EB' }}>
-                          IN PROGRESS
-                        </p>
-                      )}
-                    </div>
+                      <p className="font-mono text-[10px] font-medium tracking-wider" style={{ color: count > 0 ? '#2563EB' : '#94A3B8' }}>
+                        {count} doc{count === 1 ? '' : 's'}
+                      </p>
+                    </button>
                     {!isLast && (
                       <div
                         className="mt-[10px] h-[2px] flex-1"
@@ -603,19 +648,30 @@ export function ClinicalWritingHome() {
 
           <div className="flex flex-col gap-2.5">
             <p className="text-xs font-semibold text-slate-500">Checklist status</p>
-            <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-white p-3.5">
-              {CHECKLIST_SUMMARY.map(row => (
-                <div key={row.label} className="flex items-center justify-between text-[13px]" style={{ color: row.label === 'Waived' ? '#B45309' : undefined }}>
-                  <span className="flex items-center gap-2">
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: row.colour }} />
-                    {row.label}
-                  </span>
-                  <span className="font-semibold">{row.count}</span>
-                </div>
-              ))}
-              <div className="border-t border-slate-200 pt-2.5">
-                <button className="text-xs font-semibold text-blue-600 hover:text-blue-700">View full checklist</button>
-              </div>
+            <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-white p-3.5" data-checklist-summary>
+              {checklistLoading && (
+                <p className="text-[12px] text-slate-400">Loading checklist…</p>
+              )}
+              {!checklistLoading && checklistSummary && checklistSummary.totalItems === 0 && (
+                <p className="text-[12px] text-slate-500" data-empty-checklist>
+                  No checklist items yet. Open a document's Checklist panel to begin, or ask Admin to seed the master templates.
+                </p>
+              )}
+              {!checklistLoading && checklistSummary && checklistSummary.totalItems > 0 && (
+                <>
+                  <ChecklistRow label="Complete" count={checklistSummary.complete} colour={CHECKLIST_ROW_COLOURS.complete} />
+                  <ChecklistRow label="Pending"  count={checklistSummary.pending}  colour={CHECKLIST_ROW_COLOURS.pending} />
+                  <ChecklistRow label="Waived"   count={checklistSummary.waived}   colour={CHECKLIST_ROW_COLOURS.waived} warn />
+                  {checklistSummary.mandatoryPending > 0 && (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[12px] font-semibold text-amber-900" data-mandatory-pending>
+                      Mandatory pending: {checklistSummary.mandatoryPending}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-slate-500">
+                    {checklistSummary.documentsWithChecklist}/{checklistSummary.totalDocuments} document{checklistSummary.totalDocuments === 1 ? '' : 's'} tracked
+                  </p>
+                </>
+              )}
             </div>
           </div>
 
@@ -695,6 +751,18 @@ const initialsOf = (name: string) =>
 
 // Stored phases vary ("Phase III", "IIb", "Preclinical") — only add the "Phase" prefix when it's missing.
 const phaseLabel = (phase: string) => (/^phase\b|preclinical/i.test(phase) ? phase : `Phase ${phase}`)
+
+function ChecklistRow({ label, count, colour, warn }: { label: string; count: number; colour: string; warn?: boolean }) {
+  return (
+    <div className="flex items-center justify-between text-[13px]" style={{ color: warn ? '#B45309' : undefined }} data-checklist-row={label.toLowerCase()}>
+      <span className="flex items-center gap-2">
+        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: colour }} />
+        {label}
+      </span>
+      <span className="font-semibold">{count}</span>
+    </div>
+  )
+}
 
 function TabButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (

@@ -29,6 +29,14 @@ import {
   InvalidDocumentTransitionError,
   type DocumentStatus,
 } from '../document-status.js'
+import {
+  dbStageToUi,
+  isDbStage,
+  nextStage,
+  StageAdvanceError,
+  STAGE_LABELS,
+  type DbStage,
+} from '../document-stage.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -416,13 +424,27 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       data: { status: 'in_review', submittedForReviewAt: new Date() },
     })
 
+    // Auto-advance stage: submitting for review implies the document has
+    // left authoring and is now in the Cross-Functional Review stage.
+    // Only moves forward (never backward), so a resubmit on a CRM-stage
+    // document is a no-op on stage. PRD-A-010 § linear stage-gating.
+    const stageMove = await svc.advanceStageTo({
+      documentId,
+      target: 'cross_functional_review',
+    })
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'document_submitted_for_review',
       entityType: 'document',
       entityId: documentId,
-      details: { from, to: 'in_review' },
+      details: {
+        from,
+        to: 'in_review',
+        stageFrom: stageMove?.from ?? null,
+        stageTo: stageMove?.to ?? null,
+      },
       ipAddress: request.ip ?? null,
     })
 
@@ -474,6 +496,18 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       snapshotVersion = snap.version
     }
 
+    // Auto-advance stage on status transitions that imply a stage move.
+    // Stage only moves forward: a status bounce never rewinds the stepper.
+    //   in_review → crm_in_progress   ⇒ stage → crm
+    //   pending_signature → signed    ⇒ stage → final_output
+    // The in_review entry itself is handled by /submit-for-review (above).
+    let stageMove: { from: string; to: string } | null = null
+    if (to === 'crm_in_progress') {
+      stageMove = await svc.advanceStageTo({ documentId, target: 'crm' })
+    } else if (to === 'signed') {
+      stageMove = await svc.advanceStageTo({ documentId, target: 'final_output' })
+    }
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
@@ -486,11 +520,81 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         reason: parsed.data.reason ?? null,
         snapshotVersionId:     snapshotVersion?.id ?? null,
         snapshotVersionNumber: snapshotVersion?.versionNumber ?? null,
+        stageFrom:             stageMove?.from ?? null,
+        stageTo:               stageMove?.to ?? null,
       },
       ipAddress: request.ip ?? null,
     })
 
     return updated
+  })
+
+  // Explicit stage advance — PRD-A-010 linear stage-gated progression.
+  // The /submit-for-review and /transition endpoints auto-advance when
+  // real status events fire; this endpoint is the manual escape hatch
+  // for stage moves that don't line up with a status change (e.g.
+  // Study Start-Up → During Study → Post-Study are authoring-time
+  // milestones that don't flip the document's status).
+  app.post('/:documentId/advance-stage', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    try {
+      const result = await svc.advanceStage({
+        documentId,
+        actorId: request.user!.id,
+      })
+
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: request.user!.id,
+        action: 'document_stage_advanced',
+        entityType: 'document',
+        entityId: documentId,
+        details: {
+          from: result.from,
+          to: result.to,
+          fromLabel: STAGE_LABELS[result.from],
+          toLabel: STAGE_LABELS[result.to],
+        },
+        ipAddress: request.ip ?? null,
+      })
+
+      const doc = await app.prisma.document.findUnique({
+        where: { id: documentId },
+        include: { currentVersion: { select: { versionNumber: true } } },
+      })
+      if (!doc) return reply.code(404).send({ error: 'not_found' })
+      return documentShapeMeta({ ...doc, version: doc.currentVersion?.versionNumber })
+    } catch (err: unknown) {
+      if (err instanceof StageAdvanceError) {
+        if (err.reason === 'terminal') return reply.code(422).send({ error: 'terminal', message: err.message })
+        if (err.message === 'document_not_found') return reply.code(404).send({ error: 'not_found' })
+        return reply.code(422).send({ error: 'invalid_stage', message: err.message })
+      }
+      throw err
+    }
+  })
+
+  // Read-only: what the next stage would be, labels, and whether the
+  // document is already terminal. Lets the UI render the Advance button
+  // with the right label without hard-coding the stage order on the client.
+  app.get('/:documentId/stage', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { id: true, stage: true, deletedAt: true },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    const current: DbStage | null = isDbStage(doc.stage) ? doc.stage : null
+    const next = current ? nextStage(current) : null
+    return {
+      documentId: doc.id,
+      current:      current ? dbStageToUi(current)  : null,
+      currentLabel: current ? STAGE_LABELS[current] : null,
+      next:         next    ? dbStageToUi(next)     : null,
+      nextLabel:    next    ? STAGE_LABELS[next]    : null,
+      terminal:     next === null,
+    }
   })
 
   // Explicit "Create new version" — snapshots the current section set into

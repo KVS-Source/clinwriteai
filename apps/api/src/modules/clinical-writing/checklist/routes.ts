@@ -1,17 +1,26 @@
 // Checklist routes — Module A (API contract §4).
 //
 // Workflow:
-//   - Each document gets a ChecklistInstance derived from the current
-//     ChecklistTemplate for its deliverable type when the first items are
-//     requested (lazy — the master template library ships via admin tools
-//     in a later session).
+//   - A ChecklistInstance is materialised at document creation time via
+//     DocumentService.create (see ../documents/service.ts). This GET is a
+//     pure read for freshly-created documents; the fallback-create below
+//     is kept to handle legacy documents that pre-date eager materialisation.
 //   - Framework Mandatory items (ICH E3, 21 CFR Part 11, …) require a
 //     waiver_reason when waived. Non-mandatory items can be waived freely.
 //   - User-added items (isUserAdded = true) have no templateItemId.
+//
+// Deliverable type normalisation: historically the frontend sent hyphenated
+// keys ('csr-full') while the seed stored underscored ('csr_full'), producing
+// duplicate ChecklistTemplate rows. All template lookups + writes now go
+// through ensureChecklistInstance which normalises to the underscored form.
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import {
+  computeProjectChecklistSummary,
+  ensureChecklistInstance,
+} from './service.js'
 
 const waiveSchema = z.object({
   reason: z.string().min(3, 'A waiver reason is required (21 CFR Part 11)'),
@@ -29,40 +38,14 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
-    let instance = await app.prisma.checklistInstance.findUnique({
-      where: { documentId },
-      include: { items: { orderBy: { sortOrder: 'asc' } } },
+    // ensureChecklistInstance is idempotent — it short-circuits when the
+    // instance already exists (the common case now that create() materialises
+    // eagerly). Fallback-creates for pre-existing documents.
+    const instance = await ensureChecklistInstance(app.prisma, {
+      documentId,
+      deliverableType: doc.type,
+      actorId: request.user!.id,
     })
-
-    if (!instance) {
-      // Lazy bootstrap: materialise the instance from the current template.
-      // If no template exists for this document type yet, return an empty
-      // (user-additions only) instance rather than erroring — this keeps the
-      // UI usable before admins have seeded the master templates.
-      const template = await app.prisma.checklistTemplate.findFirst({
-        where: { deliverableType: doc.type, isCurrent: true },
-        include: { items: { orderBy: { sortOrder: 'asc' } } },
-      })
-      instance = await app.prisma.checklistInstance.create({
-        data: {
-          documentId,
-          templateId: template?.id ?? await ensureEmptyTemplate(app.prisma, doc.type, request.user!.id),
-          templateVersion: template?.version ?? 1,
-          items: template
-            ? {
-                create: template.items.map(ti => ({
-                  templateItemId: ti.id,
-                  text: ti.text,
-                  framework: ti.framework,
-                  frameworkMandatory: ti.frameworkMandatory,
-                  sortOrder: ti.sortOrder,
-                })),
-              }
-            : undefined,
-        },
-        include: { items: { orderBy: { sortOrder: 'asc' } } },
-      })
-    }
 
     return instance.items
   })
@@ -163,6 +146,22 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
   })
 }
 
+// Project-scoped checklist route — one endpoint, mounted under /projects
+// so the home page can read the rollup without triggering any writes.
+export const projectChecklistRoutes: FastifyPluginAsync = async (app) => {
+  app.get('/:projectId/checklist-summary', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { projectId } = request.params as { projectId: string }
+
+    const project = await app.prisma.project.findUnique({
+      where: { id: projectId },
+      select: { id: true },
+    })
+    if (!project) return reply.code(404).send({ error: 'project_not_found' })
+
+    return computeProjectChecklistSummary(app.prisma, projectId)
+  })
+}
+
 async function loadItem(prisma: FastifyInstanceType, documentId: string, itemId: string) {
   return prisma.checklistInstanceItem.findFirst({
     where: {
@@ -170,26 +169,6 @@ async function loadItem(prisma: FastifyInstanceType, documentId: string, itemId:
       instance: { documentId },
     },
   })
-}
-
-// Fallback template so a checklist instance can exist even before the master
-// template library is seeded. Reused across documents of the same type.
-async function ensureEmptyTemplate(prisma: FastifyInstanceType, deliverableType: string, userId: string): Promise<string> {
-  const existing = await prisma.checklistTemplate.findFirst({
-    where: { deliverableType, isCurrent: true },
-  })
-  if (existing) return existing.id
-
-  const created = await prisma.checklistTemplate.create({
-    data: {
-      deliverableType,
-      version: 1,
-      effectiveDate: new Date(),
-      changeReason: 'Auto-created fallback for first document of this type',
-      createdBy: userId,
-    },
-  })
-  return created.id
 }
 
 // Narrow Prisma type alias — avoids repeating the full PrismaClient type.

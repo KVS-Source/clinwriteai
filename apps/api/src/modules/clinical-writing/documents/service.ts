@@ -13,6 +13,15 @@
 
 import { createHash } from 'node:crypto'
 import type { PrismaClient } from '@prisma/client'
+import {
+  isDbStage,
+  isLaterStage,
+  nextStage,
+  StageAdvanceError,
+  STAGE_LABELS,
+  type DbStage,
+} from '../document-stage.js'
+import { ensureChecklistInstance } from '../checklist/service.js'
 
 export interface SectionPayload {
   sectionId: string
@@ -97,8 +106,78 @@ export class DocumentService {
         data: { currentVersionId: version.id },
       })
 
+      // Materialise the ChecklistInstance up front rather than on first GET.
+      // Keeps the home-page project summary read-only safe (no visit ever
+      // creates records) and makes the per-document GET a pure read.
+      await ensureChecklistInstance(tx, {
+        documentId: doc.id,
+        deliverableType: args.type,
+        actorId: args.createdBy,
+      })
+
       return { document: { ...doc, currentVersionId: version.id }, version }
     })
+  }
+
+  /**
+   * Advance a document to the next stage in the linear PRD-A-010 sequence.
+   * Returns the updated document + the stage transition for audit.
+   *
+   * Also used internally by auto-advance paths (submit-for-review, status
+   * transition to CRM / signed) via `advanceStageTo` so the stepper and the
+   * status pill move together.
+   */
+  async advanceStage(args: {
+    documentId: string
+    actorId: string
+  }): Promise<{ documentId: string; from: DbStage; to: DbStage }> {
+    return this.prisma.$transaction(async (tx) => {
+      const doc = await tx.document.findUnique({
+        where: { id: args.documentId },
+        select: { id: true, stage: true, deletedAt: true },
+      })
+      if (!doc || doc.deletedAt) throw new StageAdvanceError('document_not_found', 'invalid')
+
+      if (!isDbStage(doc.stage)) {
+        throw new StageAdvanceError(`document has unknown stage '${doc.stage}'`, 'invalid')
+      }
+
+      const to = nextStage(doc.stage)
+      if (!to) {
+        throw new StageAdvanceError(
+          `document is at terminal stage ${doc.stage} (${STAGE_LABELS[doc.stage]})`,
+          'terminal',
+        )
+      }
+
+      await tx.document.update({ where: { id: doc.id }, data: { stage: to } })
+      return { documentId: doc.id, from: doc.stage, to }
+    })
+  }
+
+  /**
+   * Move the document's stage to `target` iff `target` is strictly later
+   * than the current stage. Used by auto-advance (submit-for-review,
+   * transition→crm, transition→signed). Returns the transition when it
+   * fires, or null when the document was already at or past the target.
+   */
+  async advanceStageTo(args: {
+    documentId: string
+    target: DbStage
+  }): Promise<{ from: DbStage; to: DbStage } | null> {
+    const doc = await this.prisma.document.findUnique({
+      where: { id: args.documentId },
+      select: { stage: true },
+    })
+    if (!doc) return null
+    if (!isDbStage(doc.stage)) return null
+    if (!isLaterStage(doc.stage, args.target)) return null
+
+    await this.prisma.document.update({
+      where: { id: args.documentId },
+      data: { stage: args.target },
+    })
+    return { from: doc.stage, to: args.target }
   }
 
   async getWithSections(documentId: string) {

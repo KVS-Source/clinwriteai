@@ -1,7 +1,7 @@
 import { api } from './client'
 import type {
   Document, ChecklistItem, AuditEntry, Comment,
-  AISuggestion, SignatureRecord, DocumentVersion, VoiceNote,
+  AISuggestion, SignatureRecord, DocumentVersion, DocumentStage, VoiceNote,
   CreateDocumentBody, UpdateSectionBody, CompleteItemBody, WaiveItemBody,
   RestoreSectionsBody, SubmitForReviewBody, AddCommentBody,
   ResolveCommentBody, AISuggestBody, AcceptSuggestionBody,
@@ -165,6 +165,33 @@ export const documentsApi = {
   // Review
   submitForReview: (documentId: string, body: SubmitForReviewBody) =>
     api.post<Document>(`/documents/${documentId}/submit-for-review`, body),
+  // Stage (PRD-A-010 linear stage-gated progression). Advance moves the
+  // document to the next stage in [study-start-up → during-study → post-study
+  // → cross-functional-review → crm → final-output]. Fails 422 when the
+  // document is already at Final Output.
+  getStage: (documentId: string) =>
+    api.get<{
+      documentId: string
+      current:      DocumentStage | null
+      currentLabel: string | null
+      next:         DocumentStage | null
+      nextLabel:    string | null
+      terminal:     boolean
+    }>(`/documents/${documentId}/stage`),
+  advanceStage: (documentId: string) =>
+    api.post<Document>(`/documents/${documentId}/advance-stage`, {}),
+  // Project-level checklist summary — read-only aggregate used by the home
+  // page's "Checklist status" box. Never materialises missing instances.
+  getProjectChecklistSummary: (projectId: string) =>
+    api.get<{
+      totalDocuments: number
+      documentsWithChecklist: number
+      totalItems: number
+      complete: number
+      pending: number
+      waived: number
+      mandatoryPending: number
+    }>(`/projects/${projectId}/checklist-summary`),
   // Checklist
   getChecklist: (documentId: string) =>
     api.get<ChecklistItem[]>(`/documents/${documentId}/checklist`),

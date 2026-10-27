@@ -42,6 +42,7 @@ import {
   SECTION_LOCK_STALE_SECONDS,
 } from '../section-locks/service.js'
 import { sessionizeHistory } from './edit-history-sessions.js'
+import { htmlExcerpt } from './html-excerpt.js'
 import {
   blockedBody,
   checkStageAdvanceGate,
@@ -1127,6 +1128,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         aiModel:            ai?.model ?? null,
         interveningCount:   intervening.length,
         interveningByActor,
+        // Row-level previews so the UI can show "Was: … → Now: …" without a
+        // round-trip for every row. Full HTML is lazy-fetched via
+        // GET /section-edits/:id/diff on expand.
+        beforeExcerpt:      htmlExcerpt(r.beforeHtml),
+        afterExcerpt:       htmlExcerpt(r.afterHtml),
         // Can revert if the snapshot exists and the section is still on
         // the version this edit was made on. Sealed-version check happens
         // in the service.
@@ -1146,6 +1152,40 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       currentVersionId: doc.currentVersionId,
       entries,
       sessions,
+    }
+  })
+
+  // Diff — returns the full beforeHtml / afterHtml for one EditHistory row.
+  // Used by the Section History panel's "Show change" expansion so the full
+  // snapshots never ship on the list GET (would bloat the chat-length autosave
+  // sessions). Shape mirrors the two columns on EditHistory.
+  app.get('/section-edits/:editHistoryId/diff', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { editHistoryId } = request.params as { editHistoryId: string }
+    const row = await app.prisma.editHistory.findUnique({
+      where:  { id: editHistoryId },
+      select: {
+        id: true,
+        entityType: true,
+        documentId: true,
+        sectionId: true,
+        origin: true,
+        createdAt: true,
+        beforeHtml: true,
+        afterHtml: true,
+      },
+    })
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    if (row.entityType !== 'clinical_section') {
+      return reply.code(404).send({ error: 'wrong_entity_type' })
+    }
+    return {
+      editHistoryId: row.id,
+      documentId:    row.documentId,
+      sectionId:     row.sectionId,
+      origin:        row.origin,
+      createdAt:     row.createdAt.toISOString(),
+      beforeHtml:    row.beforeHtml,
+      afterHtml:     row.afterHtml,
     }
   })
 

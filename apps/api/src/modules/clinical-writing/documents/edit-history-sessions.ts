@@ -38,6 +38,10 @@ export interface RawHistoryRow {
   canRevert:          boolean
   interveningCount:   number
   interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
+  /** Plain-text preview of the pre-edit content (may be empty for the first-ever save on a section). */
+  beforeExcerpt?:     string
+  /** Plain-text preview of the post-edit content. */
+  afterExcerpt?:      string
 }
 
 export interface HistorySession extends RawHistoryRow {
@@ -93,6 +97,9 @@ export function sessionizeHistory(rows: RawHistoryRow[], opts: { gapSeconds?: nu
       last.promptText     = row.promptText    ?? last.promptText
       last.aiIntent       = row.aiIntent      ?? last.aiIntent
       last.aiModel        = row.aiModel       ?? last.aiModel
+      // beforeExcerpt tracks the OLDEST row (pre-session state); afterExcerpt
+      // stays on the newest (set when the session row was first pushed).
+      last.beforeExcerpt  = row.beforeExcerpt
       last.sessionRawRowIds.push(row.id)
       continue
     }

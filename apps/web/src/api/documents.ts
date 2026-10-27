@@ -273,7 +273,33 @@ export const documentsApi = {
         aiModel:   string | null
         interveningCount: number
         interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
+        /** Plain-text preview of pre-edit content for the Section History row (sPM-autosave). */
+        beforeExcerpt?: string
+        /** Plain-text preview of post-edit content for the Section History row (sPM-autosave). */
+        afterExcerpt?:  string
         canRevert: boolean
+      }>
+      /** Rolled-up session view (sPM-autosave). Same shape as entries plus session fields. */
+      sessions?: Array<{
+        id: string
+        actorId: string
+        actorName: string
+        origin: 'manual' | 'ai' | 'undo' | 'restore'
+        createdAt: string
+        documentVersionId: string
+        aiCallRecordId: string | null
+        revertedFromId: string | null
+        promptText: string | null
+        aiIntent:  string | null
+        aiModel:   string | null
+        interveningCount: number
+        interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
+        beforeExcerpt?: string
+        afterExcerpt?:  string
+        canRevert: boolean
+        sessionEntryCount: number
+        sessionStartedAt:  string
+        sessionRawRowIds:  string[]
       }>
     }>(`/documents/${documentId}/sections/${sectionId}/history${suffix}`)
   },
@@ -281,6 +307,19 @@ export const documentsApi = {
     api.post<{ ok: true; documentId: string; sectionId: string; contentHtml: string; revertedAt: string }>(
       `/section-edits/${editHistoryId}/revert`, {},
     ),
+  // Full before/after HTML for one history row (sPM-autosave diff expand).
+  // Called lazily when the user clicks "Show change" on a row — avoids
+  // shipping multi-KB snapshots on every history list GET.
+  getSectionEditDiff: (editHistoryId: string) =>
+    api.get<{
+      editHistoryId: string
+      documentId:    string | null
+      sectionId:     string | null
+      origin:        string
+      createdAt:     string
+      beforeHtml:    string | null
+      afterHtml:     string
+    }>(`/section-edits/${editHistoryId}/diff`),
 
   // AI chat (sPM-ai-chat) — per-user, per-section conversation thread.
   // Every /ai-suggest call writes two rows (user turn + assistant turn)

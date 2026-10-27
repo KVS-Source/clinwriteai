@@ -107,4 +107,20 @@ describe('sessionizeHistory', () => {
   it('exports a 10-minute default gap', () => {
     expect(SESSION_IDLE_GAP_SECONDS).toBe(600)
   })
+
+  it('carries OLDEST row beforeExcerpt + NEWEST row afterExcerpt into the session', async () => {
+    // When a session collapses N saves, the "before" preview must be from the
+    // very first save in the burst (the pre-session content Revert would
+    // restore to) and the "after" preview must be from the very last save
+    // (the final content now sitting in the editor).
+    const rows = [
+      row({ id: 'r3', actorId: 'u1', origin: 'manual', createdAt: T('2026-10-27T10:00:40Z'), beforeExcerpt: 'B3', afterExcerpt: 'A3-final' }),
+      row({ id: 'r2', actorId: 'u1', origin: 'manual', createdAt: T('2026-10-27T10:00:20Z'), beforeExcerpt: 'B2', afterExcerpt: 'A2' }),
+      row({ id: 'r1', actorId: 'u1', origin: 'manual', createdAt: T('2026-10-27T10:00:00Z'), beforeExcerpt: 'B1-pre-session', afterExcerpt: 'A1' }),
+    ]
+    const [s] = sessionizeHistory(rows)
+    expect(s!.sessionEntryCount).toBe(3)
+    expect(s!.beforeExcerpt).toBe('B1-pre-session')
+    expect(s!.afterExcerpt).toBe('A3-final')
+  })
 })

@@ -756,13 +756,16 @@ export function DocumentEditor() {
             } : undefined}
           />
 
-          {/* Split row — content column (flex-1, scrollable) + optional
-              right panel column (fixed width, draggable). */}
+          {/* Split row — content column (scrollable + AI prompt dock
+              stacked) + optional right panel column (fixed width,
+              draggable). Panel extends full split-row height so the chat
+              reaches the bottom of the editor pane. */}
           <div className="flex min-h-0 flex-1">
 
-          {/* Content — real section content, editable textarea for the
-               MVP editor. Rich-text (TipTap) lands in Phase 2 per
-               docs/decisions/module-a-defaults.md. */}
+          {/* Content column — scrollable section content on top + the AI
+              prompt dock pinned to the bottom. Confined to this column so
+              the dock doesn't stretch under the chat panel. */}
+          <div className="flex min-w-0 flex-1 flex-col">
           <div ref={sectionContentRef} onClick={onSectionContentClick} className="flex-1 overflow-y-auto px-12 pt-6 pb-8" data-section-content>
             <div className="flex max-w-[760px] flex-col">
               {activeSectionData ? (
@@ -869,9 +872,30 @@ export function DocumentEditor() {
             </div>
           </div>
 
-          {/* The pre-f196934 bottom "provenance bar" is gone — its data
-               moved to the section-meta line under the title (above). The
-               AI prompt dock is now the actual bottom of the editor pane. */}
+          {/* AI prompt dock — pinned to the bottom of the CONTENT COLUMN
+              (not the editor pane) so the chat panel to the right can
+              extend full height past the dock. */}
+          {activeSectionData && documentId && (
+            <div className="flex-none border-t border-slate-200 bg-white px-12 py-3" data-section-ai-prompt-dock>
+              <div className="max-w-[760px]">
+                <SectionAIPrompt
+                  documentId={documentId}
+                  sectionId={activeSectionData.id}
+                  currentHtml={draftContent}
+                  editor={editor}
+                  isEditing={isEditing}
+                  onRequestEdit={() => setIsEditing(true)}
+                  onAccept={(html, model) => {
+                    if (!isEditing) setIsEditing(true)
+                    editor?.commands.setContent(html, { emitUpdate: false })
+                    setDraftContent(html)
+                    setAiEditModel(model)
+                  }}
+                />
+              </div>
+            </div>
+          )}
+          </div>
 
           {/* Right panel — in-flow split sibling of the content column.
               The content column (flex-1) shrinks horizontally when this
@@ -1086,30 +1110,6 @@ export function DocumentEditor() {
           )}
       </div>
 
-          {/* AI prompt dock — pinned to the bottom of the editor pane, below
-              the content+panel split so it spans full width. First prompt in
-              view mode auto-switches to edit mode so the AI output has
-              somewhere to land. */}
-          {activeSectionData && documentId && (
-            <div className="flex-none border-t border-slate-200 bg-white px-12 py-3" data-section-ai-prompt-dock>
-              <div className="max-w-[760px]">
-                <SectionAIPrompt
-                  documentId={documentId}
-                  sectionId={activeSectionData.id}
-                  currentHtml={draftContent}
-                  editor={editor}
-                  isEditing={isEditing}
-                  onRequestEdit={() => setIsEditing(true)}
-                  onAccept={(html, model) => {
-                    if (!isEditing) setIsEditing(true)
-                    editor?.commands.setContent(html, { emitUpdate: false })
-                    setDraftContent(html)
-                    setAiEditModel(model)
-                  }}
-                />
-              </div>
-            </div>
-          )}
       </div>
       </div>
     </div>

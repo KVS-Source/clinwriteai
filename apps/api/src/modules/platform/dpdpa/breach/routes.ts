@@ -23,7 +23,7 @@ const breachSchema = z.object({
 })
 
 export const breachRoutes: FastifyPluginAsync = async (app) => {
-  const superAdmin = requireAuth({ roles: ['super-admin'] })
+  const superAdmin = requireAuth({ roles: ['admin'] })
 
   app.post('/admin/dpdpa/breaches', { preHandler: superAdmin }, async (request, reply) => {
     const parsed = breachSchema.safeParse(request.body)

@@ -61,11 +61,12 @@ function ChecklistIcon() {
   )
 }
 function AuditIcon() {
+  // Shield + check — distinguishes the compliance audit log from the
+  // per-section revert icon (which uses a counter-clockwise arrow).
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
-      <circle cx="7" cy="7" r="5.4"/>
-      <line x1="7" y1="4" x2="7" y2="7.4" strokeLinecap="round"/>
-      <line x1="7" y1="7.4" x2="9.6" y2="7.4" strokeLinecap="round"/>
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 1.2 L12 3 V7.2 C12 10 10 11.8 7 12.8 C4 11.8 2 10 2 7.2 V3 Z" />
+      <polyline points="4.8,7 6.4,8.6 9.2,5.6" />
     </svg>
   )
 }
@@ -122,11 +123,9 @@ interface EditorToolbarProps {
   // Phase 2.1 — TipTap editor instance drives the formatting cluster.
   // Null while no section is active (buttons render disabled).
   editor?: import('@tiptap/react').Editor | null
-  // "Edit section" beside AI Suggest — omitted while editing or with no section open.
-  editSection?: { onClick: () => void; disabled?: boolean; title?: string }
 }
 
-export function EditorToolbar({ editor, editSection }: EditorToolbarProps = {}) {
+export function EditorToolbar({ editor }: EditorToolbarProps = {}) {
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
@@ -218,23 +217,35 @@ export function EditorToolbar({ editor, editSection }: EditorToolbarProps = {}) 
       {/* Spacer */}
       <div className="flex-1" />
 
-      {editSection && (
-        <button
-          type="button"
-          onClick={editSection.onClick}
-          disabled={editSection.disabled}
-          title={editSection.title}
-          data-action="edit-section"
-          className="flex h-7 flex-none items-center rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
-        >
-          Edit section
-        </button>
-      )}
-
-      {/* AI Suggest — accent button */}
+      {/* Comments — toggles the right-hand comments panel. Marked as a panel trigger so the editor's
+          outside-click handler leaves it to toggle the panel itself. */}
       <button
         type="button"
-        title="Open AI Suggest (⌘J)"
+        title="Comments"
+        aria-pressed={activePanel === 'comments'}
+        onClick={() => toggle('comments')}
+        data-panel-trigger
+        data-action="toggle-comments"
+        className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors hover:bg-slate-50"
+        style={activePanel === 'comments'
+          ? { borderColor: '#93C5FD', backgroundColor: '#EFF6FF', color: '#1D4ED8' }
+          : { borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', color: '#334155' }}
+      >
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2 2.5h10v7H7.2L4.4 12V9.5H2z" />
+        </svg>
+        Comments
+      </button>
+
+      {/* "Edit section" button removed in the autosave rollout — sections are
+          now editable on click when this user holds the SectionLock, so the
+          mode toggle has no job. The lock holder is indicated by a status
+          pill next to the section title (SectionAutosaveStatus). */}
+
+      {/* AI Chat — accent button (label matches the panel header). */}
+      <button
+        type="button"
+        title="Open AI Chat (⌘J)"
         onClick={() => toggle('ai')}
         data-panel-trigger
         className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-bold transition-colors"
@@ -245,7 +256,7 @@ export function EditorToolbar({ editor, editSection }: EditorToolbarProps = {}) 
         }}
       >
         <SparkleIcon />
-        AI Suggest
+        AI Chat
         <span className="rounded-[3px] px-1 py-0.5 font-mono text-[9px] font-medium" style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
           ⌘J
         </span>

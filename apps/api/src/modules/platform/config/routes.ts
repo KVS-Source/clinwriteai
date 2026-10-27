@@ -43,7 +43,7 @@ export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
     } catch { return null }                  // an unreadable audit row must not break the Admin Panel
   }
 
-  app.post('/admin/test-connection', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request) => {
+  app.post('/admin/test-connection', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request) => {
     const { default: model } = await resolveAiEngineSettings(app.prisma)   // test the engine the platform will actually use
     const key = process.env.ANTHROPIC_API_KEY?.trim() ?? ''
     const result = await runConnectionTest({
@@ -65,7 +65,7 @@ export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
 
   // Save the AI engine choice (PRD AC-PM-001). Written to the audit trail with the
   // value it replaces; AI calls pick it up immediately (chooseModel).
-  app.put('/admin/config/ai-engine', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.put('/admin/config/ai-engine', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = saveAiEngineSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const next: AiEngineSettings = parsed.data
@@ -85,7 +85,7 @@ export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
     return { ...next, availableEngines: availableEngineOptions().map(e => ({ ...e, status: e.id === next.default ? 'active' : 'available' })) }
   })
 
-  app.get('/admin/config', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request) => {
+  app.get('/admin/config', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request) => {
     const user = request.user!
     const env = process.env
 

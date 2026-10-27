@@ -29,6 +29,26 @@ import {
   InvalidDocumentTransitionError,
   type DocumentStatus,
 } from '../document-status.js'
+import {
+  dbStageToUi,
+  isDbStage,
+  nextStage,
+  StageAdvanceError,
+  STAGE_LABELS,
+  type DbStage,
+} from '../document-stage.js'
+import {
+  requireLockHeldBy,
+  SECTION_LOCK_STALE_SECONDS,
+} from '../section-locks/service.js'
+import { sessionizeHistory } from './edit-history-sessions.js'
+import { htmlExcerpt } from './html-excerpt.js'
+import {
+  blockedBody,
+  checkStageAdvanceGate,
+  checkSubmitForReviewGate,
+} from '../checklist/gates.js'
+import { fireAutoComplete } from '../checklist/auto-complete.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -93,7 +113,11 @@ function uiStage(v: string | null | undefined): string {
   return DB_STAGE_TO_UI[raw] ?? hyphenate(raw)
 }
 
-function sectionShape(s: { id: string; sectionId: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null }) {
+// editors: user id → name, for the section's last editor.
+function sectionShape(
+  s: { id: string; sectionId: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null; lastEditedBy?: string | null; lastEditedAt?: Date | null },
+  editors?: Map<string, string>,
+) {
   return {
     // The stable section key ('s11_4', 'sae4'), NOT the row uuid: rows are
     // re-created on every version, and PATCH /sections/:sectionId matches
@@ -106,6 +130,9 @@ function sectionShape(s: { id: string; sectionId: string; sectionNumber: string;
     // it. UI editor pane reads this directly instead of fetching per-
     // section separately.
     contentHtml: s.contentHtml ?? '',
+    // Who last saved this section, and when (set on every section save). Null for a section nobody has edited.
+    lastEditedAt: s.lastEditedAt ?? null,
+    lastEditedByName: s.lastEditedBy ? (editors?.get(s.lastEditedBy) ?? null) : null,
   }
 }
 
@@ -123,7 +150,7 @@ function documentShapeMeta(d: { version?: string; type?: string; status?: string
   }
 }
 
-function documentShapeFull(d: { type?: string; status?: string; stage?: string; currentVersion?: { versionNumber: string; sections: Array<Parameters<typeof sectionShape>[0]> } | null } & Record<string, unknown>) {
+function documentShapeFull(d: { type?: string; status?: string; stage?: string; currentVersion?: { versionNumber: string; sections: Array<Parameters<typeof sectionShape>[0]> } | null } & Record<string, unknown>, editors?: Map<string, string>) {
   const { currentVersion, ...rest } = d
   return {
     ...rest,
@@ -131,7 +158,7 @@ function documentShapeFull(d: { type?: string; status?: string; stage?: string; 
     status:  hyphenate(d.status),
     stage:   uiStage(d.stage),
     version: currentVersion?.versionNumber ?? 'v0.0',
-    sections: (currentVersion?.sections ?? []).map(sectionShape),
+    sections: (currentVersion?.sections ?? []).map(sec => sectionShape(sec, editors)),
   }
 }
 
@@ -263,13 +290,32 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return documentShapeFull(doc)
+    // Names of the people who last edited each section, in one query.
+    const editorIds = Array.from(new Set((doc.currentVersion?.sections ?? []).map(sec => sec.lastEditedBy).filter((v): v is string => !!v)))
+    const editorUsers = editorIds.length ? await app.prisma.user.findMany({ where: { id: { in: editorIds } }, select: { id: true, name: true } }) : []
+    return documentShapeFull(doc, new Map(editorUsers.map(u => [u.id, u.name])))
   })
 
   app.patch('/:documentId/sections/:sectionId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
     const parsed = sectionUpdateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    // Autosave precondition (sPM-autosave): block the write when another user
+    // holds a live lock on this section. A missing or stale lock passes — the
+    // write still succeeds (legacy clients + first-save-after-reconnect paths),
+    // and the client is responsible for re-acquiring if it means to keep
+    // writing. See section-locks/service.ts.
+    const foreignHolder = await requireLockHeldBy(app.prisma, {
+      documentId, sectionId, userId: request.user!.id,
+    })
+    if (foreignHolder) {
+      return reply.code(423).send({
+        error:        'locked',
+        holder:       foreignHolder,
+        staleSeconds: SECTION_LOCK_STALE_SECONDS,
+      })
+    }
 
     const result = await svc.updateSection({
       documentId,
@@ -387,6 +433,17 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (from === 'in_review') {
       return doc
     }
+
+    // Gate C — all mandatory items for the current stage must be complete
+    // or waived before submission. See checklist/gates.ts. Returns a 409
+    // with the structured blocking list so the UI can show "N mandatory
+    // items blocking → ICF signed, …" with click-through.
+    if (isDbStage(doc.stage)) {
+      const gate = await checkSubmitForReviewGate(app.prisma, documentId, doc.stage)
+      if (!gate.ok) {
+        return reply.code(409).send(blockedBody('submit_for_review', gate))
+      }
+    }
     // UX gate: not_started is the day-one state for a brand-new document.
     // The strict state machine requires not_started → in_authoring → in_review,
     // but the UI's "Submit for review" button is the only path a writer takes
@@ -416,13 +473,43 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       data: { status: 'in_review', submittedForReviewAt: new Date() },
     })
 
+    // Auto-advance stage: submitting for review implies the document has
+    // left authoring and is now in the Cross-Functional Review stage.
+    // Only moves forward (never backward), so a resubmit on a CRM-stage
+    // document is a no-op on stage. PRD-A-010 § linear stage-gating.
+    const stageMove = await svc.advanceStageTo({
+      documentId,
+      target: 'cross_functional_review',
+    })
+
+    // Auto-complete any ChecklistInstanceItem tagged autoCompleteOn=
+    // 'submit_for_review' — typically "Author draft completed and
+    // submitted for review" on CSR / CSR Synopsis / Patient Narrative /
+    // Safety Narrative. Non-fatal if it fails (status transition already
+    // committed); we audit the attempt.
+    const autoReport = await fireAutoComplete(app.prisma, app.audit, {
+      trigger: 'submit_for_review',
+      documentId,
+      actorId: request.user!.id,
+      ipAddress: request.ip ?? null,
+    }).catch(err => {
+      app.log.warn({ err, documentId }, 'auto_complete submit_for_review failed — items left pending')
+      return null
+    })
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'document_submitted_for_review',
       entityType: 'document',
       entityId: documentId,
-      details: { from, to: 'in_review' },
+      details: {
+        from,
+        to: 'in_review',
+        stageFrom: stageMove?.from ?? null,
+        stageTo: stageMove?.to ?? null,
+        autoCompletedCount: autoReport?.completedCount ?? 0,
+      },
       ipAddress: request.ip ?? null,
     })
 
@@ -474,6 +561,18 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       snapshotVersion = snap.version
     }
 
+    // Auto-advance stage on status transitions that imply a stage move.
+    // Stage only moves forward: a status bounce never rewinds the stepper.
+    //   in_review → crm_in_progress   ⇒ stage → crm
+    //   pending_signature → signed    ⇒ stage → final_output
+    // The in_review entry itself is handled by /submit-for-review (above).
+    let stageMove: { from: string; to: string } | null = null
+    if (to === 'crm_in_progress') {
+      stageMove = await svc.advanceStageTo({ documentId, target: 'crm' })
+    } else if (to === 'signed') {
+      stageMove = await svc.advanceStageTo({ documentId, target: 'final_output' })
+    }
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
@@ -486,11 +585,98 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         reason: parsed.data.reason ?? null,
         snapshotVersionId:     snapshotVersion?.id ?? null,
         snapshotVersionNumber: snapshotVersion?.versionNumber ?? null,
+        stageFrom:             stageMove?.from ?? null,
+        stageTo:               stageMove?.to ?? null,
       },
       ipAddress: request.ip ?? null,
     })
 
     return updated
+  })
+
+  // Explicit stage advance — PRD-A-010 linear stage-gated progression.
+  // The /submit-for-review and /transition endpoints auto-advance when
+  // real status events fire; this endpoint is the manual escape hatch
+  // for stage moves that don't line up with a status change (e.g.
+  // Study Start-Up → During Study → Post-Study are authoring-time
+  // milestones that don't flip the document's status).
+  app.post('/:documentId/advance-stage', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+
+    // Gate B — all mandatory items for stages ≤ current must be complete
+    // or waived before the stepper moves forward. 409 with the blocking
+    // list if not. The underlying advanceStage() does its own stage-order
+    // + terminal checks after this.
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { stage: true, deletedAt: true },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (isDbStage(doc.stage)) {
+      const gate = await checkStageAdvanceGate(app.prisma, documentId, doc.stage)
+      if (!gate.ok) {
+        return reply.code(409).send(blockedBody('stage_advance', gate))
+      }
+    }
+
+    try {
+      const result = await svc.advanceStage({
+        documentId,
+        actorId: request.user!.id,
+      })
+
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: request.user!.id,
+        action: 'document_stage_advanced',
+        entityType: 'document',
+        entityId: documentId,
+        details: {
+          from: result.from,
+          to: result.to,
+          fromLabel: STAGE_LABELS[result.from],
+          toLabel: STAGE_LABELS[result.to],
+        },
+        ipAddress: request.ip ?? null,
+      })
+
+      const doc = await app.prisma.document.findUnique({
+        where: { id: documentId },
+        include: { currentVersion: { select: { versionNumber: true } } },
+      })
+      if (!doc) return reply.code(404).send({ error: 'not_found' })
+      return documentShapeMeta({ ...doc, version: doc.currentVersion?.versionNumber })
+    } catch (err: unknown) {
+      if (err instanceof StageAdvanceError) {
+        if (err.reason === 'terminal') return reply.code(422).send({ error: 'terminal', message: err.message })
+        if (err.message === 'document_not_found') return reply.code(404).send({ error: 'not_found' })
+        return reply.code(422).send({ error: 'invalid_stage', message: err.message })
+      }
+      throw err
+    }
+  })
+
+  // Read-only: what the next stage would be, labels, and whether the
+  // document is already terminal. Lets the UI render the Advance button
+  // with the right label without hard-coding the stage order on the client.
+  app.get('/:documentId/stage', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { id: true, stage: true, deletedAt: true },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    const current: DbStage | null = isDbStage(doc.stage) ? doc.stage : null
+    const next = current ? nextStage(current) : null
+    return {
+      documentId: doc.id,
+      current:      current ? dbStageToUi(current)  : null,
+      currentLabel: current ? STAGE_LABELS[current] : null,
+      next:         next    ? dbStageToUi(next)     : null,
+      nextLabel:    next    ? STAGE_LABELS[next]    : null,
+      terminal:     next === null,
+    }
   })
 
   // Explicit "Create new version" — snapshots the current section set into
@@ -543,7 +729,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     reason: z.string().max(500).optional(),
   })
 
-  app.patch('/:documentId/therapeutic-area', { preHandler: requireAuth({ roles: ['admin', 'super-admin'], modules: ['A'] }) }, async (request, reply) => {
+  app.patch('/:documentId/therapeutic-area', { preHandler: requireAuth({ roles: ['admin'], modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = taChangeSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -917,42 +1103,89 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       : rows.map(r => ({ id: r.id, actorId: r.actorId, origin: r.origin, createdAt: r.createdAt }))
     const positionOf = new Map(allRows.map((r, i) => [r.id, i]))
 
+    const entries = rows.map(r => {
+      const idx = positionOf.get(r.id) ?? 0
+      const intervening = allRows.slice(0, idx)
+      const interveningByActor = Array.from(
+        intervening.reduce((m, row) => m.set(row.actorId, (m.get(row.actorId) ?? 0) + 1), new Map<string, number>()),
+      ).map((entry) => {
+        const [actorId, count] = entry as [string, number]
+        return { actorId, actorName: actorMap.get(actorId) ?? actorId, count }
+      })
+
+      const ai = r.aiCallRecordId ? aiMap.get(r.aiCallRecordId) ?? null : null
+      return {
+        id:                 r.id,
+        actorId:            r.actorId,
+        actorName:          actorMap.get(r.actorId) ?? r.actorId,
+        origin:             r.origin,
+        createdAt:          r.createdAt.toISOString(),
+        documentVersionId:  r.documentVersionId,
+        aiCallRecordId:     r.aiCallRecordId,
+        revertedFromId:     r.revertedFromId,
+        promptText:         ai?.promptText ?? null,
+        aiIntent:           ai?.intent ?? null,
+        aiModel:            ai?.model ?? null,
+        interveningCount:   intervening.length,
+        interveningByActor,
+        // Row-level previews so the UI can show "Was: … → Now: …" without a
+        // round-trip for every row. Full HTML is lazy-fetched via
+        // GET /section-edits/:id/diff on expand.
+        beforeExcerpt:      htmlExcerpt(r.beforeHtml),
+        afterExcerpt:       htmlExcerpt(r.afterHtml),
+        // Can revert if the snapshot exists and the section is still on
+        // the version this edit was made on. Sealed-version check happens
+        // in the service.
+        canRevert:          !!r.beforeHtml
+                              && r.documentVersionId === doc.currentVersionId,
+      }
+    })
+
+    // sPM-autosave rollup — additive, non-breaking field. UI can prefer
+    // `sessions` for a less-noisy default view (one row per writing burst)
+    // while keeping `entries` for raw-row drill-down and compatibility.
+    const sessions = sessionizeHistory(entries)
+
     return {
       documentId,
       sectionId:        section.sectionId,
       currentVersionId: doc.currentVersionId,
-      entries: rows.map(r => {
-        const idx = positionOf.get(r.id) ?? 0
-        const intervening = allRows.slice(0, idx)
-        const interveningByActor = Array.from(
-          intervening.reduce((m, row) => m.set(row.actorId, (m.get(row.actorId) ?? 0) + 1), new Map<string, number>()),
-        ).map((entry) => {
-          const [actorId, count] = entry as [string, number]
-          return { actorId, actorName: actorMap.get(actorId) ?? actorId, count }
-        })
+      entries,
+      sessions,
+    }
+  })
 
-        const ai = r.aiCallRecordId ? aiMap.get(r.aiCallRecordId) ?? null : null
-        return {
-          id:                 r.id,
-          actorId:            r.actorId,
-          actorName:          actorMap.get(r.actorId) ?? r.actorId,
-          origin:             r.origin,
-          createdAt:          r.createdAt.toISOString(),
-          documentVersionId:  r.documentVersionId,
-          aiCallRecordId:     r.aiCallRecordId,
-          revertedFromId:     r.revertedFromId,
-          promptText:         ai?.promptText ?? null,
-          aiIntent:           ai?.intent ?? null,
-          aiModel:            ai?.model ?? null,
-          interveningCount:   intervening.length,
-          interveningByActor,
-          // Can revert if the snapshot exists and the section is still on
-          // the version this edit was made on. Sealed-version check happens
-          // in the service.
-          canRevert:          !!r.beforeHtml
-                                && r.documentVersionId === doc.currentVersionId,
-        }
-      }),
+  // Diff — returns the full beforeHtml / afterHtml for one EditHistory row.
+  // Used by the Section History panel's "Show change" expansion so the full
+  // snapshots never ship on the list GET (would bloat the chat-length autosave
+  // sessions). Shape mirrors the two columns on EditHistory.
+  app.get('/section-edits/:editHistoryId/diff', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { editHistoryId } = request.params as { editHistoryId: string }
+    const row = await app.prisma.editHistory.findUnique({
+      where:  { id: editHistoryId },
+      select: {
+        id: true,
+        entityType: true,
+        documentId: true,
+        sectionId: true,
+        origin: true,
+        createdAt: true,
+        beforeHtml: true,
+        afterHtml: true,
+      },
+    })
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    if (row.entityType !== 'clinical_section') {
+      return reply.code(404).send({ error: 'wrong_entity_type' })
+    }
+    return {
+      editHistoryId: row.id,
+      documentId:    row.documentId,
+      sectionId:     row.sectionId,
+      origin:        row.origin,
+      createdAt:     row.createdAt.toISOString(),
+      beforeHtml:    row.beforeHtml,
+      afterHtml:     row.afterHtml,
     }
   })
 

@@ -69,7 +69,7 @@ async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; call
   app.decorate('prisma', { $queryRawUnsafe } as never)
   app.decorate('audit', { verifyChain, append } as never)
   app.decorateRequest('user', null)
-  const role = setup.role === undefined ? 'super-admin' : setup.role
+  const role = setup.role === undefined ? 'admin' : setup.role
   app.addHook('onRequest', async (request) => {
     if (role === null) return
     const user: AuthenticatedUser = { id: 'user-admin', email: 'admin@clinwrite.ai', role, modules: [], tenantId: setup.tenantId ?? null }
@@ -235,14 +235,13 @@ describe('tenant scoping', () => {
     }
   })
 
-  it('shows an admin with no tenant nothing (fails closed)', async () => {
-    const { app, calls } = await setupApp({ role: 'admin', tenantId: null, rows: [makeRow(1)] })
-    await app.inject({ method: 'GET', url: '/admin/audit' })
-    expect(pageSql(calls).sql).toMatch(/WHERE FALSE/)
-  })
+  // Pre-2026-10-27: 'admin + tenantId=null' was a defensive dead-end that
+  // matched nothing. Post role-consolidation, 'admin + tenantId=null' IS the
+  // platform admin and is intentionally unscoped — see tenantScopeFor().
+  // The old fails-closed assertion is retired with the super-admin role.
 
   it('keeps super-admin unscoped', async () => {
-    const { app, calls } = await setupApp({ role: 'super-admin', tenantId: null })
+    const { app, calls } = await setupApp({ role: 'admin', tenantId: null })
     await app.inject({ method: 'GET', url: '/admin/audit' })
     await app.inject({ method: 'GET', url: '/admin/audit/facets' })
     for (const c of calls) expect(c.sql).not.toMatch(/tenantId|WHERE FALSE/)
@@ -310,11 +309,8 @@ describe('GET /admin/audit/newer', () => {
     expect(newerSql(calls).params).toEqual(['TENANT-ACME', '10'])
   })
 
-  it('shows an admin with no tenant nothing (fails closed)', async () => {
-    const { app, calls } = await setupApp({ role: 'admin', tenantId: null, count: 0 })
-    await app.inject({ method: 'GET', url: '/admin/audit/newer?afterId=10' })
-    expect(newerSql(calls).sql).toMatch(/WHERE FALSE AND a\.id >/)
-  })
+  // Pre-2026-10-27 fails-closed assertion retired with super-admin (see note
+  // above the GET /admin/audit block).
 
   it('requires a numeric afterId', async () => {
     const { app, calls } = await setupApp()

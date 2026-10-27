@@ -23,7 +23,7 @@ const createSchema = z.object({
 })
 
 export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
-  const superAdmin = requireAuth({ roles: ['super-admin'] })
+  const superAdmin = requireAuth({ roles: ['admin'] })
 
   app.get('/admin/subscriptions', { preHandler: superAdmin }, async () => {
     const rows = await app.prisma.subscription.findMany({
@@ -149,7 +149,7 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
     amountUsd: z.number().nonnegative(),
     gateway:   z.string().min(1).nullable().optional(),
   })
-  app.post('/admin/subscription/top-up', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.post('/admin/subscription/top-up', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = topUpSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -170,8 +170,8 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send({ requestId, status: 'pending_payment', requestedAt, ...parsed.data })
   })
 
-  app.get('/services/dashboard',  { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, subStubHandler)
-  app.get('/admin/subscription',  { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, subStubHandler)
+  app.get('/services/dashboard',  { preHandler: requireAuth({ roles: ['admin'] }) }, subStubHandler)
+  app.get('/admin/subscription',  { preHandler: requireAuth({ roles: ['admin'] }) }, subStubHandler)
 
   // --- Super-admin dashboard stubs ------------------------------------
   // sPM05: PlatformClient[] + PlatformAnalytics. Both are derived from

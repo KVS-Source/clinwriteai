@@ -21,7 +21,7 @@ const putSchema = z.object({
 })
 
 export const transferAllowlistRoutes: FastifyPluginAsync = async (app) => {
-  const superAdmin = requireAuth({ roles: ['super-admin'] })
+  const superAdmin = requireAuth({ roles: ['admin'] })
 
   app.get('/admin/dpdpa/transfer-allowlist', { preHandler: superAdmin }, async () => {
     return app.prisma.allowedTransferJurisdiction.findMany({

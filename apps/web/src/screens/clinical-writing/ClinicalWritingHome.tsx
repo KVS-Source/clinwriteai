@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Comment, CommentSeverity, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
+import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill, SlidePanel } from '../../components/ui'
@@ -10,6 +10,8 @@ import { NewDocumentForm } from './NewDocument'
 import { UploadDocumentForm } from './UploadDocument'
 import { SourceDocumentsTab } from './SourceDocumentsTab'
 import { DocumentDetailPanel } from './DocumentDetailPanel'
+import { DocumentCommentsPanel } from './DocumentCommentsPanel'
+import { cleanSectionRef } from '../../panels/CommentComposer'
 
 // --- Enum → display label maps ---
 
@@ -59,14 +61,42 @@ type DocSortKey = 'title' | 'type' | 'stage' | 'status' | 'updated' | 'assignee'
 const nextSort = (cur: { key: DocSortKey; dir: 'asc' | 'desc' } | null, key: DocSortKey) =>
   cur?.key !== key ? { key, dir: 'asc' as const } : cur.dir === 'asc' ? { key, dir: 'desc' as const } : null
 
-// Stage progress states — first two complete, post-study in progress, rest pending
-const STAGE_PROGRESS: Record<DocumentStage, 'complete' | 'in-progress' | 'pending'> = {
-  'study-start-up':          'complete',
-  'during-study':            'complete',
-  'post-study':              'in-progress',
-  'cross-functional-review': 'pending',
-  'crm':                     'pending',
-  'final-output':            'pending',
+// Stepper state derived at render time from each document's real stage
+// (PRD A, FR-A-010). Rule:
+//   complete    = every document has moved past this stage
+//   in-progress = at least one document is currently at this stage
+//   pending     = no document has reached this stage yet
+// Multiple stages can be in-progress at the same time (the project genuinely
+// has parallel work streams); the stepper renders each independently.
+type StageProgressState = 'complete' | 'in-progress' | 'pending'
+
+function computeStageProgress(
+  documents: ReadonlyArray<{ stage: DocumentStage }>,
+): Record<DocumentStage, StageProgressState> {
+  const stageIdx = (s: DocumentStage) => STAGES_ORDERED.indexOf(s)
+  const indices = documents
+    .map(d => stageIdx(d.stage))
+    .filter(i => i >= 0)
+  // Fallback when a project has no documents yet — treat Study Start-Up as
+  // the "earliest with work" so the stepper visibly shows that's where
+  // things start.
+  const occupied = new Set(indices)
+  const minIdx = indices.length === 0 ? 0 : Math.min(...indices)
+
+  const out = {} as Record<DocumentStage, StageProgressState>
+  for (let i = 0; i < STAGES_ORDERED.length; i++) {
+    const stage = STAGES_ORDERED[i]!
+    if (indices.length === 0) {
+      out[stage] = i === 0 ? 'in-progress' : 'pending'
+    } else if (occupied.has(i)) {
+      out[stage] = 'in-progress'
+    } else if (i < minIdx) {
+      out[stage] = 'complete'
+    } else {
+      out[stage] = 'pending'
+    }
+  }
+  return out
 }
 
 const STAGE_STEPPER_WIDTHS: Record<DocumentStage, string> = {
@@ -78,24 +108,17 @@ const STAGE_STEPPER_WIDTHS: Record<DocumentStage, string> = {
   'final-output':            '72px',
 }
 
-// Open Comments sidebar — how many of the newest open comments to show.
-const SIDEBAR_COMMENT_LIMIT = 4
+// Checklist status box is hidden for now; the right-hand column only renders when this is true.
+const SHOW_CHECKLIST_STATUS = false
 
-const SEVERITY_BADGE: Record<CommentSeverity, { label: string; bg: string; fg: string }> = {
-  major: { label: 'Major', bg: '#FEE2E2', fg: '#DC2626' },
-  minor: { label: 'Minor', bg: '#FFFBEB', fg: '#B45309' },
-  query: { label: 'Query', bg: '#EFF6FF', fg: '#2563EB' },
+const CHECKLIST_ROW_COLOURS = {
+  complete: '#16A34A',
+  pending:  '#CBD5E1',
+  waived:   '#D97706',
 }
 
-const CHECKLIST_SUMMARY = [
-  { label: 'Complete',    count: 4, colour: '#16A34A' },
-  { label: 'In progress', count: 1, colour: '#2563EB' },
-  { label: 'Pending',     count: 1, colour: '#CBD5E1' },
-  { label: 'Waived',      count: 1, colour: '#D97706' },
-]
-
 // --- Column widths (matches prototype grid-template) ---
-const COL_TEMPLATE = '2.1fr 1fr 1.2fr 1.1fr 0.9fr 1.1fr 0.8fr'
+const COL_TEMPLATE = '2fr 1fr 1.2fr 1.1fr 0.9fr 1.1fr 120px 240px'
 
 export function ClinicalWritingHome() {
   const { projectId }    = useParams()
@@ -134,13 +157,15 @@ export function ClinicalWritingHome() {
   const [uploadOpen, setUploadOpen] = useState(false)
   // Document whose detail panel is open (row click) and the table's column sort.
   const [detailDoc, setDetailDoc] = useState<Document | null>(null)
+  // Document whose comments panel is open (the table's "Comments" column).
+  const [commentsDocId, setCommentsDocId] = useState<string | null>(null)
   const [docSort, setDocSort] = useState<{ key: DocSortKey; dir: 'asc' | 'desc' } | null>(null)
   const qc = useQueryClient()
   // Set after "Save to library" in the upload drawer: we stay on the Source Documents
   // tab and offer to write a document from the file that was just saved.
   const [justAdded, setJustAdded] = useState<{ uploadId: string } | null>(null)
 
-  useEffect(() => { if (view !== 'documents') setDetailDoc(null) }, [view])
+  useEffect(() => { if (view !== 'documents') { setDetailDoc(null); setCommentsDocId(null) } }, [view])
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -219,6 +244,17 @@ export function ClinicalWritingHome() {
     return counts
   }, [documents])
 
+  // Live stepper state driven by real document stages (FR-A-010).
+  const stageProgress = useMemo(() => computeStageProgress(documents), [documents])
+
+  // Project-level checklist rollup. Read-only (never materialises instances).
+  const { data: checklistSummary, isLoading: checklistLoading } = useQuery({
+    queryKey: ['project-checklist-summary', projectId],
+    queryFn:  () => documentsApi.getProjectChecklistSummary(projectId!),
+    enabled:  !!projectId,
+    staleTime: 30_000,
+  })
+
   const sortedDocs = useMemo(() => {
     if (!docSort) return filtered
     const stageOrder = Object.keys(STAGE_LABELS)
@@ -249,9 +285,10 @@ export function ClinicalWritingHome() {
     navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}`)
   }
 
-  // Open review comments across the project's documents (FR-A-052). Comments are fetched per
-  // document, sharing the cache key the Comments panel uses. Reviewer "approve" verdicts are
-  // stored as comments but aren't open issues, so they're left out.
+  // Comments are fetched per document and cached under ['comments', id], the same key the Comments
+  // page and reviewer view use and invalidate, so the counts here refresh when a comment is added or
+  // resolved. Reviewer "approve" verdicts are stored as comments but are sign-offs, not issues, so
+  // they are left out of the counts.
   const commentQueries = useQueries({
     queries: documents.map((d: Document) => ({
       queryKey: ['comments', d.id],
@@ -260,15 +297,25 @@ export function ClinicalWritingHome() {
     })),
   })
   const commentsLoading = isLoading || commentQueries.some(q => q.isLoading)
-  const commentsFailed  = commentQueries.some(q => q.isError)
-  const docTitleById = new Map(documents.map((d: Document) => [d.id, d.title]))
-  const openComments = commentQueries
-    .flatMap(q => (q.data ?? []) as Comment[])
-    .filter(c => c.status === 'open' && c.verdict !== 'approve')
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const openCommentDoc = (c: Comment) => docTitleById.get(c.documentId) ?? ''
-  const openCommentCount = openComments.length
+  const commentStats = new Map<string, { open: number; resolved: number; loading: boolean; failed: boolean }>()
+  documents.forEach((d: Document, i: number) => {
+    const q = commentQueries[i]
+    const issues = ((q?.data ?? []) as Comment[]).filter(c => c.verdict !== 'approve')
+    commentStats.set(d.id, {
+      open:     issues.filter(c => c.status === 'open').length,
+      resolved: issues.filter(c => c.status === 'resolved').length,
+      loading:  !!q?.isLoading,
+      failed:   !!q?.isError,
+    })
+  })
+  const openCommentCount = Array.from(commentStats.values()).reduce((n, s) => n + s.open, 0)
   const openCommentLabel = commentsLoading ? '…' : String(openCommentCount)
+  const commentsDoc = commentsDocId ? documents.find((d: Document) => d.id === commentsDocId) ?? null : null
+  const commentsQuery = commentsDoc ? commentQueries[documents.indexOf(commentsDoc)] : undefined
+  const openCommentsFor = (doc: Document) => {
+    setDetailDoc(null)
+    setCommentsDocId(doc.id)
+  }
   const activeTypes  = Array.from(new Set(documents.map((d: Document) => d.type))) as DocumentType[]
   const activeStatuses = Array.from(new Set(documents.map((d: Document) => d.status))) as DocumentStatus[]
 
@@ -328,13 +375,22 @@ export function ClinicalWritingHome() {
             <p className="text-xs font-semibold text-slate-500">Stage progress</p>
             <div className="flex items-start">
               {STAGES_ORDERED.map((stage, i) => {
-                const state = STAGE_PROGRESS[stage]
+                const state = stageProgress[stage]
                 const width = STAGE_STEPPER_WIDTHS[stage]
+                const count = stageCounts.get(stage) ?? 0
                 const isLast = i === STAGES_ORDERED.length - 1
-                const nextComplete = !isLast && STAGE_PROGRESS[STAGES_ORDERED[i+1]] === 'complete'
+                const nextComplete = !isLast && stageProgress[STAGES_ORDERED[i+1]] === 'complete'
                 return (
                   <Fragment key={stage}>
-                    <div className="flex flex-none flex-col items-center gap-2" style={{ width }}>
+                    <button
+                      type="button"
+                      onClick={() => showStage(stage)}
+                      className="flex flex-none flex-col items-center gap-2 rounded-md px-1 py-1 hover:bg-slate-50"
+                      style={{ width }}
+                      aria-label={`${STAGE_LABELS[stage]}: ${count} document${count === 1 ? '' : 's'}`}
+                      data-stage-step={stage}
+                      data-stage-state={state}
+                    >
                       {state === 'complete' && (
                         <div className="flex h-[22px] w-[22px] items-center justify-center rounded-full text-[11px] font-extrabold text-white" style={{ backgroundColor: '#2563EB' }}>
                           ✓
@@ -352,12 +408,10 @@ export function ClinicalWritingHome() {
                       >
                         {STAGE_LABELS[stage]}
                       </div>
-                      {state === 'in-progress' && (
-                        <p className="font-mono text-[10px] font-medium tracking-widest" style={{ color: '#2563EB' }}>
-                          IN PROGRESS
-                        </p>
-                      )}
-                    </div>
+                      <p className="font-mono text-[10px] font-medium tracking-wider" style={{ color: count > 0 ? '#2563EB' : '#94A3B8' }}>
+                        {count} doc{count === 1 ? '' : 's'}
+                      </p>
+                    </button>
                     {!isLast && (
                       <div
                         className="mt-[10px] h-[2px] flex-1"
@@ -452,6 +506,9 @@ export function ClinicalWritingHome() {
               )}
             </div>
 
+            {/* Scrolls sideways on narrow screens instead of squeezing the columns together. */}
+            <div className="overflow-x-auto">
+            <div className="min-w-[1180px]">
             {/* Column headers */}
             <div
               className="border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold text-slate-500"
@@ -473,6 +530,7 @@ export function ClinicalWritingHome() {
                 </div>
               ))}
               <div className="text-right">Quick Actions</div>
+              <div className="pl-7">Comments</div>
             </div>
 
             {/* Rows */}
@@ -533,9 +591,22 @@ export function ClinicalWritingHome() {
                       onDuplicate={() => setNewDocOpen({ duplicateSourceId: doc.id })}
                     />
                   </div>
+                  {/* The whole cell is the button: it stretches over the row's padding so the full cell height is clickable. */}
+                  <button
+                    type="button"
+                    onClick={e => { e.stopPropagation(); openCommentsFor(doc) }}
+                    data-comments-trigger
+                    data-comments-cell={doc.id}
+                    aria-label={`View comments for ${doc.title}`}
+                    className="-my-4 ml-4 grid cursor-pointer grid-cols-[62px_92px] items-center justify-start gap-1.5 self-stretch px-3 text-left transition-colors hover:bg-blue-50/60"
+                  >
+                    <CommentsCell stats={commentStats.get(doc.id)} />
+                  </button>
                 </div>
               )
             })}
+            </div>
+            </div>
           </div>
 
           {/* Count footer */}
@@ -544,82 +615,39 @@ export function ClinicalWritingHome() {
           </div>
         </div>
 
-        {/* Right column: comments + checklist */}
-        <div className="flex w-[280px] flex-none flex-col gap-5">
-
-          <div className="flex flex-col gap-2.5">
-            <div className="flex items-baseline justify-between">
-              <p className="text-xs font-semibold text-slate-500">Open Comments ({openCommentLabel})</p>
-              <button
-                type="button"
-                onClick={() => navigate(`/projects/${projectId}/clinical-writing/comments`)}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-                data-action="view-all-comments"
-              >
-                View all
-              </button>
-            </div>
-            {commentsLoading && (
-              <p className="rounded-lg border border-slate-200 bg-white p-3 text-[12px] text-slate-400">Loading comments…</p>
-            )}
-            {!commentsLoading && openCommentCount === 0 && (
-              <p className="rounded-lg border border-slate-200 bg-white p-3 text-[12px] text-slate-500" data-empty-comments>
-                {commentsFailed ? 'Some comments could not be loaded.' : 'No open comments.'}
-              </p>
-            )}
-            {!commentsLoading && openComments.slice(0, SIDEBAR_COMMENT_LIMIT).map(c => {
-              const sev = SEVERITY_BADGE[c.severity] ?? SEVERITY_BADGE.minor
-              return (
-                <div
-                  key={c.id}
-                  className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3"
-                  data-comment-card={c.id}
-                >
-                  <div className="flex w-full items-center gap-2">
-                    <span className="font-mono text-[10px] text-slate-500">{c.id}</span>
-                    {c.sectionRef && (
-                      <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{c.sectionRef}</span>
-                    )}
-                    <div className="flex-1" />
-                    <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: sev.bg, color: sev.fg }}>{sev.label}</span>
-                  </div>
-                  <div className="flex w-full min-w-0 items-center gap-2">
-                    <div className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>
-                      {initialsOf(c.reviewerName ?? '')}
-                    </div>
-                    <div className="truncate text-[13px] text-slate-900">{c.text || <span className="italic text-slate-400">No comment text</span>}</div>
-                  </div>
-                  <p className="w-full truncate text-[11px] text-slate-500">{openCommentDoc(c)}</p>
-                  <p className="text-[11px] text-slate-500">{c.reviewerName} · {c.age}</p>
-                </div>
-              )
-            })}
-            {!commentsLoading && openCommentCount > SIDEBAR_COMMENT_LIMIT && (
-              <p className="text-[11px] text-slate-500">
-                + {openCommentCount - SIDEBAR_COMMENT_LIMIT} more open comments
-              </p>
-            )}
-          </div>
+        {/* Right column: checklist status (hidden for now) */}
+        {SHOW_CHECKLIST_STATUS && <div className="flex w-[280px] flex-none flex-col gap-5">
 
           <div className="flex flex-col gap-2.5">
             <p className="text-xs font-semibold text-slate-500">Checklist status</p>
-            <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-white p-3.5">
-              {CHECKLIST_SUMMARY.map(row => (
-                <div key={row.label} className="flex items-center justify-between text-[13px]" style={{ color: row.label === 'Waived' ? '#B45309' : undefined }}>
-                  <span className="flex items-center gap-2">
-                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: row.colour }} />
-                    {row.label}
-                  </span>
-                  <span className="font-semibold">{row.count}</span>
-                </div>
-              ))}
-              <div className="border-t border-slate-200 pt-2.5">
-                <button className="text-xs font-semibold text-blue-600 hover:text-blue-700">View full checklist</button>
-              </div>
+            <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-white p-3.5" data-checklist-summary>
+              {checklistLoading && (
+                <p className="text-[12px] text-slate-400">Loading checklist…</p>
+              )}
+              {!checklistLoading && checklistSummary && checklistSummary.totalItems === 0 && (
+                <p className="text-[12px] text-slate-500" data-empty-checklist>
+                  No checklist items yet. Open a document's Checklist panel to begin, or ask Admin to seed the master templates.
+                </p>
+              )}
+              {!checklistLoading && checklistSummary && checklistSummary.totalItems > 0 && (
+                <>
+                  <ChecklistRow label="Complete" count={checklistSummary.complete} colour={CHECKLIST_ROW_COLOURS.complete} />
+                  <ChecklistRow label="Pending"  count={checklistSummary.pending}  colour={CHECKLIST_ROW_COLOURS.pending} />
+                  <ChecklistRow label="Waived"   count={checklistSummary.waived}   colour={CHECKLIST_ROW_COLOURS.waived} warn />
+                  {checklistSummary.mandatoryPending > 0 && (
+                    <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[12px] font-semibold text-amber-900" data-mandatory-pending>
+                      Mandatory pending: {checklistSummary.mandatoryPending}
+                    </div>
+                  )}
+                  <p className="text-[11px] text-slate-500">
+                    {checklistSummary.documentsWithChecklist}/{checklistSummary.totalDocuments} document{checklistSummary.totalDocuments === 1 ? '' : 's'} tracked
+                  </p>
+                </>
+              )}
             </div>
           </div>
 
-        </div>
+        </div>}
           </>
         )}
       </div>
@@ -633,6 +661,24 @@ export function ClinicalWritingHome() {
           assigneeName={detailDoc ? (teamById.get(detailDoc.assigneeId)?.name ?? '—') : ''}
           onClose={() => setDetailDoc(null)}
           onOpen={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
+        />
+      )}
+
+      {view === 'documents' && commentsDoc && (
+        <DocumentCommentsPanel
+          doc={commentsDoc}
+          comments={(commentsQuery?.data ?? []) as Comment[]}
+          isLoading={!!commentsQuery?.isLoading}
+          isError={!!commentsQuery?.isError}
+          onRetry={() => { void commentsQuery?.refetch() }}
+          onClose={() => setCommentsDocId(null)}
+          onOpenDocument={comment => {
+            const base = `/projects/${projectId}/clinical-writing/documents/${commentsDoc.id}`
+            const params = comment?.sectionRef
+              ? `?section=${encodeURIComponent(cleanSectionRef(comment.sectionRef))}&comment=${encodeURIComponent(comment.id)}`
+              : ''
+            navigate(base + params)
+          }}
         />
       )}
 
@@ -696,6 +742,18 @@ const initialsOf = (name: string) =>
 // Stored phases vary ("Phase III", "IIb", "Preclinical") — only add the "Phase" prefix when it's missing.
 const phaseLabel = (phase: string) => (/^phase\b|preclinical/i.test(phase) ? phase : `Phase ${phase}`)
 
+function ChecklistRow({ label, count, colour, warn }: { label: string; count: number; colour: string; warn?: boolean }) {
+  return (
+    <div className="flex items-center justify-between text-[13px]" style={{ color: warn ? '#B45309' : undefined }} data-checklist-row={label.toLowerCase()}>
+      <span className="flex items-center gap-2">
+        <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: colour }} />
+        {label}
+      </span>
+      <span className="font-semibold">{count}</span>
+    </div>
+  )
+}
+
 function TabButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }) {
   return (
     <button
@@ -710,6 +768,21 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
     >
       {label}
     </button>
+  )
+}
+
+// Open / Resolved badges for the table's Comments column.
+function CommentsCell({ stats }: { stats?: { open: number; resolved: number; loading: boolean; failed: boolean } }) {
+  // Fixed-width slots (Open | Resolved | View) so every row lines up. Rendered inside the cell's grid.
+  const empty = (text: string, title?: string) => <span className="col-span-2 text-center text-xs text-slate-400" title={title}>{text}</span>
+  if (!stats || stats.loading) return empty('…')
+  if (stats.failed && stats.open + stats.resolved === 0) return empty('—', 'Comments could not be loaded')
+  if (stats.open + stats.resolved === 0) return empty('No comments')
+  return (
+    <>
+      <span className="rounded-full px-2 py-0.5 text-center text-[11px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}>{stats.open} Open</span>
+      <span className="rounded-full px-2 py-0.5 text-center text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>{stats.resolved} Resolved</span>
+    </>
   )
 }
 

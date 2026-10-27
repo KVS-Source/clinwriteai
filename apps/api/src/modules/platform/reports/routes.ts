@@ -5,6 +5,7 @@
 //
 // Routes:
 //   GET /reports/projects/:projectId/dashboard   — per-project rollup
+//   GET /reports/projects/:projectId/ai-usage    — measured AI usage for one project
 //   GET /reports/tenant/overview                 — org-wide (admin)
 //   GET /reports/ai-spend                        — AI cost by module/model
 //   GET /reports/audit-activity                  — audit event histogram
@@ -32,6 +33,55 @@ function resolveRange(input: z.infer<typeof dateRangeSchema>): { from: Date; to:
 }
 
 export const reportsRoutes: FastifyPluginAsync = async (app) => {
+  // --- Project AI usage ---------------------------------------------------
+  // Measured from the AI call log (ai_call_records), all time, for one project. Nothing is
+  // estimated: spend and tokens are what the provider reported and the rate card priced, and a
+  // draft counts as "accepted" when the user accepted it into a section and hasn't undone it.
+
+  app.get('/reports/projects/:projectId/ai-usage', { preHandler: requireAuth({ modules: ['A', 'B', 'C', 'D', 'E'] }) }, async (request, reply) => {
+    const { projectId } = request.params as { projectId: string }
+    const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
+    if (!project) return reply.code(404).send({ error: 'not_found' })
+
+    // Intents whose output can be accepted into a section ('explain' only answers a question).
+    const DRAFT_INTENTS = ['draft_from_source', 'tighten', 'custom', 'edit']
+    const ok = { projectId, errorCode: null }
+
+    const [all, succeeded, failed, drafts, accepted, byModel] = await Promise.all([
+      app.prisma.aiCallRecord.aggregate({
+        where: { projectId },
+        _sum: { costUsd: true, inputTokens: true, outputTokens: true },
+      }),
+      app.prisma.aiCallRecord.aggregate({ where: ok, _count: { _all: true }, _avg: { latencyMs: true } }),
+      app.prisma.aiCallRecord.count({ where: { projectId, errorCode: { not: null } } }),
+      app.prisma.aiCallRecord.count({ where: { ...ok, intent: { in: DRAFT_INTENTS } } }),
+      app.prisma.aiCallRecord.count({
+        where: { ...ok, intent: { in: DRAFT_INTENTS }, postCallDocumentVersionId: { not: null }, undoneAt: null },
+      }),
+      app.prisma.aiCallRecord.groupBy({
+        by: ['model'],
+        where: ok,
+        _count: { _all: true },
+        _sum: { costUsd: true },
+      }),
+    ])
+
+    return {
+      projectId,
+      calls: succeeded._count._all,
+      failedCalls: failed,
+      costUsd: Number(all._sum.costUsd ?? 0),
+      inputTokens: all._sum.inputTokens ?? 0,
+      outputTokens: all._sum.outputTokens ?? 0,
+      avgLatencyMs: Math.round(succeeded._avg.latencyMs ?? 0),
+      draftsGenerated: drafts,
+      draftsAccepted: accepted,
+      acceptanceRate: drafts === 0 ? null : accepted / drafts,
+      byModel: byModel.map(r => ({ model: r.model, calls: r._count._all, costUsd: Number(r._sum.costUsd ?? 0) })),
+      generatedAt: new Date().toISOString(),
+    }
+  })
+
   // --- Project dashboard --------------------------------------------------
 
   app.get('/reports/projects/:projectId/dashboard', { preHandler: requireAuth({ modules: ['A', 'B', 'C', 'D', 'E'] }) }, async (request, reply) => {
@@ -115,7 +165,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // --- Tenant overview (admin) --------------------------------------------
 
-  app.get('/reports/tenant/overview', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async () => {
+  app.get('/reports/tenant/overview', { preHandler: requireAuth({ roles: ['admin'] }) }, async () => {
     // Rollup counts across the whole tenant. Expensive-ish but cached by
     // the client; a materialised view would be the Phase 5+ optimisation.
     const [
@@ -155,7 +205,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // --- AI spend report ----------------------------------------------------
 
-  app.get('/reports/ai-spend', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.get('/reports/ai-spend', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = dateRangeSchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const { from, to } = resolveRange(parsed.data)
@@ -200,7 +250,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // --- Audit activity histogram -------------------------------------------
 
-  app.get('/reports/audit-activity', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.get('/reports/audit-activity', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = dateRangeSchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const { from, to } = resolveRange(parsed.data)
@@ -241,7 +291,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
   // Projects current month-to-date AI spend to end-of-month using the
   // simplest linear extrapolation (daily rate × days-remaining). Gives
   // the operator a soft-cap alert well before the hard-cap kicks in.
-  app.get('/reports/tenant/:tenantId/spend-forecast', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request) => {
+  app.get('/reports/tenant/:tenantId/spend-forecast', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request) => {
     const { tenantId } = request.params as { tenantId: string }
     const quota = await app.prisma.aiTenantQuota.findUnique({ where: { tenantId } })
 
@@ -286,7 +336,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
   // Bills-per-project view: AI cost grouped by project within a date
   // range. Useful for showing clients what their individual studies
   // are consuming.
-  app.get('/reports/projects/ai-cost', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.get('/reports/projects/ai-cost', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = dateRangeSchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const { from, to } = resolveRange(parsed.data)

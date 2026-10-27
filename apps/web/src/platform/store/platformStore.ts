@@ -4,15 +4,18 @@ import { create } from 'zustand'
 import type { PlatformConfig, PlatformUser, PlatformUserRole } from '@platform/types'
 import usersFixture from '../../data/users.json'
 
-// Full demo persona roster — Alex Thornton (Super Admin, GenBioCa-internal) is
+// Full demo persona roster — Alex Thornton (platform admin, GenBioCa-internal) is
 // synthetic since she's not a client-org user, so prepend her to the fixture.
+// Post 2026-10-27 role consolidation: 'super-admin' retired → platform admin is
+// 'admin' with tenantId=null; the SUPER_ADMIN variable name is kept for
+// backwards-recognisability but the role field now reads 'admin'.
 const CLIENT_USERS = usersFixture as PlatformUser[]
 
 const SUPER_ADMIN: PlatformUser = {
   id:         'user-sa',
   name:       'Alex Thornton',
   email:      'a.thornton@clinwrite.ai',
-  role:       'super-admin',
+  role:       'admin',
   modules:    ['A', 'B', 'C', 'D', 'E'],
   status:     'active',
   lastActive: '2026-09-09T09:00:00Z',

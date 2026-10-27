@@ -111,7 +111,7 @@ export const presenceRoutes: FastifyPluginAsync = async (app) => {
     const session = await app.prisma.presenceSession.findUnique({ where: { id: sessionId } })
     if (!session) return reply.code(404).send({ error: 'not_found' })
     if (session.documentId !== documentId) return reply.code(400).send({ error: 'document_mismatch' })
-    if (session.userId !== request.user!.id && !['admin', 'super-admin'].includes(request.user!.role)) {
+    if (session.userId !== request.user!.id && !['admin'].includes(request.user!.role)) {
       return reply.code(403).send({ error: 'not_your_session' })
     }
     if (session.endedAt) return session  // idempotent

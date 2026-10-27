@@ -44,7 +44,7 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     return row
   })
 
-  app.post('/', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.post('/', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -78,7 +78,7 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  app.patch('/:id', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.patch('/:id', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = updateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -107,7 +107,7 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     return updated
   })
 
-  app.post('/:id/retire', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.post('/:id/retire', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const existing = await app.prisma.regulatoryFramework.findUnique({ where: { id } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })

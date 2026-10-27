@@ -101,6 +101,9 @@ export interface Section {
   // shape), empty string in list shape. Editor mounts a textarea
   // against this; save PATCHes back via UpdateSectionBody.
   contentHtml: string
+  // Who last saved this section and when; null/absent for a section nobody has edited.
+  lastEditedAt?: string | null
+  lastEditedByName?: string | null
   presenceUserId?: string
   isLocked?: boolean
   lockedByUserId?: string
@@ -123,6 +126,11 @@ export interface Comment {
   verdict?: ReviewerVerdict | null
   createdAt: string
   age: string // computed display value e.g. "3 days ago"
+  // Latest change to the comment. Comments can't be edited after posting, so today this is the
+  // resolve (who + when); all null while the comment is untouched. Optional: older payloads omit them.
+  lastEditedAt?: string | null
+  lastEditedByName?: string | null
+  lastEditedAge?: string | null
 }
 
 export interface ChecklistItem {
@@ -1460,7 +1468,6 @@ export const MODULE_E_ACCENT = {
 // ============================================================================
 
 export type PlatformUserRole =
-  | 'super-admin'
   | 'admin'
   | 'ideation-lead'
   | 'regulatory-writer'
@@ -1520,6 +1527,11 @@ export interface PlatformUser {
   modules:    Array<'A' | 'B' | 'C' | 'D' | 'E'>
   status:     PlatformUserStatus
   lastActive: string | null
+  // Post 2026-10-27 role consolidation: tenantId=null is the platform-admin
+  // marker (what super-admin used to indicate). Tenant-scoped users carry
+  // their tenant id. Optional for fixtures / demo users that were seeded
+  // before the field existed.
+  tenantId?:  string | null
 }
 
 export interface RaciAssignment {
@@ -1961,7 +1973,6 @@ export interface PlatformAnalytics {
 }
 
 export const PLATFORM_USER_ROLE_LABEL: Record<PlatformUserRole, string> = {
-  'super-admin':               'Super Admin',
   'admin':                     'Admin',
   'ideation-lead':             'Ideation Lead',
   'regulatory-writer':         'Regulatory Writer',

@@ -17,6 +17,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import type { PrismaClient } from '@prisma/client'
+import { fireAutoComplete } from '../checklist/auto-complete.js'
 
 const scheduleSchema = z.object({
   chairId: z.string().min(1),
@@ -234,7 +235,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const { meetingId } = request.params as { meetingId: string }
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
-    if (meeting.chairId !== request.user!.id && !['admin', 'super-admin'].includes(request.user!.role)) {
+    if (meeting.chairId !== request.user!.id && !['admin'].includes(request.user!.role)) {
       return reply.code(403).send({ error: 'only_chair', message: 'Only the chair (or admin) can start the meeting' })
     }
     if (meeting.status === 'in_progress') return meeting  // idempotent
@@ -278,7 +279,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       include: { resolutions: true },
     })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
-    if (meeting.chairId !== request.user!.id && !['admin', 'super-admin'].includes(request.user!.role)) {
+    if (meeting.chairId !== request.user!.id && !['admin'].includes(request.user!.role)) {
       return reply.code(403).send({ error: 'only_chair' })
     }
     if (meeting.status !== 'in_progress') {
@@ -326,6 +327,20 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       return m
     })
 
+    // Auto-complete any ChecklistInstanceItem tagged autoCompleteOn=
+    // 'crm_complete' — typically "Cross-functional review meeting
+    // minutes recorded" (CSR Full) and "Cross-functional review complete"
+    // (Protocol). Non-fatal.
+    const autoReport = await fireAutoComplete(app.prisma, app.audit, {
+      trigger: 'crm_complete',
+      documentId: meeting.documentId,
+      actorId: request.user!.id,
+      ipAddress: request.ip ?? null,
+    }).catch(err => {
+      app.log.warn({ err, documentId: meeting.documentId }, 'auto_complete crm_complete failed — items left pending')
+      return null
+    })
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
@@ -336,6 +351,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
         meetingId,
         meetingRef: meeting.meetingRef,
         resolutionCount: meeting.resolutions.length,
+        autoCompletedCount: autoReport?.completedCount ?? 0,
       },
       ipAddress: request.ip ?? null,
     })

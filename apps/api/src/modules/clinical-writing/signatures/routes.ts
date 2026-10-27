@@ -27,6 +27,8 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { hashSections } from '../documents/service.js'
 import type { PrismaClient } from '@prisma/client'
+import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
+import { fireAutoComplete } from '../checklist/auto-complete.js'
 
 const initiateSchema = z.object({
   chainType: z.enum(['sequential', 'parallel']).default('sequential'),
@@ -77,6 +79,14 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     })
     if (activeChain) {
       return reply.code(409).send({ error: 'chain_already_active', chainId: activeChain.id })
+    }
+
+    // Gate A — the strongest gate. Every mandatory ChecklistInstanceItem
+    // across every stage must be Complete or Waived before a Part 11
+    // signature chain is allowed to open on this document.
+    const gate = await checkSignatureGate(app.prisma, documentId)
+    if (!gate.ok) {
+      return reply.code(409).send(blockedBody('signature', gate))
     }
 
     const signers = parsed.data.signers
@@ -161,7 +171,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     if (!record) return reply.code(404).send({ error: 'not_found' })
 
     // Only the designated signer (or admin) can sign.
-    if (record.signerId !== request.user!.id && !['admin', 'super-admin'].includes(request.user!.role)) {
+    if (record.signerId !== request.user!.id && !['admin'].includes(request.user!.role)) {
       return reply.code(403).send({ error: 'wrong_signer', message: 'Only the designated signer may sign this step' })
     }
     if (record.status === 'signed') {
@@ -242,6 +252,24 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       return { signed, chainStatus, completedAt }
     })
 
+    // Auto-complete items tagged autoCompleteOn='document_signed' —
+    // only fires when the whole chain terminates (not on each individual
+    // step). Typically "Final signature by Medical Director" on CSR and
+    // "Sponsor signature on final version" on ICF. Non-fatal.
+    let autoCompletedCount = 0
+    if (result.chainStatus === 'complete') {
+      const autoReport = await fireAutoComplete(app.prisma, app.audit, {
+        trigger: 'document_signed',
+        documentId: record.chain.documentId,
+        actorId: request.user!.id,
+        ipAddress: request.ip ?? null,
+      }).catch(err => {
+        app.log.warn({ err, documentId: record.chain.documentId }, 'auto_complete document_signed failed — items left pending')
+        return null
+      })
+      autoCompletedCount = autoReport?.completedCount ?? 0
+    }
+
     await app.audit.append({
       timestamp: now.toISOString(),
       actorId: request.user!.id,
@@ -255,6 +283,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         meaning: record.meaning,
         documentHash,
         versionAtSigning: doc.currentVersion.versionNumber,
+        autoCompletedCount,
       },
       ipAddress: request.ip ?? null,
     })

@@ -47,7 +47,7 @@ const listQuerySchema = z.object({
 })
 
 export const consentRoutes: FastifyPluginAsync = async (app) => {
-  const anyAdmin = requireAuth({ roles: ['super-admin', 'admin'] })
+  const anyAdmin = requireAuth({ roles: ['admin'] })
 
   app.post('/admin/dpdpa/consents', { preHandler: anyAdmin }, async (request, reply) => {
     const parsed = createSchema.safeParse(request.body)

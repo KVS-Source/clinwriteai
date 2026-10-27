@@ -157,18 +157,32 @@ function formatAge(createdAt: Date): string {
   return `${Math.floor(months / 12)} year${Math.floor(months / 12) === 1 ? '' : 's'} ago`
 }
 
-function commentShape(c: { reviewerId: string; createdAt: Date } & Record<string, unknown>, reviewer: { name: string; initials: string | null } | null) {
+// "Last edited" is the latest change made to a comment. Comments can't be edited after posting; the
+// only change they ever get is being resolved (here or in a CRM meeting), and both paths record who
+// and when. So last-edited = the resolver + resolvedAt, and null while the comment is untouched.
+type CommentPerson = { name: string; initials: string | null }
+
+function commentShape(
+  c: { reviewerId: string; createdAt: Date; resolvedBy?: string | null; resolvedAt?: Date | null } & Record<string, unknown>,
+  reviewer: CommentPerson | null,
+  resolver: CommentPerson | null = null,
+) {
+  const edited = c.resolvedAt ?? null
   return {
     ...c,
     reviewerName: reviewer?.name ?? c.reviewerId,
     reviewerInitials: reviewer?.initials ?? '',
     age: formatAge(c.createdAt),
+    lastEditedAt: edited,
+    lastEditedByName: edited ? (resolver?.name ?? c.resolvedBy ?? null) : null,
+    lastEditedAge: edited ? formatAge(edited) : null,
   }
 }
 
-async function fetchCommentReviewers(prisma: import('@prisma/client').PrismaClient, rows: Array<{ reviewerId: string }>) {
-  if (rows.length === 0) return new Map<string, { name: string; initials: string | null }>()
-  const ids = Array.from(new Set(rows.map(r => r.reviewerId)))
+// Creators and resolvers, keyed by user id.
+async function fetchCommentReviewers(prisma: import('@prisma/client').PrismaClient, rows: Array<{ reviewerId: string; resolvedBy?: string | null }>) {
+  if (rows.length === 0) return new Map<string, CommentPerson>()
+  const ids = Array.from(new Set(rows.flatMap(r => [r.reviewerId, r.resolvedBy ?? null]).filter((v): v is string => !!v)))
   const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, initials: true } })
   return new Map(users.map(u => [u.id, { name: u.name, initials: u.initials }]))
 }
@@ -192,7 +206,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { createdAt: 'desc' },
     })
     const reviewers = await fetchCommentReviewers(app.prisma, rows)
-    return rows.map(r => commentShape(r, reviewers.get(r.reviewerId) ?? null))
+    return rows.map(r => commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null))
   })
 
   app.post('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -290,8 +304,11 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    const reviewer = await app.prisma.user.findUnique({ where: { id: updated.reviewerId }, select: { name: true, initials: true } })
-    return commentShape(updated, reviewer)
+    const [reviewer, resolver] = await Promise.all([
+      app.prisma.user.findUnique({ where: { id: updated.reviewerId }, select: { name: true, initials: true } }),
+      app.prisma.user.findUnique({ where: { id: request.user!.id }, select: { name: true, initials: true } }),
+    ])
+    return commentShape(updated, reviewer, resolver)
   })
 
   // Document audit trail — reads from the hash-chained audit_events table

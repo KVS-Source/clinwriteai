@@ -63,10 +63,11 @@ function ssoShape(s: {
 }
 
 export const ssoRoutes: FastifyPluginAsync = async (app) => {
-  const anyAdminGate = requireAuth({ roles: ['super-admin', 'admin'] })
+  const anyAdminGate = requireAuth({ roles: ['admin'] })
 
-  async function assertTenantAccess(userId: string, userRole: string, tenantId: string): Promise<'super-admin' | 'owner' | 'admin' | null> {
-    if (userRole === 'super-admin') return 'super-admin'
+  async function assertTenantAccess(userId: string, userTenantId: string | null, tenantId: string): Promise<'platform' | 'owner' | 'admin' | null> {
+    // Platform admin (role='admin' + tenantId=null, post-pivot) bypasses membership.
+    if (userTenantId == null) return 'platform'
     const m = await app.prisma.membership.findUnique({
       where: { tenantId_userId: { tenantId, userId } },
       select: { role: true, status: true },
@@ -81,7 +82,7 @@ export const ssoRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/admin/tenants/:tenantId/sso-connections', { preHandler: anyAdminGate }, async (request, reply) => {
     const { tenantId } = request.params as { tenantId: string }
-    const access = await assertTenantAccess(request.user!.id, request.user!.role, tenantId)
+    const access = await assertTenantAccess(request.user!.id, request.user!.tenantId ?? null, tenantId)
     if (!access) return reply.code(403).send({ error: 'forbidden' })
 
     const rows = await app.prisma.ssoConnection.findMany({
@@ -93,8 +94,8 @@ export const ssoRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/admin/tenants/:tenantId/sso-connections', { preHandler: anyAdminGate }, async (request, reply) => {
     const { tenantId } = request.params as { tenantId: string }
-    const access = await assertTenantAccess(request.user!.id, request.user!.role, tenantId)
-    if (access !== 'super-admin' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
+    const access = await assertTenantAccess(request.user!.id, request.user!.tenantId ?? null, tenantId)
+    if (access !== 'platform' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
 
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -130,7 +131,7 @@ export const ssoRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.ssoConnection.findUnique({ where: { id } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
-    const access = await assertTenantAccess(request.user!.id, request.user!.role, row.tenantId)
+    const access = await assertTenantAccess(request.user!.id, request.user!.tenantId ?? null, row.tenantId)
     if (!access) return reply.code(403).send({ error: 'forbidden' })
     return ssoShape(row)
   })
@@ -143,8 +144,8 @@ export const ssoRoutes: FastifyPluginAsync = async (app) => {
     const existing = await app.prisma.ssoConnection.findUnique({ where: { id } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
 
-    const access = await assertTenantAccess(request.user!.id, request.user!.role, existing.tenantId)
-    if (access !== 'super-admin' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
+    const access = await assertTenantAccess(request.user!.id, request.user!.tenantId ?? null, existing.tenantId)
+    if (access !== 'platform' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
 
     const updated = await app.prisma.ssoConnection.update({
       where: { id },
@@ -175,8 +176,8 @@ export const ssoRoutes: FastifyPluginAsync = async (app) => {
     const existing = await app.prisma.ssoConnection.findUnique({ where: { id } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
 
-    const access = await assertTenantAccess(request.user!.id, request.user!.role, existing.tenantId)
-    if (access !== 'super-admin' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
+    const access = await assertTenantAccess(request.user!.id, request.user!.tenantId ?? null, existing.tenantId)
+    if (access !== 'platform' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
 
     if (!existing.workosConnectionId) {
       return reply.code(422).send({
@@ -214,8 +215,8 @@ export const ssoRoutes: FastifyPluginAsync = async (app) => {
     const existing = await app.prisma.ssoConnection.findUnique({ where: { id } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
 
-    const access = await assertTenantAccess(request.user!.id, request.user!.role, existing.tenantId)
-    if (access !== 'super-admin' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
+    const access = await assertTenantAccess(request.user!.id, request.user!.tenantId ?? null, existing.tenantId)
+    if (access !== 'platform' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
 
     const updated = await app.prisma.ssoConnection.update({
       where: { id },

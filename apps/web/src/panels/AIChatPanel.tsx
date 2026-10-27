@@ -38,6 +38,13 @@ interface Props {
    *  carried replacement text. If `range` is provided, the parent should
    *  replace just that editor range; otherwise swap the whole section. */
   onAcceptSuggestion: (html: string, model: string, range?: { from: number; to: number }) => void
+  /** False when the user doesn't hold the SectionLock or the doc is in review.
+   *  The Accept button is disabled with an explanatory title. Defaults to true
+   *  for callers that haven't adopted the lock-aware signature yet. */
+  canEditSection?: boolean
+  /** Human reason the section isn't editable — surfaced on the disabled
+   *  Accept button's tooltip + inline next to it. */
+  cannotEditReason?: string
 }
 
 type Scope = 'section' | 'document' | 'source'
@@ -61,7 +68,7 @@ const SCOPE_TITLE: Record<Scope, string> = {
   source:   'Linked source documents (titles only for now; full-text attachment lands later)',
 }
 
-export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcceptSuggestion }: Props) {
+export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcceptSuggestion, canEditSection = true, cannotEditReason }: Props) {
   const qc = useQueryClient()
   const [prompt, setPrompt] = useState('')
   const [scope, setScope]   = useState<Scope>('section')
@@ -254,14 +261,36 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                       {m.appliedToSection ? ' · ✓ Applied' : ''}
                     </span>
                     {m.kind === 'suggest' && !m.appliedToSection && (
-                      <button
-                        type="button"
-                        onClick={() => accept.mutate({ messageId: m.id, html: sanitizeAiHtml(m.content), model: m.aiModel ?? 'ai' })}
-                        disabled={accept.isPending}
-                        className="rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300"
-                      >
-                        {accept.isPending ? 'Applying…' : 'Accept into section'}
-                      </button>
+                      <div className="flex items-center gap-2">
+                        {!canEditSection && (
+                          <span className="text-[10px] italic text-amber-700" title={cannotEditReason}>
+                            {cannotEditReason ?? 'Section is read-only'}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => accept.mutate({ messageId: m.id, html: sanitizeAiHtml(m.content), model: m.aiModel ?? 'ai' })}
+                          disabled={accept.isPending || !canEditSection}
+                          title={!canEditSection ? (cannotEditReason ?? 'Section is read-only') : undefined}
+                          className="rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                          data-action="accept-into-section"
+                        >
+                          {accept.isPending ? 'Applying…' : 'Accept into section'}
+                        </button>
+                      </div>
+                    )}
+                    {accept.isError && accept.variables?.messageId === m.id && (
+                      <p className="w-full text-[10px] text-rose-600" role="alert">
+                        {accept.error instanceof ApiError
+                          ? accept.error.status === 423
+                            ? 'Another writer is editing this section — your acceptance didn\'t land. Try again when their edit finishes.'
+                            : accept.error.status === 403
+                              ? 'You can only Accept messages from your own conversation thread.'
+                              : accept.error.status === 404
+                                ? 'This chat message is no longer available — refresh the panel.'
+                                : `Accept failed (HTTP ${accept.error.status}).`
+                          : 'Accept failed — check your connection and try again.'}
+                      </p>
                     )}
                   </div>
                 )}

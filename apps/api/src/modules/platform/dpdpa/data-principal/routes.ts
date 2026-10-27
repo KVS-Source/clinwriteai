@@ -47,7 +47,7 @@ const rejectSchema = z.object({
 })
 
 export const dataPrincipalRoutes: FastifyPluginAsync = async (app) => {
-  const anyAdmin = requireAuth({ roles: ['super-admin', 'admin'] })
+  const anyAdmin = requireAuth({ roles: ['admin'] })
 
   // --- Public intake (no auth) --------------------------------------------
   // The Data Principal might not have a platform account — grievance

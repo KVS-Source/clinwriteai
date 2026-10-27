@@ -15,7 +15,7 @@ async function build(opts: { user?: AuthenticatedUser | null; row?: { name: stri
   app.decorate('prisma', { user: { findUnique } } as never)
   app.decorateRequest('user', null)
   const user = opts.user === undefined
-    ? { id: 'u1', email: 'admin@clinwrite.ai', role: 'super-admin', modules: ['A'], tenantId: null } as AuthenticatedUser
+    ? { id: 'u1', email: 'admin@clinwrite.ai', role: 'admin', modules: ['A'], tenantId: null } as AuthenticatedUser
     : opts.user
   app.addHook('onRequest', async (r) => { if (user) Object.assign(r, { user }) })
   await app.register(authRoutes)
@@ -32,7 +32,7 @@ describe('GET /auth/me', () => {
     const { app } = await setup()
     const res = await app.inject({ method: 'GET', url: '/auth/me' })
     expect(res.statusCode).toBe(200)
-    expect(res.json()).toMatchObject({ id: 'u1', email: 'admin@clinwrite.ai', role: 'super-admin', name: 'Mr Rohan Iyer', initials: 'MR' })
+    expect(res.json()).toMatchObject({ id: 'u1', email: 'admin@clinwrite.ai', role: 'admin', name: 'Mr Rohan Iyer', initials: 'MR' })
   })
 
   it('derives initials when the row has none', async () => {

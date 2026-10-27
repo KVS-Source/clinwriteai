@@ -49,7 +49,7 @@ function formatDay(iso: string | null | undefined): string {
 
 export function BestPracticesLibrary() {
   const currentUser = usePlatformStore(s => s.currentUser)
-  const canAuthor   = currentUser.role === 'super-admin'
+  const canAuthor   = currentUser.role === 'admin' && currentUser.tenantId == null
   const qc = useQueryClient()
 
   const { data: items = [], isLoading, isError, refetch } = useQuery<BestPractice[]>({

@@ -342,19 +342,34 @@ model DocumentUpload {
 model ChecklistTemplate {
   id              String   @id @default(uuid())
   deliverableType String                                       // document_type
+  // Null for the code-shipped platform baseline. Set to the owning project id
+  // when an Admin creates a project-level override. One platform baseline +
+  // many project overrides can coexist per deliverable type.
+  projectId       String?
   version         Int      @default(1)
   effectiveDate   DateTime
   changeReason    String
   isCurrent       Boolean  @default(true)
   createdBy       String
   createdAt       DateTime @default(now())
+  // Lifecycle: a project-level override starts 'draft' while the Admin
+  // customises it, and switches to 'locked' after approval. The platform
+  // baseline is always 'locked' (ships with the code). Once a template is
+  // locked, its items can't be reordered or added — Admin must bump a new
+  // version (new row, next version number) to make further changes.
+  templateStatus  String    @default("locked")              // 'draft' | 'locked'
+  approvedBy      String?
+  approvedAt      DateTime?
 
   items           ChecklistTemplateItem[]
   instances       ChecklistInstance[]
 
   @@map("checklist_templates")
-  @@unique([deliverableType, version])
+  // Uniqueness widens to include projectId so each project's override
+  // version-number sequence is independent of other projects + the baseline.
+  @@unique([deliverableType, projectId, version])
   @@index([deliverableType])
+  @@index([projectId])
 }
 
 model ChecklistTemplateItem {
@@ -363,6 +378,22 @@ model ChecklistTemplateItem {
   text               String
   framework          String                                     // "ICH E3", "21 CFR Part 11", …
   frameworkMandatory Boolean  @default(true)
+  // Which RACI role on the project team owns the tick. Any team member
+  // whose membership carries this RACI letter can mark the item complete
+  // on a document; the audit log records who did it. See docs/pivot-plan.md
+  // for the full ownership model.
+  ownerRaci          String   @default("R")                     // 'R' | 'A' | 'C' | 'I'
+  // Which of the six document stages this item belongs to. The
+  // submit-for-review / stage-advance / signature gates filter mandatory
+  // items by stage so an item for CRM doesn't block Study Start-Up submit.
+  // Values match DbStage: study_start_up, during_study, reporting,
+  // cross_functional_review, crm, final_output.
+  stage              String   @default("study_start_up")
+  // Optional trigger that auto-completes this item on a real system event.
+  // Null = manual tick only. Values: 'submit_for_review', 'crm_complete',
+  // 'document_signed'. Auto-complete writes the same audit event as a
+  // manual tick, with actorId = the user who triggered the event.
+  autoCompleteOn     String?
   sortOrder          Int      @default(0)
   createdAt          DateTime @default(now())
 
@@ -399,6 +430,12 @@ model ChecklistInstanceItem {
   text               String
   framework          String
   frameworkMandatory Boolean   @default(true)
+  // Snapshotted from the template item at clone time so a later template
+  // change can't retro-mutate an in-flight document (PRD rule). User-added
+  // items default to R/study_start_up/null (the author decides).
+  ownerRaci          String    @default("R")                    // 'R' | 'A' | 'C' | 'I'
+  stage              String    @default("study_start_up")       // mirrors DbStage
+  autoCompleteOn     String?                                    // mirrors ChecklistTemplateItem.autoCompleteOn
   status             String    @default("pending")              // checklist_item_status
   isUserAdded        Boolean   @default(false)
   completedBy        String?
@@ -603,4 +640,36 @@ model PresenceSession {
   // No UNIQUE(documentId, userId, sectionId) — multiple tabs are allowed;
   // the reaper closes stale duplicates. The 'who's here' aggregate query
   // dedupes by (userId, sectionId) at read time.
+}
+
+// --------------------------------------------------------------------------
+// 4.N section_locks — advisory lock while a writer actively edits a section
+// (autosave flow; sPM-autosave). Exactly one holder per (documentId, sectionId)
+// at a time, enforced by UNIQUE. The lock is lease-based: the client renews
+// via heartbeat every HEARTBEAT_INTERVAL seconds and the lock is considered
+// dead when lastHeartbeatAt is older than SECTION_LOCK_STALE_SECONDS
+// (default 90s). A fresh acquire from another user succeeds when the current
+// lock is dead; from the same user, it extends the existing lease (so a
+// page refresh never locks the writer out of their own section).
+//
+// Endpoints:
+//   POST   /documents/:docId/sections/:secId/lock   → acquire | extend
+//   DELETE /documents/:docId/sections/:secId/lock   → explicit release
+//
+// PATCH /sections/:secId checks this table and returns 423 Locked when
+// a different user holds a live lock. No lease = no write.
+// --------------------------------------------------------------------------
+
+model SectionLock {
+  id                String   @id @default(uuid())
+  documentId        String
+  sectionId         String
+  userId            String
+  acquiredAt        DateTime @default(now())
+  lastHeartbeatAt   DateTime @default(now())
+
+  @@map("section_locks")
+  @@unique([documentId, sectionId])
+  @@index([userId])
+  @@index([lastHeartbeatAt])
 }

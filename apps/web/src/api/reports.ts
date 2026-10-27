@@ -13,6 +13,22 @@ export interface ProjectDashboard {
   generatedAt: string
 }
 
+// Measured from the AI call log for one project (not estimated).
+export interface ProjectAiUsage {
+  projectId: string
+  calls: number
+  failedCalls: number
+  costUsd: number
+  inputTokens: number
+  outputTokens: number
+  avgLatencyMs: number
+  draftsGenerated: number
+  draftsAccepted: number
+  acceptanceRate: number | null
+  byModel: Array<{ model: string; calls: number; costUsd: number }>
+  generatedAt: string
+}
+
 export interface TenantOverview {
   projects: number
   documents: number
@@ -52,6 +68,9 @@ export interface AuditActivityReport {
 export const reportsApi = {
   projectDashboard: (projectId: string) =>
     api.get<ProjectDashboard>(`/reports/projects/${projectId}/dashboard`),
+
+  projectAiUsage: (projectId: string) =>
+    api.get<ProjectAiUsage>(`/reports/projects/${projectId}/ai-usage`),
 
   tenantOverview: () =>
     api.get<TenantOverview>('/reports/tenant/overview'),

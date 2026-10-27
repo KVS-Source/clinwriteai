@@ -131,12 +131,14 @@ function containsPattern(value: string): string {
   return `%${value.replace(/[\\%_]/g, '\\$&')}%`
 }
 
-// Tenant scope for a request: undefined = unscoped (super-admin), null = admin
-// without a tenant (matches nothing), string = that tenant's actors only.
+// Tenant scope for a request: undefined = unscoped (platform admin —
+// role='admin' with tenantId=null, post 2026-10-27 role consolidation),
+// null = admin without a tenant (matches nothing — defensive), string =
+// that tenant's actors only.
 export type TenantScope = string | null | undefined
 
 export function tenantScopeFor(user: { role: string; tenantId: string | null }): TenantScope {
-  return user.role === 'super-admin' ? undefined : user.tenantId
+  return user.tenantId == null ? undefined : user.tenantId
 }
 
 // Builds the WHERE clause + params array from the shared query schema.
@@ -200,7 +202,7 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
     ipAddress: request.ip ?? null,
   })
 
-  const auditGate = requireAuth({ roles: ['admin', 'super-admin'] })
+  const auditGate = requireAuth({ roles: ['admin'] })
   const scopeOf = (request: import('fastify').FastifyRequest) => tenantScopeFor(request.user!)
 
   // Scoped to this plugin: unexpected failures are logged in full but the

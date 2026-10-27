@@ -32,7 +32,7 @@ const rangeSchema = z.object({
   dateTo:   z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 })
 
-const adminOnly = requireAuth({ roles: ['admin', 'super-admin'] })
+const adminOnly = requireAuth({ roles: ['admin'] })
 
 function csvCell(v: unknown): string {
   const s = v === null || v === undefined ? '' : v instanceof Date ? v.toISOString() : String(v)

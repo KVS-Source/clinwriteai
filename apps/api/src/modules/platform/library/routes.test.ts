@@ -109,7 +109,7 @@ describe('GET /library', () => {
   })
 
   it('lets super-admin see every tenant', async () => {
-    const { app, count } = await setup({ role: 'super-admin' })
+    const { app, count } = await setup({ role: 'admin' })
     await app.inject({ method: 'GET', url: '/library' })
     expect(lastWhere(count).AND[0]).toEqual({})
   })
@@ -152,7 +152,7 @@ describe('best practices', () => {
   })
 
   it('creates one as super-admin, tagging it and writing an audit entry', async () => {
-    const { app, create, append } = await setup({ role: 'super-admin' })
+    const { app, create, append } = await setup({ role: 'admin' })
     const res = await app.inject({ method: 'POST', url: '/library/best-practices', payload: body })
     expect(res.statusCode).toBe(201)
     expect(create.mock.calls[0]![0].data).toMatchObject({
@@ -163,25 +163,28 @@ describe('best practices', () => {
     expect(res.json()).toMatchObject({ name: body.name, module: 'D' })
   })
 
-  it('is Super Admin only', async () => {
-    const { app } = await setup({ role: 'admin' })
+  it('is Platform Admin only — a tenant-scoped admin is forbidden', async () => {
+    // Post 2026-10-27 role consolidation: 'super-admin' retired; the gate is
+    // now role='admin' + tenantId=null (platform admin). A tenant-scoped
+    // admin should still hit 403.
+    const { app } = await setup({ role: 'admin', tenantId: 'TENANT-ACME' })
     expect((await app.inject({ method: 'POST', url: '/library/best-practices', payload: body })).statusCode).toBe(403)
   })
 
   it('rejects a bad name, a reversed date range and a duplicate', async () => {
-    const { app } = await setup({ role: 'super-admin' })
+    const { app } = await setup({ role: 'admin' })
     const post = (p: object) => app.inject({ method: 'POST', url: '/library/best-practices', payload: p })
     const badName = await post({ ...body, name: 'my best practice' })
     expect(badName.statusCode).toBe(400)
     expect(badName.json().message).toContain('[Module]-[Category]-[Version]-[Date]')
     expect((await post({ ...body, validUntil: '2025-01-01' })).statusCode).toBe(400)
     await current?.close()
-    const dup = await setup({ role: 'super-admin', dup: true })
+    const dup = await setup({ role: 'admin', dup: true })
     expect((await dup.app.inject({ method: 'POST', url: '/library/best-practices', payload: body })).statusCode).toBe(409)
   })
 
   it('rejects an inactive therapeutic area', async () => {
-    const { app } = await setup({ role: 'super-admin', ta: null })
+    const { app } = await setup({ role: 'admin', ta: null })
     const res = await app.inject({ method: 'POST', url: '/library/best-practices', payload: { ...body, therapeuticArea: 'Nope' } })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toBe('invalid_therapeutic_area')

@@ -23,6 +23,7 @@ import { PrismaClient } from '@prisma/client'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
+import { seedChecklistBaseline } from './seeds/checklist-baseline.js'
 
 const prisma = new PrismaClient()
 const __filename = fileURLToPath(import.meta.url)
@@ -1642,6 +1643,27 @@ async function seedSlideDeck() {
     }
   }
   console.log(`   ${slideCount}/${deck.slides.length} slides seeded, ${figureCount} figures`)
+
+  // --------------------------------------------------------------
+  // Checklist platform baseline — one locked ChecklistTemplate per
+  // Module A deliverable type, pre-loaded with the compliance floor
+  // (ICH E3 / ICH E6 / 21 CFR Part 11…). Idempotent: re-runs reconcile
+  // by item text, no cascading changes to in-flight instances.
+  // --------------------------------------------------------------
+  console.log('→ Seeding checklist platform baseline...')
+  // Prefer an existing admin as the audit actor; falls back to the
+  // deterministic 'system' sentinel on a bare database.
+  const baselineActor = await prisma.user.findFirst({
+    where: { role: { in: ['admin', 'super-admin'] } },
+    select: { id: true },
+  })
+  const baselineReport = await seedChecklistBaseline(prisma, {
+    actorId: baselineActor?.id ?? 'system',
+  })
+  console.log(
+    `   ${baselineReport.templatesTouched} templates (${baselineReport.templatesCreated} new) · `
+    + `${baselineReport.itemsCreated} items created, ${baselineReport.itemsPreserved} preserved`,
+  )
 }
 
 main()

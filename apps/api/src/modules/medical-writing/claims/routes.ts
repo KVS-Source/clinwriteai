@@ -253,7 +253,7 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
   // Tier override — mounted at both /review-tier/override (canonical) and
   // /tier (the UI's shorthand) so the Claims Matrix PATCH wires end-to-end.
   const overrideHandler: import('fastify').RouteHandlerMethod = async (request, reply) => {
-    // Note: roles=['admin','super-admin'] is a Phase 3C stand-in for "MLR Lead" —
+    // Note: roles=['admin'] is a Phase 3C stand-in for "MLR Lead" —
     // the full MLR-role catalogue lands when MLR comments/decision workflow
     // ships. Admin acts as MLR Lead until then.
     const { contentId } = request.params as { contentId: string }
@@ -300,8 +300,8 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
     return created
   }
 
-  app.post('/:contentId/review-tier/override', { preHandler: requireAuth({ modules: ['C'], roles: ['admin', 'super-admin'] }) }, overrideHandler)
-  app.patch('/:contentId/tier',                 { preHandler: requireAuth({ modules: ['C'], roles: ['admin', 'super-admin'] }) }, overrideHandler)
+  app.post('/:contentId/review-tier/override', { preHandler: requireAuth({ modules: ['C'], roles: ['admin'] }) }, overrideHandler)
+  app.patch('/:contentId/tier',                 { preHandler: requireAuth({ modules: ['C'], roles: ['admin'] }) }, overrideHandler)
 }
 
 // --- helpers --------------------------------------------------------------

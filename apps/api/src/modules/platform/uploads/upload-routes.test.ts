@@ -35,7 +35,7 @@ async function build() {
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    const user: AuthenticatedUser = { id: 'u1', email: 'a@b.c', role: 'super-admin', modules: ['A', 'C'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'u1', email: 'a@b.c', role: 'admin', modules: ['A', 'C'], tenantId: null }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
   })
   // enabledModules() reads FEATURE_MODULES_ENABLED lazily; both modules on.

@@ -1018,14 +1018,7 @@ export function AuditTrailViewerLive() {
                   </span>
                 )}
               </span>
-              <span className="flex items-center gap-3 text-[11px] text-slate-500">
-                {canFollow ? (
-                  <span className="text-green-700" title="New entries appear here automatically" data-live="on">● Live</span>
-                ) : (
-                  <span title="Live updates run on page 1 sorted newest first" data-live="paused">Live updates paused</span>
-                )}
-                <span>Page {pageIndex + 1}</span>
-              </span>
+              <span className="text-[11px] text-slate-500">Page {pageIndex + 1}</span>
             </div>
             <table className="w-full text-[13px]">
               <thead style={{ backgroundColor: '#F8FAFC' }}>

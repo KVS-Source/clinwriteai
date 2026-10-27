@@ -1,9 +1,13 @@
 // Role-based access control + module-scoped authorization.
 //
 // Model (per docs/demo/02-datamodel.md User):
-//   - User.role is a single string. 'super-admin' and 'admin' bypass module
-//     scoping; module-specific roles ('clinical-writer', 'reviewer', etc.) only
+//   - User.role is a single string. 'admin' bypasses module scoping;
+//     module-specific roles ('clinical-writer', 'reviewer', etc.) only
 //     grant access to the modules listed in User.modules.
+//   - Platform-wide vs. tenant-scoped admin is encoded in User.tenantId
+//     (null = platform admin, string = tenant-scoped admin). The 2026-10-27
+//     role consolidation retired 'super-admin'; what super-admin used to do
+//     is now 'admin' with tenantId=null (see Phase 3 of the pivot).
 //   - A route protected with `requireAuth(['A','B'])` demands either an admin
 //     role OR a module intersect with ['A','B'].
 //
@@ -15,7 +19,6 @@
 import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify'
 
 export type Role =
-  | 'super-admin'
   | 'admin'
   | 'clinical-writer'
   | 'scientific-writer'
@@ -27,7 +30,7 @@ export type Role =
 
 export type ModuleKey = 'A' | 'B' | 'C' | 'D' | 'E'
 
-const ADMIN_ROLES: ReadonlySet<Role> = new Set(['super-admin', 'admin'])
+const ADMIN_ROLES: ReadonlySet<Role> = new Set(['admin'])
 const ALL_MODULES: ReadonlyArray<ModuleKey> = ['A', 'B', 'C', 'D', 'E']
 
 export interface AuthenticatedUser {

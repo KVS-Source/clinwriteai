@@ -41,6 +41,7 @@ export function SectionHistoryPanel({ documentId, sectionId, sectionLabel }: Pro
         })
       }
       revert={(editHistoryId) => documentsApi.revertSectionEdit(editHistoryId)}
+      fetchDiff={(editHistoryId) => documentsApi.getSectionEditDiff(editHistoryId)}
     />
   )
 }

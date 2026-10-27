@@ -25,21 +25,24 @@ function initialsFor(name: string): string {
   return name.split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('')
 }
 
-// Group personas for the switcher menu
+// Group personas for the switcher menu. Post 2026-10-27 role consolidation:
+// 'super-admin' is retired → platform admin = role='admin' with tenantId=null;
+// tenant-scoped admins = role='admin' with a tenant id.
 function groupPersonas(users: PlatformUser[]) {
-  const superAdmin = users.filter(u => u.role === 'super-admin')
-  const admin      = users.filter(u => u.role === 'admin')
-  const moduleUsers = users.filter(u => u.role !== 'admin' && u.role !== 'super-admin' && u.status === 'active')
-  const invited    = users.filter(u => u.status === 'invited')
+  const platformAdmin = users.filter(u => u.role === 'admin' && (u.tenantId ?? null) == null)
+  const tenantAdmin   = users.filter(u => u.role === 'admin' && (u.tenantId ?? null) != null)
+  const moduleUsers   = users.filter(u => u.role !== 'admin' && u.status === 'active')
+  const invited       = users.filter(u => u.status === 'invited')
   return [
-    { label: 'Super Admin (GenBioCa)', users: superAdmin },
-    { label: 'Client Admin',           users: admin },
-    { label: 'Module users',           users: moduleUsers },
-    { label: 'Invited (not activated)', users: invited },
+    { label: 'Platform Admin (GenBioCa)', users: platformAdmin },
+    { label: 'Client Admin',              users: tenantAdmin },
+    { label: 'Module users',              users: moduleUsers },
+    { label: 'Invited (not activated)',   users: invited },
   ].filter(g => g.users.length > 0)
 }
 
-// Colour by role for the avatar tint
+// Colour by role for the avatar tint. 'super-admin' key kept for legacy demo
+// fixtures that may still carry it; new code uses 'admin'.
 const ROLE_COLOUR: Record<string, string> = {
   'super-admin':               '#1A3C5E',
   'admin':                     '#2563EB',

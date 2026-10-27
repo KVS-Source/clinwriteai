@@ -96,11 +96,12 @@ const PLATFORM_WIDE_TA = 'Platform-wide'
 
 export const libraryRoutes: FastifyPluginAsync = async (app) => {
   // Rows with tenantId=null are platform-wide; a tenant row is only visible to
-  // its own tenant (super-admin sees all).
+  // its own tenant. Platform admins (role='admin' + tenantId=null, post
+  // 2026-10-27 role consolidation) see every tenant.
   const visibleTo = (user: { role: string; tenantId: string | null }): Prisma.LibrarySectionWhereInput =>
-    user.role === 'super-admin'
+    user.tenantId == null
       ? {}
-      : { OR: [{ tenantId: null }, ...(user.tenantId ? [{ tenantId: user.tenantId }] : [])] }
+      : { OR: [{ tenantId: null }, { tenantId: user.tenantId }] }
 
   // One batched lookup for the names/projects a page of rows refers to.
   async function fetchContext(rows: SectionRow[]): Promise<LibraryContext> {
@@ -195,8 +196,14 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return rows.map(r => sectionToBestPractice(r))
   })
 
-  // POST /library/best-practices — Super Admin only (PRD sPM09).
-  app.post('/best-practices', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  // POST /library/best-practices — Platform admin only (PRD sPM09). Post
+  // 2026-10-27 role consolidation: platform admin = role='admin' with
+  // tenantId=null. Tenant-scoped admins are blocked here because best
+  // practices are platform-wide artefacts, not tenant-specific content.
+  app.post('/best-practices', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+    if ((request.user!.tenantId ?? null) != null) {
+      return reply.code(403).send({ error: 'forbidden', message: 'Platform admin only.' })
+    }
     const parsed = bestPracticeCreate.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
     const b = parsed.data
@@ -288,7 +295,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // Create a brand-new section (version 1). Admin-only.
-  app.post('/sections', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.post('/sections', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -323,7 +330,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // Create a new VERSION of an existing section. Admin-only.
-  app.post('/sections/:id/versions', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.post('/sections/:id/versions', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = updateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -379,7 +386,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  app.post('/sections/:id/retire', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.post('/sections/:id/retire', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const existing = await app.prisma.librarySection.findUnique({ where: { id } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })

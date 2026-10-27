@@ -54,7 +54,8 @@ const authPlugin: FastifyPluginAsync = async (app) => {
   // collab-server) sends on X-System-Token when persisting a doc.
   // Lets the sidecar's unauthenticated process write via normal
   // requireAuth-gated routes. Resolves to a synthetic 'system:collab'
-  // user with super-admin equivalence so module gates pass.
+  // user with admin + tenantId=null (platform-admin equivalence) so
+  // module gates pass.
   const COLLAB_SYSTEM_TOKEN = (process.env.COLLAB_SYSTEM_TOKEN ?? '').trim() || null
 
   // Decode the session cookie on every request (silent — unauth routes stay
@@ -71,7 +72,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
           request.user = {
             id: 'system:collab',
             email: 'collab-sidecar@localhost',
-            role: 'super-admin',
+            role: 'admin',
             modules: ['A', 'B', 'C', 'D', 'E'],
             tenantId: null,
           }

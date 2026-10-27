@@ -37,10 +37,25 @@ export interface HistoryEntry {
   interveningCount: number
   interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
   canRevert:       boolean
+  /** Set on rolled-up session rows (sPM-autosave). 1 for a singleton that didn't collapse. */
+  sessionEntryCount?: number
+  /** ISO ts of the oldest raw row in the session; `createdAt` is the newest. */
+  sessionStartedAt?: string
+  /** Plain-text preview of pre-edit content for the Section History row. */
+  beforeExcerpt?: string
+  /** Plain-text preview of post-edit content for the Section History row. */
+  afterExcerpt?:  string
 }
 
 export interface HistoryResponse {
   entries: HistoryEntry[]
+  /** Collapsed-into-sessions view (sPM-autosave). Panels default to this when present. */
+  sessions?: HistoryEntry[]
+}
+
+export interface HistoryDiff {
+  beforeHtml: string | null
+  afterHtml:  string
 }
 
 export interface Props<R extends HistoryResponse = HistoryResponse> {
@@ -48,6 +63,8 @@ export interface Props<R extends HistoryResponse = HistoryResponse> {
   loader: (filters: { mine: boolean; origin: EditOrigin | undefined }) => Promise<R>
   /** Fires the revert mutation for a given history row id. */
   revert: (editHistoryId: string) => Promise<unknown>
+  /** Fetches the full beforeHtml + afterHtml for a row (optional — enables "Show change" expansion). */
+  fetchDiff?: (editHistoryId: string) => Promise<HistoryDiff>
   /** React Query key for the history list (used for cache invalidation on revert). */
   queryKey: readonly unknown[]
   /** Additional query keys to invalidate when a revert succeeds. */
@@ -67,6 +84,35 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
 
   const [scope, setScope]   = useState<'mine' | 'all'>('mine')
   const [origin, setOrigin] = useState<OriginFilter>('all')
+  // sPM-autosave diff — one row's full before/after HTML in flight. Keyed by
+  // editHistoryId so clicking Show-change on one row doesn't blow up others.
+  const [expandedId,  setExpandedId]  = useState<string | null>(null)
+  const [expandedData, setExpandedData] = useState<HistoryDiff | null>(null)
+  const [expandError, setExpandError] = useState<string | null>(null)
+  const [expandLoading, setExpandLoading] = useState(false)
+
+  const toggleExpand = async (entryId: string) => {
+    if (!props.fetchDiff) return
+    if (expandedId === entryId) {
+      setExpandedId(null); setExpandedData(null); setExpandError(null)
+      return
+    }
+    setExpandedId(entryId); setExpandedData(null); setExpandError(null); setExpandLoading(true)
+    try {
+      const data = await props.fetchDiff(entryId)
+      setExpandedData(data)
+    } catch (err) {
+      setExpandError(err instanceof ApiError ? `Could not load diff (HTTP ${err.status})` : 'Could not load diff.')
+    } finally {
+      setExpandLoading(false)
+    }
+  }
+  // sPM-autosave — when the loader returns `sessions`, prefer that view so a
+  // 20-save autosave burst doesn't drown the panel. Writers who want to see
+  // every individual save flip to 'rows'. Non-session loaders (Module E and
+  // the SectionHistoryPanel-no-section guard) fall back to 'rows' silently
+  // because `sessions` is undefined.
+  const [view, setView] = useState<'sessions' | 'rows'>('sessions')
   const [pending, setPending] = useState<null | {
     editHistoryId: string
     actorName:     string
@@ -113,7 +159,10 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
     )
   }
 
-  const entries = (historyQ.data?.entries ?? []) as HistoryEntry[]
+  const rawEntries     = (historyQ.data?.entries  ?? []) as HistoryEntry[]
+  const sessionEntries = (historyQ.data?.sessions ?? null) as HistoryEntry[] | null
+  const hasSessions    = sessionEntries !== null
+  const entries        = (hasSessions && view === 'sessions') ? sessionEntries! : rawEntries
 
   return (
     <div className="flex-1 overflow-y-auto p-4" data-panel="history">
@@ -142,6 +191,28 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
         >All on this {subject}</button>
       </div>
 
+      {/* Session vs raw-row toggle (sPM-autosave). Only shown when the
+          loader returns sessions — Module E atomised history and the
+          no-section guard both return raw-only, so the toggle hides
+          itself. Rolls up consecutive same-actor same-origin saves within
+          10 minutes into one row; raw mode shows every autosave fire. */}
+      {hasSessions && (
+        <div className="mt-3 flex rounded-md border border-slate-200 bg-slate-100 p-0.5" data-section-history-view>
+          <button
+            type="button"
+            onClick={() => setView('sessions')}
+            className={`flex-1 rounded px-3 py-1 text-[11px] font-semibold transition-colors ${view === 'sessions' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            title="One row per writing session (autosaves within 10 minutes collapse)"
+          >Grouped by session</button>
+          <button
+            type="button"
+            onClick={() => setView('rows')}
+            className={`flex-1 rounded px-3 py-1 text-[11px] font-semibold transition-colors ${view === 'rows' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            title="Every individual save (noisy, use for audit drilldown)"
+          >Every save</button>
+        </div>
+      )}
+
       {/* Origin filter chips */}
       <div className="mt-3 flex flex-wrap gap-1" data-section-history-origin>
         {(['all', 'ai', 'manual', 'undo'] as OriginFilter[]).map(k => (
@@ -166,8 +237,20 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
             <div className="flex items-center justify-between">
               <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${originBadgeClass(e.origin)}`}>
                 {originLabel(e.origin)}
+                {(e.sessionEntryCount ?? 1) > 1 && (
+                  <> · {e.sessionEntryCount} saves</>
+                )}
               </span>
-              <time className="text-[11px] text-slate-500" title={e.createdAt}>{formatRelative(e.createdAt)}</time>
+              <time
+                className="text-[11px] text-slate-500"
+                title={e.sessionStartedAt && e.sessionStartedAt !== e.createdAt
+                  ? `${new Date(e.sessionStartedAt).toLocaleTimeString()} → ${new Date(e.createdAt).toLocaleTimeString()}`
+                  : e.createdAt}
+              >
+                {(e.sessionEntryCount ?? 1) > 1 && e.sessionStartedAt
+                  ? `${new Date(e.sessionStartedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} → ${new Date(e.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+                  : formatRelative(e.createdAt)}
+              </time>
             </div>
 
             {e.origin === 'ai' && e.promptText && (
@@ -180,22 +263,79 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
               <p className="mt-2 text-[12px] italic text-slate-500">Reverted an earlier change on this {subject}.</p>
             )}
 
+            {/* sPM-autosave inline preview — before/after excerpts so the
+                writer can tell what changed without expanding. Hidden when
+                both are empty (e.g. first-ever save or Module E loaders
+                that don't carry excerpts). */}
+            {(e.beforeExcerpt || e.afterExcerpt) && (
+              <div className="mt-2 flex flex-col gap-1 text-[12px] leading-snug" data-history-excerpt>
+                {e.beforeExcerpt && (
+                  <div className="flex items-start gap-1.5">
+                    <span className="mt-[1px] shrink-0 font-mono text-[9px] uppercase tracking-wider text-rose-600">Was</span>
+                    <span className="text-slate-500 line-through decoration-rose-400/60">{e.beforeExcerpt}</span>
+                  </div>
+                )}
+                {e.afterExcerpt && (
+                  <div className="flex items-start gap-1.5">
+                    <span className="mt-[1px] shrink-0 font-mono text-[9px] uppercase tracking-wider text-emerald-700">Now</span>
+                    <span className="text-slate-800">{e.afterExcerpt}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Expanded full-diff view — fetched lazily when the user
+                clicks "Show change". beforeHtml is null for the very
+                first save on a section (nothing to compare to). */}
+            {expandedId === e.id && (
+              <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3" data-history-diff>
+                {expandLoading && <p className="text-[11px] text-slate-500">Loading change…</p>}
+                {expandError && <p className="text-[11px] text-rose-600">{expandError}</p>}
+                {expandedData && (
+                  <div className="flex flex-col gap-3">
+                    <div>
+                      <p className="font-mono text-[9px] uppercase tracking-wider text-rose-600">Was</p>
+                      {expandedData.beforeHtml
+                        ? <div className="mt-1 rounded border border-rose-200 bg-rose-50/50 p-2 text-[12px] text-slate-700 [&_*]:text-slate-700" dangerouslySetInnerHTML={{ __html: expandedData.beforeHtml }} />
+                        : <p className="mt-1 text-[11px] italic text-slate-500">(First save on this {subject} — no prior content.)</p>}
+                    </div>
+                    <div>
+                      <p className="font-mono text-[9px] uppercase tracking-wider text-emerald-700">Now</p>
+                      <div className="mt-1 rounded border border-emerald-200 bg-emerald-50/40 p-2 text-[12px] text-slate-800 [&_*]:text-slate-800" dangerouslySetInnerHTML={{ __html: expandedData.afterHtml }} />
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
               <span>By {e.actorName}{e.aiModel ? <> · {e.aiModel}</> : null}</span>
-              {e.canRevert && (
-                <button
-                  type="button"
-                  onClick={() => setPending({
-                    editHistoryId:      e.id,
-                    actorName:          e.actorName,
-                    createdAt:          e.createdAt,
-                    origin:             e.origin,
-                    interveningCount:   e.interveningCount,
-                    interveningByActor: e.interveningByActor,
-                  })}
-                  className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                >Revert to this point</button>
-              )}
+              <div className="flex items-center gap-2">
+                {props.fetchDiff && (e.beforeExcerpt || e.afterExcerpt) && (
+                  <button
+                    type="button"
+                    onClick={() => void toggleExpand(e.id)}
+                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                    data-action="toggle-diff"
+                  >
+                    {expandedId === e.id ? 'Hide change' : 'Show change'}
+                  </button>
+                )}
+                {e.canRevert && (
+                  <button
+                    type="button"
+                    onClick={() => setPending({
+                      editHistoryId:      e.id,
+                      actorName:          e.actorName,
+                      createdAt:          e.createdAt,
+                      origin:             e.origin,
+                      interveningCount:   e.interveningCount,
+                      interveningByActor: e.interveningByActor,
+                    })}
+                    className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                  >Revert to this point</button>
+                )}
+              </div>
             </div>
           </li>
         ))}

@@ -30,10 +30,14 @@ const ADMIN_LINKS: QuickLink[] = [
   { label: 'Admin panel',     href: '/admin',        hint: 'Organisation settings' },
 ]
 
+// Keyed profiles. Post 2026-10-27 role consolidation: platform admin = 'admin'
+// with tenantId=null (RoleHome selects the right card at render time via that
+// predicate); 'super-admin' is retired from the type but kept as a profile
+// key for RoleHome to render the platform-owner card when needed.
 const ROLE_PROFILES: Partial<Record<PlatformUserRole, RoleProfile>> & Record<
-  'super-admin' | 'admin' | 'clinical-writer' | 'scientific-writer' | 'medical-writer'
+  'admin' | 'clinical-writer' | 'scientific-writer' | 'medical-writer'
   | 'regulatory-writer' | 'ideation-lead' | 'reviewer' | 'read-only', RoleProfile
-> = {
+> & { 'super-admin'?: RoleProfile } = {
   'super-admin': {
     accent: '#1A3C5E',
     tagline: 'Platform owner. You run every organisation on the platform.',
@@ -46,7 +50,7 @@ const ROLE_PROFILES: Partial<Record<PlatformUserRole, RoleProfile>> & Record<
     cannot: ['Edit or delete audit entries — the trail is append-only for everyone'],
     links: [
       { label: 'Tenants', href: '/super-admin/tenants', hint: 'All client organisations' },
-      { label: 'Super admin panel', href: '/super-admin', hint: 'Platform configuration' },
+      { label: 'Platform admin panel', href: '/super-admin', hint: 'Platform configuration' },
       ...ADMIN_LINKS.slice(0, 2),
       PROJECTS,
     ],
@@ -161,7 +165,9 @@ export function RoleHome() {
   const label = PLATFORM_USER_ROLE_LABEL[user.role] ?? user.role
   const profile = (ROLE_PROFILES as Partial<Record<string, RoleProfile>>)[user.role] ?? fallbackProfile(label)
 
-  const isAdmin = user.role === 'admin' || user.role === 'super-admin'
+  // Post 2026-10-27 role consolidation: admins carry role='admin' regardless
+  // of platform-vs-tenant scope (that distinction is on tenantId now).
+  const isAdmin = user.role === 'admin'
   const moduleEntries = Object.entries(MODULE_LABELS).filter(([slug]) => {
     const key = MODULE_SLUG_TO_KEY[slug as ModuleSlug]
     return key && isModuleEnabled(key) && (isAdmin || user.modules.includes(key))

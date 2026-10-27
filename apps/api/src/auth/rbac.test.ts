@@ -11,7 +11,7 @@ const base: AuthenticatedUser = {
 
 describe('hasModuleAccess', () => {
   it('super-admin bypasses module gating', () => {
-    expect(hasModuleAccess({ ...base, role: 'super-admin', modules: [] }, ['C', 'D'])).toBe(true)
+    expect(hasModuleAccess({ ...base, role: 'admin', modules: [] }, ['C', 'D'])).toBe(true)
   })
 
   it('admin bypasses module gating', () => {

@@ -58,7 +58,7 @@ export function SectionNavigator({
   const pct = sections.length > 0 ? Math.round((completeCount / sections.length) * 100) : 0
 
   return (
-    <div className="flex w-[220px] flex-none flex-col border-r border-slate-200" style={{ backgroundColor: '#F8FAFC', minHeight: 0 }}>
+    <div className="flex w-[220px] flex-none flex-col border-r border-slate-200" style={{ backgroundColor: '#F8FAFC', minHeight: 0 }} data-section-nav>
 
       {/* Header */}
       <div className="flex-none px-5 pt-4 pb-2 font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">

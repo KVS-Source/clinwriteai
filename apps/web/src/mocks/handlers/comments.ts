@@ -8,7 +8,7 @@ const BASE = import.meta.env.VITE_API_URL ?? '/api'
 // comment is attributed to the person the screen says you are.
 const me = team.find(u => u.initials === 'MW')!
 
-type MockComment = (typeof seed)[number] & { resolutionNote?: string; resolvedBy?: string; resolvedAt?: string }
+type MockComment = (typeof seed)[number] & { resolutionNote?: string; resolvedBy?: string; resolvedAt?: string; lastEditedAt?: string; lastEditedByName?: string }
 
 // Mock "database" for comments. Posted and resolved comments are kept in the
 // browser's localStorage so they survive a page reload, like they would against
@@ -57,7 +57,11 @@ export const commentHandlers = [
     const rows = store
       .filter(c => seedIds.has(c.id) || c.documentId === params.documentId)
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    return HttpResponse.json(rows.map(c => (fresh.has(c.id) ? { ...c, age: ageOf(c.createdAt) } : c)))
+    return HttpResponse.json(rows.map(c => ({
+      ...c,
+      ...(fresh.has(c.id) ? { age: ageOf(c.createdAt) } : {}),
+      lastEditedAge: c.lastEditedAt ? ageOf(c.lastEditedAt) : null,
+    })))
   }),
   http.post(`${BASE}/documents/:documentId/comments`, async ({ request, params }) => {
     const body = await request.json() as Record<string, unknown>
@@ -81,8 +85,9 @@ export const commentHandlers = [
     const comment = store.find(c => c.id === params.commentId)
     if (!comment) return HttpResponse.json({ error: 'not_found' }, { status: 404 })
     if (comment.status === 'resolved') return HttpResponse.json({ error: 'conflict', message: 'Comment already resolved' }, { status: 409 })
-    Object.assign(comment, { status: 'resolved', resolvedBy: 'user-MW', resolvedAt: new Date().toISOString(), resolutionNote: body.note })
+    const resolvedAt = new Date().toISOString()
+    Object.assign(comment, { status: 'resolved', resolvedBy: 'user-MW', resolvedAt, resolutionNote: body.note, lastEditedAt: resolvedAt, lastEditedByName: me.name })
     persist()
-    return HttpResponse.json(comment)
+    return HttpResponse.json({ ...comment, lastEditedAge: 'just now' })
   }),
 ]

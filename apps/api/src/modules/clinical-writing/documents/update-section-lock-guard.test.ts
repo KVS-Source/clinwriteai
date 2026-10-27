@@ -58,7 +58,8 @@ async function build(opts: { lock?: { userId: string; lastHeartbeatAt: Date }; c
       editHistory:      { create: vi.fn(async () => ({})) },
     }),
   } as never)
-  app.decorate('audit', { append: vi.fn(async () => undefined) } as never)
+  const append = vi.fn(async (_event: { action: string; details: Record<string, unknown> }) => undefined)
+  app.decorate('audit', { append } as never)
   app.decorate('aiGateway', { chat } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
@@ -67,7 +68,7 @@ async function build(opts: { lock?: { userId: string; lastHeartbeatAt: Date }; c
   })
   await app.register(documentsRoutes, { prefix: '/documents' })
   await app.ready()
-  return { app, updates }
+  return { app, updates, append }
 }
 
 const patch = (app: Awaited<ReturnType<typeof build>>['app']) =>
@@ -109,5 +110,15 @@ describe('PATCH /documents/:docId/sections/:secId — lock precondition', () => 
     })
     const res = await patch(app)
     expect(res.statusCode).toBeLessThan(400)
+  })
+})
+
+describe('PATCH /documents/:docId/sections/:secId — audit entry', () => {
+  it('records the section text before and after the edit', async () => {
+    const { app, append } = await build()
+    const res = await patch(app)
+    expect(res.statusCode).toBeLessThan(400)
+    const edit = append.mock.calls.map(c => c[0]).find(e => e.action === 'section_edited')
+    expect(edit?.details).toMatchObject({ sectionId: SEC, before: 'old', after: 'new' })
   })
 })

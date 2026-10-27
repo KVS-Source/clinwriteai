@@ -12,6 +12,7 @@ import { SourceDocumentsTab } from './SourceDocumentsTab'
 import { DocumentDetailPanel } from './DocumentDetailPanel'
 import { DocumentCommentsPanel } from './DocumentCommentsPanel'
 import { cleanSectionRef } from '../../panels/CommentComposer'
+import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
 
 // --- Enum → display label maps ---
 
@@ -155,6 +156,8 @@ export function ClinicalWritingHome() {
   // for a plain new-doc flow). `null` with the panel open means fresh.
   const [newDocOpen, setNewDocOpen] = useState<false | { duplicateSourceId: string | null; sourceIds?: string[] }>(false)
   const [uploadOpen, setUploadOpen] = useState(false)
+  // Document whose audit trail is open in the side panel (row "⋯ → Audit trail").
+  const [auditDoc, setAuditDoc] = useState<{ id: string; title: string } | null>(null)
   // Document whose detail panel is open (row click) and the table's column sort.
   const [detailDoc, setDetailDoc] = useState<Document | null>(null)
   // Document whose comments panel is open (the table's "Comments" column).
@@ -589,6 +592,7 @@ export function ClinicalWritingHome() {
                       doc={doc}
                       onOpen={() => handleDocClick(doc)}
                       onDuplicate={() => setNewDocOpen({ duplicateSourceId: doc.id })}
+                      onAuditTrail={() => setAuditDoc({ id: doc.id, title: doc.title })}
                     />
                   </div>
                   {/* The whole cell is the button: it stretches over the row's padding so the full cell height is clickable. */}
@@ -706,6 +710,33 @@ export function ClinicalWritingHome() {
         )}
       </SlidePanel>
 
+      {/* "⋯ → Audit trail": the selected document's whole-document audit trail, without leaving the list. */}
+      <SlidePanel
+        open={auditDoc !== null}
+        onClose={() => setAuditDoc(null)}
+        title="Audit trail"
+        subtitle={auditDoc?.title}
+        storageKey="panel-width-document-audit"
+        defaultWidth={460}
+        closeOnOutsideClick
+      >
+        {auditDoc && (
+          <div className="flex h-full flex-col" data-document-audit-panel={auditDoc.id}>
+            <div className="flex flex-none items-center justify-between border-b border-slate-200 px-4 py-2">
+              <span className="font-mono text-[10px] text-slate-500">{auditDoc.id}</span>
+              <button
+                type="button"
+                onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${auditDoc.id}`)}
+                className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+              >Open document →</button>
+            </div>
+            <div className="min-h-0 flex-1">
+              <AuditTrailPanel key={auditDoc.id} documentId={auditDoc.id} />
+            </div>
+          </div>
+        )}
+      </SlidePanel>
+
       <SlidePanel
         open={uploadOpen}
         onClose={closeUpload}
@@ -807,10 +838,11 @@ function SearchIcon() {
 // Document row "⋯" menu — Arc A5. Recommended default action set per
 // docs/decisions/module-a-defaults.md §1. Items marked (soon) are
 // backend-pending and show a tooltip explaining when they'll light up.
-function DocumentRowMenu({ doc, onOpen, onDuplicate }: {
+function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail }: {
   doc: Document
   onOpen: () => void
   onDuplicate: () => void
+  onAuditTrail: () => void
 }) {
   const [open, setOpen] = useState(false)
   const isSigned = doc.status === 'signed'
@@ -836,6 +868,7 @@ function DocumentRowMenu({ doc, onOpen, onDuplicate }: {
         >
           <MenuItem onClick={() => { setOpen(false); onOpen() }}>Open</MenuItem>
           <MenuItem onClick={() => { setOpen(false); onDuplicate() }}>Duplicate</MenuItem>
+          <MenuItem onClick={() => { setOpen(false); onAuditTrail() }}>Audit trail</MenuItem>
           <MenuItem disabled title="Document-level PDF export lands with Phase 2 of the Module A plan.">
             Export PDF <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
           </MenuItem>

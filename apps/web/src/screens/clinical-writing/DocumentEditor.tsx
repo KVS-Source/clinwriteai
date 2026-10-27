@@ -429,6 +429,15 @@ export function DocumentEditor() {
       setSearchParams(next, { replace: true })
     }
   }, [searchParams, setActivePanel, setSearchParams])
+  // ?panel=audit (e.g. the document list's "⋯ → Audit trail") opens that side panel.
+  useEffect(() => {
+    if (searchParams.get('panel') === 'audit') {
+      setActivePanel('audit')
+      const next = new URLSearchParams(searchParams)
+      next.delete('panel')
+      setSearchParams(next, { replace: true })
+    }
+  }, [searchParams, setActivePanel, setSearchParams])
 
   // ------- Reference links (FR-A-022) -------
   // Reference-linked text is marked in the section (non-destructively), clicking it opens the source in the
@@ -1111,7 +1120,10 @@ export function DocumentEditor() {
               <ChecklistPanel documentId={documentId} />
             )}
             {activePanel === 'audit' && documentId && (
-              <AuditTrailPanel documentId={documentId} />
+              <AuditTrailPanel
+                documentId={documentId}
+                section={activeSectionData ? { id: activeSectionData.id, number: activeSectionData.number, title: activeSectionData.title } : null}
+              />
             )}
             {activePanel === 'review-assignment' && documentId && projectId && (
               <ReviewAssignmentPanel

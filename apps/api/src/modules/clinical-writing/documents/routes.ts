@@ -97,6 +97,12 @@ const sectionUpdateSchema = z.object({
 // hyphens → underscores so the Postgres rows match the ADR 0001 enum
 // convention). The TS types in @platform/types + the UI colour maps
 // use hyphen-case, so unmap here before the JSON leaves the API.
+// Section text recorded in a section-edit audit entry (before / after). Plain
+// text, capped so one autosave can't bloat the hash-chained audit row; the
+// full HTML lives in the section edit history.
+const AUDIT_TEXT_MAX_CHARS = 4000
+const auditText = (html: string | null | undefined) => htmlExcerpt(html, AUDIT_TEXT_MAX_CHARS)
+
 function hyphenate(v: string | null | undefined): string {
   return (v ?? '').replace(/_/g, '-')
 }
@@ -317,6 +323,17 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    // The section's content before this edit, for the audit entry's before/after.
+    const previous = await app.prisma.document.findUnique({
+      where:  { id: documentId },
+      select: { currentVersion: { select: { sections: {
+        where:  { OR: [{ sectionId }, { id: sectionId }] },
+        select: { contentHtml: true },
+        take:   1,
+      } } } },
+    })
+    const beforeHtml = previous?.currentVersion?.sections?.[0]?.contentHtml ?? ''
+
     const result = await svc.updateSection({
       documentId,
       sectionId,
@@ -356,6 +373,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         versionCreated: result.created,
         versionNumber: result.version.versionNumber,
         aiCallRecordId: parsed.data.aiCallRecordId ?? null,
+        // Previous and new content (plain text, capped) so the trail shows what changed.
+        before: auditText(beforeHtml),
+        after:  auditText(parsed.data.contentHtml),
       },
       ipAddress: request.ip ?? null,
     })

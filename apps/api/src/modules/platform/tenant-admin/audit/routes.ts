@@ -45,6 +45,7 @@ const queryBaseSchema = z.object({
   actor:      z.string().optional(),          // partial name / email, or exact id
   entityType: z.string().optional(),          // partial, case-insensitive
   entityId:   z.string().optional(),          // exact
+  projectId:  z.string().optional(),          // exact — everything belonging to one project (see buildFilter)
   action:     z.string().optional(),          // partial, case-insensitive
   fromDate:   z.string().datetime({ offset: true }).optional(),
   toDate:     z.string().datetime({ offset: true }).optional(),
@@ -166,6 +167,20 @@ export function buildFilter(q: Partial<z.infer<typeof queryBaseSchema>>, scope: 
   }
   if (q.entityType) conditions.push(`a.entity_type ILIKE ${param(containsPattern(q.entityType))}`)
   if (q.entityId)   conditions.push(`a.entity_id = ${param(q.entityId)}`)
+  // Project scope: the project record itself, any entry whose details carry the
+  // project id, and any entry recorded against one of the project's documents.
+  // A read-side filter over the one audit chain — nothing is copied, and each
+  // matching row is returned once (EXISTS, not a join).
+  if (q.projectId) {
+    const p = param(q.projectId)
+    conditions.push(`(
+      (a.entity_type = 'project' AND a.entity_id = ${p})
+      OR a.details->>'projectId' = ${p}
+      OR (a.entity_type = 'document' AND EXISTS (
+        SELECT 1 FROM documents d WHERE d.id = a.entity_id AND d."projectId" = ${p}
+      ))
+    )`)
+  }
   if (q.action)     conditions.push(`a.action ILIKE ${param(containsPattern(q.action))}`)
   if (q.fromDate)   conditions.push(`a."timestamp" >= ${param(q.fromDate)}::timestamptz`)
   if (q.toDate)     conditions.push(`a."timestamp" <= ${param(q.toDate)}::timestamptz`)

@@ -171,6 +171,7 @@ export interface AuditQuery {
   actor?: string        // partial name / email, or exact actor id
   entityType?: string   // partial, case-insensitive
   entityId?: string
+  projectId?: string    // everything belonging to one project (project record, its documents, entries carrying its id)
   action?: string       // partial, case-insensitive
   fromDate?: string     // ISO 8601, with Z or an offset
   toDate?: string

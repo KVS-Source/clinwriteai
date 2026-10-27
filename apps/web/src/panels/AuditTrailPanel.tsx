@@ -1,11 +1,31 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { useInfiniteQuery } from '@tanstack/react-query'
 import type { AuditEntry } from '@platform/types'
 import { documentsApi } from '../api'
 import { apiConfig } from '../api/client'
+import { wordDiff } from './wordDiff'
+
+interface ScopeSection { id: string; number: string; title: string }
 
 interface Props {
   documentId: string
+  // The section selected in the editor. When set, the trail opens scoped to it.
+  section?: ScopeSection | null
+}
+
+// '§1' / '1' / '§ 1' → '1', so comment sectionRefs match the section number either way.
+const normRef = (v: string) => v.replace(/^§\s*/, '').trim().toLowerCase()
+
+// Does this audit entry belong to the given section? Edits, AI drafts, reverts and
+// source references record the section key; comments record a "§n" reference.
+function entryInSection(e: AuditEntry, s: ScopeSection): boolean {
+  const d = e.details ?? {}
+  if (typeof d.sectionId === 'string') return d.sectionId === s.id
+  if (typeof d.sectionRef === 'string') {
+    const ref = normRef(d.sectionRef)
+    return ref === normRef(s.number) || ref.startsWith(`${normRef(s.number)} `)
+  }
+  return false
 }
 
 const PAGE_SIZE = 100
@@ -109,8 +129,67 @@ function actionPhrase(eventType: EventType): string {
   }
 }
 
-export function AuditTrailPanel({ documentId }: Props) {
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
+
+// What a section edit changed: only the changed words, in place, with a few words
+// of surrounding text to show where. The full before/after stays available.
+function ChangeBlock({ before, after }: { before: string; after: string }) {
+  const [showFull, setShowFull] = useState(false)
+  const diff = useMemo(() => wordDiff(before, after), [before, after])
+
+  const summary = [
+    diff.added   ? `+${plural(diff.added, 'word')} added` : '',
+    diff.removed ? `−${plural(diff.removed, 'word')} removed` : '',
+  ].filter(Boolean).join(' · ')
+
+  return (
+    <div className="mt-1 flex flex-col gap-1.5 text-[12px] leading-[1.55]" data-audit-change>
+      <p className="font-mono text-[10px] text-slate-500" data-change-summary>
+        {diff.hunks.length === 0
+          ? 'No wording change (formatting or spacing only)'
+          : `${summary} · ${plural(diff.hunks.length, 'place')}`}
+      </p>
+
+      {diff.hunks.map((h, i) => (
+        <p key={i} className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-600" data-change-hunk={i + 1}>
+          <span className="mr-1 font-mono text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+            {h.atStart && h.atEnd ? 'whole text' : h.atStart ? 'at start' : h.atEnd ? 'at end' : `change ${i + 1}`}
+          </span>
+          {h.before.length > 0 && <span>…{h.before.join(' ')} </span>}
+          {h.ops.map((op, j) => (
+            op.type === 'eq'  ? <span key={j}>{op.words.join(' ')}</span>
+            : op.type === 'del' ? <del key={j} className="rounded bg-red-100 px-0.5 text-red-800 decoration-red-500">{op.words.join(' ')}</del>
+            :                     <ins key={j} className="rounded bg-green-100 px-0.5 font-semibold text-green-800 no-underline">{op.words.join(' ')}</ins>
+          )).reduce<ReactNode[]>((acc, el, j) => (j ? [...acc, ' ', el] : [el]), [])}
+          {h.after.length > 0 && <span> {h.after.join(' ')}…</span>}
+        </p>
+      ))}
+
+      <button type="button" onClick={() => setShowFull(s => !s)} className="self-start text-[11px] font-semibold text-blue-600 hover:text-blue-700">
+        {showFull ? 'Hide full before / after' : 'Show full before / after'}
+      </button>
+      {showFull && (
+        <div className="flex flex-col gap-1" data-change-full>
+          <div className="rounded border-l-2 border-red-300 bg-red-50 px-2 py-1">
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-red-700">Before</span>
+            <p className="whitespace-pre-wrap text-slate-700">{before || <span className="italic text-slate-400">(empty)</span>}</p>
+          </div>
+          <div className="rounded border-l-2 border-green-400 bg-green-50 px-2 py-1">
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-green-700">After</span>
+            <p className="whitespace-pre-wrap text-slate-700">{after || <span className="italic text-slate-400">(empty)</span>}</p>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+export function AuditTrailPanel({ documentId, section = null }: Props) {
   const [filter, setFilter] = useState<FilterKey>('all')
+  // Scoped to the selected section by default; picking another section re-scopes to it.
+  const [wholeDocument, setWholeDocument] = useState(false)
+  useEffect(() => { setWholeDocument(false) }, [section?.id])
+  const scopeSection = wholeDocument ? null : section
 
   // The trail is loaded a page at a time, newest first; "Load more" fetches the next page.
   const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
@@ -134,9 +213,10 @@ export function AuditTrailPanel({ documentId }: Props) {
 
   const filtered = useMemo(() => {
     const allowed = FILTER_MAP[filter]
-    if (allowed === 'all') return sorted
-    return sorted.filter(e => allowed.includes(e.eventType))
-  }, [sorted, filter])
+    const inScope = scopeSection ? sorted.filter(e => entryInSection(e, scopeSection)) : sorted
+    if (allowed === 'all') return inScope
+    return inScope.filter(e => allowed.includes(e.eventType))
+  }, [sorted, filter, scopeSection])
 
   // Downloads come from the API so the export is itself audited server-side.
   const [downloading, setDownloading] = useState<'csv' | 'pdf' | null>(null)
@@ -174,6 +254,32 @@ export function AuditTrailPanel({ documentId }: Props) {
 
       {/* Sub-header: filter chips + date range placeholder */}
       <div className="flex flex-none flex-col gap-2 border-b border-slate-200 px-4 py-2.5" style={{ backgroundColor: '#F8FAFC' }}>
+        {/* Scope: the selected section, or the whole document */}
+        {section && (
+          <div className="flex items-center gap-2" data-audit-scope={scopeSection ? 'section' : 'document'}>
+            {scopeSection ? (
+              <span className="inline-flex min-w-0 items-center gap-1 rounded-full border border-blue-300 bg-blue-50 py-0.5 pl-2.5 pr-1 text-[11px] font-semibold text-blue-800">
+                <span className="truncate">{scopeSection.number.startsWith('§') ? '' : '§'}{scopeSection.number} {scopeSection.title}</span>
+                <button
+                  type="button"
+                  onClick={() => setWholeDocument(true)}
+                  aria-label="Show the whole document's audit trail"
+                  title="Show the whole document"
+                  className="flex h-4 w-4 flex-none items-center justify-center rounded-full hover:bg-blue-100"
+                >
+                  <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M3 3l6 6M9 3l-6 6" /></svg>
+                </button>
+              </span>
+            ) : (
+              <>
+                <span className="text-[11px] font-semibold text-slate-700">Whole document</span>
+                <button type="button" onClick={() => setWholeDocument(false)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
+                  Only {section.number.startsWith('§') ? '' : '§'}{section.number} →
+                </button>
+              </>
+            )}
+          </div>
+        )}
         <div className="flex flex-wrap gap-1.5">
           {FILTER_CHIPS.map(chip => {
             const active = filter === chip.key
@@ -214,7 +320,14 @@ export function AuditTrailPanel({ documentId }: Props) {
 
         {!isLoading && filtered.length === 0 && (
           <div className="p-8 text-center">
-            <p className="text-sm font-semibold text-slate-900">No matching events{hasNextPage ? ' in the entries loaded so far' : ''}</p>
+            <p className="text-sm font-semibold text-slate-900">
+              {scopeSection ? 'No events for this section' : 'No matching events'}{hasNextPage ? ' in the entries loaded so far' : ''}
+            </p>
+            {scopeSection && (
+              <button type="button" onClick={() => setWholeDocument(true)} className="mt-1 mr-3 text-xs font-semibold text-blue-600 hover:text-blue-700">
+                Show whole document
+              </button>
+            )}
             {hasNextPage && filter !== 'all' && (
               <button
                 type="button"
@@ -270,6 +383,11 @@ export function AuditTrailPanel({ documentId }: Props) {
 
               {/* Row 3: detail */}
               <p className="text-[12px] leading-[1.5] text-slate-500">{entry.detail}</p>
+
+              {/* Section edits: previous → new content */}
+              {typeof entry.details?.before === 'string' && typeof entry.details?.after === 'string' && (
+                <ChangeBlock before={entry.details.before} after={entry.details.after} />
+              )}
             </div>
           )
         })}

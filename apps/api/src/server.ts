@@ -27,6 +27,11 @@ async function buildServer() {
     // encode <projectId>/<prefix>/<date>/<rand>.<ext> which decodes to
     // ~70-90 bytes but base64-encodes to ~100-130 chars.
     maxParamLength: 512,
+    // nginx proxies from loopback (infra/standalone/nginx/platform.conf) and
+    // sets X-Forwarded-For. Trusting only that hop makes request.ip the real
+    // client — otherwise every user shares one rate-limit bucket and audit
+    // rows record 127.0.0.1.
+    trustProxy: ['127.0.0.1', '::1'],
   })
 
   // ---- Decorate with providers (DI pattern) ----
@@ -167,10 +172,13 @@ async function buildServer() {
     // produce enough traffic to trip the limit, and users getting rate-limited
     // mid-login is a bad experience worth avoiding.
     allowList: (req) => req.url.startsWith('/auth/callback'),
-    // If Redis is unreachable at request time, don't 500 — fall back to the
-    // in-memory counter per instance. Alert fires via BullMQ queue-depth
-    // metric which proxies for Redis liveness.
-    continueExceeding: true,
+    // If Redis is unreachable at request time, don't 500 — let the request
+    // through. Alert fires via BullMQ queue-depth metric which proxies for
+    // Redis liveness.
+    skipOnError: true,
+    // continueExceeding stays off: it renews the block on every request made
+    // while limited, and the editor's presence/lock heartbeats would keep a
+    // limited user locked out indefinitely.
   })
 
   // ---------- Blob storage (local filesystem for dev; S3-compatible for prod) ----------

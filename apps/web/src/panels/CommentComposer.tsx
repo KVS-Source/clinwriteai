@@ -11,7 +11,12 @@ import { useCurrentUser } from '../hooks'
 //   - reviewer identity and timestamp are captured by the system, never typed;
 //   - the CMT-### id is assigned by the server and shown once the comment is saved.
 
-export interface ComposerSection { id: string; number: string; title: string }
+export interface ComposerSection {
+  id: string; number: string; title: string
+  // Who last saved the section and when (the document's section data carries these).
+  lastEditedAt?: string | null
+  lastEditedByName?: string | null
+}
 
 interface Props {
   documentId:       string
@@ -33,6 +38,9 @@ export const withSectionMark = (number: string) => (number.startsWith('§') ? nu
 export const sectionRefOf = (s: ComposerSection) => withSectionMark(s.number)
 // Comments tagged "§§15" (an older double-mark) read the same as "§15".
 export const cleanSectionRef = (ref: string) => (ref ? ref.replace(/^(§\s*)+/, '§') : ref)
+// The section a comment is tagged to (same tag matching as the label below).
+export const sectionOfRef = (ref: string, sections: ComposerSection[]) =>
+  sections.find(s => withSectionMark(s.number) === cleanSectionRef(ref)) ?? null
 // "§15 Safety Findings…" for a comment's section ref, using the document's own section list
 // (the Editor's Sections list). Falls back to just the number when the section or its title is missing.
 export function sectionLabelFor(ref: string, sections: ComposerSection[]): { ref: string; title: string } {

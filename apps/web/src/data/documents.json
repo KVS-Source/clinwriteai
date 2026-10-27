@@ -59,6 +59,8 @@
         "number": "§7",
         "title": "Introduction",
         "status": "complete",
+        "lastEditedByName": "Dr. Sarah Chen",
+        "lastEditedAt": "2026-10-20T10:00:00Z",
         "contentHtml": "<p>Non-small cell lung cancer accounts for approximately 85% of all lung cancer diagnoses and remains the leading cause of cancer-related mortality worldwide. For patients with metastatic NSCLC and high PD-L1 expression (TPS&nbsp;&ge;50%), pembrolizumab monotherapy is a standard of care based on the KEYNOTE-024 trial (Reck 2016), with median PFS of approximately 10.3&nbsp;months.</p><p>Veloricept is a first-in-class bispecific antibody targeting VEGFR2 and PD-L1, designed to simultaneously block tumour angiogenesis and restore anti-tumour T-cell immunity in the tumour microenvironment. Phase 1b/2 data (VELORA-101, Chen 2023) demonstrated an ORR of 54% and an acceptable safety profile when combined with pembrolizumab, supporting the Phase 3 investigation reported here.</p>"
       },
       {
@@ -66,6 +68,8 @@
         "number": "§8",
         "title": "Study Objectives",
         "status": "complete",
+        "lastEditedByName": "Dr. Elena Vasquez",
+        "lastEditedAt": "2026-10-25T09:30:00Z",
         "contentHtml": "<p><strong>Primary objective.</strong> To compare progression-free survival (PFS) by blinded independent central review (BICR) per RECIST&nbsp;v1.1 between veloricept + pembrolizumab and pembrolizumab + platinum-doublet chemotherapy.</p><p><strong>Key secondary objectives.</strong> (i) Overall survival (OS); (ii) objective response rate (ORR) per RECIST&nbsp;v1.1 by BICR; (iii) duration of response (DOR); (iv) safety and tolerability per CTCAE v5.0; (v) health-related quality of life per EORTC QLQ-C30 and QLQ-LC13.</p><p>Exploratory objectives included evaluation of PD-L1 TPS subgroups, tumour mutational burden, and circulating tumour DNA dynamics as potential predictive biomarkers.</p>"
       },
       {

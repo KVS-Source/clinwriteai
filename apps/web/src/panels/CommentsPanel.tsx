@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Comment, ResolutionType } from '@platform/types'
 import { documentsApi, describeApiError } from '../api'
 import { ResolveForm } from './ResolveCommentForm'
-import { CommentComposer, cleanSectionRef, withSectionMark, type ComposerSection } from './CommentComposer'
+import { CommentComposer, cleanSectionRef, sectionOfRef, withSectionMark, type ComposerSection } from './CommentComposer'
 
 interface Props {
   documentId:   string
@@ -20,17 +20,31 @@ interface Props {
   scopeToSection?: boolean
 }
 
-// Creator line + last-edited line, shared by the project panel and this one. A comment's only
-// change today is being resolved; resolved comments from before that was tracked fall back to the
-// creator and created time.
-export function CommentMeta({ comment }: { comment: Comment }) {
-  const resolvedNoInfo = comment.status === 'resolved' && !comment.lastEditedAt
-  const editedBy  = comment.lastEditedAt ? comment.lastEditedByName : resolvedNoInfo ? comment.reviewerName : null
-  const editedAge = comment.lastEditedAt ? comment.lastEditedAge : resolvedNoInfo ? comment.age : null
+// "3 days ago" style age for an ISO timestamp.
+export function timeAgo(iso: string): string {
+  const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000)
+  if (Number.isNaN(mins)) return ''
+  if (mins < 1) return 'just now'
+  if (mins < 60) return `${mins} min ago`
+  const hours = Math.floor(mins / 60)
+  if (hours < 24) return `${hours} hour${hours === 1 ? '' : 's'} ago`
+  const days = Math.floor(hours / 24)
+  if (days < 30) return `${days} day${days === 1 ? '' : 's'} ago`
+  const months = Math.floor(days / 30)
+  if (months < 12) return `${months} month${months === 1 ? '' : 's'} ago`
+  return `${Math.floor(months / 12)} year${Math.floor(months / 12) === 1 ? '' : 's'} ago`
+}
+
+// Creator line + last-edited line, shared by the project panel and this one. "Last edited" is the
+// last save of the section the comment is tagged to (who and when), not a change to the comment.
+export function CommentMeta({ comment, section }: { comment: Comment; section?: ComposerSection | null }) {
+  const edited = section?.lastEditedByName && section.lastEditedAt
+    ? `Last edited by ${section.lastEditedByName} · ${timeAgo(section.lastEditedAt)}`
+    : 'Not edited yet'
   return (
     <div className="flex flex-col gap-0.5 text-[11px] text-slate-500">
       <p data-meta="created">Created by {comment.reviewerName} · {comment.age}</p>
-      <p data-meta="edited">{editedBy ? `Last edited by ${editedBy} · ${editedAge}` : 'Not edited yet'}</p>
+      <p data-meta="edited" title="Last save of this comment's section">{edited}</p>
     </div>
   )
 }
@@ -67,6 +81,7 @@ interface CardProps {
   onResolveCancel:  () => void
   onResolveConfirm: (type: ResolutionType, note: string) => void
   focused?: boolean
+  section?: ComposerSection | null
 }
 
 // Scrolls the card into view and rings it for a couple of seconds when it's the focused comment.
@@ -83,7 +98,7 @@ function useFocusRing(focused: boolean | undefined) {
   return { ref, ring }
 }
 
-function CommentCard({ comment, resolving, isPending, error, onResolveClick, onResolveCancel, onResolveConfirm, focused }: CardProps) {
+function CommentCard({ comment, resolving, isPending, error, onResolveClick, onResolveCancel, onResolveConfirm, focused, section }: CardProps) {
   const { ref, ring } = useFocusRing(focused)
   return (
     <div
@@ -124,7 +139,7 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
         )}
       </div>
       <p className="text-[13px] leading-relaxed text-slate-900">{comment.text}</p>
-      <CommentMeta comment={comment} />
+      <CommentMeta comment={comment} section={section} />
       {resolving ? (
         <ResolveForm onCancel={onResolveCancel} onConfirm={onResolveConfirm} isPending={isPending} error={error} />
       ) : (
@@ -149,7 +164,7 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
 }
 
 // A resolved comment: read-only record (there is no reopen).
-function ResolvedCard({ comment, focused }: { comment: Comment; focused?: boolean }) {
+function ResolvedCard({ comment, focused, section }: { comment: Comment; focused?: boolean; section?: ComposerSection | null }) {
   const { ref, ring } = useFocusRing(focused)
   return (
     <div
@@ -171,7 +186,7 @@ function ResolvedCard({ comment, focused }: { comment: Comment; focused?: boolea
       </div>
       <span className="w-fit rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>Resolved</span>
       <p className="text-[13px] leading-relaxed text-slate-900">{comment.text}</p>
-      <CommentMeta comment={comment} />
+      <CommentMeta comment={comment} section={section} />
     </div>
   )
 }
@@ -330,6 +345,7 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
           onResolveCancel={() => { resolveMut.reset(); setResolvingId(null) }}
           onResolveConfirm={(type, note) => resolveMut.mutate({ id: c.id, type, note })}
           focused={focusCommentId === c.id}
+          section={sectionOfRef(c.sectionRef, sections)}
         />
       ))}
 
@@ -343,7 +359,7 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
           >
             {showResolved ? '▾' : '▸'} Resolved ({resolvedComments.length})
           </button>
-          {showResolved && resolvedComments.map((c: Comment) => <ResolvedCard key={c.id} comment={c} focused={focusCommentId === c.id} />)}
+          {showResolved && resolvedComments.map((c: Comment) => <ResolvedCard key={c.id} comment={c} focused={focusCommentId === c.id} section={sectionOfRef(c.sectionRef, sections)} />)}
         </div>
       )}
 

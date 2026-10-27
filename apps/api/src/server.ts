@@ -236,6 +236,9 @@ async function buildServer() {
   const { presenceRoutes } = await import('./modules/clinical-writing/presence/routes.js')
   await app.register(presenceRoutes, { prefix: '/documents' })
 
+  const { sectionLockRoutes } = await import('./modules/clinical-writing/section-locks/routes.js')
+  await app.register(sectionLockRoutes, { prefix: '/documents' })
+
   const { checklistRoutes, projectChecklistRoutes } = await import('./modules/clinical-writing/checklist/routes.js')
   await app.register(checklistRoutes, { prefix: '/documents' })
   // Project-level rollup for the Clinical Writing home page's "Checklist

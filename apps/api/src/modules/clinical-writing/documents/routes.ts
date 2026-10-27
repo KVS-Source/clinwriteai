@@ -37,6 +37,10 @@ import {
   STAGE_LABELS,
   type DbStage,
 } from '../document-stage.js'
+import {
+  requireLockHeldBy,
+  SECTION_LOCK_STALE_SECONDS,
+} from '../section-locks/service.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -278,6 +282,22 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
     const parsed = sectionUpdateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    // Autosave precondition (sPM-autosave): block the write when another user
+    // holds a live lock on this section. A missing or stale lock passes — the
+    // write still succeeds (legacy clients + first-save-after-reconnect paths),
+    // and the client is responsible for re-acquiring if it means to keep
+    // writing. See section-locks/service.ts.
+    const foreignHolder = await requireLockHeldBy(app.prisma, {
+      documentId, sectionId, userId: request.user!.id,
+    })
+    if (foreignHolder) {
+      return reply.code(423).send({
+        error:        'locked',
+        holder:       foreignHolder,
+        staleSeconds: SECTION_LOCK_STALE_SECONDS,
+      })
+    }
 
     const result = await svc.updateSection({
       documentId,

@@ -604,3 +604,35 @@ model PresenceSession {
   // the reaper closes stale duplicates. The 'who's here' aggregate query
   // dedupes by (userId, sectionId) at read time.
 }
+
+// --------------------------------------------------------------------------
+// 4.N section_locks — advisory lock while a writer actively edits a section
+// (autosave flow; sPM-autosave). Exactly one holder per (documentId, sectionId)
+// at a time, enforced by UNIQUE. The lock is lease-based: the client renews
+// via heartbeat every HEARTBEAT_INTERVAL seconds and the lock is considered
+// dead when lastHeartbeatAt is older than SECTION_LOCK_STALE_SECONDS
+// (default 90s). A fresh acquire from another user succeeds when the current
+// lock is dead; from the same user, it extends the existing lease (so a
+// page refresh never locks the writer out of their own section).
+//
+// Endpoints:
+//   POST   /documents/:docId/sections/:secId/lock   → acquire | extend
+//   DELETE /documents/:docId/sections/:secId/lock   → explicit release
+//
+// PATCH /sections/:secId checks this table and returns 423 Locked when
+// a different user holds a live lock. No lease = no write.
+// --------------------------------------------------------------------------
+
+model SectionLock {
+  id                String   @id @default(uuid())
+  documentId        String
+  sectionId         String
+  userId            String
+  acquiredAt        DateTime @default(now())
+  lastHeartbeatAt   DateTime @default(now())
+
+  @@map("section_locks")
+  @@unique([documentId, sectionId])
+  @@index([userId])
+  @@index([lastHeartbeatAt])
+}

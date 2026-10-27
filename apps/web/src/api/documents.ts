@@ -210,6 +210,87 @@ export const documentsApi = {
       waived: number
       mandatoryPending: number
     }>(`/projects/${projectId}/checklist-summary`),
+
+  // Phase 4b admin — template management. All admin-gated.
+  listChecklistTemplates: () =>
+    api.get<Array<{
+      id: string
+      deliverableType: string
+      projectId: string | null
+      version: number
+      effectiveDate: string
+      changeReason: string
+      isCurrent: boolean
+      templateStatus: 'draft' | 'locked'
+      approvedBy: string | null
+      approvedAt: string | null
+      createdBy: string
+      createdAt: string
+      itemCount: number
+      instanceCount: number
+    }>>(`/checklist-templates`),
+  getChecklistTemplate: (templateId: string) =>
+    api.get<{
+      id: string
+      deliverableType: string
+      projectId: string | null
+      version: number
+      effectiveDate: string
+      changeReason: string
+      isCurrent: boolean
+      templateStatus: 'draft' | 'locked'
+      approvedBy: string | null
+      approvedAt: string | null
+      createdBy: string
+      createdAt: string
+      instanceCount: number
+      items: Array<{
+        id: string
+        text: string
+        framework: string
+        frameworkMandatory: boolean
+        ownerRaci: 'R' | 'A' | 'C' | 'I'
+        stage:
+          | 'study_start_up'
+          | 'during_study'
+          | 'reporting'
+          | 'cross_functional_review'
+          | 'crm'
+          | 'final_output'
+        autoCompleteOn: 'submit_for_review' | 'crm_complete' | 'document_signed' | null
+        sortOrder: number
+      }>
+    }>(`/checklist-templates/${templateId}`),
+  approveChecklistTemplate: (templateId: string) =>
+    api.post<unknown>(`/checklist-templates/${templateId}/approve`, {}),
+  bumpChecklistTemplateDraft: (templateId: string) =>
+    api.post<{ id: string; version: number; templateStatus: 'draft' }>(`/checklist-templates/${templateId}/bump-draft`, {}),
+  cloneChecklistTemplateToProject: (templateId: string, projectId: string) =>
+    api.post<{ id: string; projectId: string; version: number; templateStatus: 'draft' }>(
+      `/checklist-templates/${templateId}/clone-to-project`,
+      { projectId },
+    ),
+  addChecklistTemplateItem: (templateId: string, body: {
+    text: string
+    framework: string
+    frameworkMandatory?: boolean
+    ownerRaci: 'R' | 'A' | 'C' | 'I'
+    stage: 'study_start_up' | 'during_study' | 'reporting' | 'cross_functional_review' | 'crm' | 'final_output'
+    autoCompleteOn?: 'submit_for_review' | 'crm_complete' | 'document_signed' | null
+  }) => api.post<{ id: string }>(`/checklist-templates/${templateId}/items`, body),
+  patchChecklistTemplateItem: (itemId: string, body: {
+    text?: string
+    framework?: string
+    frameworkMandatory?: boolean
+    ownerRaci?: 'R' | 'A' | 'C' | 'I'
+    stage?: 'study_start_up' | 'during_study' | 'reporting' | 'cross_functional_review' | 'crm' | 'final_output'
+    autoCompleteOn?: 'submit_for_review' | 'crm_complete' | 'document_signed' | null
+  }) => api.patch<{ id: string }>(`/checklist-templates/items/${itemId}`, body),
+  deleteChecklistTemplateItem: (itemId: string) =>
+    api.delete<void>(`/checklist-templates/items/${itemId}`),
+  moveChecklistTemplateItem: (itemId: string, direction: 'up' | 'down') =>
+    api.post<{ ok: true }>(`/checklist-templates/items/${itemId}/move`, { direction }),
+
   // Checklist
   getChecklist: (documentId: string) =>
     api.get<ChecklistItem[]>(`/documents/${documentId}/checklist`),
@@ -303,9 +384,14 @@ export const documentsApi = {
       }>
     }>(`/documents/${documentId}/sections/${sectionId}/history${suffix}`)
   },
+  // NOTE: these three "top-level" endpoints (/section-edits/*,
+  // /ai-chat-messages/*) are registered inside documentsRoutes, which the
+  // server mounts under prefix='/documents'. So the real serving path is
+  // /documents/section-edits/... — not /section-edits/.... Prefixing the
+  // client call here matches reality until the server plugin split lands.
   revertSectionEdit: (editHistoryId: string) =>
     api.post<{ ok: true; documentId: string; sectionId: string; contentHtml: string; revertedAt: string }>(
-      `/section-edits/${editHistoryId}/revert`, {},
+      `/documents/section-edits/${editHistoryId}/revert`, {},
     ),
   // Full before/after HTML for one history row (sPM-autosave diff expand).
   // Called lazily when the user clicks "Show change" on a row — avoids
@@ -319,7 +405,7 @@ export const documentsApi = {
       createdAt:     string
       beforeHtml:    string | null
       afterHtml:     string
-    }>(`/section-edits/${editHistoryId}/diff`),
+    }>(`/documents/section-edits/${editHistoryId}/diff`),
 
   // AI chat (sPM-ai-chat) — per-user, per-section conversation thread.
   // Every /ai-suggest call writes two rows (user turn + assistant turn)
@@ -343,9 +429,12 @@ export const documentsApi = {
         createdAt:        string
       }>
     }>(`/documents/${documentId}/sections/${sectionId}/ai-chat`),
+  // Same /documents prefix caveat as revertSectionEdit above — the route is
+  // registered inside documentsRoutes so the real path has the /documents
+  // prefix even though the endpoint isn't scoped to any one document.
   acceptAiChatMessage: (messageId: string) =>
     api.post<{ id: string; appliedToSection: boolean; appliedAt: string | null }>(
-      `/ai-chat-messages/${messageId}/accept`, {},
+      `/documents/ai-chat-messages/${messageId}/accept`, {},
     ),
   // Signatures
   // The API at /documents/:id/signature-chains returns SignatureChain[]
@@ -382,9 +471,38 @@ export const documentsApi = {
   // POST /signature-records/:recordId/sign); POST /documents/:id/sign never existed.
   // Reference tools
   getTLF: (documentId: string) =>
-    api.get<{ package: { version: string; validatedBy: string; validatedDate: string }; items: unknown[] }>(`/documents/${documentId}/tlf`),
+    api.get<{
+      package: { version: string; validatedBy: string; validatedDate: string }
+      items: Array<{
+        type: 'T' | 'L' | 'F'
+        id: string                          // human-readable ref (e.g. "T-14.1.1")
+        title: string
+        linkedSections: string[]            // sectionRefs citing this item on THIS doc
+        referenceCount: number
+      }>
+    }>(`/documents/${documentId}/tlf`),
   getICHE3: (documentId: string) =>
-    api.get<{ completionPercent: number; completeSections: number; totalSections: number; sections: unknown[] }>(`/documents/${documentId}/ich-e3`),
+    api.get<{
+      completionPercent: number
+      completeSections:  number
+      totalSections:     number
+      sections: Array<{
+        code:      string
+        title:     string
+        sectionId: string
+        status:    'complete' | 'in_progress' | 'not_started' | 'waived' | 'warning'
+        waiver?: {
+          waivedBy: string
+          waivedAt: string
+          reason:   string
+          versionAtWaiver: string
+        }
+      }>
+    }>(`/documents/${documentId}/ich-e3`),
+  waiveICHE3Section: (documentId: string, sectionCode: string, reason: string) =>
+    api.post<unknown>(`/documents/${documentId}/ich-e3/${encodeURIComponent(sectionCode)}/waive`, { reason }),
+  unwaiveICHE3Section: (documentId: string, sectionCode: string) =>
+    api.delete<void>(`/documents/${documentId}/ich-e3/${encodeURIComponent(sectionCode)}/waive`),
   // Presence
   updatePresence: (documentId: string, body: { sectionId: string; status: string }) =>
     api.post<{ activeSessions: unknown[] }>(`/documents/${documentId}/presence`, body),

@@ -337,8 +337,14 @@ export function CRMModule() {
   // open as the chair picks different comments and the viewer auto-scrolls
   // to each new section ref. Closes on backdrop click / X / Esc.
   const [docViewerOpen, setDocViewerOpen] = useState(false)
-  const activeCommentSectionRef = effectiveActive
-    ? commentsById.get(effectiveActive)?.sectionRef ?? null
+  const activeComment = effectiveActive ? commentsById.get(effectiveActive) ?? null : null
+  const activeCommentSectionRef = activeComment?.sectionRef ?? null
+  // 1-based position within the full queue so the viewer's chrome can
+  // render "Comment 3 of 7". queueIds is resolved + pending interleaved,
+  // which is the same order the queue renders in the centre panel.
+  const activeCommentPosition = effectiveActive ? queueIds.indexOf(effectiveActive) + 1 : 0
+  const activeCommentLabel = activeComment
+    ? `${cleanSectionRef(activeComment.sectionRef)}${activeComment.severity ? ` · ${activeComment.severity.charAt(0).toUpperCase()}${activeComment.severity.slice(1)}` : ''}`
     : null
 
   const refresh = () => {
@@ -595,6 +601,9 @@ export function CRMModule() {
         <CRMDocumentViewer
           documentId={activeDocId}
           jumpToSectionRef={activeCommentSectionRef}
+          commentIndex={activeCommentPosition > 0 ? activeCommentPosition : null}
+          commentTotal={queueIds.length}
+          commentLabel={activeCommentLabel}
           onClose={() => setDocViewerOpen(false)}
         />
       )}

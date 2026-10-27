@@ -21,6 +21,11 @@ interface Props {
   /** Section the overlay should scroll into view on open / on prop change.
    *  Accepts "§15", "15", "§11.4.1" — the match is on normalized `section.id`. */
   jumpToSectionRef?: string | null
+  /** 1-based position of the active comment in the queue, for the "Comment N of M" chip. */
+  commentIndex?: number | null
+  commentTotal?: number | null
+  /** Short label for the active comment ("§15 · Minor") rendered next to the chip. */
+  commentLabel?: string | null
   onClose: () => void
 }
 
@@ -30,7 +35,7 @@ function normalizeRef(ref: string | null | undefined): string {
   return (ref ?? '').replace(/^§/, '').trim()
 }
 
-export function CRMDocumentViewer({ documentId, jumpToSectionRef, onClose }: Props) {
+export function CRMDocumentViewer({ documentId, jumpToSectionRef, commentIndex, commentTotal, commentLabel, onClose }: Props) {
   const { data: document } = useQuery<Document>({
     queryKey: ['document', documentId],
     queryFn:  () => documentsApi.get(documentId),
@@ -119,6 +124,27 @@ export function CRMDocumentViewer({ documentId, jumpToSectionRef, onClose }: Pro
             </svg>
           </button>
         </div>
+
+        {/* Sticky "Comment N of M" chrome — tells the chair which comment
+            drove the current auto-scroll + which section is highlighted.
+            Only renders when the caller passes commentIndex/Total, so the
+            viewer still works standalone (e.g. opened without any queue
+            selection) without a dead ribbon. */}
+        {commentIndex != null && commentTotal != null && commentTotal > 0 && (
+          <div
+            className="flex flex-none items-center gap-2 border-b border-amber-200 bg-amber-50/80 px-6 py-1.5 text-[11px] text-amber-900"
+            data-crm-viewer-chrome
+          >
+            <span className="font-mono font-semibold">Comment {commentIndex} of {commentTotal}</span>
+            {commentLabel && (
+              <>
+                <span className="text-amber-400">·</span>
+                <span className="truncate">{commentLabel}</span>
+              </>
+            )}
+            <span className="ml-auto text-amber-700/70">Scrolled to the cited section</span>
+          </div>
+        )}
 
         {/* Body — scrollable section list. No TipTap, no toolbar, no AI,
             no version switcher, no section lock. Pure HTML preview. */}

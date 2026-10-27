@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { Comment, CommentSeverity, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
+import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill, SlidePanel } from '../../components/ui'
@@ -10,6 +10,8 @@ import { NewDocumentForm } from './NewDocument'
 import { UploadDocumentForm } from './UploadDocument'
 import { SourceDocumentsTab } from './SourceDocumentsTab'
 import { DocumentDetailPanel } from './DocumentDetailPanel'
+import { DocumentCommentsPanel } from './DocumentCommentsPanel'
+import { cleanSectionRef } from '../../panels/CommentComposer'
 
 // --- Enum → display label maps ---
 
@@ -106,14 +108,8 @@ const STAGE_STEPPER_WIDTHS: Record<DocumentStage, string> = {
   'final-output':            '72px',
 }
 
-// Open Comments sidebar — how many of the newest open comments to show.
-const SIDEBAR_COMMENT_LIMIT = 4
-
-const SEVERITY_BADGE: Record<CommentSeverity, { label: string; bg: string; fg: string }> = {
-  major: { label: 'Major', bg: '#FEE2E2', fg: '#DC2626' },
-  minor: { label: 'Minor', bg: '#FFFBEB', fg: '#B45309' },
-  query: { label: 'Query', bg: '#EFF6FF', fg: '#2563EB' },
-}
+// Checklist status box is hidden for now; the right-hand column only renders when this is true.
+const SHOW_CHECKLIST_STATUS = false
 
 const CHECKLIST_ROW_COLOURS = {
   complete: '#16A34A',
@@ -122,7 +118,7 @@ const CHECKLIST_ROW_COLOURS = {
 }
 
 // --- Column widths (matches prototype grid-template) ---
-const COL_TEMPLATE = '2.1fr 1fr 1.2fr 1.1fr 0.9fr 1.1fr 0.8fr'
+const COL_TEMPLATE = '2fr 1fr 1.2fr 1.1fr 0.9fr 1.1fr 120px 240px'
 
 export function ClinicalWritingHome() {
   const { projectId }    = useParams()
@@ -161,13 +157,15 @@ export function ClinicalWritingHome() {
   const [uploadOpen, setUploadOpen] = useState(false)
   // Document whose detail panel is open (row click) and the table's column sort.
   const [detailDoc, setDetailDoc] = useState<Document | null>(null)
+  // Document whose comments panel is open (the table's "Comments" column).
+  const [commentsDocId, setCommentsDocId] = useState<string | null>(null)
   const [docSort, setDocSort] = useState<{ key: DocSortKey; dir: 'asc' | 'desc' } | null>(null)
   const qc = useQueryClient()
   // Set after "Save to library" in the upload drawer: we stay on the Source Documents
   // tab and offer to write a document from the file that was just saved.
   const [justAdded, setJustAdded] = useState<{ uploadId: string } | null>(null)
 
-  useEffect(() => { if (view !== 'documents') setDetailDoc(null) }, [view])
+  useEffect(() => { if (view !== 'documents') { setDetailDoc(null); setCommentsDocId(null) } }, [view])
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -287,9 +285,10 @@ export function ClinicalWritingHome() {
     navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}`)
   }
 
-  // Open review comments across the project's documents (FR-A-052). Comments are fetched per
-  // document, sharing the cache key the Comments panel uses. Reviewer "approve" verdicts are
-  // stored as comments but aren't open issues, so they're left out.
+  // Comments are fetched per document and cached under ['comments', id], the same key the Comments
+  // page and reviewer view use and invalidate, so the counts here refresh when a comment is added or
+  // resolved. Reviewer "approve" verdicts are stored as comments but are sign-offs, not issues, so
+  // they are left out of the counts.
   const commentQueries = useQueries({
     queries: documents.map((d: Document) => ({
       queryKey: ['comments', d.id],
@@ -298,15 +297,25 @@ export function ClinicalWritingHome() {
     })),
   })
   const commentsLoading = isLoading || commentQueries.some(q => q.isLoading)
-  const commentsFailed  = commentQueries.some(q => q.isError)
-  const docTitleById = new Map(documents.map((d: Document) => [d.id, d.title]))
-  const openComments = commentQueries
-    .flatMap(q => (q.data ?? []) as Comment[])
-    .filter(c => c.status === 'open' && c.verdict !== 'approve')
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-  const openCommentDoc = (c: Comment) => docTitleById.get(c.documentId) ?? ''
-  const openCommentCount = openComments.length
+  const commentStats = new Map<string, { open: number; resolved: number; loading: boolean; failed: boolean }>()
+  documents.forEach((d: Document, i: number) => {
+    const q = commentQueries[i]
+    const issues = ((q?.data ?? []) as Comment[]).filter(c => c.verdict !== 'approve')
+    commentStats.set(d.id, {
+      open:     issues.filter(c => c.status === 'open').length,
+      resolved: issues.filter(c => c.status === 'resolved').length,
+      loading:  !!q?.isLoading,
+      failed:   !!q?.isError,
+    })
+  })
+  const openCommentCount = Array.from(commentStats.values()).reduce((n, s) => n + s.open, 0)
   const openCommentLabel = commentsLoading ? '…' : String(openCommentCount)
+  const commentsDoc = commentsDocId ? documents.find((d: Document) => d.id === commentsDocId) ?? null : null
+  const commentsQuery = commentsDoc ? commentQueries[documents.indexOf(commentsDoc)] : undefined
+  const openCommentsFor = (doc: Document) => {
+    setDetailDoc(null)
+    setCommentsDocId(doc.id)
+  }
   const activeTypes  = Array.from(new Set(documents.map((d: Document) => d.type))) as DocumentType[]
   const activeStatuses = Array.from(new Set(documents.map((d: Document) => d.status))) as DocumentStatus[]
 
@@ -497,6 +506,9 @@ export function ClinicalWritingHome() {
               )}
             </div>
 
+            {/* Scrolls sideways on narrow screens instead of squeezing the columns together. */}
+            <div className="overflow-x-auto">
+            <div className="min-w-[1180px]">
             {/* Column headers */}
             <div
               className="border-b border-slate-200 bg-slate-50 px-5 py-3 text-xs font-semibold text-slate-500"
@@ -518,6 +530,7 @@ export function ClinicalWritingHome() {
                 </div>
               ))}
               <div className="text-right">Quick Actions</div>
+              <div className="pl-7">Comments</div>
             </div>
 
             {/* Rows */}
@@ -578,9 +591,22 @@ export function ClinicalWritingHome() {
                       onDuplicate={() => setNewDocOpen({ duplicateSourceId: doc.id })}
                     />
                   </div>
+                  {/* The whole cell is the button: it stretches over the row's padding so the full cell height is clickable. */}
+                  <button
+                    type="button"
+                    onClick={e => { e.stopPropagation(); openCommentsFor(doc) }}
+                    data-comments-trigger
+                    data-comments-cell={doc.id}
+                    aria-label={`View comments for ${doc.title}`}
+                    className="-my-4 ml-4 grid cursor-pointer grid-cols-[62px_92px] items-center justify-start gap-1.5 self-stretch px-3 text-left transition-colors hover:bg-blue-50/60"
+                  >
+                    <CommentsCell stats={commentStats.get(doc.id)} />
+                  </button>
                 </div>
               )
             })}
+            </div>
+            </div>
           </div>
 
           {/* Count footer */}
@@ -589,62 +615,8 @@ export function ClinicalWritingHome() {
           </div>
         </div>
 
-        {/* Right column: comments + checklist */}
-        <div className="flex w-[280px] flex-none flex-col gap-5">
-
-          <div className="flex flex-col gap-2.5">
-            <div className="flex items-baseline justify-between">
-              <p className="text-xs font-semibold text-slate-500">Open Comments ({openCommentLabel})</p>
-              <button
-                type="button"
-                onClick={() => navigate(`/projects/${projectId}/clinical-writing/comments`)}
-                className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-                data-action="view-all-comments"
-              >
-                View all
-              </button>
-            </div>
-            {commentsLoading && (
-              <p className="rounded-lg border border-slate-200 bg-white p-3 text-[12px] text-slate-400">Loading comments…</p>
-            )}
-            {!commentsLoading && openCommentCount === 0 && (
-              <p className="rounded-lg border border-slate-200 bg-white p-3 text-[12px] text-slate-500" data-empty-comments>
-                {commentsFailed ? 'Some comments could not be loaded.' : 'No open comments.'}
-              </p>
-            )}
-            {!commentsLoading && openComments.slice(0, SIDEBAR_COMMENT_LIMIT).map(c => {
-              const sev = SEVERITY_BADGE[c.severity] ?? SEVERITY_BADGE.minor
-              return (
-                <div
-                  key={c.id}
-                  className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3"
-                  data-comment-card={c.id}
-                >
-                  <div className="flex w-full items-center gap-2">
-                    <span className="font-mono text-[10px] text-slate-500">{c.id}</span>
-                    {c.sectionRef && (
-                      <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{c.sectionRef}</span>
-                    )}
-                    <div className="flex-1" />
-                    <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: sev.bg, color: sev.fg }}>{sev.label}</span>
-                  </div>
-                  <div className="flex w-full min-w-0 items-center gap-2">
-                    <div className="flex h-[22px] w-[22px] flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>
-                      {initialsOf(c.reviewerName ?? '')}
-                    </div>
-                    <div className="truncate text-[13px] text-slate-900">{c.text || <span className="italic text-slate-400">No comment text</span>}</div>
-                  </div>
-                  <p className="w-full truncate text-[11px] text-slate-500">{openCommentDoc(c)}</p>
-                  <p className="text-[11px] text-slate-500">{c.reviewerName} · {c.age}</p>
-                </div>
-              )
-            })}
-            {!commentsLoading && openCommentCount > SIDEBAR_COMMENT_LIMIT && (
-              <p className="text-[11px] text-slate-500">
-                + {openCommentCount - SIDEBAR_COMMENT_LIMIT} more open comments
-              </p>
-            )}
-          </div>
+        {/* Right column: checklist status (hidden for now) */}
+        {SHOW_CHECKLIST_STATUS && <div className="flex w-[280px] flex-none flex-col gap-5">
 
           <div className="flex flex-col gap-2.5">
             <p className="text-xs font-semibold text-slate-500">Checklist status</p>
@@ -675,7 +647,7 @@ export function ClinicalWritingHome() {
             </div>
           </div>
 
-        </div>
+        </div>}
           </>
         )}
       </div>
@@ -689,6 +661,24 @@ export function ClinicalWritingHome() {
           assigneeName={detailDoc ? (teamById.get(detailDoc.assigneeId)?.name ?? '—') : ''}
           onClose={() => setDetailDoc(null)}
           onOpen={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
+        />
+      )}
+
+      {view === 'documents' && commentsDoc && (
+        <DocumentCommentsPanel
+          doc={commentsDoc}
+          comments={(commentsQuery?.data ?? []) as Comment[]}
+          isLoading={!!commentsQuery?.isLoading}
+          isError={!!commentsQuery?.isError}
+          onRetry={() => { void commentsQuery?.refetch() }}
+          onClose={() => setCommentsDocId(null)}
+          onOpenDocument={comment => {
+            const base = `/projects/${projectId}/clinical-writing/documents/${commentsDoc.id}`
+            const params = comment?.sectionRef
+              ? `?section=${encodeURIComponent(cleanSectionRef(comment.sectionRef))}&comment=${encodeURIComponent(comment.id)}`
+              : ''
+            navigate(base + params)
+          }}
         />
       )}
 
@@ -778,6 +768,21 @@ function TabButton({ label, active, onClick }: { label: string; active: boolean;
     >
       {label}
     </button>
+  )
+}
+
+// Open / Resolved badges for the table's Comments column.
+function CommentsCell({ stats }: { stats?: { open: number; resolved: number; loading: boolean; failed: boolean } }) {
+  // Fixed-width slots (Open | Resolved | View) so every row lines up. Rendered inside the cell's grid.
+  const empty = (text: string, title?: string) => <span className="col-span-2 text-center text-xs text-slate-400" title={title}>{text}</span>
+  if (!stats || stats.loading) return empty('…')
+  if (stats.failed && stats.open + stats.resolved === 0) return empty('—', 'Comments could not be loaded')
+  if (stats.open + stats.resolved === 0) return empty('No comments')
+  return (
+    <>
+      <span className="rounded-full px-2 py-0.5 text-center text-[11px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}>{stats.open} Open</span>
+      <span className="rounded-full px-2 py-0.5 text-center text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>{stats.resolved} Resolved</span>
+    </>
   )
 }
 

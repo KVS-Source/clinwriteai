@@ -123,6 +123,11 @@ export interface Comment {
   verdict?: ReviewerVerdict | null
   createdAt: string
   age: string // computed display value e.g. "3 days ago"
+  // Latest change to the comment. Comments can't be edited after posting, so today this is the
+  // resolve (who + when); all null while the comment is untouched. Optional: older payloads omit them.
+  lastEditedAt?: string | null
+  lastEditedByName?: string | null
+  lastEditedAge?: string | null
 }
 
 export interface ChecklistItem {

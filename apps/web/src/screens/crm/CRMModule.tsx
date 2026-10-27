@@ -20,6 +20,7 @@ import { platformApi } from '../../platform/api/platformApi'
 import { useCurrentUser } from '../../hooks'
 import { useCRMStore } from '../../store'
 import { CommentResolutionPanel } from '../../panels/CommentResolutionPanel'
+import { cleanSectionRef } from '../../panels/CommentComposer'
 
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
   MW: { bg: '#DBEAFE', fg: '#1D4ED8' },
@@ -92,7 +93,7 @@ function ResolvedCard({ comment, resolution, resolverName }: { comment: Comment;
     <div className="flex flex-col gap-2 rounded-lg p-4" style={{ border: '1px solid #BBF7D0', backgroundColor: '#F0FDF4' }} data-crm-comment={comment.id} data-state="resolved">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[9px] tracking-wider text-slate-500">{comment.id}</span>
-        <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }}>{comment.sectionRef}</span>
+        <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }}>{cleanSectionRef(comment.sectionRef)}</span>
         <div className="flex-1" />
         <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0' }}>Resolved ✓</span>
       </div>
@@ -129,7 +130,7 @@ function ActiveCard({ comment, canResolve, onResolve }: { comment: Comment; canR
       <MonoLabel color="#2563EB">Active discussion</MonoLabel>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[9px] tracking-wider text-slate-500">{comment.id}</span>
-        <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }}>{comment.sectionRef}</span>
+        <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }}>{cleanSectionRef(comment.sectionRef)}</span>
         <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500" style={{ backgroundColor: '#F8FAFC' }}>{comment.verdict === 'request_changes' ? 'Return for revision' : comment.severity}</span>
         <div className="flex-1" />
         <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#2563EB' }}>In discussion</span>
@@ -163,7 +164,7 @@ function PendingCard({ comment, onSelect }: { comment: Comment; onSelect: () => 
     >
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[9px] tracking-wider text-slate-500">{comment.id}</span>
-        <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#94A3B8' }}>{comment.sectionRef}</span>
+        <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#94A3B8' }}>{cleanSectionRef(comment.sectionRef)}</span>
         <div className="flex-1" />
         <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>Pending</span>
       </div>

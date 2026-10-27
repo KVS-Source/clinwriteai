@@ -265,6 +265,81 @@ describe('GET /admin/audit/facets', () => {
   })
 })
 
+describe('GET /admin/audit/newer', () => {
+  const newerSql = (calls: Call[]) => calls.find(c => c.sql.includes('a.id >'))!
+
+  it('reports how many matching entries are newer than the given id', async () => {
+    const { app } = await setupApp({ count: 7 })
+    const res = await app.inject({ method: 'GET', url: '/admin/audit/newer?afterId=3672' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ count: 7, capped: false })
+  })
+
+  it('stops counting at the cap and says so', async () => {
+    const { app, calls } = await setupApp({ count: 101 })
+    const body = (await app.inject({ method: 'GET', url: '/admin/audit/newer?afterId=1' })).json()
+    expect(body).toEqual({ count: 100, capped: true })
+    expect(newerSql(calls).sql).toContain('LIMIT 101')
+  })
+
+  it('is a single cheap query: no page fetch, no ordering, only ids after afterId', async () => {
+    const { app, calls } = await setupApp({ count: 0 })
+    await app.inject({ method: 'GET', url: '/admin/audit/newer?afterId=3672' })
+    expect(calls).toHaveLength(1)
+    expect(calls[0]!.sql).toContain('a.id > $1::bigint')
+    expect(calls[0]!.sql).not.toContain('ORDER BY')
+    expect(calls[0]!.params).toEqual(['3672'])
+  })
+
+  it('applies the same filters as the list, before the id condition', async () => {
+    const { app, calls } = await setupApp({ count: 2 })
+    await app.inject({ method: 'GET', url: '/admin/audit/newer?afterId=50&action=login&entityId=DOC-1&q=alex' })
+    const { sql, params } = newerSql(calls)
+    expect(sql).toMatch(/a\.entity_id = \$\d/)
+    expect(sql).toMatch(/a\.action ILIKE \$\d/)
+    expect(sql).toMatch(/AND a\.id > \$\d+::bigint/)
+    expect(params[params.length - 1]).toBe('50')
+    expect(params).toContain('DOC-1')
+    expect(params).toContain('%login%')
+  })
+
+  it('keeps an admin inside their own tenant', async () => {
+    const { app, calls } = await setupApp({ role: 'admin', tenantId: 'TENANT-ACME', count: 1 })
+    await app.inject({ method: 'GET', url: '/admin/audit/newer?afterId=10' })
+    expect(newerSql(calls).sql).toMatch(/u\."tenantId" = \$1 AND a\.id > \$2::bigint/)
+    expect(newerSql(calls).params).toEqual(['TENANT-ACME', '10'])
+  })
+
+  it('shows an admin with no tenant nothing (fails closed)', async () => {
+    const { app, calls } = await setupApp({ role: 'admin', tenantId: null, count: 0 })
+    await app.inject({ method: 'GET', url: '/admin/audit/newer?afterId=10' })
+    expect(newerSql(calls).sql).toMatch(/WHERE FALSE AND a\.id >/)
+  })
+
+  it('requires a numeric afterId', async () => {
+    const { app, calls } = await setupApp()
+    for (const url of ['/admin/audit/newer', '/admin/audit/newer?afterId=abc', '/admin/audit/newer?afterId=1;DROP']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode).toBe(400)
+    }
+    expect(calls).toHaveLength(0)
+  })
+
+  it('is closed to non-admin roles and unauthenticated callers', async () => {
+    const anon = await setupApp({ role: null })
+    expect((await anon.app.inject({ method: 'GET', url: '/admin/audit/newer?afterId=1' })).statusCode).toBe(401)
+    await current?.close()
+    const writer = await setupApp({ role: 'clinical-writer' })
+    expect((await writer.app.inject({ method: 'GET', url: '/admin/audit/newer?afterId=1' })).statusCode).toBe(403)
+    expect(writer.calls).toHaveLength(0)
+  })
+
+  it('does not write an audit entry (polling must not grow the log)', async () => {
+    const { app, append } = await setupApp({ count: 0 })
+    for (let i = 0; i < 3; i++) await app.inject({ method: 'GET', url: '/admin/audit/newer?afterId=1' })
+    expect(append).not.toHaveBeenCalled()
+  })
+})
+
 describe('GET /admin/audit/verify', () => {
   it('passes the id range to the repository and echoes it back', async () => {
     const { app, verifyChain } = await setupApp()

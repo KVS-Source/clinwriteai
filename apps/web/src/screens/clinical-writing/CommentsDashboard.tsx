@@ -1,4 +1,5 @@
 import { ResolveForm } from '../../panels/ResolveCommentForm'
+import { cleanSectionRef } from '../../panels/CommentComposer'
 import { useMemo, useState } from 'react'
 import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
@@ -200,7 +201,7 @@ function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick,
             className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900"
             style={{ backgroundColor: '#F1F5F9' }}
           >
-            {comment.sectionRef}
+            {cleanSectionRef(comment.sectionRef)}
           </span>
         )}
         <p className="whitespace-nowrap font-mono text-[9px] tracking-wider text-slate-500">{comment.id}</p>

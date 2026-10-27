@@ -28,6 +28,7 @@ import { ReviewAssignmentPanel }  from '../../panels/ReviewAssignmentPanel'
 import { ICHValidatorPanel }      from '../../panels/ICHValidatorPanel'
 import { MedDRAPanel }            from '../../panels/MedDRAPanel'
 import { CommentsPanel }          from '../../panels/CommentsPanel'
+import { cleanSectionRef, withSectionMark } from '../../panels/CommentComposer'
 import { AIChatPanel }            from '../../panels/AIChatPanel'
 import { SectionHistoryPanel }    from '../../panels/SectionHistoryPanel'
 import { AIPromptHelpPanel }      from '../../panels/AIPromptHelpPanel'
@@ -298,7 +299,13 @@ export function DocumentEditor() {
     if (sameDocument && current && document.sections.some(s => s.id === current)) return
     startedDocumentRef.current = document.id
     // Default to §11.4 Primary Efficacy Analysis if it exists (matches prototype)
-    const defaultSection = document.sections.find(s => s.id === 's11_4')?.id
+    // "Open at §x" links from the project's comments panel pass ?section=§x.
+    const linkedRef = new URLSearchParams(window.location.search).get('section')
+    const linkedSection = linkedRef
+      ? document.sections.find(s => withSectionMark(s.number) === cleanSectionRef(linkedRef))?.id
+      : undefined
+    const defaultSection = linkedSection
+      ?? document.sections.find(s => s.id === 's11_4')?.id
       ?? document.sections.find(s => s.status === 'in-progress')?.id
       ?? document.sections[0]?.id
       ?? null
@@ -393,6 +400,12 @@ export function DocumentEditor() {
   // review" button), auto-open the panel on mount + strip the param so a
   // reload doesn't re-open it.
   const [searchParams, setSearchParams] = useSearchParams()
+  // "Open at §x" from the project's comments panel: ?section=§x&comment=CMT-019 opens the comments
+  // panel with that comment scrolled to and highlighted (the section itself is picked below).
+  const focusCommentId = searchParams.get('comment')
+  useEffect(() => {
+    if (focusCommentId) setActivePanel('comments')
+  }, [focusCommentId, setActivePanel])
   useEffect(() => {
     if (searchParams.get('submit') === '1') {
       setActivePanel('review-assignment')
@@ -460,7 +473,8 @@ export function DocumentEditor() {
   // Closing the panel closes the viewer too.
   useEffect(() => { if (activePanel !== 'traceability') setSourceViewer(null) }, [activePanel, setSourceViewer])
 
-  // Source References, Audit Trail and AI Chat close on a click outside the panel. A click
+  // Source References, Audit Trail, Comments and AI Chat close on a click outside the panel (so does a click
+  // on another button). Comments stays open when you pick another section: it re-scopes to that section. A click
   // in the section still counts as outside, except when it ends a text selection (picking the
   // text to link) or lands on reference-marked text (which opens that source in the panel). A press that starts in the
   // panel (resizing, selecting), the Reference menu or a button that opens a panel
@@ -472,23 +486,28 @@ export function DocumentEditor() {
     // editor while they work, not auto-closing on every editor click.
     // Close via the X in the panel header, Esc with focus outside the
     // chat input, or by opening a different panel.
-    if (activePanel !== 'traceability' && activePanel !== 'audit') return
+    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments') return
     // The click that opened the panel is still being dispatched when this listener is added,
     // so only clicks whose mousedown we saw count.
     let pressed = false
     let pressedExempt = false
     let pressedInContent = false
+    let pressedButton = false
     const onDown = (e: MouseEvent) => {
       const t = e.target as Element | null
       pressed = true
+      pressedButton = !!t?.closest('button')
+      // The Comments panel follows the section you pick, so clicks in the Sections list leave it open.
       pressedExempt = !t || !!rightPanelRef.current?.contains(t) || !!t.closest('[data-reference-dropdown], [data-slide-panel], [data-panel-trigger]')
+        || (activePanel === 'comments' && !!t.closest('[data-section-nav]'))
       pressedInContent = !!t && !!sectionContentRef.current?.contains(t)
     }
     const onClick = (e: MouseEvent) => {
       const t = e.target as Element | null
       if (!pressed) return
       pressed = false
-      if (!t || pressedExempt || !t.isConnected || rightPanelRef.current?.contains(t)) return
+      // A button that removes itself when clicked (Edit section) is gone by now but still counts.
+      if (!t || pressedExempt || (!t.isConnected && !pressedButton) || rightPanelRef.current?.contains(t)) return
       // The click ended a text selection made in the section: keep the panel (the user is
       // picking text to link). A selection left over from earlier doesn't count — clicking a
       // button elsewhere doesn't clear it, and that click must still close the panel.
@@ -1097,13 +1116,15 @@ export function DocumentEditor() {
                 documentId={documentId}
                 sections={document?.sections ?? []}
                 activeSectionId={activeSection}
+                focusCommentId={focusCommentId}
+                scopeToSection
               />
             )}
             {activePanel === 'ai' && documentId && (
               <AIChatPanel
                 documentId={documentId}
                 sectionId={activeSection}
-                sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
+                sectionLabel={activeSectionData ? `${withSectionMark(activeSectionData.number)} ${activeSectionData.title}` : undefined}
                 editor={editor}
                 onAcceptSuggestion={(html, model, range) => {
                   // sPM-autosave — the editor is always editable when we hold
@@ -1139,7 +1160,7 @@ export function DocumentEditor() {
               <SectionHistoryPanel
                 documentId={documentId}
                 sectionId={activeSection}
-                sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
+                sectionLabel={activeSectionData ? `${withSectionMark(activeSectionData.number)} ${activeSectionData.title}` : undefined}
               />
             )}
             {activePanel === 'ai-help' && (

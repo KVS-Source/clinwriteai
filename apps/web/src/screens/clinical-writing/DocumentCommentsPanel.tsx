@@ -7,7 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { Comment, CommentSeverity, Document } from '@platform/types'
 import { documentsApi } from '../../api'
-import { CommentComposer, cleanSectionRef, sectionLabelFor } from '../../panels/CommentComposer'
+import { CommentComposer, cleanSectionRef, sectionLabelFor, sectionOfRef } from '../../panels/CommentComposer'
 import { CommentMeta } from '../../panels/CommentsPanel'
 
 const SEVERITY_BADGE: Record<CommentSeverity, { label: string; bg: string; fg: string }> = {
@@ -407,7 +407,7 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
                     {c.text || <span className="italic text-slate-400">No comment text</span>}
                   </div>
                 </div>
-                <CommentMeta comment={c} />
+                <CommentMeta comment={c} section={sectionOfRef(c.sectionRef, sections)} />
 
                 <div className="flex min-w-0 items-center border-t border-slate-100 pt-2">
                   {(() => {

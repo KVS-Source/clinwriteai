@@ -101,6 +101,9 @@ export interface Section {
   // shape), empty string in list shape. Editor mounts a textarea
   // against this; save PATCHes back via UpdateSectionBody.
   contentHtml: string
+  // Who last saved this section and when; null/absent for a section nobody has edited.
+  lastEditedAt?: string | null
+  lastEditedByName?: string | null
   presenceUserId?: string
   isLocked?: boolean
   lockedByUserId?: string

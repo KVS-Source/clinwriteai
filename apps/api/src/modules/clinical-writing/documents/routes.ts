@@ -112,7 +112,11 @@ function uiStage(v: string | null | undefined): string {
   return DB_STAGE_TO_UI[raw] ?? hyphenate(raw)
 }
 
-function sectionShape(s: { id: string; sectionId: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null }) {
+// editors: user id → name, for the section's last editor.
+function sectionShape(
+  s: { id: string; sectionId: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null; lastEditedBy?: string | null; lastEditedAt?: Date | null },
+  editors?: Map<string, string>,
+) {
   return {
     // The stable section key ('s11_4', 'sae4'), NOT the row uuid: rows are
     // re-created on every version, and PATCH /sections/:sectionId matches
@@ -125,6 +129,9 @@ function sectionShape(s: { id: string; sectionId: string; sectionNumber: string;
     // it. UI editor pane reads this directly instead of fetching per-
     // section separately.
     contentHtml: s.contentHtml ?? '',
+    // Who last saved this section, and when (set on every section save). Null for a section nobody has edited.
+    lastEditedAt: s.lastEditedAt ?? null,
+    lastEditedByName: s.lastEditedBy ? (editors?.get(s.lastEditedBy) ?? null) : null,
   }
 }
 
@@ -142,7 +149,7 @@ function documentShapeMeta(d: { version?: string; type?: string; status?: string
   }
 }
 
-function documentShapeFull(d: { type?: string; status?: string; stage?: string; currentVersion?: { versionNumber: string; sections: Array<Parameters<typeof sectionShape>[0]> } | null } & Record<string, unknown>) {
+function documentShapeFull(d: { type?: string; status?: string; stage?: string; currentVersion?: { versionNumber: string; sections: Array<Parameters<typeof sectionShape>[0]> } | null } & Record<string, unknown>, editors?: Map<string, string>) {
   const { currentVersion, ...rest } = d
   return {
     ...rest,
@@ -150,7 +157,7 @@ function documentShapeFull(d: { type?: string; status?: string; stage?: string; 
     status:  hyphenate(d.status),
     stage:   uiStage(d.stage),
     version: currentVersion?.versionNumber ?? 'v0.0',
-    sections: (currentVersion?.sections ?? []).map(sectionShape),
+    sections: (currentVersion?.sections ?? []).map(sec => sectionShape(sec, editors)),
   }
 }
 
@@ -282,7 +289,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return documentShapeFull(doc)
+    // Names of the people who last edited each section, in one query.
+    const editorIds = Array.from(new Set((doc.currentVersion?.sections ?? []).map(sec => sec.lastEditedBy).filter((v): v is string => !!v)))
+    const editorUsers = editorIds.length ? await app.prisma.user.findMany({ where: { id: { in: editorIds } }, select: { id: true, name: true } }) : []
+    return documentShapeFull(doc, new Map(editorUsers.map(u => [u.id, u.name])))
   })
 
   app.patch('/:documentId/sections/:sectionId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {

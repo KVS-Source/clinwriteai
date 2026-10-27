@@ -160,20 +160,7 @@ export function FinalDocument() {
         className="flex flex-none flex-col gap-2 border-b border-slate-200 bg-white px-8 pt-3"
         style={{ position: 'relative', zIndex: 6 }}
       >
-        {/* Breadcrumbs */}
-        <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
-            {project?.shortTitle ?? '…'}
-          </button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900 transition-colors">
-            Clinical Writing
-          </button>
-          <span className="text-slate-300">›</span>
-          <span className="overflow-hidden text-ellipsis font-semibold text-slate-900">{document.title}</span>
-        </div>
+        {/* Breadcrumb moved to TopNav (same cleanup as DocumentEditor). */}
 
         {/* Title row */}
         <div className="flex h-14 items-center justify-between gap-6">

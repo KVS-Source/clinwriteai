@@ -40,6 +40,7 @@ export function DiffView() {
   const closeDiff               = useDocumentStore(s => s.closeDiff)
   const toggleDiffMode          = useDocumentStore(s => s.toggleDiffMode)
   const setActiveSection        = useDocumentStore(s => s.setActiveSection)
+  const setActiveDocument       = useDocumentStore(s => s.setActiveDocument)
 
   const [reason, setReason] = useState('')
 
@@ -71,6 +72,13 @@ export function DiffView() {
   useEffect(() => {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
+
+  // Push the loaded document into the store so TopNav's enriched breadcrumb
+  // (Projects / Project / Clinical Writing / <title>) picks up the title on
+  // the Version Diff tab the same way it does on the Editor tab.
+  useEffect(() => {
+    if (document) setActiveDocument(document)
+  }, [document, setActiveDocument])
 
   const fromVersion = diffVersions?.from ?? 'v0.3'
   const toVersion   = diffVersions?.to   ?? 'v0.4'
@@ -157,20 +165,9 @@ export function DiffView() {
         className="flex flex-none flex-col gap-2 border-b border-slate-200 bg-white px-6 pt-3"
         style={{ position: 'relative', zIndex: 6 }}
       >
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
-            {project?.shortTitle ?? '…'}
-          </button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900 transition-colors">
-            Clinical Writing
-          </button>
-          <span className="text-slate-300">›</span>
-          <span className="overflow-hidden text-ellipsis font-semibold text-slate-900">{document.title}</span>
-        </div>
+        {/* Breadcrumb moved to TopNav (same cleanup as DocumentEditor —
+            TopNav shows Projects / Project / Clinical Writing / <doc title>
+            on all /documents/:id/* routes). */}
 
         {/* Title row */}
         <div className="flex h-14 items-center justify-between gap-6">

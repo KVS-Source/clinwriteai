@@ -15,6 +15,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { documentsApi, type SignatureChain, type SignatureRecord as ChainRecord } from '../../api'
 import { ApiError } from '../../api/client'
 import { useCancelSignatureChain, useCurrentUser, useSignatureChains, useSignRecord } from '../../hooks'
+import { useDocumentStore } from '../../store'
 import { InitiateSignatureChain } from './InitiateSignatureChain'
 
 // Signer avatar palette (matches Pattern 7)
@@ -279,6 +280,12 @@ export function ESignature() {
   })
   const { data: chains = [], isLoading, isError, error } = useSignatureChains(documentId!)
 
+  // Push the loaded document into the store so TopNav's enriched breadcrumb
+  // picks up the title on the E-Signature tab the same way it does on the
+  // Editor tab.
+  const setActiveDocument = useDocumentStore(s => s.setActiveDocument)
+  useEffect(() => { if (document) setActiveDocument(document) }, [document, setActiveDocument])
+
   // Newest chain first (API order). An active chain wins; otherwise show the
   // newest completed/cancelled one for its record.
   const chain: SignatureChain | undefined =
@@ -349,7 +356,8 @@ export function ESignature() {
     })
   }
 
-  const backToEditor = () => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)
+  // backToEditor was consumed by the in-screen breadcrumb's document-title
+  // link; now that TopNav owns the breadcrumb, the helper is unused.
 
   if (isLoading) {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">Loading signature chain…</p></div>
@@ -394,15 +402,7 @@ export function ESignature() {
 
       {/* ============ Document header ============ */}
       <div className="flex flex-none flex-col gap-2 border-b border-slate-200 bg-white px-8 pt-3" style={{ position: 'relative', zIndex: 6 }}>
-        <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900 transition-colors">Clinical Writing</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={backToEditor} className="truncate hover:text-slate-900 transition-colors">{title}</button>
-          <span className="text-slate-300">›</span>
-          <span className="font-semibold text-slate-900">Sign</span>
-        </div>
+        {/* Breadcrumb moved to TopNav (same cleanup as DocumentEditor). */}
         <div className="flex h-14 items-center justify-between gap-6">
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-base font-bold tracking-tight">{title}</h1>

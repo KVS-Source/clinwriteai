@@ -2,7 +2,7 @@ import { useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { STATUS_META, type Document } from '@platform/types'
-import { documentsApi, projectsApi } from '../../api'
+import { documentsApi, projectsApi, reportsApi } from '../../api'
 import { ProjectStatusPill } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { usePlatformStore } from '../../platform/store'
@@ -58,6 +58,14 @@ export function ProjectDashboard() {
     retry:    false,
   })
   const hasTlfs = (tlfPackages?.length ?? 0) > 0
+
+  // Measured AI usage for this project (from the AI call log).
+  const { data: aiUsage, isLoading: aiLoading, isError: aiFailed } = useQuery({
+    queryKey: ['project-ai-usage', projectId],
+    queryFn:  () => reportsApi.projectAiUsage(projectId!),
+    enabled:  !!projectId,
+    retry:    false,
+  })
 
   // The audit trail page is admin-only — don't offer the button to anyone else.
   const role = usePlatformStore(s => s.currentUser.role)
@@ -405,26 +413,49 @@ export function ProjectDashboard() {
           </div>
           )}
 
-          {/* Cost & Performance — estimates derived from real doc counts
-              (14 hrs/doc avg × $200/hr blended rate, industry rough-
-              order-of-magnitude). Replaces hardcoded VELORA numbers. */}
+          {/* Cost & Performance — measured from the project's AI call log (spend, tokens, speed, drafts
+              accepted), plus real document counts. Nothing here is a benchmark or an estimate. */}
           {documents.length > 0 && (() => {
-            const total      = stats.inFlight + stats.signed
-            const pct        = total === 0 ? 0 : Math.round((stats.signed / total) * 100)
-            const hoursSaved = stats.signed * 14
-            const dollars    = hoursSaved * 200
+            const total = stats.inFlight + stats.signed
+            const pct   = total === 0 ? 0 : Math.round((stats.signed / total) * 100)
+            const u     = aiUsage
+            const money = (n: number) => `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: n < 1 ? 4 : 2 })}`
+            const tokens = u ? (u.inputTokens + u.outputTokens).toLocaleString() : ''
+            const none  = aiLoading ? '…' : '—'
+            const rate  = u?.acceptanceRate != null ? Math.round(u.acceptanceRate * 100) : null
             return (
               <div className="flex flex-col gap-4">
                 <div className="flex items-baseline justify-between">
                   <div className="flex flex-col gap-1">
                     <p className="font-mono text-[11px] font-medium uppercase tracking-widest text-slate-500">Cost &amp; Performance</p>
-                    <h3 className="text-xl font-bold tracking-tight text-slate-900">AI-assisted authoring value</h3>
-                    <p className="text-xs text-slate-500">Rough estimate vs. a manual benchmark of ~14 hrs/document at a blended $200/hr writer rate.</p>
+                    <h3 className="text-xl font-bold tracking-tight text-slate-900">AI usage and cost</h3>
+                    <p className="text-xs text-slate-500" data-ai-usage-note>
+                      {aiFailed ? 'AI usage could not be loaded.' : "Measured from this project's AI call log."}
+                    </p>
                   </div>
                 </div>
-                <div className="grid grid-cols-3 gap-4">
-                  <KpiCard label="Hours Saved"     value={`${hoursSaved} hrs`} sub={`Across ${stats.signed} completed document${stats.signed === 1 ? '' : 's'}`} />
-                  <KpiCard label="Estimated Value" value={`$${dollars.toLocaleString()}`} sub="At blended writer rate $200/hr" />
+                <div className="grid grid-cols-2 gap-4 lg:grid-cols-4" data-ai-usage>
+                  <KpiCard
+                    label="AI Spend"
+                    value={u ? money(u.costUsd) : none}
+                    sub={u ? `${u.calls.toLocaleString()} AI call${u.calls === 1 ? '' : 's'} · ${tokens} tokens${u.calls > 0 ? ` · avg ${(u.avgLatencyMs / 1000).toFixed(1)}s` : ''}` : undefined}
+                  />
+                  <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-[18px]">
+                    <p className="text-xs font-semibold text-slate-500">AI Drafts Accepted</p>
+                    <p className="text-[28px] font-bold leading-none tracking-tight">
+                      {u ? (u.draftsGenerated === 0 ? '—' : u.draftsAccepted) : none}
+                      {u && u.draftsGenerated > 0 && <span className="text-base font-semibold text-slate-500"> of {u.draftsGenerated}</span>}
+                    </p>
+                    <div className="h-1.5 overflow-hidden rounded-[3px] bg-slate-200">
+                      <div className="h-full transition-all" style={{ width: `${rate ?? 0}%`, backgroundColor: '#2563EB' }} />
+                    </div>
+                    <p className="text-xs text-slate-500">{u ? (rate == null ? 'No AI drafts yet' : `${rate}% accepted into sections`) : ''}</p>
+                  </div>
+                  <KpiCard
+                    label="Cost per Completed Document"
+                    value={u && stats.signed > 0 ? money(u.costUsd / stats.signed) : none}
+                    sub={stats.signed > 0 ? `AI spend ÷ ${stats.signed} completed document${stats.signed === 1 ? '' : 's'}` : 'No completed documents yet'}
+                  />
                   <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-[18px]">
                     <p className="text-xs font-semibold text-slate-500">Documents Completed</p>
                     <p className="text-[28px] font-bold leading-none tracking-tight">

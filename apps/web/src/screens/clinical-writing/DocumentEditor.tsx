@@ -502,8 +502,17 @@ export function DocumentEditor() {
   // on mousedown, since the menu is gone from the page by the time the click fires.
   const rightPanelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments'
-      && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'ai' && activePanel !== 'history') return
+    // Auto-close-on-outside-click ONLY for the reference-tool panels
+    // (traceability, audit) and Comments (which has its own section-follow
+    // behaviour). AI Chat, Section History, Voice Note, Input Checklist
+    // are intentionally sticky — the writer wants them alongside the
+    // editor while they work. Close via the X in the panel header, Esc
+    // with focus outside any input, or by opening a different panel.
+    // ⚠ Don't widen this condition — a merge in late October 2026
+    // accidentally added 'ai' / 'history' / 'voice' / 'checklist' here,
+    // which made the AI Chat close on every editor click (QA reported
+    // "the fixed panel of AI Chat on the right is rolled back").
+    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments') return
     // The click that opened the panel is still being dispatched when this listener is added,
     // so only clicks whose mousedown we saw count.
     let pressed = false
@@ -537,9 +546,10 @@ export function DocumentEditor() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       if (window.document.querySelector('[data-reference-menu]')) return   // an open Reference menu takes the key
-      // Esc while typing in the AI Chat box keeps the chat (and the unsent prompt).
-      const focused = window.document.activeElement
-      if (activePanel === 'ai' && focused?.matches('input, textarea') && rightPanelRef.current?.contains(focused)) return
+      // (The old "keep chat open on Esc inside the chat input" branch is
+      // gone now that AI Chat isn't managed by this auto-close handler —
+      // it's intentionally sticky; Esc inside the chat input is handled
+      // locally in AIChatPanel.)
       setActivePanel(null)
     }
     window.document.addEventListener('mousedown', onDown, true)

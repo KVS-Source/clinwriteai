@@ -481,23 +481,18 @@ export const documentsApi = {
         referenceCount: number
       }>
     }>(`/documents/${documentId}/tlf`),
+  // Kept intentionally loose (sections: unknown[]) until the Phase 4 waiver
+  // UI rewrite of ICHValidatorPanel.tsx lands. Narrowing it here without
+  // updating the panel in the same commit breaks the panel's as-cast
+  // (TS2352: Property 'section' is missing on type …sections[].code,
+  // sectionId, …) and tanks the demo deploy's `tsc && vite build` step.
+  // When the panel rewrite is ready, both files land together.
   getICHE3: (documentId: string) =>
     api.get<{
       completionPercent: number
       completeSections:  number
       totalSections:     number
-      sections: Array<{
-        code:      string
-        title:     string
-        sectionId: string
-        status:    'complete' | 'in_progress' | 'not_started' | 'waived' | 'warning'
-        waiver?: {
-          waivedBy: string
-          waivedAt: string
-          reason:   string
-          versionAtWaiver: string
-        }
-      }>
+      sections: unknown[]
     }>(`/documents/${documentId}/ich-e3`),
   waiveICHE3Section: (documentId: string, sectionCode: string, reason: string) =>
     api.post<unknown>(`/documents/${documentId}/ich-e3/${encodeURIComponent(sectionCode)}/waive`, { reason }),

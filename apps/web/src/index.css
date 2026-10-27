@@ -102,3 +102,9 @@
   text-decoration: underline dotted #2563eb;
   text-underline-offset: 3px;
 }
+
+/* Navigation sidebar: slim, dark scrollbar that matches the panel */
+.sidebar-scroll { scrollbar-width: thin; scrollbar-color: #475569 transparent; }
+.sidebar-scroll::-webkit-scrollbar { width: 6px; }
+.sidebar-scroll::-webkit-scrollbar-thumb { background: #475569; border-radius: 9999px; }
+.sidebar-scroll::-webkit-scrollbar-track { background: transparent; }

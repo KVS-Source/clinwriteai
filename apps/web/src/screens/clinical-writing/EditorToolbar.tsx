@@ -218,6 +218,26 @@ export function EditorToolbar({ editor, editSection }: EditorToolbarProps = {}) 
       {/* Spacer */}
       <div className="flex-1" />
 
+      {/* Comments — toggles the right-hand comments panel. Marked as a panel trigger so the editor's
+          outside-click handler leaves it to toggle the panel itself. */}
+      <button
+        type="button"
+        title="Comments"
+        aria-pressed={activePanel === 'comments'}
+        onClick={() => toggle('comments')}
+        data-panel-trigger
+        data-action="toggle-comments"
+        className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors hover:bg-slate-50"
+        style={activePanel === 'comments'
+          ? { borderColor: '#93C5FD', backgroundColor: '#EFF6FF', color: '#1D4ED8' }
+          : { borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', color: '#334155' }}
+      >
+        <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
+          <path d="M2 2.5h10v7H7.2L4.4 12V9.5H2z" />
+        </svg>
+        Comments
+      </button>
+
       {editSection && (
         <button
           type="button"

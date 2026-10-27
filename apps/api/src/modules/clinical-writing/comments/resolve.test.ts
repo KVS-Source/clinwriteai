@@ -84,6 +84,16 @@ describe('PATCH /documents/:id/comments/:commentId/resolve', () => {
     }))
   })
 
+  it('reports who last edited the comment (the resolver) and when; untouched comments report null', async () => {
+    const { app } = await setup()
+    const resolved = (await resolve(app, { resolutionType: 'accept', note: 'Done.' })).json()
+    expect(resolved).toMatchObject({ lastEditedByName: 'Dr. Elena Vasquez', lastEditedAge: 'just now' })
+    expect(resolved.lastEditedAt).toBeTruthy()
+    await current?.close()
+    const fresh = await setup({ maxSeq: 0 })
+    expect((await post(fresh.app)).json()).toMatchObject({ lastEditedAt: null, lastEditedByName: null, lastEditedAge: null })
+  })
+
   it('refuses a resolution without a note, or with the hyphenated type the API does not accept', async () => {
     const { app } = await setup()
     expect((await resolve(app, { resolutionType: 'accept', note: '' })).statusCode).toBe(400)

@@ -1,9 +1,9 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Comment, ResolutionType } from '@platform/types'
 import { documentsApi, describeApiError } from '../api'
 import { ResolveForm } from './ResolveCommentForm'
-import { CommentComposer, type ComposerSection } from './CommentComposer'
+import { CommentComposer, cleanSectionRef, withSectionMark, type ComposerSection } from './CommentComposer'
 
 interface Props {
   documentId:   string
@@ -13,6 +13,26 @@ interface Props {
   activeSectionId?: string | null
   // Overrides the built-in form (a screen with its own composer can focus that instead).
   onAddComment?: () => void
+  // A comment to scroll to and highlight (deep link from the project's comments panel).
+  focusCommentId?: string | null
+  // List only the active section's comments (with a "Show all comments in document" switch).
+  // Off by default: the Reviewer View keeps the document-wide list.
+  scopeToSection?: boolean
+}
+
+// Creator line + last-edited line, shared by the project panel and this one. A comment's only
+// change today is being resolved; resolved comments from before that was tracked fall back to the
+// creator and created time.
+export function CommentMeta({ comment }: { comment: Comment }) {
+  const resolvedNoInfo = comment.status === 'resolved' && !comment.lastEditedAt
+  const editedBy  = comment.lastEditedAt ? comment.lastEditedByName : resolvedNoInfo ? comment.reviewerName : null
+  const editedAge = comment.lastEditedAt ? comment.lastEditedAge : resolvedNoInfo ? comment.age : null
+  return (
+    <div className="flex flex-col gap-0.5 text-[11px] text-slate-500">
+      <p data-meta="created">Created by {comment.reviewerName} · {comment.age}</p>
+      <p data-meta="edited">{editedBy ? `Last edited by ${editedBy} · ${editedAge}` : 'Not edited yet'}</p>
+    </div>
+  )
 }
 
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
@@ -46,11 +66,33 @@ interface CardProps {
   onResolveClick:   () => void
   onResolveCancel:  () => void
   onResolveConfirm: (type: ResolutionType, note: string) => void
+  focused?: boolean
 }
 
-function CommentCard({ comment, resolving, isPending, error, onResolveClick, onResolveCancel, onResolveConfirm }: CardProps) {
+// Scrolls the card into view and rings it for a couple of seconds when it's the focused comment.
+function useFocusRing(focused: boolean | undefined) {
+  const ref = useRef<HTMLDivElement | null>(null)
+  const [ring, setRing] = useState(false)
+  useEffect(() => {
+    if (!focused) return
+    ref.current?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    setRing(true)
+    const t = window.setTimeout(() => setRing(false), 2800)
+    return () => window.clearTimeout(t)
+  }, [focused])
+  return { ref, ring }
+}
+
+function CommentCard({ comment, resolving, isPending, error, onResolveClick, onResolveCancel, onResolveConfirm, focused }: CardProps) {
+  const { ref, ring } = useFocusRing(focused)
   return (
-    <div className="mb-2 flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3" data-comment-id={comment.id}>
+    <div
+      ref={ref}
+      className="mb-2 flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 transition-shadow"
+      style={ring ? { borderColor: '#2563EB', boxShadow: '0 0 0 3px rgba(37,99,235,0.25)' } : undefined}
+      data-comment-id={comment.id}
+      data-focused={ring || undefined}
+    >
       <div className="flex flex-wrap items-center gap-2">
         <Avatar initials={comment.reviewerInitials} />
         <p className="whitespace-nowrap text-[13px] font-bold">{comment.reviewerName}</p>
@@ -58,11 +100,10 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
           className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900"
           style={{ backgroundColor: '#F1F5F9' }}
         >
-          {comment.sectionRef}
+          {cleanSectionRef(comment.sectionRef)}
         </span>
         <div className="flex-1" />
         <p className="whitespace-nowrap font-mono text-[10px] text-slate-500">{comment.id}</p>
-        <p className="whitespace-nowrap text-[11px] text-slate-500">{comment.age}</p>
       </div>
       <div className="flex flex-wrap items-center gap-1.5">
         <span
@@ -83,6 +124,7 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
         )}
       </div>
       <p className="text-[13px] leading-relaxed text-slate-900">{comment.text}</p>
+      <CommentMeta comment={comment} />
       {resolving ? (
         <ResolveForm onCancel={onResolveCancel} onConfirm={onResolveConfirm} isPending={isPending} error={error} />
       ) : (
@@ -102,6 +144,34 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
           >Reply</button>
         </div>
       )}
+    </div>
+  )
+}
+
+// A resolved comment: read-only record (there is no reopen).
+function ResolvedCard({ comment, focused }: { comment: Comment; focused?: boolean }) {
+  const { ref, ring } = useFocusRing(focused)
+  return (
+    <div
+      ref={ref}
+      className="mb-2 flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3 transition-shadow"
+      style={ring ? { borderColor: '#2563EB', boxShadow: '0 0 0 3px rgba(37,99,235,0.25)' } : undefined}
+      data-comment-id={comment.id}
+      data-resolved-card
+      data-focused={ring || undefined}
+    >
+      <div className="flex flex-wrap items-center gap-2">
+        <Avatar initials={comment.reviewerInitials} />
+        <p className="whitespace-nowrap text-[13px] font-bold">{comment.reviewerName}</p>
+        <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }}>
+          {cleanSectionRef(comment.sectionRef)}
+        </span>
+        <div className="flex-1" />
+        <p className="whitespace-nowrap font-mono text-[10px] text-slate-500">{comment.id}</p>
+      </div>
+      <span className="w-fit rounded-full px-2.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>Resolved</span>
+      <p className="text-[13px] leading-relaxed text-slate-900">{comment.text}</p>
+      <CommentMeta comment={comment} />
     </div>
   )
 }
@@ -129,7 +199,7 @@ function ApprovalCard({ comment }: { comment: Comment }) {
   )
 }
 
-export function CommentsPanel({ documentId, sections = [], activeSectionId = null, onAddComment }: Props) {
+export function CommentsPanel({ documentId, sections = [], activeSectionId = null, onAddComment, focusCommentId = null, scopeToSection = false }: Props) {
   const qc = useQueryClient()
   const [resolvingId, setResolvingId] = useState<string | null>(null)
   const [composing, setComposing] = useState(false)
@@ -162,17 +232,76 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
         : describeApiError(resolveMut.error).message)
     : null
 
+  // Section scope: a comment belongs to a section when its stored section tag ("§3") equals the
+  // section's number (same tag the composer writes). Matching is by that tag, never by title.
+  const activeSection = sections.find(s => s.id === activeSectionId) ?? null
+  const [showAll, setShowAll] = useState(false)
+  // Moving to another section goes back to that section's own comments.
+  useEffect(() => { setShowAll(false) }, [activeSectionId])
+  const scoped = scopeToSection && !showAll && !!activeSection
+  const scopeRef = activeSection ? withSectionMark(activeSection.number) : ''
+  const inScope = (c: Comment) => !scoped || cleanSectionRef(c.sectionRef) === scopeRef
+  const scopedComments = useMemo(
+    () => comments.filter((c: Comment) => inScope(c)),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [comments, scoped, scopeRef],
+  )
+
+  // Deep link to a comment that isn't in the section the editor landed on (e.g. a section tag
+  // that matches no section): show the whole document so the comment is still found. Runs once,
+  // after the editor has settled on its section.
+  const focusChecked = useRef(false)
+  useEffect(() => {
+    if (!scopeToSection || !focusCommentId || focusChecked.current || comments.length === 0 || !activeSection) return
+    const t = window.setTimeout(() => {
+      focusChecked.current = true
+      const target = comments.find(c => c.id === focusCommentId)
+      if (target && cleanSectionRef(target.sectionRef) !== scopeRef) setShowAll(true)
+    }, 300)
+    return () => window.clearTimeout(t)
+  }, [scopeToSection, focusCommentId, comments, activeSection, scopeRef])
+
   const openComments = useMemo(
-    () => comments.filter((c: Comment) => c.status === 'open' && c.verdict !== 'approve'),
-    [comments],
+    () => scopedComments.filter((c: Comment) => c.status === 'open' && c.verdict !== 'approve'),
+    [scopedComments],
   )
+  const resolvedComments = useMemo(
+    () => scopedComments.filter((c: Comment) => c.status === 'resolved' && c.verdict !== 'approve'),
+    [scopedComments],
+  )
+  // Resolved comments are collapsed unless the deep link points at one of them.
+  const focusIsResolved = resolvedComments.some(c => c.id === focusCommentId)
+  const [showResolved, setShowResolved] = useState(false)
+  useEffect(() => { if (focusIsResolved) setShowResolved(true) }, [focusIsResolved])
   const approvals = useMemo(
-    () => comments.filter((c: Comment) => c.verdict === 'approve'),
-    [comments],
+    () => scopedComments.filter((c: Comment) => c.verdict === 'approve'),
+    [scopedComments],
   )
+  const issueCount = openComments.length + resolvedComments.length
+  const sectionName = activeSection ? `${withSectionMark(activeSection.number)} ${activeSection.title}`.trim() : ''
 
   return (
     <div className="flex h-full flex-col overflow-y-auto p-3">
+      {scopeToSection && activeSection && (
+        <div className="mb-3 flex flex-col gap-0.5 border-b border-slate-200 pb-2.5" data-comments-scope={scoped ? 'section' : 'document'}>
+          <p className="truncate text-[13px] font-bold text-slate-900" title={scoped ? sectionName : 'All comments in this document'}>
+            {scoped ? sectionName : 'All comments in this document'}
+          </p>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-[11px] text-slate-500" data-scope-counts>
+              {openComments.length} open · {resolvedComments.length} resolved
+            </p>
+            <button
+              type="button"
+              onClick={() => setShowAll(v => !v)}
+              data-action="toggle-comment-scope"
+              className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+            >
+              {scoped ? 'Show all comments in document' : 'Show this section only'}
+            </button>
+          </div>
+        </div>
+      )}
       {composing && (
         <CommentComposer
           documentId={documentId}
@@ -187,7 +316,7 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
       )}
       {openComments.length === 0 && !composing && (
         <p className="mb-2 rounded-md border border-dashed border-slate-300 p-3 text-center text-xs text-slate-500" data-state="no-open-comments">
-          No open comments.
+          {scoped && issueCount === 0 ? 'No comments on this section yet' : 'No open comments.'}
         </p>
       )}
       {openComments.map((c: Comment) => (
@@ -200,8 +329,23 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
           onResolveClick={() => { resolveMut.reset(); setResolvingId(c.id) }}
           onResolveCancel={() => { resolveMut.reset(); setResolvingId(null) }}
           onResolveConfirm={(type, note) => resolveMut.mutate({ id: c.id, type, note })}
+          focused={focusCommentId === c.id}
         />
       ))}
+
+      {resolvedComments.length > 0 && (
+        <div className="mb-2 mt-1" data-section="resolved">
+          <button
+            type="button"
+            onClick={() => setShowResolved(v => !v)}
+            aria-expanded={showResolved}
+            className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500 hover:text-slate-700"
+          >
+            {showResolved ? '▾' : '▸'} Resolved ({resolvedComments.length})
+          </button>
+          {showResolved && resolvedComments.map((c: Comment) => <ResolvedCard key={c.id} comment={c} focused={focusCommentId === c.id} />)}
+        </div>
+      )}
 
       {approvals.length > 0 && (
         <div className="mb-2 mt-1" data-section="approvals">

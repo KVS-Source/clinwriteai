@@ -61,11 +61,12 @@ function ChecklistIcon() {
   )
 }
 function AuditIcon() {
+  // Shield + check — distinguishes the compliance audit log from the
+  // per-section revert icon (which uses a counter-clockwise arrow).
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
-      <circle cx="7" cy="7" r="5.4"/>
-      <line x1="7" y1="4" x2="7" y2="7.4" strokeLinecap="round"/>
-      <line x1="7" y1="7.4" x2="9.6" y2="7.4" strokeLinecap="round"/>
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 1.2 L12 3 V7.2 C12 10 10 11.8 7 12.8 C4 11.8 2 10 2 7.2 V3 Z" />
+      <polyline points="4.8,7 6.4,8.6 9.2,5.6" />
     </svg>
   )
 }
@@ -122,7 +123,7 @@ interface EditorToolbarProps {
   // Phase 2.1 — TipTap editor instance drives the formatting cluster.
   // Null while no section is active (buttons render disabled).
   editor?: import('@tiptap/react').Editor | null
-  // "Edit section" beside AI Suggest — omitted while editing or with no section open.
+  // "Edit section" beside AI Chat — omitted while editing or with no section open.
   editSection?: { onClick: () => void; disabled?: boolean; title?: string }
 }
 
@@ -231,10 +232,10 @@ export function EditorToolbar({ editor, editSection }: EditorToolbarProps = {}) 
         </button>
       )}
 
-      {/* AI Suggest — accent button */}
+      {/* AI Chat — accent button (label matches the panel header). */}
       <button
         type="button"
-        title="Open AI Suggest (⌘J)"
+        title="Open AI Chat (⌘J)"
         onClick={() => toggle('ai')}
         data-panel-trigger
         className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-bold transition-colors"
@@ -245,7 +246,7 @@ export function EditorToolbar({ editor, editSection }: EditorToolbarProps = {}) 
         }}
       >
         <SparkleIcon />
-        AI Suggest
+        AI Chat
         <span className="rounded-[3px] px-1 py-0.5 font-mono text-[9px] font-medium" style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
           ⌘J
         </span>

@@ -410,7 +410,7 @@ export function DocumentEditor() {
   // Closing the panel closes the viewer too.
   useEffect(() => { if (activePanel !== 'traceability') setSourceViewer(null) }, [activePanel, setSourceViewer])
 
-  // Source References, Audit Trail and AI Suggest close on a click outside the panel. A click
+  // Source References, Audit Trail and AI Chat close on a click outside the panel. A click
   // in the section still counts as outside, except when it ends a text selection (picking the
   // text to link) or lands on reference-marked text (which opens that source in the panel). A press that starts in the
   // panel (resizing, selecting), the Reference menu or a button that opens a panel
@@ -776,7 +776,10 @@ export function DocumentEditor() {
                     </h2>
                     {/* Section edit history — per section (sPM-section-history).
                         Opens the right-rail SectionHistoryPanel listing manual +
-                        AI edits + reverts, with per-row Revert. */}
+                        AI edits + reverts, with per-row Revert. Icon is a
+                        counter-clockwise arrow so it reads as "undo / revert"
+                        and is visually distinct from the Audit Trail shield
+                        in the toolbar above. */}
                     <button
                       type="button"
                       onClick={() => setActivePanel('history')}
@@ -785,8 +788,8 @@ export function DocumentEditor() {
                       className="flex items-center justify-center rounded-md border border-slate-300 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                     >
                       <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                        <circle cx="7" cy="7" r="5.6" />
-                        <polyline points="7,3.4 7,7 9.4,8.4" />
+                        <path d="M3 7 A4 4 0 1 0 4.4 4.1" />
+                        <polyline points="2.2,2.4 2.2,4.6 4.4,4.6" />
                       </svg>
                     </button>
                   </div>
@@ -874,8 +877,11 @@ export function DocumentEditor() {
 
           {/* AI prompt dock — pinned to the bottom of the CONTENT COLUMN
               (not the editor pane) so the chat panel to the right can
-              extend full height past the dock. */}
-          {activeSectionData && documentId && (
+              extend full height past the dock. Hidden while the AI Chat
+              panel is open so the user never sees two prompt inputs at
+              once; AI Help has no prompt input of its own, so the dock
+              stays visible when Help is open. */}
+          {activeSectionData && documentId && activePanel !== 'ai' && (
             <div className="flex-none border-t border-slate-200 bg-white px-12 py-3" data-section-ai-prompt-dock>
               <div className="max-w-[760px]">
                 <SectionAIPrompt

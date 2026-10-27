@@ -42,6 +42,12 @@ import {
   SECTION_LOCK_STALE_SECONDS,
 } from '../section-locks/service.js'
 import { sessionizeHistory } from './edit-history-sessions.js'
+import {
+  blockedBody,
+  checkStageAdvanceGate,
+  checkSubmitForReviewGate,
+} from '../checklist/gates.js'
+import { fireAutoComplete } from '../checklist/auto-complete.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -416,6 +422,17 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (from === 'in_review') {
       return doc
     }
+
+    // Gate C — all mandatory items for the current stage must be complete
+    // or waived before submission. See checklist/gates.ts. Returns a 409
+    // with the structured blocking list so the UI can show "N mandatory
+    // items blocking → ICF signed, …" with click-through.
+    if (isDbStage(doc.stage)) {
+      const gate = await checkSubmitForReviewGate(app.prisma, documentId, doc.stage)
+      if (!gate.ok) {
+        return reply.code(409).send(blockedBody('submit_for_review', gate))
+      }
+    }
     // UX gate: not_started is the day-one state for a brand-new document.
     // The strict state machine requires not_started → in_authoring → in_review,
     // but the UI's "Submit for review" button is the only path a writer takes
@@ -454,6 +471,21 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       target: 'cross_functional_review',
     })
 
+    // Auto-complete any ChecklistInstanceItem tagged autoCompleteOn=
+    // 'submit_for_review' — typically "Author draft completed and
+    // submitted for review" on CSR / CSR Synopsis / Patient Narrative /
+    // Safety Narrative. Non-fatal if it fails (status transition already
+    // committed); we audit the attempt.
+    const autoReport = await fireAutoComplete(app.prisma, app.audit, {
+      trigger: 'submit_for_review',
+      documentId,
+      actorId: request.user!.id,
+      ipAddress: request.ip ?? null,
+    }).catch(err => {
+      app.log.warn({ err, documentId }, 'auto_complete submit_for_review failed — items left pending')
+      return null
+    })
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
@@ -465,6 +497,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         to: 'in_review',
         stageFrom: stageMove?.from ?? null,
         stageTo: stageMove?.to ?? null,
+        autoCompletedCount: autoReport?.completedCount ?? 0,
       },
       ipAddress: request.ip ?? null,
     })
@@ -558,6 +591,23 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // milestones that don't flip the document's status).
   app.post('/:documentId/advance-stage', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+
+    // Gate B — all mandatory items for stages ≤ current must be complete
+    // or waived before the stepper moves forward. 409 with the blocking
+    // list if not. The underlying advanceStage() does its own stage-order
+    // + terminal checks after this.
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { stage: true, deletedAt: true },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (isDbStage(doc.stage)) {
+      const gate = await checkStageAdvanceGate(app.prisma, documentId, doc.stage)
+      if (!gate.ok) {
+        return reply.code(409).send(blockedBody('stage_advance', gate))
+      }
+    }
+
     try {
       const result = await svc.advanceStage({
         documentId,

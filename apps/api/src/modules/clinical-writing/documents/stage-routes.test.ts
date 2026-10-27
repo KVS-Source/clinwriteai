@@ -35,6 +35,12 @@ async function build(initial: DocRow) {
         return { ...doc }
       }),
     },
+    // Phase 2 checklist gate (checkStageAdvanceGate) queries this before
+    // the advance proceeds. No mandatory items in the test fixture → gate
+    // returns ok and the advance executes.
+    checklistInstanceItem: {
+      findMany: vi.fn(async () => []),
+    },
     $transaction: async (fn: (t: unknown) => unknown) => fn({
       document: {
         findUnique: vi.fn(async () => ({ id: doc.id, stage: doc.stage, deletedAt: doc.deletedAt })),

@@ -60,9 +60,22 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
     },
     onError: (err: unknown) => {
       if (err instanceof ApiError) {
-        const body = err.body as { error?: string; message?: string } | null
+        const body = err.body as {
+          error?: string
+          message?: string
+          blocking?: Array<{ text: string; framework: string }>
+          blockingCount?: number
+        } | null
         if (err.status === 422 && body?.error === 'terminal') {
           setStageError('This document is already at Final Output.')
+          return
+        }
+        // Phase 2 checklist gate — Gate B. Enumerate blockers so the writer
+        // knows what to tick before trying again.
+        if (err.status === 409 && body?.error === 'checklist_blocked' && Array.isArray(body.blocking)) {
+          const bullets = body.blocking.slice(0, 4).map(b => `• ${b.text} (${b.framework})`).join('\n')
+          const extra = (body.blockingCount ?? body.blocking.length) > 4 ? `\n…and ${(body.blockingCount ?? body.blocking.length) - 4} more` : ''
+          setStageError(`${body.blockingCount ?? body.blocking.length} mandatory checklist item(s) must be completed or waived first:\n${bullets}${extra}`)
           return
         }
         setStageError(body?.message ?? `Could not advance the stage (HTTP ${err.status}).`)
@@ -175,7 +188,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
 
           <div className="sticky bottom-0 flex flex-col gap-2 border-t border-slate-200 bg-white px-5 py-3">
             {stageError && (
-              <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800" role="alert">
+              <div className="whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-800" role="alert">
                 {stageError}
               </div>
             )}

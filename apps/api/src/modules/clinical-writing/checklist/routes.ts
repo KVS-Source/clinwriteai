@@ -162,6 +162,55 @@ export const projectChecklistRoutes: FastifyPluginAsync = async (app) => {
   })
 }
 
+// Admin-only template management — approve/lock a draft, or create a new
+// draft version to customise. Admin UI (phase 4) will drive this; the
+// endpoints exist now so phase 2 gates can rely on a locked template.
+export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
+  // Approve + lock a template. Admin only. Transitions a draft project
+  // override into the "locked, cloneable at document create" state.
+  // Platform baselines are already locked by the seed; this endpoint
+  // targets project-level overrides.
+  app.post(
+    '/:templateId/approve',
+    { preHandler: requireAuth({ roles: ['admin', 'super-admin'], modules: ['A'] }) },
+    async (request, reply) => {
+      const { templateId } = request.params as { templateId: string }
+      const template = await app.prisma.checklistTemplate.findUnique({
+        where: { id: templateId },
+      })
+      if (!template) return reply.code(404).send({ error: 'not_found' })
+      if (template.templateStatus === 'locked') {
+        return reply.code(409).send({ error: 'already_locked', message: 'This template is already locked.' })
+      }
+
+      const updated = await app.prisma.checklistTemplate.update({
+        where: { id: templateId },
+        data: {
+          templateStatus: 'locked',
+          approvedBy: request.user!.id,
+          approvedAt: new Date(),
+        },
+      })
+
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: request.user!.id,
+        action: 'checklist_template_approved',
+        entityType: 'checklist_template',
+        entityId: updated.id,
+        details: {
+          deliverableType: updated.deliverableType,
+          projectId: updated.projectId,
+          version: updated.version,
+        },
+        ipAddress: request.ip ?? null,
+      })
+
+      return updated
+    },
+  )
+}
+
 async function loadItem(prisma: FastifyInstanceType, documentId: string, itemId: string) {
   return prisma.checklistInstanceItem.findFirst({
     where: {

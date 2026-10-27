@@ -239,11 +239,14 @@ async function buildServer() {
   const { sectionLockRoutes } = await import('./modules/clinical-writing/section-locks/routes.js')
   await app.register(sectionLockRoutes, { prefix: '/documents' })
 
-  const { checklistRoutes, projectChecklistRoutes } = await import('./modules/clinical-writing/checklist/routes.js')
+  const { checklistRoutes, projectChecklistRoutes, checklistTemplateAdminRoutes } = await import('./modules/clinical-writing/checklist/routes.js')
   await app.register(checklistRoutes, { prefix: '/documents' })
   // Project-level rollup for the Clinical Writing home page's "Checklist
   // status" box. Read-only — never materialises instances, so visits are safe.
   await app.register(projectChecklistRoutes, { prefix: '/projects' })
+  // Admin-only template management (approve/lock). UI arrives in phase 4;
+  // the endpoint ships now so phase-2 gates can rely on locked templates.
+  await app.register(checklistTemplateAdminRoutes, { prefix: '/checklist-templates' })
 
   const { commentsRoutes } = await import('./modules/clinical-writing/comments/routes.js')
   await app.register(commentsRoutes, { prefix: '/documents' })

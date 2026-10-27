@@ -43,6 +43,12 @@ function fakePrisma() {
       update: async ({ where, data }: Row) => Object.assign(records.find(r => r.id === where.id)!, data),
       count: async ({ where }: Row) => records.filter(r => matches(r, where)).length,
     },
+    // Phase 2 checklist Gate A (checkSignatureGate) runs before chain
+    // initiate. No mandatory items in the test fixture → gate returns ok
+    // and the chain proceeds.
+    checklistInstanceItem: {
+      findMany: async () => [],
+    },
     $queryRawUnsafe: async () => [],
     $transaction: async (fn: (tx: Row) => unknown) => fn(prisma),
   }

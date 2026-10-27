@@ -10,6 +10,16 @@ import { useDocumentStore } from '../store'
 // (e.g. "Invalid document transition: crm_in_progress → in_review").
 function submitErrorMessage(err: unknown, currentStatus: string): string {
   if (!(err instanceof ApiError)) return 'Could not reach the server. Check your connection and try again.'
+  // Checklist gate (Phase 2) — the API returns 409 with error='checklist_blocked'
+  // and a `blocking` list. Enumerate the blockers so the writer knows what to tick.
+  if (err.status === 409) {
+    const body = err.body as { error?: string; blocking?: Array<{ text: string; framework: string }>; blockingCount?: number } | null
+    if (body?.error === 'checklist_blocked' && Array.isArray(body.blocking)) {
+      const bullets = body.blocking.slice(0, 4).map(b => `• ${b.text} (${b.framework})`).join('\n')
+      const extra = (body.blockingCount ?? body.blocking.length) > 4 ? `\n…and ${(body.blockingCount ?? body.blocking.length) - 4} more` : ''
+      return `${body.blockingCount ?? body.blocking.length} mandatory checklist item(s) must be completed or waived before submitting:\n${bullets}${extra}`
+    }
+  }
   switch (err.status) {
     case 400: return 'Check the review due date and the reviewers, then try again.'
     case 401: return 'Your session has expired. Sign in again to continue.'
@@ -386,7 +396,7 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
       {/* ===== Footer ===== */}
       <div className="flex flex-none flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3">
         {submitMut.isError && (
-          <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
+          <div className="whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
             {submitErrorMessage(submitMut.error, statusMeta.label)}
           </div>
         )}

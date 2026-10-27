@@ -51,10 +51,19 @@ export async function ensureChecklistInstance(
 
   const normalizedType = normalizeDeliverableType(args.deliverableType)
 
+  // Prefer the platform baseline (projectId=null, locked). Falls back to
+  // any current template for the type so pre-migration DBs still work.
   let template = await tx.checklistTemplate.findFirst({
-    where: { deliverableType: normalizedType, isCurrent: true },
+    where: { deliverableType: normalizedType, projectId: null, isCurrent: true },
     include: { items: { orderBy: { sortOrder: 'asc' } } },
   })
+
+  if (!template) {
+    template = await tx.checklistTemplate.findFirst({
+      where: { deliverableType: normalizedType, isCurrent: true },
+      include: { items: { orderBy: { sortOrder: 'asc' } } },
+    })
+  }
 
   if (!template) {
     const created = await tx.checklistTemplate.create({
@@ -63,6 +72,7 @@ export async function ensureChecklistInstance(
         version: 1,
         effectiveDate: new Date(),
         changeReason: 'Auto-created fallback for first document of this type',
+        templateStatus: 'locked',                             // fallback behaves as a locked baseline
         createdBy: args.actorId,
       },
     })
@@ -76,11 +86,16 @@ export async function ensureChecklistInstance(
       templateVersion: template.version,
       items: template.items.length > 0
         ? {
+            // Snapshot every ownership + staging field onto the instance so
+            // a later template bump never retro-mutates this document.
             create: template.items.map(ti => ({
               templateItemId: ti.id,
               text: ti.text,
               framework: ti.framework,
               frameworkMandatory: ti.frameworkMandatory,
+              ownerRaci: ti.ownerRaci,
+              stage: ti.stage,
+              autoCompleteOn: ti.autoCompleteOn,
               sortOrder: ti.sortOrder,
             })),
           }

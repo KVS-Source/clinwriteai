@@ -17,6 +17,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import type { PrismaClient } from '@prisma/client'
+import { fireAutoComplete } from '../checklist/auto-complete.js'
 
 const scheduleSchema = z.object({
   chairId: z.string().min(1),
@@ -326,6 +327,20 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       return m
     })
 
+    // Auto-complete any ChecklistInstanceItem tagged autoCompleteOn=
+    // 'crm_complete' — typically "Cross-functional review meeting
+    // minutes recorded" (CSR Full) and "Cross-functional review complete"
+    // (Protocol). Non-fatal.
+    const autoReport = await fireAutoComplete(app.prisma, app.audit, {
+      trigger: 'crm_complete',
+      documentId: meeting.documentId,
+      actorId: request.user!.id,
+      ipAddress: request.ip ?? null,
+    }).catch(err => {
+      app.log.warn({ err, documentId: meeting.documentId }, 'auto_complete crm_complete failed — items left pending')
+      return null
+    })
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
@@ -336,6 +351,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
         meetingId,
         meetingRef: meeting.meetingRef,
         resolutionCount: meeting.resolutions.length,
+        autoCompletedCount: autoReport?.completedCount ?? 0,
       },
       ipAddress: request.ip ?? null,
     })

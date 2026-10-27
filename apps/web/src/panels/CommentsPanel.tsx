@@ -168,13 +168,8 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
             data-action="resolve-comment"
             className="text-xs font-semibold text-blue-600 hover:text-blue-700"
           >Resolve</button>
-          {/* Replies are not part of the PRD (no reply entity or endpoint), so the control is shown but inactive. */}
-          <button
-            type="button"
-            disabled
-            title="Replies aren't available yet"
-            className="cursor-not-allowed text-xs font-semibold text-slate-400"
-          >Reply</button>
+          {/* No Reply control: replies aren't part of the PRD (FR-A-052) — a comment's answer is its
+              resolution note, and discussion happens in the CRM meeting. */}
         </div>
       )}
     </div>

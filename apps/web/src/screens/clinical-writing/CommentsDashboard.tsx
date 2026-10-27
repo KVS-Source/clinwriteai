@@ -256,24 +256,15 @@ function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick,
       {/* Action row */}
       {!isResolving && (
         <div className="flex items-center gap-2 border-t pt-2.5" style={{ borderColor: '#F1F5F9' }}>
+          {/* No Reply control: replies aren't part of the PRD (FR-A-052). */}
           {!isResolved && (
-            <>
-              <button
-                type="button"
-                onClick={() => onResolveClick(comment.id)}
-                className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors"
-              >
-                Resolve
-              </button>
-              <button
-                type="button"
-                disabled
-                title="Replies aren't available yet"
-                className="cursor-not-allowed rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-400"
-              >
-                Reply
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => onResolveClick(comment.id)}
+              className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors"
+            >
+              Resolve
+            </button>
           )}
           <div className="flex-1" />
           <button

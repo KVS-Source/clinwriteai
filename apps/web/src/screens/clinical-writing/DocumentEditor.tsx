@@ -548,16 +548,15 @@ export function DocumentEditor() {
   }, [activePanel, setActivePanel])
 
   const onSectionContentClick = (e: React.MouseEvent) => {
-    // Don't hijack text selection or in-progress typing. The old "if editing"
-    // guard is gone post-autosave since the editor is always editable when
-    // we hold the lock; a collapsed selection + a focused editor is enough
-    // signal to tell "the user is reading, not writing".
-    if (canEditSection && window.document.activeElement?.closest('[data-section-editor]')) return
+    // Don't hijack text selection. A plain click on referenced text opens the
+    // References panel whether the section is editable or read-only; the
+    // caret still lands where the user clicked.
     if (!window.getSelection()?.isCollapsed) return
     const id = referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)
     const ref = id ? sectionReferences.find(r => r.id === id) : undefined
     if (!ref) return
-    setSourceViewer({ uploadId: ref.uploadId, page: ref.page, spanText: ref.spanText })
+    // Always land on the References list; "View source" opens the file from there.
+    setSourceViewer(null)
     setActivePanel('traceability')
   }
 

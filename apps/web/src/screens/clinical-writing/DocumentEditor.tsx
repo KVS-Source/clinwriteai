@@ -497,11 +497,8 @@ export function DocumentEditor() {
   // on mousedown, since the menu is gone from the page by the time the click fires.
   const rightPanelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    // AI Chat is intentionally sticky — the user wants it alongside the
-    // editor while they work, not auto-closing on every editor click.
-    // Close via the X in the panel header, Esc with focus outside the
-    // chat input, or by opening a different panel.
-    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments') return
+    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments'
+      && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'ai') return
     // The click that opened the panel is still being dispatched when this listener is added,
     // so only clicks whose mousedown we saw count.
     let pressed = false
@@ -535,6 +532,9 @@ export function DocumentEditor() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       if (window.document.querySelector('[data-reference-menu]')) return   // an open Reference menu takes the key
+      // Esc while typing in the AI Chat box keeps the chat (and the unsent prompt).
+      const focused = window.document.activeElement
+      if (activePanel === 'ai' && focused?.matches('input, textarea') && rightPanelRef.current?.contains(focused)) return
       setActivePanel(null)
     }
     window.document.addEventListener('mousedown', onDown, true)

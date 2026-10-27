@@ -73,7 +73,7 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // Admin usage summary — rollup by module + tenant for the current month.
-  app.get('/usage', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.get('/usage', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const q = z.object({
       from: z.string().datetime().optional(),
       to: z.string().datetime().optional(),
@@ -132,7 +132,7 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // Quota management.
-  app.put('/quotas', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.put('/quotas', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = quotaSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -166,7 +166,7 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
     return row
   })
 
-  app.get('/quotas/:tenantId', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.get('/quotas/:tenantId', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { tenantId } = request.params as { tenantId: string }
     const row = await app.prisma.aiTenantQuota.findUnique({ where: { tenantId } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
@@ -186,14 +186,14 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
     })).min(1, 'at least one entry required'),
   })
 
-  app.get('/rate-cards', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async () => {
+  app.get('/rate-cards', { preHandler: requireAuth({ roles: ['admin'] }) }, async () => {
     return app.prisma.rateCardVersion.findMany({
       orderBy: { publishedAt: 'desc' },
       include: { _count: { select: { entries: true, aiCallRecords: true } } },
     })
   })
 
-  app.get('/rate-cards/active', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (_request, reply) => {
+  app.get('/rate-cards/active', { preHandler: requireAuth({ roles: ['admin'] }) }, async (_request, reply) => {
     const row = await app.prisma.rateCardVersion.findFirst({
       where: { isActive: true },
       include: { entries: { orderBy: { model: 'asc' } } },
@@ -202,7 +202,7 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
     return row
   })
 
-  app.get('/rate-cards/:versionId', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.get('/rate-cards/:versionId', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { versionId } = request.params as { versionId: string }
     const row = await app.prisma.rateCardVersion.findUnique({
       where: { id: versionId },
@@ -212,7 +212,7 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
     return row
   })
 
-  app.post('/rate-cards', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.post('/rate-cards', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = rateCardCreateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -269,7 +269,7 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(withEntries)
   })
 
-  app.patch('/rate-cards/:versionId/activate', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.patch('/rate-cards/:versionId/activate', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { versionId } = request.params as { versionId: string }
     const target = await app.prisma.rateCardVersion.findUnique({ where: { id: versionId } })
     if (!target) return reply.code(404).send({ error: 'not_found' })

@@ -383,7 +383,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
   // Admin role gate stands in for MLR Lead role until that role catalogue
   // ships. See Phase 3C deferral memory.
 
-  app.post('/:contentId/mlr-decision', { preHandler: requireAuth({ modules: ['C'], roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.post('/:contentId/mlr-decision', { preHandler: requireAuth({ modules: ['C'], roles: ['admin'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const parsed = leadDecideSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
@@ -540,6 +540,6 @@ function inferMlrRole(userRole: string): string {
   // catalogue lands with the MLR seat definition (Phase 3C deferral).
   if (userRole === 'medical-writer' || userRole === 'reviewer') return 'MLR Medical Reviewer'
   if (userRole === 'regulatory-writer') return 'MLR Regulatory Reviewer'
-  if (userRole === 'admin' || userRole === 'super-admin') return 'MLR Lead'
+  if (userRole === 'admin') return 'MLR Lead'
   return 'MLR Reviewer'
 }

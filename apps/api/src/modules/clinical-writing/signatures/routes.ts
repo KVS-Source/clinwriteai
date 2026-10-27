@@ -171,7 +171,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     if (!record) return reply.code(404).send({ error: 'not_found' })
 
     // Only the designated signer (or admin) can sign.
-    if (record.signerId !== request.user!.id && !['admin', 'super-admin'].includes(request.user!.role)) {
+    if (record.signerId !== request.user!.id && !['admin'].includes(request.user!.role)) {
       return reply.code(403).send({ error: 'wrong_signer', message: 'Only the designated signer may sign this step' })
     }
     if (record.status === 'signed') {

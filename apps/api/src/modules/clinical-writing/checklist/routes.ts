@@ -172,7 +172,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
   // targets project-level overrides.
   app.post(
     '/:templateId/approve',
-    { preHandler: requireAuth({ roles: ['admin', 'super-admin'], modules: ['A'] }) },
+    { preHandler: requireAuth({ roles: ['admin'], modules: ['A'] }) },
     async (request, reply) => {
       const { templateId } = request.params as { templateId: string }
       const template = await app.prisma.checklistTemplate.findUnique({

@@ -84,7 +84,7 @@ export const regulatoryAlertsRoutes: FastifyPluginAsync = async (app) => {
     return regulatoryAlertShape(alert)
   })
 
-  app.post('/admin/regulatory-alerts', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.post('/admin/regulatory-alerts', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -144,7 +144,7 @@ export const regulatoryAlertsRoutes: FastifyPluginAsync = async (app) => {
     return regulatoryAlertShape(updated)
   })
 
-  app.delete('/admin/regulatory-alerts/:alertId', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.delete('/admin/regulatory-alerts/:alertId', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { alertId } = request.params as { alertId: string }
     const alert = await app.prisma.regulatoryAlert.findUnique({ where: { id: alertId } })
     if (!alert) return reply.code(404).send({ error: 'not_found' })

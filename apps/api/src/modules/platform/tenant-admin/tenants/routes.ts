@@ -92,16 +92,23 @@ function tenantShape(t: {
 }
 
 export const tenantsRoutes: FastifyPluginAsync = async (app) => {
-  const superAdminGate = requireAuth({ roles: ['super-admin'] })
-  // Both super-admin and tenant-scoped owners can touch their own tenant.
-  // Membership check happens inside the handler since requireAuth doesn't
-  // know about tenant scope yet.
-  const anyAdminGate = requireAuth({ roles: ['super-admin', 'admin'] })
+  // Platform-ops bar: tenant list/create/suspend/archive require a
+  // platform admin (role='admin' + tenantId=null). The post-pivot role
+  // model collapsed super-admin into this shape.
+  const platformAdminGate = requireAuth({ roles: ['admin'] })
+  // Both platform admins and tenant-scoped owners can touch their own
+  // tenant. Membership check happens inside the handler since requireAuth
+  // doesn't know about tenant scope yet.
+  const anyAdminGate = requireAuth({ roles: ['admin'] })
 
-  async function assertTenantAccess(request: { user?: { id: string; role: string } }, tenantId: string): Promise<'owner' | 'admin' | 'super-admin' | null> {
+  async function assertTenantAccess(
+    request: { user?: { id: string; role: string; tenantId?: string | null } },
+    tenantId: string,
+  ): Promise<'owner' | 'admin' | 'platform' | null> {
     const user = request.user
     if (!user) return null
-    if (user.role === 'super-admin') return 'super-admin'
+    // Platform admin (admin with no tenant pinning) bypasses membership.
+    if (user.tenantId == null) return 'platform'
     const membership = await app.prisma.membership.findUnique({
       where: { tenantId_userId: { tenantId, userId: user.id } },
       select: { role: true, status: true },
@@ -114,12 +121,12 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
 
   // --- List + create (super-admin only) ----------------------------------
 
-  app.get('/admin/tenants', { preHandler: superAdminGate }, async () => {
+  app.get('/admin/tenants', { preHandler: platformAdminGate }, async () => {
     const rows = await app.prisma.tenant.findMany({ orderBy: { createdAt: 'desc' } })
     return rows.map(tenantShape)
   })
 
-  app.post('/admin/tenants', { preHandler: superAdminGate }, async (request, reply) => {
+  app.post('/admin/tenants', { preHandler: platformAdminGate }, async (request, reply) => {
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -153,7 +160,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/admin/tenants/:tenantId/dpdpa', { preHandler: anyAdminGate }, async (request, reply) => {
     const { tenantId } = request.params as { tenantId: string }
     const access = await assertTenantAccess(request, tenantId)
-    if (access !== 'super-admin' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
+    if (access !== 'platform' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
 
     const parsed = dpdpaSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -212,7 +219,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
     const { tenantId } = request.params as { tenantId: string }
     const access = await assertTenantAccess(request, tenantId)
     // Rename restricted to super-admin + tenant owner (not plain admin role).
-    if (access !== 'super-admin' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
+    if (access !== 'platform' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
 
     const parsed = updateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -242,7 +249,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
   app.patch('/admin/tenants/:tenantId/modules', { preHandler: anyAdminGate }, async (request, reply) => {
     const { tenantId } = request.params as { tenantId: string }
     const access = await assertTenantAccess(request, tenantId)
-    if (access !== 'super-admin' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
+    if (access !== 'platform' && access !== 'owner') return reply.code(403).send({ error: 'forbidden' })
 
     const parsed = modulesSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -267,7 +274,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
 
   // --- Suspend / archive (super-admin only) ------------------------------
 
-  app.post('/admin/tenants/:tenantId/suspend', { preHandler: superAdminGate }, async (request, reply) => {
+  app.post('/admin/tenants/:tenantId/suspend', { preHandler: platformAdminGate }, async (request, reply) => {
     const { tenantId } = request.params as { tenantId: string }
     const row = await app.prisma.tenant.findUnique({ where: { id: tenantId } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
@@ -286,7 +293,7 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
     return tenantShape(updated)
   })
 
-  app.post('/admin/tenants/:tenantId/archive', { preHandler: superAdminGate }, async (request, reply) => {
+  app.post('/admin/tenants/:tenantId/archive', { preHandler: platformAdminGate }, async (request, reply) => {
     const { tenantId } = request.params as { tenantId: string }
     const row = await app.prisma.tenant.findUnique({ where: { id: tenantId } })
     if (!row) return reply.code(404).send({ error: 'not_found' })

@@ -165,7 +165,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // --- Tenant overview (admin) --------------------------------------------
 
-  app.get('/reports/tenant/overview', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async () => {
+  app.get('/reports/tenant/overview', { preHandler: requireAuth({ roles: ['admin'] }) }, async () => {
     // Rollup counts across the whole tenant. Expensive-ish but cached by
     // the client; a materialised view would be the Phase 5+ optimisation.
     const [
@@ -205,7 +205,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // --- AI spend report ----------------------------------------------------
 
-  app.get('/reports/ai-spend', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.get('/reports/ai-spend', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = dateRangeSchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const { from, to } = resolveRange(parsed.data)
@@ -250,7 +250,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
 
   // --- Audit activity histogram -------------------------------------------
 
-  app.get('/reports/audit-activity', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.get('/reports/audit-activity', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = dateRangeSchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const { from, to } = resolveRange(parsed.data)
@@ -291,7 +291,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
   // Projects current month-to-date AI spend to end-of-month using the
   // simplest linear extrapolation (daily rate × days-remaining). Gives
   // the operator a soft-cap alert well before the hard-cap kicks in.
-  app.get('/reports/tenant/:tenantId/spend-forecast', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request) => {
+  app.get('/reports/tenant/:tenantId/spend-forecast', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request) => {
     const { tenantId } = request.params as { tenantId: string }
     const quota = await app.prisma.aiTenantQuota.findUnique({ where: { tenantId } })
 
@@ -336,7 +336,7 @@ export const reportsRoutes: FastifyPluginAsync = async (app) => {
   // Bills-per-project view: AI cost grouped by project within a date
   // range. Useful for showing clients what their individual studies
   // are consuming.
-  app.get('/reports/projects/ai-cost', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.get('/reports/projects/ai-cost', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = dateRangeSchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const { from, to } = resolveRange(parsed.data)

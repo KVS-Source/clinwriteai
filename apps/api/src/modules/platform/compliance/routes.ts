@@ -33,7 +33,7 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
 
   // Called by the monthly evidence snapshot. Also wired into the Grafana
   // dashboard as a dial — any non-200 or non-intact result is a Sev1.
-  app.get('/verify-chain', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.get('/verify-chain', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const q = windowQuery.safeParse(request.query)
     if (!q.success) return reply.code(400).send({ error: 'validation', issues: q.error.issues })
 
@@ -98,7 +98,7 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
   //   - AI calls + cost
   //   - pending retention actions (counts that would be deleted today)
 
-  app.get('/report', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.get('/report', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const q = windowQuery.safeParse(request.query)
     if (!q.success) return reply.code(400).send({ error: 'validation', issues: q.error.issues })
 
@@ -124,7 +124,7 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
 
   // PDF variant — same builder, pdfkit-rendered. Attestable artefact for
   // auditor binders. Streams application/pdf with a dated filename.
-  app.get('/report.pdf', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.get('/report.pdf', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const q = windowQuery.safeParse(request.query)
     if (!q.success) return reply.code(400).send({ error: 'validation', issues: q.error.issues })
 
@@ -161,7 +161,7 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
   // The export is itself audited as 'audit_log_exported' so there's a
   // trail of who pulled evidence when.
 
-  app.get('/audit-events.jsonl', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.get('/audit-events.jsonl', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const q = windowQuery.safeParse(request.query)
     if (!q.success) return reply.code(400).send({ error: 'validation', issues: q.error.issues })
 
@@ -244,7 +244,7 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
   // supplied retention windows (defaults match ../README.md policy). The
   // actual purge job runs via a BullMQ cron (Phase 6).
 
-  app.get('/retention-report', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.get('/retention-report', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const q = retentionReportQuery.safeParse(request.query)
     if (!q.success) return reply.code(400).send({ error: 'validation', issues: q.error.issues })
 
@@ -285,7 +285,7 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
   // Returns the row-shape the compliance share drop expects — one row per
   // user with role, modules, last-active, session count.
 
-  app.get('/access-review', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request) => {
+  app.get('/access-review', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request) => {
     const users = await app.prisma.user.findMany({
       orderBy: [{ status: 'asc' }, { email: 'asc' }],
       include: {
@@ -358,7 +358,7 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
     confirmEmail: z.string().email(),
   })
 
-  app.post('/gdpr-anonymise', { preHandler: requireAuth({ roles: ['super-admin'] }) }, async (request, reply) => {
+  app.post('/gdpr-anonymise', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = anonymiseSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -368,12 +368,14 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
     if (target.email !== parsed.data.confirmEmail) {
       return reply.code(400).send({ error: 'confirm_email_mismatch', message: 'confirmEmail must match the target user\'s current email' })
     }
-    // Protect against anonymising the last super-admin — would lock out
-    // the entire control plane.
-    if (target.role === 'super-admin') {
+    // Protect against anonymising the last platform admin — would lock
+    // out the entire control plane. (Platform admin = role='admin' with
+    // tenantId=null; the 2026-10-27 role consolidation retired super-admin.)
+    if (target.role === 'admin' && target.tenantId == null) {
       const otherSuperAdmins = await app.prisma.user.count({
         where: {
-          role: 'super-admin',
+          role: 'admin',
+          tenantId: null,
           status: 'active',
           id: { not: target.id },
         },

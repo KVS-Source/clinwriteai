@@ -29,10 +29,10 @@ import { buildInviteUrl, generateInvitationToken } from './invitations.js'
 import { eventForTarget, isUserStatus, transition, type UserEvent, type UserStatus } from './status-machine.js'
 
 const ROLES = [
-  'super-admin', 'admin', 'clinical-writer', 'scientific-writer',
+  'admin', 'clinical-writer', 'scientific-writer',
   'medical-writer', 'regulatory-writer', 'ideation-lead', 'reviewer', 'read-only',
 ] as const
-const ADMIN_ROLES = new Set<string>(['super-admin', 'admin'])
+const ADMIN_ROLES = new Set<string>(['admin'])
 
 const inviteSchema = z.object({
   email: z.string().email(),
@@ -70,12 +70,15 @@ const listQuerySchema = z.object({
 type Actor = NonNullable<FastifyRequest['user']>
 
 export const userRoutes: FastifyPluginAsync = async (app) => {
-  const adminGate = requireAuth({ roles: ['admin', 'super-admin'] })
+  const adminGate = requireAuth({ roles: ['admin'] })
 
   // --- scope helpers -------------------------------------------------------
 
+  // Platform-wide actors (admin with tenantId=null) see every tenant;
+  // tenant-scoped admins only see their own tenant. The 2026-10-27 role
+  // consolidation collapsed 'super-admin' into 'admin + tenantId=null'.
   function isPlatformWide(actor: Actor): boolean {
-    return actor.role === 'super-admin' || actor.tenantId == null
+    return actor.tenantId == null
   }
 
   function scopeWhere(actor: Actor): Prisma.UserWhereInput {
@@ -85,8 +88,10 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
   async function loadTarget(actor: Actor, id: string): Promise<User | null> {
     const user = await app.prisma.user.findFirst({ where: { id, ...scopeWhere(actor) } })
     if (!user) return null
-    // Non-super admins can't touch super-admins.
-    if (actor.role !== 'super-admin' && user.role === 'super-admin') return null
+    // Tenant-scoped admins can't touch platform admins (users with
+    // tenantId=null). Prevents a tenant admin from deprovisioning the
+    // platform ops team by accident.
+    if (!isPlatformWide(actor) && user.tenantId == null) return null
     return user
   }
 
@@ -101,7 +106,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       where: {
         id: { not: target.id },
         status: 'active',
-        role: { in: ['admin', 'super-admin'] },
+        role: { in: ['admin'] },
         // Platform admins (tenantId null) are cross-tenant, so they count
         // for every tenant; tenant admins only count for their own.
         OR: target.tenantId ? [{ tenantId: target.tenantId }, { tenantId: null }] : [{ tenantId: null }],
@@ -222,8 +227,10 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     const { q, role, status, module, tenantId, page, pageSize } = parsedQuery.data
 
     const where: Prisma.UserWhereInput = { ...scopeWhere(actor) }
-    if (actor.role !== 'super-admin') where.role = role ? { equals: role, not: 'super-admin' } : { not: 'super-admin' }
-    else if (role) where.role = role
+    // Tenant-scoped admins can't see platform admins; the scopeWhere
+    // already pins tenantId, which is the only lever that matters now
+    // that 'super-admin' is gone (platform admins have tenantId=null).
+    if (role) where.role = role
     if (status) where.status = status
     if (module) where.modules = { has: module }
     // tenantId filter only narrows; tenant admins are already pinned to theirs.
@@ -263,9 +270,8 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const { firstName, lastName, name, ...rest } = parsed.data
 
-    if (actor.role !== 'super-admin' && rest.role === 'super-admin') {
-      return reject(reply, 403, 'forbidden', 'Only a super-admin can grant the super-admin role')
-    }
+    // (The 2026-10-27 role consolidation retired 'super-admin'; the only
+    // admin role left is 'admin'. Platform admins have tenantId=null.)
     // Tenant admins can only invite into their own tenant.
     let tenantId = rest.tenantId
     if (!isPlatformWide(actor)) {
@@ -309,9 +315,6 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
 
     const { status: requestedStatus, ...fields } = parsed.data
 
-    if (fields.role === 'super-admin' && actor.role !== 'super-admin') {
-      return reject(reply, 403, 'forbidden', 'Only a super-admin can grant the super-admin role')
-    }
     if (fields.tenantId !== undefined && fields.tenantId !== existing.tenantId && !isPlatformWide(actor)) {
       return reject(reply, 403, 'forbidden', 'Cannot move users between tenants')
     }

@@ -235,7 +235,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const { meetingId } = request.params as { meetingId: string }
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
-    if (meeting.chairId !== request.user!.id && !['admin', 'super-admin'].includes(request.user!.role)) {
+    if (meeting.chairId !== request.user!.id && !['admin'].includes(request.user!.role)) {
       return reply.code(403).send({ error: 'only_chair', message: 'Only the chair (or admin) can start the meeting' })
     }
     if (meeting.status === 'in_progress') return meeting  // idempotent
@@ -279,7 +279,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       include: { resolutions: true },
     })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
-    if (meeting.chairId !== request.user!.id && !['admin', 'super-admin'].includes(request.user!.role)) {
+    if (meeting.chairId !== request.user!.id && !['admin'].includes(request.user!.role)) {
       return reply.code(403).send({ error: 'only_chair' })
     }
     if (meeting.status !== 'in_progress') {

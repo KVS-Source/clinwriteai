@@ -77,7 +77,7 @@ export const notificationsRoutes: FastifyPluginAsync = async (app) => {
 
   // Direct send endpoint — admin-only. Feature modules call
   // `app.notifications.send(...)` directly rather than hitting this route.
-  app.post('/', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.post('/', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = sendSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 

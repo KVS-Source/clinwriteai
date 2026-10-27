@@ -64,7 +64,7 @@ export const raciRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
-  app.put('/:projectId/raci', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.put('/:projectId/raci', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = upsertSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -131,7 +131,7 @@ export const raciRoutes: FastifyPluginAsync = async (app) => {
     return row
   })
 
-  app.delete('/:projectId/raci/:activity', { preHandler: requireAuth({ roles: ['admin', 'super-admin'] }) }, async (request, reply) => {
+  app.delete('/:projectId/raci/:activity', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { projectId, activity } = request.params as { projectId: string; activity: string }
     const existing = await app.prisma.raciAssignment.findUnique({
       where: { projectId_activity: { projectId, activity } },

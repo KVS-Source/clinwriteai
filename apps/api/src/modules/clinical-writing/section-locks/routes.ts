@@ -74,7 +74,7 @@ export const sectionLockRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/:documentId/sections/:sectionId/lock', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
-    const isAdmin = ['admin', 'super-admin'].includes(request.user!.role)
+    const isAdmin = ['admin'].includes(request.user!.role)
     const existing = await getHolder(app.prisma, { documentId, sectionId })
 
     const released = await releaseLock(app.prisma, {

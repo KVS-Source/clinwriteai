@@ -25,19 +25,19 @@ const MODULE_MONOGRAMS: Record<string, string> = {
 
 // Platform section nav — items land as their sPM screens are built (PM00 §4).
 // Each entry is {label, href, roles} — filtered client-side against currentUser.role.
-interface PlatformNavItem { label: string; href: string; roles: readonly ('admin' | 'super-admin')[]; icon: ReactNode }
+interface PlatformNavItem { label: string; href: string; roles: readonly ('admin')[]; icon: ReactNode }
 const PLATFORM_NAV: PlatformNavItem[] = [
-  { label: 'Admin Panel',      href: '/admin',       roles: ['admin', 'super-admin'] as const, icon: <GearIcon /> },
-  { label: 'User Management',  href: '/admin/users', roles: ['admin', 'super-admin'] as const, icon: <UsersIcon /> },
-  { label: 'Audit Trail',      href: '/admin/audit', roles: ['admin', 'super-admin'] as const, icon: <ClipboardIcon /> },
-  { label: 'TA Tags',          href: '/admin/taxonomy', roles: ['admin', 'super-admin'] as const, icon: <TagIcon /> },
-  { label: 'RACI Matrix',      href: '/admin/raci',  roles: ['admin', 'super-admin'] as const, icon: <MatrixIcon /> },
-  { label: 'Notifications',    href: '/notifications', roles: ['admin', 'super-admin'] as const, icon: <BellIcon /> },
-  { label: 'Master Library',   href: '/library',    roles: ['admin', 'super-admin'] as const, icon: <BookIcon /> },
-  { label: 'Best Practices',   href: '/library/best-practices', roles: ['admin', 'super-admin'] as const, icon: <StarIcon /> },
-  { label: 'Services',         href: '/services',   roles: ['admin', 'super-admin'] as const, icon: <LayersIcon /> },
-  { label: 'Subscription',     href: '/admin/subscription', roles: ['admin', 'super-admin'] as const, icon: <CardIcon /> },
-  { label: 'Reports',          href: '/reports',    roles: ['admin', 'super-admin'] as const, icon: <ChartIcon /> },
+  { label: 'Admin Panel',      href: '/admin',       roles: ['admin'] as const, icon: <GearIcon /> },
+  { label: 'User Management',  href: '/admin/users', roles: ['admin'] as const, icon: <UsersIcon /> },
+  { label: 'Audit Trail',      href: '/admin/audit', roles: ['admin'] as const, icon: <ClipboardIcon /> },
+  { label: 'TA Tags',          href: '/admin/taxonomy', roles: ['admin'] as const, icon: <TagIcon /> },
+  { label: 'RACI Matrix',      href: '/admin/raci',  roles: ['admin'] as const, icon: <MatrixIcon /> },
+  { label: 'Notifications',    href: '/notifications', roles: ['admin'] as const, icon: <BellIcon /> },
+  { label: 'Master Library',   href: '/library',    roles: ['admin'] as const, icon: <BookIcon /> },
+  { label: 'Best Practices',   href: '/library/best-practices', roles: ['admin'] as const, icon: <StarIcon /> },
+  { label: 'Services',         href: '/services',   roles: ['admin'] as const, icon: <LayersIcon /> },
+  { label: 'Subscription',     href: '/admin/subscription', roles: ['admin'] as const, icon: <CardIcon /> },
+  { label: 'Reports',          href: '/reports',    roles: ['admin'] as const, icon: <ChartIcon /> },
 ]
 // Read access to the library is open to every signed-in user (PRD sPM08), so
 // users without the Platform section get these two links on their own.
@@ -46,10 +46,10 @@ const LIBRARY_NAV: { label: string; href: string; icon: ReactNode }[] = [
   { label: 'Best Practices', href: '/library/best-practices', icon: <StarIcon /> },
 ]
 const SUPER_ADMIN_NAV: PlatformNavItem[] = [
-  { label: 'Super Admin Panel',   href: '/super-admin',            roles: ['super-admin'] as const, icon: <ShieldCheckIcon /> },
-  { label: 'Tenants',             href: '/super-admin/tenants',    roles: ['super-admin'] as const, icon: <BuildingIcon /> },
-  { label: 'Framework Registry',  href: '/super-admin/frameworks', roles: ['super-admin'] as const, icon: <LayersIcon /> },
-  { label: 'Rate Card',           href: '/super-admin/rate-card',  roles: ['super-admin'] as const, icon: <ReceiptIcon /> },
+  { label: 'Platform Panel',      href: '/super-admin',            roles: ['admin'] as const, icon: <ShieldCheckIcon /> },
+  { label: 'Tenants',             href: '/super-admin/tenants',    roles: ['admin'] as const, icon: <BuildingIcon /> },
+  { label: 'Framework Registry',  href: '/super-admin/frameworks', roles: ['admin'] as const, icon: <LayersIcon /> },
+  { label: 'Rate Card',           href: '/super-admin/rate-card',  roles: ['admin'] as const, icon: <ReceiptIcon /> },
 ]
 
 // NavLink matches by path prefix, so "/admin" would stay highlighted on
@@ -184,10 +184,13 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
   // hold the role. Module users (Ideation Lead, Regulatory Writer, MA Team Lead,
   // Clinical Lead, CMC Lead, Content Calendar Manager, Author) see neither
   // Platform nor Super Admin sections — only their module + project navigation.
-  const isSuperAdmin = currentUser.role === 'super-admin'
-  const isAdmin      = currentUser.role === 'admin' || isSuperAdmin
-  const platformItems   = isAdmin      ? PLATFORM_NAV.filter(i => i.roles.includes(currentUser.role as 'admin' | 'super-admin'))   : []
-  const superAdminItems = isSuperAdmin ? SUPER_ADMIN_NAV.filter(i => i.roles.includes(currentUser.role as 'admin' | 'super-admin')) : []
+  // Post 2026-10-27 role consolidation: platform admin = role='admin' with
+  // tenantId=null; tenant admin = role='admin' with a tenant id. The Platform
+  // section (Tenants / Framework Registry / Rate Card) is platform-admin-only.
+  const isAdmin      = currentUser.role === 'admin'
+  const isSuperAdmin = isAdmin && (currentUser.tenantId ?? null) == null
+  const platformItems   = isAdmin      ? PLATFORM_NAV.filter(i => i.roles.includes(currentUser.role as 'admin'))   : []
+  const superAdminItems = isSuperAdmin ? SUPER_ADMIN_NAV.filter(i => i.roles.includes(currentUser.role as 'admin')) : []
   const showPlatform   = platformItems.length   > 0
   const libraryItems   = showPlatform ? [] : LIBRARY_NAV
   const showSuperAdmin = superAdminItems.length > 0

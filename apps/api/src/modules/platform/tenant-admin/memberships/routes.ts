@@ -7,7 +7,7 @@
 //   DELETE /admin/memberships/:membershipId                  remove from tenant
 //
 // Guards:
-//   - super-admin can do everything on any tenant
+//   - platform admin (tenantId=null) can do everything on any tenant
 //   - tenant owners can do everything on their own tenant EXCEPT demote
 //     the last remaining owner (would strand the tenant without an owner)
 //   - owners can't demote THEMSELVES to viewer / writer / reviewer (same
@@ -63,14 +63,15 @@ function membershipShape(m: {
 }
 
 export const membershipsRoutes: FastifyPluginAsync = async (app) => {
-  const anyAdminGate = requireAuth({ roles: ['super-admin', 'admin'] })
+  const anyAdminGate = requireAuth({ roles: ['admin'] })
 
   async function assertTenantAccess(
     userId: string,
-    userRole: string,
+    userTenantId: string | null,
     tenantId: string,
-  ): Promise<'super-admin' | 'owner' | 'admin' | 'read-only' | null> {
-    if (userRole === 'super-admin') return 'super-admin'
+  ): Promise<'platform' | 'owner' | 'admin' | 'read-only' | null> {
+    // Platform admin (role='admin' + tenantId=null, post-pivot) bypasses membership.
+    if (userTenantId == null) return 'platform'
     const m = await app.prisma.membership.findUnique({
       where: { tenantId_userId: { tenantId, userId } },
       select: { role: true, status: true },
@@ -85,7 +86,7 @@ export const membershipsRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/admin/tenants/:tenantId/memberships', { preHandler: anyAdminGate }, async (request, reply) => {
     const { tenantId } = request.params as { tenantId: string }
-    const access = await assertTenantAccess(request.user!.id, request.user!.role, tenantId)
+    const access = await assertTenantAccess(request.user!.id, request.user!.tenantId ?? null, tenantId)
     if (!access) return reply.code(403).send({ error: 'forbidden' })
 
     const rows = await app.prisma.membership.findMany({
@@ -98,8 +99,8 @@ export const membershipsRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/admin/tenants/:tenantId/memberships', { preHandler: anyAdminGate }, async (request, reply) => {
     const { tenantId } = request.params as { tenantId: string }
-    const access = await assertTenantAccess(request.user!.id, request.user!.role, tenantId)
-    if (access !== 'super-admin' && access !== 'owner' && access !== 'admin') {
+    const access = await assertTenantAccess(request.user!.id, request.user!.tenantId ?? null, tenantId)
+    if (access !== 'platform' && access !== 'owner' && access !== 'admin') {
       return reply.code(403).send({ error: 'forbidden' })
     }
 
@@ -153,9 +154,9 @@ export const membershipsRoutes: FastifyPluginAsync = async (app) => {
     const existing = await app.prisma.membership.findUnique({ where: { id: membershipId } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
 
-    const access = await assertTenantAccess(request.user!.id, request.user!.role, existing.tenantId)
-    if (access !== 'super-admin' && access !== 'owner') {
-      return reply.code(403).send({ error: 'forbidden', message: 'Only super-admin or tenant owner can change memberships' })
+    const access = await assertTenantAccess(request.user!.id, request.user!.tenantId ?? null, existing.tenantId)
+    if (access !== 'platform' && access !== 'owner') {
+      return reply.code(403).send({ error: 'forbidden', message: 'Only a platform admin or tenant owner can change memberships' })
     }
 
     // Owner-protection: can't demote the last remaining owner, and owners
@@ -211,8 +212,8 @@ export const membershipsRoutes: FastifyPluginAsync = async (app) => {
     const existing = await app.prisma.membership.findUnique({ where: { id: membershipId } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
 
-    const access = await assertTenantAccess(request.user!.id, request.user!.role, existing.tenantId)
-    if (access !== 'super-admin' && access !== 'owner') {
+    const access = await assertTenantAccess(request.user!.id, request.user!.tenantId ?? null, existing.tenantId)
+    if (access !== 'platform' && access !== 'owner') {
       return reply.code(403).send({ error: 'forbidden' })
     }
 

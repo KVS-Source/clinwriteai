@@ -94,7 +94,7 @@ async function sendSoftCapOnce(
   // Recipient resolution: the actor sees it; admin/super-admin users
   // get it too so an operator can bump the cap before the hard reject.
   const admins = await app.prisma.user.findMany({
-    where: { role: { in: ['admin', 'super-admin'] }, status: 'active' },
+    where: { role: { in: ['admin'] }, status: 'active' },
     select: { id: true },
   })
   const recipientIds = Array.from(new Set([actorId, ...admins.map(a => a.id)]))

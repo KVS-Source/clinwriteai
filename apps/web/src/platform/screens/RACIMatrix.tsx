@@ -84,8 +84,8 @@ function marksFromOverride(o: ProjectRaciAssignment, roleOfUser: (id: string) =>
 
 export function RACIMatrix() {
   const currentUser = usePlatformStore(s => s.currentUser)
-  // Mirrors the API's requireAuth({ roles: ['admin', 'super-admin'] }) on PUT/DELETE.
-  const canEdit = currentUser.role === 'admin' || currentUser.role === 'super-admin'
+  // Mirrors the API's requireAuth({ roles: ['admin'] }) on PUT/DELETE.
+  const canEdit = currentUser.role === 'admin'
   const raci = DEFAULT_TEMPLATE
   const { data: projects = [], isLoading: projectsLoading, isError: projectsError, refetch: refetchProjects } =
     useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list() })

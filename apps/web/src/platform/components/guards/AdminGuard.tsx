@@ -9,7 +9,7 @@ const BYPASS_ROLE_GUARD_IN_PROTOTYPE = false
 
 export function AdminGuard({ children }: { children: ReactNode }) {
   const currentUser = usePlatformStore(s => s.currentUser)
-  const allowed     = currentUser.role === 'admin' || currentUser.role === 'super-admin'
+  const allowed     = currentUser.role === 'admin'
 
   if (!allowed && !BYPASS_ROLE_GUARD_IN_PROTOTYPE) {
     return <Navigate to="/home" replace />

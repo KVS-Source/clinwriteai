@@ -69,7 +69,7 @@ export function ProjectDashboard() {
 
   // The audit trail page is admin-only — don't offer the button to anyone else.
   const role = usePlatformStore(s => s.currentUser.role)
-  const isAdmin = role === 'admin' || role === 'super-admin'
+  const isAdmin = role === 'admin'
 
   useEffect(() => {
     if (project) setActiveProject(project)

@@ -1468,7 +1468,6 @@ export const MODULE_E_ACCENT = {
 // ============================================================================
 
 export type PlatformUserRole =
-  | 'super-admin'
   | 'admin'
   | 'ideation-lead'
   | 'regulatory-writer'
@@ -1528,6 +1527,11 @@ export interface PlatformUser {
   modules:    Array<'A' | 'B' | 'C' | 'D' | 'E'>
   status:     PlatformUserStatus
   lastActive: string | null
+  // Post 2026-10-27 role consolidation: tenantId=null is the platform-admin
+  // marker (what super-admin used to indicate). Tenant-scoped users carry
+  // their tenant id. Optional for fixtures / demo users that were seeded
+  // before the field existed.
+  tenantId?:  string | null
 }
 
 export interface RaciAssignment {
@@ -1969,7 +1973,6 @@ export interface PlatformAnalytics {
 }
 
 export const PLATFORM_USER_ROLE_LABEL: Record<PlatformUserRole, string> = {
-  'super-admin':               'Super Admin',
   'admin':                     'Admin',
   'ideation-lead':             'Ideation Lead',
   'regulatory-writer':         'Regulatory Writer',

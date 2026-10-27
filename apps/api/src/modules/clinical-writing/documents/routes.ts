@@ -728,7 +728,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     reason: z.string().max(500).optional(),
   })
 
-  app.patch('/:documentId/therapeutic-area', { preHandler: requireAuth({ roles: ['admin', 'super-admin'], modules: ['A'] }) }, async (request, reply) => {
+  app.patch('/:documentId/therapeutic-area', { preHandler: requireAuth({ roles: ['admin'], modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = taChangeSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })

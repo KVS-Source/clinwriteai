@@ -20,7 +20,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 
 // Tenant admins manage the catalogue too (PRD sPM17 access = Admin).
-const adminGate = requireAuth({ roles: ['admin', 'super-admin'] })
+const adminGate = requireAuth({ roles: ['admin'] })
 
 type Usage = { projectCount: number; documentCount: number }
 

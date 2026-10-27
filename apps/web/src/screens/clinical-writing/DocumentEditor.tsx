@@ -147,12 +147,27 @@ export function DocumentEditor() {
     setAiEditModel(null)
   }, [activeSectionData?.id])
 
-  // A reload that changes the section's saved text (your own autosave came
-  // back, or an admin force-released the lock and another writer updated
-  // the section) refreshes the draft. The lock precondition prevents two
-  // writers from clobbering each other, so this is always safe to accept.
+  // When the server's contentHtml changes AND it's not what we just saved
+  // (i.e. an admin force-release let another writer edit mid-session, or
+  // the demo-persona switcher reloaded the fixture), re-hydrate the draft.
+  // Guarded by a lastAcceptedRef so the useEffect doesn't clobber the
+  // writer's in-flight edit the moment a stale cache response races the
+  // autosave write — the exact regression that made "Accept into section"
+  // appear to do nothing (set the draft, then immediately overwrite it
+  // with the pre-Accept server value before the save round-tripped).
+  const lastAcceptedRef = useRef<string | null>(null)
   useEffect(() => {
-    setDraftContent(activeSectionData?.contentHtml ?? '')
+    const serverHtml = activeSectionData?.contentHtml ?? ''
+    // Our own saves return the same bytes we posted → ignore. External
+    // changes (first load of a section, concurrent force-release) do
+    // differ → accept.
+    if (serverHtml === lastAcceptedRef.current) return
+    if (serverHtml === draftContentRef.current) {
+      lastAcceptedRef.current = serverHtml
+      return
+    }
+    lastAcceptedRef.current = serverHtml
+    setDraftContent(serverHtml)
   }, [activeSectionData?.contentHtml])
 
   // sPM-autosave — Section lock lifecycle. Acquires on section mount,
@@ -1126,12 +1141,25 @@ export function DocumentEditor() {
                 sectionId={activeSection}
                 sectionLabel={activeSectionData ? `${withSectionMark(activeSectionData.number)} ${activeSectionData.title}` : undefined}
                 editor={editor}
+                canEditSection={canEditSection}
+                cannotEditReason={
+                  !documentId || !activeSectionData
+                    ? 'Open a section first'
+                    : document?.status === 'in-review'
+                      ? 'Document is in review'
+                      : isLockedByOther
+                        ? `${sectionLock.holder ? (usersById.get(sectionLock.holder.userId)?.name ?? 'Another writer') : 'Another writer'} is editing this section`
+                        : sectionLock.mode === 'idle'
+                          ? 'Acquiring edit lock…'
+                          : undefined
+                }
                 onAcceptSuggestion={(html, model, range) => {
                   // sPM-autosave — the editor is always editable when we hold
                   // the lock, so we can run the TipTap chain directly without
-                  // the old edit-mode-toggle dance. The following autosave
-                  // debounce persists the edit; aiEditModel tags it as
-                  // AI-drafted for Part 11 provenance.
+                  // the old edit-mode-toggle dance. We flush() the autosave
+                  // immediately so the writer sees "Saved HH:MM" right away
+                  // and so a 423/5xx on the save surfaces as an error pill
+                  // instead of silently vanishing from the 2s debounce.
                   let next = html
                   if (range && editor && canEditSection) {
                     const inline = !/<(p|h3|h4|ul|ol|li|blockquote|table|thead|tbody|tr|th|td)[>\s]/i.test(html)
@@ -1143,7 +1171,10 @@ export function DocumentEditor() {
                   }
                   setDraftContent(next)
                   setAiEditModel(model)
-                  autosave.markDirty()
+                  // Flush instead of markDirty so the save fires on the next
+                  // tick (after the setState above has propagated to the ref).
+                  // Any error surfaces via autosave.lastError → the status pill.
+                  requestAnimationFrame(() => { void autosave.flush() })
                 }}
               />
             )}

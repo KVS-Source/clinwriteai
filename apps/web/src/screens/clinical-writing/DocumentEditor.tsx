@@ -1058,24 +1058,28 @@ export function DocumentEditor() {
                 sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
                 editor={editor}
                 onAcceptSuggestion={(html, model, range) => {
-                  if (!isEditing) setIsEditing(true)
-                  if (range && editor) {
-                    // Selection-scoped accept: swap just the range the user
-                    // had highlighted when they sent the prompt. Plain
-                    // inline text inserts without wrapping tags so a word
-                    // swap doesn't get wrapped in <p>.
+                  // Reliable Accept flow — never fire setContent imperatively
+                  // on the current editor; it may be about to be recreated
+                  // (editable toggle) and the command gets lost on the
+                  // dying instance. Instead, update draftContent and let
+                  // useRichTextEditor's content-sync useEffect / editor
+                  // re-creation pick it up.
+                  let next = html
+                  if (range && editor && isEditing) {
+                    // Selection-scoped accept, only safe when already in
+                    // edit mode (otherwise the chain fires on the readonly
+                    // editor that's about to be destroyed). For not-editing
+                    // + range, fall through to whole-content replace.
                     const inline = !/<(p|h3|h4|ul|ol|li|blockquote|table|thead|tbody|tr|th|td)[>\s]/i.test(html)
                     editor.chain().focus().setTextSelection(range)
                       .deleteSelection()
                       .insertContent(inline ? html.replace(/<\/?(p|br)\s*\/?>/gi, '').trim() : html)
                       .run()
-                    const next = editor.getHTML()
-                    setDraftContent(next)
-                  } else {
-                    editor?.commands.setContent(html, { emitUpdate: false })
-                    setDraftContent(html)
+                    next = editor.getHTML()
                   }
+                  setDraftContent(next)
                   setAiEditModel(model)
+                  if (!isEditing) setIsEditing(true)
                 }}
               />
             )}

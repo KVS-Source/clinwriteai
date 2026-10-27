@@ -489,31 +489,9 @@ export function DocumentEditor() {
   // Closing the panel closes the viewer too.
   useEffect(() => { if (activePanel !== 'traceability') setSourceViewer(null) }, [activePanel, setSourceViewer])
 
-  // ⌘J / Ctrl+J — toggle the AI Chat panel. The EditorToolbar advertises
-  // this shortcut via the ⌘J kbd tag; this is where it's actually wired.
-  // preventDefault is critical: Chrome binds Ctrl+J to the Downloads panel,
-  // and leaving it unhandled would open Downloads every time the writer
-  // tried to toggle the chat.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return
-      if (e.key.toLowerCase() !== 'j') return
-      // Don't hijack when the user is editing a form input (e.g. the search
-      // box in Sidebar) — but allow it while the editor is focused since the
-      // editor doesn't use Ctrl+J for anything.
-      const t = e.target as Element | null
-      if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.getAttribute('contenteditable') === 'true')) {
-        // Exception: TipTap sets contenteditable="true" on the editor; still
-        // let the shortcut through there so writers can toggle the chat
-        // without leaving the editor.
-        if (!t.closest('[data-section-editor]')) return
-      }
-      e.preventDefault()
-      setActivePanel(activePanel === 'ai' ? null : 'ai')
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [activePanel, setActivePanel])
+  // ⌘J / Ctrl+J — the shortcut was moved to AppShell so it works even on
+  // first-paint before this component mounts and survives route changes
+  // without a listener leak. Nothing to wire here.
 
   // Source References, Audit Trail, Comments and AI Chat close on a click outside the panel (so does a click
   // on another button). Comments stays open when you pick another section: it re-scopes to that section. A click

@@ -37,10 +37,16 @@ export interface HistoryEntry {
   interveningCount: number
   interveningByActor: Array<{ actorId: string; actorName: string; count: number }>
   canRevert:       boolean
+  /** Set on rolled-up session rows (sPM-autosave). 1 for a singleton that didn't collapse. */
+  sessionEntryCount?: number
+  /** ISO ts of the oldest raw row in the session; `createdAt` is the newest. */
+  sessionStartedAt?: string
 }
 
 export interface HistoryResponse {
   entries: HistoryEntry[]
+  /** Collapsed-into-sessions view (sPM-autosave). Panels default to this when present. */
+  sessions?: HistoryEntry[]
 }
 
 export interface Props<R extends HistoryResponse = HistoryResponse> {
@@ -67,6 +73,12 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
 
   const [scope, setScope]   = useState<'mine' | 'all'>('mine')
   const [origin, setOrigin] = useState<OriginFilter>('all')
+  // sPM-autosave — when the loader returns `sessions`, prefer that view so a
+  // 20-save autosave burst doesn't drown the panel. Writers who want to see
+  // every individual save flip to 'rows'. Non-session loaders (Module E and
+  // the SectionHistoryPanel-no-section guard) fall back to 'rows' silently
+  // because `sessions` is undefined.
+  const [view, setView] = useState<'sessions' | 'rows'>('sessions')
   const [pending, setPending] = useState<null | {
     editHistoryId: string
     actorName:     string
@@ -113,7 +125,10 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
     )
   }
 
-  const entries = (historyQ.data?.entries ?? []) as HistoryEntry[]
+  const rawEntries     = (historyQ.data?.entries  ?? []) as HistoryEntry[]
+  const sessionEntries = (historyQ.data?.sessions ?? null) as HistoryEntry[] | null
+  const hasSessions    = sessionEntries !== null
+  const entries        = (hasSessions && view === 'sessions') ? sessionEntries! : rawEntries
 
   return (
     <div className="flex-1 overflow-y-auto p-4" data-panel="history">
@@ -142,6 +157,28 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
         >All on this {subject}</button>
       </div>
 
+      {/* Session vs raw-row toggle (sPM-autosave). Only shown when the
+          loader returns sessions — Module E atomised history and the
+          no-section guard both return raw-only, so the toggle hides
+          itself. Rolls up consecutive same-actor same-origin saves within
+          10 minutes into one row; raw mode shows every autosave fire. */}
+      {hasSessions && (
+        <div className="mt-3 flex rounded-md border border-slate-200 bg-slate-100 p-0.5" data-section-history-view>
+          <button
+            type="button"
+            onClick={() => setView('sessions')}
+            className={`flex-1 rounded px-3 py-1 text-[11px] font-semibold transition-colors ${view === 'sessions' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            title="One row per writing session (autosaves within 10 minutes collapse)"
+          >Grouped by session</button>
+          <button
+            type="button"
+            onClick={() => setView('rows')}
+            className={`flex-1 rounded px-3 py-1 text-[11px] font-semibold transition-colors ${view === 'rows' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
+            title="Every individual save (noisy, use for audit drilldown)"
+          >Every save</button>
+        </div>
+      )}
+
       {/* Origin filter chips */}
       <div className="mt-3 flex flex-wrap gap-1" data-section-history-origin>
         {(['all', 'ai', 'manual', 'undo'] as OriginFilter[]).map(k => (
@@ -166,8 +203,20 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
             <div className="flex items-center justify-between">
               <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${originBadgeClass(e.origin)}`}>
                 {originLabel(e.origin)}
+                {(e.sessionEntryCount ?? 1) > 1 && (
+                  <> · {e.sessionEntryCount} saves</>
+                )}
               </span>
-              <time className="text-[11px] text-slate-500" title={e.createdAt}>{formatRelative(e.createdAt)}</time>
+              <time
+                className="text-[11px] text-slate-500"
+                title={e.sessionStartedAt && e.sessionStartedAt !== e.createdAt
+                  ? `${new Date(e.sessionStartedAt).toLocaleTimeString()} → ${new Date(e.createdAt).toLocaleTimeString()}`
+                  : e.createdAt}
+              >
+                {(e.sessionEntryCount ?? 1) > 1 && e.sessionStartedAt
+                  ? `${new Date(e.sessionStartedAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })} → ${new Date(e.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}`
+                  : formatRelative(e.createdAt)}
+              </time>
             </div>
 
             {e.origin === 'ai' && e.promptText && (

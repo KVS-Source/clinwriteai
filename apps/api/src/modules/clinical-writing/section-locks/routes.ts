@@ -53,6 +53,16 @@ export const sectionLockRoutes: FastifyPluginAsync = async (app) => {
         details:    { sectionId },
         ipAddress:  request.ip ?? null,
       })
+      // Push to other sockets in the doc room so their banners clear /
+      // acquire-attempts kick off immediately. Extends don't broadcast —
+      // nothing has changed from the room's point of view.
+      app.emitSectionLockChanged({
+        documentId,
+        reason:    result.outcome,
+        sectionId,
+        userId:    request.user!.id,
+        at:        new Date().toISOString(),
+      })
     }
 
     return reply.code(result.outcome === 'extended' ? 200 : 201).send({
@@ -81,6 +91,15 @@ export const sectionLockRoutes: FastifyPluginAsync = async (app) => {
         entityId:   documentId,
         details:    { sectionId, previousHolderId: existing.userId },
         ipAddress:  request.ip ?? null,
+      })
+    }
+
+    if (released) {
+      app.emitSectionLockChanged({
+        documentId,
+        reason:    (existing && existing.userId !== request.user!.id) ? 'force_released' : 'released',
+        sectionId,
+        at:        new Date().toISOString(),
       })
     }
 

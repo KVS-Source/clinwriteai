@@ -7,6 +7,7 @@ import { usePresenceSnapshot } from '../../hooks/usePresence'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { useSectionLock } from '../../hooks/useSectionLock'
 import { useAutosave }     from '../../hooks/useAutosave'
+import { useDocumentSocket } from '../../hooks/useDocumentSocket'
 import { SectionAutosaveStatus } from './SectionAutosaveStatus'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill } from '../../components/ui'
@@ -199,6 +200,24 @@ export function DocumentEditor() {
       sectionLock.reacquire()
     }
   }, [autosave.lastError, sectionLock])
+
+  // sPM-autosave — realtime socket. Push 'lock:changed' events trigger an
+  // immediate reacquire so the "Read-only — Alice is editing" banner clears
+  // the instant she navigates away (vs waiting up to 30s for the heartbeat
+  // tick). When the push channel is down (dev/no-socket mode), the hook
+  // falls back to its own 30s heartbeat — same correctness, slower reaction.
+  const docSocket = useDocumentSocket(documentId)
+  useEffect(() => {
+    if (!docSocket.socket || !activeSectionData?.id) return
+    return docSocket.on<{ sectionId: string }>('lock:changed', (payload) => {
+      if (payload.sectionId === activeSectionData.id) {
+        sectionLock.reacquire()
+      }
+    })
+    // Depend on documentId + activeSectionData.id so the listener re-binds
+    // when either changes; docSocket.on captures a stable closure over the
+    // current section id.
+  }, [docSocket, activeSectionData?.id, sectionLock])
 
   // Collab provider (Phase 2.3). Null when VITE_COLLAB_URL isn't set →
   // the editor runs solo. When set, a Y.Doc + WebsocketProvider is
@@ -811,6 +830,7 @@ export function DocumentEditor() {
                     <SectionAutosaveStatus
                       lockMode={sectionLock.mode}
                       holder={sectionLock.holder}
+                      holderName={sectionLock.holder ? (usersById.get(sectionLock.holder.userId)?.name ?? undefined) : undefined}
                       status={autosave.status}
                       lastSavedAt={autosave.lastSavedAt}
                     />
@@ -867,7 +887,13 @@ export function DocumentEditor() {
                       </svg>
                       <span>
                         <b>Read-only.</b>{' '}
-                        Another writer is editing this section. The lock releases automatically when they stop,
+                        {(() => {
+                          const name = sectionLock.holder ? usersById.get(sectionLock.holder.userId)?.name : null
+                          return name
+                            ? `${name} is editing this section.`
+                            : 'Another writer is editing this section.'
+                        })()}{' '}
+                        The lock releases automatically when they stop,
                         or after {Math.max(1, sectionLock.holder?.expiresInSeconds ?? 90)}s of inactivity.
                       </span>
                     </div>

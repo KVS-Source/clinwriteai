@@ -55,6 +55,7 @@ async function build(opts: { seed?: Array<{ id: string; documentId: string; sect
   const app = Fastify()
   app.decorate('prisma', prisma as never)
   app.decorate('audit', { append: audit } as never)
+  app.decorate('emitSectionLockChanged', vi.fn())
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
     const user: AuthenticatedUser = {

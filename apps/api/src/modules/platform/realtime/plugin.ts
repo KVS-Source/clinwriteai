@@ -72,10 +72,24 @@ export interface PresenceChangedPayload {
   at: string
 }
 
+// sPM-autosave — pushed when a SectionLock changes hands (acquired, stolen
+// stale, released). The client re-queries /documents/:id/locks on receipt so
+// the DB stays authoritative — the push is a cache-invalidation hint, not a
+// payload swap. Latency: ~immediate (vs 30s heartbeat tick for the fallback).
+export interface SectionLockChangedPayload {
+  documentId: string
+  reason:     'acquired' | 'stolen' | 'released' | 'force_released'
+  sectionId:  string
+  // Current holder, if any (release leaves this undefined).
+  userId?:    string
+  at:         string
+}
+
 declare module 'fastify' {
   interface FastifyInstance {
     io: SocketServer
-    emitPresenceChanged: (payload: PresenceChangedPayload) => void
+    emitPresenceChanged:    (payload: PresenceChangedPayload) => void
+    emitSectionLockChanged: (payload: SectionLockChangedPayload) => void
   }
 }
 
@@ -165,6 +179,14 @@ const realtimePlugin: FastifyPluginAsync = async (app) => {
   // the snapshot via GET /presence (keeps the DB authoritative).
   app.decorate('emitPresenceChanged', (payload: PresenceChangedPayload) => {
     app.io.to(`doc:${payload.documentId}`).emit('presence:changed', payload)
+  })
+
+  // sPM-autosave — pushed when a SectionLock changes hands. Clients in the
+  // doc's room invalidate their lock snapshot + re-acquire if needed so the
+  // "Read-only — Alice is editing" banner clears the instant she navigates
+  // away (vs waiting up to 30s for the heartbeat tick to notice).
+  app.decorate('emitSectionLockChanged', (payload: SectionLockChangedPayload) => {
+    app.io.to(`doc:${payload.documentId}`).emit('lock:changed', payload)
   })
 
   // --- Worker → Socket.io bridge ----------------------------------------

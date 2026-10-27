@@ -503,7 +503,7 @@ export function DocumentEditor() {
   const rightPanelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments'
-      && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'ai') return
+      && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'ai' && activePanel !== 'history') return
     // The click that opened the panel is still being dispatched when this listener is added,
     // so only clicks whose mousedown we saw count.
     let pressed = false
@@ -899,6 +899,7 @@ export function DocumentEditor() {
                     <button
                       type="button"
                       onClick={() => setActivePanel('history')}
+                      data-panel-trigger
                       title="Edit history for this section"
                       aria-label="Section edit history"
                       className="flex items-center justify-center rounded-md border border-slate-300 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"

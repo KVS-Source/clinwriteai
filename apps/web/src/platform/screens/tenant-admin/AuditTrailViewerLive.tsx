@@ -19,7 +19,7 @@ import {
 import { useQuery } from '@tanstack/react-query'
 import { auditApi, projectsApi, describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry, type AuditSortKey } from '../../../api'
 
-const PAGE_SIZE = 100
+const PAGE_SIZE = 25
 // Pause after the last keystroke before the search box applies itself.
 const SEARCH_DEBOUNCE_MS = 400
 

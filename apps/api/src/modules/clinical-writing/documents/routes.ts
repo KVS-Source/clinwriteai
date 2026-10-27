@@ -41,6 +41,7 @@ import {
   requireLockHeldBy,
   SECTION_LOCK_STALE_SECONDS,
 } from '../section-locks/service.js'
+import { sessionizeHistory } from './edit-history-sessions.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -1041,42 +1042,50 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       : rows.map(r => ({ id: r.id, actorId: r.actorId, origin: r.origin, createdAt: r.createdAt }))
     const positionOf = new Map(allRows.map((r, i) => [r.id, i]))
 
+    const entries = rows.map(r => {
+      const idx = positionOf.get(r.id) ?? 0
+      const intervening = allRows.slice(0, idx)
+      const interveningByActor = Array.from(
+        intervening.reduce((m, row) => m.set(row.actorId, (m.get(row.actorId) ?? 0) + 1), new Map<string, number>()),
+      ).map((entry) => {
+        const [actorId, count] = entry as [string, number]
+        return { actorId, actorName: actorMap.get(actorId) ?? actorId, count }
+      })
+
+      const ai = r.aiCallRecordId ? aiMap.get(r.aiCallRecordId) ?? null : null
+      return {
+        id:                 r.id,
+        actorId:            r.actorId,
+        actorName:          actorMap.get(r.actorId) ?? r.actorId,
+        origin:             r.origin,
+        createdAt:          r.createdAt.toISOString(),
+        documentVersionId:  r.documentVersionId,
+        aiCallRecordId:     r.aiCallRecordId,
+        revertedFromId:     r.revertedFromId,
+        promptText:         ai?.promptText ?? null,
+        aiIntent:           ai?.intent ?? null,
+        aiModel:            ai?.model ?? null,
+        interveningCount:   intervening.length,
+        interveningByActor,
+        // Can revert if the snapshot exists and the section is still on
+        // the version this edit was made on. Sealed-version check happens
+        // in the service.
+        canRevert:          !!r.beforeHtml
+                              && r.documentVersionId === doc.currentVersionId,
+      }
+    })
+
+    // sPM-autosave rollup — additive, non-breaking field. UI can prefer
+    // `sessions` for a less-noisy default view (one row per writing burst)
+    // while keeping `entries` for raw-row drill-down and compatibility.
+    const sessions = sessionizeHistory(entries)
+
     return {
       documentId,
       sectionId:        section.sectionId,
       currentVersionId: doc.currentVersionId,
-      entries: rows.map(r => {
-        const idx = positionOf.get(r.id) ?? 0
-        const intervening = allRows.slice(0, idx)
-        const interveningByActor = Array.from(
-          intervening.reduce((m, row) => m.set(row.actorId, (m.get(row.actorId) ?? 0) + 1), new Map<string, number>()),
-        ).map((entry) => {
-          const [actorId, count] = entry as [string, number]
-          return { actorId, actorName: actorMap.get(actorId) ?? actorId, count }
-        })
-
-        const ai = r.aiCallRecordId ? aiMap.get(r.aiCallRecordId) ?? null : null
-        return {
-          id:                 r.id,
-          actorId:            r.actorId,
-          actorName:          actorMap.get(r.actorId) ?? r.actorId,
-          origin:             r.origin,
-          createdAt:          r.createdAt.toISOString(),
-          documentVersionId:  r.documentVersionId,
-          aiCallRecordId:     r.aiCallRecordId,
-          revertedFromId:     r.revertedFromId,
-          promptText:         ai?.promptText ?? null,
-          aiIntent:           ai?.intent ?? null,
-          aiModel:            ai?.model ?? null,
-          interveningCount:   intervening.length,
-          interveningByActor,
-          // Can revert if the snapshot exists and the section is still on
-          // the version this edit was made on. Sealed-version check happens
-          // in the service.
-          canRevert:          !!r.beforeHtml
-                                && r.documentVersionId === doc.currentVersionId,
-        }
-      }),
+      entries,
+      sessions,
     }
   })
 

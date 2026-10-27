@@ -1,10 +1,13 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { usePresenceSnapshot } from '../../hooks/usePresence'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
+import { useSectionLock } from '../../hooks/useSectionLock'
+import { useAutosave }     from '../../hooks/useAutosave'
+import { SectionAutosaveStatus } from './SectionAutosaveStatus'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill } from '../../components/ui'
 import { useDocumentStore, useProjectStore, useAuthStore, useEditorStore } from '../../store'
@@ -129,42 +132,73 @@ export function DocumentEditor() {
     [document, activeSection],
   )
   const [draftContent, setDraftContent] = useState<string>('')
-  const [isEditing, setIsEditing] = useState<boolean>(false)
   // Set when an AI edit from the prompt box was accepted into the draft — the save is then
-  // recorded as AI-drafted with this model (Part 11 provenance, FR-A-021).
+  // recorded as AI-drafted with this model (Part 11 provenance, FR-A-021). Consumed by the
+  // next autosave fire and cleared.
   const [aiEditModel, setAiEditModel] = useState<string | null>(null)
 
-  // Switching sections starts the new section fresh. The editor's save pattern is explicit (click
-  // Save), so leaving a section mid-edit IS a discard.
+  // Switching sections starts the new section fresh. useAutosave's unmount
+  // flush fires any pending debounce on the OUTGOING section before this
+  // runs for the new one, so switching sections mid-edit no longer discards.
   useEffect(() => {
     setDraftContent(activeSectionData?.contentHtml ?? '')
-    setIsEditing(false)
     setAiEditModel(null)
   }, [activeSectionData?.id])
 
-  // A reload that changes the section's saved text (someone else saved, or your own save came back)
-  // refreshes the draft — but never while you're typing, and it never drops you out of edit mode.
+  // A reload that changes the section's saved text (your own autosave came
+  // back, or an admin force-released the lock and another writer updated
+  // the section) refreshes the draft. The lock precondition prevents two
+  // writers from clobbering each other, so this is always safe to accept.
   useEffect(() => {
-    if (!isEditing) setDraftContent(activeSectionData?.contentHtml ?? '')
+    setDraftContent(activeSectionData?.contentHtml ?? '')
   }, [activeSectionData?.contentHtml])
 
-  const saveSection = useMutation({
-    mutationFn: () => {
-      if (!documentId || !activeSectionData) throw new Error('no_active_section')
-      return documentsApi.updateSection(documentId, activeSectionData.id, {
-        contentHtml: draftContent,
-        ...(aiEditModel ? { aiDrafted: true, aiModel: aiEditModel } : {}),
+  // sPM-autosave — Section lock lifecycle. Acquires on section mount,
+  // heartbeats every 30s, releases on unmount / section switch. Editor
+  // becomes editable only when we own the live lock.
+  const sectionLock = useSectionLock(documentId, activeSectionData?.id)
+  const isLockedByUs      = sectionLock.mode === 'owned'
+  const isLockedByOther   = sectionLock.mode === 'foreign'
+  const canEditSection    = isLockedByUs && document?.status !== 'in-review'
+
+  // sPM-autosave — Autosave on debounce / blur / pagehide. Enabled only when
+  // we hold the lock and the document isn't in review (where authoring is
+  // frozen). The save callback flags Part 11 provenance when the last edit
+  // originated from an AI accept (aiEditModel).
+  const draftContentRef = useRef(draftContent)
+  useEffect(() => { draftContentRef.current = draftContent }, [draftContent])
+  const aiEditModelRef = useRef<string | null>(null)
+  useEffect(() => { aiEditModelRef.current = aiEditModel }, [aiEditModel])
+
+  const autosave = useAutosave({
+    enabled: canEditSection && !!documentId && !!activeSectionData,
+    getPayload: () => draftContentRef.current,
+    save: useCallback(async (html: string) => {
+      if (!documentId || !activeSectionData) return
+      const model = aiEditModelRef.current
+      const result = await documentsApi.updateSection(documentId, activeSectionData.id, {
+        contentHtml: html,
+        ...(model ? { aiDrafted: true, aiModel: model } : {}),
       })
-    },
-    onSuccess: () => {
-      setIsEditing(false)
+      aiEditModelRef.current = null
       setAiEditModel(null)
-      // Server auto-creates a new DocumentVersion on content hash
-      // change — invalidate both so the version chip updates too.
+      // Server bumps the DocumentVersion on content hash change — refresh
+      // both so the version chip + the sections tree stay accurate.
       qc.invalidateQueries({ queryKey: ['document', documentId] })
       qc.invalidateQueries({ queryKey: ['versions', documentId] })
-    },
+      return result
+    }, [documentId, activeSectionData, qc]),
   })
+
+  // 423 Locked on an autosave is a signal that the foreign lock we thought
+  // was stale is actually alive — re-run the acquire so the UI drops into
+  // read-only mode and the writer isn't surprised by silent save failures.
+  useEffect(() => {
+    const err = autosave.lastError as (Error & { status?: number }) | null
+    if (err && 'status' in err && err.status === 423) {
+      sectionLock.reacquire()
+    }
+  }, [autosave.lastError, sectionLock])
 
   // Collab provider (Phase 2.3). Null when VITE_COLLAB_URL isn't set →
   // the editor runs solo. When set, a Y.Doc + WebsocketProvider is
@@ -192,18 +226,15 @@ export function DocumentEditor() {
   // useEffect below resets it when the active section changes.
   const editor = useRichTextEditor({
     content:  draftContent,
-    editable: isEditing,
-    onChange: html => setDraftContent(html),
-    placeholder: 'Start writing this section…',
+    editable: canEditSection,
+    onChange: html => {
+      setDraftContent(html)
+      autosave.markDirty()
+    },
+    placeholder: canEditSection ? 'Start writing this section…' : 'Read-only',
     collab,
     user: collabUser,
   })
-
-  // When TipTap emits an empty paragraph for a blank doc the raw HTML
-  // is '<p></p>'. Normalise so the dirty check doesn't fire spuriously
-  // after switching from an empty section.
-  const normaliseHtml = (s: string) => (s === '<p></p>' ? '' : s)
-  const isDirty = isEditing && normaliseHtml(draftContent) !== normaliseHtml(activeSectionData?.contentHtml ?? '')
 
   const presenceStack = useMemo(() => {
     if (!presenceSnapshot) return []
@@ -384,7 +415,7 @@ export function DocumentEditor() {
     const observer = new MutationObserver(schedule)
     observer.observe(root, { childList: true, subtree: true, characterData: true })
     return () => { clearTimeout(timer); observer.disconnect(); clearReferenceHighlights(); linkedRangesRef.current = []; setLinkedSpans({}) }
-  }, [sectionReferences, activeSectionData?.contentHtml, isEditing, document?.id, setLinkedSpans])
+  }, [sectionReferences, activeSectionData?.contentHtml, canEditSection, document?.id, setLinkedSpans])
 
   useEffect(() => {
     const onSelection = () => {
@@ -464,7 +495,12 @@ export function DocumentEditor() {
   }, [activePanel, setActivePanel])
 
   const onSectionContentClick = (e: React.MouseEvent) => {
-    if (isEditing || !window.getSelection()?.isCollapsed) return   // don't hijack text selection / editing
+    // Don't hijack text selection or in-progress typing. The old "if editing"
+    // guard is gone post-autosave since the editor is always editable when
+    // we hold the lock; a collapsed selection + a focused editor is enough
+    // signal to tell "the user is reading, not writing".
+    if (canEditSection && window.document.activeElement?.closest('[data-section-editor]')) return
+    if (!window.getSelection()?.isCollapsed) return
     const id = referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)
     const ref = id ? sectionReferences.find(r => r.id === id) : undefined
     if (!ref) return
@@ -747,14 +783,7 @@ export function DocumentEditor() {
             band so content narrows (text wraps) instead of being hidden
             when the panel opens. */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar
-            editor={editor}
-            editSection={activeSectionData && !isEditing ? {
-              onClick: () => setIsEditing(true),
-              disabled: document.status === 'in-review',
-              title: document.status === 'in-review' ? 'Locked for authoring while the document is in review' : undefined,
-            } : undefined}
-          />
+          <EditorToolbar editor={editor} />
 
           {/* Split row — content column (scrollable + AI prompt dock
               stacked) + optional right panel column (fixed width,
@@ -770,10 +799,21 @@ export function DocumentEditor() {
             <div className="flex max-w-[760px] flex-col">
               {activeSectionData ? (
                 <>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <h2 className="text-[22px] font-bold tracking-tight">
                       {activeSectionData.number} {activeSectionData.title}
                     </h2>
+                    {/* sPM-autosave — status pill reflects the SectionLock
+                        (owned / foreign) and the autosave status (dirty /
+                        saving / saved / error). Lives inline next to the
+                        section title so writers always know whether their
+                        changes are being persisted. */}
+                    <SectionAutosaveStatus
+                      lockMode={sectionLock.mode}
+                      holder={sectionLock.holder}
+                      status={autosave.status}
+                      lastSavedAt={autosave.lastSavedAt}
+                    />
                     {/* Section edit history — per section (sPM-section-history).
                         Opens the right-rail SectionHistoryPanel listing manual +
                         AI edits + reverts, with per-row Revert. Icon is a
@@ -811,60 +851,34 @@ export function DocumentEditor() {
                     })()}
                   </p>
 
-                  {isEditing ? (
-                    <>
-                      <div className="mt-4" data-section-editor>
-                        <EditorContent editor={editor} />
-                      </div>
-                      <div className="mt-3 flex items-center justify-between">
-                        <p className="text-xs text-slate-500">
-                          {isDirty
-                            ? aiEditModel
-                              ? 'Unsaved AI-assisted changes — review, then click Save Section to commit.'
-                              : 'Unsaved changes — click Save Section to commit.'
-                            : 'No changes yet.'}
-                        </p>
-                        <div className="flex items-center gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setDraftContent(activeSectionData.contentHtml)
-                              editor?.commands.setContent(activeSectionData.contentHtml, { emitUpdate: false })
-                              setIsEditing(false)
-                              setAiEditModel(null)
-                            }}
-                            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-                          >
-                            Discard
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => saveSection.mutate()}
-                            disabled={!isDirty || saveSection.isPending}
-                            className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                          >
-                            {saveSection.isPending ? 'Saving…' : 'Save Section (new version)'}
-                          </button>
-                        </div>
-                      </div>
-                      {saveSection.isError && (
-                        <p className="mt-2 text-xs text-red-600" role="alert">
-                          Save failed — please try again. If the problem persists, check your network and reload.
-                        </p>
-                      )}
-                    </>
-                  ) : (
-                    <>
-                      {activeSectionData.contentHtml ? (
-                        <div className="mt-4">
-                          <EditorContent editor={editor} />
-                        </div>
-                      ) : (
-                        <p className="mt-4 text-[14px] italic text-slate-400">
-                          This section is empty. Click Edit section above to add content, or type a prompt below to draft with AI.
-                        </p>
-                      )}
-                    </>
+                  {/* sPM-autosave — no more Edit / Save / Discard buttons.
+                      The editor is always mounted; `editable` tracks the
+                      SectionLock. Save status + lock state are reflected by
+                      the SectionAutosaveStatus pill on the title row above. */}
+                  {isLockedByOther && (
+                    <div
+                      role="status"
+                      className="mt-3 flex items-start gap-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900"
+                      data-section-lock-banner
+                    >
+                      <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" className="mt-0.5 flex-none">
+                        <rect x="3" y="6.4" width="8" height="5.4" rx="1" />
+                        <path d="M4.6 6.4 V4.4 a2.4 2.4 0 0 1 4.8 0 V6.4" />
+                      </svg>
+                      <span>
+                        <b>Read-only.</b>{' '}
+                        Another writer is editing this section. The lock releases automatically when they stop,
+                        or after {Math.max(1, sectionLock.holder?.expiresInSeconds ?? 90)}s of inactivity.
+                      </span>
+                    </div>
+                  )}
+                  <div className="mt-4" data-section-editor>
+                    <EditorContent editor={editor} />
+                  </div>
+                  {!activeSectionData.contentHtml && !canEditSection && !isLockedByOther && (
+                    <p className="mt-2 text-[14px] italic text-slate-400">
+                      This section is empty.
+                    </p>
                   )}
                 </>
               ) : (
@@ -889,13 +903,15 @@ export function DocumentEditor() {
                   sectionId={activeSectionData.id}
                   currentHtml={draftContent}
                   editor={editor}
-                  isEditing={isEditing}
-                  onRequestEdit={() => setIsEditing(true)}
                   onAccept={(html, model) => {
-                    if (!isEditing) setIsEditing(true)
+                    // sPM-autosave — set content, flag AI model for the next
+                    // autosave fire, and nudge the debounce. editable is
+                    // already true because the user holds the lock; no mode
+                    // toggle to perform.
                     editor?.commands.setContent(html, { emitUpdate: false })
                     setDraftContent(html)
                     setAiEditModel(model)
+                    autosave.markDirty()
                   }}
                 />
               </div>
@@ -1064,18 +1080,13 @@ export function DocumentEditor() {
                 sectionLabel={activeSectionData ? `§${activeSectionData.number} ${activeSectionData.title}` : undefined}
                 editor={editor}
                 onAcceptSuggestion={(html, model, range) => {
-                  // Reliable Accept flow — never fire setContent imperatively
-                  // on the current editor; it may be about to be recreated
-                  // (editable toggle) and the command gets lost on the
-                  // dying instance. Instead, update draftContent and let
-                  // useRichTextEditor's content-sync useEffect / editor
-                  // re-creation pick it up.
+                  // sPM-autosave — the editor is always editable when we hold
+                  // the lock, so we can run the TipTap chain directly without
+                  // the old edit-mode-toggle dance. The following autosave
+                  // debounce persists the edit; aiEditModel tags it as
+                  // AI-drafted for Part 11 provenance.
                   let next = html
-                  if (range && editor && isEditing) {
-                    // Selection-scoped accept, only safe when already in
-                    // edit mode (otherwise the chain fires on the readonly
-                    // editor that's about to be destroyed). For not-editing
-                    // + range, fall through to whole-content replace.
+                  if (range && editor && canEditSection) {
                     const inline = !/<(p|h3|h4|ul|ol|li|blockquote|table|thead|tbody|tr|th|td)[>\s]/i.test(html)
                     editor.chain().focus().setTextSelection(range)
                       .deleteSelection()
@@ -1085,7 +1096,7 @@ export function DocumentEditor() {
                   }
                   setDraftContent(next)
                   setAiEditModel(model)
-                  if (!isEditing) setIsEditing(true)
+                  autosave.markDirty()
                 }}
               />
             )}

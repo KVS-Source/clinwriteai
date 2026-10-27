@@ -123,11 +123,9 @@ interface EditorToolbarProps {
   // Phase 2.1 — TipTap editor instance drives the formatting cluster.
   // Null while no section is active (buttons render disabled).
   editor?: import('@tiptap/react').Editor | null
-  // "Edit section" beside AI Chat — omitted while editing or with no section open.
-  editSection?: { onClick: () => void; disabled?: boolean; title?: string }
 }
 
-export function EditorToolbar({ editor, editSection }: EditorToolbarProps = {}) {
+export function EditorToolbar({ editor }: EditorToolbarProps = {}) {
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
@@ -219,18 +217,10 @@ export function EditorToolbar({ editor, editSection }: EditorToolbarProps = {}) 
       {/* Spacer */}
       <div className="flex-1" />
 
-      {editSection && (
-        <button
-          type="button"
-          onClick={editSection.onClick}
-          disabled={editSection.disabled}
-          title={editSection.title}
-          data-action="edit-section"
-          className="flex h-7 flex-none items-center rounded-md border border-slate-300 bg-white px-2.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
-        >
-          Edit section
-        </button>
-      )}
+      {/* "Edit section" button removed in the autosave rollout — sections are
+          now editable on click when this user holds the SectionLock, so the
+          mode toggle has no job. The lock holder is indicated by a status
+          pill next to the section title (SectionAutosaveStatus). */}
 
       {/* AI Chat — accent button (label matches the panel header). */}
       <button

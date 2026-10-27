@@ -65,15 +65,11 @@ interface Props {
   currentHtml: string
   /** TipTap editor instance — needed to read selection + apply selection-swap. */
   editor: Editor | null
-  /** Whether the user is in edit mode. False → ask the caller to enter edit mode first. */
-  isEditing: boolean
-  /** Caller enters edit mode when the user first prompts in view mode. */
-  onRequestEdit: () => void
   /** Caller applies the accepted HTML to the editor + draft content. */
   onAccept: (html: string, model: string) => void
 }
 
-export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, isEditing, onRequestEdit, onAccept }: Props) {
+export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, onAccept }: Props) {
   const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState<{ html: string; model: string; instruction: string; scope: 'selection' | 'section'; from?: number; to?: number } | null>(null)
   // Context scope — user chooses what the AI sees for this prompt.
@@ -200,7 +196,6 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, is
   const send = () => {
     const instruction = prompt.trim()
     if (!instruction || ask.isPending) return
-    if (!isEditing) onRequestEdit()
     setResult(null)
     const sel = readSelection()
     ask.mutate({ instruction, selectionText: sel?.text, savedRange: sel ? { from: sel.from, to: sel.to } : undefined })

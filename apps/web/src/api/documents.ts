@@ -180,6 +180,24 @@ export const documentsApi = {
     }>(`/documents/${documentId}/stage`),
   advanceStage: (documentId: string) =>
     api.post<Document>(`/documents/${documentId}/advance-stage`, {}),
+  // Section locks (sPM-autosave). Lease-based advisory lock on
+  // (documentId, sectionId). The hook useSectionLock drives this; the
+  // bottom-line contract is: hold a live lock before you call
+  // updateSection, or the server returns 423 Locked.
+  acquireSectionLock: (documentId: string, sectionId: string) =>
+    api.post<{
+      outcome: 'acquired' | 'extended' | 'stolen'
+      holder: { userId: string; acquiredAt: string; lastHeartbeatAt: string; expiresInSeconds: number }
+      staleSeconds: number
+    }>(`/documents/${documentId}/sections/${sectionId}/lock`, {}),
+  releaseSectionLock: (documentId: string, sectionId: string) =>
+    api.delete<{ released: boolean }>(`/documents/${documentId}/sections/${sectionId}/lock`),
+  getDocumentLocks: (documentId: string) =>
+    api.get<{
+      documentId: string
+      staleSeconds: number
+      locks: Array<{ sectionId: string; holder: { userId: string; acquiredAt: string; lastHeartbeatAt: string; expiresInSeconds: number } }>
+    }>(`/documents/${documentId}/locks`),
   // Project-level checklist summary — read-only aggregate used by the home
   // page's "Checklist status" box. Never materialises missing instances.
   getProjectChecklistSummary: (projectId: string) =>

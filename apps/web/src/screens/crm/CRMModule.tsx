@@ -21,6 +21,7 @@ import { useCurrentUser } from '../../hooks'
 import { useCRMStore } from '../../store'
 import { CommentResolutionPanel } from '../../panels/CommentResolutionPanel'
 import { cleanSectionRef } from '../../panels/CommentComposer'
+import { CRMDocumentViewer } from './CRMDocumentViewer'
 
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
   MW: { bg: '#DBEAFE', fg: '#1D4ED8' },
@@ -332,6 +333,14 @@ export function CRMModule() {
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null)
   const effectiveActive = activeCommentId && pendingIds.includes(activeCommentId) ? activeCommentId : pendingIds[0] ?? null
 
+  // Read-only document viewer overlay. Opens on "View document →"; stays
+  // open as the chair picks different comments and the viewer auto-scrolls
+  // to each new section ref. Closes on backdrop click / X / Esc.
+  const [docViewerOpen, setDocViewerOpen] = useState(false)
+  const activeCommentSectionRef = effectiveActive
+    ? commentsById.get(effectiveActive)?.sectionRef ?? null
+    : null
+
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['crm-meetings', activeDocId] })
     qc.invalidateQueries({ queryKey: ['crm-resolutions', meeting?.id] })
@@ -504,8 +513,9 @@ export function CRMModule() {
             <div className="flex-1" />
             <p className="whitespace-nowrap text-xs text-slate-500">{totalCount} comments · {resolvedCount} resolved · {totalCount - resolvedCount} remaining</p>
             <button
-              onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${activeDocId}`)}
+              onClick={() => setDocViewerOpen(true)}
               className="whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700"
+              data-action="open-doc-viewer"
             >View document →</button>
           </div>
 
@@ -576,6 +586,17 @@ export function CRMModule() {
             onClose={() => { setResolutionDraft(null); refresh() }}
           />
         </div>
+      )}
+
+      {/* Read-only document viewer overlay for the active doc. Only
+          mounted when open so the heavy document render + section-jump
+          side-effects don't fire for chairs who never ask for it. */}
+      {docViewerOpen && activeDocId && (
+        <CRMDocumentViewer
+          documentId={activeDocId}
+          jumpToSectionRef={activeCommentSectionRef}
+          onClose={() => setDocViewerOpen(false)}
+        />
       )}
     </div>
   )

@@ -284,7 +284,16 @@ export function ClinicalWritingHome() {
 
   const resetFilters = () => setParams({ q: null, stage: null, status: null, type: null })
 
+  // Context-aware Open: documents at the CRM stage route to the CRM
+  // screen (comment-resolution meetings) with the document pre-selected
+  // via ?doc=<id>. Everything else opens in the Editor as before.
+  // Writers were confused when a CRM-stage doc opened the editor with no
+  // meeting controls — QA caught it on the stage=crm filter view.
   const handleDocClick = (doc: Document) => {
+    if (doc.stage === 'crm') {
+      navigate(`/projects/${projectId}/clinical-writing/crm?doc=${encodeURIComponent(doc.id)}`)
+      return
+    }
     navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}`)
   }
 

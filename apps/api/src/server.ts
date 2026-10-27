@@ -270,6 +270,11 @@ async function buildServer() {
   // registered at root with full paths, same pattern as peer-review + crm.
   await app.register(tlfRoutes)
 
+  const { ichE3Routes } = await import('./modules/clinical-writing/ich-e3/routes.js')
+  // Document-scoped: GET report + waive/unwaive. Replaces the mock-only
+  // /documents/:id/ich-e3 the frontend used to hit.
+  await app.register(ichE3Routes, { prefix: '/documents' })
+
   const { signatureRoutes } = await import('./modules/clinical-writing/signatures/routes.js')
   // Part 11 e-sig: /documents/:id/signature-chains, /signature-chains/:id,
   // /signature-records/:id/sign — mixed shapes, registered at root with

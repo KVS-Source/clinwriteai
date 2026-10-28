@@ -327,8 +327,24 @@ export const documentsApi = {
   // Voice notes
   getVoiceNotes: (documentId: string) =>
     api.get<VoiceNote[]>(`/documents/${documentId}/voice-notes`),
-  addVoiceNote: (documentId: string, body: unknown) =>
-    api.post<VoiceNote>(`/documents/${documentId}/voice-notes`, body),
+  // Multipart upload — audio bytes as the file field, sectionRef + duration
+  // as query params (API contract §7). The server stores the audio in the
+  // 'voice' blob bucket + enqueues a transcription job; the returned
+  // VoiceNote has `transcript: ""` until the worker completes.
+  uploadVoiceNote: (
+    documentId: string,
+    args: { audio: Blob; filename: string; sectionRef: string; durationSeconds?: number },
+  ) => {
+    const form = new FormData()
+    form.append('audio', args.audio, args.filename)
+    const qs = new URLSearchParams({ sectionRef: args.sectionRef })
+    if (args.durationSeconds !== undefined) qs.set('durationSeconds', String(args.durationSeconds))
+    return api.upload<VoiceNote>(`/documents/${documentId}/voice-notes?${qs}`, form)
+  },
+  getVoiceNoteAudioUrl: (documentId: string, noteId: string) =>
+    api.get<{ url: string; expiresInSeconds: number }>(
+      `/documents/${documentId}/voice-notes/${noteId}/audio`,
+    ),
   // AI
   aiSuggest: (documentId: string, body: AISuggestBody) =>
     api.post<AISuggestion>(`/documents/${documentId}/ai-suggest`, body),

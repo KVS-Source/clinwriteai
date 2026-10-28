@@ -82,6 +82,34 @@ async function request<T>(endpoint: string, options?: RequestOptions): Promise<T
   return res.json() as Promise<T>
 }
 
+// Multipart upload — identical auth path, but we must NOT set Content-Type
+// manually (the browser needs to set `multipart/form-data; boundary=...`).
+async function upload<T>(endpoint: string, body: FormData, options?: RequestOptions): Promise<T> {
+  const { on401 = 'redirect', ...init } = options ?? {}
+  const res = await fetch(`${API_BASE}${endpoint}`, {
+    credentials: 'include',
+    method: 'POST',
+    ...init,
+    body,
+    headers: {
+      Accept: 'application/json',
+      ...demoPersonaHeader(),
+      ...(init.headers ?? {}),
+    },
+  })
+
+  if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined') {
+    const returnTo = encodeURIComponent(window.location.pathname + window.location.search)
+    window.location.assign(`${LOGIN_URL}?return_to=${returnTo}`)
+    await new Promise(resolve => setTimeout(resolve, 100))
+    throw new ApiError(401, null)
+  }
+
+  if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null))
+  if (res.status === 204) return undefined as T
+  return res.json() as Promise<T>
+}
+
 // Binary download through the same auth path as every other call (session cookie,
 // demo-persona header, 401 handling). Throws ApiError with the server's JSON body
 // on failure, so callers can show the real reason ("file_missing", "quarantined"...).
@@ -107,6 +135,7 @@ export const api = {
   patch:  <T>(endpoint: string, body: unknown, options?: RequestOptions) => request<T>(endpoint, { ...options, method: 'PATCH', body: JSON.stringify(body) }),
   put:    <T>(endpoint: string, body: unknown, options?: RequestOptions) => request<T>(endpoint, { ...options, method: 'PUT',   body: JSON.stringify(body) }),
   delete: <T>(endpoint: string, options?: RequestOptions)                => request<T>(endpoint, { ...options, method: 'DELETE' }),
+  upload,
   download,
 }
 

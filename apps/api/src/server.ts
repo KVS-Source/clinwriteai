@@ -411,6 +411,9 @@ async function buildServer() {
   const { projectMembersRoutes } = await import('./modules/platform/project-members/routes.js')
   await app.register(projectMembersRoutes, { prefix: '/projects' })
 
+  const { pmDashboardRoutes } = await import('./modules/platform/pm-dashboard/routes.js')
+  await app.register(pmDashboardRoutes, { prefix: '/projects' })
+
   await app.register(import('./modules/platform/ai-gateway/plugin.js'))
   const { aiGatewayRoutes } = await import('./modules/platform/ai-gateway/routes.js')
   await app.register(aiGatewayRoutes, { prefix: '/ai' })

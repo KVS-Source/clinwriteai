@@ -131,6 +131,7 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
         aria-label={openCommentCount ? `Comments (${openCommentCount} open)` : 'Comments'}
         aria-pressed={activePanel === 'comments'}
         data-open-comments
+        data-panel-trigger
         className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2 text-xs font-semibold transition-colors hover:bg-slate-100"
         style={{
           borderColor:     activePanel === 'comments' ? '#BFDBFE' : '#E2E8F0',

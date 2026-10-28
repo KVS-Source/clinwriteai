@@ -18,7 +18,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
 import { evaluateSubmitGate, type ChecklistItemForGate } from './submit-gate.js'
-import { evaluateItems as evaluateAutoCheck, type ItemForAutoCheck, type SignalContext } from './autocheck/engine.js'
+import { emptyAiPassContext, evaluateItems as evaluateAutoCheck, type ItemForAutoCheck, type SignalContext, type ReferencesContext } from './autocheck/engine.js'
 import type { SectionContentForCheck } from './autocheck/content-strategies.js'
 
 const reorderSchema = z.object({
@@ -264,9 +264,32 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
     const sections: SectionContentForCheck[] = doc.currentVersionId
       ? (await app.prisma.sectionContent.findMany({
           where: { documentVersionId: doc.currentVersionId },
-          select: { sectionNumber: true, contentHtml: true, wordCount: true },
+          select: { sectionId: true, sectionNumber: true, contentHtml: true, wordCount: true },
         }))
       : []
+
+    // References context — only fetched if a references-complete item exists,
+    // so the common autocheck run stays cheap. We count active SourceReference
+    // rows per section (those with no corresponding SourceReferenceRemoval).
+    const hasReferencesItem = instance.items.some(i => (i.autoCompleteOn ?? '').toLowerCase().startsWith('references-complete'))
+    let references: ReferencesContext = {}
+    if (hasReferencesItem) {
+      const [refs, removals] = await Promise.all([
+        app.prisma.sourceReference.findMany({
+          where: { documentId },
+          select: { id: true, sectionId: true },
+        }),
+        app.prisma.sourceReferenceRemoval.findMany({
+          where: { documentId },
+          select: { referenceId: true },
+        }),
+      ])
+      const removedIds = new Set(removals.map(r => r.referenceId))
+      for (const r of refs) {
+        if (removedIds.has(r.id)) continue
+        references[r.sectionId] = (references[r.sectionId] ?? 0) + 1
+      }
+    }
 
     // Fetch signal context for signal:* strategies. Three parallelised reads.
     // Only fired if the instance has at least one signal-tagged item (keeps
@@ -302,7 +325,7 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const items = instance.items as unknown as ItemForAutoCheck[]
-    const evaluations = evaluateAutoCheck(items, sections, signals)
+    const evaluations = evaluateAutoCheck(items, sections, signals, emptyAiPassContext(), references)
     const toFlip = evaluations.filter(e => e.shouldComplete)
 
     if (toFlip.length === 0) {

@@ -17,10 +17,12 @@
 // with pre-fetched sections + items, then persists the flips.
 
 import {
+  emptyReferencesContext,
   evaluateContentMinWords,
   evaluateContentNoPlaceholders,
   evaluateReferencesComplete,
   parseAutoCompleteTag,
+  type ReferencesContext,
   type SectionContentForCheck,
   type StrategyResult,
 } from './content-strategies.js'
@@ -39,6 +41,8 @@ export type { SignalContext } from './signal-strategies.js'
 export { emptySignalContext } from './signal-strategies.js'
 export type { AiPassContext, AiPassResult } from './ai-pass-strategy.js'
 export { emptyAiPassContext } from './ai-pass-strategy.js'
+export type { ReferencesContext } from './content-strategies.js'
+export { emptyReferencesContext } from './content-strategies.js'
 
 export interface ItemForAutoCheck {
   id: string
@@ -64,6 +68,7 @@ export function evaluateItems(
   sections: SectionContentForCheck[],
   signals: SignalContext = emptySignalContext(),
   aiPass: AiPassContext = emptyAiPassContext(),
+  references: ReferencesContext = emptyReferencesContext(),
 ): ItemEvaluation[] {
   const out: ItemEvaluation[] = []
   for (const item of items) {
@@ -75,7 +80,7 @@ export function evaluateItems(
     const parsed = parseAutoCompleteTag(item.autoCompleteOn)
     if (!parsed) continue
 
-    const result = dispatch(parsed.strategy, parsed.args, sections, signals, aiPass)
+    const result = dispatch(parsed.strategy, parsed.args, sections, signals, aiPass, references)
     out.push({
       itemId: item.id,
       tag: item.autoCompleteOn ?? '',
@@ -92,11 +97,12 @@ function dispatch(
   sections: SectionContentForCheck[],
   signals: SignalContext,
   aiPass: AiPassContext,
+  references: ReferencesContext,
 ): StrategyResult {
   switch (strategy) {
     case 'content-min-words':        return evaluateContentMinWords(args, sections)
     case 'content-no-placeholders':  return evaluateContentNoPlaceholders(args, sections)
-    case 'references-complete':      return evaluateReferencesComplete(args, sections)
+    case 'references-complete':      return evaluateReferencesComplete(args, sections, references)
     case 'signal':                   return evaluateSignal(args, signals)
     case 'ai-pass':                  return evaluateAiPass(args, aiPass)
     default:

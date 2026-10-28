@@ -249,6 +249,10 @@ async function buildServer() {
 
   const { checklistRoutes, projectChecklistRoutes, checklistTemplateAdminRoutes } = await import('./modules/clinical-writing/checklist/routes.js')
   await app.register(checklistRoutes, { prefix: '/documents' })
+  // R-only slice of the checklist (reorder, submit-gate preview, submit-with-reason).
+  // Separate file to keep routes.ts untouched during the ongoing admin-template WIP.
+  const { checklistRActionRoutes } = await import('./modules/clinical-writing/checklist/r-actions.js')
+  await app.register(checklistRActionRoutes, { prefix: '/documents' })
   // Project-level rollup for the Clinical Writing home page's "Checklist
   // status" box. Read-only — never materialises instances, so visits are safe.
   await app.register(projectChecklistRoutes, { prefix: '/projects' })

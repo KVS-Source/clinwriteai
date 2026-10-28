@@ -16,40 +16,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
-import type { PrismaClient } from '@prisma/client'
-import type { AuthenticatedUser } from '../../../auth/rbac.js'
-
-// Returns true if the actor is allowed to assign / remove RACI on this
-// document, per docs/roles-and-permissions.md §5a: R owns the doc.
-//
-// Allowed:
-//   - tenant-admin (and legacy 'admin')
-//   - a user holding letter 'R' on this document in an active row
-//   - the Document.assigneeId user (bootstrap path, before the first R row
-//     exists — matches "PM assigns the first writer on Create Document")
-async function actorCanEditDocumentRaci(
-  prisma: PrismaClient,
-  actor: AuthenticatedUser,
-  documentId: string,
-): Promise<boolean> {
-  if (actor.role === 'tenant-admin' || actor.role === 'admin') return true
-
-  const [doc, existingR] = await Promise.all([
-    prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
-    prisma.documentRaci.findFirst({
-      where: {
-        documentId,
-        userId: actor.id,
-        letter: 'R',
-        removedAt: null,
-      },
-      select: { id: true },
-    }),
-  ])
-  if (existingR) return true
-  if (doc && doc.assigneeId === actor.id) return true
-  return false
-}
+import { actorCanEditDocumentRaci } from './access.js'
 
 const completeSchema = z.object({
   signatureId: z.string().min(1).nullable().optional(),

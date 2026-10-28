@@ -20,6 +20,7 @@ export interface WordDiff {
   added: number
   removed: number
   hunks: DiffHunk[]
+  ops: DiffOp[]               // the whole text as eq / del / ins runs (for highlighted full before/after)
 }
 
 const MAX_LCS_CELLS = 4_000_000
@@ -101,5 +102,5 @@ export function wordDiff(beforeText: string, afterText: string, context = 6): Wo
     current.after = op.words.slice(0, context)
     current = null
   })
-  return { added, removed, hunks }
+  return { added, removed, hunks, ops }
 }

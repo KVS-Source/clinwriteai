@@ -26,7 +26,12 @@ model User {
   capabilities  String[] @default([])
   // Snapshot of role at migration time, kept 90d for audit-chain interpretation
   // of pre-migration events. Dropped in a later migration.
-  legacyRole    String?
+  //
+  // @map("legacy_role") — migration 47 created the column as snake_case.
+  // Without the @map the Prisma client queries `legacyRole` and gets a
+  // P2022 "column does not exist" on every /auth/me lookup (so every
+  // request 500s). See 00000000000047_unified_rbac_schema line 23.
+  legacyRole    String?  @map("legacy_role")
   modules       String[] @default([])    // ['A', 'B', 'C', 'D', 'E']
   status        String   @default("invited")  // invited | active | suspended | deprovisioned
   lastActiveAt  DateTime?

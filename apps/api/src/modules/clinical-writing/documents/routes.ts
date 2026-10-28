@@ -51,6 +51,7 @@ import {
   checkSubmitForReviewGate,
 } from '../checklist/gates.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
+import { runAutocheckForDocument } from '../checklist/autocheck/runner.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -398,6 +399,20 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       },
       ipAddress: request.ip ?? null,
     })
+
+    // Fire-and-forget autocheck — content-presence and references-complete
+    // strategies may flip now that this section's text/word-count changed.
+    // Skip when content didn't change (e.g. title-only tweak via the same
+    // endpoint). Errors are logged but don't fail the user's save.
+    if (parsed.data.contentHtml !== beforeHtml) {
+      void runAutocheckForDocument(app.prisma, {
+        documentId,
+        triggeredBy: `system:autocheck-section-save:${request.user!.id}`,
+        audit: app.audit,
+      }).catch((err: unknown) => {
+        app.log.warn({ err, documentId, sectionId }, 'autocheck after section save failed')
+      })
+    }
 
     return svc.getWithSections(documentId)
   })

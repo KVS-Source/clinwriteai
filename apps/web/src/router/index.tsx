@@ -95,6 +95,7 @@ import { ContentLayout }                from '../components/layout/ContentLayout
 import { IdeationProjectLayout }        from '../components/layout/IdeationProjectLayout'
 import { DocumentLayout }               from '../components/layout/DocumentLayout'
 import { DocumentTabGuard }             from '../components/layout/DocumentTabGuard'
+import { PortfolioDashboard }           from '../screens/dashboards/PortfolioDashboard'
 
 export const router = createBrowserRouter([
   // Auth screens — no shell
@@ -113,6 +114,10 @@ export const router = createBrowserRouter([
       // /projects/new retired — slider lives on the AllProjects screen now.
       // Deep-links to the old URL redirect back to the list.
       { path: 'projects/new', element: <Navigate to="/projects" replace /> },
+      // Portfolio dashboard — cross-project RACI-aware rollup. Backend
+      // filters by membership so any auth can hit this URL and only see
+      // the projects they belong to (admins see everything in-tenant).
+      { path: 'dashboards/portfolio', element: <PortfolioDashboard /> },
       { path: 'admin',        element: <AdminGuard><AdminPanel /></AdminGuard> },
       { path: 'super-admin',  element: <SuperAdminGuard><SuperAdminPanel /></SuperAdminGuard> },
       // Tenant admin (Arc 4). Live screens use the real API; the legacy

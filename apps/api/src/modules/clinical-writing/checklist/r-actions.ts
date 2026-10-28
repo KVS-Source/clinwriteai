@@ -18,10 +18,9 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
 import { evaluateSubmitGate, type ChecklistItemForGate } from './submit-gate.js'
-import { emptyAiPassContext, evaluateItems as evaluateAutoCheck, type ItemForAutoCheck, type SignalContext, type ReferencesContext, type AiPassContext } from './autocheck/engine.js'
-import type { SectionContentForCheck } from './autocheck/content-strategies.js'
 import { AI_PASS_PROFILES, buildAiPassPrompt, parseAiPassResponse } from './autocheck/ai-pass-prompt.js'
-import { getAllAiPassResultsForDocument, putAiPassResult } from './autocheck/ai-pass-cache.js'
+import { putAiPassResult } from './autocheck/ai-pass-cache.js'
+import { runAutocheckForDocument } from './autocheck/runner.js'
 
 const reorderSchema = z.object({
   // Compact body: list of {itemId, sortOrder}. Caller sends every item
@@ -239,163 +238,21 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:documentId/checklist/autocheck/run', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
 
+    // Verify the doc exists before delegating so we return 404 (not 200
+    // with zeros) when the id is garbage. The runner itself returns zero
+    // counts for missing docs; the HTTP contract wants a hard 404.
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
-      select: { id: true, projectId: true, currentVersionId: true },
+      select: { id: true },
     })
     if (!doc) return reply.code(404).send({ error: 'document_not_found' })
 
-    const instance = await app.prisma.checklistInstance.findUnique({
-      where: { documentId },
-      include: {
-        items: {
-          select: { id: true, autoCompleteOn: true, status: true, text: true, framework: true },
-        },
-      },
+    const result = await runAutocheckForDocument(app.prisma, {
+      documentId,
+      triggeredBy: request.user!.id,
+      audit: app.audit,
     })
-    if (!instance) {
-      // No instance — nothing to evaluate. Not an error (callers can run
-      // this before anyone's visited the checklist panel).
-      return reply.send({ evaluated: 0, flipped: 0, items: [] })
-    }
-
-    // Section content for the current version, if any. If the doc has no
-    // current version yet (brand-new), fall back to empty sections array
-    // so the engine still runs — strategies will mark everything
-    // 'pending' or 'skipped' which is correct.
-    const sections: SectionContentForCheck[] = doc.currentVersionId
-      ? (await app.prisma.sectionContent.findMany({
-          where: { documentVersionId: doc.currentVersionId },
-          select: { sectionId: true, sectionNumber: true, contentHtml: true, wordCount: true },
-        }))
-      : []
-
-    // References context — only fetched if a references-complete item exists,
-    // so the common autocheck run stays cheap. We count active SourceReference
-    // rows per section (those with no corresponding SourceReferenceRemoval).
-    const hasReferencesItem = instance.items.some(i => (i.autoCompleteOn ?? '').toLowerCase().startsWith('references-complete'))
-    let references: ReferencesContext = {}
-    if (hasReferencesItem) {
-      const [refs, removals] = await Promise.all([
-        app.prisma.sourceReference.findMany({
-          where: { documentId },
-          select: { id: true, sectionId: true },
-        }),
-        app.prisma.sourceReferenceRemoval.findMany({
-          where: { documentId },
-          select: { referenceId: true },
-        }),
-      ])
-      const removedIds = new Set(removals.map(r => r.referenceId))
-      for (const r of refs) {
-        if (removedIds.has(r.id)) continue
-        references[r.sectionId] = (references[r.sectionId] ?? 0) + 1
-      }
-    }
-
-    // Fetch signal context for signal:* strategies. Three parallelised reads.
-    // Only fired if the instance has at least one signal-tagged item (keeps
-    // the common autocheck run cheap).
-    const hasSignalItem = instance.items.some(i => (i.autoCompleteOn ?? '').toLowerCase().startsWith('signal:'))
-    let signals: SignalContext = {
-      tlfPackageValidated: false,
-      signatureMeanings: [],
-      crmMeetingsComplete: false,
-      crmMeetingCount: 0,
-    }
-    if (hasSignalItem) {
-      const [tlfCurrent, signatures, crmMeetings] = await Promise.all([
-        app.prisma.tlfPackage.findFirst({
-          where: { projectId: doc.projectId, isCurrent: true },
-          select: { id: true },
-        }),
-        app.prisma.signatureRecord.findMany({
-          where: { chain: { documentId }, status: 'signed' },
-          select: { meaning: true },
-        }),
-        app.prisma.crmMeeting.findMany({
-          where: { documentId },
-          select: { status: true },
-        }),
-      ])
-      signals = {
-        tlfPackageValidated: tlfCurrent !== null,
-        signatureMeanings: signatures.map(s => s.meaning.toLowerCase()),
-        crmMeetingsComplete: crmMeetings.length > 0 && crmMeetings.every(m => m.status === 'complete'),
-        crmMeetingCount: crmMeetings.length,
-      }
-    }
-
-    // AI pass context — populated only when ai-pass:* items exist, and only
-    // reads from the in-process cache (no AI gateway calls during
-    // autocheck/run). The gateway call lives on the dedicated ai-pass
-    // endpoint below.
-    const hasAiPassItem = instance.items.some(i => (i.autoCompleteOn ?? '').toLowerCase().startsWith('ai-pass:'))
-    const aiPass: AiPassContext = hasAiPassItem
-      ? getAllAiPassResultsForDocument(documentId, doc.currentVersionId)
-      : emptyAiPassContext()
-
-    const items = instance.items as unknown as ItemForAutoCheck[]
-    const evaluations = evaluateAutoCheck(items, sections, signals, aiPass, references)
-    const toFlip = evaluations.filter(e => e.shouldComplete)
-
-    if (toFlip.length === 0) {
-      return reply.send({
-        evaluated: evaluations.length,
-        flipped: 0,
-        items: evaluations.map(e => ({
-          itemId: e.itemId,
-          tag: e.tag,
-          kind: e.result.kind,
-          reason: e.result.reason,
-        })),
-      })
-    }
-
-    const now = new Date()
-    await Promise.all(toFlip.map(e =>
-      app.prisma.checklistInstanceItem.update({
-        where: { id: e.itemId },
-        data: {
-          status: 'complete',
-          completedBy: 'system:autocheck',
-          completedAt: now,
-        },
-      }),
-    ))
-
-    // Audit one event per flip so the Part 11 trail is per-item.
-    for (const e of toFlip) {
-      const item = instance.items.find(i => i.id === e.itemId)
-      await app.audit.append({
-        timestamp: now.toISOString(),
-        actorId: 'system:autocheck',
-        action: 'checklist_item_completed',
-        entityType: 'document',
-        entityId: documentId,
-        details: {
-          itemId: e.itemId,
-          framework: item?.framework ?? null,
-          text:      item?.text ?? null,
-          source: 'auto',
-          strategy: e.tag,
-          reason: e.result.kind === 'completed' ? e.result.reason : null,
-          triggeredBy: request.user!.id,
-        },
-        ipAddress: request.ip ?? null,
-      })
-    }
-
-    return reply.send({
-      evaluated: evaluations.length,
-      flipped: toFlip.length,
-      items: evaluations.map(e => ({
-        itemId: e.itemId,
-        tag: e.tag,
-        kind: e.result.kind,
-        reason: e.result.reason,
-      })),
-    })
+    return reply.send(result)
   })
 
   // ---------------------------------------------------------------------

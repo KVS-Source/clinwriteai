@@ -21,7 +21,6 @@ import { CommentsDashboard }    from '../screens/clinical-writing/CommentsDashbo
 import { CRMModule }            from '../screens/crm/CRMModule'
 import { ESignature }           from '../screens/output/ESignature'
 import { FinalDocument }        from '../screens/output/FinalDocument'
-import { PortfolioDashboard }   from '../screens/output/PortfolioDashboard'
 import { AuditReviewAlert }     from '../screens/output/AuditReviewAlert'
 import { ScientificWritingHome } from '../screens/scientific-writing/ScientificWritingHome'
 import { NewPublicationWizard } from '../screens/scientific-writing/NewPublicationWizard'
@@ -147,7 +146,8 @@ export const router = createBrowserRouter([
               // /classify route retired — SlidePanel on ClinicalWritingHome handles upload+classify now.
               { path: 'classify',     element: <Navigate to=".." replace relative="path" /> },
               { path: 'comments',     element: <CommentsDashboard /> },
-              { path: 'portfolio',    element: <PortfolioDashboard /> },
+              // Portfolio hidden — redirect old links to the module home.
+              { path: 'portfolio',    element: <Navigate to=".." replace relative="path" /> },
               { path: 'audit-review', element: <AuditReviewAlert /> },
               { path: 'crm',          element: <CRMModule /> },
               {

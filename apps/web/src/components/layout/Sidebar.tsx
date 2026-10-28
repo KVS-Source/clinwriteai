@@ -167,7 +167,8 @@ interface Props {
 type NavKey = 'home' | 'portfolio' | 'comments' | 'audit' | 'crm' | 'kol' | 'claims' | 'intelligence' | 'calendar' | 'publishing'
 
 const MODULE_NAV: Record<string, NavKey[]> = {
-  'clinical-writing':    ['home', 'portfolio', 'comments', 'audit', 'crm'],
+  // Portfolio is hidden for Clinical Writing — the module home already covers it.
+  'clinical-writing':    ['home', 'comments', 'audit', 'crm'],
   'scientific-writing':  ['home', 'portfolio'],
   'medical-writing':     ['home', 'portfolio', 'kol', 'claims'],
   'regulatory-writing':  ['home', 'intelligence'],

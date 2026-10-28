@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import type { VoiceNote } from '@platform/types'
 import { documentsApi } from '../api'
+import { useAuthStore } from '../store/authStore'
 
 interface Props {
   documentId:  string
@@ -52,6 +53,7 @@ function formatMMSS(seconds: number): string {
 }
 
 export function VoiceNotePanel({ documentId, sectionRef }: Props) {
+  const currentUser = useAuthStore(s => s.user)
   const [state,        setState]        = useState<RecordState>('idle')
   const [elapsedMs,    setElapsedMs]    = useState(0)
   const [transcript,   setTranscript]   = useState<string | null>(null)
@@ -97,8 +99,8 @@ export function VoiceNotePanel({ documentId, sectionRef }: Props) {
     try {
       await documentsApi.addVoiceNote(documentId, {
         sectionRef,
-        actorId:   'user-MW',
-        actorName: 'Marcus Webb',
+        actorId:   currentUser?.id ?? 'unknown',
+        actorName: currentUser?.name ?? 'unknown',
         audioRef:  'blob:mock-audio-url',
         transcript,
         duration:  Math.floor(elapsedMs / 1000),

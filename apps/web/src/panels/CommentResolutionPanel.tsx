@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Comment, ResolutionType } from '@platform/types'
 import { crmApi, documentsApi } from '../api'
 import { useCRMStore } from '../store'
+import { useAuthStore } from '../store/authStore'
 
 interface Props {
   documentId: string
@@ -10,7 +11,6 @@ interface Props {
   onClose:    () => void
 }
 
-const LOGGED_IN_USER = 'Marcus Webb'
 const NOTE_MAX_LENGTH = 500
 
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
@@ -102,6 +102,7 @@ function SignatureIcon() {
 
 export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props) {
   const qc                 = useQueryClient()
+  const currentUserName    = useAuthStore(s => s.user?.name ?? 'unknown')
   // Store is keyed by meetingId since the CRM store refactor — read via
   // getter + reactive subscription on the entries map so a draft change
   // on THIS meeting re-renders this panel.
@@ -145,7 +146,7 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
         commentId:  activeComment.id,
         type:       selectedType,
         note,
-        resolvedBy: LOGGED_IN_USER,
+        resolvedBy: currentUserName,
         resolvedAt: new Date().toISOString(),
       })
       qc.invalidateQueries({ queryKey: ['crm-meetings', documentId] })

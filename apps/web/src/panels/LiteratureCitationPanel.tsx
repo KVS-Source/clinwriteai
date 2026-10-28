@@ -6,6 +6,7 @@ import type { PubMedRecord } from '../api/publications'
 import type { ResizablePanelApi } from '../components/ui/ResizablePanel'
 import { SourceChip } from '../components/ui'
 import { usePublicationStore } from '../modules/scientific-writing/store'
+import { useAuthStore } from '../store/authStore'
 
 // --- Static config ---
 
@@ -36,8 +37,9 @@ interface Props {
 }
 
 export function LiteratureCitationPanel({ publicationId, api }: Props) {
-  const setActivePanel = usePublicationStore(s => s.setActivePanel)
-  const qc             = useQueryClient()
+  const setActivePanel  = usePublicationStore(s => s.setActivePanel)
+  const qc              = useQueryClient()
+  const currentUserName = useAuthStore(s => s.user?.name ?? 'unknown')
 
   const [query,          setQuery]          = useState(DEFAULT_QUERY)
   const [abstractOpenId, setAbstractOpenId] = useState<string | null>(null)
@@ -72,7 +74,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
       shortRef:   record.shortRef,
       fullRef:    record.fullRef,
       locus:      CITATION_LOCI[record.id] ?? '§Results',
-      insertedBy: 'Marcus Webb',
+      insertedBy: currentUserName,
     }),
     onSuccess: (_data, variables) => {
       setJustInsertedId(variables.id)

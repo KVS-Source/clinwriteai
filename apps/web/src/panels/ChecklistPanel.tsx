@@ -2,12 +2,11 @@ import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ChecklistItem, ChecklistItemStatus } from '@platform/types'
 import { documentsApi } from '../api'
+import { useAuthStore } from '../store/authStore'
 
 interface Props {
   documentId: string
 }
-
-const LOGGED_IN_USER = 'Marcus Webb'
 
 // --- Metadata maps (Phase 4 UI polish) ---
 
@@ -309,6 +308,7 @@ function ItemRow(p: ItemRowProps) {
 
 export function ChecklistPanel({ documentId }: Props) {
   const qc = useQueryClient()
+  const currentUserName = useAuthStore(s => s.user?.name ?? 'unknown')
 
   const { data: items = [] } = useQuery({
     queryKey: ['checklist', documentId],
@@ -327,13 +327,13 @@ export function ChecklistPanel({ documentId }: Props) {
   const invalidate = () => qc.invalidateQueries({ queryKey: ['checklist', documentId] })
 
   const completeMut = useMutation({
-    mutationFn: (id: string) => documentsApi.completeItem(documentId, id, { completedBy: LOGGED_IN_USER }),
+    mutationFn: (id: string) => documentsApi.completeItem(documentId, id, { completedBy: currentUserName }),
     onSuccess:  invalidate,
   })
 
   const waiveMut = useMutation({
     mutationFn: (args: { id: string; reason: string }) =>
-      documentsApi.waiveItem(documentId, args.id, { waivedBy: LOGGED_IN_USER, reason: args.reason }),
+      documentsApi.waiveItem(documentId, args.id, { waivedBy: currentUserName, reason: args.reason }),
     onSuccess: () => {
       setWaivingId(null); setWaiverText(''); setWaiverError(null)
       invalidate()

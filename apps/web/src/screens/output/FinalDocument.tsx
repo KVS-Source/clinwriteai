@@ -1,11 +1,13 @@
-import { useEffect, useMemo, useRef } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import type { Section, SignatureRecord } from '@platform/types'
+import { STATUS_META, type Section, type SignatureRecord } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { useDocumentStore, useProjectStore } from '../../store'
 import { SectionNavigator } from '../clinical-writing/SectionNavigator'
 import { EditorContent, useRichTextEditor } from '../clinical-writing/RichTextEditor'
+import { SlidePanel } from '../../components/ui/SlidePanel'
+import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
 
 // Avatar palette — matches design-system Pattern 7
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
@@ -15,15 +17,27 @@ const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
   EV: { bg: '#FEF3C7', fg: '#D97706' },
 }
 
-// Signed timestamps for the final chain banner — mirrors prototype exactly
-const FINAL_TIMESTAMPS: Record<string, { verb: string; when: string }> = {
-  authored: { verb: 'Authored', when: '28 Oct 2024 15:47 UTC' },
-  approved: { verb: 'Approved', when: '28 Oct 2024 16:02 UTC' },
-  reviewed: { verb: 'Reviewed', when: '28 Oct 2024 15:58 UTC' },
+// What each signature means, as shown in the chain banner.
+const MEANING_VERB: Record<string, string> = { authored: 'Authored', reviewed: 'Reviewed', approved: 'Approved' }
+
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+
+// '28 Oct 2026 15:47 UTC' — signed records are shown in UTC, like the e-signature screen.
+// Returns null for a missing or unreadable time rather than printing a made-up one.
+function formatUtc(iso: string | null | undefined): string | null {
+  if (!iso) return null
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return null
+  const p = (n: number) => String(n).padStart(2, '0')
+  return `${p(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC`
 }
 
-// Prototype orders the chain banner rows as Authored → Approved → Reviewed
-const CHAIN_ORDER = ['authored', 'approved', 'reviewed'] as const
+// The same moment in the viewer's own time zone, for the hover text.
+const formatLocal = (iso: string | null | undefined): string | undefined =>
+  iso && !Number.isNaN(new Date(iso).getTime()) ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : undefined
+
+// '3a9f…c4d2' — a SHA-256 shortened for the banner (the full value is in the hover text).
+const shortHash = (h: string) => (h.length > 12 ? `${h.slice(0, 4)}…${h.slice(-4)}` : h)
 
 function ShieldIcon({ size = 14, colour = '#15803D', stroke = 1.6 }: { size?: number; colour?: string; stroke?: number }) {
   return (
@@ -46,12 +60,6 @@ function FinalSectionBody({ html }: { html: string }) {
   )
 }
 
-// The prototype showed this passage for §11.4. Kept only as a fallback for
-// that section when its saved body is empty, so the demo doesn't go blank.
-const PROTOTYPE_S11_4_HTML =
-  '<p>Veloricept in combination with pembrolizumab demonstrated a statistically significant improvement in progression-free survival (PFS) compared to placebo plus pembrolizumab, with a median PFS of 14.2 months versus 8.7 months (HR 0.61; 95% CI 0.48–0.77; p&lt;0.0001). This result is consistent with the pre-specified primary analysis outlined in the Statistical Analysis Plan (SAP v2.0, Section 6.3).</p>' +
-  '<p>The Kaplan–Meier curves for PFS demonstrated early and sustained separation between treatment arms from Week 8 onwards, with the separation widening through to the data cut-off date of 30 September 2024.</p>'
-
 // The API returns sections ordered as text (§1, §10, §11, §2 ...). Present them
 // in document order: compare section numbers numerically, part by part.
 const sectionOrder = new Intl.Collator(undefined, { numeric: true })
@@ -62,7 +70,7 @@ const isBlankHtml = (html: string | undefined) => !html || html.replace(/<[^>]*>
 
 export function FinalDocument() {
   const { projectId, documentId } = useParams()
-  const navigate                  = useNavigate()
+  const [auditOpen, setAuditOpen] = useState(false)
   const setActiveProject          = useProjectStore(s => s.setActiveProject)
   const setActiveDocument         = useDocumentStore(s => s.setActiveDocument)
   const setActiveSection          = useDocumentStore(s => s.setActiveSection)
@@ -122,27 +130,36 @@ export function FinalDocument() {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
 
-  // In the final state, all sections are complete (100% progress bar, all-green dots)
-  const sectionsAllComplete: Section[] = useMemo(() => {
+  // Only a document whose status is "signed" gets the signed-and-locked treatment.
+  const isSigned = document?.status === 'signed'
+
+  // Signed: every section reads as complete (100% progress bar, all-green dots).
+  // Not signed: the sections keep their real status.
+  const navSections: Section[] = useMemo(() => {
     if (!document) return []
-    return [...document.sections]
-      .sort(bySectionNumber)
-      .map(s => ({ ...s, status: 'complete' as const, isLocked: false, lockedByUserId: undefined }))
-  }, [document])
+    const sorted = [...document.sections].sort(bySectionNumber)
+    return isSigned
+      ? sorted.map(s => ({ ...s, status: 'complete' as const, isLocked: false, lockedByUserId: undefined }))
+      : sorted
+  }, [document, isSigned])
 
-  // Build the 3 final signature rows from the fetched chain, in Authored→Approved→Reviewed order
-  const finalChainRows = useMemo(() => {
-    return CHAIN_ORDER.map(meaning => {
-      const sig = chain.find((s: SignatureRecord) => s.meaning === meaning)
-      if (!sig) return null
-      const ts = FINAL_TIMESTAMPS[meaning]
-      return { record: sig, verb: ts.verb, when: ts.when }
-    }).filter(Boolean) as { record: SignatureRecord; verb: string; when: string }[]
-  }, [chain])
-
-  const handleViewAuditTrail = () => {
-    navigate(`/projects/${projectId}/clinical-writing/audit-review`)
-  }
+  // The signatures actually recorded on this document, in signing order — real signers,
+  // meanings and times; nothing is shown for a signature that hasn't happened.
+  const signedRecords = useMemo(
+    () => chain.filter((r: SignatureRecord) => r.status === 'signed').sort((a: SignatureRecord, b: SignatureRecord) => a.step - b.step),
+    [chain],
+  )
+  // When it was signed: the document's own signed time, else the last signature on the chain.
+  const signedAtIso: string | null = useMemo(() => {
+    if (document?.signedAt) return document.signedAt
+    const times = signedRecords.map(r => r.timestamp).filter((t): t is string => !!t).sort()
+    return times.length ? times[times.length - 1]! : null
+  }, [document, signedRecords])
+  // The version and document hash that were bound to the signatures.
+  const signedVersion = signedRecords.find(r => r.version_at_signing)?.version_at_signing ?? document?.version ?? ''
+  const sealHash = [...signedRecords].reverse().find(r => r.documentHash)?.documentHash
+  const signedAtText = formatUtc(signedAtIso)
+  const activeSectionData = document?.sections.find(s => s.id === activeSection)
 
   if (!document) {
     return (
@@ -166,30 +183,50 @@ export function FinalDocument() {
         <div className="flex h-14 items-center justify-between gap-6">
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-base font-bold tracking-tight text-slate-900">{document.title}</h1>
-            <span className="flex-none font-mono text-[11px] font-medium text-slate-500">v1.0 · Final</span>
-            <span
-              className="flex-none rounded-full px-2.5 py-1 text-xs font-semibold"
-              style={{ backgroundColor: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0' }}
-            >
-              Signed ✓
+            <span className="flex-none font-mono text-[11px] font-medium text-slate-500">
+              {isSigned ? `${document.version} · Final` : document.version}
             </span>
+            {isSigned ? (
+              <span
+                className="flex-none rounded-full px-2.5 py-1 text-xs font-semibold"
+                style={{ backgroundColor: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0' }}
+                data-doc-status="signed"
+              >
+                Signed ✓
+              </span>
+            ) : (
+              <span
+                className="flex-none rounded-full px-2.5 py-1 text-xs font-semibold"
+                style={{
+                  backgroundColor: (STATUS_META[document.status] ?? STATUS_META['not-started']).bg,
+                  color:           (STATUS_META[document.status] ?? STATUS_META['not-started']).fg,
+                  border: '1px solid #E2E8F0',
+                }}
+                data-doc-status={document.status}
+              >
+                {(STATUS_META[document.status] ?? STATUS_META['not-started']).label}
+              </span>
+            )}
           </div>
 
           <div className="flex flex-none items-center gap-3">
-            <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-500">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#16A34A' }} />
-              Signed 28 Oct 2024 · 15:47 UTC
-            </div>
+            {isSigned && signedAtText && (
+              <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-500" title={formatLocal(signedAtIso)} data-signed-at>
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#16A34A' }} />
+                Signed {signedAtText.replace(/ (\d\d:\d\d UTC)$/, ' · $1')}
+              </div>
+            )}
             <button
               type="button"
+              disabled={!isSigned}
               onClick={() => {
                 // Browser-native PDF export of the current signed-and-locked
                 // document view. Replaced by a server-rendered PDF once the
                 // Phase 4 reports pipeline + puppeteer worker lands.
                 window.print()
               }}
-              title="Open browser Print dialog (Save as PDF)"
-              className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
+              title={isSigned ? 'Open browser Print dialog (Save as PDF)' : 'Available once the document is signed'}
+              className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
             >
               Download PDF
             </button>
@@ -204,45 +241,52 @@ export function FinalDocument() {
                   window.prompt('Copy this link to share:', url)
                 }
               }}
-              title="Copy a shareable link to this signed document"
+              title="Copy a shareable link to this document"
               className="rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
             >
               Share
             </button>
-            <button
-              type="button"
-              onClick={() => {
-                // Signed documents can't be mutated at the content layer
-                // (Part 11 §11.70), but they can be moved out of active
-                // circulation. Confirmation required.
-                if (!window.confirm('Archive this signed document? It will remain in the audit chain but drop from the active document list.')) return
-                window.alert('Archive request logged. Document will move to the archive queue on the next scheduler pass.')
-              }}
-              title="Archive the signed document (removes from active list; audit chain preserved)"
-              className="rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
-            >
-              Archive
-            </button>
+            {isSigned && (
+              <button
+                type="button"
+                onClick={() => {
+                  // Signed documents can't be mutated at the content layer
+                  // (Part 11 §11.70), but they can be moved out of active
+                  // circulation. Confirmation required.
+                  if (!window.confirm('Archive this signed document? It will remain in the audit chain but drop from the active document list.')) return
+                  window.alert('Archive request logged. Document will move to the archive queue on the next scheduler pass.')
+                }}
+                title="Archive the signed document (removes from active list; audit chain preserved)"
+                className="rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
+              >
+                Archive
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* ============ Signed banner (36px) — replaces EditorToolbar ============ */}
+      {/* ============ Status banner (36px) — replaces EditorToolbar ============ */}
       <div
         className="flex h-9 flex-none items-center gap-3 px-8"
-        style={{ backgroundColor: '#F0FDF4', borderBottom: '1px solid #BBF7D0' }}
-        data-signed-banner
+        style={isSigned
+          ? { backgroundColor: '#F0FDF4', borderBottom: '1px solid #BBF7D0' }
+          : { backgroundColor: '#FFFBEB', borderBottom: '1px solid #FDE68A' }}
+        data-signed-banner={isSigned ? 'signed' : 'unsigned'}
       >
-        <ShieldIcon size={14} colour="#15803D" />
-        <p className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px]" style={{ color: '#15803D' }}>
-          This document is signed and locked. No further edits are permitted.
+        <ShieldIcon size={14} colour={isSigned ? '#15803D' : '#B45309'} />
+        <p className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px]" style={{ color: isSigned ? '#15803D' : '#B45309' }}>
+          {isSigned
+            ? 'This document is signed and locked. No further edits are permitted.'
+            : `This document is not signed yet (${(STATUS_META[document.status] ?? STATUS_META['not-started']).label}). This is a read-only preview of its current content.`}
         </p>
         <div className="flex-1" />
         <button
           type="button"
-          onClick={handleViewAuditTrail}
+          onClick={() => setAuditOpen(true)}
           className="whitespace-nowrap text-[13px] font-semibold hover:opacity-80 transition-opacity"
-          style={{ color: '#15803D' }}
+          style={{ color: isSigned ? '#15803D' : '#B45309' }}
+          data-action="view-audit-trail"
         >
           View audit trail →
         </button>
@@ -251,7 +295,7 @@ export function FinalDocument() {
       {/* ============ Two-column row — no right panel in the final view ============ */}
       <div className="flex flex-1 min-h-0">
 
-        <div className="flex" data-no-print><SectionNavigator sections={sectionsAllComplete} /></div>
+        <div className="flex" data-no-print><SectionNavigator sections={navSections} /></div>
 
         {/* Editor pane — read-only, no toolbar, no right panel */}
         <div className="flex min-w-0 flex-1 flex-col bg-white">
@@ -259,7 +303,8 @@ export function FinalDocument() {
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-12 pt-6 pb-8" data-final-scroll>
             <div className="flex max-w-[760px] flex-col">
 
-              {/* Signature chain banner — green box at top of content */}
+              {/* Signature chain banner — only for a signed document, and only what was really signed */}
+              {isSigned && (
               <div
                 className="mb-6 flex items-center gap-4 rounded-lg px-5 py-4"
                 style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}
@@ -268,15 +313,21 @@ export function FinalDocument() {
                 <ShieldIcon size={24} colour="#15803D" />
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <p className="text-sm font-bold" style={{ color: '#15803D' }}>Electronically signed document</p>
-                  <p className="font-mono text-[11px] font-medium" style={{ color: '#15803D', opacity: 0.7 }}>
-                    {document.title} · v1.0 · SHA-256: 3a9f…c4d2
+                  <p className="font-mono text-[11px] font-medium" style={{ color: '#15803D', opacity: 0.7 }} title={sealHash ? `SHA-256: ${sealHash}` : undefined}>
+                    {document.title} · {signedVersion}{sealHash ? ` · SHA-256: ${shortHash(sealHash)}` : ''}
                   </p>
                 </div>
                 <div className="flex flex-none flex-col gap-1">
-                  {finalChainRows.map(({ record, verb, when }) => {
+                  {signedRecords.length === 0 && (
+                    <p className="text-[11px] italic" style={{ color: '#15803D', opacity: 0.8 }} data-no-signatures>
+                      No signature records on file
+                    </p>
+                  )}
+                  {signedRecords.map(record => {
                     const c = AVATAR_COLOURS[record.initials] ?? AVATAR_COLOURS.MW
+                    const when = formatUtc(record.timestamp)
                     return (
-                      <div key={record.id} className="flex items-center gap-1.5" data-chain-row={record.initials}>
+                      <div key={record.id} className="flex items-center gap-1.5" data-chain-row={record.initials} title={formatLocal(record.timestamp)}>
                         <div
                           className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded-full font-mono text-[9px] font-bold"
                           style={{ backgroundColor: c.bg, color: c.fg }}
@@ -284,19 +335,18 @@ export function FinalDocument() {
                           {record.initials}
                         </div>
                         <p className="whitespace-nowrap text-[11px]" style={{ color: '#15803D' }}>
-                          {record.signer} · {verb} · {when}
+                          {record.signer} · {MEANING_VERB[record.meaning] ?? record.meaning}{when ? ` · ${when}` : ''}
                         </p>
                       </div>
                     )
                   })}
                 </div>
               </div>
+              )}
 
               {/* Every section of the document, in order */}
               {[...document.sections].sort(bySectionNumber).map(section => {
-                const html = isBlankHtml(section.contentHtml) && section.id === 's11_4'
-                  ? PROTOTYPE_S11_4_HTML
-                  : section.contentHtml
+                const html = section.contentHtml
                 return (
                   <section
                     key={section.id}
@@ -325,10 +375,33 @@ export function FinalDocument() {
             style={{ backgroundColor: '#F8FAFC' }}
             data-provenance-bar
           >
-            Section 11.4.1 · read-only · signed v1.0 · 3 signatures on record · locked 28 Oct 2024 16:02 UTC
+            {[
+              activeSectionData ? `Section ${activeSectionData.number.replace(/^§/, '')} ${activeSectionData.title}` : null,
+              isSigned ? 'read-only' : 'read-only preview · not signed',
+              isSigned ? `signed ${signedVersion}` : document.version,
+              isSigned ? `${signedRecords.length} ${signedRecords.length === 1 ? 'signature' : 'signatures'} on record` : null,
+              isSigned && signedAtText ? `locked ${signedAtText}` : null,
+            ].filter(Boolean).join(' · ')}
           </div>
         </div>
       </div>
+
+      {/* "View audit trail": this document's own audit trail, without leaving the signed view. */}
+      <SlidePanel
+        open={auditOpen}
+        onClose={() => setAuditOpen(false)}
+        title="Audit trail"
+        subtitle={document.title}
+        storageKey="panel-width-document-audit"
+        defaultWidth={460}
+        closeOnOutsideClick
+      >
+        <div className="flex h-full flex-col" data-document-audit-panel={document.id}>
+          <div className="min-h-0 flex-1">
+            <AuditTrailPanel key={document.id} documentId={document.id} />
+          </div>
+        </div>
+      </SlidePanel>
     </div>
   )
 }

@@ -89,6 +89,8 @@ export interface Document {
   updatedAt: string | null
   createdAt?: string
   targetCompletionDate?: string | null
+  /** When the last signature completed the chain (null until the document is signed). */
+  signedAt?: string | null
   sections: Section[]
 }
 

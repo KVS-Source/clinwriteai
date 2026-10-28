@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
@@ -845,28 +845,53 @@ function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail }: {
   onAuditTrail: () => void
 }) {
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
   const isSigned = doc.status === 'signed'
   const menuRef = useRef<HTMLDivElement>(null)
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
 
-  // Close on a press outside the menu or on Esc. (A blur + timeout close used to race the
-  // item click: on a busy or slower machine the menu vanished before the click landed.)
+  // Fixed positioning: the table's scroll box clips an absolutely positioned menu on the
+  // last rows (and on a short list). Flips up when there's no room below.
+  useLayoutEffect(() => {
+    if (!open) { setPos(null); return }
+    const b = btnRef.current?.getBoundingClientRect()
+    if (!b) return
+    const h = popRef.current?.offsetHeight ?? 230
+    const below = b.bottom + 4
+    setPos({
+      top: below + h > window.innerHeight ? Math.max(8, b.top - h - 4) : below,
+      right: Math.max(8, window.innerWidth - b.right),
+    })
+  }, [open])
+
+  // Close on a press outside the menu, on Esc, or when the page scrolls / resizes (the
+  // fixed menu would drift from its row). (A blur + timeout close used to race the item
+  // click: on a busy or slower machine the menu vanished before the click landed.)
   useEffect(() => {
     if (!open) return
+    const close = () => setOpen(false)
     const onDown = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) close()
     }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
+    const onScroll = (e: Event) => { if (!popRef.current?.contains(e.target as Node)) close() }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', close)
     return () => {
       document.removeEventListener('mousedown', onDown)
       document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', close)
     }
   }, [open])
 
   return (
     <div ref={menuRef} className="relative">
       <button
+        ref={btnRef}
         type="button"
         aria-label="More actions"
         aria-haspopup="menu"
@@ -880,8 +905,11 @@ function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail }: {
       </button>
       {open && (
         <div
-          className="absolute right-0 top-full z-20 mt-1 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+          ref={popRef}
+          className="fixed z-50 w-56 rounded-md border border-slate-200 bg-white py-1 shadow-lg"
+          style={{ top: pos?.top ?? -9999, right: pos?.right ?? 0, visibility: pos ? 'visible' : 'hidden' }}
           role="menu"
+          data-row-menu
           onClick={e => e.stopPropagation()}
         >
           <MenuItem onClick={() => { setOpen(false); onOpen() }}>Open</MenuItem>

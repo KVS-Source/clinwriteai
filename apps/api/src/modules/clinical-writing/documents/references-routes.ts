@@ -37,6 +37,7 @@ const LOCKED_MESSAGE: Record<string, string> = {
   in_review: 'The document is in review and locked for authoring, so its references can’t be changed.',
   pending_signature: 'The document is awaiting signature, so its references can’t be changed.',
   signed: 'The document is signed, so its references can’t be changed.',
+  project_closed: 'The project is closed and read-only, so its references can’t be changed.',
 }
 const lockedBody = (status: string) => ({ error: 'document_locked', status, message: LOCKED_MESSAGE[status] ?? 'The document is locked, so its references can’t be changed.' })
 
@@ -64,6 +65,9 @@ const isMissingTable = (err: unknown) => (err as { code?: string } | null)?.code
 
 export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
   const gate = requireAuth({ modules: ['A'] })
+  // A closed project is read-only whatever the document's status.
+  const projectClosed = async (projectId: string) =>
+    (await app.prisma.project.findUnique({ where: { id: projectId }, select: { status: true } }))?.status === 'closed'
 
   // Runs a source_references query with all columns; if the range columns are missing, re-runs it
   // with BASE_REF_SELECT. Remembers "missing" for a minute, so applying migration 36 is picked up
@@ -201,6 +205,7 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, projectId: true, status: true, deletedAt: true } })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
     if (referencesLocked(doc.status)) return reply.code(423).send(lockedBody(doc.status))
+    if (await projectClosed(doc.projectId)) return reply.code(423).send(lockedBody('project_closed'))
 
     // The source must belong to the same project as the document, and be usable.
     const upload = await app.prisma.documentUpload.findFirst({ where: { id: body.uploadId, projectId: doc.projectId } })
@@ -261,6 +266,7 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, projectId: true, status: true, deletedAt: true } })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
     if (referencesLocked(doc.status)) return reply.code(423).send(lockedBody(doc.status))
+    if (await projectClosed(doc.projectId)) return reply.code(423).send(lockedBody('project_closed'))
     const ref = await withRefColumns(select => app.prisma.sourceReference.findFirst({ where: { id: referenceId, documentId }, ...(select ? { select } : {}) }))
     if (!ref) return reply.code(404).send({ error: 'not_found', message: 'That reference is not part of this document.' })
     if ((await removedIds(documentId)).has(ref.id)) {

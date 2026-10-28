@@ -10,14 +10,15 @@ import { documentsRoutes } from './routes.js'
 const DOC = 'DOC-1'
 const SEC = 'sec-a'
 
-async function build(opts: { lock?: { userId: string; lastHeartbeatAt: Date }; callerId?: string } = {}) {
+async function build(opts: { lock?: { userId: string; lastHeartbeatAt: Date }; callerId?: string; docStatus?: string; projectStatus?: string } = {}) {
   const updates: Array<Record<string, unknown>> = []
   const chat = vi.fn()
   const app = Fastify()
   app.decorate('prisma', {
+    project: { findUnique: vi.fn(async () => ({ status: opts.projectStatus ?? 'ongoing' })) },
     document: {
       findUnique: vi.fn(async () => ({
-        id: DOC, projectId: 'proj-1', type: 'dsur', status: 'in_authoring',
+        id: DOC, projectId: 'proj-1', type: 'dsur', status: opts.docStatus ?? 'in_authoring',
         currentVersion: { id: 'ver-1', versionNumber: 'v0.1', contentHash: 'h', sections: [
           { id: 'row-1', sectionId: SEC, sectionNumber: '§1', sectionTitle: 'S', contentHtml: '<p>old</p>', ichStatus: 'in_progress', wordCount: 1, lastEditedBy: null, lastEditedAt: null, aiSpanCount: 0, humanSpanCount: 0 },
         ] },
@@ -132,5 +133,27 @@ describe('PATCH /documents/:docId/sections/:secId — audit entry', () => {
     expect(res.statusCode).toBeLessThan(400)
     const draft = append.mock.calls.map(c => c[0]).find(e => e.action === 'ai_draft_accepted')
     expect(draft?.details).toMatchObject({ sectionId: SEC, aiModel: 'claude-sonnet-x', aiCallRecordId: 'rec-1', before: 'old', after: 'new' })
+  })
+})
+
+describe('PATCH /documents/:docId/sections/:secId — document locked for authoring', () => {
+  it.each(['in_review', 'pending_signature', 'signed'])('409 document_locked when the document is %s', async (docStatus) => {
+    const { app, append } = await build({ docStatus })
+    const res = await patch(app)
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'document_locked', status: docStatus })
+    expect(append).not.toHaveBeenCalled()
+  })
+
+  it.each(['not_started', 'in_authoring', 'crm_in_progress'])('saves when the document is %s', async (docStatus) => {
+    const { app } = await build({ docStatus })
+    expect((await patch(app)).statusCode).toBeLessThan(400)
+  })
+
+  it('409 document_locked when the project is closed, whatever the document status', async () => {
+    const { app } = await build({ projectStatus: 'closed' })
+    const res = await patch(app)
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'document_locked', message: 'The project is closed and read-only.' })
   })
 })

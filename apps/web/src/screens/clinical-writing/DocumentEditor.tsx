@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { PanelMode, PlatformUser } from '@platform/types'
+import type { DocumentStatus, PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
-import { usePresenceSnapshot } from '../../hooks/usePresence'
+import { useDocumentPresence, usePresenceSnapshot } from '../../hooks/usePresence'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { useSectionLock } from '../../hooks/useSectionLock'
 import { useAutosave }     from '../../hooks/useAutosave'
@@ -50,6 +50,17 @@ const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
   'meddra':            'MedDRA Lookup',
   'tlf':               'TLF Cross-Reference',
 }
+
+// Statuses where the document is locked for authoring — mirrors the API's
+// AUTHORING_LOCKED_STATUSES (apps/api/src/modules/clinical-writing/document-status.ts).
+// Not started, In authoring and CRM in progress stay editable; a closed project
+// locks every document whatever its status.
+const AUTHORING_LOCK: Partial<Record<DocumentStatus, { short: string; note: string }>> = {
+  'in-review':         { short: 'in review',          note: 'The document is locked for authoring while reviewers respond.' },
+  'pending-signature': { short: 'awaiting signature', note: 'The document is locked for authoring while it is being signed. If a signer sends it back, it returns to authoring as a new version.' },
+  'signed':            { short: 'signed',             note: 'The signed version is final and can’t be changed.' },
+}
+const PROJECT_CLOSED_LOCK = { short: 'project closed', note: 'The project is closed, so its documents are read-only.' }
 
 // Deterministic colour for a user's presence avatar — hashed from userId
 // so the same user always gets the same colour across sessions.
@@ -175,10 +186,14 @@ export function DocumentEditor() {
   // sPM-autosave — Section lock lifecycle. Acquires on section mount,
   // heartbeats every 30s, releases on unmount / section switch. Editor
   // becomes editable only when we own the live lock.
-  const sectionLock = useSectionLock(documentId, activeSectionData?.id)
+  // The whole document locked for authoring — no section lock is taken then.
+  const authoringLock = project?.status === 'closed'
+    ? PROJECT_CLOSED_LOCK
+    : document ? AUTHORING_LOCK[document.status] ?? null : null
+  const sectionLock = useSectionLock(documentId, authoringLock ? undefined : activeSectionData?.id)
   const isLockedByUs      = sectionLock.mode === 'owned'
   const isLockedByOther   = sectionLock.mode === 'foreign'
-  const canEditSection    = isLockedByUs && document?.status !== 'in-review'
+  const canEditSection    = isLockedByUs && !authoringLock
 
   // sPM-autosave — Autosave on debounce / blur / pagehide. Enabled only when
   // we hold the lock and the document isn't in review (where authoring is
@@ -241,6 +256,15 @@ export function DocumentEditor() {
     // when either changes; docSocket.on captures a stable closure over the
     // current section id.
   }, [docSocket, activeSectionData?.id, sectionLock])
+
+  // Someone joined, left or switched section — refresh "N active" now instead
+  // of waiting for the 15s snapshot poll.
+  useEffect(() => {
+    if (!docSocket.socket || !documentId) return
+    return docSocket.on('presence:changed', () => {
+      void qc.invalidateQueries({ queryKey: ['presence', documentId] })
+    })
+  }, [docSocket, documentId, qc])
 
   // Collab provider (Phase 2.3). Null when VITE_COLLAB_URL isn't set →
   // the editor runs solo. When set, a Y.Doc + WebsocketProvider is
@@ -332,12 +356,11 @@ export function DocumentEditor() {
       ?? document.sections[0]?.id
       ?? null
     setActiveSection(defaultSection)
-
-    // Fire-and-forget presence heartbeat
-    if (documentId && defaultSection) {
-      documentsApi.updatePresence(documentId, { sectionId: defaultSection, status: 'active' }).catch(() => { /* ignore */ })
-    }
   }, [document, documentId, setActiveDocument, setActiveSection])
+
+  // Presence (FR-A-053 / AC-A-037): join, heartbeat every 15s, report section
+  // switches, leave on close — so "N active" and each user's section stay live.
+  useDocumentPresence(documentId, activeSection)
 
   useEffect(() => {
     if (project) setActiveProject(project)
@@ -853,8 +876,21 @@ export function DocumentEditor() {
         </div>
       </div>
 
+      {/* Awaiting signature / signed / project closed: locked for authoring. */}
+      {authoringLock && authoringLock !== AUTHORING_LOCK['in-review'] && (
+        <div
+          role="status"
+          className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-200 bg-amber-50 px-6 py-2 text-[13px] text-amber-900"
+          data-authoring-locked-banner
+        >
+          <span aria-hidden="true" className="font-bold">🔒</span>
+          <span className="font-semibold">Read-only — {authoringLock.short}.</span>
+          <span>{authoringLock.note}</span>
+        </div>
+      )}
+
       {/* Submitted state: the document is with the reviewers and locked for authoring. */}
-      {document.status === 'in-review' && (
+      {authoringLock === AUTHORING_LOCK['in-review'] && (
         <div
           role="status"
           className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-200 bg-amber-50 px-6 py-2 text-[13px] text-amber-900"
@@ -915,6 +951,7 @@ export function DocumentEditor() {
                       holderName={sectionLock.holder ? (usersById.get(sectionLock.holder.userId)?.name ?? undefined) : undefined}
                       status={autosave.status}
                       lastSavedAt={autosave.lastSavedAt}
+                      readOnlyReason={authoringLock?.short}
                     />
                     {/* Section edit history — per section (sPM-section-history).
                         Opens the right-rail SectionHistoryPanel listing manual +
@@ -1004,7 +1041,7 @@ export function DocumentEditor() {
               panel is open so the user never sees two prompt inputs at
               once; AI Help has no prompt input of its own, so the dock
               stays visible when Help is open. */}
-          {activeSectionData && documentId && activePanel !== 'ai' && (
+          {activeSectionData && documentId && activePanel !== 'ai' && !authoringLock && (
             <div className="flex-none border-t border-slate-200 bg-white px-12 py-3" data-section-ai-prompt-dock>
               <div className="max-w-[760px]">
                 <SectionAIPrompt
@@ -1198,8 +1235,8 @@ export function DocumentEditor() {
                 cannotEditReason={
                   !documentId || !activeSectionData
                     ? 'Open a section first'
-                    : document?.status === 'in-review'
-                      ? 'Document is in review'
+                    : authoringLock
+                      ? `Document is read-only — ${authoringLock.short}`
                       : isLockedByOther
                         ? `${sectionLock.holder ? (usersById.get(sectionLock.holder.userId)?.name ?? 'Another writer') : 'Another writer'} is editing this section`
                         : sectionLock.mode === 'idle'
@@ -1239,6 +1276,7 @@ export function DocumentEditor() {
                 sectionId={activeSection}
                 sectionLabel={activeSectionData ? `${activeSectionData.number.startsWith('§') ? '' : '§'}${activeSectionData.number} ${activeSectionData.title}` : undefined}
                 documentStatus={document?.status}
+                projectClosed={project?.status === 'closed'}
               />
             )}
             {activePanel === 'history' && documentId && (

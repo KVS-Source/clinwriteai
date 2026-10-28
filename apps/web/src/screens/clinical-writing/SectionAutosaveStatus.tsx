@@ -32,9 +32,22 @@ export interface SectionAutosaveStatusProps {
   holderName?: string                           // resolved from userId by the caller; falls back to the raw id
   status:      AutosaveStatus
   lastSavedAt: Date | null
+  /** Set when the whole document is locked for authoring (e.g. "Signed") — wins over the section lock. */
+  readOnlyReason?: string
 }
 
-export function SectionAutosaveStatus({ lockMode, holder, holderName, status, lastSavedAt }: SectionAutosaveStatusProps) {
+export function SectionAutosaveStatus({ lockMode, holder, holderName, status, lastSavedAt, readOnlyReason }: SectionAutosaveStatusProps) {
+  if (readOnlyReason) {
+    return (
+      <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800" data-document-read-only>
+        <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
+          <rect x="2" y="4.4" width="6" height="4" rx="0.8" />
+          <path d="M3.4 4.4 V3 a1.6 1.6 0 0 1 3.2 0 V4.4" />
+        </svg>
+        Read-only — {readOnlyReason}
+      </span>
+    )
+  }
   if (lockMode === 'foreign' && holder) {
     const name = holderName ?? holder.userId
     return (

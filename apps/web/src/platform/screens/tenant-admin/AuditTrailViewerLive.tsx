@@ -47,9 +47,10 @@ function filtersFromUrl(params: URLSearchParams): Filters {
     entityType: params.get('entityType') ?? '',
     entityId:   params.get('entityId') ?? '',
     projectId:  params.get('projectId') ?? '',
-    // A deep link to one entity (e.g. a project's "Audit trail" button) opens on its
-    // whole history; otherwise the page opens on the one-month default, in local time.
-    ...(params.get('entityId') || params.get('projectId') ? { from: '', to: '' } : defaultRange('local')),
+    // The page opens on the one-month default in local time — including from a project's
+    // "Audit trail" button (?projectId=). A deep link to a single record (?entityId=)
+    // opens on that record's whole history.
+    ...(params.get('entityId') && !params.get('projectId') ? { from: '', to: '' } : defaultRange('local')),
   }
 }
 

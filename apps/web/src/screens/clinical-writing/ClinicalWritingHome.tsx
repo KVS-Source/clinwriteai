@@ -846,14 +846,32 @@ function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail }: {
 }) {
   const [open, setOpen] = useState(false)
   const isSigned = doc.status === 'signed'
+  const menuRef = useRef<HTMLDivElement>(null)
+
+  // Close on a press outside the menu or on Esc. (A blur + timeout close used to race the
+  // item click: on a busy or slower machine the menu vanished before the click landed.)
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false)
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('mousedown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [open])
+
   return (
-    <div className="relative">
+    <div ref={menuRef} className="relative">
       <button
         type="button"
         aria-label="More actions"
+        aria-haspopup="menu"
         aria-expanded={open}
         onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
-        onBlur={() => setTimeout(() => setOpen(false), 150)}
         className="flex gap-[2.5px] rounded-md p-1.5 hover:bg-slate-100 transition-colors"
       >
         <span className="h-[3px] w-[3px] rounded-full" style={{ backgroundColor: '#64748B' }} />

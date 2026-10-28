@@ -4,7 +4,7 @@ import type { AuditEntry } from '@platform/types'
 import { documentsApi } from '../api'
 import { apiConfig } from '../api/client'
 import { DateTimeRangeFilter, defaultRange, rangeToIso, toInputValue, type TimeZoneMode } from '../components/ui/DateTimeRangeFilter'
-import { wordDiff } from './wordDiff'
+import { wordDiff, type DiffOp } from './wordDiff'
 
 interface ScopeSection { id: string; number: string; title: string }
 
@@ -132,6 +132,28 @@ function actionPhrase(eventType: EventType): string {
 
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
+// Same marks as the Version Diff screen (DiffView): struck-through red for removed
+// words, green for added ones.
+const DEL_STYLE = { backgroundColor: '#FEE2E2', color: '#DC2626', textDecoration: 'line-through', borderRadius: 2, padding: '0 2px' } as const
+const INS_STYLE = { backgroundColor: '#DCFCE7', color: '#15803D', textDecoration: 'none',         borderRadius: 2, padding: '0 2px' } as const
+
+// Words joined by single spaces, with a marked run rendered in its highlight.
+function renderRuns(ops: DiffOp[], show: 'del' | 'ins' | 'both'): ReactNode[] {
+  const out: ReactNode[] = []
+  ops.forEach((op, i) => {
+    if (op.type === 'del' && show === 'ins') return
+    if (op.type === 'ins' && show === 'del') return
+    const text = op.words.join(' ')
+    if (out.length) out.push(' ')
+    out.push(
+      op.type === 'eq'  ? <span key={i}>{text}</span>
+      : op.type === 'del' ? <del key={i} style={DEL_STYLE} data-diff="del">{text}</del>
+      :                     <ins key={i} style={INS_STYLE} data-diff="ins">{text}</ins>,
+    )
+  })
+  return out
+}
+
 // What a section edit changed: only the changed words, in place, with a few words
 // of surrounding text to show where. The full before/after stays available.
 function ChangeBlock({ before, after }: { before: string; after: string }) {
@@ -151,33 +173,37 @@ function ChangeBlock({ before, after }: { before: string; after: string }) {
           : `${summary} · ${plural(diff.hunks.length, 'place')}`}
       </p>
 
+      {/* Each change inline in its sentence: removed words struck through, added words in green. */}
       {diff.hunks.map((h, i) => (
-        <p key={i} className="rounded border border-slate-200 bg-white px-2 py-1 text-slate-600" data-change-hunk={i + 1}>
-          <span className="mr-1 font-mono text-[9px] font-semibold uppercase tracking-wider text-slate-400">
+        <div key={i} className="rounded border border-slate-200 bg-white px-2.5 py-1.5" data-change-hunk={i + 1}>
+          <span className="block font-mono text-[9px] font-semibold uppercase tracking-wider text-slate-400">
             {h.atStart && h.atEnd ? 'whole text' : h.atStart ? 'at start' : h.atEnd ? 'at end' : `change ${i + 1}`}
           </span>
-          {h.before.length > 0 && <span>…{h.before.join(' ')} </span>}
-          {h.ops.map((op, j) => (
-            op.type === 'eq'  ? <span key={j}>{op.words.join(' ')}</span>
-            : op.type === 'del' ? <del key={j} className="rounded bg-red-100 px-0.5 text-red-800 decoration-red-500">{op.words.join(' ')}</del>
-            :                     <ins key={j} className="rounded bg-green-100 px-0.5 font-semibold text-green-800 no-underline">{op.words.join(' ')}</ins>
-          )).reduce<ReactNode[]>((acc, el, j) => (j ? [...acc, ' ', el] : [el]), [])}
-          {h.after.length > 0 && <span> {h.after.join(' ')}…</span>}
-        </p>
+          <p className="text-[12.5px] leading-[1.7] text-slate-700">
+            {h.before.length > 0 && <span className="text-slate-500">…{h.before.join(' ')} </span>}
+            {renderRuns(h.ops, 'both')}
+            {h.after.length > 0 && <span className="text-slate-500"> {h.after.join(' ')}…</span>}
+          </p>
+        </div>
       ))}
 
       <button type="button" onClick={() => setShowFull(s => !s)} className="self-start text-[11px] font-semibold text-blue-600 hover:text-blue-700">
         {showFull ? 'Hide full before / after' : 'Show full before / after'}
       </button>
+      {/* Full text, highlighting only what changed: removed words in Before, added words in After. */}
       {showFull && (
-        <div className="flex flex-col gap-1" data-change-full>
-          <div className="rounded border-l-2 border-red-300 bg-red-50 px-2 py-1">
+        <div className="flex flex-col gap-1.5" data-change-full>
+          <div className="rounded border border-slate-200 border-l-2 border-l-red-400 bg-white px-2.5 py-1.5">
             <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-red-700">Before</span>
-            <p className="whitespace-pre-wrap text-slate-700">{before || <span className="italic text-slate-400">(empty)</span>}</p>
+            <p className="text-[12px] leading-[1.7] text-slate-700" data-full="before">
+              {before ? renderRuns(diff.ops, 'del') : <span className="italic text-slate-400">(empty)</span>}
+            </p>
           </div>
-          <div className="rounded border-l-2 border-green-400 bg-green-50 px-2 py-1">
+          <div className="rounded border border-slate-200 border-l-2 border-l-green-500 bg-white px-2.5 py-1.5">
             <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-green-700">After</span>
-            <p className="whitespace-pre-wrap text-slate-700">{after || <span className="italic text-slate-400">(empty)</span>}</p>
+            <p className="text-[12px] leading-[1.7] text-slate-700" data-full="after">
+              {after ? renderRuns(diff.ops, 'ins') : <span className="italic text-slate-400">(empty)</span>}
+            </p>
           </div>
         </div>
       )}

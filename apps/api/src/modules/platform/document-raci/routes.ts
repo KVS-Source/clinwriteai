@@ -15,7 +15,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
-import type { DocumentStatus } from '../../clinical-writing/document-status.js'
+import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
 
 const completeSchema = z.object({
   signatureId: z.string().min(1).nullable().optional(),
@@ -321,9 +321,11 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    // Evaluate the stage transition for the response. The caller uses this
-    // to render "N of M completed" + decide whether to prompt the user to
-    // move the doc to the next status.
+    // Evaluate the stage transition. If the gating cohort is complete AND
+    // the state machine permits the move, flip Document.status here. The
+    // canTransitionDocument guard preserves the Part 11-aware invariant:
+    // we never jump a stage, never move from a terminal state, never
+    // bypass the explicit edges in document-status.ts.
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
       select: { status: true },
@@ -336,12 +338,40 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
         signatureId: true, rejectedAt: true, removedAt: true,
       },
     })
-    const evaluation = evaluateStageTransition(
-      (doc?.status ?? 'not_started') as DocumentStatus,
-      allRows as RaciRowForEval[],
-    )
+    const currentStatus = (doc?.status ?? 'not_started') as DocumentStatus
+    const evaluation = evaluateStageTransition(currentStatus, allRows as RaciRowForEval[])
 
-    return reply.send({ row: updated, transition: evaluation })
+    let transitioned = false
+    if (
+      evaluation.cohortComplete &&
+      evaluation.nextStatus !== null &&
+      canTransitionDocument(currentStatus, evaluation.nextStatus)
+    ) {
+      await app.prisma.document.update({
+        where: { id: documentId },
+        data: { status: evaluation.nextStatus },
+      })
+      transitioned = true
+
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: actor.id,
+        action: 'document_status.auto_transition',
+        entityType: 'document',
+        entityId: documentId,
+        details: {
+          from: currentStatus,
+          to: evaluation.nextStatus,
+          gatingLetter: evaluation.gatingLetter,
+          cohortTotal: evaluation.cohortTotal,
+          trigger: 'raci_cohort_complete',
+          raciId,
+        },
+        ipAddress: request.ip ?? null,
+      })
+    }
+
+    return reply.send({ row: updated, transition: evaluation, transitioned })
   })
 
   // --- Reject (bounce back a stage) ---------------------------------------

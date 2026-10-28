@@ -802,7 +802,8 @@ export function DocumentEditor() {
                 const keys: readonly unknown[][] = [
                   ['comments',          documentId],
                   ['document-sources',  documentId],
-                  ['document-references', documentId],
+                  ['references',        documentId],
+                  ['tlf',               documentId],
                   ['section-history',   documentId],
                   ['document-stage',    documentId],
                   ['signature-chains',  documentId],
@@ -938,7 +939,7 @@ export function DocumentEditor() {
                         ? `Last edited ${new Date(document.updatedAt).toLocaleString('en-GB', {
                             day: '2-digit', month: 'short', year: 'numeric',
                             hour: '2-digit', minute: '2-digit',
-                          })} UTC`
+                          })}`
                         : null
                       const refs = sectionReferences.length
                         ? `${sectionReferences.length} source ${sectionReferences.length === 1 ? 'reference' : 'references'}`

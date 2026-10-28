@@ -122,6 +122,11 @@ export function classifyScope(prompt: string): 'section' | 'document' {
 export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcceptSuggestion, canEditSection = true, cannotEditReason }: Props) {
   const qc = useQueryClient()
   const [prompt, setPrompt] = useState('')
+  // Explicit source attachments (paperclip in composer). When present,
+  // the request goes with scope='source' and attachedSourceIds[] so the
+  // backend narrows the attached-source context to just these uploads.
+  const [attachedSourceIds, setAttachedSourceIds] = useState<string[]>([])
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false)
   // Scope + intent are both inferred from the prompt text — the old
   // chip rows were cognitive overhead. classifyScope() picks 'document'
   // when the user mentions "whole document" / "all sections" / etc.;
@@ -175,6 +180,26 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
     enabled:  !!sectionId,
   })
 
+  // Source documents linked to this document — populates the paperclip
+  // picker. Cheap-ish; cached. Falls back to empty when the endpoint
+  // 404s (new doc with no sources yet).
+  const sourcesQ = useQuery({
+    queryKey: ['document-sources', documentId],
+    queryFn:  () => documentsApi.listDocumentSources(documentId),
+    enabled:  !!documentId,
+    staleTime: 30_000,
+  })
+  const availableSources = sourcesQ.data?.items ?? []
+  const attachedSources  = availableSources.filter(s => attachedSourceIds.includes(s.uploadId))
+
+  function toggleSource(uploadId: string) {
+    setAttachedSourceIds(prev =>
+      prev.includes(uploadId) ? prev.filter(id => id !== uploadId) : [...prev, uploadId],
+    )
+  }
+
+  function clearAttachments() { setAttachedSourceIds([]) }
+
   // Auto-scroll to the newest message on each refresh.
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'end' })
@@ -189,7 +214,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   }, [prompt])
 
   const send = useMutation({
-    mutationFn: (vars: { instruction: string; intentValue: 'edit' | 'explain'; scopeValue: Scope; selectionText?: string }) => {
+    mutationFn: (vars: { instruction: string; intentValue: 'edit' | 'explain'; scopeValue: Scope; selectionText?: string; attachedSourceIds?: string[] }) => {
       if (!sectionId) throw new Error('no_active_section')
       return api.post<AiResult>(
         `/documents/${documentId}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
@@ -198,6 +223,9 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
           customPrompt: vars.instruction,
           scope:        vars.scopeValue,
           ...(vars.selectionText ? { selectionText: vars.selectionText } : {}),
+          ...(vars.attachedSourceIds && vars.attachedSourceIds.length > 0
+            ? { attachedSourceIds: vars.attachedSourceIds }
+            : {}),
         },
       )
     },
@@ -233,12 +261,20 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   const handleSend = () => {
     const text = prompt.trim()
     if (!text || send.isPending) return
+    // When the user has attached source documents, scope is forced to
+    // 'source' server-side anyway; passing it here just keeps the wire
+    // explicit. Otherwise we fall back to the inferred scope.
+    const hasAttachments = attachedSourceIds.length > 0
     send.mutate({
       instruction:   text,
       intentValue:   classifyIntent(text),
-      scopeValue:    classifyScope(text),
+      scopeValue:    hasAttachments ? 'source' : classifyScope(text),
       selectionText: savedSel?.text,
+      attachedSourceIds: hasAttachments ? attachedSourceIds : undefined,
     })
+    // Attachments persist across sends by default (user may want to run
+    // several prompts against the same source set); the paperclip
+    // popover's "Clear" button is the explicit drop path.
   }
 
   if (!sectionId) {
@@ -382,6 +418,34 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
             >Clear</button>
           </div>
         )}
+        {/* Attached source chips. Each chip is removable; "Clear" drops all. */}
+        {attachedSources.length > 0 && (
+          <div className="mb-2 flex flex-wrap items-center gap-1" data-chat-attachments>
+            {attachedSources.map(s => (
+              <span
+                key={s.uploadId}
+                className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-800"
+                title={s.fileName}
+              >
+                <PaperclipIcon />
+                <span className="max-w-[160px] truncate">{s.title || s.fileName}</span>
+                <button
+                  type="button"
+                  onClick={() => toggleSource(s.uploadId)}
+                  className="ml-0.5 rounded text-blue-600 hover:bg-blue-100"
+                  aria-label={`Remove ${s.fileName}`}
+                >×</button>
+              </span>
+            ))}
+            {attachedSources.length > 1 && (
+              <button
+                type="button"
+                onClick={clearAttachments}
+                className="ml-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
+              >Clear</button>
+            )}
+          </div>
+        )}
         <div
           onMouseDown={captureSelectionFromEditor}
           className="rounded-xl border border-slate-300 bg-white shadow-sm focus-within:border-blue-400 focus-within:ring-2 focus-within:ring-blue-100"
@@ -403,7 +467,75 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
             aria-label="Ask the AI"
             className="block max-h-40 min-h-[36px] w-full resize-none rounded-t-xl border-0 bg-transparent px-3 pt-2 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
           />
-          <div className="flex items-center justify-end gap-2 px-2 pb-2">
+          <div className="flex items-center justify-between gap-2 px-2 pb-2">
+            {/* Paperclip — attach a linked source document. Button is
+                disabled when there are no sources on this doc (and
+                tooltip explains). Keeps the composer discoverable
+                without a chip rail. */}
+            <div className="relative" data-chat-attach-wrapper>
+              <button
+                type="button"
+                onClick={() => setSourcePickerOpen(o => !o)}
+                disabled={availableSources.length === 0 || send.isPending}
+                aria-label="Attach a source document"
+                aria-expanded={sourcePickerOpen}
+                title={
+                  availableSources.length === 0
+                    ? 'No source documents are linked to this document yet'
+                    : `Attach a linked source document (${attachedSourceIds.length} of ${availableSources.length} selected)`
+                }
+                className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg border transition-colors ${
+                  attachedSourceIds.length > 0
+                    ? 'border-blue-200 bg-blue-50 text-blue-700'
+                    : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                } disabled:cursor-not-allowed disabled:opacity-50`}
+              >
+                <PaperclipIcon />
+              </button>
+              {sourcePickerOpen && availableSources.length > 0 && (
+                <div
+                  className="absolute bottom-9 left-0 z-20 max-h-64 w-72 overflow-y-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+                  data-chat-source-picker
+                  onMouseDown={e => e.stopPropagation()}
+                >
+                  <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Attach source documents
+                  </p>
+                  <ul className="space-y-0.5">
+                    {availableSources.map(s => {
+                      const checked = attachedSourceIds.includes(s.uploadId)
+                      return (
+                        <li key={s.uploadId}>
+                          <label className={`flex cursor-pointer items-start gap-2 rounded px-2 py-1 text-[12px] ${checked ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={() => toggleSource(s.uploadId)}
+                              className="mt-0.5 shrink-0"
+                            />
+                            <span className="min-w-0 flex-1">
+                              <span className="block truncate font-medium text-slate-900">{s.title || s.fileName}</span>
+                              {s.category && (
+                                <span className="block truncate text-[10px] text-slate-500">
+                                  {s.category}{s.version ? ` · v${s.version}` : ''}
+                                </span>
+                              )}
+                            </span>
+                          </label>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  <div className="mt-1 flex justify-end gap-1 border-t border-slate-100 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setSourcePickerOpen(false)}
+                      className="rounded px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                    >Done</button>
+                  </div>
+                </div>
+              )}
+            </div>
             <button
               type="button"
               onClick={handleSend}
@@ -419,5 +551,15 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
         </div>
       </div>
     </div>
+  )
+}
+
+// Small SVG icon for the paperclip (attach source). Inline avoids
+// pulling an icon library for a single glyph.
+function PaperclipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+    </svg>
   )
 }

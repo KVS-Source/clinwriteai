@@ -838,6 +838,13 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // 'source'            — list of linked source document titles (full
     //                       text attachment not yet wired; placeholder note)
     scope: z.enum(['section', 'document', 'source']).optional(),
+    // When the user attaches specific source files via the composer's
+    // paperclip (web/src/panels/AIChatPanel.tsx), their upload ids land
+    // here. If present AND non-empty, scope is force-set to 'source' and
+    // the context attachment narrows to only these uploads (not every
+    // linked SourceDocument on the doc). An empty array behaves like
+    // scope='source' with no filter — same as the chip did.
+    attachedSourceIds: z.array(z.string().min(1)).max(20).optional(),
     model: z.string().optional(),            // omitted -> the engine saved in Admin Panel -> AI Engine
   }).refine(b => b.intent !== 'edit' || !!b.customPrompt?.trim(), { message: 'Tell the AI what to change', path: ['customPrompt'] })
 
@@ -868,7 +875,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // the base prompts (tighten/explain/edit/draft) already reference
     // currentContent, so attaching extra context goes in a separate
     // "Additional context" block the AI treats as reference-only.
-    const scope = parsed.data.scope ?? 'section'
+    // attachedSourceIds forces scope='source' + narrows to the picked
+    // uploads. Explicit attach beats the chip-era scope default.
+    const hasAttachments = (parsed.data.attachedSourceIds?.length ?? 0) > 0
+    const scope = hasAttachments ? 'source' : (parsed.data.scope ?? 'section')
     let additionalContext = ''
     if (scope === 'document') {
       const allSections = doc.currentVersion?.sections ?? []
@@ -878,24 +888,31 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         .join('\n\n')
     } else if (scope === 'source') {
       // Full source-document text attachment is not yet wired (needs blob
-      // text extraction). For now list the linked source document titles
-      // so the AI knows what's referenced; replace with real text in a
-      // follow-up when source-doc blob extraction lands.
+      // text extraction). For now list the referenced source document
+      // titles so the AI knows what's attached. When the composer sends
+      // attachedSourceIds we narrow to those; otherwise fall back to
+      // every linked SourceDocument on the doc (the old chip behaviour).
       try {
+        const sourceIdFilter = hasAttachments
+          ? { uploadId: { in: parsed.data.attachedSourceIds! } }
+          : {}
         const sources = await app.prisma.documentSource.findMany({
-          where:  { documentId },
+          where:  { documentId, ...sourceIdFilter },
           select: { uploadId: true },
         })
         if (sources.length === 0) {
-          additionalContext = 'No source documents are linked to this document.'
+          additionalContext = hasAttachments
+            ? 'The attached source documents could not be loaded (they may have been unlinked from this document).'
+            : 'No source documents are linked to this document.'
         } else {
           const uploads = await app.prisma.contentUpload.findMany({
             where:  { id: { in: sources.map(s => s.uploadId) } },
             select: { fileName: true },
           })
-          additionalContext = `Linked source documents (titles only; full text not yet attached in this context):\n${
-            uploads.map(u => `• ${u.fileName}`).join('\n')
-          }`
+          const header = hasAttachments
+            ? `User-attached source documents (titles only; full text not yet attached in this context):`
+            : `Linked source documents (titles only; full text not yet attached in this context):`
+          additionalContext = `${header}\n${uploads.map(u => `• ${u.fileName}`).join('\n')}`
         }
       } catch { additionalContext = '' }                                 // non-fatal if source-docs table shape differs
     }

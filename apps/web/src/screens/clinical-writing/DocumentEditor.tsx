@@ -1193,7 +1193,7 @@ export function DocumentEditor() {
             {activePanel === 'voice' && documentId && (
               <VoiceNotePanel
                 documentId={documentId}
-                sectionRef={activeSection ? `§${activeSection.replace('s', '').replace('_', '.')} Progression-Free Survival` : '§11.4.1 Progression-Free Survival'}
+                initialSectionId={activeSection}
               />
             )}
             {activePanel === 'checklist' && documentId && (

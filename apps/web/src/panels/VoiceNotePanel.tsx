@@ -1,12 +1,47 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { VoiceNote } from '@platform/types'
+import type { Section, VoiceNote } from '@platform/types'
 import { documentsApi } from '../api'
 import { ApiError } from '../api/client'
+import { useAuthStore } from '../store/authStore'
 
 interface Props {
-  documentId:  string
-  sectionRef:  string  // e.g. "§11.4.1 Progression-Free Survival"
+  documentId:        string
+  /** Section selected when the panel opens. Picker lets the user change it. */
+  initialSectionId?: string | null
+}
+
+function sectionLabel(s: Pick<Section, 'number' | 'title'>): string {
+  return `§${s.number} ${s.title}`
+}
+
+// Escape untrusted strings before interpolating them into HTML. The
+// transcript comes from a TTS service we trust (OpenAI/stub), but we
+// still don't want HTML entities in the transcript to produce broken
+// markup when appended to a section's contentHtml.
+function escapeHtml(input: string): string {
+  return input
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+}
+
+// Render the transcript as HTML paragraphs preserving blank lines.
+function transcriptToHtml(transcript: string, meta: { actor: string; when: string }): string {
+  const paragraphs = transcript
+    .split(/\n{2,}|\n/)
+    .map(line => line.trim())
+    .filter(Boolean)
+    .map(line => `<p>${escapeHtml(line)}</p>`)
+    .join('')
+  return [
+    `<blockquote data-origin="voice-note">`,
+    `<p><em>Voice note — ${escapeHtml(meta.actor)}, ${escapeHtml(meta.when)}</em></p>`,
+    paragraphs,
+    `</blockquote>`,
+  ].join('')
 }
 
 type RecordState =
@@ -95,16 +130,44 @@ function formatMMSS(seconds: number): string {
   return `${m}:${s}`
 }
 
-export function VoiceNotePanel({ documentId, sectionRef }: Props) {
+export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
   const qc = useQueryClient()
+  const currentUserName = useAuthStore(s => s.user?.name ?? 'Unknown user')
 
-  const [state,        setState]        = useState<RecordState>('idle')
-  const [elapsedMs,    setElapsedMs]    = useState(0)
-  const [error,        setError]        = useState<string | null>(null)
-  const [insertToast,  setInsertToast]  = useState<string | null>(null)
-  const [lastNote,     setLastNote]     = useState<VoiceNote | null>(null)
-  const [previewUrl,   setPreviewUrl]   = useState<string | null>(null)
+  const [state,         setState]         = useState<RecordState>('idle')
+  const [elapsedMs,     setElapsedMs]     = useState(0)
+  const [error,         setError]         = useState<string | null>(null)
+  const [insertToast,   setInsertToast]   = useState<string | null>(null)
+  const [lastNote,      setLastNote]      = useState<VoiceNote | null>(null)
+  const [previewUrl,    setPreviewUrl]    = useState<string | null>(null)
   const [playingNoteId, setPlayingNoteId] = useState<string | null>(null)
+  const [sectionPickerOpen, setSectionPickerOpen] = useState(false)
+  const [selectedSectionId, setSelectedSectionId] = useState<string | null>(initialSectionId)
+
+  // Document is the source of truth for the sections list + the current
+  // contentHtml we'll append to on insert. Cached by react-query so the
+  // picker + insert reuse the same data.
+  const { data: document } = useQuery({
+    queryKey: ['document', documentId],
+    queryFn:  () => documentsApi.get(documentId),
+    enabled:  !!documentId,
+  })
+
+  const sections = useMemo(() => document?.sections ?? [], [document])
+
+  // Keep selectedSectionId valid as the document loads. Falls back to the
+  // first section when nothing's selected or the selection no longer exists.
+  useEffect(() => {
+    if (sections.length === 0) return
+    if (selectedSectionId && sections.some(s => s.id === selectedSectionId)) return
+    setSelectedSectionId(sections[0]?.id ?? null)
+  }, [sections, selectedSectionId])
+
+  const selectedSection = useMemo(
+    () => sections.find(s => s.id === selectedSectionId) ?? null,
+    [sections, selectedSectionId],
+  )
+  const sectionRef = selectedSection ? sectionLabel(selectedSection) : 'Pick a section'
 
   const recorderRef   = useRef<MediaRecorder | null>(null)
   const streamRef     = useRef<MediaStream | null>(null)
@@ -299,14 +362,38 @@ export function VoiceNotePanel({ documentId, sectionRef }: Props) {
     }
   }
 
+  const insertMut = useMutation({
+    mutationFn: async () => {
+      if (!lastNote?.transcript) throw new Error('no_transcript')
+      if (!selectedSection) throw new Error('no_section')
+      const existing = selectedSection.contentHtml ?? ''
+      const when = new Date().toLocaleString('en-GB', {
+        day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit',
+      })
+      const appended = transcriptToHtml(lastNote.transcript, { actor: currentUserName, when })
+      const nextHtml = existing.trim().length > 0 ? `${existing}\n${appended}` : appended
+      return documentsApi.updateSection(documentId, selectedSection.id, {
+        contentHtml: nextHtml,
+      })
+    },
+    onSuccess: () => {
+      setInsertToast(`Appended to §${selectedSection?.number ?? ''}`)
+      qc.invalidateQueries({ queryKey: ['document', documentId] })
+    },
+    onError: (err) => {
+      if (err instanceof ApiError && err.status === 423) {
+        setInsertToast('Section is locked by another editor. Try again shortly.')
+      } else if (err instanceof ApiError) {
+        setInsertToast(`Insert failed (HTTP ${err.status})`)
+      } else {
+        setInsertToast('Insert failed. Please try again.')
+      }
+    },
+  })
+
   const insertTranscript = () => {
-    if (!lastNote?.transcript) return
-    // Transcript insertion into the document body is a separate concern
-    // (addVoiceNote only persisted the note itself in the old prototype).
-    // Dedicated section-insert wiring lands with Module A §edit-history
-    // cross-module rollout; for now the audit trail + reference link in
-    // the voice-note row is the system of record.
-    setInsertToast(`Linked to ${sectionRef.split(' ')[0]}`)
+    if (!lastNote?.transcript || !selectedSection) return
+    insertMut.mutate()
   }
 
   const copyText = () => {
@@ -344,14 +431,49 @@ export function VoiceNotePanel({ documentId, sectionRef }: Props) {
       <div className="flex flex-col gap-2.5">
         <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Record to section</p>
 
-        <div
-          className="flex items-center justify-between gap-2 rounded-md border px-3 py-2"
-          style={{ borderColor: '#E2E8F0', backgroundColor: '#F1F5F9' }}
-        >
-          <span className="truncate text-xs font-semibold text-slate-900">{sectionRef}</span>
-          <button className="flex flex-none text-slate-500 hover:text-slate-700" aria-label="Change section" disabled>
-            <EditPencilIcon />
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setSectionPickerOpen(o => !o)}
+            className="flex w-full items-center justify-between gap-2 rounded-md border px-3 py-2 hover:bg-slate-100"
+            style={{ borderColor: '#E2E8F0', backgroundColor: '#F1F5F9' }}
+            aria-haspopup="listbox"
+            aria-expanded={sectionPickerOpen}
+            disabled={sections.length === 0}
+          >
+            <span className="truncate text-xs font-semibold text-slate-900">{sectionRef}</span>
+            <span className="flex flex-none text-slate-500" aria-label="Change section">
+              <EditPencilIcon />
+            </span>
           </button>
+
+          {sectionPickerOpen && sections.length > 0 && (
+            <div
+              role="listbox"
+              className="absolute left-0 right-0 z-10 mt-1 max-h-56 overflow-y-auto rounded-md border bg-white shadow-md"
+              style={{ borderColor: '#E2E8F0' }}
+            >
+              {sections.map(s => {
+                const isSelected = s.id === selectedSectionId
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    role="option"
+                    aria-selected={isSelected}
+                    onClick={() => {
+                      setSelectedSectionId(s.id)
+                      setSectionPickerOpen(false)
+                    }}
+                    className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-slate-100 ${isSelected ? 'bg-slate-50 font-semibold' : ''}`}
+                  >
+                    <span className="font-mono text-[10px] text-slate-500">§{s.number}</span>
+                    <span className="truncate text-slate-900">{s.title}</span>
+                  </button>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         <div className="mt-4 flex flex-col items-center gap-2">
@@ -432,10 +554,10 @@ export function VoiceNotePanel({ documentId, sectionRef }: Props) {
                 <button
                   type="button"
                   onClick={insertTranscript}
-                  disabled={!lastNote?.transcript}
+                  disabled={!lastNote?.transcript || !selectedSection || insertMut.isPending}
                   className="flex-1 rounded-md bg-blue-600 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:bg-slate-300"
                 >
-                  Insert into {shortSectionRef}
+                  {insertMut.isPending ? 'Inserting…' : `Insert into ${shortSectionRef}`}
                 </button>
                 <button
                   type="button"

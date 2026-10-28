@@ -20,6 +20,24 @@ import { computeCostUsdWithCard, getActiveRateCard } from './rate-card.js'
 import { scrubPii } from './pii-scrub.js'
 import { createAnthropicClientFromEnv } from './anthropic-client.js'
 
+/**
+ * Image attachment for multimodal (vision) calls. Base64 encoded; the
+ * Anthropic client wraps these into `type: 'image'` content blocks
+ * alongside the prompt text. Caller is responsible for keeping the
+ * payload under provider limits (~5MB per image for Anthropic). An
+ * image whose data length exceeds the cap is dropped with an inline
+ * note in the final prompt — see routes using images for the current
+ * cap enforcement.
+ */
+export interface ChatImage {
+  /** Image MIME type: 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp' */
+  mediaType: string
+  /** Raw image bytes. The client base64-encodes before sending. */
+  data: Buffer
+  /** Optional human-friendly label shown in audit logs. */
+  label?: string
+}
+
 export interface ChatArgs {
   tenantId: string | null
   projectId?: string | null
@@ -29,6 +47,8 @@ export interface ChatArgs {
   model: string
   prompt: string
   maxOutputTokens?: number
+  /** Optional image attachments for vision-capable models. See ChatImage. */
+  images?: ChatImage[]
   // Prompt-history + section-level Undo scope (sPM-history).
   // All optional — gateway calls that aren't tied to a document section
   // (module-level claims harvest, platform jobs) leave them unset. When
@@ -71,6 +91,7 @@ export interface LlmClient {
     model: string
     prompt: string
     maxOutputTokens?: number
+    images?: ChatImage[]
   }): Promise<{ responseText: string; inputTokens: number; outputTokens: number }>
 }
 
@@ -78,10 +99,17 @@ export interface LlmClient {
 // SDK wrapper when the API key arrives. The intent is to keep the service
 // shape stable so the swap is a single file change.
 class StubLlmClient implements LlmClient {
-  async send(args: { model: string; prompt: string; maxOutputTokens?: number }) {
+  async send(args: { model: string; prompt: string; maxOutputTokens?: number; images?: ChatImage[] }) {
     // Token estimates: Anthropic's rough rule is ~4 chars per token.
-    const inputTokens = Math.max(1, Math.ceil(args.prompt.length / 4))
-    const responseText = `[STUB_${args.model}] Would respond to a prompt of length ${args.prompt.length}.`
+    // Vision estimate: ~1500 tokens per image (rough — real cost depends
+    // on resolution). Suffices for the stub so cost tracking shows a
+    // non-zero number in dev.
+    const textTokens = Math.max(1, Math.ceil(args.prompt.length / 4))
+    const imgCount = args.images?.length ?? 0
+    const inputTokens = textTokens + imgCount * 1500
+    const responseText = imgCount > 0
+      ? `[STUB_${args.model}] Would respond to a prompt of length ${args.prompt.length} with ${imgCount} image(s).`
+      : `[STUB_${args.model}] Would respond to a prompt of length ${args.prompt.length}.`
     const outputTokens = Math.max(1, Math.ceil(responseText.length / 4))
     return { responseText, inputTokens, outputTokens }
   }
@@ -180,7 +208,12 @@ export class AiGatewayService {
     let outputTokens = 0
     let errorCode: string | null = null
     try {
-      const r = await this.llm.send({ model: args.model, prompt: scrubbed, maxOutputTokens: args.maxOutputTokens })
+      const r = await this.llm.send({
+        model: args.model,
+        prompt: scrubbed,
+        maxOutputTokens: args.maxOutputTokens,
+        images: args.images,
+      })
       responseText = r.responseText
       inputTokens = r.inputTokens
       outputTokens = r.outputTokens

@@ -881,6 +881,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const hasAttachments = (parsed.data.attachedSourceIds?.length ?? 0) > 0
     const scope = hasAttachments ? 'source' : (parsed.data.scope ?? 'section')
     let additionalContext = ''
+    // Images attached as source documents travel out-of-band as vision
+    // inputs to the gateway rather than extracted-text in the prompt —
+    // multimodal models can see charts/diagrams/signatures directly.
+    const imageAttachments: Array<{ mediaType: string; data: Buffer; label?: string }> = []
     if (scope === 'document') {
       const allSections = doc.currentVersion?.sections ?? []
       additionalContext = allSections
@@ -922,10 +926,37 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             select: { id: true, fileName: true, title: true, blobKey: true, contentType: true },
           })
 
-          const TOTAL_BUDGET = 60_000
-          const perFileMax = Math.max(500, Math.floor(TOTAL_BUDGET / uploads.length))
+          // Split: images go as vision attachments (max 5 per prompt);
+          // the rest go through text extraction with a budget split
+          // across them. Image count cap mirrors Anthropic's practical
+          // limit — more than 5 blows out the context and the cost.
+          const MAX_IMAGES = 5
+          const isImageType = (ct: string | null) =>
+            !!ct && ct.toLowerCase().startsWith('image/')
 
-          const extracts = await Promise.all(uploads.map(async u => {
+          const imageUploads = uploads.filter(u => isImageType(u.contentType)).slice(0, MAX_IMAGES)
+          const droppedImages = uploads.filter(u => isImageType(u.contentType)).length - imageUploads.length
+          const textUploads  = uploads.filter(u => !isImageType(u.contentType))
+
+          // Fetch image blobs → image attachments (vision input).
+          await Promise.all(imageUploads.map(async u => {
+            try {
+              const blob = await app.blob.get('documents', u.blobKey)
+              imageAttachments.push({
+                mediaType: u.contentType ?? 'image/png',
+                data:      blob.body,
+                label:     u.title ?? u.fileName,
+              })
+            } catch { /* non-fatal: just skip */ }
+          }))
+
+          // Fetch non-image blobs → text extraction (budgeted share).
+          const TOTAL_BUDGET = 60_000
+          const perFileMax = textUploads.length > 0
+            ? Math.max(500, Math.floor(TOTAL_BUDGET / textUploads.length))
+            : 500
+
+          const extracts = await Promise.all(textUploads.map(async u => {
             try {
               const blob = await app.blob.get('documents', u.blobKey)
               const extract = await extractTextFromBlob(blob.body, u.contentType, { maxChars: perFileMax })
@@ -945,17 +976,32 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           }))
 
           const header = hasAttachments
-            ? 'User-attached source documents — extracted text follows. Treat as reference material only; the primary edit target is the Section content above.'
-            : 'Linked source documents — extracted text follows. Treat as reference material only.'
+            ? 'User-attached source documents — content follows. Treat as reference material only; the primary edit target is the Section content above.'
+            : 'Linked source documents — content follows. Treat as reference material only.'
 
-          additionalContext = header + '\n\n' + extracts.map(({ upload, extract }) => {
+          const textBlocks = extracts.map(({ upload, extract }) => {
             const title = upload.title ?? upload.fileName
             if (extract.ok) {
               const note = extract.reason ? ` [${extract.reason}]` : ''
               return `--- ${title}${note} ---\n${extract.text}`
             }
             return `--- ${title} (text unavailable: ${extract.reason}) ---`
-          }).join('\n\n')
+          })
+
+          // Reference the image attachments by label so the LLM can
+          // address them specifically ("per the Study Flow Diagram image
+          // attached, …"). The actual pixels are in the vision blocks.
+          const imageMentions = imageAttachments.map(img =>
+            `--- ${img.label ?? 'image'} (sent as image attachment) ---`,
+          )
+          if (droppedImages > 0) {
+            imageMentions.push(`--- (${droppedImages} additional image(s) dropped: only the first ${MAX_IMAGES} images per prompt are attached as vision input) ---`)
+          }
+
+          const sections = [...textBlocks, ...imageMentions]
+          additionalContext = sections.length > 0
+            ? `${header}\n\n${sections.join('\n\n')}`
+            : header
         }
       } catch { additionalContext = '' }                                 // non-fatal if source-docs table shape differs
     }
@@ -1064,6 +1110,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         model,
         prompt: promptWithScope,
         maxOutputTokens: parsed.data.intent === 'edit' ? 4096 : 2048,
+        // Image attachments (source files whose contentType is image/*).
+        // Empty for text-only prompts — zero overhead when unused.
+        images: imageAttachments.length > 0 ? imageAttachments : undefined,
         // Prompt-history + Undo context (sPM-history). Scopes the AiCallRecord
         // to the section and snapshots pre-call HTML so the UI can later Undo
         // the last AI change on this section in place.

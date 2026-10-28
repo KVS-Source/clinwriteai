@@ -14,7 +14,15 @@
 //     already has a `cachedTokens` column — we populate it from the sum
 //     of both. See docs/pivot-plan.md Arc 8.1.
 
-import type { LlmClient } from './service.js'
+import type { ChatImage, LlmClient } from './service.js'
+
+// Anthropic vision caps (from their docs). Images exceeding these are
+// dropped with a note; the prompt still goes through.
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024   // 5MB per image
+
+const ALLOWED_IMAGE_TYPES = new Set([
+  'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+])
 
 export class AnthropicLlmClient implements LlmClient {
   constructor(
@@ -26,7 +34,7 @@ export class AnthropicLlmClient implements LlmClient {
     if (!apiKey) throw new Error('AnthropicLlmClient requires an API key')
   }
 
-  async send(args: { model: string; prompt: string; maxOutputTokens?: number }) {
+  async send(args: { model: string; prompt: string; maxOutputTokens?: number; images?: ChatImage[] }) {
     // Lazy-load the SDK; a missing install surfaces as a clear message.
     const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
       throw new Error(
@@ -36,10 +44,38 @@ export class AnthropicLlmClient implements LlmClient {
 
     const client = new Anthropic({ apiKey: this.apiKey })
 
+    // Build the content array. Text-only → single string (fast path).
+    // With images → multimodal content blocks (image blocks first, then
+    // the text block — Anthropic's docs recommend this order so the model
+    // "sees" the image before reading the instruction).
+    const validImages = (args.images ?? []).filter(img =>
+      ALLOWED_IMAGE_TYPES.has(img.mediaType.toLowerCase()) &&
+      img.data.length > 0 &&
+      img.data.length <= MAX_IMAGE_BYTES,
+    )
+    const skippedImages = (args.images ?? []).length - validImages.length
+    const skipNote = skippedImages > 0
+      ? `\n\n[Note: ${skippedImages} image(s) were dropped because they exceeded 5MB or used an unsupported format. Supported: PNG, JPEG, GIF, WebP.]`
+      : ''
+
+    const content = validImages.length === 0
+      ? (args.prompt + skipNote)
+      : [
+          ...validImages.map(img => ({
+            type: 'image' as const,
+            source: {
+              type: 'base64' as const,
+              media_type: img.mediaType.toLowerCase() as 'image/png' | 'image/jpeg' | 'image/gif' | 'image/webp',
+              data: img.data.toString('base64'),
+            },
+          })),
+          { type: 'text' as const, text: args.prompt + skipNote },
+        ]
+
     const response = await client.messages.create({
       model: args.model || this.defaultModel,
       max_tokens: args.maxOutputTokens ?? 4096,
-      messages: [{ role: 'user', content: args.prompt }],
+      messages: [{ role: 'user', content }],
     })
 
     // Response content is an array of blocks; the common case is a single

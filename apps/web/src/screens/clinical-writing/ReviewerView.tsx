@@ -652,7 +652,10 @@ export function ReviewerView() {
                 <ChecklistPanel documentId={documentId} />
               )}
               {activePanel === 'audit' && documentId && (
-                <AuditTrailPanel documentId={documentId} />
+                <AuditTrailPanel
+                  documentId={documentId}
+                  section={activeSectionData ? { id: activeSectionData.id, number: activeSectionData.number, title: activeSectionData.title } : null}
+                />
               )}
             </div>
           )}

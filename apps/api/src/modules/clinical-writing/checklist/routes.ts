@@ -17,6 +17,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
 import {
   computeProjectChecklistSummary,
   ensureChecklistInstance,
@@ -52,6 +53,15 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch('/:documentId/checklist/:itemId/complete', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, itemId } = request.params as { documentId: string; itemId: string }
+
+    // §11.1: only an R on this doc (or an admin) can tick items.
+    if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({
+        error: 'checklist_edit_forbidden',
+        message: 'Only an R on this document (or an admin) can mark checklist items complete.',
+      })
+    }
+
     const item = await loadItem(app.prisma, documentId, itemId)
     if (!item) return reply.code(404).send({ error: 'not_found' })
     if (item.status === 'complete' || item.status === 'waived') {
@@ -82,6 +92,15 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch('/:documentId/checklist/:itemId/waive', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, itemId } = request.params as { documentId: string; itemId: string }
+
+    // §11.1: only an R on this doc (or an admin) can waive items.
+    if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({
+        error: 'checklist_edit_forbidden',
+        message: 'Only an R on this document (or an admin) can waive checklist items.',
+      })
+    }
+
     const parsed = waiveSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -118,6 +137,15 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/checklist', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+
+    // §11.1: only an R on this doc (or an admin) can add user items.
+    if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({
+        error: 'checklist_edit_forbidden',
+        message: 'Only an R on this document (or an admin) can add checklist items.',
+      })
+    }
+
     const parsed = addCustomSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 

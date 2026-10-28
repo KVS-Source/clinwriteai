@@ -102,30 +102,52 @@ interface FixtureDocument {
 
 // ---------- Vocab maps ----------
 
-// users.json uses role names that no longer live in the current
-// rbac.Role enum. Map them to the closest active role so the invite
-// schema's z.enum() doesn't reject these users on re-save.
-const ROLE_MAP: Record<string, string> = {
-  'admin':                     'admin',
-  // Post 2026-10-27 role consolidation: 'super-admin' retired; map
-  // legacy fixture entries to 'admin' so re-seeds don't resurrect it.
-  'super-admin':               'admin',
-  'clinical-writer':           'clinical-writer',
-  'scientific-writer':         'scientific-writer',
-  'medical-writer':            'medical-writer',
-  'regulatory-writer':         'regulatory-writer',
-  'ideation-lead':             'ideation-lead',
-  'reviewer':                  'reviewer',
-  'read-only':                 'read-only',
-  // Legacy fixture-only roles — map to closest active equivalent.
-  'ma-team-lead':              'reviewer',
-  'content-calendar-manager':  'ideation-lead',
-  'clinical-lead':             'reviewer',
-  'cmc-lead':                  'regulatory-writer',
-  'author':                    'clinical-writer',
+// Fixture roles (users.json) use the pre-RBAC-refactor vocabulary. The
+// seed translates them to the canonical post-migration-48 values —
+// tenant-admin | contributor | auditor — and derives the capabilities
+// array per docs/roles-and-permissions.md §8 so a fresh DB matches an
+// existing one that migration 48 has run on.
+const ROLE_MAP: Record<string, 'tenant-admin' | 'contributor' | 'auditor'> = {
+  'admin':                     'tenant-admin',
+  'super-admin':               'tenant-admin',
+  'clinical-writer':           'contributor',
+  'scientific-writer':         'contributor',
+  'medical-writer':            'contributor',
+  'regulatory-writer':         'contributor',
+  'ideation-lead':             'contributor',
+  'reviewer':                  'contributor',
+  'read-only':                 'auditor',
+  // Legacy fixture-only roles — all collapse to contributor + capabilities.
+  'ma-team-lead':              'contributor',
+  'content-calendar-manager':  'contributor',
+  'clinical-lead':             'contributor',
+  'cmc-lead':                  'contributor',
+  'author':                    'contributor',
 }
-function mapRole(fixtureRole: string): string {
-  return ROLE_MAP[fixtureRole] ?? 'read-only'
+function mapRole(fixtureRole: string): 'tenant-admin' | 'contributor' | 'auditor' {
+  return ROLE_MAP[fixtureRole] ?? 'auditor'
+}
+
+// Capabilities per fixture role. Mirrors migration 48's UPDATE statements
+// so re-seeding doesn't produce users that differ from a migrated DB.
+const CAPABILITY_MAP: Record<string, string[]> = {
+  'admin':                     [],
+  'super-admin':               [],
+  'clinical-writer':           ['can-author'],
+  'scientific-writer':         ['can-author'],
+  'medical-writer':            ['can-author', 'can-review'],
+  'regulatory-writer':         ['can-author', 'can-publish'],
+  'ideation-lead':             ['can-author'],
+  'reviewer':                  ['can-review'],
+  'read-only':                 [],
+  'ma-team-lead':              ['can-review'],
+  'content-calendar-manager':  ['can-author'],
+  'clinical-lead':             ['can-review'],
+  'cmc-lead':                  ['can-author', 'can-publish'],
+  'author':                    ['can-author'],
+}
+function capabilitiesFor(fixtureRole: string): string[] {
+  return CAPABILITY_MAP[fixtureRole] ?? []
 }
 
 // Hyphenated → underscored (both document.type and document.status
@@ -134,14 +156,15 @@ function underscored(v: string): string {
   return v.replace(/-/g, '_')
 }
 
-// Membership role is a separate vocab from User.role — writers get
-// 'writer', reviewers get 'reviewer', one anchor gets 'owner'. Rough
-// mapping; refined by the UI role picker if the operator cares.
-function membershipRoleFor(user: FixtureUser): 'owner' | 'admin' | 'writer' | 'reviewer' | 'viewer' {
-  if (user.role === 'admin') return 'admin'
-  if (user.role === 'reviewer' || user.role === 'clinical-lead' || user.role === 'ma-team-lead') return 'reviewer'
-  if (user.role.endsWith('-writer') || user.role === 'author' || user.role === 'cmc-lead' || user.role === 'ideation-lead' || user.role === 'content-calendar-manager') return 'writer'
-  return 'viewer'
+// Membership.role vocab moved from legacy (owner/admin/writer/reviewer/viewer)
+// to canonical (tenant-admin/contributor/auditor) in migration 48. Seed
+// writes canonical values so fresh DBs match migrated DBs.
+function membershipRoleFor(user: FixtureUser): 'tenant-admin' | 'contributor' | 'auditor' {
+  if (user.role === 'admin' || user.role === 'super-admin') return 'tenant-admin'
+  if (user.role === 'read-only') return 'auditor'
+  // Everything else — writers, reviewers, leads — is a contributor at
+  // the Membership level; the capabilities array distinguishes further.
+  return 'contributor'
 }
 
 function initialsFor(name: string): string {
@@ -194,7 +217,11 @@ async function main() {
   const upsertedUsers: Record<string, Awaited<ReturnType<typeof prisma.user.upsert>>> = {}
   for (const u of users) {
     const role = mapRole(u.role)
-    const isPlatformAdmin = role === 'admin'
+    const capabilities = capabilitiesFor(u.role)
+    // The fixture distinction is "was this user admin/super-admin before the
+    // RBAC refactor" — those become platform admins (tenantId=null).
+    // All other roles land in the demo tenant (Acme).
+    const isPlatformAdmin = u.role === 'admin' || u.role === 'super-admin'
     const row = await prisma.user.upsert({
       where: { email: u.email },
       create: {
@@ -203,6 +230,8 @@ async function main() {
         name: u.name,
         initials: initialsFor(u.name),
         role,
+        capabilities,
+        legacyRole: u.role,
         modules: u.modules,
         status: u.status,
         tenantId: isPlatformAdmin ? null : acme.id,
@@ -211,6 +240,8 @@ async function main() {
       update: {
         name: u.name,
         role,
+        capabilities,
+        legacyRole: u.role,
         modules: u.modules,
         status: u.status,
         tenantId: isPlatformAdmin ? null : acme.id,
@@ -231,14 +262,14 @@ async function main() {
   // land as AUTH_BYPASS_EMAIL (also an admin) and the platform-admin
   // screens (Tenants, Rate Cards, Analytics…) 403.
   for (const legacy of [
-    { id: null,       email: 'admin@clinwrite.ai',       name: 'Mr Rohan Iyer',   role: 'admin',           modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
+    { id: null,       email: 'admin@clinwrite.ai',       name: 'Mr Rohan Iyer',   fixtureRole: 'admin',           modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
     // Alex Thornton — demo platform-admin persona in the UI's
     // PLATFORM_DEMO_USERS. Explicit id='user-sa' + email so the
     // X-Demo-Persona header can resolve her by either; without this
     // the id lookup falls back to AUTH_BYPASS_EMAIL.
-    { id: 'user-sa',  email: 'a.thornton@clinwrite.ai',  name: 'Alex Thornton',   role: 'admin',           modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
-    { id: null,       email: 'writer@clinwrite.ai',      name: 'Ms Ananya Rao',   role: 'clinical-writer', modules: ['A'],                     tenantId: acme.id },
-    { id: null,       email: 'reviewer@clinwrite.ai',    name: 'Dr Vikram Mehta', role: 'reviewer',        modules: ['A'],                     tenantId: acme.id },
+    { id: 'user-sa',  email: 'a.thornton@clinwrite.ai',  name: 'Alex Thornton',   fixtureRole: 'admin',           modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
+    { id: null,       email: 'writer@clinwrite.ai',      name: 'Ms Ananya Rao',   fixtureRole: 'clinical-writer', modules: ['A'],                     tenantId: acme.id },
+    { id: null,       email: 'reviewer@clinwrite.ai',    name: 'Dr Vikram Mehta', fixtureRole: 'reviewer',        modules: ['A'],                     tenantId: acme.id },
   ]) {
     await prisma.user.upsert({
       where: { email: legacy.email },
@@ -247,7 +278,9 @@ async function main() {
         email: legacy.email,
         name: legacy.name,
         initials: initialsFor(legacy.name),
-        role: legacy.role,
+        role: mapRole(legacy.fixtureRole),
+        capabilities: capabilitiesFor(legacy.fixtureRole),
+        legacyRole: legacy.fixtureRole,
         modules: legacy.modules,
         status: 'active',
         tenantId: legacy.tenantId,
@@ -264,8 +297,9 @@ async function main() {
   for (const u of users) {
     const row = upsertedUsers[u.id]
     if (!row) continue
-    const role = mapRole(u.role)
-    if (role === 'admin') continue
+    // Platform admins (fixture role 'admin'/'super-admin') don't get a
+    // Membership — their cross-tenant authority lives on User.role.
+    if (u.role === 'admin' || u.role === 'super-admin') continue
     await prisma.membership.upsert({
       where: { tenantId_userId: { tenantId: acme.id, userId: row.id } },
       create: {

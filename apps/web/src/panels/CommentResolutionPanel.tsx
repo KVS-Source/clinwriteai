@@ -101,10 +101,18 @@ function SignatureIcon() {
 }
 
 export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props) {
-  const qc               = useQueryClient()
-  const resolutionDraft  = useCRMStore(s => s.resolutionDraft)
-  const setResolutionDraft = useCRMStore(s => s.setResolutionDraft)
-  const saveResolution   = useCRMStore(s => s.saveResolution)
+  const qc                 = useQueryClient()
+  // Store is keyed by meetingId since the CRM store refactor — read via
+  // getter + reactive subscription on the entries map so a draft change
+  // on THIS meeting re-renders this panel.
+  const entries            = useCRMStore(s => s.entries)
+  const resolutionDraft    = entries[meetingId]?.resolutionDraft ?? null
+  const setResolutionDraftRaw = useCRMStore(s => s.setResolutionDraft)
+  const saveResolutionRaw     = useCRMStore(s => s.saveResolution)
+  const setResolutionDraft = (draft: Parameters<typeof setResolutionDraftRaw>[1]) =>
+    setResolutionDraftRaw(meetingId, draft)
+  const saveResolution     = (resolution: Parameters<typeof saveResolutionRaw>[1]) =>
+    saveResolutionRaw(meetingId, resolution)
 
   // Selected type comes from draft (seeded when user clicked a Resolve button in the CRM active card)
   const [selectedType, setSelectedType] = useState<ResolutionType | null>(resolutionDraft?.type ?? null)

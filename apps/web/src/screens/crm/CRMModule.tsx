@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CRMMeeting, Comment, ResolutionType } from '@platform/types'
+import type { CRMMeeting, CRMResolution, Comment, ResolutionType } from '@platform/types'
 import { crmApi, documentsApi, projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import type { CRMResolutionRow, ScheduleMeetingBody } from '../../api/crm'
@@ -392,9 +392,15 @@ export function CRMModule() {
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
 
-  const resolutionDraft    = useCRMStore(s => s.resolutionDraft)
-  const setResolutionDraft = useCRMStore(s => s.setResolutionDraft)
-  const setMeetingInStore  = useCRMStore(s => s.setMeeting)
+  // Store is keyed by meetingId; readers return null for unknown keys. The
+  // caller passes the current meeting id (null while loading / between
+  // meetings) and the store ignores stale writes against a different id.
+  const setMeetingInStore     = useCRMStore(s => s.setMeeting)
+  const setResolutionDraftRaw = useCRMStore(s => s.setResolutionDraft)
+  const getResolutionDraft    = useCRMStore(s => s.getResolutionDraft)
+  // Subscribe to the entries map so the component re-renders when THIS
+  // meeting's draft changes; we re-derive via the getter below.
+  const entries               = useCRMStore(s => s.entries)
 
   const { data: projectDocs = [] } = useQuery({
     queryKey: ['documents', projectId],
@@ -419,7 +425,17 @@ export function CRMModule() {
   const meeting: CRMMeeting | undefined =
     meetings.find(m => m.status === 'in_progress') ?? meetings.find(m => m.status === 'scheduled') ?? meetings[meetings.length - 1]
 
-  useEffect(() => { setMeetingInStore(meeting ?? null) }, [meeting, setMeetingInStore])
+  useEffect(() => { if (meeting) setMeetingInStore(meeting) }, [meeting, setMeetingInStore])
+
+  // Scoped wrappers — supply the current meeting.id so writes never land on
+  // another document's CRM entry. no-op when there is no live meeting yet.
+  const resolutionDraft = meeting ? (entries[meeting.id]?.resolutionDraft ?? null) : null
+  const setResolutionDraft = (draft: Partial<CRMResolution> | null) => {
+    if (!meeting) return
+    setResolutionDraftRaw(meeting.id, draft)
+  }
+  // Store getter kept available (used by future call sites).
+  void getResolutionDraft
 
   const { data: comments = [] } = useQuery({
     queryKey: ['comments', activeDocId],
@@ -493,7 +509,11 @@ export function CRMModule() {
 
   // The resolve panel's draft lives in the CRM store, so clear it when the chair leaves
   // CRM or switches document — otherwise the panel reopens on return.
-  useEffect(() => () => setResolutionDraft(null), [activeDocId, setResolutionDraft])
+  // Note: the pre-keyed-store version cleared resolutionDraft on activeDocId
+  // change to prevent cross-meeting bleed. With the meetingId-keyed store,
+  // drafts live naturally per-meeting and preserve across doc switches —
+  // explicit close actions still null them (see onClose at the resolve
+  // panel below).
 
   // A click outside the resolve panel, or Esc, closes it — unless a resolution note is
   // typed, so the draft isn't lost. The Resolve-as buttons ([data-resolve]) open it and are

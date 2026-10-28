@@ -51,10 +51,40 @@ export class InvalidDocumentTransitionError extends Error {
   }
 }
 
-// Statuses where the document's source references can't be added or removed: with
-// the reviewers (locked for authoring), awaiting signature, or signed.
-export const REFERENCE_LOCKED_STATUSES: ReadonlyArray<DocumentStatus> = ['in_review', 'pending_signature', 'signed']
+// Statuses where the document is locked for authoring — no section content
+// changes and no source references added or removed:
+//   - in_review          PRD AC-A-032: "locked for authoring while in review"
+//   - pending_signature  signers attest the document hash + version (FR-A-066)
+//   - signed             the signed version is never overwritten (FR-A-029b)
+// not_started, in_authoring and crm_in_progress (Comments Resolution &
+// Finalisation) stay editable. Getting out of a locked status is a
+// transition back to in_authoring, which snapshots a new version.
+export const AUTHORING_LOCKED_STATUSES: ReadonlyArray<DocumentStatus> = ['in_review', 'pending_signature', 'signed']
+export const REFERENCE_LOCKED_STATUSES = AUTHORING_LOCKED_STATUSES
+
+export function authoringLocked(status: string): boolean {
+  return (AUTHORING_LOCKED_STATUSES as ReadonlyArray<string>).includes(status)
+}
 
 export function referencesLocked(status: string): boolean {
-  return (REFERENCE_LOCKED_STATUSES as ReadonlyArray<string>).includes(status)
+  return authoringLocked(status)
+}
+
+const AUTHORING_LOCKED_MESSAGE: Record<string, string> = {
+  in_review:         'The document is in review and locked for authoring.',
+  pending_signature: 'The document is awaiting signature and locked for authoring.',
+  signed:            'The document is signed and locked. Its signed version can’t be changed.',
+}
+
+/**
+ * Why the document's content can't be changed right now, or null when it can.
+ * A closed project is read-only whatever the document's status (PRD: "Closed
+ * is a hard, unoverridable read-only state").
+ */
+export function authoringLockReason(docStatus: string, projectStatus?: string | null): { error: 'document_locked'; status: string; message: string } | null {
+  if (projectStatus === 'closed') {
+    return { error: 'document_locked', status: docStatus, message: 'The project is closed and read-only.' }
+  }
+  if (!authoringLocked(docStatus)) return null
+  return { error: 'document_locked', status: docStatus, message: AUTHORING_LOCKED_MESSAGE[docStatus] ?? 'The document is locked for authoring.' }
 }

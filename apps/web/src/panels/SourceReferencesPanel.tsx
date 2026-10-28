@@ -21,6 +21,8 @@ interface Props {
   sectionLabel?: string
   /** document status — references can't change while it's in review, awaiting signature or signed */
   documentStatus?: DocumentStatus
+  /** a closed project is read-only whatever the document's status */
+  projectClosed?: boolean
 }
 
 const LOCKED_NOTE: Partial<Record<DocumentStatus, string>> = {
@@ -145,7 +147,7 @@ export function SourceViewer({ projectId, documentId, source, page, quote, onBac
 
 // ------------------------------------------------------------------ list
 
-export function SourceReferencesPanel({ documentId, projectId, sectionId, sectionLabel, documentStatus }: Props) {
+export function SourceReferencesPanel({ documentId, projectId, sectionId, sectionLabel, documentStatus, projectClosed }: Props) {
   const qc = useQueryClient()
   const selected = useEditorStore(s => s.traceabilityTarget)
   const setSelected = useEditorStore(s => s.setTraceabilityTarget)
@@ -209,7 +211,9 @@ export function SourceReferencesPanel({ documentId, projectId, sectionId, sectio
     ? inSection.filter(r => linkedSpans[r.id] && spansOverlap(selectedSpan, linkedSpans[r.id]!)).map(r => r.id)
     : [])
   const linked = selectionRefIds.size > 0
-  const lockedNote = documentStatus ? LOCKED_NOTE[documentStatus] : undefined
+  const lockedNote = projectClosed
+    ? 'The project is closed and read-only, so references can’t be added or removed.'
+    : documentStatus ? LOCKED_NOTE[documentStatus] : undefined
 
   if (viewer) {
     const src = sourceById.get(viewer.uploadId) ?? null

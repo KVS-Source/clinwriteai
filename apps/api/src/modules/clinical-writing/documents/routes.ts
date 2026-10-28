@@ -24,6 +24,7 @@ import { templateSections } from './templates.js'
 import { DocumentService } from './service.js'
 import { chooseModel } from '../../platform/config/ai-engine-settings.js'
 import {
+  authoringLockReason,
   canTransitionDocument,
   DOCUMENT_STATUSES,
   InvalidDocumentTransitionError,
@@ -272,6 +273,17 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
 export const documentsRoutes: FastifyPluginAsync = async (app) => {
   const svc = new DocumentService(app.prisma)
 
+  // 409 body when the document is locked for authoring (in review, awaiting
+  // signature, signed, or its project is closed) — null when content may change
+  // or the document doesn't exist (the route's own lookup 404s). Guards every
+  // route that writes section content.
+  async function authoringLock(documentId: string) {
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { status: true, projectId: true } })
+    if (!doc) return null
+    const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { status: true } })
+    return authoringLockReason(doc.status, project?.status)
+  }
+
   app.get('/:documentId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await svc.getWithSections(documentId)
@@ -306,6 +318,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
     const parsed = sectionUpdateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const locked = await authoringLock(documentId)
+    if (locked) return reply.code(409).send(locked)
 
     // Autosave precondition (sPM-autosave): block the write when another user
     // holds a live lock on this section. A missing or stale lock passes — the
@@ -402,6 +417,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = restoreSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const locked = await authoringLock(documentId)
+    if (locked) return reply.code(409).send(locked)
 
     const job = await app.prisma.versionRestoreJob.create({
       data: {
@@ -1079,6 +1097,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (!doc) return reply.code(404).send({ error: 'not_found' })
     const section = doc.currentVersion?.sections[0]
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
+    // Revert is offered only while the document is open for authoring.
+    const contentLocked = !!(await authoringLock(documentId))
 
     const rows = await app.prisma.editHistory.findMany({
       where: {
@@ -1153,10 +1173,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         // GET /section-edits/:id/diff on expand.
         beforeExcerpt:      htmlExcerpt(r.beforeHtml),
         afterExcerpt:       htmlExcerpt(r.afterHtml),
-        // Can revert if the snapshot exists and the section is still on
-        // the version this edit was made on. Sealed-version check happens
-        // in the service.
-        canRevert:          !!r.beforeHtml
+        // Can revert if the document is open for authoring, the snapshot
+        // exists and the section is still on the version this edit was made
+        // on. Sealed-version check happens in the service.
+        canRevert:          !contentLocked
+                              && !!r.beforeHtml
                               && r.documentVersionId === doc.currentVersionId,
       }
     })
@@ -1215,6 +1236,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // the chain stays complete.
   app.post('/section-edits/:editHistoryId/revert', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { editHistoryId } = request.params as { editHistoryId: string }
+    const target = await app.prisma.editHistory.findUnique({ where: { id: editHistoryId }, select: { documentId: true } })
+    if (target?.documentId) {
+      const locked = await authoringLock(target.documentId)
+      if (locked) return reply.code(409).send(locked)
+    }
     try {
       const result = await svc.revertSection({
         editHistoryId,
@@ -1328,6 +1354,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (rec.undoneAt) return reply.code(409).send({ error: 'already_undone' })
     if (!rec.preCallSectionHtml) return reply.code(422).send({ error: 'no_snapshot' })
     if (!rec.documentId || !rec.sectionId) return reply.code(422).send({ error: 'not_section_scoped' })
+
+    const locked = await authoringLock(rec.documentId)
+    if (locked) return reply.code(409).send(locked)
 
     const doc = await app.prisma.document.findUnique({
       where: { id: rec.documentId },

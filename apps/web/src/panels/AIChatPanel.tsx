@@ -47,6 +47,11 @@ interface Props {
   cannotEditReason?: string
 }
 
+// Scope union preserved for the mutation shape (backend still accepts
+// 'section' | 'document' | 'source'). The picker that used to drive it
+// is gone — scope is inferred from prompt text via classifyScope now.
+// 'source' is unused in v1 UI — it will come back as an explicit
+// "attach source" action rather than a scope mode. See follow-up.
 type Scope = 'section' | 'document' | 'source'
 
 interface AiResult {
@@ -56,21 +61,17 @@ interface AiResult {
   scope?: 'section' | 'selection'
 }
 
-const SCOPE_LABEL: Record<Scope, string> = {
-  section:  'Section',
-  document: 'Document',
-  source:   'Source docs',
-}
+// Scope + intent are both inferred from the prompt — the chip rows at
+// the bottom of the composer were cognitive overhead. Users type
+// naturally; these two classifiers route the request:
+//
+//   classifyIntent(text)  → 'edit' | 'explain'
+//   classifyScope(text)   → 'section' | 'document' | 'source'
+//
+// Both are pure, cheap, exported so unit tests can pin behaviour (web
+// has no vitest yet, so for now they're just here as reference logic).
 
-const SCOPE_TITLE: Record<Scope, string> = {
-  section:  'Only this section is sent to the AI (default)',
-  document: 'All sections of this document are sent to the AI',
-  source:   'Linked source documents (titles only for now; full-text attachment lands later)',
-}
-
-// First-word (or trailing '?') classification. Replaces the old Edit /
-// Explain chip row — users just type naturally and we route the prompt
-// to the right backend path.
+// --- Intent ---------------------------------------------------------------
 //
 //   explain / what / why / how / describe / tell / summarise / summarize /
 //   who / where / when / which / does / is / can / should / could — or
@@ -92,14 +93,41 @@ export function classifyIntent(prompt: string): 'edit' | 'explain' {
   return 'edit'
 }
 
+// --- Scope ---------------------------------------------------------------
+//
+// Default is 'section' (current behaviour). Trigger phrases widen to
+// 'document' scope so the backend ships every section as context:
+//
+//   "the entire document"   "whole document"     "across sections"
+//   "all sections"          "across the doc"     "every section"
+//
+// Source scope (attach-source) is not inferred from text — it will
+// become an explicit attach action; see follow-up.
+const DOCUMENT_SCOPE_PATTERNS: RegExp[] = [
+  /\b(entire|whole|full)\s+(document|doc)\b/i,
+  /\b(across|through|all)\s+(the\s+)?(sections?|document|doc)\b/i,
+  /\b(every|each)\s+section\b/i,
+  /\bthroughout\s+(the\s+)?(document|doc)\b/i,
+]
+
+export function classifyScope(prompt: string): 'section' | 'document' {
+  const trimmed = prompt.trim()
+  if (trimmed.length === 0) return 'section'
+  for (const pattern of DOCUMENT_SCOPE_PATTERNS) {
+    if (pattern.test(trimmed)) return 'document'
+  }
+  return 'section'
+}
+
 export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcceptSuggestion, canEditSection = true, cannotEditReason }: Props) {
   const qc = useQueryClient()
   const [prompt, setPrompt] = useState('')
-  const [scope, setScope]   = useState<Scope>('section')
-  // Intent is inferred from the prompt text rather than a chip. See
-  // classifyIntent() below — question-shaped prompts route to 'explain'
-  // (plain prose, no Accept button), everything else routes to 'edit'
-  // (HTML returning path with an Accept button). The old chip row was
+  // Scope + intent are both inferred from the prompt text — the old
+  // chip rows were cognitive overhead. classifyScope() picks 'document'
+  // when the user mentions "whole document" / "all sections" / etc.;
+  // defaults to 'section'. classifyIntent() picks 'explain' for
+  // question-shaped prompts; defaults to 'edit' (HTML returning path
+  // with an Accept button). The old chip rows were
   // cognitive overhead; users naturally type "explain …" or "shorten
   // this to one sentence" and the mode falls out.
   const inputRef    = useRef<HTMLTextAreaElement>(null)
@@ -208,7 +236,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
     send.mutate({
       instruction:   text,
       intentValue:   classifyIntent(text),
-      scopeValue:    scope,
+      scopeValue:    classifyScope(text),
       selectionText: savedSel?.text,
     })
   }
@@ -265,9 +293,9 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                     : 'border border-slate-200 bg-white text-slate-800'
                 }`}
               >
-                {m.role === 'user' && m.scope && m.scope !== 'section' && (
+                {m.role === 'user' && m.scope === 'document' && (
                   <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-80">
-                    Scope: {SCOPE_LABEL[m.scope as Scope]}
+                    Scope: Document
                   </p>
                 )}
                 {/* Suggest responses come back as HTML (intent='edit'). Render
@@ -375,18 +403,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
             aria-label="Ask the AI"
             className="block max-h-40 min-h-[36px] w-full resize-none rounded-t-xl border-0 bg-transparent px-3 pt-2 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
           />
-          <div className="flex items-center justify-between gap-2 px-2 pb-2">
-            <div className="flex items-center gap-1.5" data-chat-scope>
-              {(['section', 'document', 'source'] as Scope[]).map(s => (
-                <button
-                  key={s}
-                  type="button"
-                  onClick={() => setScope(s)}
-                  title={SCOPE_TITLE[s]}
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors ${scope === s ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >{SCOPE_LABEL[s]}</button>
-              ))}
-            </div>
+          <div className="flex items-center justify-end gap-2 px-2 pb-2">
             <button
               type="button"
               onClick={handleSend}

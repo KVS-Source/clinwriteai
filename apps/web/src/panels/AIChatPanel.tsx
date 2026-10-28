@@ -68,13 +68,40 @@ const SCOPE_TITLE: Record<Scope, string> = {
   source:   'Linked source documents (titles only for now; full-text attachment lands later)',
 }
 
+// First-word (or trailing '?') classification. Replaces the old Edit /
+// Explain chip row — users just type naturally and we route the prompt
+// to the right backend path.
+//
+//   explain / what / why / how / describe / tell / summarise / summarize /
+//   who / where / when / which / does / is / can / should / could — or
+//   anything ending in '?' → explain
+//
+// Everything else → edit (the default — users typing a rewrite
+// instruction don't start with a question word).
+const QUESTION_WORDS = new Set([
+  'explain', 'what', 'why', 'how', 'describe', 'tell', 'summarise', 'summarize',
+  'who', 'where', 'when', 'which', 'does', 'is', 'can', 'should', 'could', 'would',
+])
+
+export function classifyIntent(prompt: string): 'edit' | 'explain' {
+  const trimmed = prompt.trim()
+  if (trimmed.length === 0) return 'edit'
+  if (trimmed.endsWith('?')) return 'explain'
+  const firstWord = trimmed.split(/\s+/)[0]?.toLowerCase().replace(/[^a-z]/g, '') ?? ''
+  if (QUESTION_WORDS.has(firstWord)) return 'explain'
+  return 'edit'
+}
+
 export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcceptSuggestion, canEditSection = true, cannotEditReason }: Props) {
   const qc = useQueryClient()
   const [prompt, setPrompt] = useState('')
   const [scope, setScope]   = useState<Scope>('section')
-  // 'edit' = the backend's HTML-returning path (same as the bottom dock).
-  // 'explain' = plain-prose answer, no Accept button.
-  const [intent, setIntent] = useState<'edit' | 'explain'>('edit')
+  // Intent is inferred from the prompt text rather than a chip. See
+  // classifyIntent() below — question-shaped prompts route to 'explain'
+  // (plain prose, no Accept button), everything else routes to 'edit'
+  // (HTML returning path with an Accept button). The old chip row was
+  // cognitive overhead; users naturally type "explain …" or "shorten
+  // this to one sentence" and the mode falls out.
   const inputRef    = useRef<HTMLTextAreaElement>(null)
   const bottomRef   = useRef<HTMLDivElement>(null)
   // Captured editor selection — stored on mousedown of the panel's input
@@ -86,8 +113,8 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   const [rangesByMessageId, setRangesByMessageId] = useState<Record<string, { from: number; to: number }>>({})
 
   // mousedown fires before focus moves. Click on the textarea, scope chip,
-  // intent chip, or send button — all catch here so the editor selection
-  // doesn't collapse before we read it.
+  // or send button — all catch here so the editor selection doesn't
+  // collapse before we read it.
   const captureSelectionFromEditor = () => {
     if (!editor) return
     const { from, to } = editor.state.selection
@@ -180,7 +207,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
     if (!text || send.isPending) return
     send.mutate({
       instruction:   text,
-      intentValue:   intent,
+      intentValue:   classifyIntent(text),
       scopeValue:    scope,
       selectionText: savedSel?.text,
     })
@@ -358,16 +385,6 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                   title={SCOPE_TITLE[s]}
                   className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors ${scope === s ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
                 >{SCOPE_LABEL[s]}</button>
-              ))}
-              <span className="mx-1 h-3 w-px bg-slate-200" />
-              {(['edit', 'explain'] as const).map(k => (
-                <button
-                  key={k}
-                  type="button"
-                  onClick={() => setIntent(k)}
-                  title={k === 'edit' ? 'Ask for a change — produces replacement text with an Accept button' : 'Ask a question — gets a plain-English answer in the chat'}
-                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold transition-colors ${intent === k ? 'bg-blue-600 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-                >{k === 'edit' ? 'Edit' : 'Explain'}</button>
               ))}
             </div>
             <button

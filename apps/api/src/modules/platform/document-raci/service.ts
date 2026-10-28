@@ -22,7 +22,7 @@
 import type { PrismaClient } from '@prisma/client'
 import type { Capability } from '../../../auth/rbac.js'
 
-export type RaciLetter = 'R' | 'A' | 'C' | 'I'
+export type RaciLetter = 'R' | 'A' | 'C' | 'I' | 'Q'
 
 export interface RaciInsertInput {
   documentId: string
@@ -56,9 +56,10 @@ const LETTER_TO_CAPABILITY: Record<RaciLetter, Capability | null> = {
   A: 'can-approve',
   C: 'can-review',
   I: null,
+  Q: 'can-qc',
 }
 
-export const VALID_LETTERS: ReadonlyArray<RaciLetter> = ['R', 'A', 'C', 'I']
+export const VALID_LETTERS: ReadonlyArray<RaciLetter> = ['R', 'A', 'C', 'I', 'Q']
 
 export async function validateRaciInsert(
   prisma: PrismaClient,

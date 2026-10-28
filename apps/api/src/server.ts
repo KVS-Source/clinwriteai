@@ -418,6 +418,10 @@ async function buildServer() {
   const { pmDashboardRoutes } = await import('./modules/platform/pm-dashboard/routes.js')
   await app.register(pmDashboardRoutes, { prefix: '/projects' })
 
+  // Capability-filtered user listing for the RACI editor picker.
+  const { assignableUsersRoutes } = await import('./modules/platform/assignable-users/routes.js')
+  await app.register(assignableUsersRoutes, { prefix: '/projects' })
+
   const { portfolioDashboardRoutes } = await import('./modules/platform/pm-dashboard/portfolio.js')
   await app.register(portfolioDashboardRoutes, { prefix: '/dashboards' })
 

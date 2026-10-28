@@ -24,13 +24,13 @@
 
 import type { DocumentStatus } from '../../clinical-writing/document-status.js'
 
-export type RaciLetter = 'R' | 'A' | 'C' | 'I'
+export type RaciLetter = 'R' | 'A' | 'C' | 'I' | 'Q'
 
 export interface RaciRowForEval {
   letter: RaciLetter
   signatureRequired: boolean
   submittedAt: Date | null
-  reviewedAt: Date | null
+  reviewedAt: Date | null             // used by both C and Q (letter disambiguates)
   approvedAt: Date | null
   signatureId: string | null
   rejectedAt: Date | null
@@ -38,41 +38,50 @@ export interface RaciRowForEval {
 }
 
 export interface TransitionEvaluation {
-  // Current gating letter for the next transition from `from`. Null for
-  // terminal states or states that aren't RACI-gated.
-  gatingLetter: RaciLetter | null
-  // Candidate next status if the cohort is complete. Null for terminal states.
+  // Gating letter(s) for the next transition from `from`. Empty array for
+  // terminal states; multiple letters when a stage is gated by more than
+  // one cohort (e.g. in_review requires both C and Q to finish).
+  gatingLetters: RaciLetter[]
+  // Candidate next status if every gating cohort is complete. Null for
+  // terminal states.
   nextStatus: DocumentStatus | null
-  // "Of the active rows holding gatingLetter, how many have finished?"
+  // "Of the active rows holding any gating letter, how many have finished?"
   cohortDone: number
   cohortTotal: number
-  // True when cohortDone === cohortTotal AND cohortTotal > 0.
-  // A stage with zero gating rows is NOT auto-ready — the PM must assign at
-  // least one person before the transition is meaningful.
+  // True when cohortDone === cohortTotal AND cohortTotal > 0. A stage with
+  // zero gating rows is NOT auto-ready — the owner must assign at least
+  // one person before the transition is meaningful.
   cohortComplete: boolean
-  // Any rows in the gating cohort that have rejected. Non-empty means the
-  // doc should bounce back rather than progress.
+  // Rows in the gating cohort that have rejected. Non-empty means the doc
+  // should bounce back rather than progress.
   rejectedRows: number
+  // Legacy single-letter alias for consumers that haven't migrated to the
+  // multi-letter shape yet. Set to the FIRST gating letter (or null when
+  // terminal). Removed in a later pass.
+  gatingLetter: RaciLetter | null
 }
 
 interface GateDef {
-  gatingLetter: RaciLetter | null
+  gatingLetters: RaciLetter[]
   nextStatus: DocumentStatus | null
 }
 
+// C and Q share a gate: scientific review + QC release both complete
+// before the doc moves to approval. Per docs/roles-and-permissions.md §4.
 const GATES: Record<DocumentStatus, GateDef> = {
-  not_started:       { gatingLetter: 'R', nextStatus: 'in_authoring' },
-  in_authoring:      { gatingLetter: 'R', nextStatus: 'in_review' },
-  in_review:         { gatingLetter: 'C', nextStatus: 'pending_signature' },
-  crm_in_progress:   { gatingLetter: 'C', nextStatus: 'pending_signature' },
-  pending_signature: { gatingLetter: 'A', nextStatus: 'signed' },
-  signed:            { gatingLetter: null, nextStatus: null },
+  not_started:       { gatingLetters: ['R'],      nextStatus: 'in_authoring' },
+  in_authoring:      { gatingLetters: ['R'],      nextStatus: 'in_review' },
+  in_review:         { gatingLetters: ['C', 'Q'], nextStatus: 'pending_signature' },
+  crm_in_progress:   { gatingLetters: ['C', 'Q'], nextStatus: 'pending_signature' },
+  pending_signature: { gatingLetters: ['A'],      nextStatus: 'signed' },
+  signed:            { gatingLetters: [],         nextStatus: null },
 }
 
 function completionTimestampFor(letter: RaciLetter, row: RaciRowForEval): Date | null {
   switch (letter) {
     case 'R': return row.submittedAt
     case 'C': return row.reviewedAt
+    case 'Q': return row.reviewedAt
     case 'A': return row.approvedAt
     case 'I': return null
   }
@@ -82,9 +91,10 @@ export function evaluateStageTransition(
   from: DocumentStatus,
   rows: RaciRowForEval[],
 ): TransitionEvaluation {
-  const gate = GATES[from] ?? { gatingLetter: null, nextStatus: null }
-  if (!gate.gatingLetter) {
+  const gate = GATES[from] ?? { gatingLetters: [], nextStatus: null }
+  if (gate.gatingLetters.length === 0) {
     return {
+      gatingLetters: [],
       gatingLetter: null,
       nextStatus: null,
       cohortDone: 0,
@@ -94,15 +104,16 @@ export function evaluateStageTransition(
     }
   }
 
-  // Active rows holding the gating letter.
-  const cohort = rows.filter(
-    r => r.letter === gate.gatingLetter && r.removedAt === null,
-  )
+  const gatingLetterSet = new Set<RaciLetter>(gate.gatingLetters)
+
+  // Active rows holding any gating letter — this is the full cohort for
+  // the stage, union across every gating letter.
+  const cohort = rows.filter(r => gatingLetterSet.has(r.letter) && r.removedAt === null)
 
   const rejectedRows = cohort.filter(r => r.rejectedAt !== null).length
 
   const doneRows = cohort.filter(r => {
-    const completed = completionTimestampFor(gate.gatingLetter!, r) !== null
+    const completed = completionTimestampFor(r.letter, r) !== null
     if (!completed) return false
     if (r.signatureRequired && !r.signatureId) return false
     return true
@@ -113,7 +124,8 @@ export function evaluateStageTransition(
   const cohortComplete = cohortTotal > 0 && cohortDone === cohortTotal && rejectedRows === 0
 
   return {
-    gatingLetter: gate.gatingLetter,
+    gatingLetters: gate.gatingLetters,
+    gatingLetter: gate.gatingLetters[0] ?? null,
     nextStatus: gate.nextStatus,
     cohortDone,
     cohortTotal,

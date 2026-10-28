@@ -6,7 +6,7 @@ import { api } from './client'
 
 // --- Document RACI --------------------------------------------------------
 
-export type RaciLetter = 'R' | 'A' | 'C' | 'I'
+export type RaciLetter = 'R' | 'A' | 'C' | 'I' | 'Q'
 
 export interface DocumentRaciRow {
   id: string
@@ -29,7 +29,10 @@ export interface DocumentRaciRow {
 }
 
 export interface RaciTransitionEvaluation {
+  /** Legacy single-letter — kept for the StatusStrip's existing signature. */
   gatingLetter: RaciLetter | null
+  /** New multi-letter shape — C and Q share the in_review gate. */
+  gatingLetters?: RaciLetter[]
   nextStatus: string | null
   cohortDone: number
   cohortTotal: number
@@ -64,6 +67,42 @@ export const raciApi = {
 
   reject: (documentId: string, raciId: string, body: { note: string }) =>
     api.post<DocumentRaciRow>(`/documents/${documentId}/raci/${raciId}/reject`, body),
+}
+
+// --- Assignable users (RACI picker) --------------------------------------
+
+export type Capability =
+  | 'can-author'
+  | 'can-review'
+  | 'can-approve'
+  | 'can-qc'
+  | 'can-publish'
+
+export interface AssignableUser {
+  id: string
+  name: string
+  email: string
+  initials: string | null
+  capabilities: Capability[]
+  projectRole: string | null
+}
+
+/** Maps a RACI letter to the capability a user must hold to be assignable. */
+export function capabilityForLetter(letter: RaciLetter): Capability | null {
+  switch (letter) {
+    case 'R': return 'can-author'
+    case 'A': return 'can-approve'
+    case 'C': return 'can-review'
+    case 'Q': return 'can-qc'
+    case 'I': return null
+  }
+}
+
+export const assignableUsersApi = {
+  list: (projectId: string, capability?: Capability) =>
+    api.get<AssignableUser[]>(
+      `/projects/${projectId}/assignable-users${capability ? `?capability=${capability}` : ''}`,
+    ),
 }
 
 // --- Project members ------------------------------------------------------

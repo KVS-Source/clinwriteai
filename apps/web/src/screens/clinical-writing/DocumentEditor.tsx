@@ -23,6 +23,7 @@ import { EditorContent, useRichTextEditor } from './RichTextEditor'
 import { useCollabProvider } from './useCollabProvider'
 import { VoiceNotePanel }         from '../../panels/VoiceNotePanel'
 import { ChecklistPanel }         from '../../panels/ChecklistPanel'
+import { RaciEditor }             from '../../components/raci/RaciEditor'
 import { AuditTrailPanel }        from '../../panels/AuditTrailPanel'
 import { ReviewAssignmentPanel }  from '../../panels/ReviewAssignmentPanel'
 import { ICHValidatorPanel }      from '../../panels/ICHValidatorPanel'
@@ -49,6 +50,7 @@ const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
   'ich-e3':            'ICH E3 Validator',
   'meddra':            'MedDRA Lookup',
   'tlf':               'TLF Cross-Reference',
+  'raci':              'RACI Assignments',
 }
 
 // Statuses where the document is locked for authoring — mirrors the API's
@@ -1078,7 +1080,7 @@ export function DocumentEditor() {
               style={{
                 width:           panel.width,
                 maxWidth:        '100%',
-                backgroundColor: (activePanel === 'traceability' || activePanel === 'checklist' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra') ? '#FFFFFF' : '#F8FAFC',
+                backgroundColor: (activePanel === 'traceability' || activePanel === 'checklist' || activePanel === 'raci' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra') ? '#FFFFFF' : '#F8FAFC',
               }}
             >
             {/* Drag handle on the left edge: drag to resize, double-click to expand/shrink */}
@@ -1197,6 +1199,15 @@ export function DocumentEditor() {
             {activePanel === 'checklist' && documentId && (
               <ChecklistPanel documentId={documentId} />
             )}
+            {activePanel === 'raci' && documentId && projectId && (
+              <RaciEditor
+                projectId={projectId}
+                documentId={documentId}
+                documentStatus={document?.status ?? 'not_started'}
+                editable={document?.status !== 'signed'}
+                className="h-full overflow-y-auto p-4"
+              />
+            )}
             {activePanel === 'audit' && documentId && (
               <AuditTrailPanel
                 documentId={documentId}
@@ -1296,7 +1307,7 @@ export function DocumentEditor() {
                 activeSectionLabel={activeSectionData ? `${withSectionMark(activeSectionData.number)} ${activeSectionData.title}` : undefined}
               />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && (
+            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
                 <p className="mt-2 text-sm text-slate-700">

@@ -41,8 +41,9 @@ A `contributor` carries a capabilities array that governs **which RACI letters a
 | Capability | Grants PM the ability to assign | Typical hire |
 |---|---|---|
 | `can-author` | R (Responsible) | Clinical / scientific / medical / regulatory writers |
-| `can-review` | C (Consulted) | Medical reviewers, stat reviewers, QC |
+| `can-review` | C (Consulted) | Medical reviewers, stat reviewers |
 | `can-approve` | A (Accountable) | Signatories, medical directors, regulatory heads |
+| `can-qc` | Q (Quality Control) | QC release reviewers — format / references / template compliance |
 | `can-publish` | Publisher action in Module D (regulatory submission) | Submission officer |
 
 A contributor can have multiple capabilities (a senior medical writer often has `can-author` + `can-review`). This is cleaner than minting a dozen specific roles (`senior-writer`, `qc-reviewer`, `stat-reviewer`, …) and keeps the role enum small.
@@ -93,7 +94,7 @@ document_raci
   id                   uuid PRIMARY KEY
   document_id          uuid REFERENCES documents
   user_id              uuid REFERENCES users
-  letter               text    -- 'R' | 'A' | 'C' | 'I'
+  letter               text    -- 'R' | 'A' | 'C' | 'I' | 'Q'
   section_id           uuid NULL      -- NULL = whole doc; set = scoped to one section
   approval_order       int NULL       -- only used when letter = 'A'. NULL = parallel; int = chain position
 
@@ -142,7 +143,7 @@ The `signature_meaning` text is captured on the signature event itself and shown
 
 The actual e-signature mechanism (re-authentication challenge + TOTP + signed JSON artifact bound to a `documentHash`) is the existing Module A `SignatureChain` + `SignatureRecord` schema at [`apps/api/prisma/schema/moduleA.prisma:645-689`](../apps/api/prisma/schema/moduleA.prisma#L645). We're layering `document_raci.signature_id` as a FK into that table — no new signature infrastructure, just a new ownership link. The artefact format itself is still open; see `project_phase_5_deferrals.md`.
 
-- **Every letter supports multiple users.** Multiple R's (co-authors), multiple A's (joint approvers — medical + regulatory + signatory in parallel), multiple C's (reviewer panel), multiple I's (sponsor contacts kept in the loop).
+- **Every letter supports multiple users.** Multiple R's (co-authors), multiple A's (joint approvers — medical + regulatory + signatory in parallel), multiple C's (reviewer panel), multiple Q's (QC team), multiple I's (sponsor contacts kept in the loop).
 - **Multi-letter per user across different sections.** User X can be R on section 3 **and** C on section 7 (common in CSRs — a writer authors one section and reviews another). The app layer forbids one user holding two letters on the **same** section (self-review / self-approval) and forbids a whole-doc letter (section_id NULL) plus a per-section letter for the same user (contradiction).
 - `section_id` is optional. Leave NULL for simple docs; set it for CSRs where section 10 is written by a different author than section 14.
 - `letter` must match the user's capability (`A` requires `can-approve`, etc.) — enforced on insert.
@@ -176,25 +177,33 @@ The same multi-user principle applies to platform roles: a tenant can have many 
 
 The letter you hold on a document determines what you can do on it.
 
-| Action | Admin | PM (on project) | R | A | C | I | Auditor | Guest |
-|---|---|---|---|---|---|---|---|---|
-| List doc in sidebar | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| Open & read | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (one doc, link-scoped) |
-| Edit content | — | — | ✓ (own section if scoped) | — | — | — | — | — |
-| Add comment | — | — | ✓ | ✓ | ✓ | — | — | ✓ |
-| Resolve comment | — | — | ✓ | ✓ | — | — | — | — |
-| Submit my part — + e-sign if required (R → ready to transition) | — | — | ✓ (self only) | — | — | — | — | — |
-| Mark review done — + e-sign if required (C → ready to transition) | — | — | — | — | ✓ (self only) | — | — | — |
-| Approve + e-sign (A → ready to transition) | — | — | — | ✓ (self only) | — | — | — | — |
-| Reject (bounces back one stage) | — | — | — | ✓ | ✓ | — | — | — |
-| Publish (Module D) | — | — | — | — | — | — | — | — |
-| Assign / reassign RACI on this doc | ✓ | — | ✓ (R owns the RACI editor) | — | — | — | — | — |
-| Invite external guest on this doc | ✓ | — | ✓ (R-driven invite) | — | — | — | — | — |
-| Set deadline | — | ✓ | — | — | — | — | — | — |
-| Nudge pending cohort | — | ✓ | ✓ (any R while in Draft) | ✓ (any A while awaiting approval) | ✓ (any C while in Review) | — | — | — |
-| Checklist — tick / add user item / reorder (see §11) | — | — | ✓ | — | — | — | — | — |
-| Checklist — read-only view | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
-| Export audit for this doc | ✓ | ✓ | — | — | — | — | ✓ | — |
+| Action | Admin | PM (on project) | R | A | C | Q | I | Auditor | Guest |
+|---|---|---|---|---|---|---|---|---|---|
+| List doc in sidebar | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Open & read | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ (one doc, link-scoped) |
+| Edit content | — | — | ✓ (own section if scoped) | — | — | — | — | — | — |
+| Add comment | — | — | ✓ | ✓ | ✓ | ✓ | — | — | ✓ |
+| Resolve comment | — | — | ✓ | ✓ | — | — | — | — | — |
+| Submit my part — + e-sign if required (R → ready to transition) | — | — | ✓ (self only) | — | — | — | — | — | — |
+| Mark review done — + e-sign if required (C → ready to transition) | — | — | — | — | ✓ (self only) | — | — | — | — |
+| Mark QC released — + e-sign if required (Q → ready to transition) | — | — | — | — | — | ✓ (self only) | — | — | — |
+| Approve + e-sign (A → ready to transition) | — | — | — | ✓ (self only) | — | — | — | — | — |
+| Reject (bounces back one stage) | — | — | — | ✓ | ✓ | ✓ | — | — | — |
+| Publish (Module D) | — | — | — | — | — | — | — | — | — |
+| Assign / reassign RACI on this doc | ✓ | — | ✓ (R owns the RACI editor) | — | — | — | — | — | — |
+| Invite external guest on this doc | ✓ | — | ✓ (R-driven invite) | — | — | — | — | — | — |
+| Set deadline | — | ✓ | — | — | — | — | — | — | — |
+| Nudge pending cohort | — | ✓ | ✓ (any R while in Draft) | ✓ (any A while awaiting approval) | ✓ (any C while in Review) | ✓ (any Q while in Review) | — | — | — |
+| Checklist — tick / add user item / reorder (see §11) | — | — | ✓ | — | — | — | — | — | — |
+| Checklist — read-only view | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Export audit for this doc | ✓ | ✓ | — | — | — | — | — | ✓ | — |
+
+**Q (Quality Control) shares the `in_review` stage gate with C.** Both cohorts
+(scientific review AND QC release) must complete before the document transitions
+to Approval. If a project doesn't need an explicit QC step, simply assign zero
+Q rows and the gate behaves like a pure C gate. Industry rationale: QC catches
+template compliance, broken references, formatting — distinct responsibility
+from scientific review, often a different team (editorial / regulatory QC).
 
 **"Publish" is the only action gated by a capability (`can-publish`) rather than a RACI letter**, because publishing is a one-time irreversible submission to FDA ESG / EMA CESP that's done by a dedicated Submission Officer, not whoever happened to be the approver.
 

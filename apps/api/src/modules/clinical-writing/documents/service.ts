@@ -113,6 +113,7 @@ export class DocumentService {
         documentId: doc.id,
         deliverableType: args.type,
         actorId: args.createdBy,
+        projectId: args.projectId,
       })
 
       return { document: { ...doc, currentVersionId: version.id }, version }

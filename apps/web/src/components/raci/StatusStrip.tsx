@@ -26,6 +26,7 @@ const LETTER_LABEL: Record<string, string> = {
   A: 'approvers',
   C: 'reviewers',
   I: 'informed',
+  Q: 'QC',
 }
 
 function colourFor(ev: RaciTransitionEvaluation): 'emerald' | 'amber' | 'rose' | 'slate' {

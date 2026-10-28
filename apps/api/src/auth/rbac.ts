@@ -57,6 +57,7 @@ export type Capability =
   | 'can-review'
   | 'can-approve'
   | 'can-publish'
+  | 'can-qc'
 
 export type ModuleKey = 'A' | 'B' | 'C' | 'D' | 'E'
 

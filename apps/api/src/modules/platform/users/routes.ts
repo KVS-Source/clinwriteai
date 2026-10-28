@@ -63,6 +63,12 @@ const listQuerySchema = z.object({
   status: z.enum(['invited', 'active', 'suspended', 'deprovisioned']).optional(),
   module: z.enum(['A', 'B', 'C', 'D', 'E']).optional(),
   tenantId: z.string().optional(),
+  // Admin-level filter — list every user with the given capability
+  // (regardless of project membership). The /projects/:id/assignable-users
+  // endpoint is for the RACI picker (any auth; project-scoped); this one
+  // is for user management screens that want to answer "who in this
+  // tenant can approve docs?".
+  capability: z.enum(['can-author', 'can-review', 'can-approve', 'can-qc', 'can-publish']).optional(),
   page: z.coerce.number().int().min(1).optional(),
   pageSize: z.coerce.number().int().min(1).max(200).optional(),
 })
@@ -224,7 +230,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     const actor = request.user!
     const parsedQuery = listQuerySchema.safeParse(request.query)
     if (!parsedQuery.success) return reply.code(400).send({ error: 'validation', issues: parsedQuery.error.issues })
-    const { q, role, status, module, tenantId, page, pageSize } = parsedQuery.data
+    const { q, role, status, module, tenantId, capability, page, pageSize } = parsedQuery.data
 
     const where: Prisma.UserWhereInput = { ...scopeWhere(actor) }
     // Tenant-scoped admins can't see platform admins; the scopeWhere
@@ -233,6 +239,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     if (role) where.role = role
     if (status) where.status = status
     if (module) where.modules = { has: module }
+    if (capability) where.capabilities = { has: capability }
     // tenantId filter only narrows; tenant admins are already pinned to theirs.
     if (tenantId && isPlatformWide(actor)) where.tenantId = tenantId
     if (q) {
@@ -242,7 +249,9 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       ]
     }
 
-    if (page === undefined && pageSize === undefined && Object.keys(request.query as object).length === 0) {
+    // Preserve the "no params = flat array" contract for existing clients.
+    // Any filter triggers the paginated envelope.
+    if (page === undefined && pageSize === undefined && !q && !role && !status && !module && !tenantId && !capability) {
       return app.prisma.user.findMany({ where, orderBy: { createdAt: 'desc' } })
     }
 

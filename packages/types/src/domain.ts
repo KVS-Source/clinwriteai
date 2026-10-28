@@ -22,7 +22,7 @@ export type RACIRole = 'R' | 'A' | 'C' | 'I'
 
 export type PanelMode =
   | 'ai' | 'ai-help' | 'history' | 'traceability' | 'voice' | 'checklist' | 'audit' | 'comments'
-  | 'review-assignment' | 'crm-resolution' | 'ich-e3' | 'meddra' | 'tlf'
+  | 'review-assignment' | 'crm-resolution' | 'ich-e3' | 'meddra' | 'tlf' | 'raci'
   | null
 
 export type SignatureStatus = 'signed' | 'awaiting' | 'queued'
@@ -148,6 +148,26 @@ export interface ChecklistItem {
   waivedBy?: string
   waivedAt?: string
   waiverReason?: string
+  // Phase 1+ fields — snapshotted from the template item at document
+  // creation so a later template bump never retro-mutates an in-flight
+  // document (PRD rule). Values match DbStage / RACI letter / trigger name.
+  // 'Q' (Quality Control) joined the RACI set when QC became a first-class
+  // letter per docs/roles-and-permissions.md §4.
+  ownerRaci?: 'R' | 'A' | 'C' | 'I' | 'Q'
+  stage?:
+    | 'study_start_up'
+    | 'during_study'
+    | 'reporting'
+    | 'cross_functional_review'
+    | 'crm'
+    | 'final_output'
+  // Autocheck trigger. Historical legacy values were a fixed set of
+  // workflow hooks ('submit_for_review' | 'crm_complete' | 'document_signed');
+  // the autocheck engine (apps/api/.../checklist/autocheck/) now accepts
+  // tagged strategies ('content-min-words:300:11.4.1', 'references-complete',
+  // 'signal:tlf-validated', 'ai-pass:consistency', etc.). The field stays
+  // open-string so the UI reads whatever the server sends.
+  autoCompleteOn?: string | null
 }
 
 export interface AuditEntry {

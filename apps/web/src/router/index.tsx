@@ -86,6 +86,7 @@ import { ServicesDashboard }            from '../platform/screens/ServicesDashbo
 import { RateCardAdmin }                 from '../platform/screens/RateCardAdmin'
 import { SubscriptionPayment }           from '../platform/screens/SubscriptionPayment'
 import { ReportsAnalytics }              from '../platform/screens/ReportsAnalytics'
+import { ChecklistTemplatesAdmin }      from '../platform/screens/ChecklistTemplatesAdmin'
 import { AdminGuard, SuperAdminGuard }  from '../platform/components/guards'
 import { PublicationLayout }            from '../components/layout/PublicationLayout'
 import { SubmissionLayout }             from '../components/layout/SubmissionLayout'
@@ -124,6 +125,7 @@ export const router = createBrowserRouter([
       { path: 'super-admin/tenants/:tenantId/sso',    element: <SuperAdminGuard><SsoConnectionConfig /></SuperAdminGuard> },
       { path: 'admin/taxonomy', element: <AdminGuard><TATagConfiguration /></AdminGuard> },
       { path: 'admin/raci',     element: <AdminGuard><RACIMatrix /></AdminGuard> },
+      { path: 'admin/checklist-templates', element: <AdminGuard><ChecklistTemplatesAdmin /></AdminGuard> },
       { path: 'notifications',  element: <NotificationCentre /> },
       { path: 'super-admin/frameworks', element: <SuperAdminGuard><RegulatoryFrameworkAdmin /></SuperAdminGuard> },
       { path: 'admin/frameworks',       element: <AdminGuard><RegulatoryFrameworkAdmin readOnly /></AdminGuard> },

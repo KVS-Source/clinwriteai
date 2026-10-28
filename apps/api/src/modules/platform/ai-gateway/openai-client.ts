@@ -7,12 +7,10 @@
 // message's content array. We base64 the image bytes into a data URL
 // so no public hosting is needed.
 //
-// Document (PDF) support: OpenAI's Chat Completions API does NOT accept
-// PDF documents inline the way Anthropic does. GPT-4o can read PDFs via
-// the Assistants / Files API (upload → attach by file-id) but that's a
-// different endpoint shape. For now we drop PDFs with a note so the
-// prompt still goes through — matches the "silent degrade" pattern we
-// use elsewhere. Document-upload wiring is a follow-up.
+// Document (PDF) support: Chat Completions now accepts inline PDFs via
+// `type: 'file'` content blocks with `file_data: 'data:application/pdf;base64,...'`.
+// No Files API upload needed, no state (threads/runs). One call like
+// Anthropic. GPT-4o reads text + images in the PDF natively.
 
 import type { ChatDocument, ChatImage, LlmClient } from './service.js'
 
@@ -20,8 +18,17 @@ import type { ChatDocument, ChatImage, LlmClient } from './service.js'
 // per OpenAI's docs (as of GPT-4o).
 const MAX_IMAGE_BYTES = 20 * 1024 * 1024
 
+// OpenAI inline PDF cap — the Chat Completions file_data field accepts
+// up to 20MB per file (same ceiling as images; informed by the SDK's
+// request size limits). Oversize PDFs get dropped with an inline note.
+const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024
+
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+])
+
+const ALLOWED_DOCUMENT_TYPES = new Set([
+  'application/pdf',
 ])
 
 export class OpenAILlmClient implements LlmClient {
@@ -50,29 +57,45 @@ export class OpenAILlmClient implements LlmClient {
       img.data.length <= MAX_IMAGE_BYTES,
     )
     const skippedImages = (args.images ?? []).length - validImages.length
-    const skippedDocs = args.documents?.length ?? 0  // all PDFs skipped on OpenAI today
+
+    const validDocs = (args.documents ?? []).filter(doc =>
+      ALLOWED_DOCUMENT_TYPES.has(doc.mediaType.toLowerCase()) &&
+      doc.data.length > 0 &&
+      doc.data.length <= MAX_DOCUMENT_BYTES,
+    )
+    const skippedDocs = (args.documents ?? []).length - validDocs.length
 
     const skipNotes: string[] = []
     if (skippedImages > 0) {
       skipNotes.push(`${skippedImages} image(s) were dropped (over 20MB or unsupported format)`)
     }
     if (skippedDocs > 0) {
-      skipNotes.push(`${skippedDocs} PDF document(s) were dropped (OpenAI chat endpoint does not accept inline PDFs today)`)
+      skipNotes.push(`${skippedDocs} PDF document(s) were dropped (over 20MB or unsupported format)`)
     }
     const skipNote = skipNotes.length > 0 ? `\n\n[Note: ${skipNotes.join('. ')}.]` : ''
 
-    // Build content: text-only → single string; with images → multi-part
-    // array (same shape OpenAI uses for vision).
-    const content = validImages.length === 0
+    // Build content: text-only → single string. With attachments → multi-
+    // part array. Order: files, then images, then text — same convention
+    // as the Anthropic client (attachments first so the model sees them
+    // before reading the instruction).
+    const hasAttachments = validImages.length > 0 || validDocs.length > 0
+    const content = !hasAttachments
       ? (args.prompt + skipNote)
       : [
-          { type: 'text' as const, text: args.prompt + skipNote },
+          ...validDocs.map((doc, i) => ({
+            type: 'file' as const,
+            file: {
+              filename: doc.label ?? `attachment-${i + 1}.pdf`,
+              file_data: `data:application/pdf;base64,${doc.data.toString('base64')}`,
+            },
+          })),
           ...validImages.map(img => ({
             type: 'image_url' as const,
             image_url: {
               url: `data:${img.mediaType.toLowerCase()};base64,${img.data.toString('base64')}`,
             },
           })),
+          { type: 'text' as const, text: args.prompt + skipNote },
         ]
 
     const response = await client.chat.completions.create({

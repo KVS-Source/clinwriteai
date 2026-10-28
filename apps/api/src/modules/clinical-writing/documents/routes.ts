@@ -54,6 +54,7 @@ import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { runAutocheckForDocument } from '../checklist/autocheck/runner.js'
 import { extractTextFromBlob } from './extract-text.js'
 import { shrinkImage } from './shrink-image.js'
+import { chunkPdfToFit } from './chunk-pdf.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -1007,11 +1008,13 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           // Scanned-PDF fallback: for every PDF whose extract failed
           // because the file has no text layer, attach the raw PDF
           // bytes as a document block (Anthropic reads it natively).
-          // Hard-capped at MAX_PDF_DOCS files AND 25MB per file to stay
-          // comfortably under Anthropic's 32MB per-document limit after
-          // base64 overhead.
+          // Oversized PDFs are chunked to the first-N pages that fit
+          // under the byte + page cap, so a 200-page scanned Protocol
+          // becomes a readable first-50-pages PDF instead of being
+          // silently dropped.
           const MAX_PDF_DOCS = 3
           const MAX_PDF_BYTES = 25 * 1024 * 1024
+          const MAX_PDF_PAGES = 100
           let scannedPdfPromoted = 0
           for (const e of extracts) {
             if (documentAttachments.length >= MAX_PDF_DOCS) break
@@ -1023,16 +1026,31 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             // Promote when pdf-parse returned "no extractable text"
             // (scanned / image-only) — not for genuine parse failures.
             if (!reasonLower.includes('no extractable text')) continue
-            if (e.body.length > MAX_PDF_BYTES) continue
+
+            // Chunk if oversize; the fast-path returns as-is when the
+            // PDF already fits both caps.
+            const chunked = await chunkPdfToFit(e.body, {
+              maxBytes: MAX_PDF_BYTES,
+              maxPages: MAX_PDF_PAGES,
+            })
+            if (!chunked) {
+              // Can't even fit the first page under the cap — leave the
+              // extract as "text unavailable" so the mention renders
+              // that way.
+              continue
+            }
+
             documentAttachments.push({
               mediaType: 'application/pdf',
-              data:      e.body,
+              data:      chunked.data,
               label:     e.upload.title ?? e.upload.fileName,
             })
             scannedPdfPromoted++
             // Update the extract so the text-block mention flips to a
             // "sent as PDF document" marker instead of the pdf-parse error.
-            e.extract.reason = 'scanned / image-only PDF — sent as document attachment for vision reading'
+            e.extract.reason = chunked.pagesOmitted === 0
+              ? 'scanned / image-only PDF — sent as document attachment for vision reading'
+              : `scanned PDF — sent first ${chunked.pagesIncluded} of ${chunked.originalPages} pages as document attachment for vision reading`
           }
 
           const header = hasAttachments

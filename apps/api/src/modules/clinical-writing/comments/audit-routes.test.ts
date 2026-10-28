@@ -55,6 +55,17 @@ describe('GET /documents/:id/audit', () => {
     expect(body.offset).toBe(0)
   })
 
+  it('shows a CRM resolution as a resolved comment', async () => {
+    const app = await buildApp({ events: 0 })
+    await (app as unknown as { audit: InMemoryAuditRepository }).audit.append({
+      timestamp: new Date().toISOString(), actorId: 'user-a', action: 'crm_resolution_logged',
+      entityType: 'document', entityId: DOC, details: { commentId: 'CMT-001' }, ipAddress: null,
+    })
+    const [entry] = (await app.inject({ method: 'GET', url: `/documents/${DOC}/audit` })).json().entries
+    expect(entry.action).toBe('crm_resolution_logged')
+    expect(entry.eventType).toBe('comment-resolved')
+  })
+
   it('pages through the whole trail with no gaps or repeats', async () => {
     const app = await buildApp({ events: 250 })
     const seen: unknown[] = []

@@ -1,25 +1,47 @@
 // Role-based access control + module-scoped authorization.
 //
-// Model (per docs/demo/02-datamodel.md User):
-//   - User.role is a single string. 'admin' bypasses module scoping;
-//     module-specific roles ('clinical-writer', 'reviewer', etc.) only
-//     grant access to the modules listed in User.modules.
-//   - Platform-wide vs. tenant-scoped admin is encoded in User.tenantId
-//     (null = platform admin, string = tenant-scoped admin). The 2026-10-27
-//     role consolidation retired 'super-admin'; what super-admin used to do
-//     is now 'admin' with tenantId=null (see Phase 3 of the pivot).
-//   - A route protected with `requireAuth(['A','B'])` demands either an admin
-//     role OR a module intersect with ['A','B'].
+// Migration 48 moved this file to the unified role model described in
+// docs/roles-and-permissions.md §2. Five canonical roles:
 //
-// Why no library? The surface is small (two checks) and the business rules —
-// which role is a super-user, how module scoping composes — need to live in
-// code we fully own. A general-purpose RBAC lib adds concepts (permissions,
-// policies) we don't need yet.
+//     tenant-admin | pm | contributor | auditor | guest
+//
+// Capabilities (['can-author','can-review','can-approve','can-publish'])
+// live on User.capabilities and gate what RACI letter a contributor may
+// hold — see docs §2.1 and the raci service.
+//
+// Legacy compat layer: existing route guards still spell their intent as
+// requireAuth({ roles: ['admin'] }) or ['admin', 'reviewer']. During
+// cutover, the middleware treats these legacy names as aliases:
+//
+//     'admin'    accepts the user if role is 'tenant-admin'
+//     'reviewer' accepts the user if role is 'contributor' AND the
+//                user has 'can-review' in capabilities
+//     'read-only' accepts the user if role is 'auditor'
+//
+// This lets us flip User.role values atomically in migration 48 without
+// chasing every route in the same commit. Route handlers migrate to the
+// new names opportunistically; nothing is time-boxed yet.
+//
+// Why no library? The surface is small and the business rules — which
+// role is a super-user, how module scoping composes, how legacy aliases
+// resolve — need to live in code we fully own.
 
 import type { FastifyReply, FastifyRequest, preHandlerHookHandler } from 'fastify'
 
-export type Role =
+// Canonical post-migration-48 roles.
+export type CanonicalRole =
+  | 'tenant-admin'
+  | 'pm'
+  | 'contributor'
+  | 'auditor'
+  | 'guest'
+
+// Legacy role strings. Still accepted in route guards; still appear in
+// User.legacy_role for audit-trail interpretation. Will be removed from
+// this union once no caller references them.
+export type LegacyRole =
   | 'admin'
+  | 'super-admin'
   | 'clinical-writer'
   | 'scientific-writer'
   | 'medical-writer'
@@ -28,15 +50,27 @@ export type Role =
   | 'reviewer'
   | 'read-only'
 
+export type Role = CanonicalRole | LegacyRole
+
+export type Capability =
+  | 'can-author'
+  | 'can-review'
+  | 'can-approve'
+  | 'can-publish'
+
 export type ModuleKey = 'A' | 'B' | 'C' | 'D' | 'E'
 
-const ADMIN_ROLES: ReadonlySet<Role> = new Set(['admin'])
+// Roles that bypass module-scope checks. Only tenant-admin after
+// migration 48; 'admin' retained because post-migration there are a
+// pre-cutover windows where the string hasn't been rewritten yet.
+const ADMIN_ROLES: ReadonlySet<Role> = new Set<Role>(['tenant-admin', 'admin'])
 const ALL_MODULES: ReadonlyArray<ModuleKey> = ['A', 'B', 'C', 'D', 'E']
 
 export interface AuthenticatedUser {
   id: string
   email: string
   role: Role
+  capabilities?: Capability[]
   modules: ModuleKey[]
   tenantId: string | null
 }
@@ -47,9 +81,45 @@ export function hasModuleAccess(user: AuthenticatedUser, required: ModuleKey[]):
   return required.some(m => user.modules.includes(m))
 }
 
+export function hasCapability(user: AuthenticatedUser, cap: Capability): boolean {
+  return (user.capabilities ?? []).includes(cap)
+}
+
+// Role matcher with legacy-alias support.
+//
+// A required role of 'admin' is satisfied by either the exact match or
+// the canonical replacement 'tenant-admin'. Same shape for 'read-only' →
+// 'auditor'. 'reviewer' is special: the canonical replacement is
+// 'contributor', but we also require the user to carry 'can-review' in
+// capabilities so a plain contributor doesn't backdoor into a
+// reviewer-only route.
 export function hasRole(user: AuthenticatedUser, roles: Role[]): boolean {
   if (roles.length === 0) return true
-  return roles.includes(user.role)
+  for (const required of roles) {
+    if (user.role === required) return true
+    // Legacy → canonical acceptance.
+    if (required === 'admin' && user.role === 'tenant-admin') return true
+    if (required === 'read-only' && user.role === 'auditor') return true
+    if (required === 'reviewer' && user.role === 'contributor' && hasCapability(user, 'can-review')) return true
+    // Canonical → legacy (if a route is already updated to use new
+    // names but the DB still has the legacy value during the cutover
+    // window).
+    if (required === 'tenant-admin' && user.role === 'admin') return true
+    if (required === 'auditor' && user.role === 'read-only') return true
+    if (required === 'contributor' && isLegacyWriterOrReviewer(user.role)) return true
+  }
+  return false
+}
+
+function isLegacyWriterOrReviewer(role: Role): boolean {
+  return (
+    role === 'clinical-writer' ||
+    role === 'scientific-writer' ||
+    role === 'medical-writer' ||
+    role === 'regulatory-writer' ||
+    role === 'ideation-lead' ||
+    role === 'reviewer'
+  )
 }
 
 // Deployment-wide module kill-switch. Reads FEATURE_MODULES_ENABLED

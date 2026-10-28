@@ -47,12 +47,62 @@ model Document {
   checklistInstance      ChecklistInstance?
   comments               Comment[]
   ichWaivers             IchSectionWaiver[]
+  raciRows               DocumentRaci[]
 
   @@map("documents")
   @@index([projectId])
   @@index([status])
   @@index([stage])
   @@index([assigneeId])
+}
+
+// --------------------------------------------------------------------------
+// Unified RBAC — DocumentRaci (the document ACL)
+// Introduced by migration 47 (unified_rbac_schema). Semantics in
+// docs/roles-and-permissions.md §3.2 and §4.
+//
+// Promotes RaciAssignment from informational to the authoritative per-doc
+// permission table. Multiple users per letter. Section-scoped rows.
+// Signature capture is first-class: Part 11 artefacts live in
+// signature_records (see §SignatureRecord below); signatureId links back.
+//
+// Constraints beyond the uniqueness index (enforced in the service layer
+// at insert time, not in Prisma):
+//   - Capability match: letter must match the user's User.capabilities.
+//   - No two letters on the same (document, user, section_id) — self-review.
+//   - No whole-doc letter (section_id NULL) alongside a per-section letter
+//     for the same user.
+// --------------------------------------------------------------------------
+model DocumentRaci {
+  id                   String    @id @default(cuid())
+  documentId           String
+  document             Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  userId               String
+  letter               String                                     // 'R' | 'A' | 'C' | 'I'
+  sectionId            String?                                    // NULL = whole doc
+  approvalOrder        Int?                                       // only when letter='A'. NULL=parallel; int=chain position
+
+  // Signature requirement for this row's completion action.
+  signatureRequired    Boolean   @default(false)
+  signatureMeaning     String?                                    // 'Author attestation' | 'Medical approval' | 'Regulatory approval' | 'Final signatory' | 'QC release'
+
+  // "I'm done" per-letter completion flags.
+  submittedAt          DateTime?                                  // R clicks "Submit my part"
+  reviewedAt           DateTime?                                  // C clicks "I'm done reviewing"
+  approvedAt           DateTime?                                  // A clicks "Approve"
+  signatureId          String?                                    // FK → signature_records.id when signature_required
+  rejectedAt           DateTime?
+  rejectionNote        String?
+
+  assignedBy           String                                     // User.id of the PM / admin who set this
+  assignedAt           DateTime  @default(now())
+  removedAt            DateTime?
+
+  @@map("document_raci")
+  @@unique([documentId, userId, letter, sectionId])
+  @@index([documentId])
+  @@index([userId])
+  @@index([signatureId])
 }
 
 // --------------------------------------------------------------------------

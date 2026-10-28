@@ -28,35 +28,48 @@ const STORAGE_KEY      = 'clinwrite.demo.currentUserId'
 // Note: apps/web/src/api/client.ts reads STORAGE_KEY directly to send the
 // user id on X-Demo-Persona, so no separate persist step is needed here.
 
-function loadPersistedUser(): PlatformUser {
+// The persona is pinned per tab (sessionStorage); localStorage only seeds new
+// tabs. Reading localStorage on every request let a persona switch in one tab
+// silently change who another open tab is — two "different users" in one
+// browser became the same user, so section locks never conflicted.
+function readPersonaId(): string | null {
+  if (typeof window === 'undefined') return null
   try {
-    const id = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null
-    if (id) {
-      const found = PLATFORM_DEMO_USERS.find(u => u.id === id)
-      if (found) return found
-    }
-  } catch { /* localStorage unavailable — fall through to default */ }
+    const id = window.sessionStorage.getItem(STORAGE_KEY) ?? window.localStorage.getItem(STORAGE_KEY)
+    if (id) window.sessionStorage.setItem(STORAGE_KEY, id)
+    return id
+  } catch { return null }
+}
+
+function loadPersistedUser(): PlatformUser {
+  const id = readPersonaId()
+  if (id) {
+    const found = PLATFORM_DEMO_USERS.find(u => u.id === id)
+    if (found) return found
+  }
   return PLATFORM_DEMO_USERS.find(u => u.id === DEFAULT_USER_ID) ?? PLATFORM_DEMO_USERS[0]
 }
 
 /** True when the user deliberately picked a demo persona from the top-bar menu. */
 export function hasPersonaOverride(): boolean {
-  try {
-    const id = typeof window !== 'undefined' ? window.localStorage.getItem(STORAGE_KEY) : null
-    return !!id && PLATFORM_DEMO_USERS.some(u => u.id === id)
-  } catch { return false }
+  const id = readPersonaId()
+  return !!id && PLATFORM_DEMO_USERS.some(u => u.id === id)
 }
 
 /** Forget the demo persona so the real signed-in user is used again. */
 export function clearPersonaOverride() {
   try {
-    if (typeof window !== 'undefined') window.localStorage.removeItem(STORAGE_KEY)
+    if (typeof window === 'undefined') return
+    window.sessionStorage.removeItem(STORAGE_KEY)
+    window.localStorage.removeItem(STORAGE_KEY)
   } catch { /* ignore */ }
 }
 
 function persistUser(u: PlatformUser) {
   try {
-    if (typeof window !== 'undefined') window.localStorage.setItem(STORAGE_KEY, u.id)
+    if (typeof window === 'undefined') return
+    window.sessionStorage.setItem(STORAGE_KEY, u.id)
+    window.localStorage.setItem(STORAGE_KEY, u.id)
   } catch { /* ignore */ }
 }
 

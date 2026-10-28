@@ -45,7 +45,9 @@ const BYPASS_AUTH = (import.meta.env.VITE_BYPASS_AUTH as string | undefined)?.to
 function demoPersonaHeader(): Record<string, string> {
   if (import.meta.env.MODE === 'production' && !BYPASS_AUTH) return {}
   try {
-    const id = window.localStorage.getItem(PERSONA_STORAGE_KEY)
+    // This tab's persona first (see platformStore), so switching persona in
+    // another tab doesn't change who this tab is.
+    const id = window.sessionStorage.getItem(PERSONA_STORAGE_KEY) ?? window.localStorage.getItem(PERSONA_STORAGE_KEY)
     return id ? { 'X-Demo-Persona': id } : {}
   } catch { return {} }
 }

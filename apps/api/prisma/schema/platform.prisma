@@ -13,11 +13,20 @@ model User {
   email         String   @unique
   name          String
   initials      String?
-  // Platform-level role. 'super-admin' crosses tenant boundaries;
-  // everything else (admin, module-specific) is now scoped per-tenant
-  // via Membership.role. The field stays on User for the super-admin bit
-  // and for legacy single-tenant flows.
-  role          String   // 'super-admin' | 'admin' | module-specific roles
+  // Platform-level role. See docs/roles-and-permissions.md §2.
+  // Values during cutover:
+  //   LEGACY (pre-migration-47): 'super-admin' | 'admin' | 'clinical-writer' | …
+  //   TARGET (post-migration-48): 'tenant-admin' | 'pm' | 'contributor' | 'auditor' | 'guest'
+  // Migration 47 only *adds* capabilities + legacy_role columns. Migration 48
+  // (follow-up) rewrites values and the middleware simultaneously.
+  role          String
+  // Per-user capability flags (post migration 48). Governs which RACI letters
+  // a PM can assign this user — see docs/roles-and-permissions.md §2.1.
+  //   ['can-author','can-review','can-approve','can-publish']
+  capabilities  String[] @default([])
+  // Snapshot of role at migration time, kept 90d for audit-chain interpretation
+  // of pre-migration events. Dropped in a later migration.
+  legacyRole    String?
   modules       String[] @default([])    // ['A', 'B', 'C', 'D', 'E']
   status        String   @default("invited")  // invited | active | suspended | deprovisioned
   lastActiveAt  DateTime?
@@ -34,9 +43,10 @@ model User {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
-  sessions      Session[]
-  memberships   Membership[]
-  invitations   UserInvitation[]
+  sessions          Session[]
+  memberships       Membership[]
+  invitations       UserInvitation[]
+  projectMemberships ProjectMember[]
 
   @@map("users")
   @@index([tenantId])
@@ -107,6 +117,7 @@ model Project {
   updatedAt            DateTime  @updatedAt
 
   teamMembers          ProjectTeamMember[]
+  members              ProjectMember[]
 
   @@map("projects")
   @@index([tenantId])
@@ -114,6 +125,10 @@ model Project {
   @@index([therapeuticArea])
 }
 
+// LEGACY — see ProjectMember below. Kept during cutover so the demo-data
+// seed and existing /raci routes don't need to move in lockstep with the
+// unified-RBAC migration. Will be dropped once all callers migrate to
+// ProjectMember + DocumentRaci.
 model ProjectTeamMember {
   id          String  @id @default(cuid())
   projectId   String
@@ -127,4 +142,58 @@ model ProjectTeamMember {
 
   @@map("project_team_members")
   @@unique([projectId, userId])
+}
+
+// --------------------------------------------------------------------------
+// Unified RBAC — ProjectMember + GuestInvitation
+// Introduced by migration 47 (unified_rbac_schema). Rules + semantics in
+// docs/roles-and-permissions.md §3.1 and §6.
+// --------------------------------------------------------------------------
+
+// Project-level membership. Being a ProjectMember gives read access to the
+// project; per-document capability comes from DocumentRaci (see moduleA.prisma).
+// `projectRole` is a free-text label for UI display only — it does NOT grant
+// permissions.
+model ProjectMember {
+  id            String    @id @default(cuid())
+  projectId     String
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  userId        String
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  projectRole   String?                                       // 'Lead Writer' | 'Medical Reviewer' | …
+  addedBy       String                                        // User.id of the PM / admin who added them
+  addedAt       DateTime  @default(now())
+  removedAt     DateTime?
+
+  @@map("project_members")
+  @@unique([projectId, userId])
+  @@index([projectId])
+  @@index([userId])
+}
+
+// Time-boxed signed-URL access for external parties — KOL / sponsor reviewers,
+// external statisticians, external SOC 2 auditors, regulatory inspectors.
+// Two scopes share one table:
+//   scope='document' → KOL / SME review on a single doc (read + comment)
+//   scope='project'  → external auditor on all docs in a project (read-only + audit export)
+// CHECK constraint enforces XOR between document_id and project_id (SQL
+// migration — not expressible in Prisma schema language).
+model GuestInvitation {
+  id            String    @id @default(cuid())
+  scope         String                                        // 'document' | 'project'
+  documentId    String?                                       // set when scope='document'
+  projectId     String?                                       // set when scope='project'
+  email         String
+  purpose       String                                        // 'kol-review' | 'sponsor-review' | 'external-stat' | 'external-audit' | 'other'
+  invitedBy     String                                        // User.id of the inviter
+  invitedAt     DateTime  @default(now())
+  expiresAt     DateTime
+  revokedAt     DateTime?
+  jwtText       String                                        // the signed token we handed to the guest
+
+  @@map("guest_invitations")
+  @@index([documentId])
+  @@index([projectId])
+  @@index([email])
+  @@index([expiresAt])
 }

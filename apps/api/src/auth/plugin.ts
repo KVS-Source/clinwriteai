@@ -11,7 +11,7 @@ import { createSsoProvider, type SsoProvider } from './sso.js'
 import { authRoutes } from './routes.js'
 import { invitationRoutes } from './invitation-routes.js'
 import { SESSION_COOKIE_NAME, type SessionClaims } from './jwt.js'
-import type { AuthenticatedUser, ModuleKey, Role } from './rbac.js'
+import type { AuthenticatedUser, Capability, ModuleKey, Role } from './rbac.js'
 
 const authPlugin: FastifyPluginAsync = async (app) => {
   const jwtSecret = await app.secrets.getSecret('JWT_SECRET')
@@ -72,7 +72,8 @@ const authPlugin: FastifyPluginAsync = async (app) => {
           request.user = {
             id: 'system:collab',
             email: 'collab-sidecar@localhost',
-            role: 'admin',
+            role: 'tenant-admin',
+            capabilities: [],
             modules: ['A', 'B', 'C', 'D', 'E'],
             tenantId: null,
           }
@@ -96,6 +97,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
               id: persona.id,
               email: persona.email,
               role: persona.role as Role,
+              capabilities: persona.capabilities as Capability[],
               modules: persona.modules as ModuleKey[],
               tenantId: persona.tenantId ?? null,
             }
@@ -124,6 +126,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
               id: dbUser.id,
               email: dbUser.email,
               role: dbUser.role as Role,
+              capabilities: dbUser.capabilities as Capability[],
               modules: dbUser.modules as ModuleKey[],
               tenantId: dbUser.tenantId ?? null,
             }
@@ -145,6 +148,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
             id: dbUser.id,
             email: dbUser.email,
             role: dbUser.role as Role,
+            capabilities: dbUser.capabilities as Capability[],
             modules: dbUser.modules as ModuleKey[],
             tenantId: dbUser.tenantId ?? null,
           }
@@ -159,6 +163,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
             id: dbUser.id,
             email: dbUser.email,
             role: dbUser.role as Role,
+            capabilities: dbUser.capabilities as Capability[],
             modules: dbUser.modules as ModuleKey[],
             tenantId: dbUser.tenantId ?? null,
           }

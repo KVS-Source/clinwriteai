@@ -53,6 +53,7 @@ import {
 import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { runAutocheckForDocument } from '../checklist/autocheck/runner.js'
 import { extractTextFromBlob } from './extract-text.js'
+import { shrinkImage } from './shrink-image.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -945,13 +946,31 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           const textUploads  = uploads.filter(u => !isImageType(u.contentType))
 
           // Fetch image blobs → image attachments (vision input).
+          // Each image is run through shrinkImage so phone-camera
+          // uploads (10-20MB) are resized / re-encoded to fit the 5MB
+          // vision cap instead of silently dropped. See shrink-image.ts.
+          const IMAGE_CAP_BYTES = 5 * 1024 * 1024
+          const imageShrinkNotes: string[] = []
           await Promise.all(imageUploads.map(async u => {
             try {
               const blob = await app.blob.get('documents', u.blobKey)
+              const label = u.title ?? u.fileName
+              const original = { mediaType: u.contentType ?? 'image/png', data: blob.body as Buffer }
+              const shrunk = await shrinkImage(original, { maxBytes: IMAGE_CAP_BYTES })
+              if (!shrunk) {
+                // Could not get the image under the cap even at min
+                // quality — surface the drop in-context so the LLM
+                // knows an attachment was intended but is missing.
+                imageShrinkNotes.push(`${label}: dropped (${Math.round(original.data.length / 1024)}KB — could not shrink below the 5MB vision cap)`)
+                return
+              }
+              if (shrunk.shrunk.note !== 'no resize needed') {
+                imageShrinkNotes.push(`${label}: ${shrunk.shrunk.note} (${Math.round(shrunk.original.bytes / 1024)}KB → ${Math.round(shrunk.shrunk.bytes / 1024)}KB)`)
+              }
               imageAttachments.push({
-                mediaType: u.contentType ?? 'image/png',
-                data:      blob.body,
-                label:     u.title ?? u.fileName,
+                mediaType: shrunk.mediaType,
+                data:      shrunk.data,
+                label,
               })
             } catch { /* non-fatal: just skip */ }
           }))
@@ -1044,6 +1063,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           )
           if (droppedImages > 0) {
             imageMentions.push(`--- (${droppedImages} additional image(s) dropped: only the first ${MAX_IMAGES} images per prompt are attached as vision input) ---`)
+          }
+          // Shrink/drop notes — surface in-context so the model knows an
+          // attachment was resized or couldn't be shrunk below the cap.
+          if (imageShrinkNotes.length > 0) {
+            imageMentions.push(`--- Image attachment notes:\n${imageShrinkNotes.map(n => `  • ${n}`).join('\n')} ---`)
           }
 
           const sections = [...textBlocks, ...imageMentions]

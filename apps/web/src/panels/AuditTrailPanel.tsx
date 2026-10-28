@@ -38,7 +38,7 @@ type EventType = AuditEntry['eventType']
 const FILTER_MAP: Record<FilterKey, EventType[] | 'all'> = {
   all:        'all',
   edits:      ['content-edited', 'version-restore'],
-  ai:         ['ai-draft', 'qa-review-completed'],
+  ai:         ['ai-draft', 'ai-requested', 'qa-review-completed'],
   comments:   ['comment-added', 'comment-resolved'],
   signatures: ['document-signed'],
 }
@@ -63,6 +63,7 @@ const EVENT_BADGE: Record<EventType, { bg: string; fg: string; label: string }> 
   'version-restore':     { bg: '#EFF6FF', fg: '#2563EB', label: 'VERSION RESTORED' },
   'voice-note-added':    { bg: '#F5F3FF', fg: '#7C3AED', label: 'VOICE NOTE' },
   'qa-review-completed': { bg: '#F0FDF4', fg: '#15803D', label: 'QA REVIEW' },
+  'ai-requested':        { bg: '#F5F3FF', fg: '#7C3AED', label: 'AI REQUESTED' },
 }
 
 // Actor avatar colours (matches design-system Pattern 7)
@@ -127,6 +128,7 @@ function actionPhrase(eventType: EventType): string {
     case 'version-restore':     return 'restored version'
     case 'voice-note-added':    return 'added voice note'
     case 'qa-review-completed': return 'completed QA review'
+    case 'ai-requested':        return 'asked the AI'
   }
 }
 

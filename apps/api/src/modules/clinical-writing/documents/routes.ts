@@ -16,6 +16,7 @@
 // ai-suggest / ai-accept (needs Anthropic connector + prompt-cache service),
 // signature chain (Part 11 — compliance review).
 
+import { createHash } from 'node:crypto'
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
@@ -923,6 +924,43 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       ? (parsed.data.customPrompt ?? '')
       : parsed.data.intent
 
+    // Every AI request is recorded in the audit chain ("AI suggestion requested"), whether or
+    // not the user later accepts the result — so a rejected or ignored suggestion is still
+    // traceable. The prompt is kept as a SHA-256 fingerprint, not as text: the permanent,
+    // immutable log must not hold document content or PHI the prompt may quote. The fingerprint
+    // identifies exactly what was sent, and aiCallRecordId links to the AI call record that
+    // holds the full exchange under its own retention rules.
+    const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')
+    const auditAiRequest = async (outcome: 'completed' | 'quota_reached' | 'failed', extra: Record<string, unknown> = {}) => {
+      try {
+        await app.audit.append({
+          timestamp: new Date().toISOString(),
+          actorId: request.user!.id,
+          action: 'ai_suggestion_requested',
+          entityType: 'document',
+          entityId: documentId,
+          details: {
+            sectionId:         section.sectionId,
+            sectionLabel:      sectionHeader,
+            aiModel:           model,
+            intent:            parsed.data.intent,
+            scope,
+            selectionScoped:   !!parsed.data.selectionText?.trim(),
+            promptSha256:      sha256(promptWithScope),
+            promptChars:       promptWithScope.length,
+            instructionSha256: sha256(promptTextForHistory),
+            instructionChars:  promptTextForHistory.length,
+            outcome,
+            ...extra,
+          },
+          ipAddress: request.ip ?? null,
+        })
+      } catch (err) {
+        // The audit log must never break the AI response the user is waiting for.
+        request.log.error({ err, documentId, sectionId: section.sectionId }, 'ai_suggestion_requested audit failed')
+      }
+    }
+
     try {
       const result = await app.aiGateway.chat({
         tenantId: request.user!.tenantId,
@@ -976,6 +1014,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         })
       } catch { /* non-fatal — chat log shouldn't block the AI response */ }
 
+      await auditAiRequest('completed', { aiModel: result.model, aiCallRecordId: result.recordId })
+
       // Models sometimes wrap HTML in a code fence despite being asked not to.
       if (parsed.data.intent === 'edit') {
         return {
@@ -987,8 +1027,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       return result
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'RateLimitedError') {
+        await auditAiRequest('quota_reached')
         return reply.code(429).send({ error: 'quota_reached', message: err.message })
       }
+      await auditAiRequest('failed')
       throw err
     }
   })

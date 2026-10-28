@@ -36,6 +36,7 @@ const EXPORT_PAGE_SIZE = 1_000
 const ACTION_TO_EVENT: Record<string, string> = {
   section_edited:            'content-edited',
   ai_draft_accepted:         'ai-draft',
+  ai_suggestion_requested:   'ai-requested',
   comment_added:             'comment-added',
   comment_resolved:          'comment-resolved',
   // A resolution logged in a CRM meeting resolves the comment too.
@@ -61,6 +62,12 @@ function auditDetail(row: AuditRow): string {
   if (typeof d.sectionId === 'string') parts.push(`Section ${d.sectionId}`)
   if (typeof d.versionNumber === 'string') parts.push(d.versionNumber)
   if (typeof d.aiModel === 'string' && d.aiModel) parts.push(`Model ${d.aiModel}`)
+  // "AI suggestion requested": what was asked, and how the request ended.
+  if (row.action === 'ai_suggestion_requested') {
+    if (typeof d.intent === 'string') parts.push(`Intent ${d.intent}`)
+    if (d.outcome === 'quota_reached') parts.push('Quota reached')
+    else if (d.outcome === 'failed') parts.push('Request failed')
+  }
   if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from)} → ${String(d.to)}`)
   if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
   return parts.length ? parts.join(' · ') : humanise(row.action)

@@ -165,6 +165,41 @@ describe('GET /documents/:id/audit — date range', () => {
   })
 })
 
+describe('GET /documents/:id/audit — "AI suggestion requested" entries', () => {
+  async function withAiEntry(details: Record<string, unknown>) {
+    const audit = new InMemoryAuditRepository('test-audit-secret-32-bytes-long-for-vitest')
+    await audit.append({
+      timestamp: new Date().toISOString(), actorId: 'user-a', action: 'ai_suggestion_requested',
+      entityType: 'document', entityId: DOC, details, ipAddress: null,
+    })
+    const app = Fastify()
+    app.decorate('prisma', {
+      document: { findUnique: vi.fn(async () => ({ id: DOC, title: 'ICF', createdAt: new Date() })) },
+      user: { findMany: vi.fn(async () => [{ id: 'user-a', name: 'Alex' }]), findUnique: vi.fn(async () => null) },
+    } as never)
+    app.decorate('audit', audit as never)
+    app.decorateRequest('user', null)
+    app.addHook('onRequest', async (request) => {
+      const user: AuthenticatedUser = { id: 'user-rev', email: 'r@clinwrite.ai', role: 'reviewer', modules: ['A'], tenantId: null }
+      ;(request as unknown as { user: AuthenticatedUser }).user = user
+    })
+    await app.register(commentsRoutes, { prefix: '/documents' })
+    await app.ready()
+    return (await app.inject({ method: 'GET', url: `/documents/${DOC}/audit` })).json().entries[0]
+  }
+
+  it('shows as its own event type with the model, section and intent in the detail', async () => {
+    const e = await withAiEntry({ sectionId: 's10', aiModel: 'claude-opus', intent: 'edit', outcome: 'completed' })
+    expect(e.eventType).toBe('ai-requested')
+    expect(e.detail).toBe('Section s10 · Model claude-opus · Intent edit')
+  })
+
+  it('says so when the request hit the quota or failed', async () => {
+    expect((await withAiEntry({ sectionId: 's2', aiModel: 'm', intent: 'tighten', outcome: 'quota_reached' })).detail).toContain('Quota reached')
+    expect((await withAiEntry({ sectionId: 's2', aiModel: 'm', intent: 'tighten', outcome: 'failed' })).detail).toContain('Request failed')
+  })
+})
+
 describe('GET /documents/:id/audit/export', () => {
   it('includes every entry, oldest first, including ones past the first 500', async () => {
     const app = await buildApp({ events: 620 })

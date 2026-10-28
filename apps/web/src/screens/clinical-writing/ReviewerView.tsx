@@ -276,6 +276,9 @@ export function ReviewerView() {
   }
 
   const panelTitle = activePanel && activePanel in PANEL_TITLES ? PANEL_TITLES[activePanel] : ''
+  // The Audit Trail panel is laid out like the editor's: beside the content, with an icon in
+  // its header and no expand button. Comments and Checklist stay as overlays.
+  const splitPanel = activePanel === 'audit'
   const statusMeta = STATUS_META[document.status] ?? { bg: '#F8FAFC', fg: '#64748B', label: document.status }
 
   return (
@@ -472,6 +475,13 @@ export function ReviewerView() {
             openCommentCount={openCommentCount}
           />
 
+          {/* Split row — content column + (for the Audit Trail) the right panel beside it, as in the
+              editor: the content narrows and stays visible instead of being covered. */}
+          <div className="flex min-h-0 flex-1">
+
+          {/* Content column */}
+          <div className="flex min-w-0 flex-1 flex-col">
+
           {/* Content */}
           <div className="flex-1 overflow-y-auto px-12 pt-6 pb-8">
             <div className="flex max-w-[760px] flex-col">
@@ -588,18 +598,25 @@ export function ReviewerView() {
             Section {activeRef ?? '—'} ·2 AI-drafted spans · 1 human-authored span · Reviewing as {reviewer.name}{reviewer.role ? ` · ${reviewer.role}` : ''}
           </div>
 
-          {/* Right panel — absolute overlay per Pattern 6 */}
+          </div>{/* /Content column */}
+
+          {/* Right panel. The Audit Trail sits beside the content exactly like the editor's panel
+              (in-flow, no shadow); Comments and Checklist keep the overlay (Pattern 6). */}
           {activePanel !== null && (
             <div
               ref={rightPanelRef}
-              className="fixed top-14 right-0 bottom-0 flex flex-col border-l border-slate-200"
-              style={{
-                width:           panel.width,
-                maxWidth:        '100%',
-                zIndex:          30,
-                backgroundColor: '#FFFFFF',
-                boxShadow:       '-16px 0 40px rgba(15,23,42,0.12)',
-              }}
+              className={splitPanel
+                ? 'relative flex flex-none flex-col border-l border-slate-200'
+                : 'fixed top-14 right-0 bottom-0 flex flex-col border-l border-slate-200'}
+              style={splitPanel
+                ? { width: panel.width, maxWidth: '100%', backgroundColor: '#FFFFFF' }
+                : {
+                    width:           panel.width,
+                    maxWidth:        '100%',
+                    zIndex:          30,
+                    backgroundColor: '#FFFFFF',
+                    boxShadow:       '-16px 0 40px rgba(15,23,42,0.12)',
+                  }}
             >
               {/* Drag handle on the left edge: drag to resize, double-click to expand/shrink */}
               <div
@@ -614,25 +631,38 @@ export function ReviewerView() {
               />
               {/* Panel header */}
               <div className="flex h-12 flex-none items-center gap-2 border-b border-slate-200 px-4">
+                {splitPanel && (
+                  <span className="flex flex-none" style={{ color: '#2563EB' }}>
+                    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
+                      <circle cx="7" cy="7" r="5.4"/>
+                      <line x1="7" y1="4" x2="7" y2="7.4" strokeLinecap="round"/>
+                      <line x1="7" y1="7.4" x2="9.6" y2="7.4" strokeLinecap="round"/>
+                    </svg>
+                  </span>
+                )}
                 <h3 className="text-sm font-bold text-slate-900">{panelTitle}{activePanel === 'comments' ? ` (${openCommentCount} open)` : ''}</h3>
                 <div className="flex-1" />
-                <button
-                  type="button"
-                  onClick={panel.toggleExpanded}
-                  aria-label={panel.expanded ? 'Shrink panel' : 'Expand panel'}
-                  title={panel.expanded ? 'Shrink panel' : 'Expand panel'}
-                  className="flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
-                >
-                  {panel.expanded ? (
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M7.5 1.5v3h3M4.5 10.5v-3h-3M7.5 4.5l3-3M4.5 7.5l-3 3"/>
-                    </svg>
-                  ) : (
-                    <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                      <path d="M7 1.5h3.5V5M5 10.5H1.5V7M10.5 1.5L7 5M1.5 10.5L5 7"/>
-                    </svg>
-                  )}
-                </button>
+                {/* Expand / shrink — not shown on the Audit Trail, same as the editor's panel
+                    (drag the left edge or double-click it to resize instead). */}
+                {!splitPanel && (
+                  <button
+                    type="button"
+                    onClick={panel.toggleExpanded}
+                    aria-label={panel.expanded ? 'Shrink panel' : 'Expand panel'}
+                    title={panel.expanded ? 'Shrink panel' : 'Expand panel'}
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
+                  >
+                    {panel.expanded ? (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M7.5 1.5v3h3M4.5 10.5v-3h-3M7.5 4.5l3-3M4.5 7.5l-3 3"/>
+                      </svg>
+                    ) : (
+                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                        <path d="M7 1.5h3.5V5M5 10.5H1.5V7M10.5 1.5L7 5M1.5 10.5L5 7"/>
+                      </svg>
+                    )}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setActivePanel(null)}
@@ -663,6 +693,8 @@ export function ReviewerView() {
               )}
             </div>
           )}
+
+          </div>{/* /Split row */}
         </div>
       </div>
     </div>

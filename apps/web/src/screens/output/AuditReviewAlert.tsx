@@ -28,6 +28,7 @@ const EVENT_META: Record<AuditEntry['eventType'], { label: string; bg: string; f
   'version-restore':      { label: 'VERSION RESTORE',      bg: '#EFF6FF', fg: '#2563EB', verb: 'restored' },
   'voice-note-added':     { label: 'VOICE NOTE ADDED',     bg: '#EFF6FF', fg: '#2563EB', verb: 'added voice note' },
   'qa-review-completed':  { label: 'QA REVIEW COMPLETED',  bg: '#F0FDF4', fg: '#15803D', verb: 'logged QA review' },
+  'ai-requested':         { label: 'AI REQUESTED',         bg: '#F5F3FF', fg: '#7C3AED', verb: 'asked the AI' },
 }
 
 // QA review checklist rows — matches prototype exactly

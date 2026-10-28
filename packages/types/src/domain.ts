@@ -158,7 +158,7 @@ export interface AuditEntry {
   eventType:
     | 'content-edited' | 'ai-draft' | 'comment-added' | 'comment-resolved'
     | 'checklist-waived' | 'checklist-completed' | 'document-signed'
-    | 'version-restore' | 'voice-note-added' | 'qa-review-completed'
+    | 'version-restore' | 'voice-note-added' | 'qa-review-completed' | 'ai-requested'
   detail: string
   // Raw audit details (sectionId / sectionRef, before / after for section edits, …).
   details?: Record<string, unknown> | null

@@ -18,6 +18,8 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
 import { evaluateSubmitGate, type ChecklistItemForGate } from './submit-gate.js'
+import { evaluateItems as evaluateAutoCheck, type ItemForAutoCheck } from './autocheck/engine.js'
+import type { SectionContentForCheck } from './autocheck/content-strategies.js'
 
 const reorderSchema = z.object({
   // Compact body: list of {itemId, sortOrder}. Caller sends every item
@@ -216,5 +218,116 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return reply.send({ decision, acknowledged: true })
+  })
+
+  // ---------------------------------------------------------------------
+  // POST /:documentId/checklist/autocheck/run — any auth with Module A.
+  //
+  // Fires the autocheck engine (see autocheck/engine.ts) over every
+  // pending item on the doc. For each item flipped to 'completed',
+  // writes status + completedBy='system:autocheck' + completedAt and
+  // emits a checklist_item_completed audit event with source='auto'.
+  //
+  // Not gated to R-only: a C or A reading the doc can rerun autocheck
+  // to see what's now green without needing to be able to tick items
+  // manually. Only auto-flips happen; nothing in the engine ticks
+  // mandatory items on a user's behalf — the strategy says so and we
+  // trust it.
+  // ---------------------------------------------------------------------
+  app.post('/:documentId/checklist/autocheck/run', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { id: true, currentVersionId: true },
+    })
+    if (!doc) return reply.code(404).send({ error: 'document_not_found' })
+
+    const instance = await app.prisma.checklistInstance.findUnique({
+      where: { documentId },
+      include: {
+        items: {
+          select: { id: true, autoCompleteOn: true, status: true, text: true, framework: true },
+        },
+      },
+    })
+    if (!instance) {
+      // No instance — nothing to evaluate. Not an error (callers can run
+      // this before anyone's visited the checklist panel).
+      return reply.send({ evaluated: 0, flipped: 0, items: [] })
+    }
+
+    // Section content for the current version, if any. If the doc has no
+    // current version yet (brand-new), fall back to empty sections array
+    // so the engine still runs — strategies will mark everything
+    // 'pending' or 'skipped' which is correct.
+    const sections: SectionContentForCheck[] = doc.currentVersionId
+      ? (await app.prisma.sectionContent.findMany({
+          where: { documentVersionId: doc.currentVersionId },
+          select: { sectionNumber: true, contentHtml: true, wordCount: true },
+        }))
+      : []
+
+    const items = instance.items as unknown as ItemForAutoCheck[]
+    const evaluations = evaluateAutoCheck(items, sections)
+    const toFlip = evaluations.filter(e => e.shouldComplete)
+
+    if (toFlip.length === 0) {
+      return reply.send({
+        evaluated: evaluations.length,
+        flipped: 0,
+        items: evaluations.map(e => ({
+          itemId: e.itemId,
+          tag: e.tag,
+          kind: e.result.kind,
+          reason: e.result.reason,
+        })),
+      })
+    }
+
+    const now = new Date()
+    await Promise.all(toFlip.map(e =>
+      app.prisma.checklistInstanceItem.update({
+        where: { id: e.itemId },
+        data: {
+          status: 'complete',
+          completedBy: 'system:autocheck',
+          completedAt: now,
+        },
+      }),
+    ))
+
+    // Audit one event per flip so the Part 11 trail is per-item.
+    for (const e of toFlip) {
+      const item = instance.items.find(i => i.id === e.itemId)
+      await app.audit.append({
+        timestamp: now.toISOString(),
+        actorId: 'system:autocheck',
+        action: 'checklist_item_completed',
+        entityType: 'document',
+        entityId: documentId,
+        details: {
+          itemId: e.itemId,
+          framework: item?.framework ?? null,
+          text:      item?.text ?? null,
+          source: 'auto',
+          strategy: e.tag,
+          reason: e.result.kind === 'completed' ? e.result.reason : null,
+          triggeredBy: request.user!.id,
+        },
+        ipAddress: request.ip ?? null,
+      })
+    }
+
+    return reply.send({
+      evaluated: evaluations.length,
+      flipped: toFlip.length,
+      items: evaluations.map(e => ({
+        itemId: e.itemId,
+        tag: e.tag,
+        kind: e.result.kind,
+        reason: e.result.reason,
+      })),
+    })
   })
 }

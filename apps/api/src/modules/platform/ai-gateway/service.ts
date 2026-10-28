@@ -19,6 +19,8 @@ import type { PrismaClient } from '@prisma/client'
 import { computeCostUsdWithCard, getActiveRateCard } from './rate-card.js'
 import { scrubPii } from './pii-scrub.js'
 import { createAnthropicClientFromEnv } from './anthropic-client.js'
+import { createOpenAIClientFromEnv } from './openai-client.js'
+import { createGeminiClientFromEnv } from './gemini-client.js'
 
 /**
  * Image attachment for multimodal (vision) calls. Base64 encoded; the
@@ -144,17 +146,39 @@ class StubLlmClient implements LlmClient {
 }
 
 /**
- * Factory that picks the real Anthropic SDK wrapper when
- * ANTHROPIC_API_KEY is set in env, else falls back to the deterministic
- * StubLlmClient. Keeps dev + CI runnable without an API key.
- * See apps/api/src/modules/platform/ai-gateway/anthropic-client.ts.
+ * Routes LlmClient.send to the right provider based on the model id:
+ *
+ *   model starts with 'claude-'  → AnthropicLlmClient (requires ANTHROPIC_API_KEY)
+ *   model starts with 'gpt-'     → OpenAILlmClient (requires OPENAI_API_KEY)
+ *   model starts with 'gemini-'  → GeminiLlmClient (requires GOOGLE_API_KEY or GEMINI_API_KEY)
+ *   anything else / no key set   → StubLlmClient (deterministic, no network)
+ *
+ * All three provider clients lazy-load their SDK on first call, so a
+ * deployment that only uses Anthropic doesn't pay the openai /
+ * @google/generative-ai import cost.
+ */
+class MultiProviderLlmClient implements LlmClient {
+  private readonly anthropic = createAnthropicClientFromEnv()
+  private readonly openai    = createOpenAIClientFromEnv()
+  private readonly gemini    = createGeminiClientFromEnv()
+  private readonly stub      = new StubLlmClient()
+
+  async send(args: Parameters<LlmClient['send']>[0]) {
+    const model = (args.model ?? '').toLowerCase()
+    if (model.startsWith('claude-') && this.anthropic) return this.anthropic.send(args)
+    if (model.startsWith('gpt-')    && this.openai)    return this.openai.send(args)
+    if (model.startsWith('gemini-') && this.gemini)    return this.gemini.send(args)
+    return this.stub.send(args)
+  }
+}
+
+/**
+ * Factory that returns a MultiProviderLlmClient capable of routing to
+ * every provider whose API key is present in env. Falls back to the
+ * stub for any model id whose provider isn't configured.
  */
 export function createLlmClient(): LlmClient {
-  // anthropic-client.ts loads @anthropic-ai/sdk lazily on the first real
-  // call, so importing it here costs nothing when the key isn't set.
-  // (A CommonJS `require` here crashed startup — the API runs as ESM.)
-  if (!process.env.ANTHROPIC_API_KEY?.trim()) return new StubLlmClient()
-  return createAnthropicClientFromEnv() ?? new StubLlmClient()
+  return new MultiProviderLlmClient()
 }
 
 export class AiGatewayService {

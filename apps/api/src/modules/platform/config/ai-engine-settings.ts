@@ -19,16 +19,52 @@ export interface AiEngineSettings {
 
 export interface AiEngineOption { id: string; label: string; provider: string }
 
-/** The engines this deployment can route to (model ids come from env, with defaults). */
+/**
+ * The engines this deployment can route to.
+ *
+ * Anthropic models are always listed (even without a key — the stub
+ * client handles calls deterministically). OpenAI + Gemini models are
+ * added only when their API keys are set, so an Anthropic-only
+ * deployment doesn't surface options that can't route.
+ *
+ * This matches docs/standalone/prd.md D6 — the standalone product
+ * ships multi-provider; which engines show in the Admin Panel's
+ * "AI Engine" picker depends on which keys the customer configured.
+ */
 export function availableEngineOptions(env: NodeJS.ProcessEnv = process.env): AiEngineOption[] {
+  const options: AiEngineOption[] = []
+
+  // Anthropic — always listed.
   const sonnet = env.ANTHROPIC_MODEL_SONNET || 'claude-sonnet-4-6'
   const opus   = env.ANTHROPIC_MODEL_OPUS   || 'claude-opus-4-7'
   const haiku  = env.ANTHROPIC_MODEL_HAIKU  || 'claude-haiku-4-5'
-  return [
+  options.push(
     { id: sonnet, label: sonnet, provider: 'Anthropic' },
     { id: opus,   label: opus,   provider: 'Anthropic' },
     { id: haiku,  label: haiku,  provider: 'Anthropic' },
-  ]
+  )
+
+  // OpenAI — only when OPENAI_API_KEY is configured.
+  if (env.OPENAI_API_KEY?.trim()) {
+    const gpt4o     = env.OPENAI_MODEL_GPT4O     || 'gpt-4o'
+    const gpt4oMini = env.OPENAI_MODEL_GPT4O_MINI || 'gpt-4o-mini'
+    options.push(
+      { id: gpt4o,     label: gpt4o,     provider: 'OpenAI' },
+      { id: gpt4oMini, label: gpt4oMini, provider: 'OpenAI' },
+    )
+  }
+
+  // Gemini — only when GOOGLE_API_KEY or GEMINI_API_KEY is configured.
+  if (env.GOOGLE_API_KEY?.trim() || env.GEMINI_API_KEY?.trim()) {
+    const gPro   = env.GEMINI_MODEL_PRO   || 'gemini-1.5-pro'
+    const gFlash = env.GEMINI_MODEL_FLASH || 'gemini-1.5-flash'
+    options.push(
+      { id: gPro,   label: gPro,   provider: 'Google' },
+      { id: gFlash, label: gFlash, provider: 'Google' },
+    )
+  }
+
+  return options
 }
 
 /** What applies when nothing has been saved: the env-configured models. */

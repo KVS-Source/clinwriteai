@@ -440,7 +440,7 @@ export const documentsApi = {
   // registered inside documentsRoutes so the real path has the /documents
   // prefix even though the endpoint isn't scoped to any one document.
   acceptAiChatMessage: (messageId: string) =>
-    api.post<{ id: string; appliedToSection: boolean; appliedAt: string | null }>(
+    api.post<{ id: string; appliedToSection: boolean; appliedAt: string | null; aiCallRecordId?: string | null }>(
       `/documents/ai-chat-messages/${messageId}/accept`, {},
     ),
   // Signatures

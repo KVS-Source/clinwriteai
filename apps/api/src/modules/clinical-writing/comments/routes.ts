@@ -60,6 +60,7 @@ function auditDetail(row: AuditRow): string {
   const parts: string[] = []
   if (typeof d.sectionId === 'string') parts.push(`Section ${d.sectionId}`)
   if (typeof d.versionNumber === 'string') parts.push(d.versionNumber)
+  if (typeof d.aiModel === 'string' && d.aiModel) parts.push(`Model ${d.aiModel}`)
   if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from)} → ${String(d.to)}`)
   if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
   return parts.length ? parts.join(' · ') : humanise(row.action)

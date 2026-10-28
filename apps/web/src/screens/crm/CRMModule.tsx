@@ -9,7 +9,7 @@
 //                "approve" verdicts don't need resolving)
 // The document comes from ?doc=<id> (Reviewer View links here) with a picker.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CRMMeeting, Comment, ResolutionType } from '@platform/types'
@@ -491,6 +491,46 @@ export function CRMModule() {
     qc.invalidateQueries({ queryKey: ['document', activeDocId] })
   }
 
+  // The resolve panel's draft lives in the CRM store, so clear it when the chair leaves
+  // CRM or switches document — otherwise the panel reopens on return.
+  useEffect(() => () => setResolutionDraft(null), [activeDocId, setResolutionDraft])
+
+  // A click outside the resolve panel, or Esc, closes it — unless a resolution note is
+  // typed, so the draft isn't lost. The Resolve-as buttons ([data-resolve]) open it and are
+  // not "outside". Paused while the transcript modal or document viewer is on top. Outside
+  // clicks are judged on mousedown + click so a press that starts inside the panel never closes it.
+  const resolvePanelRef = useRef<HTMLDivElement>(null)
+  const resolvePanelOpen = resolutionDraft !== null
+  useEffect(() => {
+    if (!resolvePanelOpen || transcriptModalOpen || docViewerOpen) return
+    const hasNote = () => Array.from(resolvePanelRef.current?.querySelectorAll('textarea') ?? [])
+      .some(el => el.value.trim() !== '')
+    const close = () => { if (!hasNote()) setResolutionDraft(null) }
+    let pressedOutside = false
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Element | null
+      pressedOutside = !!t && !resolvePanelRef.current?.contains(t) && !t.closest('[data-resolve]')
+    }
+    const onClick = (e: MouseEvent) => {
+      const t = e.target as Element | null
+      const outside = pressedOutside
+      pressedOutside = false
+      if (!outside || !t?.isConnected || resolvePanelRef.current?.contains(t)) return
+      close()
+    }
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !e.defaultPrevented) close()
+    }
+    window.document.addEventListener('mousedown', onDown, true)
+    window.document.addEventListener('click', onClick)
+    window.document.addEventListener('keydown', onKey)
+    return () => {
+      window.document.removeEventListener('mousedown', onDown, true)
+      window.document.removeEventListener('click', onClick)
+      window.document.removeEventListener('keydown', onKey)
+    }
+  }, [resolvePanelOpen, transcriptModalOpen, docViewerOpen, setResolutionDraft])
+
   const startMut = useMutation({ mutationFn: () => crmApi.startMeeting(meeting!.id), onSuccess: refresh })
   const endMut   = useMutation({ mutationFn: () => crmApi.completeMeeting(meeting!.id), onSuccess: refresh })
 
@@ -783,7 +823,7 @@ export function CRMModule() {
 
       {/* Comment Resolution Panel — note + confirm, then POST /crm/:id/resolve */}
       {resolutionDraft !== null && (
-        <div className="absolute top-0 right-0 bottom-0 flex flex-col border-l border-slate-200 bg-white" style={{ width: 400, zIndex: 10, boxShadow: '-16px 0 40px rgba(15,23,42,0.12)' }}>
+        <div ref={resolvePanelRef} className="absolute top-0 right-0 bottom-0 flex flex-col border-l border-slate-200 bg-white" style={{ width: 400, zIndex: 10, boxShadow: '-16px 0 40px rgba(15,23,42,0.12)' }}>
           <CommentResolutionPanel
             documentId={activeDocId}
             meetingId={meeting.id}

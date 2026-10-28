@@ -66,12 +66,12 @@ interface Props {
   /** TipTap editor instance — needed to read selection + apply selection-swap. */
   editor: Editor | null
   /** Caller applies the accepted HTML to the editor + draft content. */
-  onAccept: (html: string, model: string) => void
+  onAccept: (html: string, model: string, aiCallRecordId?: string) => void
 }
 
 export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, onAccept }: Props) {
   const [prompt, setPrompt] = useState('')
-  const [result, setResult] = useState<{ html: string; model: string; instruction: string; scope: 'selection' | 'section'; from?: number; to?: number } | null>(null)
+  const [result, setResult] = useState<{ html: string; model: string; recordId: string; instruction: string; scope: 'selection' | 'section'; from?: number; to?: number } | null>(null)
   // Context scope — user chooses what the AI sees for this prompt.
   // Default 'section' matches the pre-chat behaviour; 'document' and
   // 'source' expand context server-side when the chat endpoint builds
@@ -165,6 +165,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
       setResult({
         html:        sanitizeAiHtml(data.responseText),
         model:       data.model,
+        recordId:    data.recordId,
         instruction: vars.instruction,
         scope,
         from:        scope === 'selection' && range ? range.from : undefined,
@@ -212,10 +213,10 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
         .deleteSelection()
         .insertContent(inline ? stripInlineTags(html) : html)
         .run()
-      // Caller tracks AI model for Part 11 provenance on the next Save.
-      onAccept(editor.getHTML(), result.model)
+      // Caller tracks AI model + call id for Part 11 provenance on the next Save.
+      onAccept(editor.getHTML(), result.model, result.recordId)
     } else {
-      onAccept(result.html, result.model)
+      onAccept(result.html, result.model, result.recordId)
     }
     setResult(null)
   }

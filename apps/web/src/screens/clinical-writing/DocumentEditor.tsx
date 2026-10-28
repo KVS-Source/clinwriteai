@@ -157,6 +157,7 @@ export function DocumentEditor() {
   useEffect(() => {
     setDraftContent(activeSectionData?.contentHtml ?? '')
     setAiEditModel(null)
+    aiCallRecordRef.current = null
   }, [activeSectionData?.id])
 
   // When the server's contentHtml changes AND it's not what we just saved
@@ -202,6 +203,9 @@ export function DocumentEditor() {
   useEffect(() => { draftContentRef.current = draftContent }, [draftContent])
   const aiEditModelRef = useRef<string | null>(null)
   useEffect(() => { aiEditModelRef.current = aiEditModel }, [aiEditModel])
+  // The AI call behind the pending AI-drafted save, sent with it so the audit entry
+  // (and AI History) link back to the prompt, model and cost (FR-A-021).
+  const aiCallRecordRef = useRef<string | null>(null)
 
   const autosave = useAutosave({
     enabled: canEditSection && !!documentId && !!activeSectionData,
@@ -209,11 +213,13 @@ export function DocumentEditor() {
     save: useCallback(async (html: string) => {
       if (!documentId || !activeSectionData) return
       const model = aiEditModelRef.current
+      const aiCallRecordId = aiCallRecordRef.current
       const result = await documentsApi.updateSection(documentId, activeSectionData.id, {
         contentHtml: html,
-        ...(model ? { aiDrafted: true, aiModel: model } : {}),
+        ...(model ? { aiDrafted: true, aiModel: model, ...(aiCallRecordId ? { aiCallRecordId } : {}) } : {}),
       })
       aiEditModelRef.current = null
+      aiCallRecordRef.current = null
       setAiEditModel(null)
       // Server bumps the DocumentVersion on content hash change — refresh
       // both so the version chip + the sections tree stay accurate.
@@ -1043,7 +1049,7 @@ export function DocumentEditor() {
                   sectionId={activeSectionData.id}
                   currentHtml={draftContent}
                   editor={editor}
-                  onAccept={(html, model) => {
+                  onAccept={(html, model, aiCallRecordId) => {
                     // sPM-autosave — set content, flag AI model for the next
                     // autosave fire, and nudge the debounce. editable is
                     // already true because the user holds the lock; no mode
@@ -1051,6 +1057,7 @@ export function DocumentEditor() {
                     editor?.commands.setContent(html, { emitUpdate: false })
                     setDraftContent(html)
                     setAiEditModel(model)
+                    aiCallRecordRef.current = aiCallRecordId ?? null
                     autosave.markDirty()
                   }}
                 />
@@ -1236,7 +1243,7 @@ export function DocumentEditor() {
                           ? 'Acquiring edit lock…'
                           : undefined
                 }
-                onAcceptSuggestion={(html, model, range) => {
+                onAcceptSuggestion={(html, model, range, aiCallRecordId) => {
                   // sPM-autosave — the editor is always editable when we hold
                   // the lock, so we can run the TipTap chain directly without
                   // the old edit-mode-toggle dance. We flush() the autosave
@@ -1254,6 +1261,7 @@ export function DocumentEditor() {
                   }
                   setDraftContent(next)
                   setAiEditModel(model)
+                  aiCallRecordRef.current = aiCallRecordId ?? null
                   // Flush instead of markDirty so the save fires on the next
                   // tick (after the setState above has propagated to the ref).
                   // Any error surfaces via autosave.lastError → the status pill.

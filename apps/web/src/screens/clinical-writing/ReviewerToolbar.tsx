@@ -40,11 +40,11 @@ function ChecklistIcon() {
 }
 
 function AuditIcon() {
+  // Shield + check — same audit-trail icon as the Editor toolbar.
   return (
-    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
-      <circle cx="7" cy="7" r="5.4"/>
-      <line x1="7" y1="4" x2="7" y2="7.4" strokeLinecap="round"/>
-      <line x1="7" y1="7.4" x2="9.6" y2="7.4" strokeLinecap="round"/>
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M7 1.2 L12 3 V7.2 C12 10 10 11.8 7 12.8 C4 11.8 2 10 2 7.2 V3 Z" />
+      <polyline points="4.8,7 6.4,8.6 9.2,5.6" />
     </svg>
   )
 }

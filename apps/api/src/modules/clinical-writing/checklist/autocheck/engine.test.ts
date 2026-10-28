@@ -48,16 +48,23 @@ describe('autocheck engine — evaluateItems', () => {
 
   it('marks deferred strategies as skipped with a stable reason', () => {
     const r = evaluateItems([
-      item({ id: 'r1', autoCompleteOn: 'references-complete' }),
       item({ id: 'r2', autoCompleteOn: 'ai-pass:consistency' }),
       item({ id: 'r3', autoCompleteOn: 'signal:tlf-validated' }),
     ], sections)
-    expect(r).toHaveLength(3)
+    expect(r).toHaveLength(2)
     for (const e of r) {
       expect(e.result.kind).toBe('skipped')
       expect(e.shouldComplete).toBe(false)
       if (e.result.kind === 'skipped') expect(e.result.reason).toContain('not yet implemented')
     }
+  })
+
+  it('references-complete now dispatches (was deferred before)', () => {
+    const r = evaluateItems([
+      item({ id: 'rc-dirty', autoCompleteOn: 'references-complete' }),
+    ], sections)
+    expect(r).toHaveLength(1)
+    expect(r[0].result.kind).toBe('completed') // clean sample sections, no citation placeholders
   })
 
   it('marks truly unknown strategies as skipped with "unknown"', () => {

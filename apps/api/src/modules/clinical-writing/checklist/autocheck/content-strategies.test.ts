@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   evaluateContentMinWords,
   evaluateContentNoPlaceholders,
+  evaluateReferencesComplete,
   parseAutoCompleteTag,
   type SectionContentForCheck,
 } from './content-strategies.js'
@@ -104,6 +105,76 @@ describe('evaluateContentNoPlaceholders', () => {
 
   it('skipped when scoped section is missing', () => {
     const r = evaluateContentNoPlaceholders(['99.9'], sections)
+    expect(r.kind).toBe('skipped')
+  })
+})
+
+describe('evaluateReferencesComplete', () => {
+  it('pending when a section has [Ref: ...]', () => {
+    const r = evaluateReferencesComplete([], [
+      { sectionNumber: '12', contentHtml: 'See [Ref: Smith 2020] for primary endpoint.', wordCount: 50 },
+    ])
+    expect(r.kind).toBe('pending')
+    if (r.kind === 'pending') {
+      expect(r.reason).toContain('[ref: …]')
+      expect(r.reason).toContain('12')
+    }
+  })
+
+  it('pending when a section has [cite]', () => {
+    const r = evaluateReferencesComplete([], [
+      { sectionNumber: '12', contentHtml: 'Primary endpoint [cite] was met.', wordCount: 50 },
+    ])
+    expect(r.kind).toBe('pending')
+    if (r.kind === 'pending') expect(r.reason).toContain('[cite …]')
+  })
+
+  it('pending when a section has [cite: xxx]', () => {
+    const r = evaluateReferencesComplete([], [
+      { sectionNumber: '12', contentHtml: 'Mentioned in prior work [cite: Jones 2019].', wordCount: 50 },
+    ])
+    expect(r.kind).toBe('pending')
+  })
+
+  it('pending when a section has [citation needed]', () => {
+    const r = evaluateReferencesComplete([], [
+      { sectionNumber: '12', contentHtml: 'A notable finding [citation needed]', wordCount: 50 },
+    ])
+    expect(r.kind).toBe('pending')
+    if (r.kind === 'pending') expect(r.reason).toContain('[citation needed]')
+  })
+
+  it('pending when a section has [reference needed]', () => {
+    const r = evaluateReferencesComplete([], [
+      { sectionNumber: '12', contentHtml: 'Supporting data [Reference Needed] here.', wordCount: 50 },
+    ])
+    expect(r.kind).toBe('pending')
+  })
+
+  it('completed when sections are clean (no citation placeholders)', () => {
+    const r = evaluateReferencesComplete([], [
+      { sectionNumber: '10', contentHtml: 'Resolved citation (Smith, 2020) present.', wordCount: 80 },
+      { sectionNumber: '11', contentHtml: 'Another citation (Jones et al., 2019).',   wordCount: 60 },
+    ])
+    expect(r.kind).toBe('completed')
+  })
+
+  it('completed on empty sections', () => {
+    expect(evaluateReferencesComplete([], []).kind).toBe('completed')
+  })
+
+  it('scoped to one section ignores unresolved cites in others', () => {
+    const r = evaluateReferencesComplete(['10'], [
+      { sectionNumber: '10', contentHtml: 'Clean section (resolved).',  wordCount: 50 },
+      { sectionNumber: '11', contentHtml: 'Section with [Ref: TBD].',   wordCount: 50 },
+    ])
+    expect(r.kind).toBe('completed')
+  })
+
+  it('skipped when scoped section is missing', () => {
+    const r = evaluateReferencesComplete(['99.9'], [
+      { sectionNumber: '10', contentHtml: 'Something', wordCount: 50 },
+    ])
     expect(r.kind).toBe('skipped')
   })
 })

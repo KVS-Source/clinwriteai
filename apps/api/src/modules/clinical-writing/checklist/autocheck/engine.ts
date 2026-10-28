@@ -19,6 +19,7 @@
 import {
   evaluateContentMinWords,
   evaluateContentNoPlaceholders,
+  evaluateReferencesComplete,
   parseAutoCompleteTag,
   type SectionContentForCheck,
   type StrategyResult,
@@ -39,7 +40,6 @@ export interface ItemEvaluation {
 }
 
 const DEFERRED_STRATEGIES = new Set([
-  'references-complete',
   'ai-pass',
   'signal',
 ])
@@ -77,6 +77,7 @@ function dispatch(
   switch (strategy) {
     case 'content-min-words':        return evaluateContentMinWords(args, sections)
     case 'content-no-placeholders':  return evaluateContentNoPlaceholders(args, sections)
+    case 'references-complete':      return evaluateReferencesComplete(args, sections)
     default:
       // References / AI pass / signal strategies are declared in the
       // design but not yet wired. Return a stable 'skipped' so the UI

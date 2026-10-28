@@ -30,8 +30,9 @@ const rows = (page: Page) => page.locator('[data-source-row]')
 
 test('tab sits right after "All Stages" and opens the library', async ({ page }) => {
   await openTab(page)
-  const labels = await page.locator('button', { hasText: /^(All Stages|Source Documents|Study Start-Up)/ }).allInnerTexts()
-  expect(labels[0]).toBe('All Stages')
+  // Tab labels carry counts ("All Stages (12)"); the stage stepper's "Study Start-Up · N docs" buttons don't match.
+  const labels = await page.locator('button', { hasText: /^(All Stages \(\d+\)|Source Documents( \(\d+\))?|Study Start-Up \(\d+\))$/ }).allInnerTexts()
+  expect(labels[0]).toMatch(/^All Stages \(\d+\)$/)
   expect(labels[1]).toMatch(/^Source Documents/)
   await expect(page.getByRole('heading', { name: 'Source documents' })).toBeVisible()
   await expect(page.locator('[data-count="files"]')).toBeVisible()

@@ -35,6 +35,8 @@ const ACTION_TO_EVENT: Record<string, string> = {
   ai_draft_accepted:         'ai-draft',
   comment_added:             'comment-added',
   comment_resolved:          'comment-resolved',
+  // A resolution logged in a CRM meeting resolves the comment too.
+  crm_resolution_logged:     'comment-resolved',
   checklist_item_waived:     'checklist-waived',
   checklist_item_completed:  'checklist-completed',
   signature_initiated:       'document-signed',

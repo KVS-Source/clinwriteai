@@ -232,7 +232,7 @@ function ApprovalCard({ comment }: { comment: Comment }) {
     >
       <span className="text-[12px] font-semibold" style={{ color: '#15803D' }}>✓ Approved</span>
       <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#FFFFFF' }}>
-        {comment.sectionRef}
+        {cleanSectionRef(comment.sectionRef)}
       </span>
       <span className="text-[12px] text-slate-700">by {comment.reviewerName}</span>
       <div className="flex-1" />

@@ -11,7 +11,8 @@ interface Props {
   // the comment to a section (mandatory per FR-A-052) and defaults to this one.
   sections?:        ComposerSection[]
   activeSectionId?: string | null
-  // Overrides the built-in form (a screen with its own composer can focus that instead).
+  // Set by a screen with its own composer (Reviewer View): the panel then hides its own
+  // "Add comment" button, since the screen already offers one.
   onAddComment?: () => void
   // A comment to scroll to and highlight (deep link from the project's comments panel).
   focusCommentId?: string | null
@@ -400,16 +401,19 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => { if (onAddComment) onAddComment(); else { setPostedNote(null); setComposing(true) } }}
-        disabled={composing}
-        data-action="add-comment"
-        className="rounded-md border border-dashed px-3 py-2.5 text-center text-xs text-slate-600 transition-colors hover:bg-slate-50"
-        style={{ borderColor: '#CBD5E1', backgroundColor: '#FFFFFF' }}
-      >
-        ＋ Add comment
-      </button>
+      {/* A screen with its own composer (Reviewer View) already has an Add comment entry point. */}
+      {!onAddComment && (
+        <button
+          type="button"
+          onClick={() => { setPostedNote(null); setComposing(true) }}
+          disabled={composing}
+          data-action="add-comment"
+          className="rounded-md border border-dashed px-3 py-2.5 text-center text-xs text-slate-600 transition-colors hover:bg-slate-50"
+          style={{ borderColor: '#CBD5E1', backgroundColor: '#FFFFFF' }}
+        >
+          ＋ Add comment
+        </button>
+      )}
     </div>
   )
 }

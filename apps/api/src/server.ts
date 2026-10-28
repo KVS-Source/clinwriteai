@@ -426,6 +426,10 @@ async function buildServer() {
   // /documents or /projects prefix.
   const { guestInvitationRoutes } = await import('./modules/platform/guest-invitations/routes.js')
   await app.register(guestInvitationRoutes)
+  // Public redemption endpoints — the guest hits these after clicking
+  // the magic link. Zero auth; the signed JWT in the URL is the sole credential.
+  const { guestRedemptionRoutes } = await import('./modules/platform/guest-invitations/redemption.js')
+  await app.register(guestRedemptionRoutes, { prefix: '/guest' })
 
   await app.register(import('./modules/platform/ai-gateway/plugin.js'))
   const { aiGatewayRoutes } = await import('./modules/platform/ai-gateway/routes.js')

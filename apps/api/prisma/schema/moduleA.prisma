@@ -565,13 +565,18 @@ model Comment {
   id             String    @id                                   // "CMT-###" application-generated
   documentId     String
   sectionRef     String                                          // "§11.4.1"
-  reviewerId     String
+  reviewerId     String                                          // 'system:guest' when externalEmail is set
   text           String
   severity       String                                          // comment_severity — major | minor | query
   status         String    @default("open")                      // open | resolved
   resolvedBy     String?
   resolvedAt     DateTime?
   resolutionNote String?
+
+  // Set when the comment came from a guest magic-link redemption (see
+  // docs/roles-and-permissions.md §6). Null for internal reviewer rows.
+  // DPDPA erasure nulls this column while preserving the comment body.
+  externalEmail  String?  @map("external_email")
 
   // Reviewer verdict — Phase 2.2 of docs/pivot-plan.md Arc 5.
   // null = plain comment; non-null = reviewer action with the comment

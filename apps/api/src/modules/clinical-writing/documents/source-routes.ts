@@ -19,7 +19,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { suggestSourceCategory } from './source-categories.js'
+import { SOURCE_CATEGORY_LABEL, suggestSourceCategory, type SourceCategory } from './source-categories.js'
 
 const SORT_KEYS = ['title', 'file', 'category', 'state', 'scan', 'usedIn', 'size', 'uploaded'] as const
 type SortKey = (typeof SORT_KEYS)[number]
@@ -166,7 +166,7 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     const needle = q?.toLowerCase()
     const filtered = all.filter(r =>
       (state === 'all' || r.state === state) &&
-      (!needle || [r.title, r.fileName, r.origin ?? '', r.category, ...r.usedIn.map(d => d.title), r.uploadedBy.name ?? '', r.uploadedBy.email ?? '']
+      (!needle || [r.title, r.fileName, r.origin ?? '', r.category, SOURCE_CATEGORY_LABEL[r.category as SourceCategory] ?? '', ...r.usedIn.map(d => d.title), r.uploadedBy.name ?? '', r.uploadedBy.email ?? '']
         .some(s => s.toLowerCase().includes(needle))),
     )
 

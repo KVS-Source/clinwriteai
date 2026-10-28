@@ -7,6 +7,21 @@ export const SOURCE_CATEGORIES = [
 ] as const
 export type SourceCategory = (typeof SOURCE_CATEGORIES)[number]
 
+// Display names — mirror of apps/web/src/utils/sourceCategories.ts. Search matches these,
+// so "Brochure" or "Tables" finds what the Category column shows.
+export const SOURCE_CATEGORY_LABEL: Record<SourceCategory, string> = {
+  protocol:   'Protocol',
+  sap:        'Statistical Analysis Plan (SAP)',
+  tlf:        'Tables, listings & figures (TLF)',
+  ib:         "Investigator's Brochure",
+  icf:        'Informed Consent Form',
+  crf:        'CRF / EDC export',
+  lab_data:   'Lab data',
+  csr:        'Prior CSR',
+  regulatory: 'Regulatory correspondence',
+  other:      'Other',
+}
+
 // A filename token match. `_` counts as a separator (unlike \b).
 const tok = (words: string) => new RegExp(`(^|[^a-z0-9])(${words})([^a-z0-9]|$)`)
 

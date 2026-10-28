@@ -37,7 +37,7 @@ interface Props {
   /** Called when the user clicks Accept on an assistant message that
    *  carried replacement text. If `range` is provided, the parent should
    *  replace just that editor range; otherwise swap the whole section. */
-  onAcceptSuggestion: (html: string, model: string, range?: { from: number; to: number }) => void
+  onAcceptSuggestion: (html: string, model: string, range?: { from: number; to: number }, aiCallRecordId?: string | null) => void
   /** False when the user doesn't hold the SectionLock or the doc is in review.
    *  The Accept button is disabled with an explanatory title. Defaults to true
    *  for callers that haven't adopted the lock-aware signature yet. */
@@ -167,9 +167,10 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   const accept = useMutation({
     mutationFn: ({ messageId }: { messageId: string; html: string; model: string }) =>
       documentsApi.acceptAiChatMessage(messageId),
-    onSuccess: (_data, vars) => {
+    onSuccess: (data, vars) => {
       const range = rangesByMessageId[vars.messageId]
-      onAcceptSuggestion(vars.html, vars.model, range)
+      // Pass the AI call id on so the save's audit entry links to the prompt / model.
+      onAcceptSuggestion(vars.html, vars.model, range, data.aiCallRecordId ?? null)
       qc.invalidateQueries({ queryKey: ['ai-chat', documentId, sectionId] })
     },
   })

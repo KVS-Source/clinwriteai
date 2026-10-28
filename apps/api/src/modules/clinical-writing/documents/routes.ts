@@ -373,6 +373,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         versionCreated: result.created,
         versionNumber: result.version.versionNumber,
         aiCallRecordId: parsed.data.aiCallRecordId ?? null,
+        // FR-A-021: an AI-drafted save names the model that generated it (the
+        // AiCallRecord above links to the prompt, cost and generation time).
+        aiModel: parsed.data.aiDrafted ? (parsed.data.aiModel ?? null) : null,
         // Previous and new content (plain text, capped) so the trail shows what changed.
         before: auditText(beforeHtml),
         after:  auditText(parsed.data.contentHtml),
@@ -1053,6 +1056,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       id:               updated.id,
       appliedToSection: updated.appliedToSection,
       appliedAt:        updated.appliedAt?.toISOString() ?? null,
+      // The AI call that produced this message — the editor sends it with the save so
+      // the audit entry and AI History link back to the prompt / model / cost.
+      aiCallRecordId:   updated.aiCallRecordId ?? null,
     }
   })
 

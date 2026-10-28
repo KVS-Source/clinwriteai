@@ -119,6 +119,18 @@ describe('PATCH /documents/:docId/sections/:secId — audit entry', () => {
     const res = await patch(app)
     expect(res.statusCode).toBeLessThan(400)
     const edit = append.mock.calls.map(c => c[0]).find(e => e.action === 'section_edited')
-    expect(edit?.details).toMatchObject({ sectionId: SEC, before: 'old', after: 'new' })
+    expect(edit?.details).toMatchObject({ sectionId: SEC, before: 'old', after: 'new', aiModel: null })
+  })
+
+  it('records the AI model and AI call id on an AI-drafted save (FR-A-021)', async () => {
+    const { app, append } = await build()
+    const res = await app.inject({
+      method: 'PATCH',
+      url: `/documents/${DOC}/sections/${SEC}`,
+      payload: { contentHtml: '<p>new</p>', aiDrafted: true, aiModel: 'claude-sonnet-x', aiCallRecordId: 'rec-1' },
+    })
+    expect(res.statusCode).toBeLessThan(400)
+    const draft = append.mock.calls.map(c => c[0]).find(e => e.action === 'ai_draft_accepted')
+    expect(draft?.details).toMatchObject({ sectionId: SEC, aiModel: 'claude-sonnet-x', aiCallRecordId: 'rec-1', before: 'old', after: 'new' })
   })
 })

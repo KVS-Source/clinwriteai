@@ -236,9 +236,17 @@ model CrmMeeting {
   startedAt       DateTime?
   endedAt         DateTime?
   createdAt       DateTime @default(now())
+  // AI Note-Taker (Phase 1 / sPM-ai-notetaker). Minutes rendered as HTML
+  // by GPT/Claude from the uploaded transcript + resolutions. The audio is
+  // never stored (DPDPA stance) — only the transcript + the minutes.
+  minutesHtml         String?
+  minutesGeneratedAt  DateTime?
+  minutesGeneratedBy  String?
 
   attendees       CrmAttendee[]
   resolutions    CrmResolution[]
+  transcript     CrmMeetingTranscript?
+  aiDraftNotes   CrmAiDraftNote[]
 
   @@map("crm_meetings")
   @@index([documentId])
@@ -273,6 +281,51 @@ model CrmResolution {
   @@unique([meetingId, commentId])                                  // one resolution per comment per meeting
   @@index([meetingId])
   @@index([commentId])
+}
+
+// --------------------------------------------------------------------------
+// 6.4 crm_meeting_transcripts — raw transcript text uploaded post-meeting.
+// Audio is NEVER stored (DPDPA retention stance — the audio was only an
+// input to the transcription step). One transcript per meeting; replacing
+// an existing transcript overwrites the row (chair re-ran transcription).
+// --------------------------------------------------------------------------
+
+model CrmMeetingTranscript {
+  id          String   @id @default(uuid())
+  meetingId   String   @unique
+  rawText     String                                              // the uploaded transcript, as-is
+  wordCount   Int                                                 // cheap pre-computed for the UI
+  source      String   @default("manual_paste")                   // 'manual_paste' | 'zoom_native' | 'teams_export' | 'bot' (Phase 3)
+  uploadedBy  String
+  uploadedAt  DateTime @default(now())
+
+  meeting     CrmMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@map("crm_meeting_transcripts")
+}
+
+// --------------------------------------------------------------------------
+// 6.5 crm_ai_draft_notes — AI-generated per-comment resolution-note drafts.
+// Written when the chair uploads a transcript (one AI call extracts drafts
+// for every open comment at once). The chair sees these pre-filled in the
+// resolution composer and edits before saving the CrmResolution.
+// Each regenerate call replaces the row for that (meetingId, commentId).
+// --------------------------------------------------------------------------
+
+model CrmAiDraftNote {
+  id              String   @id @default(uuid())
+  meetingId       String
+  commentId       String
+  draftText       String
+  aiModel         String                                          // 'claude-3-5-sonnet-...' etc.
+  aiCallRecordId  String?                                         // back-link to AiCallRecord for cost / audit
+  generatedAt     DateTime @default(now())
+
+  meeting         CrmMeeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@map("crm_ai_draft_notes")
+  @@unique([meetingId, commentId])
+  @@index([meetingId])
 }
 
 // --------------------------------------------------------------------------

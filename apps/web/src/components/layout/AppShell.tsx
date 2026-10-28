@@ -13,12 +13,16 @@ function useActiveModule(): string {
   return MODULES.find(m => pathname.includes(m)) ?? 'clinical-writing'
 }
 
-/** True when the user is inside a document editor (any module's deep-link
- *  to an individual document). We shrink the left nav to an icon rail on
- *  these pages so the content pane has maximum room. */
+/** True when the user is inside a document editor OR on a focused meeting
+ *  screen (CRM Comments Resolution). We shrink the left nav to an icon rail
+ *  on these pages so the content pane has maximum room — on CRM the chair
+ *  is projecting / sharing the screen and every pixel of horizontal space
+ *  for the Resolution Queue + the overlay document viewer counts. */
 function useAutoCollapsed(): boolean {
   const { pathname } = useLocation()
-  return /\/documents\/[^/]+/.test(pathname)
+  if (/\/documents\/[^/]+/.test(pathname)) return true
+  if (/\/clinical-writing\/crm(\/|$|\?)/.test(pathname)) return true
+  return false
 }
 
 // The user's choice survives reloads; it is only a convenience, so storage failures are ignored.

@@ -21,6 +21,7 @@ import { useCurrentUser } from '../../hooks'
 import { useCRMStore } from '../../store'
 import { CommentResolutionPanel } from '../../panels/CommentResolutionPanel'
 import { cleanSectionRef } from '../../panels/CommentComposer'
+import { CRMDocumentViewer } from './CRMDocumentViewer'
 
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
   MW: { bg: '#DBEAFE', fg: '#1D4ED8' },
@@ -118,7 +119,7 @@ function ResolvedCard({ comment, resolution, resolverName }: { comment: Comment;
   )
 }
 
-function ActiveCard({ comment, canResolve, onResolve }: { comment: Comment; canResolve: boolean; onResolve: (type: ResolutionType) => void }) {
+function ActiveCard({ comment, canResolve, onResolve, aiDraftNote }: { comment: Comment; canResolve: boolean; onResolve: (type: ResolutionType) => void; aiDraftNote?: string | null }) {
   const btn = 'rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40'
   return (
     <div
@@ -140,6 +141,22 @@ function ActiveCard({ comment, canResolve, onResolve }: { comment: Comment; canR
         <p className="text-xs text-slate-500">{comment.reviewerName}</p>
       </div>
       <p className="text-[13px] leading-relaxed text-slate-900">{comment.text || '(no text)'}</p>
+
+      {aiDraftNote && (
+        <div
+          className="rounded-md border border-indigo-200 bg-indigo-50/60 p-2.5 text-[12px] text-slate-800"
+          data-ai-draft-note
+        >
+          <div className="mb-1 flex items-center gap-1.5">
+            <svg width="10" height="10" viewBox="0 0 14 14"><polygon points="7,1.2 8.6,5.4 12.8,7 8.6,8.6 7,12.8 5.4,8.6 1.2,7 5.4,5.4" fill="#4338CA" /></svg>
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-indigo-700">AI draft note</span>
+          </div>
+          {aiDraftNote}
+          <p className="mt-1 text-[10px] italic text-indigo-700/70">
+            The resolution composer will prefill with this; edit before saving.
+          </p>
+        </div>
+      )}
 
       <div className="mt-1 flex flex-wrap items-center gap-2 border-t pt-3" style={{ borderColor: '#E2E8F0' }}>
         <span className="text-xs text-slate-500">Resolve as:</span>
@@ -174,6 +191,101 @@ function PendingCard({ comment, onSelect }: { comment: Comment; onSelect: () => 
       </div>
       <p className="text-[13px] leading-relaxed text-slate-500">{comment.text || '(no text)'}</p>
     </button>
+  )
+}
+
+// --- AI Note-Taker: transcript upload modal (Phase 1) ---
+//
+// Thin modal with a textarea for pasting the transcript + a source selector.
+// Everything else about the AI pass (extraction, draft notes) happens
+// server-side when the chair clicks Upload. Audio is never collected here.
+function TranscriptUploadModal({
+  onClose,
+  onSubmit,
+  isSubmitting,
+  error,
+}: {
+  onClose:     () => void
+  onSubmit:    (rawText: string, source: 'manual_paste' | 'zoom_native' | 'teams_export' | 'otter') => void
+  isSubmitting: boolean
+  error:       string | null
+}) {
+  const [text, setText] = useState('')
+  const [source, setSource] = useState<'manual_paste' | 'zoom_native' | 'teams_export' | 'otter'>('manual_paste')
+  const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.document.addEventListener('keydown', onKey)
+    return () => window.document.removeEventListener('keydown', onKey)
+  }, [onClose])
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Upload meeting transcript"
+        className="w-full max-w-2xl rounded-lg bg-white shadow-xl"
+        onClick={e => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
+          <h3 className="text-sm font-bold text-slate-900">Upload meeting transcript</h3>
+          <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1 text-slate-500 hover:bg-slate-100">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="4" y1="4" x2="12" y2="12" /><line x1="12" y1="4" x2="4" y2="12" /></svg>
+          </button>
+        </div>
+        <div className="flex flex-col gap-3 px-5 py-4">
+          <p className="text-[12px] text-slate-600">
+            Paste the transcript below. We'll generate draft resolution notes for every open comment. Audio is never stored — only the transcript text.
+          </p>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold text-slate-700">Source</span>
+            <select
+              value={source}
+              onChange={e => setSource(e.target.value as typeof source)}
+              className="h-8 rounded border border-slate-300 bg-white px-2 text-[12px]"
+            >
+              <option value="manual_paste">Manual paste</option>
+              <option value="zoom_native">Zoom (Save transcript export)</option>
+              <option value="teams_export">Microsoft Teams export</option>
+              <option value="otter">Otter.ai export</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold text-slate-700">Transcript</span>
+            <textarea
+              rows={14}
+              value={text}
+              onChange={e => setText(e.target.value)}
+              placeholder="Paste the meeting transcript here. Speaker-labelled formats (e.g. 'Chair:' / 'Dr Chen:') produce better per-comment attribution."
+              className="w-full resize-y rounded border border-slate-300 p-2 font-mono text-[12px] outline-none focus:border-blue-600"
+              autoFocus
+            />
+          </label>
+          <p className="text-[11px] text-slate-500">
+            {wordCount.toLocaleString()} word{wordCount === 1 ? '' : 's'} · Esc to cancel
+          </p>
+          {error && <p className="text-[11px] text-rose-600" role="alert">{error}</p>}
+        </div>
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 bg-slate-50 px-5 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={isSubmitting}
+            className="text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
+          >Cancel</button>
+          <button
+            type="button"
+            onClick={() => onSubmit(text, source)}
+            disabled={isSubmitting || wordCount < 5}
+            className="rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >
+            {isSubmitting ? 'Extracting drafts…' : 'Upload + extract drafts'}
+          </button>
+        </div>
+      </div>
+    </div>
   )
 }
 
@@ -319,6 +431,17 @@ export function CRMModule() {
     queryFn:  () => crmApi.listResolutions(meeting!.id),
     enabled:  !!meeting?.id,
   })
+  // AI Note-Taker: per-comment drafts + transcript metadata. Refetched when
+  // the chair uploads a new transcript or regenerates drafts.
+  const { data: aiNoteTaker } = useQuery({
+    queryKey: ['crm-ai-drafts', meeting?.id],
+    queryFn:  () => crmApi.getAiDrafts(meeting!.id),
+    enabled:  !!meeting?.id,
+  })
+  const draftNoteByCommentId = useMemo(
+    () => new Map((aiNoteTaker?.drafts ?? []).map(d => [d.commentId, d.draftText])),
+    [aiNoteTaker],
+  )
   const users = useQuery({ queryKey: ['platform-users'], queryFn: () => platformApi.listUsers(), retry: false })
   const nameOf = (id: string) => users.data?.find(u => u.id === id)?.name
 
@@ -331,6 +454,34 @@ export function CRMModule() {
   const queueIds = [...resolvedIds, ...pendingIds.filter(id => !resolvedIds.includes(id))]
   const [activeCommentId, setActiveCommentId] = useState<string | null>(null)
   const effectiveActive = activeCommentId && pendingIds.includes(activeCommentId) ? activeCommentId : pendingIds[0] ?? null
+
+  // AI Note-Taker — transcript upload modal + minutes generation mutation.
+  const [transcriptModalOpen, setTranscriptModalOpen] = useState(false)
+  const uploadTranscriptMut = useMutation({
+    mutationFn: (body: { rawText: string; source: 'manual_paste' | 'zoom_native' | 'teams_export' | 'otter' }) =>
+      crmApi.uploadTranscript(meeting!.id, body),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['crm-ai-drafts', meeting?.id] })
+      setTranscriptModalOpen(false)
+    },
+  })
+  const minutesMut = useMutation({
+    mutationFn: () => crmApi.generateMinutes(meeting!.id),
+  })
+
+  // Read-only document viewer overlay. Opens on "View document →"; stays
+  // open as the chair picks different comments and the viewer auto-scrolls
+  // to each new section ref. Closes on backdrop click / X / Esc.
+  const [docViewerOpen, setDocViewerOpen] = useState(false)
+  const activeComment = effectiveActive ? commentsById.get(effectiveActive) ?? null : null
+  const activeCommentSectionRef = activeComment?.sectionRef ?? null
+  // 1-based position within the full queue so the viewer's chrome can
+  // render "Comment 3 of 7". queueIds is resolved + pending interleaved,
+  // which is the same order the queue renders in the centre panel.
+  const activeCommentPosition = effectiveActive ? queueIds.indexOf(effectiveActive) + 1 : 0
+  const activeCommentLabel = activeComment
+    ? `${cleanSectionRef(activeComment.sectionRef)}${activeComment.severity ? ` · ${activeComment.severity.charAt(0).toUpperCase()}${activeComment.severity.slice(1)}` : ''}`
+    : null
 
   const refresh = () => {
     qc.invalidateQueries({ queryKey: ['crm-meetings', activeDocId] })
@@ -399,13 +550,10 @@ export function CRMModule() {
 
       {/* Page header */}
       <div className="flex flex-none flex-col gap-2.5 border-b border-slate-200 bg-white px-8 py-5">
-        <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900 transition-colors">Clinical Writing</button>
-          <span className="text-slate-300">›</span>
-          <span className="font-semibold text-slate-900">CRM</span>
-          <div className="flex-1" />
+        {/* Breadcrumb moved to TopNav; the doc picker it used to share this
+            row with now sits on its own, right-aligned, so the layout grid
+            doesn't change height. */}
+        <div className="flex flex-wrap items-center justify-end gap-2 text-xs text-slate-500">
           {docPicker}
         </div>
         <div className="flex flex-wrap items-center gap-4">
@@ -485,6 +633,66 @@ export function CRMModule() {
             ))}
           </div>
 
+          {/* AI Note-Taker (Phase 1). Audio is never stored; the chair pastes
+              a pre-transcribed text. Server extracts per-comment draft notes
+              + an optional minutes HTML. Phase 3 adds a Recall.ai bot that
+              feeds the transcript automatically. */}
+          <div className="border-b border-slate-200 p-4">
+            <div className="mb-2.5 flex items-center gap-2">
+              <MonoLabel>AI Note-Taker</MonoLabel>
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-blue-700">Beta</span>
+            </div>
+            {aiNoteTaker?.transcript ? (
+              <>
+                <p className="text-[11px] text-slate-700">
+                  Transcript loaded · {aiNoteTaker.transcript.wordCount.toLocaleString()} words
+                </p>
+                <p className="text-[10px] text-slate-500">
+                  {aiNoteTaker.transcript.source.replace(/_/g, ' ')} · {fmtTime(aiNoteTaker.transcript.uploadedAt)}
+                </p>
+                <p className="mt-1 text-[11px] font-semibold text-emerald-700">
+                  {aiNoteTaker.drafts.length} comment draft{aiNoteTaker.drafts.length === 1 ? '' : 's'} ready
+                </p>
+              </>
+            ) : (
+              <p className="text-[11px] italic text-slate-500">
+                No transcript yet. Paste one to get per-comment draft notes.
+              </p>
+            )}
+            <div className="mt-2.5 flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => setTranscriptModalOpen(true)}
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                data-action="upload-transcript"
+              >
+                {aiNoteTaker?.transcript ? 'Replace transcript' : 'Upload transcript'}
+              </button>
+              <button
+                type="button"
+                onClick={() => minutesMut.mutate()}
+                disabled={minutesMut.isPending || meeting.status === 'scheduled'}
+                className="rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+                title={meeting.status === 'scheduled' ? 'Start the meeting first' : 'Generate minutes HTML'}
+                data-action="generate-minutes"
+              >
+                {minutesMut.isPending ? 'Generating…' : 'Generate minutes'}
+              </button>
+            </div>
+            {minutesMut.isError && (
+              <p className="mt-1.5 text-[10px] text-rose-600" role="alert">Minutes generation failed — try again.</p>
+            )}
+            {minutesMut.isSuccess && minutesMut.data?.minutesHtml && (
+              <a
+                href={URL.createObjectURL(new Blob([minutesMut.data.minutesHtml], { type: 'text/html' }))}
+                download={`${meeting.meetingRef ?? 'crm'}-minutes.html`}
+                className="mt-1.5 inline-block text-[11px] font-semibold text-blue-600 underline"
+              >
+                Download minutes HTML →
+              </a>
+            )}
+          </div>
+
           <div className="p-4">
             <div className="mb-2.5"><MonoLabel>Meeting progress</MonoLabel></div>
             <div className="flex items-baseline justify-between">
@@ -507,8 +715,9 @@ export function CRMModule() {
             <div className="flex-1" />
             <p className="whitespace-nowrap text-xs text-slate-500">{totalCount} comments · {resolvedCount} resolved · {totalCount - resolvedCount} remaining</p>
             <button
-              onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${activeDocId}`)}
+              onClick={() => setDocViewerOpen(true)}
               className="whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700"
+              data-action="open-doc-viewer"
             >View document →</button>
           </div>
 
@@ -521,12 +730,14 @@ export function CRMModule() {
                 return <ResolvedCard key={cid} comment={c} resolution={r} resolverName={r ? nameOf(r.resolvedBy) : undefined} />
               }
               if (effectiveActive === cid) {
+                const aiDraft = draftNoteByCommentId.get(cid) ?? null
                 return (
                   <ActiveCard
                     key={cid}
                     comment={c}
                     canResolve={inProgress}
-                    onResolve={type => setResolutionDraft({ commentId: cid, type, note: '' })}
+                    aiDraftNote={aiDraft}
+                    onResolve={type => setResolutionDraft({ commentId: cid, type, note: aiDraft ?? '' })}
                   />
                 )
               }
@@ -579,6 +790,31 @@ export function CRMModule() {
             onClose={() => { setResolutionDraft(null); refresh() }}
           />
         </div>
+      )}
+
+      {/* Read-only document viewer overlay for the active doc. Only
+          mounted when open so the heavy document render + section-jump
+          side-effects don't fire for chairs who never ask for it. */}
+      {docViewerOpen && activeDocId && (
+        <CRMDocumentViewer
+          documentId={activeDocId}
+          jumpToSectionRef={activeCommentSectionRef}
+          commentIndex={activeCommentPosition > 0 ? activeCommentPosition : null}
+          commentTotal={queueIds.length}
+          commentLabel={activeCommentLabel}
+          onClose={() => setDocViewerOpen(false)}
+        />
+      )}
+
+      {transcriptModalOpen && meeting && (
+        <TranscriptUploadModal
+          onClose={() => setTranscriptModalOpen(false)}
+          onSubmit={(rawText, source) => uploadTranscriptMut.mutate({ rawText, source })}
+          isSubmitting={uploadTranscriptMut.isPending}
+          error={uploadTranscriptMut.isError ? (uploadTranscriptMut.error instanceof ApiError
+            ? `Upload failed (HTTP ${uploadTranscriptMut.error.status})`
+            : 'Upload failed') : null}
+        />
       )}
     </div>
   )

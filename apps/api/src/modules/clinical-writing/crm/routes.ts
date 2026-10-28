@@ -473,6 +473,242 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { resolvedAt: 'asc' },
     })
   })
+
+  // --- AI Note-Taker (Phase 1) ----------------------------------------------
+  // Audio is never stored (DPDPA stance). The chair uploads a pre-transcribed
+  // text (Zoom "Save transcript" / Teams export / Otter for now; Recall.ai
+  // bot in Phase 3), we extract per-comment draft notes, chair edits them
+  // in-line in the resolution composer before saving the CrmResolution.
+
+  const transcriptSchema = z.object({
+    rawText: z.string().min(10, 'Transcript is too short to be useful.'),
+    source:  z.enum(['manual_paste', 'zoom_native', 'teams_export', 'otter', 'bot']).default('manual_paste'),
+  })
+
+  /** POST /crm/:meetingId/transcript — upload a transcript + extract drafts. */
+  app.post('/crm/:meetingId/transcript', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { meetingId } = request.params as { meetingId: string }
+    const parsed = transcriptSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const meeting = await app.prisma.crmMeeting.findUnique({
+      where: { id: meetingId },
+      include: {
+        resolutions: { select: { commentId: true } },
+      },
+    })
+    if (!meeting) return reply.code(404).send({ error: 'not_found' })
+
+    const rawText = parsed.data.rawText.trim()
+    const wordCount = rawText.split(/\s+/).filter(Boolean).length
+
+    // Upsert the transcript (one per meeting). Replaces on re-upload.
+    const transcript = await app.prisma.crmMeetingTranscript.upsert({
+      where:  { meetingId },
+      update: { rawText, wordCount, source: parsed.data.source, uploadedBy: request.user!.id, uploadedAt: new Date() },
+      create: { meetingId, rawText, wordCount, source: parsed.data.source, uploadedBy: request.user!.id },
+    })
+
+    // Pull open comments (not yet resolved in this meeting) so the AI can
+    // target each with a per-comment draft note.
+    const resolvedIds = new Set(meeting.resolutions.map(r => r.commentId))
+    const openComments = await app.prisma.comment.findMany({
+      where: {
+        documentId: meeting.documentId,
+        status:     'open',
+      },
+      select: { id: true, sectionRef: true, severity: true, text: true, reviewerId: true },
+    })
+    const targets = openComments
+      .filter(c => !resolvedIds.has(c.id))
+      .map(c => ({ id: c.id, sectionRef: c.sectionRef, severity: c.severity, body: c.text, authorName: c.reviewerId }))
+
+    let drafts: Array<{ commentId: string; draftText: string }> = []
+    let aiModel = 'none'
+    let aiCallRecordId: string | null = null
+
+    if (targets.length > 0) {
+      // One AI call extracts drafts for every open comment at once — cheaper
+      // than N round-trips and gives the model context about which comments
+      // were discussed in which order within the transcript.
+      const prompt = buildDraftExtractionPrompt(rawText, targets)
+      try {
+        const result = await app.aiGateway.chat({
+          tenantId:        request.user!.tenantId,
+          actorId:         request.user!.id,
+          module:          'A',
+          intent:          'custom',
+          model:           'auto',
+          prompt,
+          maxOutputTokens: Math.min(4096, 128 + targets.length * 180),
+          documentId:      meeting.documentId,
+          promptText:      `CRM AI Note-Taker: extract ${targets.length} resolution-note drafts`,
+        })
+        aiModel = result.model
+        aiCallRecordId = result.recordId
+        drafts = parseDraftExtractionResponse(result.responseText, targets.map(t => t.id))
+      } catch (err: unknown) {
+        app.log.warn({ err, meetingId }, 'ai_note_taker: draft extraction failed; transcript saved without drafts')
+      }
+    }
+
+    // Replace any prior drafts for the comments we re-generated. Comments
+    // we didn't touch keep their existing drafts.
+    for (const d of drafts) {
+      await app.prisma.crmAiDraftNote.upsert({
+        where:  { meetingId_commentId: { meetingId, commentId: d.commentId } },
+        update: { draftText: d.draftText, aiModel, aiCallRecordId, generatedAt: new Date() },
+        create: { meetingId, commentId: d.commentId, draftText: d.draftText, aiModel, aiCallRecordId },
+      })
+    }
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId:   request.user!.id,
+      action:    'crm_transcript_uploaded',
+      entityType:'crm_meeting',
+      entityId:  meetingId,
+      details:   { source: parsed.data.source, wordCount, draftsGenerated: drafts.length, aiModel },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      transcript: {
+        id:         transcript.id,
+        meetingId:  transcript.meetingId,
+        wordCount:  transcript.wordCount,
+        source:     transcript.source,
+        uploadedBy: transcript.uploadedBy,
+        uploadedAt: transcript.uploadedAt.toISOString(),
+      },
+      drafts: drafts.length,
+      aiModel,
+    }
+  })
+
+  /** GET /crm/:meetingId/ai-drafts — list current per-comment drafts. */
+  app.get('/crm/:meetingId/ai-drafts', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { meetingId } = request.params as { meetingId: string }
+    const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId }, select: { id: true } })
+    if (!meeting) return reply.code(404).send({ error: 'not_found' })
+
+    const [drafts, transcript] = await Promise.all([
+      app.prisma.crmAiDraftNote.findMany({
+        where:   { meetingId },
+        orderBy: { generatedAt: 'desc' },
+      }),
+      app.prisma.crmMeetingTranscript.findUnique({ where: { meetingId } }),
+    ])
+
+    return {
+      meetingId,
+      drafts: drafts.map(d => ({
+        commentId:    d.commentId,
+        draftText:    d.draftText,
+        aiModel:      d.aiModel,
+        generatedAt:  d.generatedAt.toISOString(),
+      })),
+      transcript: transcript
+        ? {
+            wordCount:  transcript.wordCount,
+            source:     transcript.source,
+            uploadedAt: transcript.uploadedAt.toISOString(),
+          }
+        : null,
+    }
+  })
+
+  /** POST /crm/:meetingId/minutes — generate minutes HTML from transcript + resolutions. */
+  app.post('/crm/:meetingId/minutes', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { meetingId } = request.params as { meetingId: string }
+    const meeting = await app.prisma.crmMeeting.findUnique({
+      where: { id: meetingId },
+      include: {
+        attendees:    true,
+        resolutions:  { orderBy: { resolvedAt: 'asc' } },
+        transcript:   true,
+      },
+    })
+    if (!meeting) return reply.code(404).send({ error: 'not_found' })
+
+    // Pull comments so the minutes can show section + severity + body text.
+    const commentIds = meeting.resolutions.map(r => r.commentId)
+    const commentRows = commentIds.length === 0 ? [] : await app.prisma.comment.findMany({
+      where: { id: { in: commentIds } },
+      select: { id: true, sectionRef: true, severity: true, text: true },
+    })
+    const commentById = new Map(commentRows.map(c => [c.id, { sectionRef: c.sectionRef as string | null, severity: c.severity as string | null, body: c.text }]))
+
+    // Resolve attendee names from User rows.
+    const attendeeUserIds = meeting.attendees.map(a => a.userId)
+    const users = attendeeUserIds.length === 0 ? [] : await app.prisma.user.findMany({
+      where: { id: { in: attendeeUserIds } },
+      select: { id: true, name: true, email: true },
+    })
+    const userById = new Map(users.map(u => [u.id, u]))
+
+    // Try an AI pass to produce a narrative summary paragraph; fall back to
+    // the structured-only shell if the AI call fails.
+    let aiNarrative = ''
+    let aiModel: string | null = null
+    if (meeting.transcript) {
+      try {
+        const result = await app.aiGateway.chat({
+          tenantId:        request.user!.tenantId,
+          actorId:         request.user!.id,
+          module:          'A',
+          intent:          'custom',
+          model:           'auto',
+          prompt:          buildMinutesNarrativePrompt(meeting.transcript.rawText, meeting.resolutions, commentById),
+          maxOutputTokens: 1024,
+          documentId:      meeting.documentId,
+          promptText:      'CRM AI Note-Taker: minutes narrative',
+        })
+        aiNarrative = result.responseText.trim()
+        aiModel = result.model
+      } catch (err) {
+        app.log.warn({ err, meetingId }, 'ai_note_taker: minutes narrative failed; shipping structured-only minutes')
+      }
+    }
+
+    const minutesHtml = buildMinutesHtml({
+      meeting,
+      attendees: meeting.attendees.map(a => ({
+        role: a.roleInCrm,
+        name: userById.get(a.userId)?.name ?? userById.get(a.userId)?.email ?? a.userId,
+      })),
+      resolutions: meeting.resolutions.map(r => ({
+        ...r,
+        comment: commentById.get(r.commentId) ?? null,
+      })),
+      narrative: aiNarrative,
+    })
+
+    const updated = await app.prisma.crmMeeting.update({
+      where: { id: meetingId },
+      data:  {
+        minutesHtml,
+        minutesGeneratedAt: new Date(),
+        minutesGeneratedBy: request.user!.id,
+      },
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId:   request.user!.id,
+      action:    'crm_minutes_generated',
+      entityType:'crm_meeting',
+      entityId:  meetingId,
+      details:   { aiNarrativeUsed: !!aiNarrative, aiModel, resolutionCount: meeting.resolutions.length },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      meetingId,
+      minutesHtml,
+      generatedAt: updated.minutesGeneratedAt?.toISOString() ?? null,
+    }
+  })
 }
 
 // --- helpers --------------------------------------------------------------
@@ -498,4 +734,206 @@ async function nextCrmRef(prisma: PrismaClient): Promise<string> {
     "SELECT \"meetingRef\" FROM crm_meetings WHERE \"meetingRef\" LIKE 'CRM-%' ORDER BY \"meetingRef\" DESC LIMIT 1",
   )
   return formatNextCrmRef(rows[0]?.meetingRef ?? null)
+}
+
+// --- AI Note-Taker helpers (Phase 1) --------------------------------------
+
+interface DraftTarget {
+  id:         string
+  sectionRef: string | null
+  severity:   string | null
+  body:       string
+  authorName: string | null
+}
+
+/**
+ * Prompt the AI with the transcript + the full list of open comments and
+ * ask for a JSON array of per-comment draft notes. One round-trip, not N.
+ * The model gets the comment id so it can key the response back to our ids.
+ */
+export function buildDraftExtractionPrompt(transcript: string, comments: DraftTarget[]): string {
+  const commentBlob = comments.map(c => (
+    `- id=${c.id} | section=${c.sectionRef ?? '—'} | severity=${c.severity ?? '—'} | from ${c.authorName ?? 'Unknown'}:\n  "${c.body.replace(/\n/g, ' ').slice(0, 400)}"`
+  )).join('\n')
+
+  return [
+    'You are an AI note-taker for a Clinical Writing Comments Resolution Meeting (CRM).',
+    'You will be given (a) the meeting transcript and (b) a list of open reviewer comments that the chair is working through.',
+    'For each comment, draft a 1-3 sentence resolution note that captures what the attendees decided and WHY, grounded in what the transcript actually says.',
+    'If the transcript does not mention a comment at all, return an empty string for that comment\'s draftText — do NOT invent a decision.',
+    'Attribute speakers if the transcript names them ("Chair noted…", "Dr Chen suggested…"). Keep the tone neutral and clinical — no filler.',
+    '',
+    '## Transcript',
+    transcript.slice(0, 20000),                       // keep well under the model's context budget
+    '',
+    '## Open comments to draft notes for',
+    commentBlob,
+    '',
+    '## Response format',
+    'Return ONLY a JSON array (no prose, no fences). Each entry must have exactly two fields:',
+    '  {"commentId": "<id>", "draftText": "<1-3 sentence note or empty string>"}',
+    'Order the array in the same order as the comments above. One entry per comment.',
+  ].join('\n')
+}
+
+/**
+ * The AI returns a JSON array; strip code fences / stray prose and extract
+ * only the entries whose commentId we recognise. Unknown ids are dropped
+ * silently (we never trust the model to invent ids).
+ */
+export function parseDraftExtractionResponse(responseText: string, allowedIds: string[]): Array<{ commentId: string; draftText: string }> {
+  // The model sometimes wraps in ```json ... ``` despite being told not to.
+  const stripped = responseText.replace(/^\s*```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim()
+  // Hunt for the first [ ... ] block so leading narrative is ignored.
+  const start = stripped.indexOf('[')
+  const end   = stripped.lastIndexOf(']')
+  if (start < 0 || end < 0 || end <= start) return []
+
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(stripped.slice(start, end + 1))
+  } catch {
+    return []
+  }
+  if (!Array.isArray(parsed)) return []
+
+  const allowed = new Set(allowedIds)
+  const out: Array<{ commentId: string; draftText: string }> = []
+  for (const row of parsed) {
+    if (!row || typeof row !== 'object') continue
+    const r = row as { commentId?: unknown; draftText?: unknown }
+    if (typeof r.commentId !== 'string' || typeof r.draftText !== 'string') continue
+    if (!allowed.has(r.commentId)) continue
+    const text = r.draftText.trim()
+    if (text.length === 0) continue
+    out.push({ commentId: r.commentId, draftText: text })
+  }
+  return out
+}
+
+/** Narrative paragraph prompt for the minutes PDF. */
+export function buildMinutesNarrativePrompt(
+  transcript: string,
+  resolutions: Array<{ resolutionType: string; resolutionNote: string; commentId: string }>,
+  commentById: Map<string, { sectionRef: string | null; severity: string | null; body: string }>,
+): string {
+  const resolved = resolutions.map(r => {
+    const c = commentById.get(r.commentId)
+    return `- [${r.resolutionType}] ${c?.sectionRef ?? '—'} (${c?.severity ?? '—'}): ${r.resolutionNote}`
+  }).join('\n')
+
+  return [
+    'You are drafting the summary paragraph for the official minutes of a Clinical Writing Comments Resolution Meeting (CRM).',
+    'Write 3-5 sentences capturing the overall meeting flow, major decisions, and any outstanding themes. Neutral regulatory tone. No bullet points — this is prose.',
+    'Ground every sentence in evidence from the transcript or the resolution list below. If a point was not actually discussed, do not mention it.',
+    '',
+    '## Transcript',
+    transcript.slice(0, 20000),
+    '',
+    '## Resolutions logged',
+    resolved || '(none)',
+    '',
+    'Return only the paragraph, no headers.',
+  ].join('\n')
+}
+
+interface MinutesPayload {
+  meeting: {
+    meetingRef: string
+    scheduledDate: Date
+    startTime: string
+    endTime: string
+    startedAt: Date | null
+    endedAt:   Date | null
+    documentId: string
+  }
+  attendees:   Array<{ role: string; name: string }>
+  resolutions: Array<{
+    commentId: string
+    resolutionType: string
+    resolutionNote: string
+    resolvedBy: string
+    resolvedAt: Date
+    comment:    { sectionRef: string | null; severity: string | null; body: string } | null
+  }>
+  narrative: string
+}
+
+/** Render minutes as a self-contained HTML document, ready for download or print. */
+export function buildMinutesHtml(p: MinutesPayload): string {
+  const esc = (s: string) =>
+    s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
+
+  const bySeverity = { major: [] as typeof p.resolutions, minor: [] as typeof p.resolutions, query: [] as typeof p.resolutions }
+  for (const r of p.resolutions) {
+    const sev = (r.comment?.severity ?? 'minor').toLowerCase()
+    if (sev === 'major')      bySeverity.major.push(r)
+    else if (sev === 'query') bySeverity.query.push(r)
+    else                      bySeverity.minor.push(r)
+  }
+
+  const resolutionBlock = (title: string, rows: typeof p.resolutions): string => {
+    if (rows.length === 0) return ''
+    return `
+      <h3>${esc(title)} (${rows.length})</h3>
+      <table>
+        <thead><tr><th>Comment</th><th>Section</th><th>Decision</th><th>Note</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `
+            <tr>
+              <td>${esc(r.commentId)}</td>
+              <td>${esc(r.comment?.sectionRef ?? '—')}</td>
+              <td>${esc(r.resolutionType)}</td>
+              <td>${esc(r.resolutionNote)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>`
+  }
+
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>CRM Minutes — ${esc(p.meeting.meetingRef)}</title>
+<style>
+  body { font: 13px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif; color: #1E293B; max-width: 760px; margin: 2rem auto; padding: 0 1.5rem; }
+  h1 { font-size: 20px; margin-bottom: 0.25rem; }
+  h2 { font-size: 14px; margin-top: 1.8rem; color: #475569; text-transform: uppercase; letter-spacing: 0.08em; }
+  h3 { font-size: 13px; margin-top: 1.2rem; }
+  table { width: 100%; border-collapse: collapse; margin-top: 0.6rem; }
+  th, td { border: 1px solid #E2E8F0; padding: 6px 8px; text-align: left; vertical-align: top; font-size: 12px; }
+  th { background: #F8FAFC; }
+  .meta { color: #64748B; font-size: 12px; }
+  .narrative { background: #F8FAFC; border-left: 3px solid #2563EB; padding: 0.8rem 1rem; margin-top: 0.8rem; font-style: italic; }
+  footer { margin-top: 2.5rem; font-size: 11px; color: #94A3B8; border-top: 1px solid #E2E8F0; padding-top: 0.8rem; }
+</style>
+</head>
+<body>
+<h1>Comments Resolution Meeting — ${esc(p.meeting.meetingRef)}</h1>
+<p class="meta">
+  ${esc(p.meeting.scheduledDate.toISOString().slice(0, 10))}
+  · ${esc(p.meeting.startTime)}–${esc(p.meeting.endTime)}
+  ${p.meeting.startedAt ? ` · started ${esc(new Date(p.meeting.startedAt).toISOString())}` : ''}
+  ${p.meeting.endedAt   ? ` · ended ${esc(new Date(p.meeting.endedAt).toISOString())}`     : ''}
+</p>
+
+<h2>Attendees</h2>
+<ul>
+  ${p.attendees.map(a => `<li>${esc(a.name)} — ${esc(a.role)}</li>`).join('') || '<li>(none recorded)</li>'}
+</ul>
+
+${p.narrative ? `<h2>Summary</h2><div class="narrative">${esc(p.narrative)}</div>` : ''}
+
+<h2>Resolutions by severity</h2>
+${resolutionBlock('Major', bySeverity.major)}
+${resolutionBlock('Minor', bySeverity.minor)}
+${resolutionBlock('Query', bySeverity.query)}
+${p.resolutions.length === 0 ? '<p><em>No resolutions logged.</em></p>' : ''}
+
+<footer>
+  Generated by ClinWrite AI Note-Taker. These minutes are hash-chained via the Audit Trail (action: <code>crm_minutes_generated</code>). The source transcript is retained for the meeting's lifecycle; audio was never stored.
+</footer>
+</body>
+</html>`
 }

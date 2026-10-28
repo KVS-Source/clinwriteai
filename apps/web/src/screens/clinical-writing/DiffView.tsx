@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { documentsApi, projectsApi } from '../../api'
@@ -40,6 +40,7 @@ export function DiffView() {
   const closeDiff               = useDocumentStore(s => s.closeDiff)
   const toggleDiffMode          = useDocumentStore(s => s.toggleDiffMode)
   const setActiveSection        = useDocumentStore(s => s.setActiveSection)
+  const setActiveDocument       = useDocumentStore(s => s.setActiveDocument)
 
   const [reason, setReason] = useState('')
 
@@ -72,6 +73,13 @@ export function DiffView() {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
 
+  // Push the loaded document into the store so TopNav's enriched breadcrumb
+  // (Projects / Project / Clinical Writing / <title>) picks up the title on
+  // the Version Diff tab the same way it does on the Editor tab.
+  useEffect(() => {
+    if (document) setActiveDocument(document)
+  }, [document, setActiveDocument])
+
   const fromVersion = diffVersions?.from ?? 'v0.3'
   const toVersion   = diffVersions?.to   ?? 'v0.4'
 
@@ -79,6 +87,32 @@ export function DiffView() {
     () => versions.find(v => v.versionNumber === fromVersion) ?? null,
     [versions, fromVersion],
   )
+
+  // Version picker for the "Comparing <from> → <to>" label. Writers wanted
+  // to diff against an older version than the previous (default), e.g. v0.1
+  // vs the current v0.4. The picker lists every version strictly OLDER than
+  // the active one (toVersion), newest-first. We filter out toVersion itself
+  // so the diff can't collapse into a nothing-to-compare case.
+  const [fromMenuOpen, setFromMenuOpen] = useState(false)
+  const fromMenuRef = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    if (!fromMenuOpen) return
+    const onDown = (e: MouseEvent) => {
+      if (fromMenuRef.current && !fromMenuRef.current.contains(e.target as Node)) setFromMenuOpen(false)
+    }
+    window.document.addEventListener('mousedown', onDown)
+    return () => window.document.removeEventListener('mousedown', onDown)
+  }, [fromMenuOpen])
+
+  const olderVersions = useMemo(() => {
+    const toIdx = versions.findIndex(v => v.versionNumber === toVersion)
+    // Versions are returned newest-first by the API, so "older than to"
+    // means index > toIdx. Falls back to "everything except toVersion"
+    // when toVersion isn't found (unlikely but safe).
+    return toIdx === -1
+      ? versions.filter(v => v.versionNumber !== toVersion)
+      : versions.slice(toIdx + 1)
+  }, [versions, toVersion])
 
   const nextVersionLabel = 'v0.5'
   const isSelected = selectedForRestore.includes(DIFF_SECTION_ID)
@@ -131,20 +165,9 @@ export function DiffView() {
         className="flex flex-none flex-col gap-2 border-b border-slate-200 bg-white px-6 pt-3"
         style={{ position: 'relative', zIndex: 6 }}
       >
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
-            {project?.shortTitle ?? '…'}
-          </button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900 transition-colors">
-            Clinical Writing
-          </button>
-          <span className="text-slate-300">›</span>
-          <span className="overflow-hidden text-ellipsis font-semibold text-slate-900">{document.title}</span>
-        </div>
+        {/* Breadcrumb moved to TopNav (same cleanup as DocumentEditor —
+            TopNav shows Projects / Project / Clinical Writing / <doc title>
+            on all /documents/:id/* routes). */}
 
         {/* Title row */}
         <div className="flex h-14 items-center justify-between gap-6">
@@ -165,9 +188,52 @@ export function DiffView() {
               <span className="text-xs font-bold" style={{ color: '#2563EB' }}>×</span>
             </button>
 
-            {/* Comparing label */}
-            <span className="whitespace-nowrap font-mono text-[11px] font-medium text-slate-500">
-              Comparing {fromVersion} → {toVersion}
+            {/* Comparing label — fromVersion is a dropdown so the writer can
+                compare against any older version, not just the previous one.
+                toVersion is fixed by the active chip (what's currently open),
+                so it stays as plain text. */}
+            <span className="flex items-center gap-1 whitespace-nowrap font-mono text-[11px] font-medium text-slate-500">
+              Comparing
+              <span className="relative" ref={fromMenuRef}>
+                <button
+                  type="button"
+                  onClick={() => setFromMenuOpen(v => !v)}
+                  data-action="pick-from-version"
+                  title="Compare against a different version"
+                  className="flex items-center gap-0.5 rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                >
+                  {fromVersion}
+                  <svg width="9" height="9" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M3 4.5 6 7.5 9 4.5" strokeLinecap="round" strokeLinejoin="round" /></svg>
+                </button>
+                {fromMenuOpen && (
+                  <div
+                    className="absolute left-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
+                    role="listbox"
+                    data-version-picker
+                  >
+                    {olderVersions.length === 0 && (
+                      <p className="px-3 py-2 text-[11px] italic text-slate-400">No older versions yet.</p>
+                    )}
+                    {olderVersions.map(v => (
+                      <button
+                        key={v.id}
+                        type="button"
+                        role="option"
+                        aria-selected={v.versionNumber === fromVersion}
+                        onClick={() => {
+                          toggleDiffMode(v.versionNumber, toVersion)
+                          setFromMenuOpen(false)
+                        }}
+                        className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[12px] hover:bg-slate-50 ${v.versionNumber === fromVersion ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}`}
+                      >
+                        <span className="font-mono font-semibold">{v.versionNumber}</span>
+                        <span className="truncate text-[10px] text-slate-500">{v.label ?? ''}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </span>
+              → {toVersion}
             </span>
           </div>
 

@@ -282,18 +282,7 @@ export function ReviewerView() {
         className="flex flex-none flex-col gap-2 border-b border-slate-200 bg-white px-6 pt-3"
         style={{ position: 'relative', zIndex: 6 }}
       >
-        {/* Breadcrumb */}
-        <div className="flex items-center gap-2 overflow-hidden whitespace-nowrap text-xs text-slate-500">
-          <button onClick={() => navigate('/projects')} className="hover:text-slate-900">All Projects</button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900">
-            {project?.shortTitle ?? '…'}
-          </button>
-          <span className="text-slate-300">›</span>
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing`)} className="hover:text-slate-900">Clinical Writing</button>
-          <span className="text-slate-300">›</span>
-          <span className="overflow-hidden text-ellipsis font-semibold text-slate-900">{document.title}</span>
-        </div>
+        {/* Breadcrumb moved to TopNav (same cleanup as DocumentEditor). */}
 
         {/* Title row */}
         <div className="flex h-14 items-center justify-between gap-6">
@@ -527,6 +516,9 @@ export function ReviewerView() {
                   className="w-full rounded border p-2.5 text-sm outline-none focus:border-blue-600 focus:shadow-focus"
                   style={{ borderColor: '#E2E8F0', resize: 'vertical' }}
                 />
+                {/* Tag/Severity + actions share one row so the composer uses one less
+                    line of vertical space. flex-1 spacer between them pushes
+                    Cancel / Post comment to the right edge. */}
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-[11px] text-slate-500">Tag to:</span>
                   <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }} data-comment-tag>{commentRef}</span>
@@ -534,8 +526,7 @@ export function ReviewerView() {
                   <SeverityButton value="major"  active={severity === 'major'}  onClick={() => setSeverity('major')}  label="Major"  bg="#FEE2E2" fg="#DC2626" />
                   <SeverityButton value="minor"  active={severity === 'minor'}  onClick={() => setSeverity('minor')}  label="Minor"  bg="#FFFBEB" fg="#B45309" />
                   <SeverityButton value="query"  active={severity === 'query'}  onClick={() => setSeverity('query')}  label="Query"  bg="#EFF6FF" fg="#2563EB" />
-                </div>
-                <div className="flex items-center justify-end gap-3">
+                  <div className="flex-1 min-w-[12px]" />
                   <button
                     type="button"
                     onClick={cancelComposer}
@@ -546,7 +537,7 @@ export function ReviewerView() {
                     type="button"
                     onClick={handlePostComment}
                     disabled={!commentText.trim() || addCommentMut.isPending}
-                    className="rounded-md bg-blue-600 px-3.5 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+                    className="rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
                   >
                     {addCommentMut.isPending ? 'Posting…' : 'Post comment'}
                   </button>

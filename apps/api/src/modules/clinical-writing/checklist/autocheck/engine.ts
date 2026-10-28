@@ -29,9 +29,16 @@ import {
   evaluateSignal,
   type SignalContext,
 } from './signal-strategies.js'
+import {
+  emptyAiPassContext,
+  evaluateAiPass,
+  type AiPassContext,
+} from './ai-pass-strategy.js'
 
 export type { SignalContext } from './signal-strategies.js'
 export { emptySignalContext } from './signal-strategies.js'
+export type { AiPassContext, AiPassResult } from './ai-pass-strategy.js'
+export { emptyAiPassContext } from './ai-pass-strategy.js'
 
 export interface ItemForAutoCheck {
   id: string
@@ -47,14 +54,16 @@ export interface ItemEvaluation {
   shouldComplete: boolean
 }
 
-const DEFERRED_STRATEGIES = new Set([
-  'ai-pass',
+const DEFERRED_STRATEGIES = new Set<string>([
+  // All strategies now dispatch — the AI gateway call itself is still
+  // deferred (see ai-pass-strategy.ts), but the strategy wiring is live.
 ])
 
 export function evaluateItems(
   items: ItemForAutoCheck[],
   sections: SectionContentForCheck[],
   signals: SignalContext = emptySignalContext(),
+  aiPass: AiPassContext = emptyAiPassContext(),
 ): ItemEvaluation[] {
   const out: ItemEvaluation[] = []
   for (const item of items) {
@@ -66,7 +75,7 @@ export function evaluateItems(
     const parsed = parseAutoCompleteTag(item.autoCompleteOn)
     if (!parsed) continue
 
-    const result = dispatch(parsed.strategy, parsed.args, sections, signals)
+    const result = dispatch(parsed.strategy, parsed.args, sections, signals, aiPass)
     out.push({
       itemId: item.id,
       tag: item.autoCompleteOn ?? '',
@@ -82,12 +91,14 @@ function dispatch(
   args: string[],
   sections: SectionContentForCheck[],
   signals: SignalContext,
+  aiPass: AiPassContext,
 ): StrategyResult {
   switch (strategy) {
     case 'content-min-words':        return evaluateContentMinWords(args, sections)
     case 'content-no-placeholders':  return evaluateContentNoPlaceholders(args, sections)
     case 'references-complete':      return evaluateReferencesComplete(args, sections)
     case 'signal':                   return evaluateSignal(args, signals)
+    case 'ai-pass':                  return evaluateAiPass(args, aiPass)
     default:
       // Strategies declared in the design but not yet wired return a
       // stable 'skipped' so the UI can distinguish "not yet implemented"

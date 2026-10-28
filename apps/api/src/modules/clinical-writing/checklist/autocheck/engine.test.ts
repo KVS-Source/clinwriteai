@@ -46,24 +46,21 @@ describe('autocheck engine — evaluateItems', () => {
     expect(r[0].result.kind).toBe('pending')
   })
 
-  it('marks deferred strategies as skipped with a stable reason', () => {
-    const r = evaluateItems([
-      item({ id: 'r2', autoCompleteOn: 'ai-pass:consistency' }),
-    ], sections)
-    expect(r).toHaveLength(1)
-    for (const e of r) {
-      expect(e.result.kind).toBe('skipped')
-      expect(e.shouldComplete).toBe(false)
-      if (e.result.kind === 'skipped') expect(e.result.reason).toContain('not yet implemented')
-    }
-  })
-
-  it('references-complete now dispatches (was deferred before)', () => {
+  it('references-complete dispatches (was deferred originally)', () => {
     const r = evaluateItems([
       item({ id: 'rc-dirty', autoCompleteOn: 'references-complete' }),
     ], sections)
     expect(r).toHaveLength(1)
     expect(r[0].result.kind).toBe('completed') // clean sample sections, no citation placeholders
+  })
+
+  it('ai-pass dispatches but returns pending when no result cached', () => {
+    const r = evaluateItems([
+      item({ id: 'ai-x', autoCompleteOn: 'ai-pass:consistency' }),
+    ], sections)
+    expect(r).toHaveLength(1)
+    expect(r[0].result.kind).toBe('pending')
+    if (r[0].result.kind === 'pending') expect(r[0].result.reason).toContain('no result cached')
   })
 
   it('signal:tlf-validated dispatches using the provided SignalContext', () => {

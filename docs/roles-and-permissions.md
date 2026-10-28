@@ -28,10 +28,10 @@ Deliberately small. Everything granular happens at the project + document level.
 
 | Role | What they do | Document access |
 |---|---|---|
-| **`tenant-admin`** | Tenant settings, user management, SSO/IdP config, module toggles, audit exports, compliance. | None by default. Can grant themselves access via RACI assignment if also acting as a contributor. |
+| **`tenant-admin`** | Tenant settings, user management, SSO/IdP config, module toggles, audit exports, compliance. | None by default. Can self-grant RACI letters on documents — allowed, but emits a flagged `admin.self_grant` audit event (see §4.2). |
 | **`pm`** | Project coordinator. Creates projects, assigns team, assigns RACI per document, sets deadlines, moves stages, sees cross-project dashboards. **Does not edit content. Does not approve.** | Read-only on all docs in projects they manage. Cannot edit or approve. |
 | **`contributor`** | Everyone who works on documents — authors, reviewers, approvers, QC, publishers. One role, differentiated by **capabilities** (next column). | Determined by their RACI letter on each doc. See §4. |
-| **`auditor`** | Read-only observer. QA, compliance, legal, external SOC 2 auditors. | Read-only on **all** documents and audit logs across the tenant. Cannot comment or edit. |
+| **`auditor`** | **Internal** read-only observer. QA, internal compliance, legal. (External SOC 2 firms and regulatory inspectors use the project-scoped guest flow instead — see §6.) | Read-only on **all** documents and audit logs across the tenant. Cannot comment or edit. |
 | **`guest`** | External KOL, sponsor contact, external statistician. No account. Magic-link per document. | Read + comment on one document, time-boxed. See §6. |
 
 ### 2.1 Contributor capabilities
@@ -142,7 +142,8 @@ The `signature_meaning` text is captured on the signature event itself and shown
 
 The actual e-signature mechanism (re-authentication challenge + TOTP + signed JSON artifact bound to a `documentHash`) is the existing Module A `SignatureChain` + `SignatureRecord` schema at [`apps/api/prisma/schema/moduleA.prisma:645-689`](../apps/api/prisma/schema/moduleA.prisma#L645). We're layering `document_raci.signature_id` as a FK into that table — no new signature infrastructure, just a new ownership link. The artefact format itself is still open; see `project_phase_5_deferrals.md`.
 
-- **Every letter supports multiple users.** Multiple R's (co-authors), multiple A's (joint approvers — medical + regulatory + signatory in parallel), multiple C's (reviewer panel), multiple I's (sponsor contacts kept in the loop). The unique constraint only prevents the *same* user from holding the *same* letter twice on the same section.
+- **Every letter supports multiple users.** Multiple R's (co-authors), multiple A's (joint approvers — medical + regulatory + signatory in parallel), multiple C's (reviewer panel), multiple I's (sponsor contacts kept in the loop).
+- **Multi-letter per user across different sections.** User X can be R on section 3 **and** C on section 7 (common in CSRs — a writer authors one section and reviews another). The app layer forbids one user holding two letters on the **same** section (self-review / self-approval) and forbids a whole-doc letter (section_id NULL) plus a per-section letter for the same user (contradiction).
 - `section_id` is optional. Leave NULL for simple docs; set it for CSRs where section 10 is written by a different author than section 14.
 - `letter` must match the user's capability (`A` requires `can-approve`, etc.) — enforced on insert.
 
@@ -193,6 +194,34 @@ The letter you hold on a document determines what you can do on it.
 | Export audit for this doc | ✓ | ✓ | — | — | — | — | ✓ | — |
 
 **"Publish" is the only action gated by a capability (`can-publish`) rather than a RACI letter**, because publishing is a one-time irreversible submission to FDA ESG / EMA CESP that's done by a dedicated Submission Officer, not whoever happened to be the approver.
+
+### 4.1 Section-level letters per user
+
+A single user can hold **different letters on different sections** of the same document (e.g., R on section 3, C on section 7). Enforcement rules:
+
+- OK: `(doc, user, section_A, R)` + `(doc, user, section_B, C)` — different sections.
+- Refused by app layer: `(doc, user, section_A, R)` + `(doc, user, section_A, A)` — same section, two letters = self-review/self-approval.
+- Refused by app layer: `(doc, user, NULL, R)` + `(doc, user, section_B, C)` — whole-doc letter alongside per-section letter = contradiction.
+
+The DB uniqueness constraint `UNIQUE (document_id, user_id, letter, section_id)` catches the trivial duplicate; the two multi-letter rules above are enforced on insert in the RACI service layer and audited on refusal.
+
+### 4.2 Admin self-grant audit event
+
+A `tenant-admin` is allowed to assign themselves R/A/C/I on documents (common in small teams where the admin is also the senior writer), **but** every such self-grant emits a dedicated audit event:
+
+```
+event:      admin.self_grant
+actor:      <admin user_id>
+subject:    <document_id>
+letter:     R | A | C | I
+section_id: <id | null>
+reason:     <free-text, required field in the UI>
+hash_chain: <chained per existing audit protocol>
+```
+
+These events are **flagged in the audit log viewer** with a visible marker so an external auditor can filter for them in a single click. Rationale: an admin self-approving their own document is not forbidden (it would block legitimate small-team work) but it is a concentration-of-authority signal that compliance should always be able to review. The required `reason` field — "I am also the Medical Writer on this trial" — gives the auditor the context they need without blocking the action.
+
+The same event fires if an admin **self-removes** a RACI row (e.g., to escape a stuck gate). Reassignment of their own letter to a different user does not fire the event (that's just a normal reassignment).
 
 ---
 
@@ -249,14 +278,27 @@ Chosen path: **magic-link per document, no account**. Mirrors the License Studio
 ```sql
 guest_invitations
   id              uuid PRIMARY KEY
-  document_id     uuid REFERENCES documents
+  scope           text    -- 'document' | 'project'
+  document_id     uuid NULL REFERENCES documents   -- set when scope='document'
+  project_id      uuid NULL REFERENCES projects    -- set when scope='project'
   email           text
+  purpose         text    -- 'kol-review' | 'sponsor-review' | 'external-stat' | 'external-audit' | 'other'
   invited_by      uuid REFERENCES users
   invited_at      timestamptz
   expires_at      timestamptz
   revoked_at      timestamptz NULL
   jwt_text        text    -- the signed token we generated
+  CHECK (
+    (scope = 'document' AND document_id IS NOT NULL AND project_id IS NULL) OR
+    (scope = 'project'  AND project_id  IS NOT NULL AND document_id IS NULL)
+  )
 ```
+
+**Two guest flavours** share one table:
+- **Document-scoped** (`scope='document'`) — KOL / SME reviewers, sponsor contacts. Read + comment on one doc. 14-day default. This is the common case.
+- **Project-scoped** (`scope='project'`) — external auditors (SOC 2 firms, regulatory inspectors). Read-only across every document in one project, plus audit-log export for that project only. Longer default expiry (90 days) because engagements run long. Comments disabled. `purpose='external-audit'` triggers the read-only+audit-export behaviour.
+
+Internal auditors (QA, compliance) use the `auditor` platform role (tenant-wide, see §2). External auditors never get an account — they always come in via the project-scoped guest link.
 
 Comments made by a guest write to the existing `comments` table with an `external_email` field populated and `user_id` NULL.
 
@@ -344,11 +386,19 @@ Three chunks. Order matters.
 
 ---
 
-## 10. Open questions
+## 10. Decisions and remaining open questions
 
-1. **Approval chain UX.** Multi-approver is now baseline (parallel-ALL default; serial chains supported via `approval_order`). Open: do we expose the chain editor in v1 (PM can configure "step 1: medical+regulatory parallel, step 2: signatory") or ship with parallel-only in v1 and add the chain editor in v1.1? Recommend: v1 ships with parallel-ALL only; chain editor in v1.1 once we have real customer workflow samples.
-2. **Can a user hold multiple RACI letters on the same doc?** Example: author of section 3 is also C on section 7. Recommend: yes, as long as section_id differs. Never two letters on the same (doc, section).
-3. **PM delegation.** When a PM goes on leave, can they delegate to another PM? Recommend: yes, via tenant-admin for now (manual). Self-delegation in v2.
-4. **Guest comment visibility.** Do guests see all comments on the doc, or only their own thread? Recommend: v1 = all comments (less surprise); configurable per-invite in v2.
-5. **Auditor scope — tenant-wide or opt-in projects?** External auditors sometimes should only see one trial. Recommend: tenant-wide for internal auditors, project-scoped guest-link flavour for external SOC 2 / regulatory inspectors.
-6. **Tenant-admin as contributor.** Should tenant-admin be able to grant themselves R/A/C/I on a doc, or must they drop the admin role first? Recommend: allowed, but every self-assignment emits a flagged audit event ("admin self-granted access").
+### Decided (2026-10-28)
+
+| # | Decision | Resolution |
+|---|---|---|
+| 1 | **Approval chain UX** | v1 ships parallel-ALL only. Chain editor deferred to v1.1 (schema already supports it via `approval_order`). |
+| 2 | **Multi-letter per user on same doc** | Allowed across different sections; forbidden on same section (self-review) or whole-doc+per-section (contradiction). See §4.1. |
+| 3 | **Auditor scope** | Internal auditors = tenant-wide `auditor` role. External auditors = project-scoped guest magic-link (`scope='project'`, `purpose='external-audit'`). Never full tenant accounts. See §6.2. |
+| 4 | **Tenant-admin as contributor** | Self-grant allowed; every self-grant emits a flagged `admin.self_grant` audit event with a required reason field. See §4.2. |
+
+### Still open
+
+1. **PM delegation.** When a PM goes on leave, can they delegate their project ownership to another PM, or must tenant-admin do it manually? Recommend: tenant-admin manual reassignment in v1, PM self-delegation in v2.
+2. **Guest comment visibility.** Does a document-scoped guest see all comments on the doc, or only their own thread? Recommend: v1 = all comments on the doc (less surprise for the external reviewer); configurable per-invite in v2.
+3. **Nudge throttling.** The "Nudge pending cohort" action — should it be rate-limited (e.g., one nudge per person per 24h) to prevent notification spam? Recommend: yes, 24h cooldown per (document, actor, target) tuple.

@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
-import { useInfiniteQuery } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query'
 import type { AuditEntry } from '@platform/types'
 import { documentsApi } from '../api'
 import { apiConfig } from '../api/client'
+import { DateTimeRangeFilter, defaultRange, rangeToIso, toInputValue, type TimeZoneMode } from '../components/ui/DateTimeRangeFilter'
 import { wordDiff } from './wordDiff'
 
 interface ScopeSection { id: string; number: string; title: string }
@@ -191,16 +192,32 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
   useEffect(() => { setWholeDocument(false) }, [section?.id])
   const scopeSection = wholeDocument ? null : section
 
+  // Date & time range — opens on the last month, same as the admin Audit Trail page.
+  const [tz, setTz] = useState<TimeZoneMode>('local')
+  const [range, setRange] = useState(() => defaultRange('local'))
+  const rangeActive  = range.from !== '' || range.to !== ''
+  const rangeInvalid = range.from !== '' && range.to !== '' && range.from > range.to
+  const fromIso = rangeToIso(range.from, 'start', tz)
+  const toIso   = rangeToIso(range.to, 'end', tz)
+  // Switching timezone keeps the range on the same moments, re-expressed in the new zone.
+  const changeTz = (next: TimeZoneMode) => {
+    const convert = (v: string) => (v ? toInputValue(new Date(rangeToIso(v, 'start', tz)!), next) : '')
+    setRange(r => ({ from: convert(r.from), to: convert(r.to) }))
+    setTz(next)
+  }
+
   // The trail is loaded a page at a time, newest first; "Load more" fetches the next page.
+  // A From that is after the To isn't sent — the list keeps showing the last valid range.
   const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
-    queryKey: ['audit', documentId, 'pages'],
-    queryFn:  ({ pageParam }) => documentsApi.getAuditTrail(documentId, { limit: PAGE_SIZE, offset: pageParam }),
+    queryKey: ['audit', documentId, 'pages', fromIso ?? null, toIso ?? null],
+    queryFn:  ({ pageParam }) => documentsApi.getAuditTrail(documentId, { limit: PAGE_SIZE, offset: pageParam, from: fromIso, to: toIso }),
     initialPageParam: 0,
     getNextPageParam: (last, all) => {
       const loaded = all.reduce((n, p) => n + p.entries.length, 0)
       return last.entries.length > 0 && loaded < last.total ? loaded : undefined
     },
-    enabled:  !!documentId,
+    enabled:  !!documentId && !rangeInvalid,
+    placeholderData: keepPreviousData,
   })
 
   const entries: AuditEntry[] = useMemo(() => data?.pages.flatMap(p => p.entries) ?? [], [data])
@@ -304,12 +321,12 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
             )
           })}
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-slate-500">Range</span>
-          <span className="rounded border px-1.5 py-0.5 font-mono text-[10px] text-slate-500" style={{ borderColor: '#E2E8F0', backgroundColor: '#FFFFFF' }}>
-            all time
-          </span>
-        </div>
+        <DateTimeRangeFilter
+          align="left"
+          from={range.from} to={range.to} tz={tz} invalid={rangeInvalid}
+          onChange={setRange} onTzChange={changeTz}
+        />
+        {rangeInvalid && <p className="text-[11px] text-red-700">The range's "From" is after its "To".</p>}
       </div>
 
       {/* Scroll list */}
@@ -321,8 +338,15 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
         {!isLoading && filtered.length === 0 && (
           <div className="p-8 text-center">
             <p className="text-sm font-semibold text-slate-900">
-              {scopeSection ? 'No events for this section' : 'No matching events'}{hasNextPage ? ' in the entries loaded so far' : ''}
+              {scopeSection ? 'No events for this section'
+                : rangeActive && entries.length === 0 ? 'No events in this date range'
+                : 'No matching events'}{hasNextPage ? ' in the entries loaded so far' : ''}
             </p>
+            {rangeActive && (
+              <button type="button" onClick={() => setRange({ from: '', to: '' })} className="mt-1 mr-3 text-xs font-semibold text-blue-600 hover:text-blue-700" data-action="show-all-time">
+                Show all time
+              </button>
+            )}
             {scopeSection && (
               <button type="button" onClick={() => setWholeDocument(true)} className="mt-1 mr-3 text-xs font-semibold text-blue-600 hover:text-blue-700">
                 Show whole document
@@ -422,7 +446,7 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
           </div>
         )}
         {!isLoading && !hasNextPage && (filter === 'all' || total <= filtered.length) && filtered.length > 0 && (
-          <p className="px-4 py-3 text-xs text-slate-500">Showing all {filtered.length} entries</p>
+          <p className="px-4 py-3 text-xs text-slate-500">Showing all {filtered.length} entries{rangeActive ? ' in this date range' : ''}</p>
         )}
       </div>
 

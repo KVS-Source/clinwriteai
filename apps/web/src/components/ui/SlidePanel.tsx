@@ -71,7 +71,9 @@ export function SlidePanel({
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      // A control inside the panel (e.g. an open date-range popover) that already used
+      // Esc marks it handled — that press shouldn't also close the panel.
+      if (e.key === 'Escape' && !e.defaultPrevented) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)

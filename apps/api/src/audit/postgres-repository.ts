@@ -93,26 +93,31 @@ export class PostgresAuditRepository implements AuditRepository {
   }
 
   async pageForEntity(entityType: string, entityId: string, opts: EntityPageOptions = {}): Promise<EntityPage> {
-    const { limit = 100, offset = 0, action } = opts
+    const { limit = 100, offset = 0, action, from, to } = opts
+    // $1 type, $2 id, $3 action, $4 from, $5 to — shared by the page and the count.
+    const filter = `entity_type = $1 AND entity_id = $2 AND ($3::text IS NULL OR action = $3::text)
+           AND ($4::timestamptz IS NULL OR "timestamp" >= $4::timestamptz)
+           AND ($5::timestamptz IS NULL OR "timestamp" <= $5::timestamptz)`
+    const filterArgs = [action ?? null, from ?? null, to ?? null]
     const [rows, counts] = await Promise.all([
       this.prisma.$queryRawUnsafe<AuditRow[]>(
         `SELECT id, "timestamp", actor_id, action, entity_type, entity_id, details, ip_address, prev_hash, row_hash
          FROM audit_events
-         WHERE entity_type = $1 AND entity_id = $2 AND ($3::text IS NULL OR action = $3::text)
+         WHERE ${filter}
          ORDER BY id DESC
-         LIMIT $4 OFFSET $5`,
+         LIMIT $6 OFFSET $7`,
         entityType,
         entityId,
-        action ?? null,
+        ...filterArgs,
         limit,
         offset,
       ),
       this.prisma.$queryRawUnsafe<Array<{ n: bigint }>>(
         `SELECT COUNT(*) AS n FROM audit_events
-         WHERE entity_type = $1 AND entity_id = $2 AND ($3::text IS NULL OR action = $3::text)`,
+         WHERE ${filter}`,
         entityType,
         entityId,
-        action ?? null,
+        ...filterArgs,
       ),
     ])
     return { rows: rows.map(toShape), total: Number(counts[0]?.n ?? 0) }

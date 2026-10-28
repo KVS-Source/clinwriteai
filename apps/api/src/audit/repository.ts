@@ -35,6 +35,9 @@ export interface EntityPageOptions {
   limit?:  number
   offset?: number
   action?: string
+  /** Only events at or after / at or before these ISO instants. */
+  from?:   string
+  to?:     string
 }
 
 export interface EntityPage {
@@ -88,9 +91,12 @@ export class InMemoryAuditRepository implements AuditRepository {
   }
 
   async pageForEntity(entityType: string, entityId: string, opts: EntityPageOptions = {}): Promise<EntityPage> {
-    const { limit = 100, offset = 0, action } = opts
+    const { limit = 100, offset = 0, action, from, to } = opts
+    const fromMs = from ? Date.parse(from) : -Infinity
+    const toMs = to ? Date.parse(to) : Infinity
     const matching = this.rows
       .filter(r => r.entityType === entityType && r.entityId === entityId && (!action || r.action === action))
+      .filter(r => { const t = Date.parse(r.timestamp); return t >= fromMs && t <= toMs })
       .reverse()
     return { rows: matching.slice(offset, offset + limit), total: matching.length }
   }

@@ -723,8 +723,7 @@ export function ClinicalWritingHome() {
       >
         {auditDoc && (
           <div className="flex h-full flex-col" data-document-audit-panel={auditDoc.id}>
-            <div className="flex flex-none items-center justify-between border-b border-slate-200 px-4 py-2">
-              <span className="font-mono text-[10px] text-slate-500">{auditDoc.id}</span>
+            <div className="flex flex-none items-center justify-end border-b border-slate-200 px-4 py-2">
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${auditDoc.id}`)}

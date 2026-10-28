@@ -110,6 +110,61 @@ describe('GET /documents/:id/audit', () => {
   })
 })
 
+describe('GET /documents/:id/audit — date range', () => {
+  // event N happened at 2026-10-01 00:00:N UTC
+  const at = (sec: number) => encodeURIComponent(new Date(Date.UTC(2026, 9, 1, 0, 0, sec)).toISOString())
+
+  it('returns only entries inside from..to, newest first, with a total for that range', async () => {
+    const app = await buildApp({ events: 60 })
+    const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/audit?from=${at(10)}&to=${at(19)}` })).json()
+    expect(body.total).toBe(10)
+    expect(seqOf(body.entries)).toEqual([19, 18, 17, 16, 15, 14, 13, 12, 11, 10])   // both ends inclusive
+  })
+
+  it('pages within the range', async () => {
+    const app = await buildApp({ events: 60 })
+    const base = `/documents/${DOC}/audit?from=${at(10)}&to=${at(39)}&limit=10`
+    const p1 = (await app.inject({ method: 'GET', url: `${base}&offset=0` })).json()
+    const p3 = (await app.inject({ method: 'GET', url: `${base}&offset=20` })).json()
+    expect(p1.total).toBe(30)
+    expect(seqOf(p1.entries)[0]).toBe(39)
+    expect(seqOf(p3.entries)).toEqual([19, 18, 17, 16, 15, 14, 13, 12, 11, 10])
+  })
+
+  it('accepts a range with only one end', async () => {
+    const app = await buildApp({ events: 60 })
+    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/audit?from=${at(51)}` })).json().total).toBe(10)
+    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/audit?to=${at(5)}` })).json().total).toBe(5)
+  })
+
+  it('returns an empty list, not an error, when nothing falls in the range', async () => {
+    const app = await buildApp({ events: 20 })
+    const res = await app.inject({ method: 'GET', url: `/documents/${DOC}/audit?from=2030-01-01T00:00:00.000Z` })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ entries: [], total: 0 })
+  })
+
+  it('accepts a timezone offset in the instant', async () => {
+    const app = await buildApp({ events: 20 })
+    // 05:30 in +05:30 is 00:00 UTC, i.e. before event 1 at 00:00:01 UTC
+    const res = await app.inject({ method: 'GET', url: `/documents/${DOC}/audit?from=${encodeURIComponent('2026-10-01T05:30:00+05:30')}` })
+    expect(res.json().total).toBe(20)
+  })
+
+  it('rejects a bad date and a range whose from is after its to', async () => {
+    const app = await buildApp({ events: 5 })
+    for (const q of ['from=yesterday', 'to=2026-13-45', `from=${at(30)}&to=${at(10)}`]) {
+      expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/audit?${q}` })).statusCode).toBe(400)
+    }
+  })
+
+  it('does not narrow the export (a compliance export always covers the whole trail)', async () => {
+    const app = await buildApp({ events: 30 })
+    const res = await app.inject({ method: 'GET', url: `/documents/${DOC}/audit/export?from=${at(10)}&to=${at(12)}` })
+    expect(res.body.trim().split('\r\n')).toHaveLength(1 + 30)
+  })
+})
+
 describe('GET /documents/:id/audit/export', () => {
   it('includes every entry, oldest first, including ones past the first 500', async () => {
     const app = await buildApp({ events: 620 })

@@ -22,6 +22,9 @@ const AUDIT_PAGE_MAX = 500
 const auditPageQuery = z.object({
   limit:  z.coerce.number().int().min(1).max(AUDIT_PAGE_MAX).default(AUDIT_PAGE_MAX),
   offset: z.coerce.number().int().min(0).default(0),
+  // Optional date-time range (ISO 8601 with Z or an offset); omitted = whole history.
+  from:   z.string().datetime({ offset: true }).optional(),
+  to:     z.string().datetime({ offset: true }).optional(),
 })
 // CSV / PDF export: newest events up to this many, fetched in pages.
 const EXPORT_ENTRY_CAP = 10_000
@@ -323,13 +326,16 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
     const parsedPage = auditPageQuery.safeParse(request.query)
     if (!parsedPage.success) return reply.code(400).send({ error: 'validation', issues: parsedPage.error.issues })
-    const { limit, offset } = parsedPage.data
+    const { limit, offset, from, to } = parsedPage.data
+    if (from && to && Date.parse(from) > Date.parse(to)) {
+      return reply.code(400).send({ error: 'validation', message: '"from" is after "to"' })
+    }
 
     // Newest first, with the TRUE total so the panel can page through the rest.
     // UI (documentsApi.getAuditTrail) expects a paginated envelope rather
     // than a bare array — a bare array causes `(auditData?.entries ?? []).map`
     // in AuditReviewAlert.tsx to throw "d.map is not a function".
-    const page = await app.audit.pageForEntity('document', documentId, { limit, offset })
+    const page = await app.audit.pageForEntity('document', documentId, { limit, offset, from, to })
     return { entries: await shapeAuditRows(page.rows), total: page.total, limit, offset }
   })
 

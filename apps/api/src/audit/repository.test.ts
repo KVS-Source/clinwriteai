@@ -70,6 +70,23 @@ describe('InMemoryAuditRepository', () => {
     expect(await repo.pageForEntity('doc', 'NONE')).toEqual({ rows: [], total: 0 })
   })
 
+  it('pageForEntity limits events to the date range, counting only those inside it', async () => {
+    const repo = new InMemoryAuditRepository(SECRET)
+    for (let i = 1; i <= 10; i++) {
+      // one event per day, 1–10 Oct 2026
+      await repo.append({ ...makeEvent(i), timestamp: new Date(Date.UTC(2026, 9, i, 12)).toISOString(), entityType: 'doc', entityId: 'X' })
+    }
+    const mid = await repo.pageForEntity('doc', 'X', { from: '2026-10-03T00:00:00.000Z', to: '2026-10-06T23:59:59.999Z' })
+    expect(mid.total).toBe(4)
+    expect(mid.rows.map(e => e.actorId)).toEqual(['user-6', 'user-5', 'user-4', 'user-3'])
+
+    expect((await repo.pageForEntity('doc', 'X', { from: '2026-10-09T00:00:00.000Z' })).total).toBe(2)   // open-ended
+    expect((await repo.pageForEntity('doc', 'X', { to: '2026-10-02T23:59:59.999Z' })).total).toBe(2)
+    expect((await repo.pageForEntity('doc', 'X', { from: '2027-01-01T00:00:00.000Z' })).rows).toEqual([])
+    // boundaries are inclusive
+    expect((await repo.pageForEntity('doc', 'X', { from: '2026-10-05T12:00:00.000Z', to: '2026-10-05T12:00:00.000Z' })).total).toBe(1)
+  })
+
   it('respects the limit on listForEntity', async () => {
     const repo = new InMemoryAuditRepository(SECRET)
     for (let i = 1; i <= 10; i++) {

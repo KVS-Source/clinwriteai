@@ -313,10 +313,17 @@ export const documentsApi = {
     }),
   // Audit
   // Newest first. Without `page` the server returns up to its default page.
-  getAuditTrail: (documentId: string, page?: { limit: number; offset: number }) =>
-    api.get<{ entries: AuditEntry[]; total: number; limit: number; offset: number }>(
-      `/documents/${documentId}/audit${page ? `?limit=${page.limit}&offset=${page.offset}` : ''}`,
-    ),
+  // `from` / `to` (ISO instants) narrow it to a date-time range.
+  getAuditTrail: (documentId: string, page?: { limit: number; offset: number; from?: string; to?: string }) => {
+    const qs = page
+      ? new URLSearchParams(Object.entries({ limit: page.limit, offset: page.offset, from: page.from, to: page.to })
+          .filter(([, v]) => v !== undefined && v !== '')
+          .map(([k, v]) => [k, String(v)])).toString()
+      : ''
+    return api.get<{ entries: AuditEntry[]; total: number; limit: number; offset: number }>(
+      `/documents/${documentId}/audit${qs ? `?${qs}` : ''}`,
+    )
+  },
   // Voice notes
   getVoiceNotes: (documentId: string) =>
     api.get<VoiceNote[]>(`/documents/${documentId}/voice-notes`),

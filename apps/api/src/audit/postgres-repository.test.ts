@@ -78,9 +78,29 @@ describe('PostgresAuditRepository.pageForEntity', () => {
 
     expect(page).toEqual({ rows: [], total: 231 })
     const rowsQuery = sqls.find(q => /ORDER BY id DESC/.test(q.sql))!
-    expect(rowsQuery.args).toEqual(['document', 'DOC-1', 'qa_review_logged', 100, 200])
+    expect(rowsQuery.args).toEqual(['document', 'DOC-1', 'qa_review_logged', null, null, 100, 200])
     const countQuery = sqls.find(q => /COUNT\(\*\)/.test(q.sql))!
-    expect(countQuery.args).toEqual(['document', 'DOC-1', 'qa_review_logged'])
+    expect(countQuery.args).toEqual(['document', 'DOC-1', 'qa_review_logged', null, null])
+  })
+
+  it('applies the date range to both the page and the count', async () => {
+    const sqls: Array<{ sql: string; args: unknown[] }> = []
+    const $queryRawUnsafe = vi.fn(async (sql: string, ...args: unknown[]) => {
+      sqls.push({ sql, args })
+      return /COUNT\(\*\)/.test(sql) ? [{ n: 12n }] : []
+    })
+    const repo = new PostgresAuditRepository({ $queryRawUnsafe } as unknown as PrismaClient, SECRET)
+    const from = '2026-09-27T18:30:00.000Z'
+    const to = '2026-10-28T18:29:59.999Z'
+
+    const page = await repo.pageForEntity('document', 'DOC-1', { limit: 100, from, to })
+
+    expect(page.total).toBe(12)
+    for (const q of sqls) {
+      expect(q.sql).toContain('"timestamp" >= $4::timestamptz')
+      expect(q.sql).toContain('"timestamp" <= $5::timestamptz')
+      expect(q.args.slice(0, 5)).toEqual(['document', 'DOC-1', null, from, to])
+    }
   })
 
   it('passes null when no action filter is given', async () => {
@@ -88,7 +108,7 @@ describe('PostgresAuditRepository.pageForEntity', () => {
     const repo = new PostgresAuditRepository({ $queryRawUnsafe } as unknown as PrismaClient, SECRET)
     await repo.pageForEntity('document', 'DOC-1')
     const rowsCall = $queryRawUnsafe.mock.calls.find(c => /ORDER BY id DESC/.test(String(c[0])))!
-    expect(rowsCall.slice(1)).toEqual(['document', 'DOC-1', null, 100, 0])
+    expect(rowsCall.slice(1)).toEqual(['document', 'DOC-1', null, null, null, 100, 0])
   })
 })
 

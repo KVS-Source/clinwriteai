@@ -8,9 +8,9 @@ import {
 } from './content-strategies.js'
 
 const sections: SectionContentForCheck[] = [
-  { sectionNumber: '10.1',   contentHtml: '<p>Subject disposition prose.</p>',                   wordCount: 80  },
-  { sectionNumber: '11.4.1', contentHtml: '<p>Primary endpoint narrative with [TBD] still.</p>', wordCount: 350 },
-  { sectionNumber: '14.1',   contentHtml: '<p>Reference tables listing.</p>',                    wordCount: 120 },
+  { sectionId: '10.1',   sectionNumber: '10.1',   contentHtml: '<p>Subject disposition prose.</p>',                   wordCount: 80  },
+  { sectionId: '11.4.1', sectionNumber: '11.4.1', contentHtml: '<p>Primary endpoint narrative with [TBD] still.</p>', wordCount: 350 },
+  { sectionId: '14.1',   sectionNumber: '14.1',   contentHtml: '<p>Reference tables listing.</p>',                    wordCount: 120 },
 ]
 
 describe('parseAutoCompleteTag', () => {
@@ -76,7 +76,7 @@ describe('evaluateContentNoPlaceholders', () => {
 
   it('pending when any section has [PLACEHOLDER]', () => {
     const r = evaluateContentNoPlaceholders([], [
-      { sectionNumber: '12', contentHtml: 'Draft with [Placeholder] marker', wordCount: 50 },
+      { sectionId: '12', sectionNumber: '12', contentHtml: 'Draft with [Placeholder] marker', wordCount: 50 },
     ])
     expect(r.kind).toBe('pending')
     if (r.kind === 'pending') expect(r.reason).toContain('[placeholder]')
@@ -84,7 +84,7 @@ describe('evaluateContentNoPlaceholders', () => {
 
   it('pending when any section has [REF]', () => {
     const r = evaluateContentNoPlaceholders([], [
-      { sectionNumber: '12', contentHtml: 'See [REF] for details', wordCount: 50 },
+      { sectionId: '12', sectionNumber: '12', contentHtml: 'See [REF] for details', wordCount: 50 },
     ])
     expect(r.kind).toBe('pending')
     if (r.kind === 'pending') expect(r.reason).toContain('[ref]')
@@ -92,8 +92,8 @@ describe('evaluateContentNoPlaceholders', () => {
 
   it('completed when all sections are clean', () => {
     const r = evaluateContentNoPlaceholders([], [
-      { sectionNumber: '10', contentHtml: 'Clean prose with resolved citation', wordCount: 80 },
-      { sectionNumber: '11', contentHtml: 'Another section without markers',   wordCount: 60 },
+      { sectionId: '10', sectionNumber: '10', contentHtml: 'Clean prose with resolved citation', wordCount: 80 },
+      { sectionId: '11', sectionNumber: '11', contentHtml: 'Another section without markers',   wordCount: 60 },
     ])
     expect(r.kind).toBe('completed')
   })
@@ -112,7 +112,7 @@ describe('evaluateContentNoPlaceholders', () => {
 describe('evaluateReferencesComplete', () => {
   it('pending when a section has [Ref: ...]', () => {
     const r = evaluateReferencesComplete([], [
-      { sectionNumber: '12', contentHtml: 'See [Ref: Smith 2020] for primary endpoint.', wordCount: 50 },
+      { sectionId: '12', sectionNumber: '12', contentHtml: 'See [Ref: Smith 2020] for primary endpoint.', wordCount: 50 },
     ])
     expect(r.kind).toBe('pending')
     if (r.kind === 'pending') {
@@ -123,7 +123,7 @@ describe('evaluateReferencesComplete', () => {
 
   it('pending when a section has [cite]', () => {
     const r = evaluateReferencesComplete([], [
-      { sectionNumber: '12', contentHtml: 'Primary endpoint [cite] was met.', wordCount: 50 },
+      { sectionId: '12', sectionNumber: '12', contentHtml: 'Primary endpoint [cite] was met.', wordCount: 50 },
     ])
     expect(r.kind).toBe('pending')
     if (r.kind === 'pending') expect(r.reason).toContain('[cite …]')
@@ -131,14 +131,14 @@ describe('evaluateReferencesComplete', () => {
 
   it('pending when a section has [cite: xxx]', () => {
     const r = evaluateReferencesComplete([], [
-      { sectionNumber: '12', contentHtml: 'Mentioned in prior work [cite: Jones 2019].', wordCount: 50 },
+      { sectionId: '12', sectionNumber: '12', contentHtml: 'Mentioned in prior work [cite: Jones 2019].', wordCount: 50 },
     ])
     expect(r.kind).toBe('pending')
   })
 
   it('pending when a section has [citation needed]', () => {
     const r = evaluateReferencesComplete([], [
-      { sectionNumber: '12', contentHtml: 'A notable finding [citation needed]', wordCount: 50 },
+      { sectionId: '12', sectionNumber: '12', contentHtml: 'A notable finding [citation needed]', wordCount: 50 },
     ])
     expect(r.kind).toBe('pending')
     if (r.kind === 'pending') expect(r.reason).toContain('[citation needed]')
@@ -146,15 +146,15 @@ describe('evaluateReferencesComplete', () => {
 
   it('pending when a section has [reference needed]', () => {
     const r = evaluateReferencesComplete([], [
-      { sectionNumber: '12', contentHtml: 'Supporting data [Reference Needed] here.', wordCount: 50 },
+      { sectionId: '12', sectionNumber: '12', contentHtml: 'Supporting data [Reference Needed] here.', wordCount: 50 },
     ])
     expect(r.kind).toBe('pending')
   })
 
   it('completed when sections are clean (no citation placeholders)', () => {
     const r = evaluateReferencesComplete([], [
-      { sectionNumber: '10', contentHtml: 'Resolved citation (Smith, 2020) present.', wordCount: 80 },
-      { sectionNumber: '11', contentHtml: 'Another citation (Jones et al., 2019).',   wordCount: 60 },
+      { sectionId: '10', sectionNumber: '10', contentHtml: 'Resolved citation (Smith, 2020) present.', wordCount: 80 },
+      { sectionId: '11', sectionNumber: '11', contentHtml: 'Another citation (Jones et al., 2019).',   wordCount: 60 },
     ])
     expect(r.kind).toBe('completed')
   })
@@ -165,16 +165,68 @@ describe('evaluateReferencesComplete', () => {
 
   it('scoped to one section ignores unresolved cites in others', () => {
     const r = evaluateReferencesComplete(['10'], [
-      { sectionNumber: '10', contentHtml: 'Clean section (resolved).',  wordCount: 50 },
-      { sectionNumber: '11', contentHtml: 'Section with [Ref: TBD].',   wordCount: 50 },
+      { sectionId: '10', sectionNumber: '10', contentHtml: 'Clean section (resolved).',  wordCount: 50 },
+      { sectionId: '11', sectionNumber: '11', contentHtml: 'Section with [Ref: TBD].',   wordCount: 50 },
     ])
     expect(r.kind).toBe('completed')
   })
 
   it('skipped when scoped section is missing', () => {
     const r = evaluateReferencesComplete(['99.9'], [
-      { sectionNumber: '10', contentHtml: 'Something', wordCount: 50 },
+      { sectionId: '10', sectionNumber: '10', contentHtml: 'Something', wordCount: 50 },
     ])
     expect(r.kind).toBe('skipped')
+  })
+
+  // --- Cross-check pass against SourceReference context -------------------
+
+  it('cross-check: pending when a substantive section has 0 active references', () => {
+    const r = evaluateReferencesComplete([], [
+      { sectionId: 's-10', sectionNumber: '10', contentHtml: 'Clean prose at length', wordCount: 350 },
+    ], { 's-10': 0 })
+    expect(r.kind).toBe('pending')
+    if (r.kind === 'pending') {
+      expect(r.reason).toContain('350 words')
+      expect(r.reason).toContain('no active SourceReference')
+    }
+  })
+
+  it('cross-check: completed when every substantive section has >= 1 active reference', () => {
+    const r = evaluateReferencesComplete([], [
+      { sectionId: 's-10', sectionNumber: '10', contentHtml: 'Clean prose', wordCount: 350 },
+      { sectionId: 's-11', sectionNumber: '11', contentHtml: 'More prose',  wordCount: 200 },
+    ], { 's-10': 3, 's-11': 1 })
+    expect(r.kind).toBe('completed')
+    if (r.kind === 'completed') expect(r.reason).toContain('every substantive section has active references')
+  })
+
+  it('cross-check: substantive-threshold ignores short header / stub sections', () => {
+    const r = evaluateReferencesComplete([], [
+      { sectionId: 's-10', sectionNumber: '10', contentHtml: 'Short header',    wordCount: 30 },
+      { sectionId: 's-11', sectionNumber: '11', contentHtml: 'Longer section',  wordCount: 350 },
+    ], { 's-11': 2 })  // only s-11 needs refs; s-10 is under threshold
+    expect(r.kind).toBe('completed')
+  })
+
+  it('cross-check: references context is skipped silently when empty (back-compat)', () => {
+    // Empty context = caller didn't fetch — strategy falls back to pattern-only
+    // (don't falsely fail a section just because the context wasn't loaded).
+    const r = evaluateReferencesComplete([], [
+      { sectionId: 's-10', sectionNumber: '10', contentHtml: 'Clean prose', wordCount: 350 },
+    ])
+    expect(r.kind).toBe('completed')
+    if (r.kind === 'completed') expect(r.reason).not.toContain('every substantive')
+  })
+
+  it('cross-check: pattern violation takes precedence over cross-check miss', () => {
+    const r = evaluateReferencesComplete([], [
+      { sectionId: 's-10', sectionNumber: '10', contentHtml: 'Still has [Ref: TBD]', wordCount: 350 },
+    ], { 's-10': 0 })
+    expect(r.kind).toBe('pending')
+    if (r.kind === 'pending') {
+      // Pattern path reports [ref: …]; cross-check would have reported
+      // "no active SourceReference".
+      expect(r.reason).toContain('[ref: …]')
+    }
   })
 })

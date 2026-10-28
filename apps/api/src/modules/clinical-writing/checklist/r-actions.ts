@@ -18,8 +18,10 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
 import { evaluateSubmitGate, type ChecklistItemForGate } from './submit-gate.js'
-import { evaluateItems as evaluateAutoCheck, type ItemForAutoCheck, type SignalContext } from './autocheck/engine.js'
+import { emptyAiPassContext, evaluateItems as evaluateAutoCheck, type ItemForAutoCheck, type SignalContext, type ReferencesContext, type AiPassContext } from './autocheck/engine.js'
 import type { SectionContentForCheck } from './autocheck/content-strategies.js'
+import { AI_PASS_PROFILES, buildAiPassPrompt, parseAiPassResponse } from './autocheck/ai-pass-prompt.js'
+import { getAllAiPassResultsForDocument, putAiPassResult } from './autocheck/ai-pass-cache.js'
 
 const reorderSchema = z.object({
   // Compact body: list of {itemId, sortOrder}. Caller sends every item
@@ -264,9 +266,32 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
     const sections: SectionContentForCheck[] = doc.currentVersionId
       ? (await app.prisma.sectionContent.findMany({
           where: { documentVersionId: doc.currentVersionId },
-          select: { sectionNumber: true, contentHtml: true, wordCount: true },
+          select: { sectionId: true, sectionNumber: true, contentHtml: true, wordCount: true },
         }))
       : []
+
+    // References context — only fetched if a references-complete item exists,
+    // so the common autocheck run stays cheap. We count active SourceReference
+    // rows per section (those with no corresponding SourceReferenceRemoval).
+    const hasReferencesItem = instance.items.some(i => (i.autoCompleteOn ?? '').toLowerCase().startsWith('references-complete'))
+    let references: ReferencesContext = {}
+    if (hasReferencesItem) {
+      const [refs, removals] = await Promise.all([
+        app.prisma.sourceReference.findMany({
+          where: { documentId },
+          select: { id: true, sectionId: true },
+        }),
+        app.prisma.sourceReferenceRemoval.findMany({
+          where: { documentId },
+          select: { referenceId: true },
+        }),
+      ])
+      const removedIds = new Set(removals.map(r => r.referenceId))
+      for (const r of refs) {
+        if (removedIds.has(r.id)) continue
+        references[r.sectionId] = (references[r.sectionId] ?? 0) + 1
+      }
+    }
 
     // Fetch signal context for signal:* strategies. Three parallelised reads.
     // Only fired if the instance has at least one signal-tagged item (keeps
@@ -301,8 +326,17 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
+    // AI pass context — populated only when ai-pass:* items exist, and only
+    // reads from the in-process cache (no AI gateway calls during
+    // autocheck/run). The gateway call lives on the dedicated ai-pass
+    // endpoint below.
+    const hasAiPassItem = instance.items.some(i => (i.autoCompleteOn ?? '').toLowerCase().startsWith('ai-pass:'))
+    const aiPass: AiPassContext = hasAiPassItem
+      ? getAllAiPassResultsForDocument(documentId, doc.currentVersionId)
+      : emptyAiPassContext()
+
     const items = instance.items as unknown as ItemForAutoCheck[]
-    const evaluations = evaluateAutoCheck(items, sections, signals)
+    const evaluations = evaluateAutoCheck(items, sections, signals, aiPass, references)
     const toFlip = evaluations.filter(e => e.shouldComplete)
 
     if (toFlip.length === 0) {
@@ -361,6 +395,114 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
         kind: e.result.kind,
         reason: e.result.reason,
       })),
+    })
+  })
+
+  // ---------------------------------------------------------------------
+  // POST /:documentId/checklist/autocheck/ai-pass/:profile — R-only.
+  //
+  // Fires the AI gateway on the doc's current version with the named
+  // profile's prompt, parses the JSON summary from the model's reply,
+  // and caches the result in-process. Subsequent autocheck/run calls
+  // read the cached result via AiPassContext and the ai-pass strategy
+  // flips the item to 'completed' iff criticalIssues === 0.
+  //
+  // Cache key = (documentId, profile, currentVersionId). When a new
+  // version lands, the key changes and the next ai-pass run against
+  // the stale version naturally re-executes.
+  //
+  // Why the gateway call lives here (not in autocheck/run): it burns
+  // tokens, so it's user-initiated. The regular autocheck/run stays
+  // free (reads cache only).
+  // ---------------------------------------------------------------------
+  app.post('/:documentId/checklist/autocheck/ai-pass/:profile', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, profile } = request.params as { documentId: string; profile: string }
+    const actor = request.user!
+
+    if (!(await actorCanEditDocumentRaci(app.prisma, actor, documentId))) {
+      return reply.code(403).send({
+        error: 'ai_pass_forbidden',
+        message: 'Only an R on this document (or an admin) can run an AI pass.',
+      })
+    }
+
+    const profileDef = AI_PASS_PROFILES[profile.toLowerCase()]
+    if (!profileDef) {
+      return reply.code(400).send({
+        error: 'unknown_profile',
+        message: `Unknown AI pass profile "${profile}". Available: ${Object.keys(AI_PASS_PROFILES).join(', ')}`,
+      })
+    }
+
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { id: true, projectId: true, currentVersionId: true },
+    })
+    if (!doc) return reply.code(404).send({ error: 'document_not_found' })
+
+    const sections = doc.currentVersionId
+      ? await app.prisma.sectionContent.findMany({
+          where: { documentVersionId: doc.currentVersionId },
+          select: { sectionNumber: true, contentHtml: true },
+          orderBy: { sectionNumber: 'asc' },
+        })
+      : []
+
+    if (sections.length === 0) {
+      return reply.code(422).send({
+        error: 'no_content',
+        message: 'Document has no section content to review. Save at least one section first.',
+      })
+    }
+
+    const prompt = buildAiPassPrompt(profileDef, sections)
+
+    // The AI gateway handles quota, PII scrubbing, rate limiting, cost
+    // tracking. We pass through tenant + project for accounting.
+    const result = await app.aiGateway.chat({
+      tenantId: actor.tenantId,
+      projectId: doc.projectId,
+      actorId: actor.id,
+      module: 'A',
+      intent: `checklist_ai_pass:${profileDef.name}`,
+      model: 'claude-sonnet-4-6',
+      prompt,
+      maxOutputTokens: 1200,
+    })
+
+    const parsed = parseAiPassResponse(result.responseText)
+    putAiPassResult(documentId, profileDef.name, doc.currentVersionId, parsed)
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: actor.id,
+      action: 'checklist_ai_pass.ran',
+      entityType: 'document',
+      entityId: documentId,
+      details: {
+        profile: profileDef.name,
+        versionId: doc.currentVersionId,
+        criticalIssues: parsed.criticalIssues,
+        aiCallRecordId: result.recordId,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        costUsd: result.costUsd,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.send({
+      profile: profileDef.name,
+      result: parsed,
+      cached: true,
+      versionId: doc.currentVersionId,
+      gateway: {
+        model: result.model,
+        inputTokens: result.inputTokens,
+        outputTokens: result.outputTokens,
+        costUsd: result.costUsd,
+        limitDecision: result.limitDecision,
+      },
     })
   })
 }

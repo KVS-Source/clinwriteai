@@ -48,13 +48,17 @@ export function ReviewerView() {
   // Side panel: drag the edge to resize, or expand it to the whole working area.
   const panel = useResizablePanel({ activePanel })
 
-  // The Audit Trail panel is read-only, so a click outside it or Esc closes it. (Comments and
-  // Checklist stay open — they hold drafts.) The toolbar buttons that open panels are marked
-  // [data-panel-trigger] and handle their own toggle. Outside clicks are judged on mousedown +
-  // click so a press that starts inside the panel (resizing, selecting) never closes it.
+  // A click outside the Audit Trail or Comments panel, or Esc, closes it. (Checklist stays open.)
+  // Comments stays open while a resolution note is half-typed in it, so the draft isn't lost.
+  // The toolbar buttons that open panels are marked [data-panel-trigger] and handle their own
+  // toggle. Outside clicks are judged on mousedown + click so a press that starts inside the
+  // panel (resizing, selecting) never closes it.
   const rightPanelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    if (activePanel !== 'audit') return
+    if (activePanel !== 'audit' && activePanel !== 'comments') return
+    const hasDraft = () => activePanel === 'comments' && Array.from(rightPanelRef.current?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea') ?? [])
+      .some(el => el.value.trim() !== '')
+    const close = () => { if (!hasDraft()) setActivePanel(null) }
     let pressedOutside = false
     const onDown = (e: MouseEvent) => {
       const t = e.target as Element | null
@@ -66,10 +70,10 @@ export function ReviewerView() {
       const outside = pressedOutside
       pressedOutside = false
       if (!outside || !t?.isConnected || rightPanelRef.current?.contains(t)) return
-      setActivePanel(null)
+      close()
     }
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && !e.defaultPrevented) setActivePanel(null)
+      if (e.key === 'Escape' && !e.defaultPrevented) close()
     }
     window.document.addEventListener('mousedown', onDown, true)
     window.document.addEventListener('click', onClick)

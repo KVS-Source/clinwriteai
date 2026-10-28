@@ -418,6 +418,19 @@ async function buildServer() {
   const { pmDashboardRoutes } = await import('./modules/platform/pm-dashboard/routes.js')
   await app.register(pmDashboardRoutes, { prefix: '/projects' })
 
+  const { portfolioDashboardRoutes } = await import('./modules/platform/pm-dashboard/portfolio.js')
+  await app.register(portfolioDashboardRoutes, { prefix: '/dashboards' })
+
+  // Guest invitations — one plugin for both scope='document' and
+  // scope='project'. Mounted at root since the paths carry their own
+  // /documents or /projects prefix.
+  const { guestInvitationRoutes } = await import('./modules/platform/guest-invitations/routes.js')
+  await app.register(guestInvitationRoutes)
+  // Public redemption endpoints — the guest hits these after clicking
+  // the magic link. Zero auth; the signed JWT in the URL is the sole credential.
+  const { guestRedemptionRoutes } = await import('./modules/platform/guest-invitations/redemption.js')
+  await app.register(guestRedemptionRoutes, { prefix: '/guest' })
+
   await app.register(import('./modules/platform/ai-gateway/plugin.js'))
   const { aiGatewayRoutes } = await import('./modules/platform/ai-gateway/routes.js')
   await app.register(aiGatewayRoutes, { prefix: '/ai' })

@@ -13,10 +13,33 @@
 // keeps them trivial to test and side-effect-free.
 
 export interface SectionContentForCheck {
+  /** Section identifier — matches SourceReference.sectionId. */
+  sectionId: string
   sectionNumber: string
   contentHtml: string
   wordCount: number
 }
+
+/**
+ * References context passed to the references-complete strategy. Keyed
+ * by section id (which matches SectionContentForCheck.sectionId). The
+ * value is the count of ACTIVE references on that section — i.e. the
+ * SourceReference rows that have no corresponding SourceReferenceRemoval.
+ *
+ * An empty record is semantically "nothing fetched yet" — strategies
+ * that need the cross-check will skip rather than falsely passing.
+ */
+export type ReferencesContext = Record<string, number | undefined>
+
+export function emptyReferencesContext(): ReferencesContext {
+  return {}
+}
+
+/**
+ * A section is considered to need at least one citation when it has
+ * meaningful prose. Headers / stubs with little content aren't flagged.
+ */
+const SECTION_NEEDS_REFERENCE_THRESHOLD = 100
 
 export type StrategyResult =
   | { kind: 'completed'; reason: string }
@@ -123,6 +146,7 @@ const CITATION_PATTERNS: ReadonlyArray<{ pattern: RegExp; label: string }> = [
 export function evaluateReferencesComplete(
   args: string[],
   sections: SectionContentForCheck[],
+  references: ReferencesContext = emptyReferencesContext(),
 ): StrategyResult {
   const scopedSectionNumber = args[0]
   const scope = scopedSectionNumber
@@ -133,6 +157,10 @@ export function evaluateReferencesComplete(
     return { kind: 'skipped', reason: `references-complete: section ${scopedSectionNumber} not found` }
   }
 
+  // Pass 1 — pattern check (unresolved citation placeholders). This is
+  // the historical v1 behaviour; still runs first because a specific
+  // "[Ref: TBD]" message is more actionable than a generic "section has
+  // no active references".
   for (const s of scope) {
     for (const { pattern, label } of CITATION_PATTERNS) {
       if (pattern.test(s.contentHtml)) {
@@ -143,5 +171,29 @@ export function evaluateReferencesComplete(
       }
     }
   }
-  return { kind: 'completed', reason: 'references-complete: no unresolved citation placeholders' }
+
+  // Pass 2 — cross-check against SourceReference rows. For every scoped
+  // section with substantive content (wordCount >= threshold), there must
+  // be at least one active SourceReference. Below the threshold the
+  // section is treated as a header / stub and no citation is required.
+  //
+  // If the caller passed an empty references context (nothing fetched),
+  // this pass is skipped — we don't falsely fail a section just because
+  // the context wasn't loaded. The engine's caller is responsible for
+  // deciding when to fetch (same pattern as SignalContext).
+  const hasReferencesContext = Object.keys(references).length > 0
+  if (hasReferencesContext) {
+    for (const s of scope) {
+      if (s.wordCount < SECTION_NEEDS_REFERENCE_THRESHOLD) continue
+      const count = references[s.sectionId] ?? 0
+      if (count === 0) {
+        return {
+          kind: 'pending',
+          reason: `references-complete: section ${s.sectionNumber} has ${s.wordCount} words of content but no active SourceReference rows`,
+        }
+      }
+    }
+  }
+
+  return { kind: 'completed', reason: 'references-complete: no unresolved citation placeholders' + (hasReferencesContext ? ' and every substantive section has active references' : '') }
 }

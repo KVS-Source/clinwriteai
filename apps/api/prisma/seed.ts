@@ -1700,6 +1700,107 @@ async function seedSlideDeck() {
     `   ${baselineReport.templatesTouched} templates (${baselineReport.templatesCreated} new) · `
     + `${baselineReport.itemsCreated} items created, ${baselineReport.itemsPreserved} preserved`,
   )
+
+  // --------------------------------------------------------------
+  // TLF package — one validated T/L/F set for VELORA-301 so the
+  // TLF Cross-Reference panel has something to render against the
+  // seeded CSR documents. Idempotent: skipped if the package exists.
+  // --------------------------------------------------------------
+  console.log('→ Seeding VELORA-301 TLF package...')
+  await seedVeloraTlfPackage(baselineActor?.id ?? 'system')
+}
+
+async function seedVeloraTlfPackage(validatedBy: string): Promise<void> {
+  const projectId = 'proj-velora-301'
+
+  // Skip if the current package already exists — avoids churning section
+  // links on re-runs and keeps references the Dev team may have added by
+  // hand intact.
+  const existing = await prisma.tlfPackage.findFirst({
+    where: { projectId, isCurrent: true },
+    select: { id: true },
+  })
+  if (existing) {
+    console.log(`   TLF package already present for ${projectId}; skipping`)
+    return
+  }
+
+  // Verify the project exists before trying — a bare DB that doesn't yet
+  // have proj-velora-301 should just skip, not crash the whole seed.
+  const project = await prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
+  if (!project) {
+    console.log(`   project ${projectId} not seeded yet; skipping TLF package`)
+    return
+  }
+
+  // 12 canonical ICH E3 §14 deliverables — enough to exercise all three
+  // panels (T / L / F) and section-highlighting against the §11 / §12 /
+  // §14 citations that DOC-001 (CSR Full) carries.
+  const items = [
+    { itemType: 'T' as const, referenceId: 'T-14.1.1',    title: 'Subject disposition (ITT population)',             sections: ['§10.1', '§14.1'] },
+    { itemType: 'T' as const, referenceId: 'T-14.1.2',    title: 'Protocol deviations summary',                      sections: ['§10.2', '§14.1'] },
+    { itemType: 'T' as const, referenceId: 'T-14.1.3',    title: 'Demographic + baseline characteristics',           sections: ['§11.2', '§14.1'] },
+    { itemType: 'T' as const, referenceId: 'T-14.2.1',    title: 'Primary efficacy — overall response rate (ITT)',   sections: ['§11.4.1', '§14.2'] },
+    { itemType: 'T' as const, referenceId: 'T-14.2.2',    title: 'Primary efficacy — subgroup analysis',             sections: ['§11.4.1', '§14.2'] },
+    { itemType: 'T' as const, referenceId: 'T-14.3.1',    title: 'Treatment-emergent AEs by SOC + severity',         sections: ['§12.2', '§14.3'] },
+    { itemType: 'T' as const, referenceId: 'T-14.3.2',    title: 'Serious AEs summary',                              sections: ['§12.3', '§14.3'] },
+    { itemType: 'L' as const, referenceId: 'L-16.2.1',    title: 'Subject listings — discontinuations',              sections: ['§10.1', '§16.2'] },
+    { itemType: 'L' as const, referenceId: 'L-16.2.4',    title: 'Subject listings — SAE narratives index',          sections: ['§12.3', '§16.2'] },
+    { itemType: 'L' as const, referenceId: 'L-16.2.7',    title: 'Subject listings — deaths',                        sections: ['§12.3', '§16.2'] },
+    { itemType: 'F' as const, referenceId: 'F-14.2.1',    title: 'Kaplan-Meier curve — progression-free survival',   sections: ['§11.4.1', '§14.2'] },
+    { itemType: 'F' as const, referenceId: 'F-14.3.1',    title: 'Forest plot — AE incidence by subgroup',           sections: ['§12.2', '§14.3'] },
+  ]
+
+  const pkg = await prisma.$transaction(async (tx) => {
+    const created = await tx.tlfPackage.create({
+      data: {
+        projectId,
+        version: 'v1',
+        validatedBy,
+        validatedAt: new Date('2026-03-15T00:00:00Z'),
+        isCurrent: true,
+      },
+    })
+    await tx.tlfItem.createMany({
+      data: items.map((it, idx) => ({
+        packageId: created.id,
+        itemType: it.itemType,
+        referenceId: it.referenceId,
+        title: it.title,
+        sortOrder: idx,
+      })),
+    })
+    return created
+  })
+
+  // Resolve the just-inserted items so we can create section links keyed
+  // off their uuids. Section links target DOC-001 (CSR Full) so the panel
+  // has something to highlight when that doc is open.
+  const seededItems = await prisma.tlfItem.findMany({
+    where: { packageId: pkg.id },
+    select: { id: true, referenceId: true },
+  })
+  const idByRef = new Map(seededItems.map(i => [i.referenceId, i.id]))
+
+  const doc = await prisma.document.findUnique({ where: { id: 'DOC-001' }, select: { id: true } })
+  if (doc) {
+    const linkRows = items.flatMap(it => {
+      const tlfItemId = idByRef.get(it.referenceId)
+      if (!tlfItemId) return []
+      return it.sections.map(sectionRef => ({
+        tlfItemId,
+        documentId: doc.id,
+        sectionRef,
+        referenceCount: 1,
+      }))
+    })
+    if (linkRows.length > 0) {
+      await prisma.tlfSectionLink.createMany({ data: linkRows, skipDuplicates: true })
+    }
+    console.log(`   ${items.length} TLF items + ${linkRows.length} section links seeded`)
+  } else {
+    console.log(`   ${items.length} TLF items seeded; DOC-001 not present so no section links written`)
+  }
 }
 
 main()

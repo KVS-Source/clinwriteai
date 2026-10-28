@@ -41,7 +41,7 @@ type PrismaTxLike = Parameters<Parameters<PrismaClient['$transaction']>[0]>[0] |
  */
 export async function ensureChecklistInstance(
   tx: PrismaTxLike,
-  args: { documentId: string; deliverableType: string; actorId: string },
+  args: { documentId: string; deliverableType: string; actorId: string; projectId?: string },
 ) {
   const existing = await tx.checklistInstance.findUnique({
     where: { documentId: args.documentId },
@@ -51,17 +51,42 @@ export async function ensureChecklistInstance(
 
   const normalizedType = normalizeDeliverableType(args.deliverableType)
 
-  // Prefer the platform baseline (projectId=null, locked). Falls back to
-  // any current template for the type so pre-migration DBs still work.
-  let template = await tx.checklistTemplate.findFirst({
-    where: { deliverableType: normalizedType, projectId: null, isCurrent: true },
-    include: { items: { orderBy: { sortOrder: 'asc' } } },
-  })
+  // Resolve the project id from the Document row when the caller didn't
+  // pass it (keeps the GET /checklist route working without threading
+  // projectId through everywhere).
+  let projectId = args.projectId
+  if (!projectId) {
+    const doc = await tx.document.findUnique({
+      where: { id: args.documentId },
+      select: { projectId: true },
+    })
+    projectId = doc?.projectId ?? undefined
+  }
+
+  // Preference order:
+  //   1. the project's own approved override, if one exists
+  //   2. the platform baseline (projectId=null, locked)
+  //   3. any current template for the type (defensive, pre-migration DBs)
+  const include = { items: { orderBy: { sortOrder: 'asc' as const } } }
+
+  let template = projectId
+    ? await tx.checklistTemplate.findFirst({
+        where: { deliverableType: normalizedType, projectId, isCurrent: true, templateStatus: 'locked' },
+        include,
+      })
+    : null
+
+  if (!template) {
+    template = await tx.checklistTemplate.findFirst({
+      where: { deliverableType: normalizedType, projectId: null, isCurrent: true },
+      include,
+    })
+  }
 
   if (!template) {
     template = await tx.checklistTemplate.findFirst({
       where: { deliverableType: normalizedType, isCurrent: true },
-      include: { items: { orderBy: { sortOrder: 'asc' } } },
+      include,
     })
   }
 

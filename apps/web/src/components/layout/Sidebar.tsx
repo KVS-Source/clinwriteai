@@ -32,6 +32,7 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   { label: 'Audit Trail',      href: '/admin/audit', roles: ['admin'] as const, icon: <ClipboardIcon /> },
   { label: 'TA Tags',          href: '/admin/taxonomy', roles: ['admin'] as const, icon: <TagIcon /> },
   { label: 'RACI Matrix',      href: '/admin/raci',  roles: ['admin'] as const, icon: <MatrixIcon /> },
+  { label: 'Checklist Templates', href: '/admin/checklist-templates', roles: ['admin'] as const, icon: <ClipboardIcon /> },
   { label: 'Notifications',    href: '/notifications', roles: ['admin'] as const, icon: <BellIcon /> },
   { label: 'Master Library',   href: '/library',    roles: ['admin'] as const, icon: <BookIcon /> },
   { label: 'Best Practices',   href: '/library/best-practices', roles: ['admin'] as const, icon: <StarIcon /> },

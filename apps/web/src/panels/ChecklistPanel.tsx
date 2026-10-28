@@ -9,6 +9,59 @@ interface Props {
 
 const LOGGED_IN_USER = 'Marcus Webb'
 
+// --- Metadata maps (Phase 4 UI polish) ---
+
+const STAGE_ORDER: NonNullable<ChecklistItem['stage']>[] = [
+  'study_start_up',
+  'during_study',
+  'reporting',
+  'cross_functional_review',
+  'crm',
+  'final_output',
+]
+
+const STAGE_LABEL: Record<NonNullable<ChecklistItem['stage']>, string> = {
+  study_start_up:          'Study Start-Up',
+  during_study:            'During Study',
+  reporting:               'Post-Study',
+  cross_functional_review: 'Cross-Functional Review',
+  crm:                     'CRM',
+  final_output:            'Final Output',
+}
+
+const RACI_LABEL: Record<NonNullable<ChecklistItem['ownerRaci']>, string> = {
+  R: 'Responsible',
+  A: 'Accountable',
+  C: 'Consulted',
+  I: 'Informed',
+  Q: 'QC release',
+}
+
+const RACI_COLOUR: Record<NonNullable<ChecklistItem['ownerRaci']>, { bg: string; fg: string }> = {
+  R: { bg: '#DBEAFE', fg: '#1D4ED8' },  // blue
+  A: { bg: '#FEF3C7', fg: '#B45309' },  // amber (owning accountability)
+  C: { bg: '#E0E7FF', fg: '#4338CA' },  // indigo
+  I: { bg: '#F1F5F9', fg: '#475569' },  // slate
+  Q: { bg: '#FEF9C3', fg: '#854D0E' },  // yellow (QC release — distinct from A amber)
+}
+
+// Legacy workflow-trigger labels. Modern autocheck strategies (content-min-words,
+// references-complete, signal:*, ai-pass:*) fall through to a generic label.
+const AUTO_COMPLETE_LABEL: Record<string, string> = {
+  submit_for_review: 'Auto on submit',
+  crm_complete:      'Auto on CRM close',
+  document_signed:   'Auto on signature',
+}
+
+function autoCompleteLabelFor(tag: string | null | undefined): string | null {
+  if (!tag) return null
+  if (AUTO_COMPLETE_LABEL[tag]) return AUTO_COMPLETE_LABEL[tag]
+  // Autocheck strategy tag — show a shortened form (strategy name, no args).
+  const strategy = tag.split(':')[0]
+  if (!strategy) return null
+  return `Auto: ${strategy}`
+}
+
 // --- Icons ---
 
 function CheckIcon() {
@@ -129,6 +182,35 @@ function ItemRow(p: ItemRowProps) {
             {item.framework}{isMandatory ? ' · Mandatory' : ''}
             {item.isUserAdded && ' · Custom'}
           </p>
+        )}
+
+        {/* Metadata badge row — RACI owner + auto-complete trigger.
+            Rendered inline when the backend has supplied the Phase 1+
+            fields; silently absent on legacy items that pre-date the
+            schema migration. */}
+        {(item.ownerRaci || item.autoCompleteOn) && (
+          <div className="flex flex-wrap gap-1.5 pt-0.5">
+            {item.ownerRaci && (
+              <span
+                className="inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide"
+                style={{ backgroundColor: RACI_COLOUR[item.ownerRaci].bg, color: RACI_COLOUR[item.ownerRaci].fg }}
+                title={`Owner: ${RACI_LABEL[item.ownerRaci]} (${item.ownerRaci})`}
+                data-raci={item.ownerRaci}
+              >
+                {item.ownerRaci}
+              </span>
+            )}
+            {item.autoCompleteOn && (
+              <span
+                className="inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[10px] font-medium"
+                style={{ backgroundColor: '#F0F9FF', borderColor: '#BAE6FD', color: '#0369A1' }}
+                title="This item will auto-tick when the matching system event fires."
+                data-auto-complete={item.autoCompleteOn}
+              >
+                ⚡ {autoCompleteLabelFor(item.autoCompleteOn)}
+              </span>
+            )}
+          </div>
         )}
 
         <p className="text-[11px]" style={{ color: secondaryColour }}>{secondaryText}</p>
@@ -271,12 +353,38 @@ export function ChecklistPanel({ documentId }: Props) {
 
   // --- Derived groupings ---
 
-  const mandatoryActive = items.filter(i => i.frameworkMandatory && i.status !== 'waived')
-  const waived          = items.filter(i => i.status === 'waived')
-  const custom          = items.filter(i => i.isUserAdded && i.status !== 'waived')
+  // Phase 4 UI: primary grouping is by stage (matches the stage-gated
+  // model from Phase 2). Items without a stage field (legacy / custom)
+  // fall into the "Unscoped" bucket at the bottom.
+  const byStage = useMemo(() => {
+    const groups = new Map<string | 'unscoped', ChecklistItem[]>()
+    for (const i of items) {
+      const key = i.stage ?? 'unscoped'
+      const list = groups.get(key) ?? []
+      list.push(i)
+      groups.set(key, list)
+    }
+    // Preserve the canonical stage order; unscoped last.
+    const ordered: Array<{ stage: string | 'unscoped'; label: string; items: ChecklistItem[] }> = []
+    for (const s of STAGE_ORDER) {
+      if (groups.has(s)) ordered.push({ stage: s, label: STAGE_LABEL[s], items: groups.get(s)! })
+    }
+    if (groups.has('unscoped')) ordered.push({ stage: 'unscoped', label: 'Unscoped', items: groups.get('unscoped')! })
+    return ordered
+  }, [items])
 
   const completeCount = items.filter(i => i.status === 'complete').length
   const pct = items.length > 0 ? Math.round((completeCount / items.length) * 100) : 0
+
+  // Per-stage completion count — rendered beside each stage heading so
+  // the writer sees "4 of 7" at a glance before expanding.
+  const stageSummary = (stageItems: ChecklistItem[]) => {
+    const complete = stageItems.filter(i => i.status === 'complete').length
+    const waived   = stageItems.filter(i => i.status === 'waived').length
+    const pending  = stageItems.length - complete - waived
+    const mandatoryPending = stageItems.filter(i => i.frameworkMandatory && i.status === 'pending').length
+    return { complete, pending, waived, mandatoryPending, total: stageItems.length }
+  }
 
   // --- Handlers ---
 
@@ -336,38 +444,28 @@ export function ChecklistPanel({ documentId }: Props) {
       {/* Scroll list */}
       <div className="flex-1 overflow-y-auto">
 
-        {mandatoryActive.length > 0 && (
-          <>
-            <div className="px-4 pt-3 pb-1.5">
-              <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-                Framework mandatory
-              </p>
+        {byStage.map(group => {
+          const sum = stageSummary(group.items)
+          const stageBlockedByMandatory = sum.mandatoryPending > 0
+          return (
+            <div key={group.stage} data-stage-group={group.stage}>
+              <div className="flex items-baseline justify-between px-4 pt-3 pb-1.5">
+                <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
+                  {group.label}
+                </p>
+                <p className="text-[11px] text-slate-500">
+                  {sum.complete}/{sum.total}
+                  {stageBlockedByMandatory && (
+                    <span className="ml-2 font-semibold" style={{ color: '#B45309' }}>
+                      · {sum.mandatoryPending} mandatory pending
+                    </span>
+                  )}
+                </p>
+              </div>
+              {group.items.map(item => <ItemRow key={item.id} item={item} {...rowProps} />)}
             </div>
-            {mandatoryActive.map(item => <ItemRow key={item.id} item={item} {...rowProps} />)}
-          </>
-        )}
-
-        {waived.length > 0 && (
-          <>
-            <div className="px-4 pt-3 pb-1.5">
-              <p className="font-mono text-[10px] font-medium uppercase tracking-widest" style={{ color: '#D97706' }}>
-                Framework mandatory — waived
-              </p>
-            </div>
-            {waived.map(item => <ItemRow key={item.id} item={item} {...rowProps} />)}
-          </>
-        )}
-
-        {custom.length > 0 && (
-          <>
-            <div className="px-4 pt-3 pb-1.5">
-              <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-                Custom
-              </p>
-            </div>
-            {custom.map(item => <ItemRow key={item.id} item={item} {...rowProps} />)}
-          </>
-        )}
+          )
+        })}
 
         {/* Add item form */}
         <div className="m-4">

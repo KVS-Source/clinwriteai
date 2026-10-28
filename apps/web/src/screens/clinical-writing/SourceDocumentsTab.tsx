@@ -152,21 +152,13 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
 
   return (
     <div className="flex min-w-0 flex-1 flex-col gap-4" data-screen="source-documents">
-      {/* Header + counters */}
-      <div className="flex items-start justify-between gap-6">
-        <div>
-          <h2 className="text-[18px] font-bold text-slate-900">Source documents</h2>
-          <p className="mt-1 max-w-[640px] text-[13px] text-slate-500">
-            Evidence for this project — protocols, SAPs, TLF outputs, lab exports and files from other systems.
-            <span className="text-slate-400"> Pick them under "Based on source documents" when you create a document.</span>
-          </p>
-        </div>
-        <div className="flex flex-none items-stretch gap-6" data-source-counters>
-          <div className="text-right">
-            <p className="text-[26px] font-bold leading-none text-slate-900" data-count="files">{summary.files}</p>
-            <p className="mt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Files</p>
-          </div>
-        </div>
+      {/* Header — the file count is already on the tab label and the pager */}
+      <div>
+        <h2 className="text-[18px] font-bold text-slate-900">Source documents</h2>
+        <p className="mt-1 max-w-[640px] text-[13px] text-slate-500">
+          Evidence for this project — protocols, SAPs, TLF outputs, lab exports and files from other systems.
+          <span className="text-slate-400"> Pick them under "Based on source documents" when you create a document.</span>
+        </p>
       </div>
 
       {notice && (
@@ -196,7 +188,7 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
               type="text"
               value={search}
               onChange={e => setSearch(e.currentTarget.value)}
-              placeholder="Search title, file, origin, uploader…"
+              placeholder="Search title, category…"
               aria-label="Search source documents"
               data-filter="search"
               className="w-full border-none bg-transparent text-[13px] text-slate-900 outline-none placeholder:text-slate-400"

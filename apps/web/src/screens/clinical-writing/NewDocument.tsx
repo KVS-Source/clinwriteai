@@ -74,8 +74,20 @@ export function NewDocumentForm({ projectId, duplicateSourceId, initialSourceIds
     setAssigneeId(sourceDoc.assigneeId)
   }, [sourceDoc])
 
+  // Migration 48 moved writers to role 'contributor' + the 'can-author' capability and admins to
+  // 'tenant-admin'; the legacy role names are still accepted for rows not yet rewritten. An API whose
+  // Prisma client predates the capabilities column returns no `capabilities`, so a contributor
+  // without the field still counts as a writer.
   const assigneeOptions = useMemo(
-    () => users.filter(u => ['clinical-writer', 'scientific-writer', 'medical-writer', 'regulatory-writer', 'admin'].includes(u.role)),
+    () => users.filter(u => {
+      const status = u.status as string   // the API also returns 'deprovisioned'
+      if (status === 'suspended' || status === 'deprovisioned') return false
+      const role = u.role as string
+      if (['clinical-writer', 'scientific-writer', 'medical-writer', 'regulatory-writer', 'admin', 'tenant-admin'].includes(role)) return true
+      if (role !== 'contributor') return false
+      const capabilities = (u as { capabilities?: string[] }).capabilities
+      return !capabilities || capabilities.includes('can-author')
+    }),
     [users],
   )
 

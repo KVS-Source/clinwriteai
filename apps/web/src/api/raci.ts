@@ -273,6 +273,60 @@ export interface GuestInvitationWithToken extends GuestInvitation {
   token: string
 }
 
+// --- Guest redemption (public — no auth) ---------------------------------
+//
+// The guest hits GET /guest/verify/:token to probe the invitation (returns
+// scope + ids on success), then GET /guest/document/:token for the stripped
+// read-only view, and POST /guest/document/:token/comments to leave a
+// comment. These calls carry no session cookie — the JWT in the URL is
+// the sole credential.
+
+export interface GuestVerifyResult {
+  scope: GuestScope
+  documentId: string | null
+  projectId:  string | null
+  email:      string
+  purpose:    GuestPurpose
+  expiresAt:  string
+}
+
+export interface GuestDocumentSection {
+  sectionId:     string
+  sectionNumber: string
+  sectionTitle:  string
+  contentHtml:   string
+}
+
+export interface GuestDocumentComment {
+  id:          string
+  sectionRef:  string
+  text:        string
+  status:      'open' | 'resolved'
+  createdAt:   string
+}
+
+export interface GuestDocumentPayload {
+  guest:    { email: string; purpose: string; expiresAt: string }
+  document: { id: string; title: string; type: string; status: string }
+  sections: GuestDocumentSection[]
+  comments: GuestDocumentComment[]
+}
+
+export const guestRedemptionApi = {
+  verify: (token: string) =>
+    api.get<GuestVerifyResult>(`/guest/verify/${encodeURIComponent(token)}`, { on401: 'throw' }),
+
+  fetchDocument: (token: string) =>
+    api.get<GuestDocumentPayload>(`/guest/document/${encodeURIComponent(token)}`, { on401: 'throw' }),
+
+  addComment: (token: string, body: { sectionRef: string; text: string }) =>
+    api.post<GuestDocumentComment>(
+      `/guest/document/${encodeURIComponent(token)}/comments`,
+      body,
+      { on401: 'throw' },
+    ),
+}
+
 export const guestInvitationsApi = {
   listForDocument: (documentId: string) =>
     api.get<GuestInvitation[]>(`/documents/${documentId}/guest-invitations`),

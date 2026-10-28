@@ -59,6 +59,7 @@ import { ArtefactUploadSourceCheck }    from '../screens/ideation-publishing/Art
 import { ContentCardTagging }           from '../screens/ideation-publishing/ContentCardTagging'
 import { PreReviewComplianceScreen }    from '../screens/ideation-publishing/PreReviewComplianceScreen'
 import { KOLReviewInterface }           from '../screens/ideation-publishing/KOLReviewInterface'
+import { GuestDocumentReview }          from '../screens/guest/GuestDocumentReview'
 import { MedicalAffairsApproval }       from '../screens/ideation-publishing/MedicalAffairsApproval'
 import { ContentCalendar }              from '../screens/ideation-publishing/ContentCalendar'
 import { PublishingMonitor }            from '../screens/ideation-publishing/PublishingMonitor'
@@ -264,5 +265,9 @@ export const router = createBrowserRouter([
   { path: '/onboarding/:module', element: <AuthGuard><OnboardingWizard /></AuthGuard> },
   // PUBLIC — outside AuthGuard/AppShell — KOL review link with token
   { path: '/kol-review/:token', element: <KOLReviewInterface /> },
+  // PUBLIC — guest document review (clinical writing). Magic-link JWT
+  // in the path is the sole credential; see
+  // apps/api/src/modules/platform/guest-invitations/redemption.ts.
+  { path: '/guest/document/:token', element: <GuestDocumentReview /> },
   { path: '*', element: <Navigate to="/projects" replace /> },
 ])

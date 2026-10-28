@@ -27,6 +27,11 @@ async function openTab(page: Page) {
 }
 
 const rows = (page: Page) => page.locator('[data-source-row]')
+// The library's file count, read from the "Source Documents (N)" tab label.
+const fileCount = async (page: Page) => {
+  const label = await page.getByRole('button', { name: /^Source Documents \(\d+\)/ }).innerText()
+  return Number(/\((\d+)\)/.exec(label)![1])
+}
 
 test('tab sits right after "All Stages" and opens the library', async ({ page }) => {
   await openTab(page)
@@ -35,7 +40,8 @@ test('tab sits right after "All Stages" and opens the library', async ({ page })
   expect(labels[0]).toMatch(/^All Stages \(\d+\)$/)
   expect(labels[1]).toMatch(/^Source Documents/)
   await expect(page.getByRole('heading', { name: 'Source documents' })).toBeVisible()
-  await expect(page.locator('[data-count="files"]')).toBeVisible()
+  await expect(page.locator('[data-count="files"]')).toHaveCount(0)   // count lives on the tab label + pager
+  await expect(page.locator('[data-filter="search"]')).toHaveAttribute('placeholder', 'Search title, category…')
   for (const col of ['Title', 'Category', 'State', 'Scan', 'Used in', 'Uploaded', 'Quick actions']) {
     await expect(page.getByRole('columnheader', { name: new RegExp(col, 'i') })).toBeVisible()
   }
@@ -88,10 +94,9 @@ test('the menu is not clipped on the last row and closes on outside click', asyn
   await expect(menu).toHaveCount(0)
 })
 
-test('the counter matches the rows and the tab label', async ({ page }) => {
+test('the tab label count matches the rows and the pager', async ({ page }) => {
   await openTab(page)
-  const files = Number(await page.locator('[data-count="files"]').innerText())
-  await expect(page.getByRole('button', { name: new RegExp(`^Source Documents \\(${files}\\)`) })).toBeVisible()
+  const files = await fileCount(page)
   if (files <= 50) await expect(rows(page)).toHaveCount(files)
   await expect(page.locator('[data-pager-status]')).toContainText(`${files} ${files === 1 ? 'file' : 'files'}`)
 })
@@ -305,7 +310,7 @@ const hitsOf = (page: Page) => page.evaluate(() => (window as unknown as { __hit
 test('an upload that is not saved is discarded: Cancel, the cross, Esc and an outside click', async ({ page }) => {
   await mockUpload(page)
   await openTab(page)
-  const before = Number(await page.locator('[data-count="files"]').innerText())
+  const before = await fileCount(page)
   const closers: Array<[string, () => Promise<void>]> = [
     ['Cancel upload', () => page.getByRole('button', { name: 'Cancel upload' }).click()],
     ['cross', () => page.getByRole('button', { name: 'Close panel' }).click()],
@@ -320,7 +325,7 @@ test('an upload that is not saved is discarded: Cancel, the cross, Esc and an ou
   }
   const h = await hitsOf(page)
   expect(h.save).toBe(0)                                                                      // nothing was saved
-  expect(Number(await page.locator('[data-count="files"]').innerText())).toBe(before)         // library unchanged
+  expect(await fileCount(page)).toBe(before)                                                  // library unchanged
 })
 
 test('saving to the library does not discard the upload', async ({ page }) => {

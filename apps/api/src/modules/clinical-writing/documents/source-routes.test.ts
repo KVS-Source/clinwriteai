@@ -114,6 +114,11 @@ describe('GET /projects/:id/source-documents', () => {
     expect((await list('?q=nothing-matches')).body.total).toBe(0)
   })
 
+  it('searches the category name shown in the Category column', async () => {
+    expect((await list('?q=statistical')).body.items.map((i: { id: string }) => i.id)).toEqual(['d'])   // "Statistical Analysis Plan (SAP)"
+    expect((await list('?q=lab%20data')).body.items.map((i: { id: string }) => i.id)).toEqual(['b'])    // "Lab data"
+  })
+
   it('sorts by file name and by size in both directions', async () => {
     expect((await list('?sort=file&dir=asc')).body.items.map((i: { id: string }) => i.id)).toEqual(['b', 'a', 'd', 'c'])
     expect((await list('?sort=size&dir=desc')).body.items.map((i: { id: string }) => i.id)).toEqual(['c', 'd', 'a', 'b'])

@@ -14,6 +14,16 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
+import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
+import type { DocumentStatus } from '../../clinical-writing/document-status.js'
+
+const completeSchema = z.object({
+  signatureId: z.string().min(1).nullable().optional(),
+})
+
+const rejectSchema = z.object({
+  note: z.string().min(1),
+})
 
 const insertSchema = z.object({
   userId: z.string().min(1),
@@ -242,5 +252,145 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     }
 
     return reply.code(204).send()
+  })
+
+  // --- Complete my part ---------------------------------------------------
+  // The person holding the letter clicks "Submit my part" / "I'm done
+  // reviewing" / "Approve" — sets the appropriate timestamp. For rows with
+  // signature_required=true, a signatureId MUST be supplied (the DB CHECK
+  // would reject anyway; we return a cleaner 400 up here).
+  //
+  // After the write, we evaluate the stage transition. The engine's
+  // decision is reported in the response for the client to react to; the
+  // actual Document.status transition still goes through the existing
+  // document state machine (see document-status.ts), so this endpoint
+  // doesn't yet mutate Document.status itself. That lands when the
+  // stage-auto-transition is wired in Chunk 2.
+  app.post('/:documentId/raci/:raciId/complete', { preHandler: requireAuth() }, async (request, reply) => {
+    const { documentId, raciId } = request.params as { documentId: string; raciId: string }
+    const parsed = completeSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    }
+
+    const row = await app.prisma.documentRaci.findUnique({ where: { id: raciId } })
+    if (!row || row.documentId !== documentId) return reply.code(404).send({ error: 'not_found' })
+    if (row.removedAt) return reply.code(409).send({ error: 'row_removed' })
+    if (row.rejectedAt) return reply.code(409).send({ error: 'row_rejected' })
+
+    const actor = request.user!
+    if (row.userId !== actor.id) {
+      return reply.code(403).send({ error: 'only_assignee_can_complete' })
+    }
+
+    // Already-done check — the per-letter timestamp fields are the source of truth.
+    const alreadyDone =
+      (row.letter === 'R' && row.submittedAt !== null) ||
+      (row.letter === 'C' && row.reviewedAt !== null) ||
+      (row.letter === 'A' && row.approvedAt !== null) ||
+      row.letter === 'I'
+    if (alreadyDone) return reply.code(409).send({ error: 'already_complete' })
+
+    if (row.signatureRequired && !parsed.data.signatureId) {
+      return reply.code(400).send({
+        error: 'signature_required',
+        message: 'This row requires an e-signature; provide signatureId pointing to a completed SignatureRecord',
+      })
+    }
+
+    const now = new Date()
+    const data: Record<string, unknown> = { signatureId: parsed.data.signatureId ?? row.signatureId }
+    if (row.letter === 'R') data.submittedAt = now
+    if (row.letter === 'C') data.reviewedAt = now
+    if (row.letter === 'A') data.approvedAt = now
+
+    const updated = await app.prisma.documentRaci.update({ where: { id: raciId }, data })
+
+    await app.audit.append({
+      timestamp: now.toISOString(),
+      actorId: actor.id,
+      action: 'document_raci.completed',
+      entityType: 'document_raci',
+      entityId: raciId,
+      details: {
+        documentId,
+        letter: row.letter,
+        sectionId: row.sectionId,
+        signatureId: updated.signatureId,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    // Evaluate the stage transition for the response. The caller uses this
+    // to render "N of M completed" + decide whether to prompt the user to
+    // move the doc to the next status.
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { status: true },
+    })
+    const allRows = await app.prisma.documentRaci.findMany({
+      where: { documentId },
+      select: {
+        letter: true, signatureRequired: true,
+        submittedAt: true, reviewedAt: true, approvedAt: true,
+        signatureId: true, rejectedAt: true, removedAt: true,
+      },
+    })
+    const evaluation = evaluateStageTransition(
+      (doc?.status ?? 'not_started') as DocumentStatus,
+      allRows as RaciRowForEval[],
+    )
+
+    return reply.send({ row: updated, transition: evaluation })
+  })
+
+  // --- Reject (bounce back a stage) ---------------------------------------
+  // Any single C or A rejecting pulls the doc back to the previous stage,
+  // per docs/roles-and-permissions.md §3.2 "Rejection at any gate…".
+  // This endpoint sets rejected_at + rejectionNote; the status rollback
+  // still goes through the existing state machine for now.
+  app.post('/:documentId/raci/:raciId/reject', { preHandler: requireAuth() }, async (request, reply) => {
+    const { documentId, raciId } = request.params as { documentId: string; raciId: string }
+    const parsed = rejectSchema.safeParse(request.body)
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    }
+
+    const row = await app.prisma.documentRaci.findUnique({ where: { id: raciId } })
+    if (!row || row.documentId !== documentId) return reply.code(404).send({ error: 'not_found' })
+    if (row.removedAt) return reply.code(409).send({ error: 'row_removed' })
+    if (row.rejectedAt) return reply.code(409).send({ error: 'already_rejected' })
+
+    const actor = request.user!
+    if (row.userId !== actor.id) {
+      return reply.code(403).send({ error: 'only_assignee_can_reject' })
+    }
+
+    if (row.letter !== 'C' && row.letter !== 'A') {
+      return reply.code(422).send({ error: 'only_reviewer_or_approver_can_reject' })
+    }
+
+    const now = new Date()
+    const updated = await app.prisma.documentRaci.update({
+      where: { id: raciId },
+      data: { rejectedAt: now, rejectionNote: parsed.data.note },
+    })
+
+    await app.audit.append({
+      timestamp: now.toISOString(),
+      actorId: actor.id,
+      action: 'document_raci.rejected',
+      entityType: 'document_raci',
+      entityId: raciId,
+      details: {
+        documentId,
+        letter: row.letter,
+        sectionId: row.sectionId,
+        note: parsed.data.note,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.send(updated)
   })
 }

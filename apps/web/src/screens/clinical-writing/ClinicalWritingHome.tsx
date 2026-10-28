@@ -665,7 +665,9 @@ export function ClinicalWritingHome() {
           stageLabel={detailDoc ? STAGE_LABELS[detailDoc.stage] : ''}
           assigneeName={detailDoc ? (teamById.get(detailDoc.assigneeId)?.name ?? '—') : ''}
           onClose={() => setDetailDoc(null)}
-          onOpen={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
+          onOpen={(id, panel) =>
+            navigate(`/projects/${projectId}/clinical-writing/documents/${id}${panel ? `?panel=${encodeURIComponent(panel)}` : ''}`)
+          }
         />
       )}
 

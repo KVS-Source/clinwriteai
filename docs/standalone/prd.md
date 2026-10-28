@@ -51,6 +51,8 @@ The customer buys modules à la carte. Clinical Writing is almost always on; the
 | D5 | Expiry = **read-only for 30 days**, then full stop. | Protects the audit chain + avoids Friday-5pm renewals. |
 | D6 | Customer brings their own LLM API key(s). Multiple providers supported via a simple config file. | We never hold customer AI keys. |
 | D7 | Updates = signed Docker images on a public registry. | Simplest. |
+| D8 | Studio login = **email magic link + TOTP** (Google Authenticator / Authy). No passwords, no SMS. | Phishing-resistant, SIM-swap-proof, zero infra cost. SMS OTP was ruled out — NIST SP 800-63B deprecates it, SIM-swap is a real risk in India. |
+| D9 | **Admin page** inside the Studio manages the operator roster (add / remove / revoke sessions / reset TOTP). **Both CEO and IT Head can access it** so either can replace the other in a bus-factor event. Guardrails: no operator can remove themselves, and the system refuses to delete the last operator. | Formalises "who can sign licenses" inside the tool itself. Symmetric access = business continuity if either person leaves, is unavailable, or loses their 2FA device. |
 
 Not using Shamir secret sharing, revocation-list cron, clock-rollback detection, or any phone-home. If a customer stops paying, their license expires and the grace period handles it. If a customer gets caught sharing their license, we address it commercially, not technically.
 
@@ -64,8 +66,8 @@ Not using Shamir secret sharing, revocation-list cron, clock-rollback detection,
 │                                                            │
 │  ┌─────────────────────────────────────────────────────┐   │
 │  │  License Studio (new app, same stack as ClinWrite)  │   │
-│  │  • Postgres table: tenants                          │   │
-│  │  • Postgres table: licenses (one per issue)         │   │
+│  │  • Postgres: tenants, licenses, operators,          │   │
+│  │    operator_sessions                                │   │
 │  │  • Signing key on a USB drive in the office safe    │   │
 │  │  • Backup copy of the key in a sealed envelope      │   │
 │  │  • Generates .lic file + README; emails customer    │   │
@@ -99,7 +101,7 @@ Not using Shamir secret sharing, revocation-list cron, clock-rollback detection,
 
 ### 5.1 Data model (Studio)
 
-Two tables. That's all.
+Four tables. Two for the license business, two for operator auth.
 
 ```sql
 -- tenants
@@ -122,6 +124,23 @@ superseded_by   uuid NULL         -- when renewed
 revoked_at      timestamptz NULL
 revoked_reason  text NULL
 jwt_text        text              -- the signed token we generated
+
+-- operators  (D8 + D9)
+id              uuid PRIMARY KEY
+email           text UNIQUE       -- must end @genbioca.ai
+role            text              -- 'ceo' | 'it-head'
+totp_secret     text NULL         -- base32; NULL until enrolled
+status          text              -- 'invited' | 'active' | 'suspended'
+created_at      timestamptz
+last_sign_in_at timestamptz NULL
+
+-- operator_sessions
+id              uuid PRIMARY KEY
+operator_id     uuid REFERENCES operators
+token_hash      text              -- opaque; cookie value is unhashed
+created_at      timestamptz
+expires_at      timestamptz
+revoked_at      timestamptz NULL
 ```
 
 A new license supersedes the old one. We never update a license row in place.
@@ -201,6 +220,7 @@ Nothing more.
 | AI gateway | Single Anthropic provider, GenBioCa key | Four adapters (anthropic, openai, google, azure-openai), each a thin wrapper. Config-file driven. |
 | License engine | Doesn't exist. | New Fastify plugin: ~200 lines. Reads `/license/current.lic`, verifies, exposes `app.license`. |
 | Module gating source | `FEATURE_MODULES_ENABLED` env var | `app.license.modules` |
+| Studio auth | New app, no auth yet. | Email magic link + TOTP (per D8). Two new Postgres tables in the Studio: `operators` (email, role, totp_secret, status) and `operator_sessions` (opaque token, revocable). Admin page (D9) is open to both roles. Server-side guards reject removing yourself and removing the last operator. |
 | Seed | Multi-tenant demo users | A single admin created from the license's contact fields, no demo data |
 | Release pipeline | Builds Docker images | Also signs them with `cosign` |
 

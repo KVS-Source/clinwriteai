@@ -16,7 +16,15 @@ ClinWrite is a clinical writing SaaS for pharma. We're launching a customer-host
 
 ## 2. Users
 
-Two people only: **CEO** and **IT head**, both at GenBioCa.
+Two roles, both at GenBioCa, both with equal privileges — including the ability to manage each other on Screen 5:
+
+- **CEO**
+- **IT Head**
+
+Why symmetric? Business continuity. If one person is unavailable (sick, travelling, lost phone, left the company), the other can invite a replacement, reset the missing person's 2FA, or revoke their sessions. Two guardrails prevent misuse:
+
+1. You cannot remove yourself, revoke your own sessions, or reset your own 2FA.
+2. The system refuses to delete the last remaining operator.
 
 They sign in once in a while — when a new customer signs up, when a license renews, when a key gets rotated. No daily use. No power-user shortcuts needed.
 
@@ -24,14 +32,14 @@ They sign in once in a while — when a new customer signs up, when a license re
 
 ## 3. Design principles
 
-- **Simple over clever.** No command palette, no keyboard shortcuts, no dashboards with charts. Just the four screens below.
+- **Simple over clever.** No command palette, no keyboard shortcuts, no dashboards with charts. Just the five screens below.
 - **Serious but friendly.** Each click generates a legal artifact; the UI should feel deliberate. No illustrations, no marketing copy, no animations beyond basic fade-ins.
 - **Confirm destructive actions once** — simple confirm modal, not a typed-phrase ceremony.
 - **Desktop-only.** Operators use laptops. Mobile is out of scope.
 
 ---
 
-## 4. The four modules customers can license
+## 4. The five modules customers can license
 
 Use the real names in the UI. **Do not use** "Module A/B/C" anywhere — those are internal keys.
 
@@ -69,16 +77,17 @@ Shape: 1px slate-200 borders. 6px rounded corners. No shadows except on modals.
 
 ---
 
-## 6. The four screens
+## 6. The five screens
 
 That's all we need:
 
-| # | Screen | What it does |
-|---|---|---|
-| 1 | **Login** | Google Workspace SSO + hardware 2FA. |
-| 2 | **Tenants** | List of customers. Click one → opens Tenant Settings. |
-| 3 | **Tenant Settings** | Single page: customer details + current license + "Issue new license" button. Everything about one customer. |
-| 4 | **Signing Key** | View the current signing key fingerprint. Rotate when needed. |
+| # | Screen | What it does | Who sees it |
+|---|---|---|---|
+| 1 | **Login** | Email magic link + TOTP (Google Authenticator / Authy). No passwords. | Both operators |
+| 2 | **Tenants** | List of customers. Click one → opens Tenant Settings. | Both operators |
+| 3 | **Tenant Settings** | Single page: customer details + current license + "Issue new license" button. Everything about one customer. | Both operators |
+| 4 | **Signing Key** | View the current signing key fingerprint. Rotate when needed. | Both operators |
+| 5 | **Admin** | Operator roster. Add / remove operator, revoke session, reset TOTP. | Both operators |
 
 Issuing or renewing a license happens inline on screen 3 (not a separate wizard page). It opens a small modal, generates the JWT, signs with the key on the operator's YubiKey/USB, and prompts the operator to download the `.lic` file + optionally email it to the customer.
 
@@ -90,20 +99,49 @@ That's it. No dashboard, no audit-log page (we query Postgres directly if we eve
 
 ### Screen 1 — Login
 
-Full-screen centered card, 400px wide, white on `#F8FAFC` background.
+Full-screen centered card, 400px wide, white on `#F8FAFC` background. The flow is **email magic link + TOTP** — no passwords, no SMS.
 
+Four sequential states on the same card:
+
+**(a) Email entry**
 - Logo + "License Studio" wordmark at the top (dark navy).
 - Headline: "Sign in"
-- Button: "Sign in with Google Workspace" (primary blue, Google G icon)
-- Footer: "GenBioCa Internal Use Only · build v0.1.0" (slate-400, tiny)
+- Email input, autofocused, placeholder `you@genbioca.ai`.
+- Primary button: `Send me a sign-in link`.
+- Footer: "GenBioCa Internal Use Only · build v0.1.0" (slate-400, tiny).
 
-Unknown Google account → simple error card: "This account is not authorized. Contact the IT head if you believe this is an error."
+**(b) Check your inbox**
+- Mail icon (slate-400, 32px, centered).
+- Headline: "Check your inbox"
+- Body: "We sent a sign-in link to **you@genbioca.ai**. Click it from this device within 10 minutes."
+- Text link: `Use a different email` (returns to state (a)).
+
+**(c) TOTP code**
+Reached after clicking the magic link in email (the link opens this same card in a new tab).
+- Headline: "Enter your 6-digit code"
+- Body: "Open Google Authenticator or Authy and enter the code for **License Studio**."
+- Six single-character inputs (segmented, auto-advance, mono).
+- Primary button: `Verify` (enabled when all six filled).
+- Text link below: `Lost your authenticator? Ask the other operator to reset it.` (slate-500).
+
+**(d) First-time TOTP enrollment**
+Shown instead of (c) if the operator has no TOTP secret yet (new operator just added by another operator, or an existing operator whose 2FA was reset).
+- Headline: "Set up two-factor"
+- Body: "Scan this QR code with Google Authenticator, Authy, or 1Password, then enter the first code to confirm."
+- QR code block (240×240, centered). Below it: `Can't scan? Enter this key:` + the base32 secret in mono, with a copy icon.
+- Six-input code field (same as (c)).
+- Primary button: `Confirm and sign in`.
+
+**Error states**
+- Unknown email → state (a) shows a rose banner above the input: "This email is not authorised. Ask an existing operator to invite you."
+- Expired / already-used magic link → full-card error: "This link has expired. Request a new one." + button back to (a).
+- Wrong TOTP code → inline rose message below the input: "Code didn't match. Try again." (3 wrong attempts → full-card lockout: "Too many attempts. Try again in 15 minutes.")
 
 ---
 
 ### Screen 2 — Tenants
 
-**Layout:** Thin sidebar on the left (just two links: `Tenants` and `Signing Key`). Main content fills the rest.
+**Layout:** Thin sidebar on the left. Links: `Tenants`, `Signing Key`, `Admin`. All three are visible to both roles. Main content fills the rest.
 
 **Header:**
 - "Tenants" h1 + subtitle "12 active · 1 archived"
@@ -245,13 +283,64 @@ Minimal page. One card.
 
 ---
 
+### Screen 5 — Admin
+
+Open to both CEO and IT Head. Either can invite, remove, or reset the other — this is the business-continuity escape hatch.
+
+**Header:**
+- "Admin" h1 + subtitle "Operators who can sign licenses"
+- Right side: `+ Add operator` primary button.
+
+**Operator table** (full width, 1px border):
+
+| Operator | Role | 2FA | Last sign-in | Status |
+|---|---|---|---|---|
+| **Chetan Amin** (you) | CEO | Enrolled | 2 hours ago | Active ● |
+| **Vikram Shah** | IT Head | Enrolled | 3 days ago | Active ● |
+| **Priya Nair** | IT Head | **Not enrolled** | — | Invited ● |
+
+- Role column: pill (`CEO` = indigo, `IT Head` = slate).
+- 2FA column: text + icon. "Enrolled" (emerald check) / "Not enrolled" (amber warn).
+- Status pill colors: Active = emerald, Invited = amber (pending first sign-in), Suspended = rose.
+- Row kebab menu (right of each row):
+  - `Revoke active sessions` — immediately invalidates every signed-in session for that operator.
+  - `Reset 2FA` — clears the TOTP secret; operator will see the enrollment screen on next sign-in.
+  - `Resend invite` (invited-state only) — fires a fresh magic link.
+  - `Remove operator` (destructive, rose) — opens a confirm modal.
+
+**Guardrails (hidden / disabled states on the kebab):**
+- Your own row: the kebab is hidden entirely. You cannot remove yourself, revoke your own sessions, or reset your own 2FA — if you need any of those, ask the other operator.
+- When only one operator remains: that row's `Remove operator` option is disabled with a tooltip: "Can't remove the last operator. Add another operator first."
+
+**Add-operator modal** (480px, centered):
+- Headline: "Add an operator"
+- Email input (`@genbioca.ai` only — reject other domains with inline hint).
+- Role select: `CEO` or `IT Head`. Default = `IT Head`. (You can promote someone to CEO; the roles are symmetric for admin purposes but kept distinct for audit clarity.)
+- Explanation line: "They'll receive a magic link. On first sign-in they'll set up their authenticator app."
+- Buttons: `Cancel` + `Send invite` (primary).
+
+**Remove-operator confirm modal** (480px):
+- Title: "Remove **Priya Nair**?"
+- Body: "Their access ends immediately. Any licenses they signed in the past remain valid — this does not revoke those licenses."
+- Buttons: `Cancel` + `Remove` (rose).
+
+**Empty state** (only one operator — the signed-in person): the table shows the single row with the kebab hidden; a slate helper line appears below the table: "You're the only operator. Click **+ Add operator** to invite a backup — the system won't let you remove the last account."
+
+---
+
 ## 8. States to include in deliverable
 
 For each screen, provide:
 
 1. **Primary variant** (populated, happy path).
-2. **Empty state** where applicable (Tenants screen with no tenants yet; new tenant with no license).
-3. **One error state** per interactive flow (sign-in error, signing-key not detected).
+2. **Empty state** where applicable (Tenants with no tenants; new tenant with no license; Admin with only the signed-in operator — showing the "invite a backup" helper line).
+3. **One error state** per interactive flow (sign-in error, signing-key not detected, add-operator wrong domain).
+
+**The Login screen gets extra attention** — show all four states:
+- Email entry
+- Check your inbox
+- TOTP code
+- First-time TOTP enrollment (QR code)
 
 **The "Issue license" modal gets extra attention** — show four states:
 - Form filled, ready to sign
@@ -265,7 +354,8 @@ For each screen, provide:
 
 - **Figma file** (preferred) or hi-fi PNGs at 2x retina.
 - Desktop viewport: 1440px wide.
-- Naming: `[01 Login]`, `[02 Tenants]`, `[03 Tenant Settings]`, `[04 Signing Key]`.
+- Naming: `[01 Login]`, `[02 Tenants]`, `[03 Tenant Settings]`, `[04 Signing Key]`, `[05 Admin]`.
+- The Login screen states as `[01a Email]`, `[01b Inbox]`, `[01c TOTP]`, `[01d Enroll]`.
 - The Issue License modal states as `[03a Issue - form]`, `[03b Issue - waiting]`, `[03c Issue - signed]`, `[03d Issue - error]`.
 
 ---
@@ -275,7 +365,9 @@ For each screen, provide:
 - Dashboard with charts.
 - Audit log viewer (we query Postgres directly if ever needed).
 - Separate revocation page (it's a button on Tenant Settings).
-- Separate operator / settings page (there are only two operators; manage via Google Workspace itself).
+- SSO / Google Workspace integration (we deliberately own the operator roster inside the Studio — see Screen 5).
+- Password-based login (we don't do passwords — magic link + TOTP only).
+- SMS / phone-OTP second factor (SIM-swap risk; NIST SP 800-63B deprecates it).
 - Keyboard shortcuts, command palette.
 - Mobile layouts.
 - Dark mode.

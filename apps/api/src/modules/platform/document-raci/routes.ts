@@ -28,7 +28,7 @@ const rejectSchema = z.object({
 
 const insertSchema = z.object({
   userId: z.string().min(1),
-  letter: z.enum(VALID_LETTERS as readonly ['R', 'A', 'C', 'I']),
+  letter: z.enum(VALID_LETTERS as readonly ['R', 'A', 'C', 'I', 'Q']),
   sectionId: z.string().min(1).nullable().optional(),
   approvalOrder: z.number().int().min(1).nullable().optional(),
   signatureRequired: z.boolean().optional(),
@@ -83,6 +83,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     const sectionId = parsed.data.sectionId ?? null
     const approvalOrder = parsed.data.approvalOrder ?? null
     // Default signature_required: true for A (per §3.2), false otherwise.
+    // Q defaults false but QC-release gates commonly turn it on in the UI.
     const signatureRequired = parsed.data.signatureRequired ?? (parsed.data.letter === 'A')
     const signatureMeaning = parsed.data.signatureMeaning ?? null
 
@@ -303,10 +304,13 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: 'only_assignee_can_complete' })
     }
 
-    // Already-done check — the per-letter timestamp fields are the source of truth.
+    // Already-done check — the per-letter timestamp fields are the source
+    // of truth. C and Q share reviewedAt (the row's letter column
+    // distinguishes them in the audit trail).
     const alreadyDone =
       (row.letter === 'R' && row.submittedAt !== null) ||
       (row.letter === 'C' && row.reviewedAt !== null) ||
+      (row.letter === 'Q' && row.reviewedAt !== null) ||
       (row.letter === 'A' && row.approvedAt !== null) ||
       row.letter === 'I'
     if (alreadyDone) return reply.code(409).send({ error: 'already_complete' })
@@ -322,6 +326,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     const data: Record<string, unknown> = { signatureId: parsed.data.signatureId ?? row.signatureId }
     if (row.letter === 'R') data.submittedAt = now
     if (row.letter === 'C') data.reviewedAt = now
+    if (row.letter === 'Q') data.reviewedAt = now  // shares reviewedAt with C; letter column disambiguates
     if (row.letter === 'A') data.approvedAt = now
 
     const updated = await app.prisma.documentRaci.update({ where: { id: raciId }, data })
@@ -416,8 +421,8 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: 'only_assignee_can_reject' })
     }
 
-    if (row.letter !== 'C' && row.letter !== 'A') {
-      return reply.code(422).send({ error: 'only_reviewer_or_approver_can_reject' })
+    if (row.letter !== 'C' && row.letter !== 'A' && row.letter !== 'Q') {
+      return reply.code(422).send({ error: 'only_reviewer_or_approver_or_qc_can_reject' })
     }
 
     const now = new Date()

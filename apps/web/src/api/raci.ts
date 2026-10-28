@@ -6,7 +6,7 @@ import { api } from './client'
 
 // --- Document RACI --------------------------------------------------------
 
-export type RaciLetter = 'R' | 'A' | 'C' | 'I'
+export type RaciLetter = 'R' | 'A' | 'C' | 'I' | 'Q'
 
 export interface DocumentRaciRow {
   id: string

@@ -104,6 +104,26 @@ describe('validateRaciInsert — capability match', () => {
     expect(r.ok).toBe(true)
   })
 
+  it('allows Q when user has can-qc', async () => {
+    const r = await validateRaciInsert(
+      makePrisma({ user: { id: 'u-1', capabilities: ['can-qc'], role: 'contributor' } }),
+      { ...baseInput, letter: 'Q' },
+    )
+    expect(r.ok).toBe(true)
+  })
+
+  it('rejects Q when user lacks can-qc', async () => {
+    const r = await validateRaciInsert(
+      makePrisma({ user: { id: 'u-1', capabilities: ['can-review'], role: 'contributor' } }),
+      { ...baseInput, letter: 'Q' },
+    )
+    expect(r.ok).toBe(false)
+    if (!r.ok) {
+      expect(r.failure.kind).toBe('missing_capability')
+      if (r.failure.kind === 'missing_capability') expect(r.failure.required).toBe('can-qc')
+    }
+  })
+
   it('permits tenant-admin self-grant without the capability', async () => {
     const r = await validateRaciInsert(
       makePrisma({ user: { id: 'u-1', capabilities: [], role: 'tenant-admin' } }),

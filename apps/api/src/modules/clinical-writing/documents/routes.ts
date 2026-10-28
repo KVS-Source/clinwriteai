@@ -52,6 +52,7 @@ import {
 } from '../checklist/gates.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { runAutocheckForDocument } from '../checklist/autocheck/runner.js'
+import { extractTextFromBlob } from './extract-text.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -887,11 +888,22 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         .map(s => `§${s.sectionNumber} ${s.sectionTitle}:\n${s.contentHtml ?? '(empty)'}`)
         .join('\n\n')
     } else if (scope === 'source') {
-      // Full source-document text attachment is not yet wired (needs blob
-      // text extraction). For now list the referenced source document
-      // titles so the AI knows what's attached. When the composer sends
-      // attachedSourceIds we narrow to those; otherwise fall back to
-      // every linked SourceDocument on the doc (the old chip behaviour).
+      // Fetch + extract text from the attached source documents so the
+      // LLM gets the real content, not just a title list.
+      //
+      // Pipeline per upload:
+      //   1. Load DocumentUpload row (blobKey + fileName + contentType)
+      //   2. app.blob.get → Buffer
+      //   3. extractTextFromBlob (text/md decode direct; pdf-parse for
+      //      PDF; mammoth for DOCX; everything else degrades to title)
+      //   4. Trim per-file to a share of the total budget so one big
+      //      file doesn't drown the others
+      //
+      // Hard cap: 60KB of text across every attachment combined. Beyond
+      // that the LLM context cost outweighs the signal. Per-file max is
+      // (60000 / sources.length) chars so attachments share the budget
+      // evenly. Users attaching 20 docs get ~3KB each — enough to pass
+      // a stub to the AI; attaching 1-2 docs gives richer context.
       try {
         const sourceIdFilter = hasAttachments
           ? { uploadId: { in: parsed.data.attachedSourceIds! } }
@@ -905,14 +917,45 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             ? 'The attached source documents could not be loaded (they may have been unlinked from this document).'
             : 'No source documents are linked to this document.'
         } else {
-          const uploads = await app.prisma.contentUpload.findMany({
+          const uploads = await app.prisma.documentUpload.findMany({
             where:  { id: { in: sources.map(s => s.uploadId) } },
-            select: { fileName: true },
+            select: { id: true, fileName: true, title: true, blobKey: true, contentType: true },
           })
+
+          const TOTAL_BUDGET = 60_000
+          const perFileMax = Math.max(500, Math.floor(TOTAL_BUDGET / uploads.length))
+
+          const extracts = await Promise.all(uploads.map(async u => {
+            try {
+              const blob = await app.blob.get('documents', u.blobKey)
+              const extract = await extractTextFromBlob(blob.body, u.contentType, { maxChars: perFileMax })
+              return { upload: u, extract }
+            } catch (err) {
+              return {
+                upload: u,
+                extract: {
+                  ok: false,
+                  text: '',
+                  reason: `could not fetch blob: ${err instanceof Error ? err.message : String(err)}`,
+                  bytes: 0,
+                  returned: 0,
+                },
+              }
+            }
+          }))
+
           const header = hasAttachments
-            ? `User-attached source documents (titles only; full text not yet attached in this context):`
-            : `Linked source documents (titles only; full text not yet attached in this context):`
-          additionalContext = `${header}\n${uploads.map(u => `• ${u.fileName}`).join('\n')}`
+            ? 'User-attached source documents — extracted text follows. Treat as reference material only; the primary edit target is the Section content above.'
+            : 'Linked source documents — extracted text follows. Treat as reference material only.'
+
+          additionalContext = header + '\n\n' + extracts.map(({ upload, extract }) => {
+            const title = upload.title ?? upload.fileName
+            if (extract.ok) {
+              const note = extract.reason ? ` [${extract.reason}]` : ''
+              return `--- ${title}${note} ---\n${extract.text}`
+            }
+            return `--- ${title} (text unavailable: ${extract.reason}) ---`
+          }).join('\n\n')
         }
       } catch { additionalContext = '' }                                 // non-fatal if source-docs table shape differs
     }

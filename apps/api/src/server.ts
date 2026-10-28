@@ -418,6 +418,9 @@ async function buildServer() {
   const { pmDashboardRoutes } = await import('./modules/platform/pm-dashboard/routes.js')
   await app.register(pmDashboardRoutes, { prefix: '/projects' })
 
+  const { portfolioDashboardRoutes } = await import('./modules/platform/pm-dashboard/portfolio.js')
+  await app.register(portfolioDashboardRoutes, { prefix: '/dashboards' })
+
   // Guest invitations — one plugin for both scope='document' and
   // scope='project'. Mounted at root since the paths carry their own
   // /documents or /projects prefix.

@@ -28,9 +28,9 @@ Deliberately small. Everything granular happens at the project + document level.
 
 | Role | What they do | Document access |
 |---|---|---|
-| **`tenant-admin`** | Tenant settings, user management, SSO/IdP config, module toggles, audit exports, compliance. | None by default. Can self-grant RACI letters on documents — allowed, but emits a flagged `admin.self_grant` audit event (see §4.2). |
-| **`pm`** | Project coordinator. Creates projects, assigns team, assigns RACI per document, sets deadlines, moves stages, sees cross-project dashboards. **Does not edit content. Does not approve.** | Read-only on all docs in projects they manage. Cannot edit or approve. |
-| **`contributor`** | Everyone who works on documents — authors, reviewers, approvers, QC, publishers. One role, differentiated by **capabilities** (next column). | Determined by their RACI letter on each doc. See §4. |
+| **`tenant-admin`** | **Org-level only** — tenant settings, AI keys and all key management, SSO/IdP config, user management, module toggles, subscription + billing, audit exports, compliance. Does NOT create projects, assign work, edit RACI, or touch document content. | None by default. Can self-grant RACI letters on documents — allowed, but emits a flagged `admin.self_grant` audit event (see §4.2). |
+| **`pm`** | Lightweight coordinator. **Creates projects, assigns the first writer (lead R) on each document, sets deadlines, monitors status via dashboards.** Does NOT edit RACI on docs (that's the R's job — see below). Does NOT invite guests. Does NOT edit content. Does NOT approve. | Read-only on all docs in projects they manage. Cannot edit, invite, or approve. |
+| **`contributor`** | Everyone who works on documents — authors (R), reviewers (C), approvers (A), QC, publishers. One role, differentiated by **capabilities**. **R's on a document own that document's RACI editor + guest invitations** — PM assigns the first R, R brings in co-authors, reviewers, approvers, and external SMEs. | Determined by their RACI letter on each doc. See §4. |
 | **`auditor`** | **Internal** read-only observer. QA, internal compliance, legal. (External SOC 2 firms and regulatory inspectors use the project-scoped guest flow instead — see §6.) | Read-only on **all** documents and audit logs across the tenant. Cannot comment or edit. |
 | **`guest`** | External KOL, sponsor contact, external statistician. No account. Magic-link per document. | Read + comment on one document, time-boxed. See §6. |
 
@@ -188,9 +188,12 @@ The letter you hold on a document determines what you can do on it.
 | Approve + e-sign (A → ready to transition) | — | — | — | ✓ (self only) | — | — | — | — |
 | Reject (bounces back one stage) | — | — | — | ✓ | ✓ | — | — | — |
 | Publish (Module D) | — | — | — | — | — | — | — | — |
-| Reassign RACI | — | ✓ | — | — | — | — | — | — |
+| Assign / reassign RACI on this doc | ✓ | — | ✓ (R owns the RACI editor) | — | — | — | — | — |
+| Invite external guest on this doc | ✓ | — | ✓ (R-driven invite) | — | — | — | — | — |
 | Set deadline | — | ✓ | — | — | — | — | — | — |
 | Nudge pending cohort | — | ✓ | ✓ (any R while in Draft) | ✓ (any A while awaiting approval) | ✓ (any C while in Review) | — | — | — |
+| Checklist — tick / add user item / reorder (see §11) | — | — | ✓ | — | — | — | — | — |
+| Checklist — read-only view | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
 | Export audit for this doc | ✓ | ✓ | — | — | — | — | ✓ | — |
 
 **"Publish" is the only action gated by a capability (`can-publish`) rather than a RACI letter**, because publishing is a one-time irreversible submission to FDA ESG / EMA CESP that's done by a dedicated Submission Officer, not whoever happened to be the approver.
@@ -234,14 +237,11 @@ The PM role is new. These are the capabilities we're adding (not minor):
 - **Assign team** — add contributors, auditors, PMs to the project.
 - **Set project-level labels** (`project_members.project_role`).
 
-### 5.2 Document assignment
-- **Open the RACI editor** on any document in their projects.
-- Pick users from the project's member list; filter by capability (e.g., "show me only users with `can-approve` for the A slot").
-- Each of the four letters is a **multi-select** — add as many R's, A's, C's, I's as the workflow needs. The UI shows them as chip lists; the status strip tells the PM "3 A's assigned, 1 approved + signed, 2 pending".
-- Per row, the PM configures **signature requirement** — a checkbox "Requires e-signature" + a dropdown for the signature meaning (`Author attestation` / `Medical approval` / `Regulatory approval` / `Final signatory` / `QC release`). A's are checked by default; R's and C's are unchecked by default.
-- A **document template** (CSR, protocol, DSUR, MA brief, etc.) can carry a default RACI + signature profile so the PM doesn't configure it from scratch every time. Templates land in Chunk 2 of the build plan.
-- Scope any row to a section if the doc needs it (co-author of section 3; sign-off on section 7).
-- Reassign when someone goes on leave — remove-then-add, with audit log capturing both sides of the swap.
+### 5.2 First-writer assignment (PM's only touch on RACI)
+
+The PM assigns **exactly the first R** when the document is created — this is the existing "Assign writer" field on the Create Document form, which sets `Document.assigneeId`. On create, the system also inserts the matching `document_raci` row (letter R, section_id NULL, no signature required by default). That lead R then owns the RACI editor on their doc — see §5a below.
+
+The PM does not open a RACI editor at all. The PM dashboard shows them per-doc progress (gating cohort size, overdue flag, bottleneck tally) so they can monitor without reaching into assignment.
 
 ### 5.3 Workflow control
 - **Move a document between stages** (Draft → In Review → Approved → Published). Today this is done ad-hoc; it becomes a PM-owned transition.
@@ -258,6 +258,28 @@ The PM role is new. These are the capabilities we're adding (not minor):
 - Approve or reject documents (unless *also* assigned as a contributor with the A letter — rare).
 - See projects they're not assigned to.
 - Change tenant settings, users, or module access (tenant-admin only).
+- Edit RACI on documents (that's the R's responsibility — see §5a).
+- Invite external guests (also the R's responsibility).
+
+---
+
+## 5a. The R owns the document
+
+Once the PM has created the doc and assigned the first R, the lead R has full ownership of **who else works on this document**:
+
+- **Open the RACI editor** on their doc.
+- Pick users from the project's member list; filter by capability (`can-author` for co-R, `can-review` for C, `can-approve` for A).
+- Each of the four letters is a **multi-select** — add as many R's, A's, C's, I's as the workflow needs. The UI shows them as chip lists; the status strip reports "3 A's assigned, 1 approved + signed, 2 pending".
+- Per row, configure **signature requirement** — a checkbox "Requires e-signature" + a dropdown for the signature meaning (`Author attestation` / `Medical approval` / `Regulatory approval` / `Final signatory` / `QC release`). A's are checked by default; R's and C's are unchecked by default.
+- Scope any row to a section if the doc needs it (co-author of section 3; sign-off on section 7).
+- Reassign when someone goes on leave — remove-then-add, with audit log capturing both sides of the swap.
+- **Invite external guests** on this doc — KOL / sponsor / SME magic links. See §6.
+
+A **document template** (CSR, protocol, DSUR, MA brief, etc.) can carry a default RACI + signature profile so the R doesn't configure it from scratch every time. Templates land in Chunk 2 of the build plan.
+
+Why R and not PM: the author knows who should review, approve, and consult on their deliverable. Centralising this in the PM creates a bottleneck and divorces assignment from content judgment. The PM still *sees* every assignment via the dashboard and audit log.
+
+**Co-R additions.** When the lead R adds a second R, both become "R on this doc" with equal RACI-editing rights. Who removes whom is governed by the standard reassignment flow + audit log; there is no primacy mechanism in v1.
 
 ---
 
@@ -266,7 +288,7 @@ The PM role is new. These are the capabilities we're adding (not minor):
 Chosen path: **magic-link per document, no account**. Mirrors the License Studio magic-link mechanic — same crypto, different token payload.
 
 ### 6.1 Flow
-1. PM or an R opens a document → "Invite external reviewer" → enters email + role label ("KOL Reviewer") + expiry (default 14 days).
+1. An R on the document opens the RACI editor → "Invite external reviewer" → enters email + role label ("KOL Reviewer") + expiry (default 14 days). The PM does not invite guests directly; if a PM wants an external reviewer added, they ask the lead R.
 2. System generates a signed URL: `/guest/review/<signed-token>`.
 3. Token payload: `{ documentId, email, scope: 'read+comment', exp, jti }`. Signed ES256 with the same key as license JWTs.
 4. Email sent via the tenant's SMTP (or SES, standalone's config). Nothing stored client-side except the URL.
@@ -402,3 +424,70 @@ Three chunks. Order matters.
 1. **PM delegation.** When a PM goes on leave, can they delegate their project ownership to another PM, or must tenant-admin do it manually? Recommend: tenant-admin manual reassignment in v1, PM self-delegation in v2.
 2. **Guest comment visibility.** Does a document-scoped guest see all comments on the doc, or only their own thread? Recommend: v1 = all comments on the doc (less surprise for the external reviewer); configurable per-invite in v2.
 3. **Nudge throttling.** The "Nudge pending cohort" action — should it be rate-limited (e.g., one nudge per person per 24h) to prevent notification spam? Recommend: yes, 24h cooldown per (document, actor, target) tuple.
+
+---
+
+## 11. Checklist (the R's day-to-day guardrail)
+
+The per-document checklist is a first-class in-editor feature, not a side panel. The R sees it while writing, ticks items as they complete work, and the system gates "Submit for Review" on completion state.
+
+**Prisma lives here already** — `ChecklistInstance` (one per doc) + `ChecklistInstanceItem` (template items + user-added items). See [`apps/api/prisma/schema/moduleA.prisma:515`](../apps/api/prisma/schema/moduleA.prisma#L515). This section documents the role model + autocheck + submit-gate behaviour layered on top.
+
+### 11.1 Who can do what
+
+| Action | R (any R on doc) | PM | C / A / I | Admin | Guest |
+|---|---|---|---|---|---|
+| View checklist | ✓ | ✓ (dashboard rollup) | ✓ (read-only) | ✓ | — |
+| Mark item complete / incomplete | ✓ | — | — | — | — |
+| Add a user-added item | ✓ | — | — | — | — |
+| Reorder items (`sortOrder`) | ✓ | — | — | — | — |
+| Waive an item (with reason) | ✓ | — | — | — | — |
+| Autocheck engine runs | *(system)* | | | | |
+
+**Mandatory template items are not deletable** by the R — only waivable with a reason. User-added items can be removed by the R who added them while they're still pending.
+
+### 11.2 Autocheck strategies
+
+Four strategies, hinted per-template-item via `autoCompleteOn` (string tag). The autocheck service maps the tag to a strategy class:
+
+| Strategy | Example `autoCompleteOn` tag | Check |
+|---|---|---|
+| **Content presence** | `content-min-words:300:section-3` | Section N has ≥N words of real content and no `[TBD]` / `[PLACEHOLDER]` tokens. Deterministic. Cheap. |
+| **References complete** | `references-complete` | Every inline `[Ref: …]` citation resolves to a Reference row; no `[REF]` placeholders remain. Fires when the References panel is clean. |
+| **AI pass clean** | `ai-pass:consistency` | Runs the AI gateway over the section with the named profile; passes only if no `critical` issues emerge. Guarded by the AI quota + per-item rate limit so an open editor doesn't spam the gateway. |
+| **External signal** | `signal:tlf-validated` / `signal:esig-captured:A` / `signal:crm-resolved` | Checks a related entity's state. Module-specific; registry maps the tag to the lookup. |
+
+The autocheck engine runs on three triggers:
+1. **Save** of a section (debounced ~2s) — content + references strategies.
+2. **External event** — the signal strategy subscribes via a lightweight event bus (`document.signal_fired`).
+3. **Manual** — "Re-run autocheck" button on the checklist panel (useful after a review pass).
+
+When autocheck flips an item from `pending` → `completed`, the audit log carries `source: 'auto'` + the strategy tag. The R can un-tick an auto-completed item manually, but doing so emits `checklist.override` with a required reason — this is a Part 11 signal that an R disagreed with the engine.
+
+### 11.3 Submit-for-Review gate
+
+When an R clicks "Submit my part" (or the lead R clicks "Submit for Review" on the whole doc), the system evaluates all checklist items in `pending` state **belonging to this stage or earlier**:
+
+- **Any mandatory item (`frameworkMandatory=true`) in `pending`** → **hard block**. The submit modal shows the list of blocking items with "jump to section" links. No override.
+- **Optional items in `pending`** → **warning**. The submit modal shows the list; the R types a one-line reason into "Why skip these?" to proceed. The reason is captured on the audit event (`document.submit_with_pending_optional`).
+- **All items complete or waived** → clean submit.
+
+Rejected / waived items are not blockers. "Mandatory" is a template property; it carries the regulatory framework label (`ICH E3 §12.1`, `FDA Guidance 2018-04`, etc.) which the UI surfaces on the block modal so the R understands *why* it's a block.
+
+### 11.4 UI affordances (red / flash)
+
+- Items that cannot be auto-checked and are still `pending` within a short deadline window surface in the editor's right rail with an **amber** indicator ("needs manual check").
+- Items that are **mandatory + pending** at submit time flash **rose** on the submit modal with a direct link to the relevant section.
+- The AI assistant can be configured to **proactively ask the R clarifying questions** mapped to specific checklist items (e.g. "Section 10.2 lists protocol deviations — any CTCAE grade ≥3 you want to call out?") — this lands in Chunk 3 once the checklist write endpoints + autocheck engine are stable.
+
+### 11.5 Data model notes
+
+No schema change needed for this round — the existing fields already support the behaviour:
+
+- `ChecklistInstanceItem.autoCompleteOn` → autocheck tag (already exists).
+- `ChecklistInstanceItem.status` ∈ `pending | completed | waived` (already exists).
+- `ChecklistInstanceItem.isUserAdded` → distinguishes R-added items (already exists).
+- `ChecklistInstanceItem.sortOrder` → R-controlled ordering (already exists).
+- `ChecklistInstanceItem.completedBy` + `completedAt` → audit retention (already exists).
+
+What's missing in code: Rs-can-reorder / Rs-can-add endpoints + the autocheck engine + the submit-gate check. Ships in the next commits.

@@ -885,6 +885,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // inputs to the gateway rather than extracted-text in the prompt —
     // multimodal models can see charts/diagrams/signatures directly.
     const imageAttachments: Array<{ mediaType: string; data: Buffer; label?: string }> = []
+    // PDFs where pdf-parse found no text layer (scanned / image-only
+    // documents) fall back to Anthropic's native PDF-document support
+    // — the model reads both the text layer AND the images inside.
+    // Expensive (~1500-3000 tokens / page) so the limit is tighter
+    // than text extraction.
+    const documentAttachments: Array<{ mediaType: string; data: Buffer; label?: string }> = []
     if (scope === 'document') {
       const allSections = doc.currentVersion?.sections ?? []
       additionalContext = allSections
@@ -956,14 +962,18 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             ? Math.max(500, Math.floor(TOTAL_BUDGET / textUploads.length))
             : 500
 
+          // Also need the blob bytes alongside the extract result so we
+          // can fall back to document attachment when text extraction
+          // returns zero text on a PDF (image-only / scanned).
           const extracts = await Promise.all(textUploads.map(async u => {
             try {
               const blob = await app.blob.get('documents', u.blobKey)
               const extract = await extractTextFromBlob(blob.body, u.contentType, { maxChars: perFileMax })
-              return { upload: u, extract }
+              return { upload: u, extract, body: blob.body as Buffer }
             } catch (err) {
               return {
                 upload: u,
+                body: null,
                 extract: {
                   ok: false,
                   text: '',
@@ -975,6 +985,37 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             }
           }))
 
+          // Scanned-PDF fallback: for every PDF whose extract failed
+          // because the file has no text layer, attach the raw PDF
+          // bytes as a document block (Anthropic reads it natively).
+          // Hard-capped at MAX_PDF_DOCS files AND 25MB per file to stay
+          // comfortably under Anthropic's 32MB per-document limit after
+          // base64 overhead.
+          const MAX_PDF_DOCS = 3
+          const MAX_PDF_BYTES = 25 * 1024 * 1024
+          let scannedPdfPromoted = 0
+          for (const e of extracts) {
+            if (documentAttachments.length >= MAX_PDF_DOCS) break
+            if (e.extract.ok) continue
+            if (!e.body) continue
+            const isPdf = (e.upload.contentType ?? '').toLowerCase() === 'application/pdf'
+            if (!isPdf) continue
+            const reasonLower = e.extract.reason.toLowerCase()
+            // Promote when pdf-parse returned "no extractable text"
+            // (scanned / image-only) — not for genuine parse failures.
+            if (!reasonLower.includes('no extractable text')) continue
+            if (e.body.length > MAX_PDF_BYTES) continue
+            documentAttachments.push({
+              mediaType: 'application/pdf',
+              data:      e.body,
+              label:     e.upload.title ?? e.upload.fileName,
+            })
+            scannedPdfPromoted++
+            // Update the extract so the text-block mention flips to a
+            // "sent as PDF document" marker instead of the pdf-parse error.
+            e.extract.reason = 'scanned / image-only PDF — sent as document attachment for vision reading'
+          }
+
           const header = hasAttachments
             ? 'User-attached source documents — content follows. Treat as reference material only; the primary edit target is the Section content above.'
             : 'Linked source documents — content follows. Treat as reference material only.'
@@ -985,8 +1026,15 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
               const note = extract.reason ? ` [${extract.reason}]` : ''
               return `--- ${title}${note} ---\n${extract.text}`
             }
-            return `--- ${title} (text unavailable: ${extract.reason}) ---`
+            // Scanned PDFs promoted to document attachments get a
+            // specific marker so the LLM knows to look at the vision
+            // input rather than expect text here.
+            const promotedToDoc = extract.reason.includes('document attachment')
+            return promotedToDoc
+              ? `--- ${title} (sent as PDF document attachment — read the attached PDF directly) ---`
+              : `--- ${title} (text unavailable: ${extract.reason}) ---`
           })
+          void scannedPdfPromoted  // kept for future audit emission
 
           // Reference the image attachments by label so the LLM can
           // address them specifically ("per the Study Flow Diagram image
@@ -1113,6 +1161,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         // Image attachments (source files whose contentType is image/*).
         // Empty for text-only prompts — zero overhead when unused.
         images: imageAttachments.length > 0 ? imageAttachments : undefined,
+        // PDF document attachments — scanned / image-only PDFs that
+        // couldn't be text-extracted get promoted here so the model
+        // reads them natively.
+        documents: documentAttachments.length > 0 ? documentAttachments : undefined,
         // Prompt-history + Undo context (sPM-history). Scopes the AiCallRecord
         // to the section and snapshots pre-call HTML so the UI can later Undo
         // the last AI change on this section in place.

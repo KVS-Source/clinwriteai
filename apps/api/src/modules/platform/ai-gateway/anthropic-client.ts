@@ -14,14 +14,22 @@
 //     already has a `cachedTokens` column — we populate it from the sum
 //     of both. See docs/pivot-plan.md Arc 8.1.
 
-import type { ChatImage, LlmClient } from './service.js'
+import type { ChatDocument, ChatImage, LlmClient } from './service.js'
 
 // Anthropic vision caps (from their docs). Images exceeding these are
 // dropped with a note; the prompt still goes through.
-const MAX_IMAGE_BYTES = 5 * 1024 * 1024   // 5MB per image
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024    // 5MB per image
+
+// Anthropic document (PDF) caps (from their docs).
+// https://docs.anthropic.com/en/docs/build-with-claude/pdf-support
+const MAX_DOCUMENT_BYTES = 32 * 1024 * 1024   // 32MB per PDF
 
 const ALLOWED_IMAGE_TYPES = new Set([
   'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+])
+
+const ALLOWED_DOCUMENT_TYPES = new Set([
+  'application/pdf',
 ])
 
 export class AnthropicLlmClient implements LlmClient {
@@ -34,7 +42,7 @@ export class AnthropicLlmClient implements LlmClient {
     if (!apiKey) throw new Error('AnthropicLlmClient requires an API key')
   }
 
-  async send(args: { model: string; prompt: string; maxOutputTokens?: number; images?: ChatImage[] }) {
+  async send(args: { model: string; prompt: string; maxOutputTokens?: number; images?: ChatImage[]; documents?: ChatDocument[] }) {
     // Lazy-load the SDK; a missing install surfaces as a clear message.
     const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
       throw new Error(
@@ -45,22 +53,45 @@ export class AnthropicLlmClient implements LlmClient {
     const client = new Anthropic({ apiKey: this.apiKey })
 
     // Build the content array. Text-only → single string (fast path).
-    // With images → multimodal content blocks (image blocks first, then
-    // the text block — Anthropic's docs recommend this order so the model
-    // "sees" the image before reading the instruction).
+    // With images / documents → multimodal content blocks:
+    // documents first, then images, then text. Anthropic's docs
+    // recommend attachments-first so the model "sees" them before
+    // reading the instruction.
     const validImages = (args.images ?? []).filter(img =>
       ALLOWED_IMAGE_TYPES.has(img.mediaType.toLowerCase()) &&
       img.data.length > 0 &&
       img.data.length <= MAX_IMAGE_BYTES,
     )
     const skippedImages = (args.images ?? []).length - validImages.length
-    const skipNote = skippedImages > 0
-      ? `\n\n[Note: ${skippedImages} image(s) were dropped because they exceeded 5MB or used an unsupported format. Supported: PNG, JPEG, GIF, WebP.]`
-      : ''
 
-    const content = validImages.length === 0
+    const validDocs = (args.documents ?? []).filter(doc =>
+      ALLOWED_DOCUMENT_TYPES.has(doc.mediaType.toLowerCase()) &&
+      doc.data.length > 0 &&
+      doc.data.length <= MAX_DOCUMENT_BYTES,
+    )
+    const skippedDocs = (args.documents ?? []).length - validDocs.length
+
+    const skipNotes: string[] = []
+    if (skippedImages > 0) {
+      skipNotes.push(`${skippedImages} image(s) were dropped (over 5MB or unsupported format; supported: PNG, JPEG, GIF, WebP)`)
+    }
+    if (skippedDocs > 0) {
+      skipNotes.push(`${skippedDocs} document(s) were dropped (over 32MB or unsupported format; supported: PDF)`)
+    }
+    const skipNote = skipNotes.length > 0 ? `\n\n[Note: ${skipNotes.join('. ')}.]` : ''
+
+    const hasAttachments = validImages.length > 0 || validDocs.length > 0
+    const content = !hasAttachments
       ? (args.prompt + skipNote)
       : [
+          ...validDocs.map(doc => ({
+            type: 'document' as const,
+            source: {
+              type: 'base64' as const,
+              media_type: 'application/pdf' as const,
+              data: doc.data.toString('base64'),
+            },
+          })),
           ...validImages.map(img => ({
             type: 'image' as const,
             source: {

@@ -38,6 +38,25 @@ export interface ChatImage {
   label?: string
 }
 
+/**
+ * Document attachment (currently PDF only). Used for image-only /
+ * scanned PDFs that pdf-parse can't read as text — Anthropic supports
+ * PDFs natively as `type: 'document'` content blocks and the model
+ * reads both text layer AND images inside. Billed by page (~1500-3000
+ * tokens / page), so document attachment is the EXPENSIVE path — text
+ * extraction is preferred when it works.
+ *
+ * Caps: Anthropic documents max 100 pages, 32MB. Enforced in the client.
+ */
+export interface ChatDocument {
+  /** 'application/pdf' — only PDF is supported today. */
+  mediaType: string
+  /** Raw PDF bytes. The client base64-encodes before sending. */
+  data: Buffer
+  /** Optional human-friendly label (filename). */
+  label?: string
+}
+
 export interface ChatArgs {
   tenantId: string | null
   projectId?: string | null
@@ -49,6 +68,8 @@ export interface ChatArgs {
   maxOutputTokens?: number
   /** Optional image attachments for vision-capable models. See ChatImage. */
   images?: ChatImage[]
+  /** Optional PDF document attachments. See ChatDocument. */
+  documents?: ChatDocument[]
   // Prompt-history + section-level Undo scope (sPM-history).
   // All optional — gateway calls that aren't tied to a document section
   // (module-level claims harvest, platform jobs) leave them unset. When
@@ -92,6 +113,7 @@ export interface LlmClient {
     prompt: string
     maxOutputTokens?: number
     images?: ChatImage[]
+    documents?: ChatDocument[]
   }): Promise<{ responseText: string; inputTokens: number; outputTokens: number }>
 }
 
@@ -99,16 +121,22 @@ export interface LlmClient {
 // SDK wrapper when the API key arrives. The intent is to keep the service
 // shape stable so the swap is a single file change.
 class StubLlmClient implements LlmClient {
-  async send(args: { model: string; prompt: string; maxOutputTokens?: number; images?: ChatImage[] }) {
+  async send(args: { model: string; prompt: string; maxOutputTokens?: number; images?: ChatImage[]; documents?: ChatDocument[] }) {
     // Token estimates: Anthropic's rough rule is ~4 chars per token.
-    // Vision estimate: ~1500 tokens per image (rough — real cost depends
-    // on resolution). Suffices for the stub so cost tracking shows a
-    // non-zero number in dev.
+    // Vision estimate: ~1500 tokens per image. PDF estimate: ~2500
+    // tokens per document (rough — real cost scales with page count,
+    // typically 1500-3000/page). Suffices for the stub so cost tracking
+    // shows a non-zero number in dev.
     const textTokens = Math.max(1, Math.ceil(args.prompt.length / 4))
     const imgCount = args.images?.length ?? 0
-    const inputTokens = textTokens + imgCount * 1500
-    const responseText = imgCount > 0
-      ? `[STUB_${args.model}] Would respond to a prompt of length ${args.prompt.length} with ${imgCount} image(s).`
+    const docCount = args.documents?.length ?? 0
+    const inputTokens = textTokens + imgCount * 1500 + docCount * 2500
+    const attachNote = [
+      imgCount > 0 ? `${imgCount} image(s)` : '',
+      docCount > 0 ? `${docCount} PDF document(s)` : '',
+    ].filter(Boolean).join(' + ')
+    const responseText = attachNote
+      ? `[STUB_${args.model}] Would respond to a prompt of length ${args.prompt.length} with ${attachNote}.`
       : `[STUB_${args.model}] Would respond to a prompt of length ${args.prompt.length}.`
     const outputTokens = Math.max(1, Math.ceil(responseText.length / 4))
     return { responseText, inputTokens, outputTokens }
@@ -213,6 +241,7 @@ export class AiGatewayService {
         prompt: scrubbed,
         maxOutputTokens: args.maxOutputTokens,
         images: args.images,
+        documents: args.documents,
       })
       responseText = r.responseText
       inputTokens = r.inputTokens

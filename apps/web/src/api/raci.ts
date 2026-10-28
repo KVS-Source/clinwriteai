@@ -29,7 +29,10 @@ export interface DocumentRaciRow {
 }
 
 export interface RaciTransitionEvaluation {
+  /** Legacy single-letter — kept for the StatusStrip's existing signature. */
   gatingLetter: RaciLetter | null
+  /** New multi-letter shape — C and Q share the in_review gate. */
+  gatingLetters?: RaciLetter[]
   nextStatus: string | null
   cohortDone: number
   cohortTotal: number

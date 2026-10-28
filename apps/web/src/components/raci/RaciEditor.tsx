@@ -46,6 +46,25 @@ const LETTER_LABEL: Record<RaciLetter, string> = {
   I: 'Informed',
 }
 
+// Options the server accepts in signatureMeaning. Shown in a dropdown next to
+// the "Requires e-signature" checkbox when a row is marked signatureRequired=true.
+const SIGNATURE_MEANINGS = [
+  'Author attestation',
+  'Medical approval',
+  'Regulatory approval',
+  'Final signatory',
+  'QC release',
+] as const
+type SignatureMeaning = typeof SIGNATURE_MEANINGS[number]
+
+const DEFAULT_SIG_MEANING: Record<RaciLetter, SignatureMeaning> = {
+  R: 'Author attestation',
+  A: 'Medical approval',
+  C: 'Medical approval',
+  Q: 'QC release',
+  I: 'Author attestation', // unused — I rows never require signatures
+}
+
 export function RaciEditor({ projectId, documentId, documentStatus, editable, onChanged, className }: RaciEditorProps) {
   const [rows, setRows] = useState<DocumentRaciRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -128,6 +147,47 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable, on
                 {current.length} assigned
               </span>
             </header>
+
+            {/* Signature-requirement controls per row. The I letter is
+                excluded — "informed" doesn't sign off. The toggle hits
+                raciApi.remove + raciApi.assign to swap the row (there is
+                no PATCH on document_raci — assignments are immutable
+                once written per the audit-chain design, so changing a
+                row's signature config = remove + re-add). */}
+            {letter !== 'I' && current.length > 0 && (
+              <ul className="mb-3 space-y-1 text-xs">
+                {current.map(row => (
+                  <li
+                    key={row.id}
+                    className="flex items-center gap-3 px-2 py-1.5 rounded border border-slate-100 bg-slate-50/50"
+                  >
+                    <span className="font-mono text-[10px] text-slate-500 shrink-0">{row.userId.slice(0, 10)}…</span>
+                    <label className="flex items-center gap-1.5 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={row.signatureRequired}
+                        onChange={() => void toggleSignatureRequired(row)}
+                        disabled={!editable || busyLetter === letter}
+                      />
+                      <span className="select-none">Requires e-signature</span>
+                    </label>
+                    {row.signatureRequired && (
+                      <select
+                        value={(row.signatureMeaning as SignatureMeaning | null) ?? DEFAULT_SIG_MEANING[letter]}
+                        onChange={e => void updateSignatureMeaning(row, e.target.value as SignatureMeaning)}
+                        disabled={!editable || busyLetter === letter}
+                        className="ml-auto text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white"
+                      >
+                        {SIGNATURE_MEANINGS.map(m => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                      </select>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+
             <UserPicker
               projectId={projectId}
               letter={letter}
@@ -140,6 +200,46 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable, on
       })}
     </div>
   )
+
+  // Swap a row's signature config. document_raci rows are immutable
+  // (audit-chain invariant), so we remove + re-add with new flags.
+  async function toggleSignatureRequired(row: DocumentRaciRow) {
+    const nextSigRequired = !row.signatureRequired
+    const nextMeaning = nextSigRequired
+      ? (row.signatureMeaning as SignatureMeaning | null) ?? DEFAULT_SIG_MEANING[row.letter]
+      : null
+    await swapRowSignature(row, nextSigRequired, nextMeaning)
+  }
+
+  async function updateSignatureMeaning(row: DocumentRaciRow, meaning: SignatureMeaning) {
+    await swapRowSignature(row, true, meaning)
+  }
+
+  async function swapRowSignature(
+    row: DocumentRaciRow,
+    signatureRequired: boolean,
+    signatureMeaning: string | null,
+  ) {
+    setBusyLetter(row.letter)
+    setError(null)
+    try {
+      await raciApi.remove(documentId, row.id)
+      await raciApi.assign(documentId, {
+        userId: row.userId,
+        letter: row.letter,
+        sectionId: row.sectionId,
+        approvalOrder: row.approvalOrder,
+        signatureRequired,
+        signatureMeaning: signatureRequired ? signatureMeaning : null,
+      })
+      await refresh()
+      onChanged?.()
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Signature update failed')
+    } finally {
+      setBusyLetter(null)
+    }
+  }
 }
 
 // ---- Helpers ---------------------------------------------------------

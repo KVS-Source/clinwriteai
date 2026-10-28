@@ -17,6 +17,13 @@ import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
 import { actorCanEditDocumentRaci } from './access.js'
+import { nudgePendingCohort } from './nudge.js'
+
+const nudgeSchema = z.object({
+  targetUserIds: z.array(z.string().min(1)).max(50).optional(),
+  channels:      z.array(z.enum(['in_app', 'email'])).optional(),
+  message:       z.string().max(500).optional(),
+})
 
 const completeSchema = z.object({
   signatureId: z.string().min(1).nullable().optional(),
@@ -447,5 +454,58 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return reply.send(updated)
+  })
+
+  // ---------------------------------------------------------------------
+  // POST /:documentId/nudge — notify pending users in the gating cohort.
+  //
+  // Any authenticated user with Module A can call. The nudge function
+  // itself enforces who's in the cohort — users who aren't in the
+  // current gate can't be nudged (returned as not_in_cohort / already_done
+  // decisions). PM / admin can nudge anyone in the cohort; peers can
+  // nudge their fellow cohort members (that's what the permission matrix
+  // means by "any R while in Draft" etc.) — enforced by cohort
+  // membership, not a separate role check.
+  //
+  // 24h throttle per (documentId, actorId, targetUserId). Returns a
+  // per-target decision + the current gating letters so the UI can
+  // render "3 nudged, 1 throttled, 1 not in cohort".
+  // ---------------------------------------------------------------------
+  app.post('/:documentId/nudge', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const parsed = nudgeSchema.safeParse(request.body ?? {})
+    if (!parsed.success) {
+      return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    }
+
+    const actor = request.user!
+    const result = await nudgePendingCohort(app.prisma, {
+      documentId,
+      actor,
+      targetUserIds: parsed.data.targetUserIds,
+      channels: parsed.data.channels,
+      message: parsed.data.message,
+    })
+
+    // One audit event per actual nudge — throttled / not-in-cohort are
+    // not auditable (no state change).
+    const nudged = result.decisions.filter(d => d.status === 'nudged')
+    for (const d of nudged) {
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: actor.id,
+        action: 'document_raci.nudged',
+        entityType: 'document',
+        entityId: documentId,
+        details: {
+          targetUserId: d.targetUserId,
+          gatingLetters: result.gatingLetters,
+          messagePresent: !!parsed.data.message,
+        },
+        ipAddress: request.ip ?? null,
+      })
+    }
+
+    return reply.send(result)
   })
 }

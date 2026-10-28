@@ -94,6 +94,7 @@ import { SubmissionLayout }             from '../components/layout/SubmissionLay
 import { ContentLayout }                from '../components/layout/ContentLayout'
 import { IdeationProjectLayout }        from '../components/layout/IdeationProjectLayout'
 import { DocumentLayout }               from '../components/layout/DocumentLayout'
+import { DocumentTabGuard }             from '../components/layout/DocumentTabGuard'
 
 export const router = createBrowserRouter([
   // Auth screens — no shell
@@ -157,10 +158,10 @@ export const router = createBrowserRouter([
                 path: 'documents/:documentId',
                 element: <DocumentLayout />,
                 children: [
-                  { index: true,      element: <DocumentEditor /> },
-                  { path: 'diff',     element: <DiffView /> },
-                  { path: 'review',   element: <ReviewerView /> },
-                  { path: 'sign',     element: <ESignature /> },
+                  { index: true,      element: <DocumentTabGuard tab="editor"><DocumentEditor /></DocumentTabGuard> },
+                  { path: 'diff',     element: <DocumentTabGuard tab="diff"><DiffView /></DocumentTabGuard> },
+                  { path: 'review',   element: <DocumentTabGuard tab="review"><ReviewerView /></DocumentTabGuard> },
+                  { path: 'sign',     element: <DocumentTabGuard tab="sign"><ESignature /></DocumentTabGuard> },
                   { path: 'final',    element: <FinalDocument /> },
                 ],
               },

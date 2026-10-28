@@ -24,6 +24,14 @@ import {
   type SectionContentForCheck,
   type StrategyResult,
 } from './content-strategies.js'
+import {
+  emptySignalContext,
+  evaluateSignal,
+  type SignalContext,
+} from './signal-strategies.js'
+
+export type { SignalContext } from './signal-strategies.js'
+export { emptySignalContext } from './signal-strategies.js'
 
 export interface ItemForAutoCheck {
   id: string
@@ -41,12 +49,12 @@ export interface ItemEvaluation {
 
 const DEFERRED_STRATEGIES = new Set([
   'ai-pass',
-  'signal',
 ])
 
 export function evaluateItems(
   items: ItemForAutoCheck[],
   sections: SectionContentForCheck[],
+  signals: SignalContext = emptySignalContext(),
 ): ItemEvaluation[] {
   const out: ItemEvaluation[] = []
   for (const item of items) {
@@ -58,7 +66,7 @@ export function evaluateItems(
     const parsed = parseAutoCompleteTag(item.autoCompleteOn)
     if (!parsed) continue
 
-    const result = dispatch(parsed.strategy, parsed.args, sections)
+    const result = dispatch(parsed.strategy, parsed.args, sections, signals)
     out.push({
       itemId: item.id,
       tag: item.autoCompleteOn ?? '',
@@ -73,15 +81,17 @@ function dispatch(
   strategy: string,
   args: string[],
   sections: SectionContentForCheck[],
+  signals: SignalContext,
 ): StrategyResult {
   switch (strategy) {
     case 'content-min-words':        return evaluateContentMinWords(args, sections)
     case 'content-no-placeholders':  return evaluateContentNoPlaceholders(args, sections)
     case 'references-complete':      return evaluateReferencesComplete(args, sections)
+    case 'signal':                   return evaluateSignal(args, signals)
     default:
-      // References / AI pass / signal strategies are declared in the
-      // design but not yet wired. Return a stable 'skipped' so the UI
-      // can distinguish "not yet implemented" from "unknown tag".
+      // Strategies declared in the design but not yet wired return a
+      // stable 'skipped' so the UI can distinguish "not yet implemented"
+      // from "unknown tag".
       if (DEFERRED_STRATEGIES.has(strategy)) {
         return { kind: 'skipped', reason: `${strategy}: strategy not yet implemented (v1 placeholder)` }
       }

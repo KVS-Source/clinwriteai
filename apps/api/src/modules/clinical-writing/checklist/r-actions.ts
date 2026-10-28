@@ -18,7 +18,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
 import { evaluateSubmitGate, type ChecklistItemForGate } from './submit-gate.js'
-import { evaluateItems as evaluateAutoCheck, type ItemForAutoCheck } from './autocheck/engine.js'
+import { evaluateItems as evaluateAutoCheck, type ItemForAutoCheck, type SignalContext } from './autocheck/engine.js'
 import type { SectionContentForCheck } from './autocheck/content-strategies.js'
 
 const reorderSchema = z.object({
@@ -239,7 +239,7 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
-      select: { id: true, currentVersionId: true },
+      select: { id: true, projectId: true, currentVersionId: true },
     })
     if (!doc) return reply.code(404).send({ error: 'document_not_found' })
 
@@ -268,8 +268,41 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
         }))
       : []
 
+    // Fetch signal context for signal:* strategies. Three parallelised reads.
+    // Only fired if the instance has at least one signal-tagged item (keeps
+    // the common autocheck run cheap).
+    const hasSignalItem = instance.items.some(i => (i.autoCompleteOn ?? '').toLowerCase().startsWith('signal:'))
+    let signals: SignalContext = {
+      tlfPackageValidated: false,
+      signatureMeanings: [],
+      crmMeetingsComplete: false,
+      crmMeetingCount: 0,
+    }
+    if (hasSignalItem) {
+      const [tlfCurrent, signatures, crmMeetings] = await Promise.all([
+        app.prisma.tlfPackage.findFirst({
+          where: { projectId: doc.projectId, isCurrent: true },
+          select: { id: true },
+        }),
+        app.prisma.signatureRecord.findMany({
+          where: { chain: { documentId }, status: 'signed' },
+          select: { meaning: true },
+        }),
+        app.prisma.crmMeeting.findMany({
+          where: { documentId },
+          select: { status: true },
+        }),
+      ])
+      signals = {
+        tlfPackageValidated: tlfCurrent !== null,
+        signatureMeanings: signatures.map(s => s.meaning.toLowerCase()),
+        crmMeetingsComplete: crmMeetings.length > 0 && crmMeetings.every(m => m.status === 'complete'),
+        crmMeetingCount: crmMeetings.length,
+      }
+    }
+
     const items = instance.items as unknown as ItemForAutoCheck[]
-    const evaluations = evaluateAutoCheck(items, sections)
+    const evaluations = evaluateAutoCheck(items, sections, signals)
     const toFlip = evaluations.filter(e => e.shouldComplete)
 
     if (toFlip.length === 0) {

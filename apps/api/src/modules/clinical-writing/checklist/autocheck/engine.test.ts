@@ -49,9 +49,8 @@ describe('autocheck engine — evaluateItems', () => {
   it('marks deferred strategies as skipped with a stable reason', () => {
     const r = evaluateItems([
       item({ id: 'r2', autoCompleteOn: 'ai-pass:consistency' }),
-      item({ id: 'r3', autoCompleteOn: 'signal:tlf-validated' }),
     ], sections)
-    expect(r).toHaveLength(2)
+    expect(r).toHaveLength(1)
     for (const e of r) {
       expect(e.result.kind).toBe('skipped')
       expect(e.shouldComplete).toBe(false)
@@ -65,6 +64,21 @@ describe('autocheck engine — evaluateItems', () => {
     ], sections)
     expect(r).toHaveLength(1)
     expect(r[0].result.kind).toBe('completed') // clean sample sections, no citation placeholders
+  })
+
+  it('signal:tlf-validated dispatches using the provided SignalContext', () => {
+    const r = evaluateItems(
+      [item({ id: 'sig-tlf', autoCompleteOn: 'signal:tlf-validated' })],
+      sections,
+      {
+        tlfPackageValidated: true,
+        signatureMeanings: [],
+        crmMeetingsComplete: false,
+        crmMeetingCount: 0,
+      },
+    )
+    expect(r).toHaveLength(1)
+    expect(r[0].result.kind).toBe('completed')
   })
 
   it('marks truly unknown strategies as skipped with "unknown"', () => {

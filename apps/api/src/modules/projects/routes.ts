@@ -135,7 +135,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     return projectShape(project)
   })
 
-  app.post('/', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  app.post('/', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     const parsed = projectCreateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -170,7 +170,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  app.patch('/:id', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  app.patch('/:id', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = projectUpdateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -227,7 +227,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
   // Keeping them separate makes the audit trail unambiguous (every row with
   // action='project.state_changed' is a real transition, not an incidental
   // field update).
-  app.post('/:id/transition', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  app.post('/:id/transition', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = transitionSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })

@@ -128,7 +128,7 @@ function uiStage(v: string | null | undefined): string {
 
 // editors: user id → name, for the section's last editor.
 function sectionShape(
-  s: { id: string; sectionId: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null; lastEditedBy?: string | null; lastEditedAt?: Date | null },
+  s: { id: string; sectionId: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null; lastEditedBy?: string | null; lastEditedAt?: Date | null; aiSpanCount?: number | null; humanSpanCount?: number | null },
   editors?: Map<string, string>,
 ) {
   return {
@@ -146,6 +146,9 @@ function sectionShape(
     // Who last saved this section, and when (set on every section save). Null for a section nobody has edited.
     lastEditedAt: s.lastEditedAt ?? null,
     lastEditedByName: s.lastEditedBy ? (editors?.get(s.lastEditedBy) ?? null) : null,
+    // Provenance counts (FR-A-021): saves of this section that were AI-drafted vs. human-authored.
+    aiSpanCount: s.aiSpanCount ?? 0,
+    humanSpanCount: s.humanSpanCount ?? 0,
   }
 }
 

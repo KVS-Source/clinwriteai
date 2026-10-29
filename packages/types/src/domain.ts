@@ -110,6 +110,9 @@ export interface Section {
   // Who last saved this section and when; null/absent for a section nobody has edited.
   lastEditedAt?: string | null
   lastEditedByName?: string | null
+  // Provenance counts from the API (AI-drafted vs. human-authored saves); absent on older payloads.
+  aiSpanCount?: number
+  humanSpanCount?: number
   presenceUserId?: string
   isLocked?: boolean
   lockedByUserId?: string

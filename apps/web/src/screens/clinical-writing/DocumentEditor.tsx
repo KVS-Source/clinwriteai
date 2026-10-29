@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DocumentStatus, PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
-import { useDocumentPresence, usePresenceSnapshot } from '../../hooks/usePresence'
+import { useDocumentPresence } from '../../hooks/usePresence'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { useSectionLock } from '../../hooks/useSectionLock'
 import { useAutosave }     from '../../hooks/useAutosave'
@@ -18,6 +18,7 @@ import {
   applyReferenceHighlights, buildTextIndex, clearReferenceHighlights, normalizeSpan, referenceAtPoint, spanOfRange, type LinkedRange,
 } from './referenceHighlights'
 import { SectionNavigator } from './SectionNavigator'
+import { PresenceStack, avatarColor } from './PresenceStack'
 import { EditorToolbar }    from './EditorToolbar'
 import { EditorContent, useRichTextEditor } from './RichTextEditor'
 import { useCollabProvider } from './useCollabProvider'
@@ -64,34 +65,6 @@ const AUTHORING_LOCK: Partial<Record<DocumentStatus, { short: string; note: stri
 }
 const PROJECT_CLOSED_LOCK = { short: 'project closed', note: 'The project is closed, so its documents are read-only.' }
 
-// Deterministic colour for a user's presence avatar — hashed from userId
-// so the same user always gets the same colour across sessions.
-const AVATAR_PALETTE: Array<{ bg: string; fg: string }> = [
-  { bg: '#DBEAFE', fg: '#1D4ED8' },  // blue
-  { bg: '#F5F3FF', fg: '#7C3AED' },  // purple
-  { bg: '#FEF3C7', fg: '#D97706' },  // amber
-  { bg: '#D1FAE5', fg: '#065F46' },  // green
-  { bg: '#FEE2E2', fg: '#B91C1C' },  // red
-  { bg: '#E0E7FF', fg: '#3730A3' },  // indigo
-  { bg: '#FCE7F3', fg: '#9D174D' },  // pink
-]
-
-function hashString(s: string): number {
-  let h = 0
-  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
-  return Math.abs(h)
-}
-
-function avatarColor(userId: string) {
-  return AVATAR_PALETTE[hashString(userId) % AVATAR_PALETTE.length]
-}
-
-function initialsFromName(name: string | null | undefined, fallback = '?'): string {
-  if (!name) return fallback
-  const parts = name.trim().split(/\s+/).slice(0, 2)
-  return parts.map(p => p[0]?.toUpperCase() ?? '').join('') || fallback
-}
-
 export function DocumentEditor() {
   const { projectId, documentId } = useParams()
   const navigate                  = useNavigate()
@@ -123,10 +96,6 @@ export function DocumentEditor() {
     enabled:  !!documentId,
   })
 
-  // Real presence — Socket.io emits presence:changed; the hook polls as a
-  // fallback. Snapshot groups users by section; the header stack flattens
-  // across all sections on this doc.
-  const { data: presenceSnapshot } = usePresenceSnapshot(documentId ?? '', { pollMs: 15_000 })
   const currentUser = useAuthStore(s => s.user)
 
   // Resolve user id → PlatformUser so avatars can show initials + full
@@ -303,35 +272,6 @@ export function DocumentEditor() {
     collab,
     user: collabUser,
   })
-
-  const presenceStack = useMemo(() => {
-    if (!presenceSnapshot) return []
-    // Flatten all section rooms + dedupe by userId (same user may appear
-    // on two sections if they rapidly navigated). "active" wins over
-    // "idle" when the same user is in multiple states.
-    const bestByUser = new Map<string, { userId: string; status: 'active' | 'idle' | 'ended' }>()
-    for (const section of presenceSnapshot.sections) {
-      for (const user of section.users) {
-        const existing = bestByUser.get(user.userId)
-        if (!existing || (existing.status !== 'active' && user.status === 'active')) {
-          bestByUser.set(user.userId, { userId: user.userId, status: user.status })
-        }
-      }
-    }
-    return Array.from(bestByUser.values())
-      .filter(u => u.status !== 'ended')
-      .map(u => {
-        const platformUser = usersById.get(u.userId)
-        return {
-          userId: u.userId,
-          name: platformUser?.name ?? 'Unknown',
-          initials: initialsFromName(platformUser?.name),
-          isCurrentUser: currentUser?.id === u.userId,
-          color: avatarColor(u.userId),
-          status: u.status,
-        }
-      })
-  }, [presenceSnapshot, usersById, currentUser])
 
   // Hydrate active document + default active section + presence heartbeat
   // The starting section is chosen once per document. A reload of the same document (after saving
@@ -542,17 +482,17 @@ export function DocumentEditor() {
   // on mousedown, since the menu is gone from the page by the time the click fires.
   const rightPanelRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    // Auto-close-on-outside-click ONLY for the reference-tool panels
-    // (traceability, audit) and Comments (which has its own section-follow
-    // behaviour). AI Chat, Section History, Voice Note, Input Checklist
-    // are intentionally sticky — the writer wants them alongside the
-    // editor while they work. Close via the X in the panel header, Esc
+    // Auto-close-on-outside-click for Source References, Audit Trail,
+    // Comments (which has its own section-follow behaviour), Section
+    // History, Voice Note and Input Checklist.
+    // AI Chat is intentionally sticky — the writer wants it alongside the
+    // editor while they work. Close it via the X in the panel header, Esc
     // with focus outside any input, or by opening a different panel.
-    // ⚠ Don't widen this condition — a merge in late October 2026
-    // accidentally added 'ai' / 'history' / 'voice' / 'checklist' here,
-    // which made the AI Chat close on every editor click (QA reported
-    // "the fixed panel of AI Chat on the right is rolled back").
-    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments') return
+    // ⚠ Don't add 'ai' here — a merge in late October 2026 did, which made
+    // the AI Chat close on every editor click (QA reported "the fixed panel
+    // of AI Chat on the right is rolled back").
+    if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments'
+      && activePanel !== 'history' && activePanel !== 'voice' && activePanel !== 'checklist') return
     // The click that opened the panel is still being dispatched when this listener is added,
     // so only clicks whose mousedown we saw count.
     let pressed = false
@@ -780,42 +720,8 @@ export function DocumentEditor() {
             </div>
 
             {/* Presence stack — real-time via /documents/:id/presence +
-                 Socket.io presence:changed. Empty when it's just you. */}
-            <div className="flex flex-none items-center" data-presence-stack>
-              {presenceStack.slice(0, 5).map((p, i) => (
-                <div
-                  key={p.userId}
-                  title={`${p.name}${p.isCurrentUser ? ' (you)' : ''} · ${p.status}`}
-                  className="flex h-6 w-6 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
-                  style={{
-                    backgroundColor: p.color.bg,
-                    color: p.color.fg,
-                    boxShadow: p.isCurrentUser
-                      ? '0 0 0 2px #FFFFFF, 0 0 0 4px #2563EB'
-                      : '0 0 0 2px #FFFFFF',
-                    opacity: p.status === 'idle' ? 0.55 : 1,
-                    marginLeft: i === 0 ? 0 : -6,
-                    zIndex: 5 - i,
-                  }}
-                >
-                  {p.initials}
-                </div>
-              ))}
-              {presenceStack.length > 5 && (
-                <div
-                  title={`+${presenceStack.length - 5} more`}
-                  className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-slate-200 font-mono text-[10px] font-bold text-slate-600"
-                  style={{ boxShadow: '0 0 0 2px #FFFFFF', marginLeft: -6 }}
-                >
-                  +{presenceStack.length - 5}
-                </div>
-              )}
-            </div>
-
-            <span className="h-5 w-px" style={{ backgroundColor: '#E2E8F0' }} />
-            <span className="flex-none text-xs text-slate-500">
-              {presenceStack.length === 0 ? 'Only you' : `${presenceStack.length} active`}
-            </span>
+                 Socket.io presence:changed. */}
+            {documentId && <PresenceStack documentId={documentId} currentUserId={currentUser?.id} />}
 
             <button
               type="button"

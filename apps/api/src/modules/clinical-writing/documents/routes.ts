@@ -174,6 +174,18 @@ function documentShapeFull(d: { type?: string; status?: string; stage?: string; 
   }
 }
 
+// Submit-for-review body — only the due date is read here; the rest of the
+// panel's payload (reviewers, review type) isn't stored by this route.
+const submitBodySchema = z.object({ dueDate: z.string().trim().min(1).optional() }).passthrough()
+
+// documents.reviewDueAt unavailable: the column is missing (P2022, migration
+// 52 not applied) or the Prisma client predates it ("Unknown argument").
+const isMissingReviewDueColumn = (err: unknown) => {
+  const e = err as { code?: string; message?: string } | null
+  const msg = e?.message ?? ''
+  return e?.code === 'P2022' || (msg.includes('reviewDueAt') && (msg.includes('Unknown argument') || msg.includes('does not exist')))
+}
+
 const restoreSchema = z.object({
   sections: z.array(z.object({
     sectionId: z.string(),
@@ -528,9 +540,22 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send({ error: 'invalid_transition', message: err.message })
     }
 
+    // Review due date from the Submit-for-review panel ('YYYY-MM-DD' or ISO).
+    // Kept only when it parses; stored as UTC midnight of that day.
+    const dueRaw = submitBodySchema.safeParse(request.body ?? {}).data?.dueDate
+    const dueDate = dueRaw ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(dueRaw) ? `${dueRaw}T00:00:00.000Z` : dueRaw) : null
+    const reviewDueAt = dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate : null
+
+    const submitData = { status: 'in_review', submittedForReviewAt: new Date() }
     const updated = await app.prisma.document.update({
       where: { id: documentId },
-      data: { status: 'in_review', submittedForReviewAt: new Date() },
+      data: { ...submitData, reviewDueAt },
+    }).catch(err => {
+      // Migration 52 (documents.reviewDueAt) not applied yet, or a Prisma
+      // client older than the column: submit without the due date.
+      if (!isMissingReviewDueColumn(err)) throw err
+      app.log.warn('documents.reviewDueAt missing — submitting without a review due date until migration 52 is applied')
+      return app.prisma.document.update({ where: { id: documentId }, data: submitData })
     })
 
     // Auto-advance stage: submitting for review implies the document has
@@ -568,6 +593,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         to: 'in_review',
         stageFrom: stageMove?.from ?? null,
         stageTo: stageMove?.to ?? null,
+        reviewDueAt: reviewDueAt?.toISOString() ?? null,
         autoCompletedCount: autoReport?.completedCount ?? 0,
       },
       ipAddress: request.ip ?? null,

@@ -17,7 +17,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { CreateDocumentBody, DocumentType, PlatformUser } from '@platform/types'
+import type { BestPractice, CreateDocumentBody, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { platformApi } from '../../platform/api/platformApi'
@@ -120,6 +120,29 @@ export function NewDocumentForm({
     queryFn:  () => platformApi.listUsers(),
     retry: false,
   })
+
+  // Best Practices Library — surface the items whose applicableDocTypes
+  // includes the chosen type (and that are Module A / Clinical Writing
+  // or platform-wide). The writer sees them during setup so framework
+  // expectations aren't a surprise during authoring.
+  const { data: allBestPractices = [] } = useQuery<BestPractice[]>({
+    queryKey: ['best-practices'],
+    queryFn:  () => platformApi.listBestPractices(),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  const relevantBestPractices = useMemo(() => {
+    return allBestPractices.filter(bp => {
+      // Module match: Module A (Clinical Writing) items + platform-wide.
+      // (The screen is clinical-writing-only; other modules' items filter out.)
+      const moduleOk = bp.module === 'A' || (bp.module as string) === 'platform'
+      if (!moduleOk) return false
+      // If applicableDocTypes is empty, treat it as "applies to all" for
+      // the module — operators who leave it blank clearly meant everything.
+      if (!bp.applicableDocTypes || bp.applicableDocTypes.length === 0) return true
+      return bp.applicableDocTypes.includes(type)
+    })
+  }, [allBestPractices, type])
 
   const { data: sourceDoc } = useQuery({
     queryKey: ['document', duplicateSourceId],
@@ -270,6 +293,15 @@ export function NewDocumentForm({
                 )}
               </div>
             )}
+
+            {/* Best Practices Library — items whose applicableDocTypes
+                matches the selected type. Shows the writer the framework
+                expectations before they even hit step 2. Collapsible so
+                writers who already know can skip past. */}
+            <BestPracticesCard
+              items={relevantBestPractices}
+              docTypeLabel={selectedTypeMeta?.label ?? type}
+            />
           </section>
         )}
 
@@ -383,6 +415,9 @@ export function NewDocumentForm({
               <h3 className="text-[14px] font-semibold text-slate-900">Document details</h3>
               <p className="mt-0.5 text-[12px] text-slate-500">
                 You picked {selectedTypeMeta?.label} with {sourceIds.length} source{sourceIds.length === 1 ? '' : 's'}.
+                {relevantBestPractices.length > 0 && (
+                  <> {relevantBestPractices.length} best practice{relevantBestPractices.length === 1 ? '' : 's'} will apply{relevantBestPractices.some(bp => bp.reviewDue) ? ' (one is marked Review due)' : ''}.</>
+                )}
               </p>
             </div>
 
@@ -475,5 +510,85 @@ export function NewDocumentForm({
         </div>
       </div>
     </form>
+  )
+}
+
+// Best Practices card — collapsible list of applicable best-practice items
+// for the chosen document type. Starts collapsed when there are >2 items so
+// the step doesn't scroll the user past the Next button. "Review due" items
+// expand on first open regardless, since those are the ones that most want
+// the writer's attention.
+function BestPracticesCard({ items, docTypeLabel }: { items: BestPractice[]; docTypeLabel: string }) {
+  const [expanded, setExpanded] = useState(items.length <= 2 || items.some(bp => bp.reviewDue))
+
+  if (items.length === 0) {
+    return (
+      <div className="rounded-md border border-dashed border-slate-200 bg-white p-3">
+        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+          Best practices
+        </p>
+        <p className="mt-1 text-[12px] text-slate-500">
+          No best-practice items apply to {docTypeLabel}. Platform admins can publish items
+          via <span className="font-mono">Library → Best Practices</span>.
+        </p>
+      </div>
+    )
+  }
+
+  const reviewDueCount = items.filter(bp => bp.reviewDue).length
+
+  return (
+    <div className="rounded-md border border-slate-200 bg-white">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="flex w-full items-center justify-between gap-2 px-3 py-2.5 text-left"
+        aria-expanded={expanded}
+        data-action="toggle-best-practices"
+      >
+        <div className="flex items-center gap-2">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            Best practices for {docTypeLabel}
+          </span>
+          <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
+            {items.length}
+          </span>
+          {reviewDueCount > 0 && (
+            <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
+              {reviewDueCount} review due
+            </span>
+          )}
+        </div>
+        <span className="text-slate-400">{expanded ? '▾' : '▸'}</span>
+      </button>
+
+      {expanded && (
+        <div className="flex flex-col gap-2 border-t border-slate-200 p-3">
+          {items.map(bp => (
+            <div
+              key={bp.id}
+              className={`rounded-md border p-2.5 ${bp.reviewDue ? 'border-amber-200 bg-amber-50/50' : 'border-slate-200 bg-slate-50'}`}
+              data-best-practice-id={bp.id}
+            >
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[13px] font-semibold text-slate-900">{bp.name}</p>
+                {bp.reviewDue && (
+                  <span className="flex-none rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                    Review due
+                  </span>
+                )}
+              </div>
+              {bp.guidance && (
+                <p className="mt-1 text-[12px] leading-relaxed text-slate-700">{bp.guidance}</p>
+              )}
+              <p className="mt-2 font-mono text-[10px] text-slate-500">
+                {bp.version} · {bp.category}
+                {bp.frameworkRefs.length > 0 && <> · {bp.frameworkRefs.join(', ')}</>}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
   )
 }

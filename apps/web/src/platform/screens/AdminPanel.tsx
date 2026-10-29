@@ -526,7 +526,33 @@ function SubscriptionTab({ config, subscription }: { config: PlatformConfig; sub
   )
 }
 
+// Credentials entered in the Configure modal. Not persisted to a backend
+// yet (the External APIs tab is still a "doesn't persist until save" tab
+// per AdminPanel's otherUnsaved flag); next commit will add
+// POST /admin/external-apis/:id/credentials. Kept entirely in-memory
+// keyed by connector id for M4 of the Admin wiring; reload clears them.
+export interface ApiCredentialsDraft {
+  apiKey?:   string
+  baseUrl?:  string
+  username?: string
+  notes?:    string
+}
+
 function ExternalApisTab({ config, onChange }: { config: PlatformConfig; onChange: () => void }) {
+  const [credentials, setCredentials] = useState<Record<string, ApiCredentialsDraft>>({})
+  const [editing,     setEditing]     = useState<string | null>(null)
+
+  const openConfig = (id: string) => setEditing(id)
+  const closeConfig = () => setEditing(null)
+
+  const activeConnector = editing ? config.externalApis.find(a => a.id === editing) ?? null : null
+  const activeDraft     = editing ? (credentials[editing] ?? {}) : {}
+
+  const saveDraft = (id: string, next: ApiCredentialsDraft) => {
+    setCredentials(cur => ({ ...cur, [id]: next }))
+    onChange()
+    setEditing(null)
+  }
   return (
     <div className="flex flex-col gap-5" data-tab-panel="external-apis">
       <SectionHeader
@@ -546,33 +572,198 @@ function ExternalApisTab({ config, onChange }: { config: PlatformConfig; onChang
             </tr>
           </thead>
           <tbody>
-            {config.externalApis.map(a => (
-              <tr key={a.id} className="border-t border-slate-200" data-api-row={a.id}>
-                <td className="px-4 py-3">
-                  <p className="font-semibold text-slate-900">{a.label}</p>
-                  {a.note && <p className="mt-0.5 font-mono text-[10px] text-slate-500">{a.note}</p>}
-                </td>
-                <td className="px-4 py-3">
-                  {a.status === 'connected'      && <StatusChip status="ok"   label="✓ Connected" />}
-                  {a.status === 'not-configured' && <StatusChip status="warn" label="⚠ Not configured" />}
-                  {a.status === 'inactive'       && <StatusChip status="off"  label="○ Inactive" />}
-                </td>
-                <td className="px-4 py-3 font-mono text-[11px] text-slate-500">
-                  {a.lastTested ? formatDay(a.lastTested) : '—'}
-                </td>
-                <td className="px-4 py-3 text-right">
-                  <button
-                    type="button"
-                    onClick={onChange}
-                    className="text-[12px] font-semibold hover:underline"
-                    style={{ color: PLATFORM_ACCENT.primary }}
-                    data-api-action={a.status === 'connected' ? 'edit' : 'configure'}
-                  >{a.status === 'connected' ? 'Edit credentials' : 'Configure'}</button>
-                </td>
-              </tr>
-            ))}
+            {config.externalApis.map(a => {
+              // "Has local draft" wins over the backend status for the chip —
+              // once the admin types credentials, the row should read as
+              // configured until they explicitly clear or save fails.
+              const hasDraft = !!credentials[a.id]?.apiKey || !!credentials[a.id]?.username
+              const chipStatus = hasDraft || a.status === 'connected' ? 'connected' : a.status
+              return (
+                <tr key={a.id} className="border-t border-slate-200" data-api-row={a.id}>
+                  <td className="px-4 py-3">
+                    <p className="font-semibold text-slate-900">{a.label}</p>
+                    {a.note && <p className="mt-0.5 font-mono text-[10px] text-slate-500">{a.note}</p>}
+                  </td>
+                  <td className="px-4 py-3">
+                    {chipStatus === 'connected'      && <StatusChip status="ok"   label="✓ Connected" />}
+                    {chipStatus === 'not-configured' && <StatusChip status="warn" label="⚠ Not configured" />}
+                    {chipStatus === 'inactive'       && <StatusChip status="off"  label="○ Inactive" />}
+                  </td>
+                  <td className="px-4 py-3 font-mono text-[11px] text-slate-500">
+                    {a.lastTested ? formatDay(a.lastTested) : '—'}
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      type="button"
+                      onClick={() => openConfig(a.id)}
+                      className="text-[12px] font-semibold hover:underline"
+                      style={{ color: PLATFORM_ACCENT.primary }}
+                      data-api-action={chipStatus === 'connected' ? 'edit' : 'configure'}
+                    >{chipStatus === 'connected' ? 'Edit credentials' : 'Configure'}</button>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
+      </div>
+
+      {editing && activeConnector && (
+        <ApiCredentialsModal
+          connector={activeConnector}
+          initial={activeDraft}
+          onCancel={closeConfig}
+          onSave={next => saveDraft(editing, next)}
+        />
+      )}
+    </div>
+  )
+}
+
+// Credentials modal — simple form over an API key / base URL / username /
+// notes. One shape fits every connector today (expand to per-connector
+// field schemas once the backend endpoint lands). Masked api-key input +
+// show/hide toggle so the admin can confirm what they typed without
+// leaving the secret on screen.
+function ApiCredentialsModal({
+  connector,
+  initial,
+  onCancel,
+  onSave,
+}: {
+  connector: { id: string; label: string; note?: string }
+  initial:   ApiCredentialsDraft
+  onCancel:  () => void
+  onSave:    (next: ApiCredentialsDraft) => void
+}) {
+  const [apiKey,   setApiKey]   = useState(initial.apiKey   ?? '')
+  const [baseUrl,  setBaseUrl]  = useState(initial.baseUrl  ?? '')
+  const [username, setUsername] = useState(initial.username ?? '')
+  const [notes,    setNotes]    = useState(initial.notes    ?? '')
+  const [reveal,   setReveal]   = useState(false)
+
+  const canSave = apiKey.trim().length > 0 || username.trim().length > 0
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center bg-black/40 p-6"
+      onClick={onCancel}
+      data-modal="api-credentials"
+    >
+      <div
+        className="mt-16 w-full max-w-md rounded-lg bg-white shadow-xl"
+        onClick={e => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`cfg-${connector.id}-title`}
+      >
+        <div className="flex items-start justify-between border-b border-slate-200 px-5 py-3">
+          <div>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              Configure
+            </p>
+            <h3 id={`cfg-${connector.id}-title`} className="text-[16px] font-bold text-slate-900">
+              {connector.label}
+            </h3>
+            {connector.note && <p className="mt-1 text-[12px] text-slate-500">{connector.note}</p>}
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Close"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-3 px-5 py-4">
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">API key</span>
+            <div className="flex gap-2">
+              <input
+                type={reveal ? 'text' : 'password'}
+                value={apiKey}
+                onChange={e => setApiKey(e.currentTarget.value)}
+                placeholder="paste the connector's API key"
+                className="h-9 flex-1 rounded-md border border-slate-300 px-3 font-mono text-[12px]"
+                data-input="apiKey"
+              />
+              <button
+                type="button"
+                onClick={() => setReveal(v => !v)}
+                className="rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                {reveal ? 'Hide' : 'Show'}
+              </button>
+            </div>
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Username <span className="font-normal text-slate-400">(SFTP / basic-auth connectors)</span>
+            </span>
+            <input
+              type="text"
+              value={username}
+              onChange={e => setUsername(e.currentTarget.value)}
+              placeholder="optional"
+              className="h-9 rounded-md border border-slate-300 px-3 text-[13px]"
+              data-input="username"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
+              Base URL <span className="font-normal text-slate-400">(override default endpoint)</span>
+            </span>
+            <input
+              type="url"
+              value={baseUrl}
+              onChange={e => setBaseUrl(e.currentTarget.value)}
+              placeholder="https://api.example.com"
+              className="h-9 rounded-md border border-slate-300 px-3 text-[13px]"
+              data-input="baseUrl"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1">
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Notes</span>
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.currentTarget.value)}
+              rows={2}
+              placeholder="rate-limit tier, contact owner, renewal date, …"
+              className="rounded-md border border-slate-300 px-3 py-2 text-[12px]"
+              data-input="notes"
+            />
+          </label>
+
+          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
+            Backend persistence for external-API credentials is not wired yet &mdash; entries
+            survive until the page reloads. Click <span className="font-semibold">Save changes</span>
+            at the top to persist along with the other admin edits (once that endpoint ships).
+          </p>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
+          <button
+            type="button"
+            onClick={onCancel}
+            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
+          >Cancel</button>
+          <button
+            type="button"
+            onClick={() => onSave({
+              apiKey:   apiKey.trim()   || undefined,
+              baseUrl:  baseUrl.trim()  || undefined,
+              username: username.trim() || undefined,
+              notes:    notes.trim()    || undefined,
+            })}
+            disabled={!canSave}
+            className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
+          >Save credentials</button>
+        </div>
       </div>
     </div>
   )

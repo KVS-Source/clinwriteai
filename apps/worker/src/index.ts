@@ -16,6 +16,7 @@ import { handleRetentionPurge } from './jobs/retention-purge.js'
 import { handleNotificationEmail, handleNotificationSms } from './jobs/notification-delivery.js'
 import { handleRestoreVersion } from './jobs/restore-version.js'
 import { handleVoiceTranscribe } from './jobs/voice-transcribe.js'
+import { handleAiInitialDraft } from './jobs/ai-initial-draft.js'
 import { handlePresenceReaper } from './jobs/presence-reaper.js'
 import { handleAccessReviewCron } from './jobs/access-review-cron.js'
 
@@ -71,6 +72,7 @@ const handlers = {
   'notification.sms': handleNotificationSms,
   'clinical.restore_version': handleRestoreVersion,
   'clinical.voice_transcribe': handleVoiceTranscribe,
+  'clinical.ai_initial_draft': handleAiInitialDraft,
   'clinical.presence_reaper': handlePresenceReaper,
   'compliance.access_review': handleAccessReviewCron,
 } as const
@@ -91,6 +93,11 @@ const concurrency: Record<JobName, number> = {
   'clinical.restore_version': 1,
   // Transcription can parallelise safely — each note is independent.
   'clinical.voice_transcribe': 4,
+  // AI initial draft — one job per new document. Low concurrency keeps
+  // provider rate-limit pressure modest; a burst of new documents still
+  // gets served, just serialised. Bump when the real LLM lands + we
+  // measure provider capacity.
+  'clinical.ai_initial_draft': 2,
   // Reaper is a single-UPDATE sweep; concurrency=1 avoids racing schedulers.
   'clinical.presence_reaper': 1,
   // Access review is a once-a-month fan-out; concurrency=1 prevents a

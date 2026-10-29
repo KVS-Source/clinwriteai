@@ -66,6 +66,10 @@ const createSchema = z.object({
   targetCompletionDate: z.string().datetime().optional(),
   // Source documents (uploads in this project) the document is written from.
   sourceUploadIds: z.array(z.string().min(1)).max(100).optional(),
+  // When true + sources attached, enqueue clinical.ai_initial_draft to
+  // let the worker draft every section from the sources. Document still
+  // creates immediately — the draft fills in asynchronously.
+  aiDraft: z.boolean().optional(),
 })
 
 // "```html\n…\n```" → "…"
@@ -355,6 +359,28 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       details: { projectId, type: document.type, title: document.title, initialVersion: version.versionNumber, sourceUploadIds },
       ipAddress: request.ip ?? null,
     })
+
+    // M3 of the New Document rework — fire-and-forget: if the caller
+    // opted into AI drafting AND attached sources, enqueue the worker
+    // job that drafts every section from those sources. Document is
+    // created immediately regardless; the draft fills sections in
+    // asynchronously. On enqueue failure (Redis down) the document still
+    // exists — the user can retry via the editor's AI Chat panel.
+    if (parsed.data.aiDraft && sourceUploadIds.length > 0) {
+      try {
+        await app.queue.enqueue('clinical.ai_initial_draft', {
+          documentId:      document.id,
+          versionId:       version.id,
+          projectId,
+          type:            parsed.data.type,
+          sourceUploadIds,
+          assigneeId:      parsed.data.assigneeId,
+          actorId:         request.user!.id,
+        }, { jobId: `ai-initial-draft-${document.id}` })
+      } catch (err) {
+        app.log.warn({ err, documentId: document.id }, 'ai_initial_draft enqueue failed — document created without AI draft')
+      }
+    }
 
     return reply.code(201).send(documentShapeMeta({ ...document, version: version.versionNumber }))
   })

@@ -339,6 +339,14 @@ export interface CreateDocumentBody {
   description?: string
   /** Uploaded source documents (project library) the document is written from. */
   sourceUploadIds?: string[]
+  /**
+   * When true, the server enqueues a clinical.ai_initial_draft BullMQ
+   * job after creating the document — the worker drafts every section
+   * from the attached source documents. The document is created
+   * immediately in 'in_authoring' with empty sections; the draft fills
+   * them in asynchronously. Ignored when sourceUploadIds is empty.
+   */
+  aiDraft?: boolean
 }
 
 export interface UpdateSectionBody {

@@ -65,11 +65,12 @@ interface Props {
   onCancel?:  () => void
 }
 
-type Step = 1 | 2 | 3
+type Step = 1 | 2 | 3 | 4
 const STEP_LABELS: Record<Step, string> = {
   1: 'Document type',
   2: 'Source documents',
   3: 'Details',
+  4: 'AI drafting',
 }
 
 export function NewDocumentForm({
@@ -92,6 +93,10 @@ export function NewDocumentForm({
   const [description,          setDescription]          = useState('')
   const [sourceIds,            setSourceIds]            = useState<string[]>(initialSourceIds ?? [])
   const [showAllCategories,    setShowAllCategories]    = useState(false)
+  // Step 4 — AI drafting opt-in. Default to AI drafting since the whole
+  // wizard is set up to feed sources into the worker; writers who want
+  // to type from scratch flip to Create blank.
+  const [aiDraft,              setAiDraft]              = useState<boolean>(true)
 
   // Document templates — DB-backed section skeleton + source-category
   // rules per type. Drives both the step-1 dropdown and the step-2
@@ -217,6 +222,9 @@ export function NewDocumentForm({
         targetCompletionDate: targetCompletionDate ? new Date(targetCompletionDate).toISOString() : undefined,
         description: description || undefined,
         sourceUploadIds: sourceIds.length ? sourceIds : undefined,
+        // Only ask the server to enqueue the draft job when the user
+        // opted in AND there's at least one source to draft from.
+        aiDraft: aiDraft && sourceIds.length > 0 ? true : undefined,
       }
       return documentsApi.create(projectId, body)
     },
@@ -232,14 +240,17 @@ export function NewDocumentForm({
   // assignee. The final Create button is only reachable when all three pass.
   const canAdvanceFromStep1 = true
   const canAdvanceFromStep2 = sourceIds.length > 0
-  const canSubmit           = title.trim().length > 0 && assigneeId.length > 0 && !create.isPending && canAdvanceFromStep2
+  const canAdvanceFromStep3 = title.trim().length > 0 && assigneeId.length > 0
+  const canSubmit           = canAdvanceFromStep3 && canAdvanceFromStep2 && !create.isPending
 
   const next = () => {
     if (step === 1 && canAdvanceFromStep1) setStep(2)
     else if (step === 2 && canAdvanceFromStep2) setStep(3)
+    else if (step === 3 && canAdvanceFromStep3) setStep(4)
   }
   const back = () => {
-    if (step === 3) setStep(2)
+    if (step === 4) setStep(3)
+    else if (step === 3) setStep(2)
     else if (step === 2) setStep(1)
   }
 
@@ -261,7 +272,7 @@ export function NewDocumentForm({
     <form
       onSubmit={e => {
         e.preventDefault()
-        if (!canSubmit || step !== 3) return
+        if (!canSubmit || step !== 4) return
         create.mutate()
       }}
       className="flex h-full flex-col"
@@ -271,7 +282,7 @@ export function NewDocumentForm({
       {/* Progress indicator */}
       <div className="flex-none border-b border-slate-200 bg-white px-5 py-3">
         <div className="flex items-center gap-2">
-          {[1, 2, 3].map(n => {
+          {[1, 2, 3, 4].map(n => {
             const s = n as Step
             const isActive = step === s
             const isDone   = step > s
@@ -287,7 +298,7 @@ export function NewDocumentForm({
                 <span className={`truncate text-[12px] ${isActive ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>
                   {STEP_LABELS[s]}
                 </span>
-                {n < 3 && <span className={`h-px flex-1 ${step > s ? 'bg-blue-600' : 'bg-slate-200'}`} />}
+                {n < 4 && <span className={`h-px flex-1 ${step > s ? 'bg-blue-600' : 'bg-slate-200'}`} />}
               </div>
             )
           })}
@@ -506,6 +517,86 @@ export function NewDocumentForm({
             )}
           </section>
         )}
+
+        {step === 4 && (
+          <section className="flex flex-col gap-4" data-step-body="ai-drafting">
+            <div>
+              <h3 className="text-[14px] font-semibold text-slate-900">Draft every section with AI?</h3>
+              <p className="mt-0.5 text-[12px] text-slate-500">
+                The AI drafter reads your {sourceIds.length} source{sourceIds.length === 1 ? '' : 's'}
+                {' '}and fills in each section as a first-pass draft. You can then edit, accept, or
+                regenerate per section in the editor.
+              </p>
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <label
+                className={`flex cursor-pointer gap-3 rounded-md border p-3 ${aiDraft ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+              >
+                <input
+                  type="radio"
+                  name="ai-draft"
+                  checked={aiDraft}
+                  onChange={() => setAiDraft(true)}
+                  className="mt-0.5"
+                  data-input="ai-draft-on"
+                  disabled={sourceIds.length === 0}
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-semibold text-slate-900">
+                    Draft with AI
+                    <span className="ml-2 rounded-full border border-slate-300 bg-white px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-600">
+                      recommended
+                    </span>
+                  </p>
+                  <p className="mt-1 text-[12px] text-slate-600">
+                    The worker queues a background job the moment you click Create. The document
+                    opens immediately in "Authoring"; sections fill in over 2–6 minutes. You can
+                    close this tab — a notification lands when drafting completes.
+                  </p>
+                  <p className="mt-1 font-mono text-[10px] text-slate-500">
+                    Current build uses deterministic placeholder content per section — real LLM
+                    swap is pending ANTHROPIC_API_KEY provisioning (same pattern as voice-note
+                    transcription).
+                  </p>
+                </div>
+              </label>
+
+              <label
+                className={`flex cursor-pointer gap-3 rounded-md border p-3 ${!aiDraft ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
+              >
+                <input
+                  type="radio"
+                  name="ai-draft"
+                  checked={!aiDraft}
+                  onChange={() => setAiDraft(false)}
+                  className="mt-0.5"
+                  data-input="ai-draft-off"
+                />
+                <div className="min-w-0 flex-1">
+                  <p className="text-[13px] font-semibold text-slate-900">Create blank</p>
+                  <p className="mt-1 text-[12px] text-slate-600">
+                    I'll draft every section myself. The document opens with the section skeleton
+                    only — no AI involvement.
+                  </p>
+                </div>
+              </label>
+            </div>
+
+            {sourceIds.length === 0 && (
+              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
+                AI drafting is disabled because you haven't attached any source documents.
+                Go back to step 2 to add one, or continue with "Create blank".
+              </p>
+            )}
+
+            {errorMsg && (
+              <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700" role="alert">
+                {errorMsg}
+              </div>
+            )}
+          </section>
+        )}
       </div>
 
       {/* Footer — step-aware button row */}
@@ -523,11 +614,14 @@ export function NewDocumentForm({
               Back
             </button>
           )}
-          {step < 3 ? (
+          {step < 4 ? (
             <button
               type="button"
               onClick={next}
-              disabled={step === 2 && !canAdvanceFromStep2}
+              disabled={
+                (step === 2 && !canAdvanceFromStep2) ||
+                (step === 3 && !canAdvanceFromStep3)
+              }
               className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               data-action="wizard-next"
             >
@@ -539,7 +633,7 @@ export function NewDocumentForm({
               disabled={!canSubmit}
               className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {create.isPending ? 'Creating…' : 'Create document'}
+              {create.isPending ? 'Creating…' : (aiDraft && sourceIds.length > 0 ? 'Create & draft with AI' : 'Create document')}
             </button>
           )}
         </div>

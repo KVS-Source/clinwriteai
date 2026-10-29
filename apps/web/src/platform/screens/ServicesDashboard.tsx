@@ -273,6 +273,250 @@ export function ServicesDashboard() {
         >
           Consumption figures are recalculated hourly and settle at 00:00 UTC on the renewal date. Settled periods cannot be adjusted.
         </p>
+
+        {/* ── Usage analytics ────────────────────────────────────────────────
+            Six synthetic breakdowns the Admin usually asks for after glancing
+            at the totals: daily trend, intent mix, model mix, top prompts,
+            top users, hourly heatmap. The data below is deliberately
+            hard-coded until the AI-gateway analytics endpoint lands — the
+            yellow "demo data" chip surfaces that so no one quotes these
+            numbers externally.
+            ────────────────────────────────────────────────────────────────── */}
+        <section className="flex flex-col gap-3" data-section="usage-analytics">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold text-slate-900">Usage analytics</h2>
+            <span
+              className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
+              style={{ backgroundColor: '#FEF3C7', color: '#B45309' }}
+              data-demo-chip
+              title="Numbers below are synthetic until the AI-gateway analytics endpoint lands."
+            >
+              Demo data
+            </span>
+          </div>
+
+          {/* Daily tokens — 30-day bar chart */}
+          <div className="rounded-lg border border-slate-200 bg-white p-4" data-chart="daily-tokens">
+            <div className="flex items-baseline justify-between">
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                Tokens per day · last 30 days
+              </p>
+              <p className="font-mono text-[11px] text-slate-500">
+                avg {Math.round(SYNTHETIC.dailyTokens.reduce((a, b) => a + b, 0) / SYNTHETIC.dailyTokens.length).toLocaleString()}/day
+                · peak {Math.max(...SYNTHETIC.dailyTokens).toLocaleString()}
+              </p>
+            </div>
+            <DailyBars values={SYNTHETIC.dailyTokens} />
+          </div>
+
+          {/* Two-column: Prompt intents + Model mix */}
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+            <RankCard
+              title="Prompt intents · share of calls"
+              rows={SYNTHETIC.promptIntents}
+              valueFormat={(n) => `${n}%`}
+              dataAttr="prompt-intents"
+            />
+            <RankCard
+              title="Model mix · share of tokens"
+              rows={SYNTHETIC.modelMix}
+              valueFormat={(n) => `${n}%`}
+              dataAttr="model-mix"
+            />
+          </div>
+
+          {/* Two-column: Top prompts + Top users */}
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+            <TopList
+              title="Most-fired prompts · last 30 days"
+              rows={SYNTHETIC.topPrompts}
+              dataAttr="top-prompts"
+            />
+            <TopList
+              title="Top users by tokens · September"
+              rows={SYNTHETIC.topUsers}
+              dataAttr="top-users"
+            />
+          </div>
+
+          {/* Hourly heatmap */}
+          <div className="rounded-lg border border-slate-200 bg-white p-4" data-chart="hourly-heatmap">
+            <div className="flex items-baseline justify-between">
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                Hour-of-day distribution · UTC
+              </p>
+              <p className="font-mono text-[11px] text-slate-500">
+                busiest hour {SYNTHETIC.hourlyPeakLabel}
+              </p>
+            </div>
+            <HourlyHeatmap values={SYNTHETIC.hourlyDistribution} />
+          </div>
+        </section>
+      </div>
+    </div>
+  )
+}
+
+// -----------------------------------------------------------------------------
+// Synthetic demo data — swapped for the real AI-gateway analytics endpoint
+// once it ships. All percentages normalised to 100; dailyTokens is 30
+// evenly-spaced points with a mild upward trend + a weekend dip.
+// -----------------------------------------------------------------------------
+
+const SYNTHETIC = {
+  dailyTokens: [
+    240_000, 310_000, 285_000, 340_000, 420_000, 180_000, 95_000,
+    360_000, 410_000, 395_000, 455_000, 480_000, 210_000, 120_000,
+    395_000, 440_000, 520_000, 490_000, 575_000, 245_000, 160_000,
+    510_000, 585_000, 540_000, 625_000, 710_000, 290_000, 185_000,
+    620_000, 695_000,
+  ],
+  promptIntents: [
+    { label: 'Draft from source', value: 42, hint: '5,544 calls' },
+    { label: 'Tighten / rewrite', value: 28, hint: '3,696 calls' },
+    { label: 'Edit (selection)',  value: 14, hint: '1,848 calls' },
+    { label: 'Explain',           value:  9, hint: '1,188 calls' },
+    { label: 'Custom',            value:  7, hint:   '924 calls' },
+  ],
+  modelMix: [
+    { label: 'Claude Opus 4.6',   value: 54, hint: '7.1M tokens' },
+    { label: 'Claude Sonnet 4.6', value: 34, hint: '4.5M tokens' },
+    { label: 'Claude Haiku 4.5',  value: 12, hint: '1.6M tokens' },
+  ],
+  topPrompts: [
+    { label: '"Draft this section from the linked IB"',   hint: '822 calls · 2.4M tokens' },
+    { label: '"Tighten for clarity, keep every figure"',  hint: '613 calls · 1.1M tokens' },
+    { label: '"Explain this paragraph in plain English"', hint: '451 calls · 0.6M tokens' },
+    { label: '"Rewrite in ICH E3 house style"',           hint: '397 calls · 0.9M tokens' },
+    { label: '"Convert to a bulleted list"',              hint: '284 calls · 0.3M tokens' },
+  ],
+  topUsers: [
+    { label: 'Ms Ananya Rao',       hint: '2.4M tokens · $412' },
+    { label: 'Dr Marcus Webb',      hint: '1.9M tokens · $328' },
+    { label: 'Dr Priya Patel',      hint: '1.6M tokens · $275' },
+    { label: 'Mr Rohan Iyer',       hint: '1.3M tokens · $218' },
+    { label: 'Dr Elena Vasquez',    hint: '1.1M tokens · $184' },
+  ],
+  // 24 slots, each 0–100 representing % of peak. 10:00–16:00 UTC is the
+  // India / EU overlap, so that's where the mass sits.
+  hourlyDistribution: [
+    5, 3, 2, 2, 3, 6, 12, 24, 38, 55, 72, 85, 92, 100, 95, 82, 68, 48, 30, 18, 14, 10, 8, 6,
+  ],
+  hourlyPeakLabel: '13:00–14:00 UTC',
+}
+
+// -----------------------------------------------------------------------------
+// Small SVG + list helpers (kept local — the shapes aren't reused elsewhere).
+// -----------------------------------------------------------------------------
+
+function DailyBars({ values }: { values: number[] }) {
+  const max = Math.max(...values, 1)
+  const barW = 100 / values.length
+  const gap = 0.35
+  return (
+    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="mt-2 h-24 w-full" aria-label="Daily token consumption bar chart">
+      {values.map((v, i) => {
+        const h = (v / max) * 36
+        return (
+          <rect
+            key={i}
+            x={i * barW + gap}
+            y={38 - h}
+            width={barW - gap * 2}
+            height={h}
+            rx={0.6}
+            fill={PLATFORM_ACCENT.primary}
+            opacity={0.85}
+          >
+            <title>{`Day ${i + 1}: ${v.toLocaleString()} tokens`}</title>
+          </rect>
+        )
+      })}
+      <line x1={0} y1={38} x2={100} y2={38} stroke="#E2E8F0" strokeWidth={0.4} />
+    </svg>
+  )
+}
+
+function RankCard({ title, rows, valueFormat, dataAttr }: {
+  title: string
+  rows: Array<{ label: string; value: number; hint?: string }>
+  valueFormat: (v: number) => string
+  dataAttr: string
+}) {
+  const max = Math.max(...rows.map(r => r.value), 1)
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4" data-rank={dataAttr}>
+      <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{title}</p>
+      <div className="mt-2 flex flex-col gap-2">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-center gap-3" data-rank-row>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between">
+                <p className="truncate text-[13px] text-slate-900">{r.label}</p>
+                <p className="font-mono text-[11px] font-semibold text-slate-700">{valueFormat(r.value)}</p>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: '#E2E8F0' }}>
+                <div
+                  className="h-full"
+                  style={{ width: `${(r.value / max) * 100}%`, backgroundColor: PLATFORM_ACCENT.primary }}
+                />
+              </div>
+              {r.hint && <p className="mt-0.5 font-mono text-[10px] text-slate-500">{r.hint}</p>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TopList({ title, rows, dataAttr }: {
+  title: string
+  rows: Array<{ label: string; hint?: string }>
+  dataAttr: string
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4" data-top-list={dataAttr}>
+      <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{title}</p>
+      <ol className="mt-2 flex flex-col gap-2">
+        {rows.map((r, i) => (
+          <li key={i} className="flex items-start gap-3 border-b border-slate-100 pb-2 last:border-b-0 last:pb-0" data-top-row>
+            <span
+              className="flex h-5 w-5 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
+              style={{ backgroundColor: '#F1F5F9', color: '#475569' }}
+            >
+              {i + 1}
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-[13px] text-slate-900">{r.label}</p>
+              {r.hint && <p className="mt-0.5 font-mono text-[10px] text-slate-500">{r.hint}</p>}
+            </div>
+          </li>
+        ))}
+      </ol>
+    </div>
+  )
+}
+
+function HourlyHeatmap({ values }: { values: number[] }) {
+  // 24 cells; opacity ∝ value / 100 so busy hours darken toward PLATFORM_ACCENT.
+  return (
+    <div className="mt-2" data-chart-grid="hourly">
+      <div className="grid gap-0.5" style={{ gridTemplateColumns: 'repeat(24, 1fr)' }}>
+        {values.map((v, h) => (
+          <div
+            key={h}
+            className="h-6 rounded-sm"
+            style={{
+              backgroundColor: PLATFORM_ACCENT.primary,
+              opacity: 0.15 + (v / 100) * 0.85,
+            }}
+            title={`${String(h).padStart(2, '0')}:00 UTC · ${v}% of peak`}
+          />
+        ))}
+      </div>
+      <div className="mt-1 flex justify-between font-mono text-[10px] text-slate-400">
+        <span>00</span><span>06</span><span>12</span><span>18</span><span>23</span>
       </div>
     </div>
   )

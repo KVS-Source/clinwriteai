@@ -7,6 +7,7 @@ import { SignIn }               from '../screens/shell/SignIn'
 import { MFAVerify }            from '../screens/shell/MFAVerify'
 import { TCGate }               from '../screens/shell/TCGate'
 import { AllProjects }          from '../screens/shell/AllProjects'
+import { ProjectSettings }      from '../screens/shell/ProjectSettings'
 // NewProject is now rendered inside a SlidePanel from AllProjects — the
 // standalone /projects/new route is retired. See docs/decisions/
 // module-a-defaults.md §1.
@@ -146,6 +147,10 @@ export const router = createBrowserRouter([
         path: 'projects/:projectId',
         children: [
           { index: true, element: <ProjectDashboard /> },
+          // Per-project settings — gated inside ProjectSettings to the
+          // project's Lead (team member with RACI='A'); non-leads land
+          // on /projects/:id instead of /home so they stay oriented.
+          { path: 'settings', element: <ProjectSettings /> },
           {
             path: 'clinical-writing',
             children: [

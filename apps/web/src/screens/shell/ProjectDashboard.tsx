@@ -68,8 +68,18 @@ export function ProjectDashboard() {
   })
 
   // The audit trail page is admin-only — don't offer the button to anyone else.
-  const role = usePlatformStore(s => s.currentUser.role)
+  const currentUser = usePlatformStore(s => s.currentUser)
+  const role    = currentUser.role
   const isAdmin = role === 'admin'
+
+  // Project Settings is gated to the project's Lead (team member with
+  // RACI='A' Accountable, matching the current user). Admins deliberately
+  // don't see this button — their domain is tenant admin / audit / users,
+  // not per-project configuration. See AskUserQuestion answer 2026-10-28.
+  const isProjectLead = useMemo(
+    () => Boolean(project?.team.some(t => t.raci === 'A' && t.userId === currentUser.id)),
+    [project, currentUser.id],
+  )
 
   useEffect(() => {
     if (project) setActiveProject(project)
@@ -192,14 +202,17 @@ export function ProjectDashboard() {
                 ? `Last activity ${new Date(stats.lastActivity).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
                 : 'No activity yet'}
             </div>
-            <button
-              type="button"
-              onClick={() => navigate('/admin')}
-              title="Admin · Project + tenant settings (admin role required)"
-              className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
-            >
-              Project settings
-            </button>
+            {isProjectLead && (
+              <button
+                type="button"
+                onClick={() => navigate(`/projects/${encodeURIComponent(projectId ?? '')}/settings`)}
+                title="Project Lead · This project's metadata + team"
+                className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
+                data-action="project-settings"
+              >
+                Project settings
+              </button>
+            )}
             {isAdmin && (
               <button
                 type="button"

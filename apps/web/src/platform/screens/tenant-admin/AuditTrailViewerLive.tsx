@@ -628,9 +628,9 @@ export function AuditTrailViewerLive() {
 
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900">Audit trail</h1>
-            {/* Subtitle doubles as the sPM15 immutability notice — always rendered, never behind a toggle. */}
-            <p role="note" className="mt-1 flex items-start gap-1.5 text-[12px] text-slate-500" data-section="immutability-notice">
+            {/* H1 removed — the breadcrumb above already says "Audit Trail".
+                The immutability notice stays (compliance-visible, sPM15). */}
+            <p role="note" className="flex items-start gap-1.5 text-[12px] text-slate-500" data-section="immutability-notice">
               <svg aria-hidden width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="mt-0.5 flex-none">
                 <rect x="3" y="7" width="10" height="7" rx="1.5" />
                 <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />

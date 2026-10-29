@@ -26,6 +26,7 @@ import type { Editor } from '@tiptap/react'
 import { api, ApiError } from '../api/client'
 import { documentsApi } from '../api'
 import { sanitizeAiHtml } from '../screens/clinical-writing/SectionAIPrompt'
+import { useDocumentStore } from '../store'
 
 interface Props {
   documentId: string
@@ -144,6 +145,27 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   // Range tracked per-assistant-message so Accept can swap just the right
   // span even after other turns have landed. Populated on send-success.
   const [rangesByMessageId, setRangesByMessageId] = useState<Record<string, { from: number; to: number }>>({})
+
+  // Prompt-help panel toggle — same control the bottom SectionAIPrompt
+  // exposes. Keeps the two composers at feature parity so users don't
+  // have to leave the chat to pull in a suggested prompt.
+  const activePanel    = useDocumentStore(s => s.activePanel)
+  const setActivePanel = useDocumentStore(s => s.setActivePanel)
+
+  // Listen for pick events from AIPromptHelpPanel — same channel as
+  // SectionAIPrompt. The picked prompt pre-fills the composer; user
+  // can tweak before sending.
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const detail = (e as CustomEvent<{ prompt: string }>).detail
+      if (detail?.prompt) {
+        setPrompt(detail.prompt)
+        inputRef.current?.focus()
+      }
+    }
+    document.addEventListener('ai-prompt-pick', handler)
+    return () => document.removeEventListener('ai-prompt-pick', handler)
+  }, [])
 
   // mousedown fires before focus moves. Click on the textarea, scope chip,
   // or send button — all catch here so the editor selection doesn't
@@ -536,6 +558,17 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                 </div>
               )}
             </div>
+            <div className="flex-1" />
+            <button
+              type="button"
+              onClick={() => setActivePanel(activePanel === 'ai-help' ? null : 'ai-help')}
+              aria-label="Show prompt suggestions"
+              title="Prompt suggestions"
+              data-ai-help-button
+              className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg border transition-colors ${activePanel === 'ai-help' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-500 hover:bg-slate-50'}`}
+            >
+              <QuestionIcon />
+            </button>
             <button
               type="button"
               onClick={handleSend}
@@ -560,6 +593,18 @@ function PaperclipIcon() {
   return (
     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
       <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+    </svg>
+  )
+}
+
+// Help/prompt-suggestions icon — same glyph the bottom SectionAIPrompt
+// uses so the two surfaces look consistent.
+function QuestionIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.4" />
+      <path d="M6.2 6.3a1.8 1.8 0 1 1 2.6 1.5c-.5.3-.8.6-.8 1.2" />
+      <circle cx="8" cy="11.6" r="0.4" fill="currentColor" />
     </svg>
   )
 }

@@ -31,6 +31,31 @@
   .tiptap-editor li { margin: 0.15em 0; padding-left: 0.25em; }
   .tiptap-editor li::marker { color: #475569; }
   .tiptap-editor li > p { margin: 0; }
+
+  /* Tables — AI output often returns signatory blocks, dose grids, and
+     AE summaries as tables. Give them cell borders + header weight so
+     the structure is visible without extra author styling. */
+  .tiptap-editor .tiptap-table,
+  .tiptap-editor table {
+    border-collapse: collapse;
+    margin: 0.75em 0;
+    table-layout: fixed;
+    width: 100%;
+  }
+  .tiptap-editor .tiptap-table td,
+  .tiptap-editor .tiptap-table th,
+  .tiptap-editor table td,
+  .tiptap-editor table th {
+    border: 1px solid #CBD5E1;
+    padding: 0.4em 0.6em;
+    vertical-align: top;
+  }
+  .tiptap-editor .tiptap-table th,
+  .tiptap-editor table th {
+    background: #F1F5F9;
+    font-weight: 600;
+    text-align: left;
+  }
 }
 
 @layer utilities {

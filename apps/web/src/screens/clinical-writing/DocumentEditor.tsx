@@ -1269,6 +1269,13 @@ export function DocumentEditor() {
                       .insertContent(inline ? html.replace(/<\/?(p|br)\s*\/?>/gi, '').trim() : html)
                       .run()
                     next = editor.getHTML()
+                  } else if (editor && canEditSection) {
+                    // Whole-section accept — mirror SectionAIPrompt's path.
+                    // Without this the TipTap view stays stale (the writer
+                    // sees "✓ Applied" in the chat but no change in the
+                    // editor) until autosave round-trips, which looks like
+                    // the formatting was dropped.
+                    editor.commands.setContent(html, { emitUpdate: false })
                   }
                   setDraftContent(next)
                   setAiEditModel(model)

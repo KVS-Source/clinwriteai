@@ -17,6 +17,10 @@ import Link from '@tiptap/extension-link'
 import Placeholder from '@tiptap/extension-placeholder'
 import Collaboration from '@tiptap/extension-collaboration'
 import CollaborationCaret from '@tiptap/extension-collaboration-caret'
+import { Table } from '@tiptap/extension-table'
+import { TableRow } from '@tiptap/extension-table-row'
+import { TableHeader } from '@tiptap/extension-table-header'
+import { TableCell } from '@tiptap/extension-table-cell'
 import { useEffect, useRef } from 'react'
 import type { CollabProvider } from './useCollabProvider'
 
@@ -52,6 +56,15 @@ export function defaultExtensions(opts: {
       HTMLAttributes: { rel: 'noopener noreferrer', class: 'text-blue-600 underline' },
     }),
     Placeholder.configure({ placeholder: opts.placeholder ?? 'Start writing this section…' }),
+    // Table + its row/header/cell children — clinical AI output often
+    // returns tables (signatory blocks, dose-escalation grids, AE
+    // summaries). Without these the HTML goes in but TipTap's schema
+    // strips the table nodes and the writer sees just the cell text
+    // flattened to paragraphs.
+    Table.configure({ resizable: false, HTMLAttributes: { class: 'tiptap-table' } }),
+    TableRow,
+    TableHeader,
+    TableCell,
   ]
 
   if (opts.collab) {

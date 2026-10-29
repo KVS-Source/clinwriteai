@@ -20,9 +20,10 @@
 // text to avoid wrapping it in a <p> that would break inline edits.
 
 import { useEffect, useRef, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Editor } from '@tiptap/react'
 import { api, ApiError } from '../../api/client'
+import { documentsApi } from '../../api'
 import { useDocumentStore } from '../../store'
 import type { SuggestedPrompt } from '../../data/aiPromptLibrary'
 
@@ -33,7 +34,12 @@ interface AiEditResult {
   scope?: 'selection' | 'section'
 }
 
-const ALLOWED_TAGS = new Set(['P', 'H3', 'H4', 'STRONG', 'B', 'EM', 'I', 'U', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'BR'])
+// Headings H1/H2 are kept so AI output that starts with a top-level
+// heading isn't silently flattened. TipTap's Heading extension is
+// configured for levels 2-4 (see RichTextEditor.defaultExtensions);
+// H1 nodes will be downgraded by TipTap's schema rather than dropped
+// entirely, which is better than losing them.
+const ALLOWED_TAGS = new Set(['P', 'H1', 'H2', 'H3', 'H4', 'STRONG', 'B', 'EM', 'I', 'U', 'UL', 'OL', 'LI', 'BLOCKQUOTE', 'TABLE', 'THEAD', 'TBODY', 'TR', 'TH', 'TD', 'BR'])
 
 /** Keep only plain formatting tags, with no attributes. */
 export function sanitizeAiHtml(html: string): string {
@@ -72,15 +78,35 @@ interface Props {
 export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, onAccept }: Props) {
   const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState<{ html: string; model: string; recordId: string; instruction: string; scope: 'selection' | 'section'; from?: number; to?: number } | null>(null)
-  // Context scope — user chooses what the AI sees for this prompt.
-  // Default 'section' matches the pre-chat behaviour; 'document' and
-  // 'source' expand context server-side when the chat endpoint builds
-  // the prompt.
-  const [promptScope, setPromptScope] = useState<'section' | 'document' | 'source'>('section')
+  // Source attachments — paperclip picker. When any sources are selected
+  // the request flips to scope='source' and the backend narrows the
+  // attached-source context to just the chosen uploads. Replaces the
+  // old section/document/source dropdown.
+  const [attachedSourceIds, setAttachedSourceIds] = useState<string[]>([])
+  const [sourcePickerOpen, setSourcePickerOpen] = useState(false)
   const inputRef = useRef<HTMLTextAreaElement>(null)
   const activePanel  = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
   const qc = useQueryClient()
+
+  // Source documents linked to this document — populates the paperclip
+  // picker. Falls back to empty when the endpoint 404s (new doc with no
+  // sources yet). Mirrors AIChatPanel so the two surfaces share behaviour.
+  const sourcesQ = useQuery({
+    queryKey: ['document-sources', documentId],
+    queryFn:  () => documentsApi.listDocumentSources(documentId),
+    enabled:  !!documentId,
+    staleTime: 30_000,
+  })
+  const availableSources = sourcesQ.data?.items ?? []
+  const attachedSources  = availableSources.filter(s => attachedSourceIds.includes(s.uploadId))
+
+  function toggleSource(uploadId: string) {
+    setAttachedSourceIds(prev =>
+      prev.includes(uploadId) ? prev.filter(id => id !== uploadId) : [...prev, uploadId],
+    )
+  }
+  function clearAttachments() { setAttachedSourceIds([]) }
   // Captured editor selection — stored on textarea mouseDown so it survives
   // the focus moving away from the editor to the prompt input. TipTap's
   // internal selection state can collapse on blur; this gives us a stable
@@ -146,16 +172,25 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
   }, [prompt])
 
   const ask = useMutation({
-    mutationFn: (vars: { instruction: string; selectionText: string | undefined; savedRange?: { from: number; to: number } }) => api.post<AiEditResult>(
-      `/documents/${documentId}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
-      {
-        intent:         'edit',
-        customPrompt:   vars.instruction,
-        currentContent: currentHtml,
-        scope:          promptScope,
-        ...(vars.selectionText ? { selectionText: vars.selectionText } : {}),
-      },
-    ),
+    mutationFn: (vars: { instruction: string; selectionText: string | undefined; savedRange?: { from: number; to: number } }) => {
+      // Scope + attachments mirror AIChatPanel's wiring: when the user
+      // has clipped source docs, the request flips to scope='source'
+      // and the attached ids go through so the backend narrows context
+      // to just those uploads. Otherwise it falls back to the current
+      // section (the prior default when the dropdown was still here).
+      const hasAttachments = attachedSourceIds.length > 0
+      return api.post<AiEditResult>(
+        `/documents/${documentId}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
+        {
+          intent:         'edit',
+          customPrompt:   vars.instruction,
+          currentContent: currentHtml,
+          scope:          hasAttachments ? 'source' : 'section',
+          ...(vars.selectionText ? { selectionText: vars.selectionText } : {}),
+          ...(hasAttachments ? { attachedSourceIds } : {}),
+        },
+      )
+    },
     onSuccess: (data, vars) => {
       const scope = data.scope ?? (vars.selectionText ? 'selection' : 'section')
       // Pull from/to from the saved selection (captured on mouseDown before
@@ -276,6 +311,33 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
           >Clear</button>
         </div>
       )}
+      {attachedSources.length > 0 && (
+        <div className="mb-2 flex flex-wrap items-center gap-1" data-ai-prompt-attachments>
+          {attachedSources.map(s => (
+            <span
+              key={s.uploadId}
+              className="inline-flex items-center gap-1 rounded-full border border-blue-200 bg-blue-50 px-2 py-0.5 text-[11px] text-blue-800"
+              title={s.fileName}
+            >
+              <PaperclipIcon />
+              <span className="max-w-[160px] truncate">{s.title || s.fileName}</span>
+              <button
+                type="button"
+                onClick={() => toggleSource(s.uploadId)}
+                className="ml-0.5 rounded text-blue-600 hover:bg-blue-100"
+                aria-label={`Remove ${s.fileName}`}
+              >×</button>
+            </span>
+          ))}
+          {attachedSources.length > 1 && (
+            <button
+              type="button"
+              onClick={clearAttachments}
+              className="ml-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
+            >Clear</button>
+          )}
+        </div>
+      )}
       {/* True single-row layout — textarea + buttons share one line. Still
           grows vertically when the user Shift+Enters, but starts at a
           single row's height so the widget's resting state is minimal. */}
@@ -304,20 +366,73 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
           data-field="ai-edit-prompt"
           className="block max-h-40 min-h-[28px] flex-1 resize-none border-0 bg-transparent py-1 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
         />
-        {/* Scope chip — picks what context the AI sees for this prompt.
-            Default 'section' matches the pre-chat behaviour. */}
-        <select
-          value={promptScope}
-          onChange={e => setPromptScope(e.currentTarget.value as 'section' | 'document' | 'source')}
-          disabled={ask.isPending}
-          title="Context scope — what content the AI sees for this prompt"
-          data-ai-prompt-scope
-          className="rounded-md border border-slate-300 bg-white px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 outline-none hover:bg-slate-50 disabled:opacity-60"
-        >
-          <option value="section">Section</option>
-          <option value="document">Document</option>
-          <option value="source">Source docs</option>
-        </select>
+        {/* Paperclip — attach a linked source document. Mirrors the chat
+            composer so the two surfaces behave the same. Disabled when
+            the document has no linked sources (tooltip explains). */}
+        <div className="relative" data-ai-prompt-attach-wrapper>
+          <button
+            type="button"
+            onClick={() => setSourcePickerOpen(o => !o)}
+            disabled={availableSources.length === 0 || ask.isPending}
+            aria-label="Attach a source document"
+            aria-expanded={sourcePickerOpen}
+            title={
+              availableSources.length === 0
+                ? 'No source documents are linked to this document yet'
+                : `Attach a linked source document (${attachedSourceIds.length} of ${availableSources.length} selected)`
+            }
+            className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg border transition-colors ${
+              attachedSourceIds.length > 0
+                ? 'border-blue-200 bg-blue-50 text-blue-700'
+                : 'border-slate-300 bg-white text-slate-500 hover:bg-slate-50'
+            } disabled:cursor-not-allowed disabled:opacity-50`}
+          >
+            <PaperclipIcon />
+          </button>
+          {sourcePickerOpen && availableSources.length > 0 && (
+            <div
+              className="absolute bottom-9 right-0 z-20 max-h-64 w-72 overflow-y-auto rounded-md border border-slate-200 bg-white p-2 shadow-lg"
+              data-ai-prompt-source-picker
+              onMouseDown={e => e.stopPropagation()}
+            >
+              <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                Attach source documents
+              </p>
+              <ul className="space-y-0.5">
+                {availableSources.map(s => {
+                  const checked = attachedSourceIds.includes(s.uploadId)
+                  return (
+                    <li key={s.uploadId}>
+                      <label className={`flex cursor-pointer items-start gap-2 rounded px-2 py-1 text-[12px] ${checked ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleSource(s.uploadId)}
+                          className="mt-0.5 shrink-0"
+                        />
+                        <span className="min-w-0 flex-1">
+                          <span className="block truncate font-medium text-slate-900">{s.title || s.fileName}</span>
+                          {s.category && (
+                            <span className="block truncate text-[10px] text-slate-500">
+                              {s.category}{s.version ? ` · v${s.version}` : ''}
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    </li>
+                  )
+                })}
+              </ul>
+              <div className="mt-1 flex justify-end gap-1 border-t border-slate-100 pt-1">
+                <button
+                  type="button"
+                  onClick={() => setSourcePickerOpen(false)}
+                  className="rounded px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
+                >Done</button>
+              </div>
+            </div>
+          )}
+        </div>
         <button
           type="button"
           onClick={() => setActivePanel(activePanel === 'ai-help' ? null : 'ai-help')}
@@ -354,4 +469,14 @@ export function pickPrompt(p: SuggestedPrompt): void {
 /** Strip <p>, <br>, etc. wrappers from inline AI text so it inserts clean. */
 function stripInlineTags(html: string): string {
   return html.replace(/<\/?(p|br)\s*\/?>/gi, '').trim()
+}
+
+// Paperclip glyph — mirrors AIChatPanel's inline SVG so the two
+// composers look identical.
+function PaperclipIcon() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48" />
+    </svg>
+  )
 }

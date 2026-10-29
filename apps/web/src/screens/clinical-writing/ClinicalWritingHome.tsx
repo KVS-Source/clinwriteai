@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
-import { useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
@@ -311,33 +311,38 @@ export function ClinicalWritingHome() {
     navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}`)
   }
 
-  // Comments are fetched per document and cached under ['comments', id], the same key the Comments
-  // page and reviewer view use and invalidate, so the counts here refresh when a comment is added or
-  // resolved. Reviewer "approve" verdicts are stored as comments but are sign-offs, not issues, so
-  // they are left out of the counts.
-  const commentQueries = useQueries({
-    queries: documents.map((d: Document) => ({
-      queryKey: ['comments', d.id],
-      queryFn:  () => documentsApi.getComments(d.id),
-      staleTime: 30_000,
-    })),
+  // One project-wide comments call (not one per document). Comment mutations invalidate
+  // ['project-comments'], so the counts here refresh when a comment is added or resolved.
+  // Reviewer "approve" verdicts are stored as comments but are sign-offs, not issues, so they
+  // are left out of the counts.
+  const projectComments = useQuery({
+    queryKey: ['project-comments', projectId],
+    queryFn:  () => documentsApi.getProjectComments(projectId!),
+    enabled:  !!projectId,
+    staleTime: 30_000,
   })
-  const commentsLoading = isLoading || commentQueries.some(q => q.isLoading)
+  const commentsByDoc = useMemo(() => {
+    const m = new Map<string, Comment[]>()
+    for (const c of (projectComments.data ?? []) as Comment[]) {
+      const list = m.get(c.documentId)
+      if (list) list.push(c); else m.set(c.documentId, [c])
+    }
+    return m
+  }, [projectComments.data])
+  const commentsLoading = isLoading || projectComments.isLoading
   const commentStats = new Map<string, { open: number; resolved: number; loading: boolean; failed: boolean }>()
-  documents.forEach((d: Document, i: number) => {
-    const q = commentQueries[i]
-    const issues = ((q?.data ?? []) as Comment[]).filter(c => c.verdict !== 'approve')
+  documents.forEach((d: Document) => {
+    const issues = (commentsByDoc.get(d.id) ?? []).filter(c => c.verdict !== 'approve')
     commentStats.set(d.id, {
       open:     issues.filter(c => c.status === 'open').length,
       resolved: issues.filter(c => c.status === 'resolved').length,
-      loading:  !!q?.isLoading,
-      failed:   !!q?.isError,
+      loading:  projectComments.isLoading,
+      failed:   projectComments.isError,
     })
   })
   const openCommentCount = Array.from(commentStats.values()).reduce((n, s) => n + s.open, 0)
   const openCommentLabel = commentsLoading ? '…' : String(openCommentCount)
   const commentsDoc = commentsDocId ? documents.find((d: Document) => d.id === commentsDocId) ?? null : null
-  const commentsQuery = commentsDoc ? commentQueries[documents.indexOf(commentsDoc)] : undefined
   const openCommentsFor = (doc: Document) => {
     setDetailDoc(null)
     setCommentsDocId(doc.id)
@@ -712,10 +717,10 @@ export function ClinicalWritingHome() {
       {view === 'documents' && commentsDoc && (
         <DocumentCommentsPanel
           doc={commentsDoc}
-          comments={(commentsQuery?.data ?? []) as Comment[]}
-          isLoading={!!commentsQuery?.isLoading}
-          isError={!!commentsQuery?.isError}
-          onRetry={() => { void commentsQuery?.refetch() }}
+          comments={commentsByDoc.get(commentsDoc.id) ?? []}
+          isLoading={projectComments.isLoading}
+          isError={projectComments.isError}
+          onRetry={() => { void projectComments.refetch() }}
           onClose={() => setCommentsDocId(null)}
           onOpenDocument={comment => {
             const base = `/projects/${projectId}/clinical-writing/documents/${commentsDoc.id}`

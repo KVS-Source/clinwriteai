@@ -58,7 +58,7 @@ async function buildApp(opts: AppOpts) {
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (request) => {
-    ;(request as unknown as { user: AuthenticatedUser }).user = opts.actor
+    (request as unknown as { user: AuthenticatedUser }).user = opts.actor
   })
   await app.register(documentRaciRoutes, { prefix: '/documents' })
   await app.ready()

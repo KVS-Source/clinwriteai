@@ -218,6 +218,7 @@ export function ReviewerView() {
       setComposerOpen(false)   // posted — close the box; the prompt below reopens it
       setActivePanel('comments')   // show the reviewer their comment in the drawer
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
+      qc.invalidateQueries({ queryKey: ['project-comments'] })
       qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
     },
   })
@@ -247,6 +248,7 @@ export function ReviewerView() {
     onSuccess: () => {
       setApproveNote(`Section approved: ${sectionRefFor(activeSection)}`)
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
+      qc.invalidateQueries({ queryKey: ['project-comments'] })
     },
   })
 
@@ -261,6 +263,7 @@ export function ReviewerView() {
       setReturningReason(null)
       setReturnText('')
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
+      qc.invalidateQueries({ queryKey: ['project-comments'] })
     },
   })
 

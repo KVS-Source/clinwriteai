@@ -74,6 +74,7 @@ export function CommentComposer({ documentId, sections, defaultSectionId, onClos
     }),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
+      qc.invalidateQueries({ queryKey: ['project-comments'] })
       qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
       onPosted?.(created)
       onClose()

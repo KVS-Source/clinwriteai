@@ -303,6 +303,9 @@ export const documentsApi = {
   // Comments
   getComments: (documentId: string) =>
     api.get<Comment[]>(`/documents/${documentId}/comments`),
+  // Every comment on the project's documents in one call (each row has its documentId).
+  getProjectComments: (projectId: string) =>
+    api.get<Comment[]>(`/projects/${projectId}/comments`),
   addComment: (documentId: string, body: AddCommentBody) =>
     api.post<Comment>(`/documents/${documentId}/comments`, body),
   // The UI's ResolutionType is hyphenated ('accept-with-modification'); the API's

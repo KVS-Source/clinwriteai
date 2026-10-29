@@ -487,3 +487,23 @@ async function nextCommentId(prisma: import('@prisma/client').PrismaClient): Pro
   }, 0)
   return `CMT-${String(maxSeq + 1).padStart(3, '0')}`
 }
+
+// GET /projects/:projectId/comments — every comment on the project's live documents in one call, so
+// project screens (Clinical Writing home, Comments page) don't fetch per document. Same shape and
+// newest-first order as GET /documents/:documentId/comments; each row carries its documentId.
+export const projectCommentsRoutes: FastifyPluginAsync = async (app) => {
+  app.get('/:projectId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { projectId } = request.params as { projectId: string }
+    const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
+    if (!project) return reply.code(404).send({ error: 'not_found' })
+
+    const docs = await app.prisma.document.findMany({ where: { projectId, deletedAt: null }, select: { id: true } })
+    if (docs.length === 0) return []
+    const rows = await app.prisma.comment.findMany({
+      where: { documentId: { in: docs.map(d => d.id) } },
+      orderBy: { createdAt: 'desc' },
+    })
+    const reviewers = await fetchCommentReviewers(app.prisma, rows)
+    return rows.map(r => commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null))
+  })
+}

@@ -263,11 +263,12 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
     onSuccess: () => {
       setResolvingId(null)
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
+      qc.invalidateQueries({ queryKey: ['project-comments'] })
       qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
     },
     onError: (err) => {
       // Someone else resolved it first: refresh so the card drops out of the open list.
-      if ((err as { status?: number }).status === 409) qc.invalidateQueries({ queryKey: ['comments', documentId] })
+      if ((err as { status?: number }).status === 409) { qc.invalidateQueries({ queryKey: ['comments', documentId] }); qc.invalidateQueries({ queryKey: ['project-comments'] }) }
     },
   })
   const resolveError = resolveMut.isError
@@ -287,7 +288,6 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
   const inScope = (c: Comment) => !scoped || cleanSectionRef(c.sectionRef) === scopeRef
   const scopedComments = useMemo(
     () => comments.filter((c: Comment) => inScope(c)),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [comments, scoped, scopeRef],
   )
 

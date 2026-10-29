@@ -188,7 +188,7 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
               type="text"
               value={search}
               onChange={e => setSearch(e.currentTarget.value)}
-              placeholder="Search title, category…"
+              placeholder="Search"
               aria-label="Search source documents"
               data-filter="search"
               className="w-full border-none bg-transparent text-[13px] text-slate-900 outline-none placeholder:text-slate-400"

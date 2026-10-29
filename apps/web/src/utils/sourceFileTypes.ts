@@ -11,7 +11,7 @@ export const SOURCE_FILE_EXTENSIONS = [
 // reports an odd MIME type for Office files.
 export const SOURCE_FILE_ACCEPT = SOURCE_FILE_EXTENSIONS.map(e => `.${e}`).join(',')
 
-export const SOURCE_FILE_EXT_RE = new RegExp(`\.(${SOURCE_FILE_EXTENSIONS.join('|')})$`, 'i')
+export const SOURCE_FILE_EXT_RE = new RegExp(`\\.(${SOURCE_FILE_EXTENSIONS.join('|')})$`, 'i')
 
 // Short label for the drop zone, long one for errors / helper text.
 export const SOURCE_FILE_HINT = 'PDF, Word, PowerPoint, Excel/CSV, images'

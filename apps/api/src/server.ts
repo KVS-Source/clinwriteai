@@ -267,8 +267,9 @@ async function buildServer() {
   // the endpoint ships now so phase-2 gates can rely on locked templates.
   await app.register(checklistTemplateAdminRoutes, { prefix: '/checklist-templates' })
 
-  const { commentsRoutes } = await import('./modules/clinical-writing/comments/routes.js')
+  const { commentsRoutes, projectCommentsRoutes } = await import('./modules/clinical-writing/comments/routes.js')
   await app.register(commentsRoutes, { prefix: '/documents' })
+  await app.register(projectCommentsRoutes, { prefix: '/projects' })
 
   const { crmRoutes } = await import('./modules/clinical-writing/crm/routes.js')
   // Mixed path shapes (/documents/:documentId/crm and /crm/:meetingId/...)

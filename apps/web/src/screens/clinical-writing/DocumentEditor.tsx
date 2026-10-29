@@ -499,6 +499,11 @@ export function DocumentEditor() {
     let pressedExempt = false
     let pressedInContent = false
     let pressedButton = false
+    // Comments stays open while a comment or resolution note is half-typed in it, so the draft
+    // isn't lost (same rule as Reviewer View and CRM).
+    const hasCommentDraft = () => activePanel === 'comments'
+      && Array.from(rightPanelRef.current?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea') ?? [])
+        .some(el => el.value.trim() !== '')
     const onDown = (e: MouseEvent) => {
       const t = e.target as Element | null
       pressed = true
@@ -519,6 +524,7 @@ export function DocumentEditor() {
       // button elsewhere doesn't clear it, and that click must still close the panel.
       if (pressedInContent && !window.getSelection()?.isCollapsed) return
       if (sectionContentRef.current?.contains(t) && referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)) return
+      if (hasCommentDraft()) return
       setActivePanel(null)
     }
     // Esc closes the panel too — unless something else already used the key
@@ -526,6 +532,7 @@ export function DocumentEditor() {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return
       if (window.document.querySelector('[data-reference-menu]')) return   // an open Reference menu takes the key
+      if (hasCommentDraft()) return
       // (The old "keep chat open on Esc inside the chat input" branch is
       // gone now that AI Chat isn't managed by this auto-close handler —
       // it's intentionally sticky; Esc inside the chat input is handled
@@ -738,6 +745,7 @@ export function DocumentEditor() {
                 void refetchDocument()
                 const keys: readonly unknown[][] = [
                   ['comments',          documentId],
+                  ['project-comments'],
                   ['document-sources',  documentId],
                   ['references',        documentId],
                   ['tlf',               documentId],
@@ -886,12 +894,13 @@ export function DocumentEditor() {
                       inline under the title. */}
                   <p className="mt-1 overflow-hidden truncate whitespace-nowrap text-[11px] text-slate-500" data-section-meta>
                     {(() => {
-                      const edited = document.updatedAt
-                        ? `Last edited ${new Date(document.updatedAt).toLocaleString('en-GB', {
+                      // This section's own last save (and who made it) — not the whole document's.
+                      const edited = activeSectionData.lastEditedAt
+                        ? `Last edited ${new Date(activeSectionData.lastEditedAt).toLocaleString('en-GB', {
                             day: '2-digit', month: 'short', year: 'numeric',
                             hour: '2-digit', minute: '2-digit',
-                          })}`
-                        : null
+                          })}${activeSectionData.lastEditedByName ? ` by ${activeSectionData.lastEditedByName}` : ''}`
+                        : 'Not edited yet'
                       const refs = sectionReferences.length
                         ? `${sectionReferences.length} source ${sectionReferences.length === 1 ? 'reference' : 'references'}`
                         : null

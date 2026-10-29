@@ -60,11 +60,14 @@ function FinalSectionBody({ html }: { html: string }) {
   )
 }
 
-// The API returns sections ordered as text (§1, §10, §11, §2 ...). Present them
-// in document order: compare section numbers numerically, part by part.
+// The API returns sections ordered as text (§1, §10, §11, §2 ...). Present them in document
+// order: front matter without a number (ES, TOC) first, as in the Editor, then the numbered
+// sections compared numerically, part by part.
 const sectionOrder = new Intl.Collator(undefined, { numeric: true })
+const sectionKey = (s: Section) => s.number.replace(/^§/, '')
+const isFrontMatter = (s: Section) => !/^\d/.test(sectionKey(s))
 const bySectionNumber = (a: Section, b: Section) =>
-  sectionOrder.compare(a.number.replace(/^§/, ''), b.number.replace(/^§/, ''))
+  Number(isFrontMatter(b)) - Number(isFrontMatter(a)) || sectionOrder.compare(sectionKey(a), sectionKey(b))
 
 const isBlankHtml = (html: string | undefined) => !html || html.replace(/<[^>]*>/g, '').trim() === ''
 

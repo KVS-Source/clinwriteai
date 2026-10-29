@@ -41,7 +41,7 @@ test('tab sits right after "All Stages" and opens the library', async ({ page })
   expect(labels[1]).toMatch(/^Source Documents/)
   await expect(page.getByRole('heading', { name: 'Source documents' })).toBeVisible()
   await expect(page.locator('[data-count="files"]')).toHaveCount(0)   // count lives on the tab label + pager
-  await expect(page.locator('[data-filter="search"]')).toHaveAttribute('placeholder', 'Search title, category…')
+  await expect(page.locator('[data-filter="search"]')).toHaveAttribute('placeholder', 'Search')
   for (const col of ['Title', 'Category', 'State', 'Scan', 'Used in', 'Uploaded', 'Quick actions']) {
     await expect(page.getByRole('columnheader', { name: new RegExp(col, 'i') })).toBeVisible()
   }

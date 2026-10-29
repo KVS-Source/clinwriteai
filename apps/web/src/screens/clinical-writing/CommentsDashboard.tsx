@@ -1,7 +1,7 @@
 import { ResolveForm, parseResolutionNote } from '../../panels/ResolveCommentForm'
 import { cleanSectionRef } from '../../panels/CommentComposer'
 import { useMemo, useState } from 'react'
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { Comment, CommentSeverity, Document, ResolutionType, TeamMember } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
@@ -307,19 +307,18 @@ export function CommentsDashboard() {
     enabled:  !!projectId,
   })
 
-  const commentQueries = useQueries({
-    queries: documents.map((d: Document) => ({
-      queryKey: ['comments', d.id],
-      queryFn:  () => documentsApi.getComments(d.id),
-      staleTime: 30_000,
-    })),
+  // One project-wide comments call (not one per document); comment mutations invalidate ['project-comments'].
+  const projectComments = useQuery({
+    queryKey: ['project-comments', projectId],
+    queryFn:  () => documentsApi.getProjectComments(projectId!),
+    enabled:  !!projectId,
+    staleTime: 30_000,
   })
-  const isLoading      = docsLoading || commentQueries.some(q => q.isLoading)
-  const someFailed     = commentQueries.some(q => q.isError)
+  const isLoading      = docsLoading || projectComments.isLoading
+  const someFailed     = projectComments.isError
 
   const docTitleById = new Map(documents.map((d: Document) => [d.id, d.title]))
-  const comments: ProjectComment[] = commentQueries
-    .flatMap(q => (q.data ?? []) as ProjectComment[])
+  const comments: ProjectComment[] = ((projectComments.data ?? []) as ProjectComment[])
     .filter(c => c.verdict !== 'approve')
     .map(c => ({ ...c, documentTitle: docTitleById.get(c.documentId) ?? c.documentId }))
 
@@ -344,6 +343,7 @@ export function CommentsDashboard() {
     onSuccess: (_data, args) => {
       setResolvingId(null)
       qc.invalidateQueries({ queryKey: ['comments', args.comment.documentId] })
+      qc.invalidateQueries({ queryKey: ['project-comments'] })
     },
   })
   const resolveError = resolveMut.isError

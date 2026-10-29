@@ -508,6 +508,7 @@ export function CRMModule() {
     qc.invalidateQueries({ queryKey: ['crm-meetings', activeDocId] })
     qc.invalidateQueries({ queryKey: ['crm-resolutions', meeting?.id] })
     qc.invalidateQueries({ queryKey: ['comments', activeDocId] })
+    qc.invalidateQueries({ queryKey: ['project-comments'] })
     qc.invalidateQueries({ queryKey: ['documents', projectId] })
     qc.invalidateQueries({ queryKey: ['document', activeDocId] })
   }

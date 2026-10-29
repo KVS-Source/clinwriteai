@@ -1,6 +1,7 @@
 import { http, HttpResponse, delay } from 'msw'
 import seed from '../../data/comments.json'
 import team from '../../data/team.json'
+import documents from '../../data/documents.json'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
 
@@ -56,6 +57,20 @@ export const commentHandlers = [
     // the UI belong to the document they were posted on.
     const rows = store
       .filter(c => seedIds.has(c.id) || c.documentId === params.documentId)
+      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+    return HttpResponse.json(rows.map(c => ({
+      ...c,
+      ...(fresh.has(c.id) ? { age: ageOf(c.createdAt) } : {}),
+      lastEditedAge: c.lastEditedAt ? ageOf(c.lastEditedAt) : null,
+    })))
+  }),
+  // Project-wide list: the per-document rule above applied to each of the project's documents.
+  http.get(`${BASE}/projects/:projectId/comments`, async ({ params }) => {
+    await delay(150)
+    const docs = documents.filter(d => d.projectId === params.projectId)
+    const rows = docs.flatMap(d => store
+      .filter(c => seedIds.has(c.id) || c.documentId === d.id)
+      .map(c => ({ ...c, documentId: d.id })))
       .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
     return HttpResponse.json(rows.map(c => ({
       ...c,

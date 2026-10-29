@@ -55,7 +55,6 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
 
   useEffect(() => {
     if (projectTA && !taTag) setTaTag(projectTA)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [projectTA])
 
   const { data: users = [] } = useQuery<PlatformUser[]>({

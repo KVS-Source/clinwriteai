@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../../store/projectStore'
 import { useDocumentStore } from '../../store/documentStore'
-import { usePlatformStore, hasPersonaOverride, clearPersonaOverride } from '../../platform/store'
+import { usePlatformStore, hasPersonaOverride, clearPersonaOverride, PLATFORM_DEMO_USERS } from '../../platform/store'
 import { platformApi } from '../../platform/api/platformApi'
 import { ApiError } from '../../api/client'
 import { PLATFORM_USER_ROLE_LABEL } from '@platform/types'
@@ -142,16 +142,21 @@ export function TopNav() {
   const currentRoleLabel = PLATFORM_USER_ROLE_LABEL[currentUser.role] ?? currentUser.role
 
   // Persona list for the switcher — real tenant users via /admin/users.
-  // Lazy: only fetch when the dropdown is actually opened. The hardcoded
-  // PLATFORM_DEMO_USERS stays as a bootstrap/persistence lookup table
-  // (see platformStore.loadPersistedUser) but is NOT the render source.
+  // Lazy: only fetch when the dropdown is actually opened. On 403 (non-
+  // admin personas like contributor/pm can't list tenant users), fall
+  // back to the hardcoded PLATFORM_DEMO_USERS fixture so the user still
+  // has a way to switch back to an admin persona — otherwise once you
+  // pick 'contributor' you're locked in forever.
   const { data: liveUsers, isPending: usersPending, error: usersError } = useQuery({
     queryKey: ['platform-users'],
     queryFn:  () => platformApi.listUsers(),
     enabled:  open,
     staleTime: 60_000,
+    retry: false,
   })
-  const groups = liveUsers ? groupPersonas(liveUsers) : []
+  const forbidden = usersError instanceof ApiError && usersError.status === 403
+  const effectiveUsers = liveUsers ?? (forbidden ? PLATFORM_DEMO_USERS : null)
+  const groups = effectiveUsers ? groupPersonas(effectiveUsers) : []
 
   const switchTo = (u: PlatformUser) => {
     // setCurrentUser persists the user id under
@@ -249,11 +254,14 @@ export function TopNav() {
                 {usersPending && (
                   <p className="px-3 py-6 text-center text-[12px] italic text-slate-500">Loading users…</p>
                 )}
-                {usersError && (
+                {usersError && !forbidden && (
                   <p className="px-3 py-4 text-center text-[12px] text-rose-600">
-                    {usersError instanceof ApiError && usersError.status === 403
-                      ? 'Your role cannot list tenant users.'
-                      : 'Failed to load users. Check the API connection.'}
+                    Failed to load users. Check the API connection.
+                  </p>
+                )}
+                {forbidden && (
+                  <p className="px-3 pt-2 pb-1 text-center text-[11px] italic text-slate-500">
+                    Showing demo personas (API user list is admin-only).
                   </p>
                 )}
                 {!usersPending && !usersError && groups.length === 0 && (

@@ -227,8 +227,17 @@ export function ClinicalWritingHome() {
     const map = new Map<string, { name: string; initials: string }>()
     project?.team.forEach(t => map.set(t.userId, { name: t.name, initials: t.initials }))
     users.forEach(u => map.set(u.id, { name: u.name, initials: initialsOf(u.name) }))
+    // Backfill from each document's embedded assignee info — the API list
+    // endpoint attaches assigneeName/Initials for exactly this case, so
+    // contributors who can't call /admin/users still get a usable map.
+    for (const d of documents as Array<Document & { assigneeName?: string | null; assigneeInitials?: string | null }>) {
+      if (!d.assigneeId || map.has(d.assigneeId)) continue
+      if (d.assigneeName) {
+        map.set(d.assigneeId, { name: d.assigneeName, initials: d.assigneeInitials ?? initialsOf(d.assigneeName) })
+      }
+    }
     return map
-  }, [project, users])
+  }, [project, users, documents])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()

@@ -53,6 +53,10 @@ async function build() {
     documentSource: {
       createMany: vi.fn(async ({ data }: { data: Array<Record<string, unknown>> }) => { links.push(...data); return { count: data.length } }),
     },
+    documentRaci: {
+      findFirst: vi.fn(async () => null),
+      create:    vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'raci-1', ...data })),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: audit } as never)

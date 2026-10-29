@@ -5,6 +5,7 @@ import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, Pl
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill, SlidePanel } from '../../components/ui'
+import { RaciEditor } from '../../components/raci/RaciEditor'
 import { useProjectStore } from '../../store'
 import { NewDocumentForm } from './NewDocument'
 import { UploadDocumentForm } from './UploadDocument'
@@ -162,13 +163,17 @@ export function ClinicalWritingHome() {
   const [detailDoc, setDetailDoc] = useState<Document | null>(null)
   // Document whose comments panel is open (the table's "Comments" column).
   const [commentsDocId, setCommentsDocId] = useState<string | null>(null)
+  // Document whose RACI matrix is open in a focused drawer (RACI button
+  // on DocumentDetailPanel). Deliberately NOT a navigation — the user
+  // stays in the project context.
+  const [raciDoc, setRaciDoc] = useState<Document | null>(null)
   const [docSort, setDocSort] = useState<{ key: DocSortKey; dir: 'asc' | 'desc' } | null>(null)
   const qc = useQueryClient()
   // Set after "Save to library" in the upload drawer: we stay on the Source Documents
   // tab and offer to write a document from the file that was just saved.
   const [justAdded, setJustAdded] = useState<{ uploadId: string } | null>(null)
 
-  useEffect(() => { if (view !== 'documents') { setDetailDoc(null); setCommentsDocId(null) } }, [view])
+  useEffect(() => { if (view !== 'documents') { setDetailDoc(null); setCommentsDocId(null); setRaciDoc(null) } }, [view])
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -222,8 +227,17 @@ export function ClinicalWritingHome() {
     const map = new Map<string, { name: string; initials: string }>()
     project?.team.forEach(t => map.set(t.userId, { name: t.name, initials: t.initials }))
     users.forEach(u => map.set(u.id, { name: u.name, initials: initialsOf(u.name) }))
+    // Backfill from each document's embedded assignee info — the API list
+    // endpoint attaches assigneeName/Initials for exactly this case, so
+    // contributors who can't call /admin/users still get a usable map.
+    for (const d of documents as Array<Document & { assigneeName?: string | null; assigneeInitials?: string | null }>) {
+      if (!d.assigneeId || map.has(d.assigneeId)) continue
+      if (d.assigneeName) {
+        map.set(d.assigneeId, { name: d.assigneeName, initials: d.assigneeInitials ?? initialsOf(d.assigneeName) })
+      }
+    }
     return map
-  }, [project, users])
+  }, [project, users, documents])
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -665,10 +679,34 @@ export function ClinicalWritingHome() {
           stageLabel={detailDoc ? STAGE_LABELS[detailDoc.stage] : ''}
           assigneeName={detailDoc ? (teamById.get(detailDoc.assigneeId)?.name ?? '—') : ''}
           onClose={() => setDetailDoc(null)}
-          onOpen={(id, panel) =>
-            navigate(`/projects/${projectId}/clinical-writing/documents/${id}${panel ? `?panel=${encodeURIComponent(panel)}` : ''}`)
-          }
+          onOpen={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
+          onOpenRaci={id => {
+            const d = documents.find(x => x.id === id) ?? null
+            if (d) setRaciDoc(d)
+          }}
         />
+      )}
+
+      {view === 'documents' && projectId && (
+        <SlidePanel
+          open={!!raciDoc}
+          onClose={() => setRaciDoc(null)}
+          title={raciDoc ? `RACI — ${raciDoc.title}` : 'RACI'}
+          subtitle={raciDoc ? TYPE_LABELS[raciDoc.type] : undefined}
+          storageKey="panel-width-raci-drawer"
+          defaultWidth={720}
+          closeOnOutsideClick
+        >
+          {raciDoc && (
+            <RaciEditor
+              projectId={projectId}
+              documentId={raciDoc.id}
+              documentStatus={raciDoc.status ?? 'not_started'}
+              editable={raciDoc.status !== 'signed'}
+              className="h-full overflow-y-auto p-4"
+            />
+          )}
+        </SlidePanel>
       )}
 
       {view === 'documents' && commentsDoc && (

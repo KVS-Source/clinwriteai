@@ -10,6 +10,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { requireAuth } from '../../../auth/rbac.js'
+import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { evaluateStageTransition, type RaciRowForEval } from '../document-raci/transition-engine.js'
 import type { DocumentStatus } from '../../clinical-writing/document-status.js'
 
@@ -32,6 +33,13 @@ interface DocumentRow {
 export const pmDashboardRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:projectId/pm-dashboard', { preHandler: requireAuth() }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
+
+    // Project visibility — PMs/contributors can only see dashboards for
+    // projects they belong to. Return 404 (not 403) so the id doesn't leak.
+    const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+    if (visible !== 'all' && !visible.has(projectId)) {
+      return reply.code(404).send({ error: 'project_not_found' })
+    }
 
     const project = await app.prisma.project.findUnique({
       where: { id: projectId },

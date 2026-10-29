@@ -63,11 +63,38 @@ export function stripExt(name: string): string {
   return dot > 0 ? name.slice(0, dot) : name
 }
 
-// Only formats the browser can render safely inside the viewer panel. Deliberately no SVG/HTML
-// (script-capable) and no Office formats (no converter yet).
+// Formats the viewer panel can show. PDF / images are streamed as-is; DOCX is converted to HTML
+// and plain-text formats are sent as text/plain — both are shown in a script-less sandboxed frame.
+// Deliberately no SVG/HTML (script-capable) and no legacy Office formats (no converter).
 export const PREVIEW_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/gif', 'image/webp'] as const
-export const isPreviewable = (contentType: string) =>
-  (PREVIEW_TYPES as readonly string[]).includes(contentType.toLowerCase().split(';')[0]!.trim())
+const DOCX_TYPE = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+const TEXT_TYPES = ['text/plain', 'text/csv', 'application/csv', 'text/markdown', 'application/json'] as const
+const TEXT_EXTS = ['.txt', '.csv', '.md', '.json'] as const
+
+const baseType = (contentType: string) => contentType.toLowerCase().split(';')[0]!.trim()
+
+export type PreviewKind = 'binary' | 'docx' | 'text'
+// The file name is only a fallback for text files that browsers/OSes label with an odd type
+// (a CSV arrives as application/vnd.ms-excel, application/x-csv, octet-stream, empty, …). It never
+// overrides a type we already know is something else, and the bytes are served as inert text/plain.
+export function previewKind(contentType: string, fileName?: string): PreviewKind | null {
+  const t = baseType(contentType)
+  if ((PREVIEW_TYPES as readonly string[]).includes(t)) return 'binary'
+  if (t === DOCX_TYPE) return 'docx'
+  if ((TEXT_TYPES as readonly string[]).includes(t)) return 'text'
+  const name = fileName?.toLowerCase() ?? ''
+  const knownOther = t.startsWith('image/') || t.startsWith('video/') || t.startsWith('audio/') || t.includes('html') || t.includes('xml') || t.startsWith('application/vnd.openxmlformats') || t === 'application/msword' || t === 'application/pdf'
+  if (!knownOther && TEXT_EXTS.some(e => name.endsWith(e))) return 'text'
+  return null
+}
+export const isPreviewable = (contentType: string, fileName?: string) => previewKind(contentType, fileName) !== null
+
+async function docxToHtml(body: Buffer): Promise<Buffer> {
+  const mammoth = await import('mammoth')
+  const { value } = await mammoth.convertToHtml({ buffer: body })
+  const doc = `<!doctype html><meta charset="utf-8"><style>body{font:14px/1.5 system-ui,sans-serif;max-width:760px;margin:16px auto;padding:0 16px;color:#0f172a}table{border-collapse:collapse}td,th{border:1px solid #cbd5e1;padding:4px 8px}img{max-width:100%}</style>${value}`
+  return Buffer.from(doc, 'utf8')
+}
 
 // Content-Disposition filename: an ASCII fallback plus the RFC 5987 UTF-8 form.
 export function contentDisposition(fileName: string): string {
@@ -144,7 +171,7 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
         fileName: r.fileName,
         fileSizeBytes: r.fileSizeBytes,
         contentType: r.contentType,
-        previewable: isPreviewable(r.contentType),
+        previewable: isPreviewable(r.contentType, r.fileName),
         category: r.sourceCategory ?? guess!.category,
         categorySource: r.sourceCategory ? ('set' as const) : ('detected' as const),
         origin: r.origin,
@@ -274,8 +301,9 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     if (row.virusScanStatus === 'failed') {
       return reply.code(403).send({ error: 'quarantined', message: 'This file failed the virus scan and cannot be opened.' })
     }
-    if (!isPreviewable(row.contentType)) {
-      return reply.code(415).send({ error: 'not_previewable', message: 'Only PDF and image files can be viewed here. Download the file instead.' })
+    const kind = previewKind(row.contentType, row.fileName)
+    if (!kind) {
+      return reply.code(415).send({ error: 'not_previewable', message: 'This file type cannot be viewed here. Download the file instead.' })
     }
 
     let file: { body: Buffer; contentType: string | null }
@@ -301,12 +329,31 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
+    if (kind === 'binary') {
+      return reply
+        .header('Content-Type', baseType(row.contentType))
+        .header('Content-Disposition', contentDisposition(row.fileName).replace('attachment', 'inline'))
+        .header('Content-Length', String(file.body.length))
+        .header('X-Content-Type-Options', 'nosniff')
+        .header('Cache-Control', 'private, no-store')
+        .send(file.body)
+    }
+
+    // docx → HTML, text → text/plain. Locked down so nothing in the file can run or load anything.
+    let body: Buffer
+    try {
+      body = kind === 'docx' ? await docxToHtml(file.body) : file.body
+    } catch (err) {
+      app.log.warn({ err, uploadId }, 'source document preview conversion failed')
+      return reply.code(422).send({ error: 'preview_failed', message: 'This file could not be converted for viewing. Download it instead.' })
+    }
     return reply
-      .header('Content-Type', row.contentType.split(';')[0]!.trim())
-      .header('Content-Disposition', contentDisposition(row.fileName).replace('attachment', 'inline'))
-      .header('Content-Length', String(file.body.length))
+      .header('Content-Type', kind === 'docx' ? 'text/html; charset=utf-8' : 'text/plain; charset=utf-8')
+      .header('Content-Disposition', 'inline')
+      .header('Content-Length', String(body.length))
+      .header('Content-Security-Policy', "default-src 'none'; style-src 'unsafe-inline'; img-src data:; sandbox")
       .header('X-Content-Type-Options', 'nosniff')
       .header('Cache-Control', 'private, no-store')
-      .send(file.body)
+      .send(body)
   })
 }

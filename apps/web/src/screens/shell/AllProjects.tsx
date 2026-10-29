@@ -1,4 +1,4 @@
-import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
+import { formatDate } from '../../utils/formatDate'
 import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -33,6 +33,10 @@ function FolderIcon() {
     </svg>
   )
 }
+
+// Row columns: project · client · TA · phase · start date · submission countries · documents · status · chevron
+const ROW_GRID = 'minmax(200px,2fr) minmax(110px,1fr) minmax(110px,1fr) 80px 100px minmax(120px,1.2fr) 90px 100px 14px'
+const COLUMN_HEADERS = ['Project', 'Client', 'TA', 'Phase', 'Start date', 'Countries', 'Documents', 'Status']
 
 const STATUS_FILTERS: { label: string; value: ProjectStatus | 'all' }[] = [
   { label: 'All',       value: 'all' },
@@ -102,7 +106,7 @@ export function AllProjects() {
         <div>
           <h1 className="text-[22px] font-bold text-slate-900">Projects</h1>
           <p className="mt-0.5 font-mono text-xs text-slate-500">
-            {activeCount} active project{activeCount !== 1 ? 's' : ''} · GenBioCa Sciences
+            {activeCount} active project{activeCount !== 1 ? 's' : ''} · {projects.length} total
           </p>
         </div>
         <button
@@ -164,7 +168,7 @@ export function AllProjects() {
 
         {/* TA filter */}
         <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-          <span>{THERAPEUTIC_AREA_LABEL}</span>
+          <span>TA</span>
           <select
             value={taFilter}
             onChange={e => setTaFilter(e.target.value)}
@@ -197,47 +201,51 @@ export function AllProjects() {
           </div>
         )}
 
-        {!isLoading && filtered.map((project: Project, i: number) => (
-          <div
-            key={project.id}
-            onClick={() => handleProjectClick(project)}
-            className="flex cursor-pointer items-center gap-4 rounded-lg border border-slate-200 bg-white px-6 py-5 transition-shadow hover:shadow-md"
-            style={{ marginTop: i === 0 ? '20px' : '12px' }}
-          >
-
-            {/* Left — title + name */}
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[15px] font-bold text-slate-900">
-                {project.shortTitle}
-              </p>
-              <p className="mt-0.5 truncate text-[13px] text-slate-500">
-                {project.name}
-              </p>
+        {!isLoading && filtered.length > 0 && (
+          <div className="overflow-x-auto">
+            <div className="min-w-[1000px]">
+              <div className="grid items-center gap-4 px-6 pt-5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400" style={{ gridTemplateColumns: ROW_GRID }}>
+                {COLUMN_HEADERS.map(h => <span key={h}>{h}</span>)}
+                <span />
+              </div>
+              {filtered.map((project: Project) => {
+                const docs = project.documentCount ?? 0
+                return (
+                  <div
+                    key={project.id}
+                    onClick={() => handleProjectClick(project)}
+                    data-project-row={project.id}
+                    className="mt-2 grid cursor-pointer items-center gap-4 rounded-lg border border-slate-200 bg-white px-6 py-4 transition-shadow hover:shadow-md"
+                    style={{ gridTemplateColumns: ROW_GRID }}
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate text-[15px] font-bold text-slate-900">{project.shortTitle}</p>
+                      <p className="mt-0.5 truncate text-[13px] text-slate-500" title={project.name}>{project.name}</p>
+                    </div>
+                    <span className="truncate text-[13px] text-slate-700" title={project.client}>{project.client || '—'}</span>
+                    <span className="min-w-0">
+                      {project.therapeuticArea
+                        ? <span className="inline-block max-w-full truncate rounded px-2 py-0.5 font-mono text-[11px] text-slate-500" style={{ backgroundColor: '#F1F5F9' }} title={project.therapeuticArea}>{project.therapeuticArea}</span>
+                        : <span className="text-[13px] text-slate-400">—</span>}
+                    </span>
+                    <span className="text-[13px] text-slate-700">{project.phase ? `Phase ${project.phase}` : '—'}</span>
+                    <span className="text-[13px] text-slate-700">{project.startDate ? formatDate(project.startDate) : '—'}</span>
+                    <span className="flex flex-wrap gap-1">
+                      {project.submissionCountries?.length
+                        ? project.submissionCountries.map(c => (
+                            <span key={c} className="rounded px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-600" style={{ backgroundColor: '#F1F5F9' }}>{c}</span>
+                          ))
+                        : <span className="text-[13px] text-slate-400">—</span>}
+                    </span>
+                    <span className="text-[13px] text-slate-500">{docs} document{docs === 1 ? '' : 's'}</span>
+                    <span><ProjectStatusPill status={project.status} /></span>
+                    <ChevronRightIcon />
+                  </div>
+                )
+              })}
             </div>
-
-            {/* Centre — meta tags */}
-            <div className="flex flex-none items-center gap-6">
-              <span className="rounded px-2 py-0.5 font-mono text-[11px] text-slate-500" style={{ backgroundColor: '#F1F5F9' }}>
-                {project.therapeuticArea}
-              </span>
-              {project.phase && (
-                <span className="rounded px-2 py-0.5 font-mono text-[11px] text-slate-500" style={{ backgroundColor: '#F1F5F9' }}>
-                  Phase {project.phase}
-                </span>
-              )}
-              <span className="text-[13px] text-slate-500">
-                {project.activeModules.length > 0 ? '8 documents' : '0 documents'}
-              </span>
-            </div>
-
-            {/* Right — status + chevron */}
-            <div className="flex flex-none items-center gap-3">
-              <ProjectStatusPill status={project.status} />
-              <ChevronRightIcon />
-            </div>
-
           </div>
-        ))}
+        )}
 
       </div>
 

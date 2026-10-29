@@ -65,6 +65,8 @@ export interface Project {
   // Optional reference publication / prior-art link.
   referenceTrial?: string
   team: TeamMember[]
+  // Live (non-deleted) document count; only returned by the project list endpoint.
+  documentCount?: number
 }
 
 export interface TeamMember {

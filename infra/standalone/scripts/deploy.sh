@@ -61,6 +61,48 @@ sudo -u platform npm ci --prefer-offline --no-audit --no-fund
 log "Generating Prisma client"
 sudo -u platform npm --workspace=apps/api run db:generate
 
+# Guard against the stale-client-vs-fresh-schema race that broke the
+# 2026-10-28 12:30 deploy: the scheduled run pulled main, generated a
+# client from a pre-@map schema snapshot, migrations said "no pending"
+# (because the column already existed from an earlier run), then seed.ts
+# blew up with P2022 because the generated client was looking for
+# "legacyRole" instead of the @map'd "legacy_role".
+#
+# Check: every @map("...") target in the Prisma schema must appear as a
+# literal string in the generated client's runtime DMMF (index.js).
+# If any are missing, the client is stale — fail fast with a clean
+# message instead of letting the build + migrate + seed waste 90 seconds
+# before hitting P2022.
+log "Verifying generated client reflects every @map(...) in the schema"
+SCHEMA_DIR=/opt/platform/repo/apps/api/prisma/schema
+CLIENT_JS=/opt/platform/repo/node_modules/.prisma/client/index.js
+if [[ ! -f "${CLIENT_JS}" ]]; then
+  log "ERROR: Prisma client not found at ${CLIENT_JS} after generate — generator failed silently?"
+  exit 1
+fi
+MISSING_MAPS=()
+while IFS= read -r col; do
+  [[ -z "${col}" ]] && continue
+  # Fixed-string whole-word match — Prisma 5+ serializes the DMMF with
+  # escaped quotes (\"legacy_role\"), so grepping for the literal
+  # "legacy_role" (with surrounding quotes) misses every target. Plain
+  # word match catches the dbName string regardless of surrounding
+  # escaping. '_' counts as a word char under GNU grep, so partial
+  # matches like legacy_role_old don't false-pass.
+  if ! grep -qwF "${col}" "${CLIENT_JS}"; then
+    MISSING_MAPS+=("${col}")
+  fi
+done < <(grep -hoE '@@?map\("[^"]+"\)' "${SCHEMA_DIR}"/*.prisma 2>/dev/null \
+         | sed -E 's/@@?map\("([^"]+)"\)/\1/' | sort -u)
+if [[ ${#MISSING_MAPS[@]} -gt 0 ]]; then
+  log "ERROR: generated Prisma client is stale — these @map targets are not baked in:"
+  for m in "${MISSING_MAPS[@]}"; do log "  - ${m}"; done
+  log "Fix: sudo rm -rf /opt/platform/repo/node_modules/.prisma /opt/platform/repo/node_modules/@prisma/client"
+  log "     cd /opt/platform/repo && sudo -u platform npm --workspace=apps/api run db:generate"
+  log "     Then re-run this deploy."
+  exit 1
+fi
+
 log "Building workspaces (api + worker + collab-server + web)"
 sudo -u platform npm --workspace=apps/api           run build
 sudo -u platform npm --workspace=apps/worker        run build

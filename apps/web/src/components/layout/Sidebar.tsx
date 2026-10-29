@@ -169,7 +169,8 @@ type NavKey = 'home' | 'portfolio' | 'comments' | 'audit' | 'crm' | 'kol' | 'cla
 
 const MODULE_NAV: Record<string, NavKey[]> = {
   // Portfolio is hidden for Clinical Writing — the module home already covers it.
-  'clinical-writing':    ['home', 'comments', 'audit', 'crm'],
+  // 'audit' (Audit & QA) is hidden for now — re-add it here to bring the link back.
+  'clinical-writing':    ['home', 'comments', 'crm'],
   'scientific-writing':  ['home', 'portfolio'],
   'medical-writing':     ['home', 'portfolio', 'kol', 'claims'],
   'regulatory-writing':  ['home', 'intelligence'],

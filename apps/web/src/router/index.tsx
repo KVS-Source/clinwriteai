@@ -22,7 +22,6 @@ import { CommentsDashboard }    from '../screens/clinical-writing/CommentsDashbo
 import { CRMModule }            from '../screens/crm/CRMModule'
 import { ESignature }           from '../screens/output/ESignature'
 import { FinalDocument }        from '../screens/output/FinalDocument'
-import { AuditReviewAlert }     from '../screens/output/AuditReviewAlert'
 import { ScientificWritingHome } from '../screens/scientific-writing/ScientificWritingHome'
 import { NewPublicationWizard } from '../screens/scientific-writing/NewPublicationWizard'
 import { ManuscriptEditor }    from '../screens/scientific-writing/ManuscriptEditor'
@@ -162,7 +161,9 @@ export const router = createBrowserRouter([
               { path: 'comments',     element: <CommentsDashboard /> },
               // Portfolio hidden — redirect old links to the module home.
               { path: 'portfolio',    element: <Navigate to=".." replace relative="path" /> },
-              { path: 'audit-review', element: <AuditReviewAlert /> },
+              // Audit & QA hidden for now — redirect to the module home. Restore with
+              // `element: <AuditReviewAlert />` (and the import) plus 'audit' in Sidebar MODULE_NAV.
+              { path: 'audit-review', element: <Navigate to=".." replace relative="path" /> },
               { path: 'crm',          element: <CRMModule /> },
               {
                 path: 'documents/:documentId',

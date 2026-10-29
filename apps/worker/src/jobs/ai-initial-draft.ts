@@ -1,30 +1,35 @@
 // AI initial-draft worker — Module A New Document "Draft with AI" opt-in.
 //
-// Scope (M3 of the Create-Document rework):
+// Scope (M3 + M5 of the Create-Document rework):
 //   - Load the DocumentTemplate for the document's type
-//   - Load the source documents attached to the new document
+//   - Load the source documents attached to the new document (as PDF
+//     attachments on the Claude message when the key is present)
 //   - For each section in the template, generate initial content and
 //     write it to the SectionContent row + an EditHistory entry so the
 //     editor's per-section Undo stack respects the AI origin
-//   - On completion, log the sections drafted + total length
+//   - On completion, chain to clinical.ai_validation_pass
 //
-// Current implementation: deterministic stub content per section (see
-// buildStubDraftHtml). Mirrors the pattern already shipped for Whisper
-// voice transcription (apps/worker/src/jobs/voice-transcribe.ts) — real
-// LLM swap is a focused change in draftSection() once an API key is
-// provisioned, and the surrounding wiring stays identical.
+// LLM provider: Anthropic Claude when ANTHROPIC_API_KEY is set, with
+// the model id taken from ANTHROPIC_DRAFT_MODEL (default
+// 'claude-sonnet-4-5'). Mirrors the pattern already used by the
+// Whisper transcription job — admins override per deployment via env.
+// When no key is present, falls back to a deterministic stub so the
+// pipeline is still testable without network calls.
 //
 // Idempotency: enqueued with jobId=`ai-initial-draft-${documentId}` so
 // BullMQ dedupes retries. The handler also skips any section whose
 // SectionContent.contentHtml is non-empty — writers who've already
 // started typing in a section before the worker ran don't lose their
-// edits.
+// edits. The validation-loop re-draft path (targetSectionIds) bypasses
+// this guard intentionally; those sections failed a check and need to
+// be rewritten.
 //
 // Observability: failures per section are logged but don't fail the
 // whole job; the handler returns a report of drafted + skipped +
 // errored sections so the generic worker wrapper's log line captures
 // the useful numbers.
 
+import { createBlobReaderFromEnv } from '../blob-reader.js'
 import type { JobHandler } from './types.js'
 
 interface AiInitialDraftPayload {
@@ -50,13 +55,31 @@ interface SectionTemplate {
 }
 
 interface SourceSummary {
-  id:        string
-  title:     string
-  fileName:  string
-  category:  string | null
+  id:          string
+  title:       string
+  fileName:    string
+  category:    string | null
+  blobKey:     string
+  contentType: string
 }
 
-const STUB_HEAD = '[AI-drafted initial content — real LLM swap pending ANTHROPIC_API_KEY provisioning.]'
+interface SourcePdfPayload {
+  title:    string
+  category: string | null
+  bytes:    Buffer
+}
+
+const STUB_HEAD = '[AI-drafted initial content — ANTHROPIC_API_KEY not set, deterministic stub shown instead.]'
+
+// Max bytes any single source attachment is allowed to contribute.
+// Anthropic's per-document limit is 25MB; capping at 20MB leaves
+// headroom for the surrounding JSON wrapper.
+const MAX_SOURCE_BYTES = 20 * 1024 * 1024
+
+// Max output tokens per section. Enough for ~1500-2000 words of
+// Clinical prose at typical ICH density. Can tune per section number
+// later (e.g. §16 appendices need more).
+const MAX_SECTION_OUTPUT_TOKENS = 2000
 
 function escapeHtml(input: string): string {
   return input
@@ -97,24 +120,125 @@ function buildStubDraftHtml(args: {
 
 /**
  * Section-drafting dispatch. Returns the HTML to write into the
- * section's contentHtml. Stub for now; swap for a real LLM call once a
- * provider key is available. Keep the signature stable so the swap is
- * mechanical.
+ * section's contentHtml. Routes to Anthropic Claude when
+ * ANTHROPIC_API_KEY is present; otherwise falls back to a deterministic
+ * stub so the pipeline is end-to-end testable without an API key.
+ *
+ * Model id: ANTHROPIC_DRAFT_MODEL env (default 'claude-sonnet-4-5').
+ * Admins override per deployment; a future Admin Panel field will
+ * configure this per-tenant.
  */
 async function draftSection(args: {
-  section:  SectionTemplate
-  sources:  SourceSummary[]
-  docType:  string
+  section:   SectionTemplate
+  sources:   SourceSummary[]
+  sourcePdfs: SourcePdfPayload[]
+  docType:   string
 }): Promise<{ contentHtml: string; engine: string }> {
-  // Real LLM path will go here — e.g.:
-  //   const key = process.env.ANTHROPIC_API_KEY
-  //   if (key) {
-  //     const text = await draftWithClaude({ ...args, apiKey: key })
-  //     return { contentHtml: text, engine: 'claude-sonnet-4-6' }
-  //   }
-  // For now, every section gets the deterministic stub so the worker +
-  // UI wiring is end-to-end testable without an API key.
-  return { contentHtml: buildStubDraftHtml(args), engine: 'stub' }
+  const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
+  if (!apiKey) {
+    return { contentHtml: buildStubDraftHtml(args), engine: 'stub' }
+  }
+  const model = process.env.ANTHROPIC_DRAFT_MODEL?.trim() || 'claude-sonnet-4-5'
+  try {
+    const html = await draftWithClaude({ ...args, apiKey, model })
+    return { contentHtml: html, engine: model }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err)
+    // Degrade to stub on upstream failure rather than failing the whole
+    // section — the writer can regenerate per-section via the editor's
+    // AI chat panel. Log the reason so the operator can investigate.
+    const fallback = buildStubDraftHtml(args)
+    const note = `<p><em>[Draft fell back to stub — Claude call failed: ${escapeHtml(message)}]</em></p>`
+    return { contentHtml: note + fallback, engine: `${model}-fallback` }
+  }
+}
+
+/**
+ * Call Claude once with the attached source PDFs and the section brief.
+ * Response is coerced to HTML — the system prompt tells Claude to emit
+ * HTML paragraphs/lists, but if it leaves a code-fence wrapper or
+ * trailing commentary we strip it.
+ */
+async function draftWithClaude(args: {
+  section:    SectionTemplate
+  sources:    SourceSummary[]
+  sourcePdfs: SourcePdfPayload[]
+  docType:    string
+  apiKey:     string
+  model:      string
+}): Promise<string> {
+  const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
+    throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
+  })
+  const client = new Anthropic({ apiKey: args.apiKey })
+
+  const system = [
+    `You are drafting a single section of a regulatory clinical writing deliverable.`,
+    `Document type: ${args.docType}.`,
+    `Section number: ${args.section.number}`,
+    `Section title: ${args.section.title}`,
+    `Write a thorough first-pass draft of this section ONLY (not the surrounding document) based strictly on the attached source documents.`,
+    `Return clean HTML with <p>, <ul>/<li>, and <table> as appropriate — no Markdown, no code fences, no commentary before or after the HTML.`,
+    `If the sources genuinely do not contain the information needed for this section, write a short <p>stating what is missing and what the writer should supply.</p>`,
+    `Do not invent numeric values, patient counts, dates, or citations. Quote figures only when they appear in the sources.`,
+  ].join('\n')
+
+  // Build the content array: PDFs first (so Claude reads context before
+  // the ask), then the prompt. Each PDF is a 'document' block with
+  // base64 bytes. Filename title in the preamble helps Claude cite the
+  // right source in prose.
+  const pdfBlocks = args.sourcePdfs.map(p => ({
+    type: 'document' as const,
+    source: {
+      type:       'base64' as const,
+      media_type: 'application/pdf' as const,
+      data:       p.bytes.toString('base64'),
+    },
+    title: p.title,
+  }))
+
+  const sourceList = args.sources.length === 0
+    ? '(No source documents attached.)'
+    : args.sources.map(s => `- ${s.title || s.fileName}${s.category ? ` [${s.category}]` : ''}`).join('\n')
+
+  const userPrompt =
+    `Draft section ${args.section.number} "${args.section.title}" of a ${args.docType}.\n\n` +
+    `Attached sources:\n${sourceList}\n\n` +
+    `Return HTML only.`
+
+  const message = await client.messages.create({
+    model:      args.model,
+    max_tokens: MAX_SECTION_OUTPUT_TOKENS,
+    system,
+    messages: [
+      {
+        role: 'user',
+        content: [
+          ...pdfBlocks,
+          { type: 'text', text: userPrompt },
+        ],
+      },
+    ],
+  })
+
+  // Response content is an array of blocks; concatenate text blocks.
+  // Narrow via b.type instead of a predicate so we don't drag in the
+  // full TextBlock shape (which carries extra fields we don't need).
+  const text = message.content
+    .map(b => (b.type === 'text' ? (b as { type: 'text'; text: string }).text : ''))
+    .join('\n')
+    .trim()
+
+  if (!text) {
+    throw new Error('Claude returned no text content')
+  }
+  return stripCodeFence(text)
+}
+
+/** "```html\n…\n```" → "…" (Claude occasionally wraps despite the system prompt). */
+function stripCodeFence(text: string): string {
+  const m = /^\s*```[a-zA-Z]*\s*\n([\s\S]*?)\n?```\s*$/.exec(text)
+  return (m ? m[1]! : text).trim()
 }
 
 interface Report {
@@ -144,13 +268,46 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   const targetSet = targetSectionIds && targetSectionIds.length > 0 ? new Set(targetSectionIds) : null
   const sections = targetSet ? allSections.filter(s => targetSet.has(s.id)) : allSections
 
-  // --- Load the sources (metadata only — contents are read later if needed) ----
+  // --- Load the sources (metadata) --------------------------------------
   const sources: SourceSummary[] = sourceUploadIds.length === 0
     ? []
     : (await prisma.documentUpload.findMany({
         where: { id: { in: sourceUploadIds } },
-        select: { id: true, title: true, fileName: true, sourceCategory: true },
-      })).map(u => ({ id: u.id, title: u.title ?? '', fileName: u.fileName, category: u.sourceCategory }))
+        select: {
+          id: true, title: true, fileName: true, sourceCategory: true,
+          blobKey: true, contentType: true,
+        },
+      })).map(u => ({
+        id: u.id,
+        title: u.title ?? '',
+        fileName: u.fileName,
+        category: u.sourceCategory,
+        blobKey: u.blobKey,
+        contentType: u.contentType,
+      }))
+
+  // --- Load source PDF bytes once (reused across every section call) ----
+  // Non-PDF sources are skipped; the stub path doesn't need the bytes at
+  // all. Only runs when the Anthropic key is present to avoid wasting IO
+  // on stub-mode drafts.
+  const sourcePdfs: SourcePdfPayload[] = []
+  if (process.env.ANTHROPIC_API_KEY?.trim() && sources.length > 0) {
+    const reader = createBlobReaderFromEnv()
+    for (const src of sources) {
+      if (src.contentType !== 'application/pdf') continue
+      try {
+        const { bytes } = await reader.read('documents', src.blobKey)
+        if (bytes.length > MAX_SOURCE_BYTES) {
+          log.warn({ documentId, sourceId: src.id, size: bytes.length }, 'ai_initial_draft: source exceeds per-document cap — dropped')
+          continue
+        }
+        sourcePdfs.push({ title: src.title || src.fileName, category: src.category, bytes })
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err)
+        log.warn({ documentId, sourceId: src.id, err: message }, 'ai_initial_draft: could not read source blob — dropped')
+      }
+    }
+  }
 
   // --- Load the SectionContent rows the API seeded for this version ------
   const existing = await prisma.sectionContent.findMany({
@@ -177,7 +334,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       continue
     }
     try {
-      const { contentHtml, engine } = await draftSection({ section: sec, sources, docType: type })
+      const { contentHtml, engine } = await draftSection({ section: sec, sources, sourcePdfs, docType: type })
 
       await prisma.$transaction(async (tx) => {
         await tx.sectionContent.update({

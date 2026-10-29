@@ -1,6 +1,7 @@
 import { http, HttpResponse, delay } from 'msw'
 import study    from '../../data/study.json'
 import studyTB  from '../../data/studyTB.json'
+import documents from '../../data/documents.json'
 
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
 const projects = [study, studyTB]
@@ -17,7 +18,7 @@ export const projectHandlers = [
   }),
   http.get(`${BASE}/projects`, async () => {
     await delay(200)
-    return HttpResponse.json(projects)
+    return HttpResponse.json(projects.map(p => ({ ...p, documentCount: documents.filter(d => d.projectId === p.id).length })))
   }),
   http.get(`${BASE}/projects/:projectId`, async ({ params }) => {
     await delay(150)

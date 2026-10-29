@@ -72,12 +72,13 @@ export function ProjectDashboard() {
   const role    = currentUser.role
   const isAdmin = role === 'admin'
 
-  // Project Settings is gated to the project's Lead (team member with
-  // RACI='A' Accountable, matching the current user). Admins deliberately
-  // don't see this button — their domain is tenant admin / audit / users,
-  // not per-project configuration. See AskUserQuestion answer 2026-10-28.
-  const isProjectLead = useMemo(
-    () => Boolean(project?.team.some(t => t.raci === 'A' && t.userId === currentUser.id)),
+  // Project Settings is gated to Authors — team members with RACI='R'
+  // whose userId matches the current user. Any Author can add / edit /
+  // remove team RACI assignments. Admins deliberately don't see this
+  // button — their domain is tenant admin / audit / users, not per-project
+  // configuration. See AskUserQuestion answers 2026-10-28.
+  const isProjectAuthor = useMemo(
+    () => Boolean(project?.team.some(t => t.raci === 'R' && t.userId === currentUser.id)),
     [project, currentUser.id],
   )
 
@@ -202,11 +203,11 @@ export function ProjectDashboard() {
                 ? `Last activity ${new Date(stats.lastActivity).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
                 : 'No activity yet'}
             </div>
-            {isProjectLead && (
+            {isProjectAuthor && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${encodeURIComponent(projectId ?? '')}/settings`)}
-                title="Project Lead · This project's metadata + team"
+                title="Author · This project's metadata + team RACI"
                 className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
                 data-action="project-settings"
               >

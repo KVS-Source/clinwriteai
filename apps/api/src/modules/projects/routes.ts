@@ -98,7 +98,15 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { createdAt: 'desc' },
       include: { teamMembers: true },
     })
-    return rows.map(projectShape)
+    // One grouped count for all projects (live Module A documents) so the list
+    // can show a real document total per row.
+    const counts = await app.prisma.document.groupBy({
+      by: ['projectId'],
+      where: { deletedAt: null },
+      _count: { _all: true },
+    })
+    const countByProject = new Map(counts.map(c => [c.projectId, c._count._all]))
+    return rows.map(r => ({ ...projectShape(r), documentCount: countByProject.get(r.id) ?? 0 }))
   })
 
   app.get('/:id', { preHandler: requireAuth() }, async (request, reply) => {
@@ -231,5 +239,184 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return updated
+  })
+
+  // --------------------------------------------------------------------------
+  // Team RACI assignment — Project Settings v2 (2026-10-28).
+  //
+  // Access model:
+  //   - Any team member with raci='R' (Author) on this project can add /
+  //     edit / remove team members.
+  //   - Admins deliberately locked out — their domain is tenant admin,
+  //     users, audit — not per-project team.
+  //   - The requireAuth() shell authenticates; the per-route guard below
+  //     checks RACI membership and 403s on failure.
+  // --------------------------------------------------------------------------
+
+  const RACI_LETTERS = ['R', 'A', 'C', 'I'] as const
+  const addTeamSchema = z.object({
+    userId: z.string().min(1),
+    name:   z.string().min(1).max(120),
+    role:   z.string().min(1).max(120),             // free text: 'Lead Clinical Writer' etc.
+    raci:   z.enum(RACI_LETTERS),
+    initials:  z.string().max(5).optional(),
+    colourKey: z.string().max(32).optional(),
+  })
+  const patchTeamSchema = z.object({
+    name:      z.string().min(1).max(120).optional(),
+    role:      z.string().min(1).max(120).optional(),
+    raci:      z.enum(RACI_LETTERS).optional(),
+    initials:  z.string().max(5).optional(),
+    colourKey: z.string().max(32).optional(),
+  })
+
+  /**
+   * Resolve whether `userId` is an Author (raci='R') on this project.
+   * Returns true for a direct match on project_team_members. Returns
+   * false otherwise — including for admins, who do NOT have an implicit
+   * bypass per the 2026-10-28 call.
+   */
+  async function isProjectAuthor(projectId: string, userId: string): Promise<boolean> {
+    const row = await app.prisma.projectTeamMember.findFirst({
+      where: { projectId, userId, raci: 'R' },
+      select: { id: true },
+    })
+    return row !== null
+  }
+
+  app.post('/:projectId/team', { preHandler: requireAuth() }, async (request, reply) => {
+    const { projectId } = request.params as { projectId: string }
+    const parsed = addTeamSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
+    if (!project) return reply.code(404).send({ error: 'project_not_found' })
+
+    if (!(await isProjectAuthor(projectId, request.user!.id))) {
+      return reply.code(403).send({ error: 'forbidden', message: 'Only an Author on this project can change the team.' })
+    }
+
+    const user = await app.prisma.user.findUnique({ where: { id: parsed.data.userId }, select: { id: true, status: true } })
+    if (!user) return reply.code(400).send({ error: 'user_not_found' })
+    if (user.status !== 'active') return reply.code(422).send({ error: 'user_inactive' })
+
+    // Explicit 409 for a dup — the (projectId, userId) unique index would
+    // throw a bare Prisma error otherwise.
+    const dup = await app.prisma.projectTeamMember.findUnique({
+      where: { projectId_userId: { projectId, userId: parsed.data.userId } },
+    })
+    if (dup) return reply.code(409).send({ error: 'already_on_team', message: `User is already on this team.` })
+
+    const created = await app.prisma.projectTeamMember.create({
+      data: {
+        projectId,
+        userId:    parsed.data.userId,
+        name:      parsed.data.name,
+        role:      parsed.data.role,
+        raci:      parsed.data.raci,
+        initials:  parsed.data.initials  ?? null,
+        colourKey: parsed.data.colourKey ?? null,
+      },
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId:   request.user!.id,
+      action:    'project_team_member_added',
+      entityType: 'project',
+      entityId:   projectId,
+      details: { userId: created.userId, name: created.name, role: created.role, raci: created.raci },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.code(201).send(created)
+  })
+
+  app.patch('/:projectId/team/:userId', { preHandler: requireAuth() }, async (request, reply) => {
+    const { projectId, userId } = request.params as { projectId: string; userId: string }
+    const parsed = patchTeamSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    if (!(await isProjectAuthor(projectId, request.user!.id))) {
+      return reply.code(403).send({ error: 'forbidden', message: 'Only an Author on this project can change the team.' })
+    }
+
+    const existing = await app.prisma.projectTeamMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    })
+    if (!existing) return reply.code(404).send({ error: 'not_found' })
+
+    const data: Record<string, unknown> = {}
+    if (parsed.data.name      !== undefined) data.name      = parsed.data.name
+    if (parsed.data.role      !== undefined) data.role      = parsed.data.role
+    if (parsed.data.raci      !== undefined) data.raci      = parsed.data.raci
+    if (parsed.data.initials  !== undefined) data.initials  = parsed.data.initials
+    if (parsed.data.colourKey !== undefined) data.colourKey = parsed.data.colourKey
+
+    const updated = await app.prisma.projectTeamMember.update({
+      where: { projectId_userId: { projectId, userId } },
+      data,
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId:   request.user!.id,
+      action:    'project_team_member_updated',
+      entityType: 'project',
+      entityId:   projectId,
+      details: {
+        userId,
+        changedFields: Object.keys(data),
+        raciFrom: existing.raci,
+        raciTo:   parsed.data.raci ?? existing.raci,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return updated
+  })
+
+  app.delete('/:projectId/team/:userId', { preHandler: requireAuth() }, async (request, reply) => {
+    const { projectId, userId } = request.params as { projectId: string; userId: string }
+
+    if (!(await isProjectAuthor(projectId, request.user!.id))) {
+      return reply.code(403).send({ error: 'forbidden', message: 'Only an Author on this project can change the team.' })
+    }
+
+    const existing = await app.prisma.projectTeamMember.findUnique({
+      where: { projectId_userId: { projectId, userId } },
+    })
+    if (!existing) return reply.code(404).send({ error: 'not_found' })
+
+    // Refuse self-removal if the actor is the last Author — leaving the
+    // project with zero Rs locks everyone (including the actor) out of
+    // team edits. Any other member can be removed freely.
+    if (userId === request.user!.id && existing.raci === 'R') {
+      const otherAuthors = await app.prisma.projectTeamMember.count({
+        where: { projectId, raci: 'R', NOT: { userId } },
+      })
+      if (otherAuthors === 0) {
+        return reply.code(409).send({
+          error: 'last_author',
+          message: 'You are the last Author on this project — promote another member to R first.',
+        })
+      }
+    }
+
+    await app.prisma.projectTeamMember.delete({
+      where: { projectId_userId: { projectId, userId } },
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId:   request.user!.id,
+      action:    'project_team_member_removed',
+      entityType: 'project',
+      entityId:   projectId,
+      details: { userId, name: existing.name, role: existing.role, raci: existing.raci },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply.code(204).send()
   })
 }

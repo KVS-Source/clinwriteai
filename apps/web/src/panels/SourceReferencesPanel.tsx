@@ -77,6 +77,9 @@ export function SourceViewer({ projectId, documentId, source, page, quote, onBac
   }, [file.data])
 
   const isPdf = (source?.contentType ?? '').toLowerCase().startsWith('application/pdf')
+  // The API converts docx to HTML and serves text files as text/plain; the returned type tells us which.
+  const servedType = file.data?.blob.type ?? ''
+  const isFramed = servedType.startsWith('text/')
   const [downloadError, setDownloadError] = useState<string | null>(null)
   const download = async () => {
     setDownloadError(null)
@@ -126,7 +129,7 @@ export function SourceViewer({ projectId, documentId, source, page, quote, onBac
         {!source && <p className="p-4 text-sm text-slate-500" data-viewer-state="unknown">This source document is no longer available in the project.</p>}
         {source && !previewable && (
           <p className="p-4 text-sm text-slate-600" data-viewer-state="not-previewable">
-            This file type can’t be shown here yet — only PDF and image files can. Use Download to open it.
+            This file type can’t be shown here — PDF, image, Word (.docx) and text/CSV files can. Use Download to open it.
           </p>
         )}
         {source && previewable && file.isLoading && <p className="p-4 text-sm text-slate-500" data-viewer-state="loading">Loading…</p>}
@@ -137,7 +140,12 @@ export function SourceViewer({ projectId, documentId, source, page, quote, onBac
           <iframe key={`${url}#${pageJump ?? ''}`} title={source?.fileName ?? 'Source document'} src={pageJump ? `${url}#page=${pageJump}` : url}
             className="h-full w-full border-0 bg-white" data-viewer-frame />
         )}
-        {url && !isPdf && (
+        {url && isFramed && (
+          // docx (converted to HTML) and text files: sandboxed with no permissions, so nothing in the file can run.
+          <iframe key={url} title={source?.fileName ?? 'Source document'} src={url} sandbox=""
+            className="h-full w-full border-0 bg-white" data-viewer-frame data-viewer-converted />
+        )}
+        {url && !isPdf && !isFramed && (
           <img src={url} alt={source?.fileName ?? 'Source document'} className="mx-auto max-w-full p-3" data-viewer-image />
         )}
       </div>

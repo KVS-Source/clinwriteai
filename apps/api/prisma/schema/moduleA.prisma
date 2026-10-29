@@ -35,6 +35,7 @@ model Document {
   currentVersionId       String?   @unique                     // set after first save
   targetCompletionDate   DateTime?
   submittedForReviewAt   DateTime?
+  reviewDueAt            DateTime?                             // set by Submit for review (FR-A-042)
   signedAt               DateTime?
   watermarked            Boolean   @default(true)              // cleared on final sign-off
   createdBy              String

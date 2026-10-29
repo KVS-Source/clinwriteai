@@ -44,6 +44,10 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1', therapeuticArea: 'Oncology', submissionCountries: [] })) },
     documentUpload: { findMany: vi.fn(async () => []) },
     documentSource: { createMany: vi.fn(async () => ({ count: 0 })) },
+    documentRaci: {
+      findFirst: vi.fn(async () => null),
+      create:    vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'raci-1', ...data })),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)

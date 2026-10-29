@@ -40,25 +40,36 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
     const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
-    // Active project members only. We fetch the member rows and then the
-    // associated users in a batched findMany so we return at most one
-    // row per user even if a user has multiple project_member rows
-    // (shouldn't happen given the uniqueness index, but belt + braces).
-    const members = await app.prisma.projectMember.findMany({
-      where: { projectId, removedAt: null },
-      select: { userId: true, projectRole: true },
-    })
-    if (members.length === 0) return reply.send([])
+    // Active project members. Bridge the legacy ProjectTeamMember table
+    // during the mig-47 cutover — fixture-seeded demo projects populate
+    // ProjectTeamMember only. Without this bridge the RACI picker shows
+    // "No active project members with the can-X capability" on any demo
+    // project that predates the ProjectMember backfill.
+    const [members, legacyTeam] = await Promise.all([
+      app.prisma.projectMember.findMany({
+        where: { projectId, removedAt: null },
+        select: { userId: true, projectRole: true },
+      }),
+      app.prisma.projectTeamMember.findMany({
+        where: { projectId },
+        select: { userId: true, role: true },
+      }),
+    ])
 
-    const userIds = Array.from(new Set(members.map(m => m.userId)))
+    const projectRoleByUser = new Map<string, string | null>()
+    for (const m of members)    projectRoleByUser.set(m.userId, m.projectRole)
+    // Only set the legacy role when the user has no ProjectMember row —
+    // new rows win over legacy on conflict.
+    for (const t of legacyTeam) if (!projectRoleByUser.has(t.userId)) projectRoleByUser.set(t.userId, t.role)
+
+    if (projectRoleByUser.size === 0) return reply.send([])
+
+    const userIds = Array.from(projectRoleByUser.keys())
     const users = await app.prisma.user.findMany({
       where: { id: { in: userIds }, status: 'active' },
       select: { id: true, name: true, email: true, initials: true, capabilities: true },
       orderBy: { name: 'asc' },
     })
-
-    const projectRoleByUser = new Map<string, string | null>()
-    for (const m of members) projectRoleByUser.set(m.userId, m.projectRole)
 
     const cap = parsed.data.capability as Capability | undefined
     const filtered = cap

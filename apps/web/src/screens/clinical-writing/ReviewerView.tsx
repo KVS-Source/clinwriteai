@@ -5,12 +5,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CommentSeverity } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { useCurrentUser } from '../../hooks'
+import { useDocumentPresence } from '../../hooks/usePresence'
 import { withSectionMark } from '../../panels/CommentComposer'
 import { PLATFORM_USER_ROLE_LABEL, STATUS_META, type PlatformUserRole } from '@platform/types'
 import { EditorContent } from '@tiptap/react'
 import { useDocumentStore, useProjectStore } from '../../store'
 import { useRichTextEditor } from './RichTextEditor'
 import { SectionNavigator } from './SectionNavigator'
+import { PresenceStack } from './PresenceStack'
 import { ReviewerToolbar } from './ReviewerToolbar'
 import { CommentsPanel }   from '../../panels/CommentsPanel'
 import { ChecklistPanel }  from '../../panels/ChecklistPanel'
@@ -26,6 +28,28 @@ const AVATAR: Record<string, { bg: string; fg: string }> = {
   RT: { bg: '#FCE7F3', fg: '#9D174D' }, LP: { bg: '#F3F4F6', fg: '#374151' },
 }
 const NEUTRAL_AVATAR = { bg: '#DBEAFE', fg: '#1D4ED8' }
+
+// "Review due 05 Nov 2026 · 3 days remaining" from the due date set on Submit
+// for review; null when none was set. The date is a calendar day stored as UTC
+// midnight, so it's shown in UTC (no off-by-one west of Greenwich) and counted
+// against today's local calendar day.
+function reviewDueLabel(reviewDueAt: string | null | undefined): string | null {
+  if (!reviewDueAt) return null
+  const due = new Date(reviewDueAt)
+  if (Number.isNaN(due.getTime())) return null
+  const dateLabel = due.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })
+  const now = new Date()
+  const days = Math.round(
+    (Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate()) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86_400_000,
+  )
+  const remaining =
+    days > 1   ? `${days} days remaining` :
+    days === 1 ? '1 day remaining' :
+    days === 0 ? 'due today' :
+    days === -1 ? '1 day overdue' :
+                 `${-days} days overdue`
+  return `Review due ${dateLabel} · ${remaining}`
+}
 
 const PANEL_TITLES: Record<string, string> = {
   comments:  'Comments',
@@ -143,6 +167,9 @@ export function ReviewerView() {
     role:     me ? (PLATFORM_USER_ROLE_LABEL[me.role as PlatformUserRole] ?? me.role) : '',
   }
   const reviewerColours = AVATAR[reviewer.initials] ?? NEUTRAL_AVATAR
+
+  // Keep this reviewer in the document's presence list ("N active" here and in the Editor).
+  useDocumentPresence(documentId, activeSection)
 
   // Same query key the Comments panel uses, so this is a cache read, not a second fetch.
   const { data: commentList = [] } = useQuery({
@@ -310,33 +337,12 @@ export function ReviewerView() {
 
           {/* Right cluster */}
           <div className="flex flex-none items-center gap-3.5">
-            <p className="whitespace-nowrap text-xs text-slate-500">Review due 05 Nov 2024 · 10 days remaining</p>
+            {reviewDueLabel(document.reviewDueAt) && (
+              <p className="whitespace-nowrap text-xs text-slate-500" data-review-due>{reviewDueLabel(document.reviewDueAt)}</p>
+            )}
 
-            {/* Presence stack — EV as logged-in (amber ring) */}
-            <div className="flex flex-none items-center">
-              {[
-                { initials: reviewer.initials || '·', bg: reviewerColours.bg, fg: reviewerColours.fg, ring: reviewerColours.fg },
-                { initials: 'MW', bg: '#DBEAFE', fg: '#1D4ED8' },
-                { initials: 'JO', bg: '#F5F3FF', fg: '#7C3AED' },
-              ].map((p, i) => (
-                <div
-                  key={p.initials}
-                  className="flex h-6 w-6 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
-                  style={{
-                    backgroundColor: p.bg,
-                    color: p.fg,
-                    boxShadow: p.ring ? `0 0 0 2px #FFFFFF, 0 0 0 4px ${p.ring}` : '0 0 0 2px #FFFFFF',
-                    marginLeft: i === 0 ? 0 : -6,
-                    zIndex: 3 - i,
-                  }}
-                >
-                  {p.initials}
-                </div>
-              ))}
-            </div>
-
-            <span className="h-5 w-px" style={{ backgroundColor: '#E2E8F0' }} />
-            <span className="flex-none text-xs text-slate-500">3 active</span>
+            {/* Presence stack — live, same as the Editor (FR-A-053 / AC-A-037). */}
+            {documentId && <PresenceStack documentId={documentId} currentUserId={me?.id} />}
 
             <button
               type="button"

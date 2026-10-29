@@ -10,6 +10,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../auth/rbac.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../platform/taxonomy/validate.js'
+import { visibleProjectIdsForUser } from './visibility.js'
 import {
   canTransition,
   InvalidTransitionError,
@@ -93,8 +94,15 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
   // Response shape: Prisma Project rows + a `team` array matching the UI's
   // packages/types `TeamMember` interface. Team is included so the UI's
   // Project.team access doesn't 500 the browser after cutover.
-  app.get('/', { preHandler: requireAuth() }, async () => {
+  app.get('/', { preHandler: requireAuth() }, async (request) => {
+    // Visibility: tenant-admin/auditor see all; contributor/pm/guest see only
+    // projects where they are a ProjectMember, ProjectTeamMember, or hold a
+    // DocumentRaci row on any document in the project. See visibility.ts.
+    const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+    const projectWhere = visible === 'all' ? {} : { id: { in: [...visible] } }
+
     const rows = await app.prisma.project.findMany({
+      where: projectWhere,
       orderBy: { createdAt: 'desc' },
       include: { teamMembers: true },
     })
@@ -102,7 +110,10 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     // can show a real document total per row.
     const counts = await app.prisma.document.groupBy({
       by: ['projectId'],
-      where: { deletedAt: null },
+      where: {
+        deletedAt: null,
+        ...(visible === 'all' ? {} : { projectId: { in: [...visible] } }),
+      },
       _count: { _all: true },
     })
     const countByProject = new Map(counts.map(c => [c.projectId, c._count._all]))
@@ -111,6 +122,11 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/:id', { preHandler: requireAuth() }, async (request, reply) => {
     const { id } = request.params as { id: string }
+    const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+    if (visible !== 'all' && !visible.has(id)) {
+      // 404 (not 403) so we don't leak existence to users without access.
+      return reply.code(404).send({ error: 'not_found' })
+    }
     const project = await app.prisma.project.findUnique({
       where: { id },
       include: { teamMembers: true },

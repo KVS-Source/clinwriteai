@@ -20,6 +20,7 @@ import { createHash } from 'node:crypto'
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections } from './templates.js'
 import { DocumentService } from './service.js'
@@ -174,6 +175,18 @@ function documentShapeFull(d: { type?: string; status?: string; stage?: string; 
   }
 }
 
+// Submit-for-review body — only the due date is read here; the rest of the
+// panel's payload (reviewers, review type) isn't stored by this route.
+const submitBodySchema = z.object({ dueDate: z.string().trim().min(1).optional() }).passthrough()
+
+// documents.reviewDueAt unavailable: the column is missing (P2022, migration
+// 52 not applied) or the Prisma client predates it ("Unknown argument").
+const isMissingReviewDueColumn = (err: unknown) => {
+  const e = err as { code?: string; message?: string } | null
+  const msg = e?.message ?? ''
+  return e?.code === 'P2022' || (msg.includes('reviewDueAt') && (msg.includes('Unknown argument') || msg.includes('does not exist')))
+}
+
 const restoreSchema = z.object({
   sections: z.array(z.object({
     sectionId: z.string(),
@@ -199,12 +212,41 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
+    // Project visibility — users who can't see the project can't list its
+    // documents. Return 404 (not 403) so non-visible project ids don't leak.
+    const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+    if (visible !== 'all' && !visible.has(projectId)) {
+      return reply.code(404).send({ error: 'project_not_found' })
+    }
+
     const rows = await app.prisma.document.findMany({
       where: { projectId, deletedAt: null },
       orderBy: { updatedAt: 'desc' },
       include: { currentVersion: { select: { versionNumber: true } } },
     })
-    return rows.map(r => documentShapeMeta({ ...r, version: r.currentVersion?.versionNumber }))
+
+    // Batch-fetch assignee display info so the UI's "Assigned To" column
+    // resolves for every caller — not just admins who can hit /admin/users.
+    // Without this a contributor viewing the project list sees "— —" in
+    // every row because the user-id → name map is empty.
+    const assigneeIds = Array.from(new Set(rows.map(r => r.assigneeId).filter((v): v is string => !!v)))
+    const assignees = assigneeIds.length
+      ? await app.prisma.user.findMany({
+          where: { id: { in: assigneeIds } },
+          select: { id: true, name: true, initials: true },
+        })
+      : []
+    const assigneeById = new Map(assignees.map(u => [u.id, u]))
+
+    return rows.map(r => {
+      const a = r.assigneeId ? assigneeById.get(r.assigneeId) : null
+      return documentShapeMeta({
+        ...r,
+        version: r.currentVersion?.versionNumber,
+        assigneeName: a?.name ?? null,
+        assigneeInitials: a?.initials ?? null,
+      })
+    })
   })
 
   // Create a new document for a project.
@@ -259,6 +301,34 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
         data: sourceUploadIds.map(uploadId => ({ documentId: document.id, uploadId, linkedBy: request.user!.id })),
         skipDuplicates: true,
       })
+    }
+
+    // Auto-seed the assignee as the Responsible (R) RACI row. Without
+    // this the newly-created doc has no owner in the unified RBAC table,
+    // so the RACI editor opens blank and the stage transition engine
+    // treats the doc as "no R" — blocking submit. The explicit RACI
+    // picker still works to add co-Rs or replace this one.
+    //
+    // Idempotent: ProjectMember-style uniqueness isn't enforced on
+    // DocumentRaci but duplicates would show as two R chips. If a
+    // caller already pre-created the R (rare — only the creation flow
+    // hits this route today), skip the insert.
+    if (parsed.data.assigneeId) {
+      const existing = await app.prisma.documentRaci.findFirst({
+        where: { documentId: document.id, userId: parsed.data.assigneeId, letter: 'R', removedAt: null },
+        select: { id: true },
+      })
+      if (!existing) {
+        await app.prisma.documentRaci.create({
+          data: {
+            documentId:        document.id,
+            userId:            parsed.data.assigneeId,
+            letter:            'R',
+            signatureRequired: false,
+            assignedBy:        request.user!.id,
+          },
+        })
+      }
     }
 
     await app.audit.append({
@@ -528,9 +598,22 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send({ error: 'invalid_transition', message: err.message })
     }
 
+    // Review due date from the Submit-for-review panel ('YYYY-MM-DD' or ISO).
+    // Kept only when it parses; stored as UTC midnight of that day.
+    const dueRaw = submitBodySchema.safeParse(request.body ?? {}).data?.dueDate
+    const dueDate = dueRaw ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(dueRaw) ? `${dueRaw}T00:00:00.000Z` : dueRaw) : null
+    const reviewDueAt = dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate : null
+
+    const submitData = { status: 'in_review', submittedForReviewAt: new Date() }
     const updated = await app.prisma.document.update({
       where: { id: documentId },
-      data: { status: 'in_review', submittedForReviewAt: new Date() },
+      data: { ...submitData, reviewDueAt },
+    }).catch(err => {
+      // Migration 52 (documents.reviewDueAt) not applied yet, or a Prisma
+      // client older than the column: submit without the due date.
+      if (!isMissingReviewDueColumn(err)) throw err
+      app.log.warn('documents.reviewDueAt missing — submitting without a review due date until migration 52 is applied')
+      return app.prisma.document.update({ where: { id: documentId }, data: submitData })
     })
 
     // Auto-advance stage: submitting for review implies the document has
@@ -568,6 +651,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         to: 'in_review',
         stageFrom: stageMove?.from ?? null,
         stageTo: stageMove?.to ?? null,
+        reviewDueAt: reviewDueAt?.toISOString() ?? null,
         autoCompletedCount: autoReport?.completedCount ?? 0,
       },
       ipAddress: request.ip ?? null,

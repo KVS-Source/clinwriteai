@@ -57,6 +57,13 @@ async function build() {
       findFirst: vi.fn(async () => null),
       create:    vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'raci-1', ...data })),
     },
+    // The create route checks the DocumentTemplate table for a DB-backed
+    // section skeleton before falling back to templateSections(). These
+    // tests don't exercise the DB path — return null and let the fallback
+    // produce the same sections the pre-M2 code produced.
+    documentTemplate: {
+      findFirst: vi.fn(async () => null),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: audit } as never)

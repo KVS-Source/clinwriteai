@@ -24,6 +24,7 @@ export type QueueJobName =
   | 'compliance.retention_purge'
   | 'clinical.restore_version'
   | 'clinical.voice_transcribe'
+  | 'clinical.ai_initial_draft'
   | 'clinical.presence_reaper'
   | 'compliance.access_review'
   | 'dpdpa.erasure'

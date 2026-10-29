@@ -50,12 +50,22 @@ interface InviteLink {
   inviteExpiresAt: string
 }
 
-// Role dropdown for the invite / edit forms. 'super-admin' retired on
-// 2026-10-27 — a platform admin is now `role='admin'` with `tenantId=null`.
-const ROLE_OPTIONS = [
-  'admin', 'clinical-writer', 'scientific-writer',
-  'medical-writer', 'regulatory-writer', 'ideation-lead', 'reviewer', 'read-only',
-] as const
+// Role dropdown for the invite / edit forms.
+//
+// Canonical set after migration 48 (docs/roles-and-permissions.md §2):
+//   tenant-admin | pm | contributor | auditor | guest
+//
+// Legacy role names (admin, clinical-writer, …) are still accepted by
+// the API for existing users whose rows haven't been rewritten, but
+// new invites should always use the canonical names — hence the
+// dropdown is filtered down to the five.
+const ROLE_OPTIONS: { value: string; label: string; description: string }[] = [
+  { value: 'tenant-admin', label: 'Tenant Admin', description: 'Full admin for this tenant — manages users, projects, settings.' },
+  { value: 'pm',           label: 'Project Manager', description: 'Creates and oversees projects, assigns RACI roles, monitors delivery.' },
+  { value: 'contributor',  label: 'Contributor', description: 'Writes, reviews, approves or releases QC on documents (based on capabilities).' },
+  { value: 'auditor',      label: 'Auditor', description: 'Read-only compliance access across every project in the tenant.' },
+  { value: 'guest',        label: 'Guest', description: 'Scoped access to a specific document or project via a magic link (no interactive login).' },
+]
 
 const usersApi = {
   list:         () => api.get<AdminUser[]>('/admin/users'),
@@ -87,7 +97,7 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
   const qc = useQueryClient()
   const [email, setEmail] = useState('')
   const [name,  setName]  = useState('')
-  const [role,  setRole]  = useState<string>('reviewer')
+  const [role,  setRole]  = useState<string>('contributor')
   const [tenantId, setTenantId] = useState('')
   const [err, setErr] = useState<string | null>(null)
 
@@ -108,8 +118,14 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
       <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
         <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]" placeholder="name@example.com" value={email} onChange={e => setEmail(e.target.value)} data-input="email" />
         <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]" placeholder="Display name"      value={name}  onChange={e => setName(e.target.value)}  data-input="name" />
-        <select className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]" value={role} onChange={e => setRole(e.target.value)} data-input="role">
-          {ROLE_OPTIONS.map(r => <option key={r} value={r}>{r}</option>)}
+        <select
+          className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]"
+          value={role}
+          onChange={e => setRole(e.target.value)}
+          title={ROLE_OPTIONS.find(r => r.value === role)?.description}
+          data-input="role"
+        >
+          {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value} title={r.description}>{r.label}</option>)}
         </select>
         <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]" placeholder="Tenant id (optional)" value={tenantId} onChange={e => setTenantId(e.target.value)} data-input="tenantId" />
       </div>

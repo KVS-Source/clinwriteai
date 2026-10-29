@@ -198,6 +198,22 @@ export const platformApi = {
   // sPM11 / sPM13 — Subscription & Services
   getServicesDashboard: () =>
     api.get<Subscription>('/services/dashboard'),
+
+  // Services analytics — six aggregates for the usage panels on /services.
+  // Tenant admins get their tenant only; platform admins see all tenants.
+  getUsageAnalytics: (windowDays = 30) =>
+    api.get<{
+      generatedAt: string
+      windowDays: number
+      totals: { calls: number; tokens: number; costUsd: number }
+      dailyTokens: Array<{ date: string; tokens: number }>
+      promptIntents: Array<{ label: string; value: number; hint: string }>
+      modelMix:      Array<{ label: string; value: number; hint: string }>
+      topPrompts:    Array<{ label: string; hint: string }>
+      topUsers:      Array<{ label: string; hint: string }>
+      hourlyDistribution: number[]
+      hourlyPeakLabel: string
+    }>(`/ai/usage-analytics?windowDays=${windowDays}`),
   getSubscription: () =>
     api.get<Subscription>('/admin/subscription'),
   // Records a pending top-up; no payment gateway is integrated yet.

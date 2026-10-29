@@ -60,17 +60,21 @@ function FinalSectionBody({ html }: { html: string }) {
   )
 }
 
-// The API returns sections ordered as text (§1, §10, §11, §2 ...). Present them
-// in document order: compare section numbers numerically, part by part.
+// The API returns sections ordered as text (§1, §10, §11, §2 ...). Present them in document
+// order: front matter without a number (ES, TOC) first, as in the Editor, then the numbered
+// sections compared numerically, part by part.
 const sectionOrder = new Intl.Collator(undefined, { numeric: true })
+const sectionKey = (s: Section) => s.number.replace(/^§/, '')
+const isFrontMatter = (s: Section) => !/^\d/.test(sectionKey(s))
 const bySectionNumber = (a: Section, b: Section) =>
-  sectionOrder.compare(a.number.replace(/^§/, ''), b.number.replace(/^§/, ''))
+  Number(isFrontMatter(b)) - Number(isFrontMatter(a)) || sectionOrder.compare(sectionKey(a), sectionKey(b))
 
 const isBlankHtml = (html: string | undefined) => !html || html.replace(/<[^>]*>/g, '').trim() === ''
 
 export function FinalDocument() {
   const { projectId, documentId } = useParams()
   const [auditOpen, setAuditOpen] = useState(false)
+  const [toast, setToast]         = useState<string | null>(null)
   const setActiveProject          = useProjectStore(s => s.setActiveProject)
   const setActiveDocument         = useDocumentStore(s => s.setActiveDocument)
   const setActiveSection          = useDocumentStore(s => s.setActiveSection)
@@ -96,6 +100,11 @@ export function FinalDocument() {
   const activeSection = useDocumentStore(s => s.activeSection)
   const scrollRef     = useRef<HTMLDivElement | null>(null)
   const landed        = useRef(false)
+  // Set when the reading position (not a click) changed the active section, so the
+  // scroll-into-view effect below doesn't fight the reader's own scrolling.
+  const spied         = useRef<string | null>(null)
+  // After a click in the section list, ignore scroll-driven updates while the smooth scroll runs.
+  const spyPausedUntil = useRef(0)
 
   // Start at the top once per document; a reload of the same document keeps the section the
   // reader scrolled to.
@@ -114,10 +123,41 @@ export function FinalDocument() {
   useEffect(() => {
     if (!activeSection) return
     if (!landed.current) { landed.current = true; return }
+    if (spied.current === activeSection) { spied.current = null; return }
+    spyPausedUntil.current = Date.now() + 900
     scrollRef.current
       ?.querySelector<HTMLElement>(`[data-final-section="${activeSection}"]`)
       ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
   }, [activeSection])
+
+  // Reading position → active section: the last section whose top has scrolled past the top
+  // of the pane. Keeps the left list highlight and the bottom bar in step with the reader.
+  useEffect(() => {
+    const pane = scrollRef.current
+    if (!pane || !document) return
+    const onScroll = () => {
+      if (Date.now() < spyPausedUntil.current) return
+      const top = pane.getBoundingClientRect().top + 24
+      let current: string | null = null
+      for (const el of pane.querySelectorAll<HTMLElement>('[data-final-section]')) {
+        if (el.getBoundingClientRect().top <= top) current = el.dataset.finalSection ?? null
+        else break
+      }
+      if (current && current !== useDocumentStore.getState().activeSection) {
+        spied.current = current
+        setActiveSection(current)
+      }
+    }
+    pane.addEventListener('scroll', onScroll, { passive: true })
+    return () => pane.removeEventListener('scroll', onScroll)
+  }, [document, setActiveSection])
+
+  // "Link copied" notice that clears itself.
+  useEffect(() => {
+    if (!toast) return
+    const t = setTimeout(() => setToast(null), 2500)
+    return () => clearTimeout(t)
+  }, [toast])
 
   // Print stylesheet hook: lets index.css un-clip the app shell while this
   // screen is mounted so "Download PDF" prints every page, not one viewport.
@@ -132,6 +172,8 @@ export function FinalDocument() {
 
   // Only a document whose status is "signed" gets the signed-and-locked treatment.
   const isSigned = document?.status === 'signed'
+  // Interim (unsigned) versions carry a watermark until final sign-off (FR-A-011).
+  const showWatermark = !isSigned && document?.watermarked !== false
 
   // Signed: every section reads as complete (100% progress bar, all-green dots).
   // Not signed: the sections keep their real status.
@@ -235,8 +277,7 @@ export function FinalDocument() {
               onClick={() => {
                 const url = window.location.href
                 if (navigator.clipboard?.writeText) {
-                  void navigator.clipboard.writeText(url)
-                  window.alert('Shareable link copied to clipboard:\n' + url)
+                  navigator.clipboard.writeText(url).then(() => setToast('Link copied'), () => window.prompt('Copy this link to share:', url))
                 } else {
                   window.prompt('Copy this link to share:', url)
                 }
@@ -246,22 +287,6 @@ export function FinalDocument() {
             >
               Share
             </button>
-            {isSigned && (
-              <button
-                type="button"
-                onClick={() => {
-                  // Signed documents can't be mutated at the content layer
-                  // (Part 11 §11.70), but they can be moved out of active
-                  // circulation. Confirmation required.
-                  if (!window.confirm('Archive this signed document? It will remain in the audit chain but drop from the active document list.')) return
-                  window.alert('Archive request logged. Document will move to the archive queue on the next scheduler pass.')
-                }}
-                title="Archive the signed document (removes from active list; audit chain preserved)"
-                className="rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
-              >
-                Archive
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -298,7 +323,18 @@ export function FinalDocument() {
         <div className="flex" data-no-print><SectionNavigator sections={navSections} /></div>
 
         {/* Editor pane — read-only, no toolbar, no right panel */}
-        <div className="flex min-w-0 flex-1 flex-col bg-white">
+        <div className="relative flex min-w-0 flex-1 flex-col bg-white">
+          {showWatermark && (
+            <>
+              {/* On screen: centred over the reading pane. In print: repeated on every page. */}
+              <div aria-hidden="true" data-watermark className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center overflow-hidden print:hidden">
+                <span className="-rotate-[28deg] select-none whitespace-nowrap text-[88px] font-black tracking-widest" style={{ color: 'rgba(148,163,184,0.2)' }}>DRAFT — NOT SIGNED</span>
+              </div>
+              <div aria-hidden="true" className="pointer-events-none fixed inset-0 z-[5] hidden items-center justify-center print:flex">
+                <span className="-rotate-[28deg] select-none whitespace-nowrap text-[88px] font-black tracking-widest" style={{ color: 'rgba(148,163,184,0.35)' }}>DRAFT — NOT SIGNED</span>
+              </div>
+            </>
+          )}
           {/* Content scroll */}
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-12 pt-6 pb-8" data-final-scroll>
             <div className="flex max-w-[760px] flex-col">
@@ -385,6 +421,12 @@ export function FinalDocument() {
           </div>
         </div>
       </div>
+
+      {toast && (
+        <div role="status" data-toast className="fixed bottom-6 left-1/2 z-50 -translate-x-1/2 rounded-md bg-slate-900 px-4 py-2 text-[13px] font-semibold text-white shadow-lg">
+          {toast}
+        </div>
+      )}
 
       {/* "View audit trail": this document's own audit trail, without leaving the signed view. */}
       <SlidePanel

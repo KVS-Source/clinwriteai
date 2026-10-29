@@ -310,6 +310,9 @@ export const documentsApi = {
   // Comments
   getComments: (documentId: string) =>
     api.get<Comment[]>(`/documents/${documentId}/comments`),
+  // Every comment on the project's documents in one call (each row has its documentId).
+  getProjectComments: (projectId: string) =>
+    api.get<Comment[]>(`/projects/${projectId}/comments`),
   addComment: (documentId: string, body: AddCommentBody) =>
     api.post<Comment>(`/documents/${documentId}/comments`, body),
   // The UI's ResolutionType is hyphenated ('accept-with-modification'); the API's
@@ -550,4 +553,28 @@ export const documentsApi = {
     api.get<{ cadenceDays: number; lastReviewedAt: string | null; nextDueAt: string; isOverdue: boolean; daysOverdue: number }>(`/documents/${documentId}/qa-review`),
   logQAReview: (documentId: string, body: { reviewedBy: string; notes?: string }) =>
     api.post<{ auditEntryId: string; nextDueAt: string }>(`/documents/${documentId}/qa-review`, body),
+
+  // Document templates — section skeleton + source-category rules per
+  // deliverable type. Powers the New Document wizard.
+  listTemplates: () =>
+    api.get<DocumentTemplate[]>('/document-templates'),
+}
+
+export interface DocumentTemplateSection {
+  id:      string
+  number:  string
+  title:   string
+  usOnly?: boolean
+}
+
+export interface DocumentTemplate {
+  id:                       string
+  type:                     string
+  label:                    string
+  description:              string
+  framework:                string
+  sections:                 DocumentTemplateSection[]
+  requiredSourceCategories: string[]
+  version:                  number
+  updatedAt:                string
 }

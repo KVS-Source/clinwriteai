@@ -203,3 +203,31 @@ export function templateSections(type: string, submissionCountries: readonly str
       ichStatus: 'not_started',
     }))
 }
+
+/**
+ * Same shape as templateSections, but takes an already-fetched sections
+ * JSONB blob (from the DocumentTemplate.sections column). Returns an empty
+ * array if the blob is malformed — caller falls back to templateSections().
+ */
+export function templateSectionsFromRow(
+  sectionsJson: unknown,
+  submissionCountries: readonly string[] = [],
+): SectionPayload[] {
+  if (!Array.isArray(sectionsJson)) return []
+  const isUs = submissionCountries.some(c => c.trim().toUpperCase() === 'US')
+  const out: SectionPayload[] = []
+  for (const raw of sectionsJson) {
+    if (!raw || typeof raw !== 'object') continue
+    const s = raw as { id?: unknown; number?: unknown; title?: unknown; usOnly?: unknown }
+    if (typeof s.id !== 'string' || typeof s.number !== 'string' || typeof s.title !== 'string') continue
+    if (s.usOnly === true && !isUs) continue
+    out.push({
+      sectionId:     s.id,
+      sectionNumber: s.number,
+      sectionTitle:  s.title,
+      contentHtml:   '',
+      ichStatus:     'not_started',
+    })
+  }
+  return out
+}

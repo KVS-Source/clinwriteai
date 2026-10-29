@@ -172,6 +172,7 @@ export const router = createBrowserRouter([
                   { index: true,      element: <DocumentTabGuard tab="editor"><DocumentEditor /></DocumentTabGuard> },
                   { path: 'diff',     element: <DocumentTabGuard tab="diff"><DiffView /></DocumentTabGuard> },
                   { path: 'review',   element: <DocumentTabGuard tab="review"><ReviewerView /></DocumentTabGuard> },
+                  { path: 'crm',      element: <CRMModule /> },
                   { path: 'sign',     element: <DocumentTabGuard tab="sign"><ESignature /></DocumentTabGuard> },
                   { path: 'final',    element: <FinalDocument /> },
                 ],

@@ -91,8 +91,12 @@ export interface Document {
   updatedAt: string | null
   createdAt?: string
   targetCompletionDate?: string | null
+  /** Review due date set on Submit for review (null when never submitted / not set). */
+  reviewDueAt?: string | null
   /** When the last signature completed the chain (null until the document is signed). */
   signedAt?: string | null
+  /** Interim versions are watermarked; cleared on final sign-off (FR-A-011). */
+  watermarked?: boolean
   sections: Section[]
 }
 
@@ -108,6 +112,9 @@ export interface Section {
   // Who last saved this section and when; null/absent for a section nobody has edited.
   lastEditedAt?: string | null
   lastEditedByName?: string | null
+  // Provenance counts from the API (AI-drafted vs. human-authored saves); absent on older payloads.
+  aiSpanCount?: number
+  humanSpanCount?: number
   presenceUserId?: string
   isLocked?: boolean
   lockedByUserId?: string
@@ -332,6 +339,14 @@ export interface CreateDocumentBody {
   description?: string
   /** Uploaded source documents (project library) the document is written from. */
   sourceUploadIds?: string[]
+  /**
+   * When true, the server enqueues a clinical.ai_initial_draft BullMQ
+   * job after creating the document — the worker drafts every section
+   * from the attached source documents. The document is created
+   * immediately in 'in_authoring' with empty sections; the draft fills
+   * them in asynchronously. Ignored when sourceUploadIds is empty.
+   */
+  aiDraft?: boolean
 }
 
 export interface UpdateSectionBody {
@@ -1494,6 +1509,15 @@ export const MODULE_E_ACCENT = {
 // ============================================================================
 
 export type PlatformUserRole =
+  // Canonical post-migration-48 roles. See docs/roles-and-permissions.md
+  // + apps/api/prisma/migrations/00000000000048_role_values_cutover.
+  | 'tenant-admin'
+  | 'pm'
+  | 'contributor'
+  | 'auditor'
+  | 'guest'
+  // Legacy roles — still returned on users whose role field hasn't been
+  // rewritten yet. Removed from this union once the cutover is complete.
   | 'admin'
   | 'ideation-lead'
   | 'regulatory-writer'
@@ -1999,6 +2023,13 @@ export interface PlatformAnalytics {
 }
 
 export const PLATFORM_USER_ROLE_LABEL: Record<PlatformUserRole, string> = {
+  // Canonical post-migration-48 labels.
+  'tenant-admin':              'Tenant Admin',
+  'pm':                        'Project Manager',
+  'contributor':               'Contributor',
+  'auditor':                   'Auditor',
+  'guest':                     'Guest',
+  // Legacy labels — kept for users whose role hasn't been rewritten yet.
   'admin':                     'Admin',
   'ideation-lead':             'Ideation Lead',
   'regulatory-writer':         'Regulatory Writer',

@@ -45,7 +45,6 @@ export function useTaFilterOptions(itemTaTags: Array<string | null | undefined>)
     const labels = ((data ?? []) as TherapeuticArea[]).map(t => t.label)
     const fromItems = itemTaTags.filter((t): t is string => !!t)
     return Array.from(new Set([...labels, ...fromItems])).sort((a, b) => a.localeCompare(b))
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [data, key])
   return { options, isLoading, isError }
 }

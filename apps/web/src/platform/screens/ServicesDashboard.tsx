@@ -109,6 +109,15 @@ export function ServicesDashboard() {
     queryFn:  () => platformApi.listRateCardVersions(),
   })
 
+  // Six-panel usage analytics driven by the AI gateway's /ai/usage-analytics
+  // endpoint. 30-day default window. Rendered-but-empty state when the
+  // tenant has had no AI activity in-window.
+  const { data: analytics } = useQuery({
+    queryKey: ['ai-usage-analytics', 30],
+    queryFn:  () => platformApi.getUsageAnalytics(30),
+    staleTime: 60_000,
+  })
+
   const [exportResult, setExportResult] = useState<string | null>(null)
 
   const activeRateCard = useMemo(() => rateCards.find(r => r.isActive), [rateCards])
@@ -273,6 +282,212 @@ export function ServicesDashboard() {
         >
           Consumption figures are recalculated hourly and settle at 00:00 UTC on the renewal date. Settled periods cannot be adjusted.
         </p>
+
+        {/* ── Usage analytics ────────────────────────────────────────────────
+            Six AI-gateway aggregates fetched live from
+            GET /ai/usage-analytics?windowDays=30. Tenant admins see their
+            tenant only; platform admins (tenantId=null) see all tenants.
+            Window defaults to 30 days. Empty / zero states handled per panel.
+            ────────────────────────────────────────────────────────────────── */}
+        {analytics && (
+          <section className="flex flex-col gap-3" data-section="usage-analytics">
+            <div className="flex items-baseline justify-between">
+              <h2 className="text-sm font-semibold text-slate-900">Usage analytics</h2>
+              <p className="font-mono text-[11px] text-slate-500">
+                {analytics.totals.calls.toLocaleString()} calls · {analytics.totals.tokens.toLocaleString()} tokens · ${analytics.totals.costUsd.toFixed(2)} over the last {analytics.windowDays} days
+              </p>
+            </div>
+
+            {analytics.totals.calls === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-[13px] text-slate-500" data-empty="no-ai-activity">
+                No AI gateway activity in the last {analytics.windowDays} days.
+              </div>
+            ) : (
+              <>
+                {/* Daily tokens — N-day bar chart */}
+                <div className="rounded-lg border border-slate-200 bg-white p-4" data-chart="daily-tokens">
+                  <div className="flex items-baseline justify-between">
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                      Tokens per day · last {analytics.windowDays} days
+                    </p>
+                    <p className="font-mono text-[11px] text-slate-500">
+                      avg {Math.round(analytics.dailyTokens.reduce((a, r) => a + r.tokens, 0) / Math.max(1, analytics.dailyTokens.length)).toLocaleString()}/day
+                      · peak {Math.max(0, ...analytics.dailyTokens.map(r => r.tokens)).toLocaleString()}
+                    </p>
+                  </div>
+                  <DailyBars values={analytics.dailyTokens.map(r => r.tokens)} />
+                </div>
+
+                {/* Two-column: Prompt intents + Model mix */}
+                <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+                  <RankCard
+                    title="Prompt intents · share of calls"
+                    rows={analytics.promptIntents}
+                    valueFormat={(n) => `${n}%`}
+                    dataAttr="prompt-intents"
+                  />
+                  <RankCard
+                    title="Model mix · share of tokens"
+                    rows={analytics.modelMix}
+                    valueFormat={(n) => `${n}%`}
+                    dataAttr="model-mix"
+                  />
+                </div>
+
+                {/* Two-column: Top prompts + Top users */}
+                <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+                  <TopList
+                    title={`Most-fired prompts · last ${analytics.windowDays} days`}
+                    rows={analytics.topPrompts}
+                    dataAttr="top-prompts"
+                    emptyLabel="No prompt text recorded in this window."
+                  />
+                  <TopList
+                    title={`Top users by cost · last ${analytics.windowDays} days`}
+                    rows={analytics.topUsers}
+                    dataAttr="top-users"
+                    emptyLabel="No user activity in this window."
+                  />
+                </div>
+
+                {/* Hourly heatmap */}
+                <div className="rounded-lg border border-slate-200 bg-white p-4" data-chart="hourly-heatmap">
+                  <div className="flex items-baseline justify-between">
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                      Hour-of-day distribution · UTC
+                    </p>
+                    <p className="font-mono text-[11px] text-slate-500">
+                      busiest hour {analytics.hourlyPeakLabel}
+                    </p>
+                  </div>
+                  <HourlyHeatmap values={analytics.hourlyDistribution} />
+                </div>
+              </>
+            )}
+          </section>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// -----------------------------------------------------------------------------
+// Small SVG + list helpers (kept local — the shapes aren't reused elsewhere).
+// -----------------------------------------------------------------------------
+
+function DailyBars({ values }: { values: number[] }) {
+  const max = Math.max(...values, 1)
+  const barW = 100 / values.length
+  const gap = 0.35
+  return (
+    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="mt-2 h-24 w-full" aria-label="Daily token consumption bar chart">
+      {values.map((v, i) => {
+        const h = (v / max) * 36
+        return (
+          <rect
+            key={i}
+            x={i * barW + gap}
+            y={38 - h}
+            width={barW - gap * 2}
+            height={h}
+            rx={0.6}
+            fill={PLATFORM_ACCENT.primary}
+            opacity={0.85}
+          >
+            <title>{`Day ${i + 1}: ${v.toLocaleString()} tokens`}</title>
+          </rect>
+        )
+      })}
+      <line x1={0} y1={38} x2={100} y2={38} stroke="#E2E8F0" strokeWidth={0.4} />
+    </svg>
+  )
+}
+
+function RankCard({ title, rows, valueFormat, dataAttr }: {
+  title: string
+  rows: Array<{ label: string; value: number; hint?: string }>
+  valueFormat: (v: number) => string
+  dataAttr: string
+}) {
+  const max = Math.max(...rows.map(r => r.value), 1)
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4" data-rank={dataAttr}>
+      <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{title}</p>
+      <div className="mt-2 flex flex-col gap-2">
+        {rows.map((r, i) => (
+          <div key={i} className="flex items-center gap-3" data-rank-row>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-baseline justify-between">
+                <p className="truncate text-[13px] text-slate-900">{r.label}</p>
+                <p className="font-mono text-[11px] font-semibold text-slate-700">{valueFormat(r.value)}</p>
+              </div>
+              <div className="mt-1 h-1.5 overflow-hidden rounded-full" style={{ backgroundColor: '#E2E8F0' }}>
+                <div
+                  className="h-full"
+                  style={{ width: `${(r.value / max) * 100}%`, backgroundColor: PLATFORM_ACCENT.primary }}
+                />
+              </div>
+              {r.hint && <p className="mt-0.5 font-mono text-[10px] text-slate-500">{r.hint}</p>}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function TopList({ title, rows, dataAttr, emptyLabel }: {
+  title: string
+  rows: Array<{ label: string; hint?: string }>
+  dataAttr: string
+  emptyLabel?: string
+}) {
+  return (
+    <div className="rounded-lg border border-slate-200 bg-white p-4" data-top-list={dataAttr}>
+      <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{title}</p>
+      {rows.length === 0 ? (
+        <p className="mt-2 text-[12px] text-slate-500" data-top-empty>{emptyLabel ?? 'No data.'}</p>
+      ) : (
+        <ol className="mt-2 flex flex-col gap-2">
+          {rows.map((r, i) => (
+            <li key={i} className="flex items-start gap-3 border-b border-slate-100 pb-2 last:border-b-0 last:pb-0" data-top-row>
+              <span
+                className="flex h-5 w-5 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
+                style={{ backgroundColor: '#F1F5F9', color: '#475569' }}
+              >
+                {i + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] text-slate-900">{r.label}</p>
+                {r.hint && <p className="mt-0.5 font-mono text-[10px] text-slate-500">{r.hint}</p>}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
+    </div>
+  )
+}
+
+function HourlyHeatmap({ values }: { values: number[] }) {
+  // 24 cells; opacity ∝ value / 100 so busy hours darken toward PLATFORM_ACCENT.
+  return (
+    <div className="mt-2" data-chart-grid="hourly">
+      <div className="grid gap-0.5" style={{ gridTemplateColumns: 'repeat(24, 1fr)' }}>
+        {values.map((v, h) => (
+          <div
+            key={h}
+            className="h-6 rounded-sm"
+            style={{
+              backgroundColor: PLATFORM_ACCENT.primary,
+              opacity: 0.15 + (v / 100) * 0.85,
+            }}
+            title={`${String(h).padStart(2, '0')}:00 UTC · ${v}% of peak`}
+          />
+        ))}
+      </div>
+      <div className="mt-1 flex justify-between font-mono text-[10px] text-slate-400">
+        <span>00</span><span>06</span><span>12</span><span>18</span><span>23</span>
       </div>
     </div>
   )

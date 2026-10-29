@@ -187,7 +187,7 @@ export const complianceRoutes: FastifyPluginAsync = async (app) => {
     // of export size.
     async function* iter() {
       const PAGE = 1000
-      let cursor: Date = from
+      const cursor: Date = from
       let cursorRow = 0
       // eslint-disable-next-line no-constant-condition
       while (true) {

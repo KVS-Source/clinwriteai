@@ -435,6 +435,41 @@ model Subscription {
   @@index([rateCardVersionId])
 }
 
+// --------------------------------------------------------------------------
+// Document templates — section skeleton + source-category rules per
+// document type. Global (no tenantId) and seeded from the hardcoded
+// templates.ts on migration 53. Tenants share the same canonical ICH
+// skeleton; forking is a future enhancement.
+//
+// Writers never read this directly: the New Document wizard fetches
+// via GET /document-templates to drive the type dropdown's description
+// + the step-2 source-category filter, and the document create route
+// pulls `sections` to populate section_contents on first save.
+//
+// `requiredSourceCategories` is the list of SOURCE_CATEGORIES.value
+// keys the writer should pick from in step 2 of the wizard. Replaces
+// the old hardcoded map in web/utils/documentTypeSourceCategories.ts.
+// --------------------------------------------------------------------------
+model DocumentTemplate {
+  id                        String    @id @default(cuid())
+  type                      String                                     // UI key: 'csr-full', 'protocol', …
+  label                     String                                     // 'CSR (Full)'
+  description               String                                     // one-line shown in step 1 of the wizard
+  framework                 String                                     // 'ICH E3', 'ICH E6(R3)', 'ICH E2F', …
+  sections                  Json                                       // [{ id, number, title, usOnly? }]
+  requiredSourceCategories  String[]  @default([])                     // SOURCE_CATEGORIES.value entries
+  version                   Int       @default(1)
+  isCurrent                 Boolean   @default(true)                   // enforced at the service layer; see supersededBy
+  supersededBy              String?                                    // id of the newer template row when this one is retired
+  retiredAt                 DateTime?
+  createdBy                 String                                     // User.id of the platform admin who published it
+  createdAt                 DateTime  @default(now())
+  updatedAt                 DateTime  @updatedAt
+
+  @@map("document_templates")
+  @@index([type, isCurrent])
+}
+
 model RegulatoryAlert {
   id                  String    @id @default(uuid())
   frameworkName       String                                           // 'ICH E3', 'FDA Guidance 2026-01', ...

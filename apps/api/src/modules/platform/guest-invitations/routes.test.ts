@@ -74,7 +74,7 @@ async function buildApp(opts: {
   app.decorate('jwt', { sign: vi.fn(async () => 'FAKE.JWT.TOKEN') } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (request) => {
-    ;(request as unknown as { user: AuthenticatedUser }).user = opts.actor
+    (request as unknown as { user: AuthenticatedUser }).user = opts.actor
   })
   await app.register(guestInvitationRoutes)
   await app.ready()

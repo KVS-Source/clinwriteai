@@ -7,8 +7,9 @@ export const SOURCE_CATEGORIES = [
 ] as const
 export type SourceCategory = (typeof SOURCE_CATEGORIES)[number]
 
-// Display names — mirror of apps/web/src/utils/sourceCategories.ts. Search matches these,
-// so "Brochure" or "Tables" finds what the Category column shows.
+// Display names — a copy of apps/web/src/utils/sourceCategories.ts (the API can't import the web
+// package at runtime). source-category-labels.test.ts fails if the two lists drift apart. Search
+// matches these, so "Brochure" or "Tables" finds what the Category column shows.
 export const SOURCE_CATEGORY_LABEL: Record<SourceCategory, string> = {
   protocol:   'Protocol',
   sap:        'Statistical Analysis Plan (SAP)',

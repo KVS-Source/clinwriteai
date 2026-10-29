@@ -385,9 +385,12 @@ export function ESignature() {
     )
   }
 
-  const signedCount = states.filter(s => s === 'signed').length
-  const totalCount  = records.length
-  const progressPct = totalCount > 0 ? Math.round((signedCount / totalCount) * 100) : 0
+  const signedCount    = states.filter(s => s === 'signed').length
+  const totalCount     = records.length
+  const progressPct    = totalCount > 0 ? Math.round((signedCount / totalCount) * 100) : 0
+  // Every non-signed record — surfaced in the "Final Document is locked
+  // until these sign" callout + inside each row's hover affordances.
+  const missingRecords = records.filter(r => r.status !== 'signed')
   const selected      = selectedIndex !== null ? records[selectedIndex] : null
   const selectedState = selectedIndex !== null ? states[selectedIndex] : null
   const panelTitle =
@@ -484,6 +487,36 @@ export function ESignature() {
                 <button onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/final`)} className="font-semibold underline">
                   Open Final Document
                 </button>
+              </div>
+            )}
+
+            {/* Missing-signatures callout — makes it obvious why Final
+                Document is still locked. Lists every unsigned record by
+                name + role. The current user's own pending step is
+                flagged so they can see at a glance it's their turn. */}
+            {chain.status !== 'complete' && missingRecords.length > 0 && (
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3" data-missing-signatures>
+                <p className="text-[13px] font-semibold text-amber-900">
+                  Final Document unlocks when all signatures are recorded.
+                  {' '}{missingRecords.length} of {totalCount} still missing.
+                </p>
+                <ul className="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 text-[12px] text-amber-800">
+                  {missingRecords.map(r => (
+                    <li key={r.id} className="flex items-center gap-1.5" data-missing-signer={r.id}>
+                      <span className="font-semibold">{r.signerName}</span>
+                      <span className="font-mono text-[10px] text-amber-700">
+                        · {r.signerRole}
+                        · step {r.step}
+                        · {r.status === 'queued' ? 'queued' : 'awaiting'}
+                      </span>
+                      {me?.id === r.signerId && r.status === 'awaiting' && (
+                        <span className="rounded-full bg-blue-600 px-1.5 py-0.5 text-[10px] font-semibold text-white">
+                          your turn
+                        </span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
               </div>
             )}
 

@@ -28,11 +28,20 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { buildInviteUrl, generateInvitationToken } from './invitations.js'
 import { eventForTarget, isUserStatus, transition, type UserEvent, type UserStatus } from './status-machine.js'
 
+// Role whitelist for /admin/users invite + update endpoints. The canonical
+// set after migration 48 is tenant-admin | pm | contributor | auditor |
+// guest. Legacy names stay accepted so pre-cutover users remain editable
+// without a mass-rewrite, but new invites should use the canonical names
+// (the UI dropdown is filtered to the canonical set — see
+// UserManagementLive.tsx ROLE_OPTIONS).
 const ROLES = [
+  // Canonical post-migration-48
+  'tenant-admin', 'pm', 'contributor', 'auditor', 'guest',
+  // Legacy (still writable so pre-cutover rows don't get stuck)
   'admin', 'clinical-writer', 'scientific-writer',
   'medical-writer', 'regulatory-writer', 'ideation-lead', 'reviewer', 'read-only',
 ] as const
-const ADMIN_ROLES = new Set<string>(['admin'])
+const ADMIN_ROLES = new Set<string>(['admin', 'tenant-admin'])
 
 const inviteSchema = z.object({
   email: z.string().email(),

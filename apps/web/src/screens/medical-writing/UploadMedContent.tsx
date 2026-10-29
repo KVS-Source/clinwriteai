@@ -198,7 +198,7 @@ export function UploadMedContent({ projectId, projectTA, onCreated, onCancel }: 
 
   const confirmError = confirm.isError
     ? confirm.error instanceof ApiError
-      ? confirm.error.status === 503 ? 'Medical Writing (Module C) is not enabled on this deployment.'
+      ? confirm.error.status === 503 ? 'Medical Writing is not enabled on this deployment.'
       : confirm.error.status === 403 ? 'You do not have permission to create content in this project.'
       : `Could not confirm (HTTP ${confirm.error.status}).`
       : 'Could not confirm — see console for details.'

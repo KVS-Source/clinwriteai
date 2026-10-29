@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import type { Section } from '@platform/types'
 import { useDocumentStore } from '../../store'
+import { usePlatformStore } from '../../platform/store/platformStore'
 
 interface Props {
   sections: Section[]
@@ -48,10 +49,16 @@ const TEAM_INITIALS: Record<string, string> = {
 
 export function SectionNavigator({
   sections,
-  loggedInUser = { initials: 'MW', colourKey: 'MW' },
+  loggedInUser,
   activeSectionBadge,
   progressLabelSuffix,
 }: Props) {
+  // The active-section avatar is the signed-in user (initials from their real name), not a fixed persona.
+  const currentUser = usePlatformStore(s => s.currentUser)
+  const me = loggedInUser ?? {
+    initials: currentUser.name.split(/\s+/).slice(0, 2).map(w => w[0]?.toUpperCase() ?? '').join('') || '?',
+    colourKey: 'MW' as const,
+  }
   const activeSection    = useDocumentStore(s => s.activeSection)
   const setActiveSection = useDocumentStore(s => s.setActiveSection)
 
@@ -188,9 +195,9 @@ export function SectionNavigator({
               {isActive && (
                 <div
                   className="flex h-4 w-4 flex-none items-center justify-center rounded-full font-mono text-[9px] font-bold"
-                  style={{ backgroundColor: USER_AVATAR[loggedInUser.colourKey].bg, color: USER_AVATAR[loggedInUser.colourKey].fg }}
+                  style={{ backgroundColor: USER_AVATAR[me.colourKey].bg, color: USER_AVATAR[me.colourKey].fg }}
                 >
-                  {loggedInUser.initials}
+                  {me.initials}
                 </div>
               )}
               {!isActive && lockOwner && USER_AVATAR[lockOwner] && (

@@ -160,7 +160,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
 
   const saveError = save.isError
     ? save.error instanceof ApiError
-      ? save.error.status === 503 ? 'Clinical Writing (Module A) is not enabled on this deployment.'
+      ? save.error.status === 503 ? 'Clinical Writing is not enabled on this deployment.'
       : save.error.status === 403 ? 'You do not have permission to add source documents to this project.'
       : `Could not save (HTTP ${save.error.status}).`
       : 'Could not save — see console for details.'

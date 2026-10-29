@@ -48,6 +48,9 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
       findFirst: vi.fn(async () => null),
       create:    vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'raci-1', ...data })),
     },
+    documentTemplate: {
+      findFirst: vi.fn(async () => null),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)

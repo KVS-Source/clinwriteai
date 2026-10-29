@@ -22,7 +22,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
-import { templateSections } from './templates.js'
+import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
 import { chooseModel } from '../../platform/config/ai-engine-settings.js'
 import {
@@ -66,6 +66,10 @@ const createSchema = z.object({
   targetCompletionDate: z.string().datetime().optional(),
   // Source documents (uploads in this project) the document is written from.
   sourceUploadIds: z.array(z.string().min(1)).max(100).optional(),
+  // When true + sources attached, enqueue clinical.ai_initial_draft to
+  // let the worker draft every section from the sources. Document still
+  // creates immediately — the draft fills in asynchronously.
+  aiDraft: z.boolean().optional(),
 })
 
 // "```html\n…\n```" → "…"
@@ -128,7 +132,7 @@ function uiStage(v: string | null | undefined): string {
 
 // editors: user id → name, for the section's last editor.
 function sectionShape(
-  s: { id: string; sectionId: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null; lastEditedBy?: string | null; lastEditedAt?: Date | null },
+  s: { id: string; sectionId: string; sectionNumber: string; sectionTitle: string; ichStatus: string; contentHtml?: string | null; lastEditedBy?: string | null; lastEditedAt?: Date | null; aiSpanCount?: number | null; humanSpanCount?: number | null },
   editors?: Map<string, string>,
 ) {
   return {
@@ -146,6 +150,9 @@ function sectionShape(
     // Who last saved this section, and when (set on every section save). Null for a section nobody has edited.
     lastEditedAt: s.lastEditedAt ?? null,
     lastEditedByName: s.lastEditedBy ? (editors?.get(s.lastEditedBy) ?? null) : null,
+    // Provenance counts (FR-A-021): saves of this section that were AI-drafted vs. human-authored.
+    aiSpanCount: s.aiSpanCount ?? 0,
+    humanSpanCount: s.humanSpanCount ?? 0,
   }
 }
 
@@ -173,6 +180,18 @@ function documentShapeFull(d: { type?: string; status?: string; stage?: string; 
     version: currentVersion?.versionNumber ?? 'v0.0',
     sections: (currentVersion?.sections ?? []).map(sec => sectionShape(sec, editors)),
   }
+}
+
+// Submit-for-review body — only the due date is read here; the rest of the
+// panel's payload (reviewers, review type) isn't stored by this route.
+const submitBodySchema = z.object({ dueDate: z.string().trim().min(1).optional() }).passthrough()
+
+// documents.reviewDueAt unavailable: the column is missing (P2022, migration
+// 52 not applied) or the Prisma client predates it ("Unknown argument").
+const isMissingReviewDueColumn = (err: unknown) => {
+  const e = err as { code?: string; message?: string } | null
+  const msg = e?.message ?? ''
+  return e?.code === 'P2022' || (msg.includes('reviewDueAt') && (msg.includes('Unknown argument') || msg.includes('does not exist')))
 }
 
 const restoreSchema = z.object({
@@ -270,14 +289,26 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
+    // Resolve starter sections. Prefer the DB-backed DocumentTemplate row
+    // (platform-managed, admin-editable per M2 of the New Document rework);
+    // fall back to the hardcoded templateSections() for deployments
+    // predating the migration-53 seed. Section-level usOnly filtering stays
+    // in templateSections() for the DB path so §16.4 only appears on US
+    // submissions regardless of where the skeleton came from.
+    const dbTemplate = await app.prisma.documentTemplate.findFirst({
+      where: { type: parsed.data.type, isCurrent: true, retiredAt: null },
+      select: { sections: true },
+    })
+    const sections = dbTemplate
+      ? templateSectionsFromRow(dbTemplate.sections, project.submissionCountries)
+      : templateSections(parsed.data.type, project.submissionCountries)
+
     const { document, version } = await svc.create({
       projectId,
       type: parsed.data.type,
       title: parsed.data.title,
       therapeuticArea,
-      // ICH E3 starter sections so the navigator isn't empty; §16.4 only
-      // when the project submits to the US (FR-A-003).
-      sections: templateSections(parsed.data.type, project.submissionCountries),
+      sections,
       assigneeId: parsed.data.assigneeId,
       createdBy: request.user!.id,
       templateId: parsed.data.templateId,
@@ -328,6 +359,28 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       details: { projectId, type: document.type, title: document.title, initialVersion: version.versionNumber, sourceUploadIds },
       ipAddress: request.ip ?? null,
     })
+
+    // M3 of the New Document rework — fire-and-forget: if the caller
+    // opted into AI drafting AND attached sources, enqueue the worker
+    // job that drafts every section from those sources. Document is
+    // created immediately regardless; the draft fills sections in
+    // asynchronously. On enqueue failure (Redis down) the document still
+    // exists — the user can retry via the editor's AI Chat panel.
+    if (parsed.data.aiDraft && sourceUploadIds.length > 0) {
+      try {
+        await app.queue.enqueue('clinical.ai_initial_draft', {
+          documentId:      document.id,
+          versionId:       version.id,
+          projectId,
+          type:            parsed.data.type,
+          sourceUploadIds,
+          assigneeId:      parsed.data.assigneeId,
+          actorId:         request.user!.id,
+        }, { jobId: `ai-initial-draft-${document.id}` })
+      } catch (err) {
+        app.log.warn({ err, documentId: document.id }, 'ai_initial_draft enqueue failed — document created without AI draft')
+      }
+    }
 
     return reply.code(201).send(documentShapeMeta({ ...document, version: version.versionNumber }))
   })
@@ -600,9 +653,22 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send({ error: 'invalid_transition', message: err.message })
     }
 
+    // Review due date from the Submit-for-review panel ('YYYY-MM-DD' or ISO).
+    // Kept only when it parses; stored as UTC midnight of that day.
+    const dueRaw = submitBodySchema.safeParse(request.body ?? {}).data?.dueDate
+    const dueDate = dueRaw ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(dueRaw) ? `${dueRaw}T00:00:00.000Z` : dueRaw) : null
+    const reviewDueAt = dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate : null
+
+    const submitData = { status: 'in_review', submittedForReviewAt: new Date() }
     const updated = await app.prisma.document.update({
       where: { id: documentId },
-      data: { status: 'in_review', submittedForReviewAt: new Date() },
+      data: { ...submitData, reviewDueAt },
+    }).catch(err => {
+      // Migration 52 (documents.reviewDueAt) not applied yet, or a Prisma
+      // client older than the column: submit without the due date.
+      if (!isMissingReviewDueColumn(err)) throw err
+      app.log.warn('documents.reviewDueAt missing — submitting without a review due date until migration 52 is applied')
+      return app.prisma.document.update({ where: { id: documentId }, data: submitData })
     })
 
     // Auto-advance stage: submitting for review implies the document has
@@ -640,6 +706,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         to: 'in_review',
         stageFrom: stageMove?.from ?? null,
         stageTo: stageMove?.to ?? null,
+        reviewDueAt: reviewDueAt?.toISOString() ?? null,
         autoCompletedCount: autoReport?.completedCount ?? 0,
       },
       ipAddress: request.ip ?? null,

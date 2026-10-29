@@ -499,7 +499,6 @@ export function AuditTrailViewerLive() {
     setHeldBack(false)
     void refetch()
     // Runs when a new answer arrives (count or the row it was measured from changes).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newCount, newestShownId])
 
   function showNewEntries() {

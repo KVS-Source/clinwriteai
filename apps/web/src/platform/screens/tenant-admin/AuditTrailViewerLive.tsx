@@ -13,6 +13,7 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { SlidePanel } from '../../../components/ui/SlidePanel'
 import { DateTimeRangeFilter, defaultRange, rangeToIso, toInputValue, type TimeZoneMode } from '../../../components/ui/DateTimeRangeFilter'
+import { SortIcon } from '../../../components/ui/SortIcon'
 import { MODULE_KEY_TO_LABEL, type ModuleKey } from '../../../config/modules'
 import {
   useAuditQuery, useAuditVerify, useAuditFacets, useAuditNewer, auditExportUrl, type AuditQuery,
@@ -170,14 +171,12 @@ function SortHeader({ col, sortBy, order, onSort }: {
       <button
         type="button"
         onClick={() => onSort(col.key)}
-        className="inline-flex items-center gap-1 font-semibold uppercase tracking-widest hover:text-slate-800"
+        className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-widest hover:text-slate-800"
         data-sort-column={col.key}
         title={`Sort by ${col.label.toLowerCase()}`}
       >
         {col.label}
-        <span aria-hidden className={active ? 'text-slate-800' : 'text-slate-300'}>
-          {active ? (order === 'asc' ? '▲' : '▼') : '↕'}
-        </span>
+        <SortIcon state={active ? order : null} />
       </button>
     </th>
   )

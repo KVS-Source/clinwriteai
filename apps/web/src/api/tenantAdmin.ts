@@ -188,7 +188,7 @@ export interface AuditNewer {
 }
 
 // Max rows a single CSV export carries — mirrors EXPORT_ROW_CAP in the API.
-export const AUDIT_EXPORT_ROW_CAP = 10_000
+export const AUDIT_EXPORT_ROW_CAP = 100_000
 
 function toQueryString(params: Record<string, string | number | undefined>): string {
   const entries = Object.entries(params)

@@ -20,10 +20,14 @@ import { requireAuth } from '../../../../auth/rbac.js'
 // audit_events.id is a BIGSERIAL — ids/cursors travel as digit strings.
 const bigintId = z.string().regex(/^\d{1,19}$/, 'must be a numeric audit id')
 
-export const EXPORT_ROW_CAP = 10_000
+// Rows one CSV export carries. The whole file is built in memory and sent in one response, so
+// this can't grow without bound (a single JS string tops out near 512 MB — roughly 500k rows).
+// Raised from 10,000 for now; the proper next step for bigger exports is streaming.
+export const EXPORT_ROW_CAP = 100_000
 // Above this many matches the list endpoint reports "N+" instead of an exact
-// count, so a broad filter never turns into a full-table count.
-export const COUNT_CAP = 10_000
+// count, so a broad filter never turns into a full-table count. Kept equal to the export cap,
+// so the screen can tell whether an export would be cut short.
+export const COUNT_CAP = EXPORT_ROW_CAP
 // The "new entries" check stops counting here and reports "100+".
 export const NEWER_CAP = 100
 

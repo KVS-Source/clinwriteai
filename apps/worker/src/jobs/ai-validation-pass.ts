@@ -34,6 +34,7 @@
 //     accidental double-fires.
 
 import { createBlobReaderFromEnv } from '../blob-reader.js'
+import { resolveDraftModel } from '../ai-engine-settings.js'
 import type { JobHandler } from './types.js'
 
 interface AiValidationPassPayload {
@@ -98,10 +99,15 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
   const hasDraftedContent = rows.some(r => stripTags(r.contentHtml ?? '').length >= MIN_CONTENT_CHARS)
   if (apiKey && hasDraftedContent) {
     try {
+      const project = await prisma.project.findUnique({
+        where: { id: job.data.projectId },
+        select: { tenantId: true },
+      })
+      const model = await resolveDraftModel(prisma, project?.tenantId ?? null)
       const sourcePdfs = await loadSourcePdfsForJob(prisma, job.data.sourceUploadIds, log)
       const aiFlagged = await runLlmChecks({
         apiKey,
-        model:     process.env.ANTHROPIC_DRAFT_MODEL?.trim() || 'claude-sonnet-4-5',
+        model,
         docType:   job.data.type,
         sections:  rows.map(r => ({ id: r.sectionId, html: r.contentHtml ?? '' })),
         sourcePdfs,

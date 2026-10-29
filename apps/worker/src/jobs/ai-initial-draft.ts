@@ -30,6 +30,7 @@
 // the useful numbers.
 
 import { createBlobReaderFromEnv } from '../blob-reader.js'
+import { resolveDraftModel } from '../ai-engine-settings.js'
 import type { JobHandler } from './types.js'
 
 interface AiInitialDraftPayload {
@@ -133,15 +134,15 @@ async function draftSection(args: {
   sources:   SourceSummary[]
   sourcePdfs: SourcePdfPayload[]
   docType:   string
+  model:     string
 }): Promise<{ contentHtml: string; engine: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   if (!apiKey) {
     return { contentHtml: buildStubDraftHtml(args), engine: 'stub' }
   }
-  const model = process.env.ANTHROPIC_DRAFT_MODEL?.trim() || 'claude-sonnet-4-5'
   try {
-    const html = await draftWithClaude({ ...args, apiKey, model })
-    return { contentHtml: html, engine: model }
+    const html = await draftWithClaude({ ...args, apiKey })
+    return { contentHtml: html, engine: args.model }
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)
     // Degrade to stub on upstream failure rather than failing the whole
@@ -149,7 +150,7 @@ async function draftSection(args: {
     // AI chat panel. Log the reason so the operator can investigate.
     const fallback = buildStubDraftHtml(args)
     const note = `<p><em>[Draft fell back to stub — Claude call failed: ${escapeHtml(message)}]</em></p>`
-    return { contentHtml: note + fallback, engine: `${model}-fallback` }
+    return { contentHtml: note + fallback, engine: `${args.model}-fallback` }
   }
 }
 
@@ -250,6 +251,15 @@ interface Report {
 export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (job, { prisma, log, enqueue }) => {
   const { documentId, versionId, type, sourceUploadIds, targetSectionIds } = job.data
 
+  // --- Resolve the drafting model (DB-saved default → env → hardcode) ----
+  // tenantId lookup via projectId; passed to resolveDraftModel so the
+  // helper is ready for per-tenant selection without further wiring.
+  const project = await prisma.project.findUnique({
+    where: { id: job.data.projectId },
+    select: { tenantId: true },
+  })
+  const resolvedModel = await resolveDraftModel(prisma, project?.tenantId ?? null)
+
   // --- Load the template -------------------------------------------------
   const template = await prisma.documentTemplate.findFirst({
     where: { type, isCurrent: true, retiredAt: null },
@@ -334,7 +344,9 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       continue
     }
     try {
-      const { contentHtml, engine } = await draftSection({ section: sec, sources, sourcePdfs, docType: type })
+      const { contentHtml, engine } = await draftSection({
+        section: sec, sources, sourcePdfs, docType: type, model: resolvedModel,
+      })
 
       await prisma.$transaction(async (tx) => {
         await tx.sectionContent.update({

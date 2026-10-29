@@ -7,7 +7,9 @@
 //   End       → POST /crm/:id/complete           (document → Pending signature;
 //                refused while real comments are unresolved — reviewer
 //                "approve" verdicts don't need resolving)
-// The document comes from ?doc=<id> (Reviewer View links here) with a picker.
+// The document comes from ?doc=<id> (Reviewer View links here) with a picker —
+// or, on a document's own CRM tab (/documents/:documentId/crm), is fixed to
+// that document and the picker is hidden.
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -387,7 +389,8 @@ function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentI
 // --- Main screen ---
 
 export function CRMModule() {
-  const { projectId } = useParams()
+  // documentId is set on a document's CRM tab; the project-level CRM screen has none.
+  const { projectId, documentId: routeDocumentId } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [searchParams, setSearchParams] = useSearchParams()
@@ -407,9 +410,11 @@ export function CRMModule() {
     queryFn:  () => documentsApi.list(projectId!),
     enabled:  !!projectId,
   })
-  // ?doc= wins; otherwise the first document already in CRM, then in review.
+  // The document tab's own document, else ?doc=, else the first document
+  // already in CRM, then in review.
   const activeDocId =
-    searchParams.get('doc')
+    routeDocumentId
+    ?? searchParams.get('doc')
     ?? projectDocs.find(d => d.status === 'crm-in-progress')?.id
     ?? projectDocs.find(d => d.status === 'in-review')?.id
     ?? projectDocs[0]?.id
@@ -560,7 +565,7 @@ export function CRMModule() {
   const inProgress    = meeting?.status === 'in_progress'
   const isComplete    = meeting?.status === 'complete'
 
-  const docPicker = (
+  const docPicker = routeDocumentId ? null : (
     <label className="flex items-center gap-2 text-xs text-slate-500">
       Document
       <select

@@ -131,6 +131,171 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // Services dashboard analytics — the six panels at the bottom of
+  // /services (daily tokens, intents, model mix, top prompts, top users,
+  // hourly distribution). Admin-gated; tenant admins see their tenant's
+  // calls only, platform admins (tenantId=null) see all.
+  app.get('/usage-analytics', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+    const q = z.object({
+      windowDays: z.coerce.number().int().min(1).max(90).default(30),
+    }).safeParse(request.query)
+    if (!q.success) return reply.code(400).send({ error: 'validation', issues: q.error.issues })
+
+    const windowDays = q.data.windowDays
+    const now        = new Date()
+    const since      = new Date(now.getTime() - windowDays * 86_400_000)
+
+    const actor = request.user!
+    const tenantScope = actor.tenantId == null ? {} : { tenantId: actor.tenantId }
+    const where = { createdAt: { gte: since }, ...tenantScope }
+
+    // One raw pull drives daily + hourly aggregates; the groupBys handle
+    // intent / model / user / prompt in their own queries so we don't
+    // over-fetch promptText for the daily series.
+    const [raw, byIntent, byModel, byUser, byPrompt] = await Promise.all([
+      app.prisma.aiCallRecord.findMany({
+        where,
+        select: { createdAt: true, inputTokens: true, outputTokens: true, cachedTokens: true },
+        orderBy: { createdAt: 'asc' },
+        take: 50_000,
+      }),
+      app.prisma.aiCallRecord.groupBy({
+        by: ['intent'],
+        where,
+        _count: { _all: true },
+        _sum:   { inputTokens: true, outputTokens: true },
+      }),
+      app.prisma.aiCallRecord.groupBy({
+        by: ['model'],
+        where,
+        _sum: { inputTokens: true, outputTokens: true },
+      }),
+      app.prisma.aiCallRecord.groupBy({
+        by: ['actorId'],
+        where,
+        _sum:   { inputTokens: true, outputTokens: true, costUsd: true },
+        _count: { _all: true },
+        orderBy: { _sum: { costUsd: 'desc' } },
+        take: 5,
+      }),
+      app.prisma.aiCallRecord.groupBy({
+        by: ['promptText'],
+        where: { ...where, promptText: { not: null } },
+        _count: { _all: true },
+        _sum:   { inputTokens: true, outputTokens: true },
+        orderBy: { _count: { promptText: 'desc' } },
+        take: 5,
+      }),
+    ])
+
+    // --- Daily tokens: 30 (or N) buckets, zero-filled so the chart isn't
+    // sparse on quiet days.
+    const dayBuckets = new Map<string, number>()
+    for (let i = 0; i < windowDays; i++) {
+      const d = new Date(now.getTime() - (windowDays - 1 - i) * 86_400_000)
+      dayBuckets.set(d.toISOString().slice(0, 10), 0)
+    }
+    for (const r of raw) {
+      const key = r.createdAt.toISOString().slice(0, 10)
+      if (dayBuckets.has(key)) {
+        dayBuckets.set(key, (dayBuckets.get(key) ?? 0) + r.inputTokens + r.outputTokens - r.cachedTokens)
+      }
+    }
+    const dailyTokens = Array.from(dayBuckets.entries()).map(([date, tokens]) => ({ date, tokens }))
+
+    // --- Hourly distribution: 24 buckets, counts normalised to peak=100
+    // so the UI's opacity scale is self-contained.
+    const hourlyCounts = new Array<number>(24).fill(0)
+    for (const r of raw) {
+      const h = r.createdAt.getUTCHours()
+      hourlyCounts[h] = (hourlyCounts[h] ?? 0) + 1
+    }
+    const hourlyPeak = Math.max(...hourlyCounts, 1)
+    const hourlyDistribution = hourlyCounts.map(n => Math.round((n / hourlyPeak) * 100))
+    const peakHour           = hourlyCounts.indexOf(Math.max(...hourlyCounts))
+
+    // --- Share-of-X helper, rounded + clamped so the five intent rows
+    // sum to something close to 100 without over-engineering.
+    const totalCalls  = byIntent.reduce((n, r) => n + r._count._all, 0)
+    const totalTokens = byModel.reduce((n, r) => n + (r._sum.inputTokens ?? 0) + (r._sum.outputTokens ?? 0), 0)
+
+    const promptIntents = byIntent
+      .map(r => {
+        const calls  = r._count._all
+        const tokens = (r._sum.inputTokens ?? 0) + (r._sum.outputTokens ?? 0)
+        return {
+          label: r.intent,
+          value: totalCalls > 0 ? Math.round((calls / totalCalls) * 100) : 0,
+          hint:  `${calls.toLocaleString()} call${calls === 1 ? '' : 's'} · ${tokens.toLocaleString()} tokens`,
+        }
+      })
+      .sort((a, b) => b.value - a.value)
+
+    const modelMix = byModel
+      .map(r => {
+        const tokens = (r._sum.inputTokens ?? 0) + (r._sum.outputTokens ?? 0)
+        return {
+          label: r.model,
+          value: totalTokens > 0 ? Math.round((tokens / totalTokens) * 100) : 0,
+          hint:  `${tokens.toLocaleString()} tokens`,
+        }
+      })
+      .sort((a, b) => b.value - a.value)
+
+    const topPrompts = byPrompt.map(r => {
+      const tokens = (r._sum.inputTokens ?? 0) + (r._sum.outputTokens ?? 0)
+      const calls  = r._count._all
+      // The DB stores the raw user-typed text; truncate for display so a
+      // 400-char custom prompt doesn't blow the panel layout.
+      const text = r.promptText ?? ''
+      const display = text.length > 80 ? `${text.slice(0, 77)}…` : text
+      return {
+        label: `"${display}"`,
+        hint: `${calls.toLocaleString()} call${calls === 1 ? '' : 's'} · ${tokens.toLocaleString()} tokens`,
+      }
+    })
+
+    // Resolve actorIds → user names for the Top Users list; one lookup
+    // (bounded to 5 rows above).
+    const actorIds = byUser.map(u => u.actorId)
+    const users = actorIds.length === 0
+      ? []
+      : await app.prisma.user.findMany({
+          where:  { id: { in: actorIds } },
+          select: { id: true, name: true, email: true },
+        })
+    const userById = new Map(users.map(u => [u.id, u]))
+    const topUsers = byUser.map(r => {
+      const u      = userById.get(r.actorId)
+      const tokens = (r._sum.inputTokens ?? 0) + (r._sum.outputTokens ?? 0)
+      const cost   = Number(r._sum.costUsd ?? 0)
+      return {
+        label: u?.name ?? u?.email ?? r.actorId,
+        hint:  `${tokens.toLocaleString()} tokens · $${cost.toFixed(2)}`,
+      }
+    })
+
+    const totalCost = Number(byUser.reduce((n, u) => n + Number(u._sum.costUsd ?? 0), 0))
+    const peakHourLabel = `${String(peakHour).padStart(2, '0')}:00–${String((peakHour + 1) % 24).padStart(2, '0')}:00 UTC`
+
+    return {
+      generatedAt: now.toISOString(),
+      windowDays,
+      totals: {
+        calls:  raw.length,
+        tokens: totalTokens,
+        costUsd: totalCost,
+      },
+      dailyTokens,
+      promptIntents,
+      modelMix,
+      topPrompts,
+      topUsers,
+      hourlyDistribution,
+      hourlyPeakLabel: peakHourLabel,
+    }
+  })
+
   // Quota management.
   app.put('/quotas', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const parsed = quotaSchema.safeParse(request.body)

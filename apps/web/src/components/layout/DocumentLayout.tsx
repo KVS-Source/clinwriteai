@@ -57,6 +57,7 @@ export function DocumentLayout() {
     { to: base,             label: 'Editor',         end: true, disabled: d.editor, title: d.editor ? lockReason : undefined },
     { to: `${base}/diff`,   label: 'Version Diff',               disabled: d.diff,   title: d.diff   ? lockReason : undefined },
     { to: `${base}/review`, label: 'Reviewer View',              disabled: d.review, title: d.review ? lockReason : undefined },
+    { to: `${base}/crm`,    label: 'CRM' },
     { to: `${base}/sign`,   label: 'E-Signature',                disabled: d.sign,   title: d.sign   ? 'The document is signed; the signature step is complete.' : undefined },
     { to: `${base}/final`,  label: 'Final Document' },
   ]

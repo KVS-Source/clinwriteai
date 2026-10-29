@@ -127,11 +127,11 @@ const csvCell = (v: unknown) => {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-// Row navigation — CRM stage → CRM screen; signed → final; awaiting signature → sign;
-// in review → reviewer; everything else → editor.
+// Row navigation — CRM stage → the document's CRM tab; signed → final; awaiting
+// signature → sign; in review → reviewer; everything else → editor.
 function documentRouteFor(doc: Document, projectId: string): string {
-  if (doc.stage === 'crm') return `/projects/${projectId}/clinical-writing/crm?doc=${encodeURIComponent(doc.id)}`
   const base = `/projects/${projectId}/clinical-writing/documents/${doc.id}`
+  if (doc.stage === 'crm') return `${base}/crm`
   if (doc.status === 'signed')            return `${base}/final`
   if (doc.status === 'pending-signature') return `${base}/sign`
   if (doc.status === 'in-review')         return `${base}/review`

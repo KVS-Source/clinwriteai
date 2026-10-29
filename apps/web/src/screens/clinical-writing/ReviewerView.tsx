@@ -186,6 +186,11 @@ export function ReviewerView() {
   const activeSectionData = document?.sections.find(s => s.id === activeSection) ?? null
   const hasSections       = (document?.sections.length ?? 0) > 0
   const activeRef         = activeSectionData ? withSectionMark(activeSectionData.number) : null
+  // Footer provenance counts come from the API; without a section there is nothing to count.
+  const spanCount = (n: number, label: string) => `${n} ${label} span${n === 1 ? '' : 's'}`
+  const provenanceText = activeSectionData
+    ? ` · ${spanCount(activeSectionData.aiSpanCount ?? 0, 'AI-drafted')} · ${spanCount(activeSectionData.humanSpanCount ?? 0, 'human-authored')}`
+    : ''
   const alreadyApproved   = !!me && !!activeRef && commentList.some(
     c => c.verdict === 'approve' && c.reviewerId === me.id && c.sectionRef === activeRef,
   )
@@ -370,7 +375,7 @@ export function ReviewerView() {
             {(document.status === 'in-review' || document.status === 'crm-in-progress') && (
               <button
                 type="button"
-                onClick={() => navigate(`/projects/${projectId}/clinical-writing/crm?doc=${encodeURIComponent(documentId ?? '')}`)}
+                onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/crm`)}
                 data-action="open-crm"
                 className="whitespace-nowrap rounded-md border border-blue-200 bg-blue-50 px-3.5 py-2 text-[13px] font-semibold text-blue-700 hover:bg-blue-100"
               >
@@ -601,7 +606,7 @@ export function ReviewerView() {
 
           {/* Provenance bar */}
           <div className="flex h-10 flex-none items-center overflow-hidden truncate whitespace-nowrap border-t border-slate-200 px-5 text-xs text-slate-500" style={{ backgroundColor: '#F8FAFC' }}>
-            Section {activeRef ?? '—'} ·2 AI-drafted spans · 1 human-authored span · Reviewing as {reviewer.name}{reviewer.role ? ` · ${reviewer.role}` : ''}
+            Section {activeRef ?? '—'}<span data-provenance-counts>{provenanceText}</span> · Reviewing as {reviewer.name}{reviewer.role ? ` · ${reviewer.role}` : ''}
           </div>
 
           </div>{/* /Content column */}

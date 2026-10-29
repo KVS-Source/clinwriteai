@@ -58,7 +58,7 @@ export class S3BlobStorage implements BlobStorage {
       Key: args.key,
       Body: body,
       ContentType: args.contentType,
-      Metadata: args.metadata,
+      Metadata: args.metadata && asciiMetadata(args.metadata),
     }))
 
     // S3's ETag is MD5-based for simple PUT; we also compute sha256 for
@@ -114,6 +114,14 @@ export class S3BlobStorage implements BlobStorage {
   async close(): Promise<void> {
     this.client.destroy()
   }
+}
+
+// S3 user metadata travels as x-amz-meta-* headers, which must be ASCII —
+// a value like '§2 Narrative Index' or a non-English filename fails the
+// request signature (403 SignatureDoesNotMatch → the upload 500s). Values
+// with any non-ASCII character are URI-encoded; plain ASCII is unchanged.
+export function asciiMetadata(metadata: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(Object.entries(metadata).map(([k, v]) => [k, /^[\x20-\x7E]*$/.test(v) ? v : encodeURIComponent(v)]))
 }
 
 async function streamToBuffer(stream: Readable): Promise<Buffer> {

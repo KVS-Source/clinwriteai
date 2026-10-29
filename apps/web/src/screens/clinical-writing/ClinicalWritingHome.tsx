@@ -298,14 +298,14 @@ export function ClinicalWritingHome() {
 
   const resetFilters = () => setParams({ q: null, stage: null, status: null, type: null })
 
-  // Context-aware Open: documents at the CRM stage route to the CRM
-  // screen (comment-resolution meetings) with the document pre-selected
-  // via ?doc=<id>. Everything else opens in the Editor as before.
+  // Context-aware Open: documents at the CRM stage open on the document's
+  // own CRM tab (comment-resolution meeting), keeping the Editor / Reviewer
+  // View / E-Signature tabs alongside. Everything else opens in the Editor.
   // Writers were confused when a CRM-stage doc opened the editor with no
   // meeting controls — QA caught it on the stage=crm filter view.
   const handleDocClick = (doc: Document) => {
     if (doc.stage === 'crm') {
-      navigate(`/projects/${projectId}/clinical-writing/crm?doc=${encodeURIComponent(doc.id)}`)
+      navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}/crm`)
       return
     }
     navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}`)
@@ -742,6 +742,11 @@ export function ClinicalWritingHome() {
             initialSourceIds={newDocOpen.sourceIds}
             projectTherapeuticArea={project?.therapeuticArea}
             projectShortTitle={project?.shortTitle}
+            // "+ Upload source" in step 2 opens the upload drawer stacked
+            // over this wizard. The wizard stays mounted so the user's
+            // picks + chosen type survive; after upload closes they're
+            // back in step 2 with the new source available.
+            onRequestUpload={() => setUploadOpen(true)}
             onCancel={() => setNewDocOpen(false)}
             onCreated={id => {
               setNewDocOpen(false)

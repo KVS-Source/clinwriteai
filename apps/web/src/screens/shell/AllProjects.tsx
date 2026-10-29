@@ -6,6 +6,7 @@ import type { Project, ProjectStatus } from '@platform/types'
 import { projectsApi } from '../../api'
 import { ProjectStatusPill, SlidePanel } from '../../components/ui'
 import { useProjectStore } from '../../store'
+import { usePlatformStore } from '../../platform/store'
 import { useTaLabels } from '../../hooks'
 import { NewProjectForm } from './NewProject'
 
@@ -79,6 +80,13 @@ const STATUS_FILTERS: { label: string; value: ProjectStatus | 'all' }[] = [
 export function AllProjects() {
   const navigate         = useNavigate()
   const setActiveProject = useProjectStore(s => s.setActiveProject)
+
+  // "+ New Project" is a PM-only action. Admins (tenant-admin) deliberately
+  // don't create projects — their domain is tenant admin / users / audit.
+  // Contributors / reviewers / auditors / guests never see the button.
+  // The API gate (POST /projects) now also requires role='pm'.
+  const currentRole = usePlatformStore(s => s.currentUser.role)
+  const isPm = currentRole === 'pm'
 
   const [search,       setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all')
@@ -170,14 +178,17 @@ export function AllProjects() {
             {statusSummary}
           </p>
         </div>
-        <button
-          onClick={() => setNewProjectOpen(true)}
-          data-panel-trigger
-          className="flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-4 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
-        >
-          <span className="text-base leading-none">+</span>
-          New Project
-        </button>
+        {isPm && (
+          <button
+            onClick={() => setNewProjectOpen(true)}
+            data-panel-trigger
+            data-action="new-project"
+            className="flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-4 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
+          >
+            <span className="text-base leading-none">+</span>
+            New Project
+          </button>
+        )}
       </div>
 
       {/* Filter bar */}

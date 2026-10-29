@@ -742,6 +742,11 @@ export function ClinicalWritingHome() {
             initialSourceIds={newDocOpen.sourceIds}
             projectTherapeuticArea={project?.therapeuticArea}
             projectShortTitle={project?.shortTitle}
+            // "+ Upload source" in step 2 opens the upload drawer stacked
+            // over this wizard. The wizard stays mounted so the user's
+            // picks + chosen type survive; after upload closes they're
+            // back in step 2 with the new source available.
+            onRequestUpload={() => setUploadOpen(true)}
             onCancel={() => setNewDocOpen(false)}
             onCreated={id => {
               setNewDocOpen(false)

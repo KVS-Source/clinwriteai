@@ -4,6 +4,7 @@ import type { Section, VoiceNote } from '@platform/types'
 import { documentsApi } from '../api'
 import { ApiError } from '../api/client'
 import { useAuthStore } from '../store/authStore'
+import { withSectionMark } from './CommentComposer'
 
 interface Props {
   documentId:        string
@@ -12,7 +13,7 @@ interface Props {
 }
 
 function sectionLabel(s: Pick<Section, 'number' | 'title'>): string {
-  return `§${s.number} ${s.title}`
+  return `${withSectionMark(s.number)} ${s.title}`
 }
 
 // Escape untrusted strings before interpolating them into HTML. The
@@ -222,6 +223,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       try { recorderRef.current.stop() } catch { /* ignore */ }
     }
+    audioElRef.current?.pause()   // closing the panel stops playback
   }, [])
 
   const uploadMut = useMutation({
@@ -337,8 +339,15 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
     try { r.stop() } catch { /* onstop handles error */ }
   }
 
+  const stopPlayback = () => {
+    const el = audioElRef.current
+    if (el) { el.pause(); el.currentTime = 0 }
+    setPlayingNoteId(null)
+  }
+
   const playPreview = () => {
     if (!previewUrl) return
+    if (playingNoteId === '__preview__') { stopPlayback(); return }
     if (!audioElRef.current) audioElRef.current = new Audio()
     audioElRef.current.src = previewUrl
     audioElRef.current.play().catch(() => { /* autoplay-blocked, ignore */ })
@@ -347,6 +356,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
   }
 
   const playPastNote = async (note: VoiceNote) => {
+    if (playingNoteId === note.id) { stopPlayback(); return }
     try {
       const { url } = await documentsApi.getVoiceNoteAudioUrl(documentId, note.id)
       if (!audioElRef.current) audioElRef.current = new Audio()
@@ -377,7 +387,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
       })
     },
     onSuccess: () => {
-      setInsertToast(`Appended to §${selectedSection?.number ?? ''}`)
+      setInsertToast(`Appended to ${selectedSection ? withSectionMark(selectedSection.number) : ''}`)
       qc.invalidateQueries({ queryKey: ['document', documentId] })
     },
     onError: (err) => {
@@ -467,7 +477,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
                     }}
                     className={`flex w-full items-center gap-2 px-3 py-2 text-left text-xs hover:bg-slate-100 ${isSelected ? 'bg-slate-50 font-semibold' : ''}`}
                   >
-                    <span className="font-mono text-[10px] text-slate-500">§{s.number}</span>
+                    <span className="font-mono text-[10px] text-slate-500">{withSectionMark(s.number)}</span>
                     <span className="truncate text-slate-900">{s.title}</span>
                   </button>
                 )
@@ -539,7 +549,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
                     onClick={playPreview}
                     className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    {playingNoteId === '__preview__' ? 'Playing…' : 'Play'}
+                    {playingNoteId === '__preview__' ? 'Stop' : 'Play'}
                   </button>
                 )}
               </div>
@@ -618,7 +628,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
                 {!note.transcript && <span className="ml-2 italic text-amber-600">transcript pending</span>}
               </span>
               <span className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
-                {playingNoteId === note.id ? 'Playing' : 'Play'}
+                {playingNoteId === note.id ? 'Stop' : 'Play'}
               </span>
               <ChevronRightSmall />
             </button>

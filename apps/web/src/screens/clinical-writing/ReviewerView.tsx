@@ -375,7 +375,7 @@ export function ReviewerView() {
             {(document.status === 'in-review' || document.status === 'crm-in-progress') && (
               <button
                 type="button"
-                onClick={() => navigate(`/projects/${projectId}/clinical-writing/crm?doc=${encodeURIComponent(documentId ?? '')}`)}
+                onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/crm`)}
                 data-action="open-crm"
                 className="whitespace-nowrap rounded-md border border-blue-200 bg-blue-50 px-3.5 py-2 text-[13px] font-semibold text-blue-700 hover:bg-blue-100"
               >

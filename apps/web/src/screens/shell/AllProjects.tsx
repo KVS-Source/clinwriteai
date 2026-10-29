@@ -96,7 +96,15 @@ export function AllProjects() {
     navigate(`/projects/${project.id}`)
   }
 
-  const activeCount = projects.filter((p: Project) => p.status === 'ongoing').length
+  // "4 ongoing · 8 initiated · 12 total" — every status that has projects, in lifecycle order.
+  const STATUS_ORDER: ProjectStatus[] = ['ongoing', 'initiated', 're-open', 'on-hold', 'closed']
+  const statusSummary = [
+    ...STATUS_ORDER
+      .map(st => ({ st, n: projects.filter((p: Project) => p.status === st).length }))
+      .filter(x => x.n > 0)
+      .map(x => `${x.n} ${x.st === 'on-hold' ? 'on hold' : x.st}`),
+    `${projects.length} total`,
+  ].join(' · ')
 
   return (
     <div className="flex h-full flex-col" data-screen="all-projects">
@@ -106,7 +114,7 @@ export function AllProjects() {
         <div>
           <h1 className="text-[22px] font-bold text-slate-900">Projects</h1>
           <p className="mt-0.5 font-mono text-xs text-slate-500">
-            {activeCount} active project{activeCount !== 1 ? 's' : ''} · {projects.length} total
+            {statusSummary}
           </p>
         </div>
         <button
@@ -167,18 +175,16 @@ export function AllProjects() {
         </div>
 
         {/* TA filter */}
-        <label className="flex items-center gap-2 text-xs font-semibold text-slate-600">
-          <span>TA</span>
-          <select
-            value={taFilter}
-            onChange={e => setTaFilter(e.target.value)}
-            data-ta-filter
-            className="h-8 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-800"
-          >
-            <option value="all">All TAs</option>
-            {taOptions.map(ta => <option key={ta} value={ta}>{ta}</option>)}
-          </select>
-        </label>
+        <select
+          value={taFilter}
+          onChange={e => setTaFilter(e.target.value)}
+          data-ta-filter
+          aria-label="Filter by TA"
+          className="h-8 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-800"
+        >
+          <option value="all">All TAs</option>
+          {taOptions.map(ta => <option key={ta} value={ta}>{ta}</option>)}
+        </select>
 
       </div>
 
@@ -228,7 +234,7 @@ export function AllProjects() {
                         ? <span className="inline-block max-w-full truncate rounded px-2 py-0.5 font-mono text-[11px] text-slate-500" style={{ backgroundColor: '#F1F5F9' }} title={project.therapeuticArea}>{project.therapeuticArea}</span>
                         : <span className="text-[13px] text-slate-400">—</span>}
                     </span>
-                    <span className="text-[13px] text-slate-700">{project.phase ? `Phase ${project.phase}` : '—'}</span>
+                    <span className="text-[13px] text-slate-700">{project.phase ? (/^phase\b|preclinical/i.test(project.phase) ? project.phase : `Phase ${project.phase}`) : '—'}</span>
                     <span className="text-[13px] text-slate-700">{project.startDate ? formatDate(project.startDate) : '—'}</span>
                     <span className="flex flex-wrap gap-1">
                       {project.submissionCountries?.length

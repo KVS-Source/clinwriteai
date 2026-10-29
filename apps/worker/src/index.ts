@@ -5,7 +5,7 @@
 // dead-letter handling are per-name.
 
 import { fileURLToPath } from 'node:url'
-import { Worker, type Job } from 'bullmq'
+import { Queue, Worker, type Job } from 'bullmq'
 import { Redis } from 'ioredis'
 import { PrismaClient } from '@prisma/client'
 import pino from 'pino'
@@ -17,6 +17,7 @@ import { handleNotificationEmail, handleNotificationSms } from './jobs/notificat
 import { handleRestoreVersion } from './jobs/restore-version.js'
 import { handleVoiceTranscribe } from './jobs/voice-transcribe.js'
 import { handleAiInitialDraft } from './jobs/ai-initial-draft.js'
+import { handleAiValidationPass } from './jobs/ai-validation-pass.js'
 import { handlePresenceReaper } from './jobs/presence-reaper.js'
 import { handleAccessReviewCron } from './jobs/access-review-cron.js'
 
@@ -55,12 +56,38 @@ const prisma = new PrismaClient()
 await prisma.$connect()
 log.info('Worker: Prisma connected')
 
+// Cross-job enqueue — a handler can trigger a follow-up job on another
+// queue (eg. ai_initial_draft chains to ai_validation_pass on complete).
+// Queues are cached by name so we don't recreate the BullMQ Queue object
+// per enqueue call; share the Redis connection already pooled above.
+const queueCache = new Map<string, Queue>()
+function getQueue(name: string): Queue {
+  let q = queueCache.get(name)
+  if (!q) {
+    q = new Queue(name, { connection })
+    queueCache.set(name, q)
+  }
+  return q
+}
+async function enqueue(name: string, data: unknown, opts?: { delayMs?: number; jobId?: string }): Promise<void> {
+  const q = getQueue(name)
+  await q.add(name, data, {
+    delay:   opts?.delayMs,
+    jobId:   opts?.jobId,
+    attempts: 3,
+    backoff: { type: 'exponential', delay: 5_000 },
+    removeOnComplete: { age: 24 * 60 * 60, count: 1_000 },
+    removeOnFail:     { age: 7 * 24 * 60 * 60 },
+  })
+}
+
 interface JobContext {
   prisma: PrismaClient
   log: typeof log
   redis: Redis
+  enqueue: typeof enqueue
 }
-const ctx: JobContext = { prisma, log, redis: connection }
+const ctx: JobContext = { prisma, log, redis: connection, enqueue }
 
 // Map job name → handler. Each handler is invoked with (job, ctx).
 const handlers = {
@@ -73,6 +100,7 @@ const handlers = {
   'clinical.restore_version': handleRestoreVersion,
   'clinical.voice_transcribe': handleVoiceTranscribe,
   'clinical.ai_initial_draft': handleAiInitialDraft,
+  'clinical.ai_validation_pass': handleAiValidationPass,
   'clinical.presence_reaper': handlePresenceReaper,
   'compliance.access_review': handleAccessReviewCron,
 } as const
@@ -98,6 +126,11 @@ const concurrency: Record<JobName, number> = {
   // gets served, just serialised. Bump when the real LLM lands + we
   // measure provider capacity.
   'clinical.ai_initial_draft': 2,
+  // AI validation pass — chained after each draft. Deliberately lower
+  // than drafting since each pass is cheap (no LLM yet) and we don't
+  // need a lot of parallelism; the risk of starving the drafter is
+  // worse than queue backlog on validation.
+  'clinical.ai_validation_pass': 1,
   // Reaper is a single-UPDATE sweep; concurrency=1 avoids racing schedulers.
   'clinical.presence_reaper': 1,
   // Access review is a once-a-month fan-out; concurrency=1 prevents a

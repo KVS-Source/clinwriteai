@@ -35,6 +35,11 @@ interface AiInitialDraftPayload {
   sourceUploadIds:  string[]
   assigneeId:       string
   actorId:          string                                   // the user who clicked Create
+  // When set, only these sections are (re)drafted. Used by the
+  // clinical.ai_validation_pass loop to re-draft a specific subset of
+  // sections that failed validation, rather than redoing the whole doc.
+  // Omit for the initial full-document draft.
+  targetSectionIds?: string[]
 }
 
 interface SectionTemplate {
@@ -118,8 +123,8 @@ interface Report {
   errored:  Array<{ sectionId: string; error: string }>
 }
 
-export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (job, { prisma, log }) => {
-  const { documentId, versionId, type, sourceUploadIds } = job.data
+export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (job, { prisma, log, enqueue }) => {
+  const { documentId, versionId, type, sourceUploadIds, targetSectionIds } = job.data
 
   // --- Load the template -------------------------------------------------
   const template = await prisma.documentTemplate.findFirst({
@@ -130,8 +135,14 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     log.warn({ documentId, type }, 'ai_initial_draft: no DocumentTemplate found — nothing to draft')
     return { skipped: 'no_template' }
   }
-  const sections: SectionTemplate[] = (template.sections as unknown as SectionTemplate[])
+  const allSections: SectionTemplate[] = (template.sections as unknown as SectionTemplate[])
     .filter(s => s && typeof s.id === 'string' && typeof s.number === 'string' && typeof s.title === 'string')
+
+  // When this job was enqueued by the validation loop, only the failing
+  // sections should be re-drafted — not the whole document. Falls through
+  // to the full set for the initial draft.
+  const targetSet = targetSectionIds && targetSectionIds.length > 0 ? new Set(targetSectionIds) : null
+  const sections = targetSet ? allSections.filter(s => targetSet.has(s.id)) : allSections
 
   // --- Load the sources (metadata only — contents are read later if needed) ----
   const sources: SourceSummary[] = sourceUploadIds.length === 0
@@ -158,8 +169,10 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       report.skipped++
       continue
     }
-    // Respect writer edits that beat the worker to the section.
-    if (row.contentHtml && row.contentHtml.trim().length > 0) {
+    // Respect writer edits that beat the worker to the section — unless
+    // the validation loop targeted this section explicitly (meaning the
+    // existing content failed a check and should be rewritten).
+    if (!targetSet && row.contentHtml && row.contentHtml.trim().length > 0) {
       report.skipped++
       continue
     }
@@ -205,6 +218,29 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     skipped: report.skipped,
     errored: report.errored.length,
   }, 'ai_initial_draft: complete')
+
+  // M4 chain: enqueue the validation pass once this draft commits.
+  // Short delay so the DB writes above are visible on read in the next
+  // handler. iteration starts at 1; validation hard-caps at 5. Only
+  // chain from a full-document draft (no targetSectionIds) — targeted
+  // re-draft calls are themselves enqueued by validation and chaining
+  // from them would double-schedule.
+  if (!targetSet) {
+    try {
+      await enqueue('clinical.ai_validation_pass', {
+        documentId,
+        versionId,
+        projectId:       job.data.projectId,
+        type,
+        sourceUploadIds,
+        assigneeId:      job.data.assigneeId,
+        actorId:         job.data.actorId,
+        iteration:       1,
+      }, { delayMs: 2_000, jobId: `ai-validation-${documentId}-1` })
+    } catch (err) {
+      log.warn({ err, documentId }, 'ai_initial_draft: failed to enqueue validation pass — draft stands')
+    }
+  }
 
   return {
     documentId,

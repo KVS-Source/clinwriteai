@@ -960,7 +960,7 @@ function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail }: {
           <MenuItem onClick={() => { setOpen(false); onOpen() }}>Open</MenuItem>
           <MenuItem onClick={() => { setOpen(false); onDuplicate() }}>Duplicate</MenuItem>
           <MenuItem onClick={() => { setOpen(false); onAuditTrail() }}>Audit trail</MenuItem>
-          <MenuItem disabled title="Document-level PDF export lands with Phase 2 of the Module A plan.">
+          <MenuItem disabled title="Document-level PDF export is coming in a later release.">
             Export PDF <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
           </MenuItem>
           <div className="my-1 border-t border-slate-100" />

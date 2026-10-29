@@ -89,6 +89,35 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send(blockedBody('signature', gate))
     }
 
+    // All team Approvers (RACI='A') must sign with meaning='approved'
+    // before the Final Document unlocks. Enforced here so bypassing the
+    // UI (direct POST) can't skip approvals. Writers can still be added
+    // for meaning='authored' and reviewers for meaning='reviewed'; those
+    // are additive, not substitutes.
+    const approverTeam = await app.prisma.projectTeamMember.findMany({
+      where: { projectId: doc.projectId, raci: 'A' },
+      select: { userId: true, name: true },
+    })
+    if (approverTeam.length === 0) {
+      return reply.code(422).send({
+        error: 'no_approvers_configured',
+        message: 'This project has no team members with RACI=\'A\'. Assign at least one Approver on the project team before starting the signature chain.',
+      })
+    }
+    const approvedSignerIds = new Set(
+      parsed.data.signers
+        .filter(s => s.meaning === 'approved')
+        .map(s => s.signerId),
+    )
+    const missingApprovers = approverTeam.filter(t => !approvedSignerIds.has(t.userId))
+    if (missingApprovers.length > 0) {
+      return reply.code(422).send({
+        error: 'missing_approvers',
+        message: `Every Approver on this project's team must sign the chain. Missing ${missingApprovers.length} of ${approverTeam.length}: ${missingApprovers.map(m => m.name).join(', ')}.`,
+        missingApprovers: missingApprovers.map(m => ({ userId: m.userId, name: m.name })),
+      })
+    }
+
     const signers = parsed.data.signers
     const sigIds = await reserveSignatureIds(app.prisma, signers.length)
 

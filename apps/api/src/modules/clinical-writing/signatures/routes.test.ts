@@ -10,9 +10,18 @@ type Row = Record<string, any>
 
 function fakePrisma() {
   const documents: Row[] = [{
-    id: 'DOC-1', status: 'pending_signature', watermarked: true, signedAt: null,
+    id: 'DOC-1', projectId: 'PROJ-1', status: 'pending_signature', watermarked: true, signedAt: null,
     currentVersion: { label: 'Draft', versionNumber: 'v0.2', sections: [{ sectionId: 's1', contentHtml: '<p>a</p>' }] },
   }]
+  // Team Approvers (RACI='A') — the chain-init handler reads these to
+  // enforce the "every Approver must sign" rule introduced 2026-10-28.
+  // The twoSigners fixture ships `u-reviewer` as the only `approved`
+  // signer, so only u-reviewer is marked RACI='A' here (u-author is R
+  // for 'authored' and doesn't need to appear in the Approver set).
+  const projectTeamMembers: Row[] = [
+    { projectId: 'PROJ-1', userId: 'u-author',   name: 'Author Name',   role: 'Lead Writer',       raci: 'R' },
+    { projectId: 'PROJ-1', userId: 'u-reviewer', name: 'Reviewer Name', role: 'Medical Reviewer',  raci: 'A' },
+  ]
   const chains: Row[] = []
   const records: Row[] = []
   const matches = (row: Row, where: Row = {}): boolean => Object.entries(where).every(([k, v]) => {
@@ -48,6 +57,12 @@ function fakePrisma() {
     // and the chain proceeds.
     checklistInstanceItem: {
       findMany: async () => [],
+    },
+    // Team Approver roster — used by the 2026-10-28 "every Approver must
+    // sign" validation. Default: both twoSigners users are RACI='A' on
+    // PROJ-1, which satisfies the default signer list.
+    projectTeamMember: {
+      findMany: async ({ where }: Row) => projectTeamMembers.filter(m => matches(m, where)),
     },
     $queryRawUnsafe: async () => [],
     $transaction: async (fn: (tx: Row) => unknown) => fn(prisma),

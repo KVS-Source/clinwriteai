@@ -213,7 +213,7 @@ export function NewDocumentForm({
   const errorMsg = create.isError
     ? create.error instanceof ApiError
       ? create.error.status === 503
-        ? 'Clinical Writing (Module A) is not enabled on this deployment.'
+        ? 'Clinical Writing is not enabled on this deployment.'
         : create.error.status === 403
           ? 'You do not have write access to this project.'
           : create.error.status === 422

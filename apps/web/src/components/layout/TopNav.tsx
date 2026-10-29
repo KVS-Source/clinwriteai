@@ -8,6 +8,7 @@ import { platformApi } from '../../platform/api/platformApi'
 import { ApiError } from '../../api/client'
 import { PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import type { PlatformUser } from '@platform/types'
+import { MODULE_KEY_TO_LABEL, type ModuleKey } from '../../config/modules'
 
 // Module slug → label for the breadcrumb crumb between the project and the
 // document. Kept inline since this is the only consumer of the mapping;
@@ -294,7 +295,7 @@ export function TopNav() {
                               {isCurrent && <span className="ml-1.5 font-mono text-[10px] font-normal text-blue-700">✓ active</span>}
                             </p>
                             <p className="truncate font-mono text-[10px] text-slate-500">
-                              {roleLabel} · modules {u.modules.join(', ') || '—'}
+                              {roleLabel}{u.modules.length > 0 && ` · ${u.modules.map(k => MODULE_KEY_TO_LABEL[k as ModuleKey] ?? k).join(', ')}`}
                             </p>
                           </div>
                         </button>

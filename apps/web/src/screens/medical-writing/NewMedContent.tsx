@@ -107,7 +107,7 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
   const errorMsg = create.isError
     ? create.error instanceof ApiError
       ? create.error.status === 503
-        ? 'Medical Writing (Module C) is not enabled on this deployment.'
+        ? 'Medical Writing is not enabled on this deployment.'
         : create.error.status === 403
           ? 'You do not have write access to this project.'
           // Surface the API's reason (e.g. an inactive therapeutic area).

@@ -1496,6 +1496,15 @@ export const MODULE_E_ACCENT = {
 // ============================================================================
 
 export type PlatformUserRole =
+  // Canonical post-migration-48 roles. See docs/roles-and-permissions.md
+  // + apps/api/prisma/migrations/00000000000048_role_values_cutover.
+  | 'tenant-admin'
+  | 'pm'
+  | 'contributor'
+  | 'auditor'
+  | 'guest'
+  // Legacy roles — still returned on users whose role field hasn't been
+  // rewritten yet. Removed from this union once the cutover is complete.
   | 'admin'
   | 'ideation-lead'
   | 'regulatory-writer'
@@ -2001,6 +2010,13 @@ export interface PlatformAnalytics {
 }
 
 export const PLATFORM_USER_ROLE_LABEL: Record<PlatformUserRole, string> = {
+  // Canonical post-migration-48 labels.
+  'tenant-admin':              'Tenant Admin',
+  'pm':                        'Project Manager',
+  'contributor':               'Contributor',
+  'auditor':                   'Auditor',
+  'guest':                     'Guest',
+  // Legacy labels — kept for users whose role hasn't been rewritten yet.
   'admin':                     'Admin',
   'ideation-lead':             'Ideation Lead',
   'regulatory-writer':         'Regulatory Writer',

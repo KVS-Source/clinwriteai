@@ -98,7 +98,15 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { createdAt: 'desc' },
       include: { teamMembers: true },
     })
-    return rows.map(projectShape)
+    // One grouped count for all projects (live Module A documents) so the list
+    // can show a real document total per row.
+    const counts = await app.prisma.document.groupBy({
+      by: ['projectId'],
+      where: { deletedAt: null },
+      _count: { _all: true },
+    })
+    const countByProject = new Map(counts.map(c => [c.projectId, c._count._all]))
+    return rows.map(r => ({ ...projectShape(r), documentCount: countByProject.get(r.id) ?? 0 }))
   })
 
   app.get('/:id', { preHandler: requireAuth() }, async (request, reply) => {

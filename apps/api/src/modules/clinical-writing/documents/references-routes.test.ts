@@ -5,6 +5,13 @@ import Fastify from 'fastify'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { documentsReferencesRoutes } from './references-routes.js'
+vi.mock('mammoth', () => ({
+  default: {},
+  convertToHtml: async ({ buffer }: { buffer: Buffer }) => {
+    if (buffer.toString() === 'corrupt') throw new Error('bad docx')
+    return { value: '<p>Hello</p>' }
+  },
+}))
 import { documentsSourceRoutes, isPreviewable } from './source-routes.js'
 
 type Upload = {
@@ -21,6 +28,8 @@ const UPLOADS: Upload[] = [
   up({ id: 'img1', fileName: 'scan.png', contentType: 'image/png' }),
   up({ id: 'docx1', fileName: 'SAP.docx', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }),
   up({ id: 'svg1', fileName: 'x.svg', contentType: 'image/svg+xml' }),
+  up({ id: 'doc1', fileName: 'old.doc', contentType: 'application/msword' }),
+  up({ id: 'csv1', fileName: 'TEAE.csv', contentType: 'application/vnd.ms-excel' }),
   up({ id: 'bad', fileName: 'bad.pdf', virusScanStatus: 'failed' }),
   up({ id: 'rej', fileName: 'rej.pdf', status: 'rejected' }),
   up({ id: 'unsaved', fileName: 'unsaved.pdf', status: 'pending_classification' }),
@@ -187,7 +196,7 @@ describe('GET /documents/:id/references', () => {
     const all = (await app.inject({ method: 'GET', url: '/documents/DOC-1/references' })).json()
     expect(all.items.map((i: { id: string }) => i.id)).toEqual(['r1', 'r2'])
     expect(all.items[0]).toMatchObject({ fileName: 'Protocol.pdf', previewable: true, page: 42, createdBy: { name: 'Priya Nair' } })
-    expect(all.items[1]).toMatchObject({ fileName: 'SAP.docx', previewable: false })
+    expect(all.items[1]).toMatchObject({ fileName: 'SAP.docx', previewable: true })
     const one = (await app.inject({ method: 'GET', url: '/documents/DOC-1/references?sectionId=s2' })).json()
     expect(one.items.map((i: { id: string }) => i.id)).toEqual(['r2'])
   })
@@ -276,14 +285,35 @@ describe('GET /projects/:id/source-documents/:uploadId/preview', () => {
     expect((await app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/img1/preview' })).statusCode).toBe(200)
   })
 
-  it('refuses Word/Excel and script-capable types with 415', async () => {
+  it('refuses legacy Office and script-capable types with 415', async () => {
     const { app, blobGet } = await build()
-    for (const id of ['docx1', 'svg1']) {
+    for (const id of ['doc1', 'svg1']) {
       const res = await app.inject({ method: 'GET', url: `/projects/proj-1/source-documents/${id}/preview` })
       expect(res.statusCode).toBe(415)
       expect(res.json().error).toBe('not_previewable')
     }
     expect(blobGet).not.toHaveBeenCalled()
+  })
+
+  it('shows a CSV as plain text and a DOCX as sandboxed HTML', async () => {
+    const csv = await build(vi.fn(async () => ({ body: Buffer.from('a,b\n1,2'), contentType: 'application/vnd.ms-excel' })))
+    const c = await csv.app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/csv1/preview' })
+    expect(c.statusCode).toBe(200)
+    expect(c.headers['content-type']).toBe('text/plain; charset=utf-8')
+    expect(c.body).toBe('a,b\n1,2')
+    expect(c.headers['content-security-policy']).toContain("default-src 'none'")
+
+    const docx = await build(vi.fn(async () => ({ body: Buffer.from('docx-bytes'), contentType: 'application/octet-stream' })))
+    const d = await docx.app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/docx1/preview' })
+    expect(d.statusCode).toBe(200)
+    expect(d.headers['content-type']).toBe('text/html; charset=utf-8')
+    expect(d.body).toContain('<p>Hello</p>')
+    expect(d.headers['content-security-policy']).toContain('sandbox')
+
+    const bad = await build(vi.fn(async () => ({ body: Buffer.from('corrupt'), contentType: 'application/octet-stream' })))
+    const e = await bad.app.inject({ method: 'GET', url: '/projects/proj-1/source-documents/docx1/preview' })
+    expect(e.statusCode).toBe(422)
+    expect(e.json().error).toBe('preview_failed')
   })
 
   it('is scoped to the project, blocks quarantined files and reports missing bytes', async () => {
@@ -298,9 +328,14 @@ describe('GET /projects/:id/source-documents/:uploadId/preview', () => {
 })
 
 describe('isPreviewable', () => {
-  it('allows only PDF and raster images', () => {
+  it('allows PDF, raster images, DOCX and plain-text files only', () => {
     expect(isPreviewable('application/pdf')).toBe(true)
     expect(isPreviewable('IMAGE/PNG; charset=binary')).toBe(true)
-    for (const t of ['image/svg+xml', 'text/html', 'application/vnd.ms-excel', 'application/octet-stream']) expect(isPreviewable(t)).toBe(false)
+    expect(isPreviewable('application/vnd.openxmlformats-officedocument.wordprocessingml.document')).toBe(true)
+    expect(isPreviewable('text/csv')).toBe(true)
+    for (const t of ['image/svg+xml', 'text/html', 'application/vnd.ms-excel', 'application/octet-stream', 'application/msword']) expect(isPreviewable(t)).toBe(false)
+    // a generic type is accepted only for a text extension
+    expect(isPreviewable('application/vnd.ms-excel', 'TEAE.CSV')).toBe(true)
+    expect(isPreviewable('application/octet-stream', 'run.exe')).toBe(false)
   })
 })

@@ -52,16 +52,20 @@ function initialsFor(name: string): string {
 }
 
 // Group personas for the switcher menu. Post 2026-10-27 role consolidation:
-// 'super-admin' is retired → platform admin = role='admin' with tenantId=null;
-// tenant-scoped admins = role='admin' with a tenant id.
+// 'super-admin' retired → platform admin = ('admin'|'tenant-admin') with
+// tenantId=null; tenant-scoped admins = ('admin'|'tenant-admin') with a
+// tenant id. 'pm' is its own bucket since migration 48 (canonical role).
+const ADMIN_ROLES = new Set(['admin', 'tenant-admin', 'super-admin'])
 function groupPersonas(users: PlatformUser[]) {
-  const platformAdmin = users.filter(u => u.role === 'admin' && (u.tenantId ?? null) == null)
-  const tenantAdmin   = users.filter(u => u.role === 'admin' && (u.tenantId ?? null) != null)
-  const moduleUsers   = users.filter(u => u.role !== 'admin' && u.status === 'active')
+  const platformAdmin = users.filter(u => ADMIN_ROLES.has(u.role) && (u.tenantId ?? null) == null)
+  const tenantAdmin   = users.filter(u => ADMIN_ROLES.has(u.role) && (u.tenantId ?? null) != null)
+  const pms           = users.filter(u => u.role === 'pm' && u.status === 'active')
+  const moduleUsers   = users.filter(u => !ADMIN_ROLES.has(u.role) && u.role !== 'pm' && u.status === 'active')
   const invited       = users.filter(u => u.status === 'invited')
   return [
     { label: 'Platform Admin (GenBioCa)', users: platformAdmin },
     { label: 'Client Admin',              users: tenantAdmin },
+    { label: 'Project Managers',          users: pms },
     { label: 'Module users',              users: moduleUsers },
     { label: 'Invited (not activated)',   users: invited },
   ].filter(g => g.users.length > 0)
@@ -72,6 +76,11 @@ function groupPersonas(users: PlatformUser[]) {
 const ROLE_COLOUR: Record<string, string> = {
   'super-admin':               '#1A3C5E',
   'admin':                     '#2563EB',
+  'tenant-admin':              '#2563EB',
+  'pm':                        '#7C3AED',
+  'contributor':               '#0D9488',
+  'auditor':                   '#94A3B8',
+  'guest':                     '#64748B',
   'ideation-lead':             '#0D9488',
   'ma-team-lead':              '#0D9488',
   'content-calendar-manager':  '#0D9488',

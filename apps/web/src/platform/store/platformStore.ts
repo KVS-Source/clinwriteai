@@ -4,18 +4,20 @@ import { create } from 'zustand'
 import type { PlatformConfig, PlatformUser, PlatformUserRole } from '@platform/types'
 import usersFixture from '../../data/users.json'
 
-// Full demo persona roster — Alex Thornton (platform admin, GenBioCa-internal) is
-// synthetic since she's not a client-org user, so prepend her to the fixture.
-// Post 2026-10-27 role consolidation: 'super-admin' retired → platform admin is
-// 'admin' with tenantId=null; the SUPER_ADMIN variable name is kept for
-// backwards-recognisability but the role field now reads 'admin'.
+// Full demo persona roster — Alex Thornton is synthetic (not in the
+// users.json fixture) so prepend her so the switcher always has a PM
+// persona to switch into. The SUPER_ADMIN variable name is historical
+// (she was the super-admin pre-2026-10-27); her role was consolidated to
+// 'admin' at that point and flipped to 'pm' when the canonical post-mig-48
+// Project Manager role shipped. Kept the variable name to minimise churn
+// — all consumers reference PLATFORM_DEMO_USERS, not SUPER_ADMIN directly.
 const CLIENT_USERS = usersFixture as PlatformUser[]
 
 const SUPER_ADMIN: PlatformUser = {
   id:         'user-sa',
   name:       'Alex Thornton',
   email:      'a.thornton@clinwrite.ai',
-  role:       'admin',
+  role:       'pm',
   modules:    ['A', 'B', 'C', 'D', 'E'],
   status:     'active',
   lastActive: '2026-09-09T09:00:00Z',

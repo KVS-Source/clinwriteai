@@ -108,9 +108,12 @@ interface FixtureDocument {
 // tenant-admin | contributor | auditor — and derives the capabilities
 // array per docs/roles-and-permissions.md §8 so a fresh DB matches an
 // existing one that migration 48 has run on.
-const ROLE_MAP: Record<string, 'tenant-admin' | 'contributor' | 'auditor'> = {
+type CanonicalRole = 'tenant-admin' | 'pm' | 'contributor' | 'auditor'
+
+const ROLE_MAP: Record<string, CanonicalRole> = {
   'admin':                     'tenant-admin',
   'super-admin':               'tenant-admin',
+  'pm':                        'pm',
   'clinical-writer':           'contributor',
   'scientific-writer':         'contributor',
   'medical-writer':            'contributor',
@@ -125,7 +128,7 @@ const ROLE_MAP: Record<string, 'tenant-admin' | 'contributor' | 'auditor'> = {
   'cmc-lead':                  'contributor',
   'author':                    'contributor',
 }
-function mapRole(fixtureRole: string): 'tenant-admin' | 'contributor' | 'auditor' {
+function mapRole(fixtureRole: string): CanonicalRole {
   return ROLE_MAP[fixtureRole] ?? 'auditor'
 }
 
@@ -134,6 +137,9 @@ function mapRole(fixtureRole: string): 'tenant-admin' | 'contributor' | 'auditor
 const CAPABILITY_MAP: Record<string, string[]> = {
   'admin':                     [],
   'super-admin':               [],
+  // PMs assign RACI letters to contributors; they don't personally hold
+  // can-author / can-review / can-approve on documents.
+  'pm':                        [],
   'clinical-writer':           ['can-author'],
   'scientific-writer':         ['can-author'],
   'medical-writer':            ['can-author', 'can-review'],
@@ -255,20 +261,20 @@ async function main() {
   // so operators who memorised admin@/writer@/reviewer@ still have
   // working logins alongside the richer fixture users.
   //
-  // a.thornton@clinwrite.ai is the demo platform-admin persona wired in
-  // apps/web/src/platform/store/platformStore.ts (role='admin',
-  // tenantId=null — what used to be 'super-admin' before the
-  // 2026-10-27 role consolidation). Must exist in the DB so the
-  // X-Demo-Persona header resolves her; otherwise persona-switch calls
-  // land as AUTH_BYPASS_EMAIL (also an admin) and the platform-admin
-  // screens (Tenants, Rate Cards, Analytics…) 403.
+  // Mr Rohan Iyer (admin@clinwrite.ai) stays as the demo platform-admin
+  // persona — role='admin', tenantId=null — so the Tenants / Rate Cards /
+  // Analytics screens have a working persona to switch into.
+  //
+  // Alex Thornton (a.thornton@clinwrite.ai) is the demo Project Manager
+  // persona — role='pm' scoped to acme — wired in
+  // apps/web/src/platform/store/platformStore.ts. Explicit id='user-sa' so
+  // the X-Demo-Persona header resolves her by id. If she needs to see
+  // projects, add her as a ProjectMember / ProjectTeamMember via the
+  // Project Settings team editor; the project visibility filter honours
+  // either source.
   for (const legacy of [
     { id: null,       email: 'admin@clinwrite.ai',       name: 'Mr Rohan Iyer',   fixtureRole: 'admin',           modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
-    // Alex Thornton — demo platform-admin persona in the UI's
-    // PLATFORM_DEMO_USERS. Explicit id='user-sa' + email so the
-    // X-Demo-Persona header can resolve her by either; without this
-    // the id lookup falls back to AUTH_BYPASS_EMAIL.
-    { id: 'user-sa',  email: 'a.thornton@clinwrite.ai',  name: 'Alex Thornton',   fixtureRole: 'admin',           modules: ['A', 'B', 'C', 'D', 'E'], tenantId: null },
+    { id: 'user-sa',  email: 'a.thornton@clinwrite.ai',  name: 'Alex Thornton',   fixtureRole: 'pm',              modules: ['A', 'B', 'C', 'D', 'E'], tenantId: acme.id },
     { id: null,       email: 'writer@clinwrite.ai',      name: 'Ms Ananya Rao',   fixtureRole: 'clinical-writer', modules: ['A'],                     tenantId: acme.id },
     { id: null,       email: 'reviewer@clinwrite.ai',    name: 'Dr Vikram Mehta', fixtureRole: 'reviewer',        modules: ['A'],                     tenantId: acme.id },
   ]) {

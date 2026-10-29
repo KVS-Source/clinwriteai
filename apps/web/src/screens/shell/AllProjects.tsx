@@ -36,7 +36,38 @@ function FolderIcon() {
 
 // Row columns: project · client · TA · phase · start date · submission countries · documents · status · chevron
 const ROW_GRID = 'minmax(200px,2fr) minmax(110px,1fr) minmax(110px,1fr) 80px 100px minmax(120px,1.2fr) 90px 100px 14px'
-const COLUMN_HEADERS = ['Project', 'Client', 'TA', 'Phase', 'Start date', 'Countries', 'Documents', 'Status']
+type SortKey = 'project' | 'client' | 'ta' | 'phase' | 'start' | 'documents' | 'status'
+type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
+// Countries has no sensible order, so it isn't sortable.
+const COLUMN_HEADERS: Array<{ label: string; key: SortKey | null }> = [
+  { label: 'Project', key: 'project' }, { label: 'Client', key: 'client' }, { label: 'TA', key: 'ta' },
+  { label: 'Phase', key: 'phase' }, { label: 'Start date', key: 'start' }, { label: 'Countries', key: null },
+  { label: 'Documents', key: 'documents' }, { label: 'Status', key: 'status' },
+]
+// asc → desc → back to the default (newest first) order
+const nextSort = (cur: SortState, key: SortKey): SortState =>
+  cur?.key !== key ? { key, dir: 'asc' } : cur.dir === 'asc' ? { key, dir: 'desc' } : null
+
+const STATUS_RANK: Record<string, number> = { initiated: 0, ongoing: 1, 're-open': 2, 'on-hold': 3, closed: 4 }
+
+// Preclinical < Phase 1 < Phase 1/2 < Phase 2 < Phase 2b < Phase 3 …; handles roman (III, IIb) and arabic.
+function phaseRank(phase: string): number {
+  const t = phase.toLowerCase()
+  if (/pre-?clinical/.test(t)) return 0
+  const m = t.match(/\b(iv|v?i{1,3}|\d+)\s*([ab])?\s*(\/\s*(iv|v?i{1,3}|\d+))?/)
+  if (!m) return 99
+  const num = (x: string) => (/^\d+$/.test(x) ? Number(x) : ({ i: 1, ii: 2, iii: 3, iv: 4, v: 5 } as Record<string, number>)[x] ?? 99)
+  return num(m[1]!) + (m[2] ? 0.1 : 0) + (m[3] ? 0.5 : 0)
+}
+
+function SortIcon({ state }: { state: 'asc' | 'desc' | null }) {
+  return (
+    <svg width="10" height="12" viewBox="0 0 10 12" fill="none" aria-hidden="true" className="flex-none">
+      <path d="M5 1 2 4.5h6L5 1Z" fill={state === 'asc' ? '#1E293B' : '#CBD5E1'} />
+      <path d="M5 11 2 7.5h6L5 11Z" fill={state === 'desc' ? '#1E293B' : '#CBD5E1'} />
+    </svg>
+  )
+}
 
 const STATUS_FILTERS: { label: string; value: ProjectStatus | 'all' }[] = [
   { label: 'All',       value: 'all' },
@@ -53,6 +84,7 @@ export function AllProjects() {
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all')
   const [taFilter,     setTaFilter]     = useState<string>('all')   // TA label or 'all'
   const [newProjectOpen, setNewProjectOpen] = useState(false)
+  const [sort, setSort] = useState<SortState>(null)
 
   const { data: projects = [], isLoading } = useQuery({
     queryKey: ['projects'],
@@ -90,6 +122,27 @@ export function AllProjects() {
       return matchSearch && matchStatus && matchTa
     })
   }, [projects, search, statusFilter, taFilter])
+
+  const sorted = useMemo(() => {
+    if (!sort) return filtered
+    const val = (p: Project): string | number => {
+      switch (sort.key) {
+        case 'project':   return p.shortTitle
+        case 'client':    return p.client ?? ''
+        case 'ta':        return p.therapeuticArea ?? ''
+        case 'phase':     return phaseRank(p.phase ?? '')
+        case 'start':     return p.startDate ? Date.parse(p.startDate) : 0
+        case 'documents': return p.documentCount ?? 0
+        case 'status':    return STATUS_RANK[p.status] ?? 99
+      }
+    }
+    const sign = sort.dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      const x = val(a), y = val(b)
+      const c = typeof x === 'number' && typeof y === 'number' ? x - y : String(x).localeCompare(String(y), undefined, { sensitivity: 'base', numeric: true })
+      return c * sign || a.id.localeCompare(b.id)
+    })
+  }, [filtered, sort])
 
   const handleProjectClick = (project: Project) => {
     setActiveProject(project)
@@ -211,10 +264,21 @@ export function AllProjects() {
           <div className="overflow-x-auto">
             <div className="min-w-[1000px]">
               <div className="grid items-center gap-4 px-6 pt-5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400" style={{ gridTemplateColumns: ROW_GRID }}>
-                {COLUMN_HEADERS.map(h => <span key={h}>{h}</span>)}
+                {COLUMN_HEADERS.map(h => h.key ? (
+                  <span key={h.label} aria-sort={sort?.key === h.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                    <button
+                      type="button"
+                      onClick={() => setSort(cur => nextSort(cur, h.key!))}
+                      data-sort={h.key}
+                      className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-widest hover:text-slate-700"
+                    >
+                      {h.label}<SortIcon state={sort?.key === h.key ? sort.dir : null} />
+                    </button>
+                  </span>
+                ) : <span key={h.label}>{h.label}</span>)}
                 <span />
               </div>
-              {filtered.map((project: Project) => {
+              {sorted.map((project: Project) => {
                 const docs = project.documentCount ?? 0
                 return (
                   <div

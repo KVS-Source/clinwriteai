@@ -109,6 +109,15 @@ export function ServicesDashboard() {
     queryFn:  () => platformApi.listRateCardVersions(),
   })
 
+  // Six-panel usage analytics driven by the AI gateway's /ai/usage-analytics
+  // endpoint. 30-day default window. Rendered-but-empty state when the
+  // tenant has had no AI activity in-window.
+  const { data: analytics } = useQuery({
+    queryKey: ['ai-usage-analytics', 30],
+    queryFn:  () => platformApi.getUsageAnalytics(30),
+    staleTime: 60_000,
+  })
+
   const [exportResult, setExportResult] = useState<string | null>(null)
 
   const activeRateCard = useMemo(() => rateCards.find(r => r.isActive), [rateCards])
@@ -275,134 +284,91 @@ export function ServicesDashboard() {
         </p>
 
         {/* ── Usage analytics ────────────────────────────────────────────────
-            Six synthetic breakdowns the Admin usually asks for after glancing
-            at the totals: daily trend, intent mix, model mix, top prompts,
-            top users, hourly heatmap. The data below is deliberately
-            hard-coded until the AI-gateway analytics endpoint lands — the
-            yellow "demo data" chip surfaces that so no one quotes these
-            numbers externally.
+            Six AI-gateway aggregates fetched live from
+            GET /ai/usage-analytics?windowDays=30. Tenant admins see their
+            tenant only; platform admins (tenantId=null) see all tenants.
+            Window defaults to 30 days. Empty / zero states handled per panel.
             ────────────────────────────────────────────────────────────────── */}
-        <section className="flex flex-col gap-3" data-section="usage-analytics">
-          <div className="flex items-center justify-between">
-            <h2 className="text-sm font-semibold text-slate-900">Usage analytics</h2>
-            <span
-              className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
-              style={{ backgroundColor: '#FEF3C7', color: '#B45309' }}
-              data-demo-chip
-              title="Numbers below are synthetic until the AI-gateway analytics endpoint lands."
-            >
-              Demo data
-            </span>
-          </div>
-
-          {/* Daily tokens — 30-day bar chart */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4" data-chart="daily-tokens">
+        {analytics && (
+          <section className="flex flex-col gap-3" data-section="usage-analytics">
             <div className="flex items-baseline justify-between">
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                Tokens per day · last 30 days
-              </p>
+              <h2 className="text-sm font-semibold text-slate-900">Usage analytics</h2>
               <p className="font-mono text-[11px] text-slate-500">
-                avg {Math.round(SYNTHETIC.dailyTokens.reduce((a, b) => a + b, 0) / SYNTHETIC.dailyTokens.length).toLocaleString()}/day
-                · peak {Math.max(...SYNTHETIC.dailyTokens).toLocaleString()}
+                {analytics.totals.calls.toLocaleString()} calls · {analytics.totals.tokens.toLocaleString()} tokens · ${analytics.totals.costUsd.toFixed(2)} over the last {analytics.windowDays} days
               </p>
             </div>
-            <DailyBars values={SYNTHETIC.dailyTokens} />
-          </div>
 
-          {/* Two-column: Prompt intents + Model mix */}
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
-            <RankCard
-              title="Prompt intents · share of calls"
-              rows={SYNTHETIC.promptIntents}
-              valueFormat={(n) => `${n}%`}
-              dataAttr="prompt-intents"
-            />
-            <RankCard
-              title="Model mix · share of tokens"
-              rows={SYNTHETIC.modelMix}
-              valueFormat={(n) => `${n}%`}
-              dataAttr="model-mix"
-            />
-          </div>
+            {analytics.totals.calls === 0 ? (
+              <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-[13px] text-slate-500" data-empty="no-ai-activity">
+                No AI gateway activity in the last {analytics.windowDays} days.
+              </div>
+            ) : (
+              <>
+                {/* Daily tokens — N-day bar chart */}
+                <div className="rounded-lg border border-slate-200 bg-white p-4" data-chart="daily-tokens">
+                  <div className="flex items-baseline justify-between">
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                      Tokens per day · last {analytics.windowDays} days
+                    </p>
+                    <p className="font-mono text-[11px] text-slate-500">
+                      avg {Math.round(analytics.dailyTokens.reduce((a, r) => a + r.tokens, 0) / Math.max(1, analytics.dailyTokens.length)).toLocaleString()}/day
+                      · peak {Math.max(0, ...analytics.dailyTokens.map(r => r.tokens)).toLocaleString()}
+                    </p>
+                  </div>
+                  <DailyBars values={analytics.dailyTokens.map(r => r.tokens)} />
+                </div>
 
-          {/* Two-column: Top prompts + Top users */}
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
-            <TopList
-              title="Most-fired prompts · last 30 days"
-              rows={SYNTHETIC.topPrompts}
-              dataAttr="top-prompts"
-            />
-            <TopList
-              title="Top users by tokens · September"
-              rows={SYNTHETIC.topUsers}
-              dataAttr="top-users"
-            />
-          </div>
+                {/* Two-column: Prompt intents + Model mix */}
+                <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+                  <RankCard
+                    title="Prompt intents · share of calls"
+                    rows={analytics.promptIntents}
+                    valueFormat={(n) => `${n}%`}
+                    dataAttr="prompt-intents"
+                  />
+                  <RankCard
+                    title="Model mix · share of tokens"
+                    rows={analytics.modelMix}
+                    valueFormat={(n) => `${n}%`}
+                    dataAttr="model-mix"
+                  />
+                </div>
 
-          {/* Hourly heatmap */}
-          <div className="rounded-lg border border-slate-200 bg-white p-4" data-chart="hourly-heatmap">
-            <div className="flex items-baseline justify-between">
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                Hour-of-day distribution · UTC
-              </p>
-              <p className="font-mono text-[11px] text-slate-500">
-                busiest hour {SYNTHETIC.hourlyPeakLabel}
-              </p>
-            </div>
-            <HourlyHeatmap values={SYNTHETIC.hourlyDistribution} />
-          </div>
-        </section>
+                {/* Two-column: Top prompts + Top users */}
+                <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
+                  <TopList
+                    title={`Most-fired prompts · last ${analytics.windowDays} days`}
+                    rows={analytics.topPrompts}
+                    dataAttr="top-prompts"
+                    emptyLabel="No prompt text recorded in this window."
+                  />
+                  <TopList
+                    title={`Top users by cost · last ${analytics.windowDays} days`}
+                    rows={analytics.topUsers}
+                    dataAttr="top-users"
+                    emptyLabel="No user activity in this window."
+                  />
+                </div>
+
+                {/* Hourly heatmap */}
+                <div className="rounded-lg border border-slate-200 bg-white p-4" data-chart="hourly-heatmap">
+                  <div className="flex items-baseline justify-between">
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                      Hour-of-day distribution · UTC
+                    </p>
+                    <p className="font-mono text-[11px] text-slate-500">
+                      busiest hour {analytics.hourlyPeakLabel}
+                    </p>
+                  </div>
+                  <HourlyHeatmap values={analytics.hourlyDistribution} />
+                </div>
+              </>
+            )}
+          </section>
+        )}
       </div>
     </div>
   )
-}
-
-// -----------------------------------------------------------------------------
-// Synthetic demo data — swapped for the real AI-gateway analytics endpoint
-// once it ships. All percentages normalised to 100; dailyTokens is 30
-// evenly-spaced points with a mild upward trend + a weekend dip.
-// -----------------------------------------------------------------------------
-
-const SYNTHETIC = {
-  dailyTokens: [
-    240_000, 310_000, 285_000, 340_000, 420_000, 180_000, 95_000,
-    360_000, 410_000, 395_000, 455_000, 480_000, 210_000, 120_000,
-    395_000, 440_000, 520_000, 490_000, 575_000, 245_000, 160_000,
-    510_000, 585_000, 540_000, 625_000, 710_000, 290_000, 185_000,
-    620_000, 695_000,
-  ],
-  promptIntents: [
-    { label: 'Draft from source', value: 42, hint: '5,544 calls' },
-    { label: 'Tighten / rewrite', value: 28, hint: '3,696 calls' },
-    { label: 'Edit (selection)',  value: 14, hint: '1,848 calls' },
-    { label: 'Explain',           value:  9, hint: '1,188 calls' },
-    { label: 'Custom',            value:  7, hint:   '924 calls' },
-  ],
-  modelMix: [
-    { label: 'Claude Opus 4.6',   value: 54, hint: '7.1M tokens' },
-    { label: 'Claude Sonnet 4.6', value: 34, hint: '4.5M tokens' },
-    { label: 'Claude Haiku 4.5',  value: 12, hint: '1.6M tokens' },
-  ],
-  topPrompts: [
-    { label: '"Draft this section from the linked IB"',   hint: '822 calls · 2.4M tokens' },
-    { label: '"Tighten for clarity, keep every figure"',  hint: '613 calls · 1.1M tokens' },
-    { label: '"Explain this paragraph in plain English"', hint: '451 calls · 0.6M tokens' },
-    { label: '"Rewrite in ICH E3 house style"',           hint: '397 calls · 0.9M tokens' },
-    { label: '"Convert to a bulleted list"',              hint: '284 calls · 0.3M tokens' },
-  ],
-  topUsers: [
-    { label: 'Ms Ananya Rao',       hint: '2.4M tokens · $412' },
-    { label: 'Dr Marcus Webb',      hint: '1.9M tokens · $328' },
-    { label: 'Dr Priya Patel',      hint: '1.6M tokens · $275' },
-    { label: 'Mr Rohan Iyer',       hint: '1.3M tokens · $218' },
-    { label: 'Dr Elena Vasquez',    hint: '1.1M tokens · $184' },
-  ],
-  // 24 slots, each 0–100 representing % of peak. 10:00–16:00 UTC is the
-  // India / EU overlap, so that's where the mass sits.
-  hourlyDistribution: [
-    5, 3, 2, 2, 3, 6, 12, 24, 38, 55, 72, 85, 92, 100, 95, 82, 68, 48, 30, 18, 14, 10, 8, 6,
-  ],
-  hourlyPeakLabel: '13:00–14:00 UTC',
 }
 
 // -----------------------------------------------------------------------------
@@ -470,30 +436,35 @@ function RankCard({ title, rows, valueFormat, dataAttr }: {
   )
 }
 
-function TopList({ title, rows, dataAttr }: {
+function TopList({ title, rows, dataAttr, emptyLabel }: {
   title: string
   rows: Array<{ label: string; hint?: string }>
   dataAttr: string
+  emptyLabel?: string
 }) {
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4" data-top-list={dataAttr}>
       <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{title}</p>
-      <ol className="mt-2 flex flex-col gap-2">
-        {rows.map((r, i) => (
-          <li key={i} className="flex items-start gap-3 border-b border-slate-100 pb-2 last:border-b-0 last:pb-0" data-top-row>
-            <span
-              className="flex h-5 w-5 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
-              style={{ backgroundColor: '#F1F5F9', color: '#475569' }}
-            >
-              {i + 1}
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-[13px] text-slate-900">{r.label}</p>
-              {r.hint && <p className="mt-0.5 font-mono text-[10px] text-slate-500">{r.hint}</p>}
-            </div>
-          </li>
-        ))}
-      </ol>
+      {rows.length === 0 ? (
+        <p className="mt-2 text-[12px] text-slate-500" data-top-empty>{emptyLabel ?? 'No data.'}</p>
+      ) : (
+        <ol className="mt-2 flex flex-col gap-2">
+          {rows.map((r, i) => (
+            <li key={i} className="flex items-start gap-3 border-b border-slate-100 pb-2 last:border-b-0 last:pb-0" data-top-row>
+              <span
+                className="flex h-5 w-5 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
+                style={{ backgroundColor: '#F1F5F9', color: '#475569' }}
+              >
+                {i + 1}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-[13px] text-slate-900">{r.label}</p>
+                {r.hint && <p className="mt-0.5 font-mono text-[10px] text-slate-500">{r.hint}</p>}
+              </div>
+            </li>
+          ))}
+        </ol>
+      )}
     </div>
   )
 }

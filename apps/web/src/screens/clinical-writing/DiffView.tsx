@@ -1,29 +1,90 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
+import type { PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { platformApi } from '../../platform/api/platformApi'
+import { usePresenceSnapshot } from '../../hooks/usePresence'
 import { StatusPill } from '../../components/ui'
-import { useDocumentStore, useProjectStore } from '../../store'
+import { useAuthStore, useDocumentStore, useProjectStore } from '../../store'
+import { wordDiff, type DiffOp } from '../../panels/wordDiff'
 import { SectionNavigator } from './SectionNavigator'
 
-// Presence stack — matches DocumentEditor
-const PRESENCE_STACK = [
-  { initials: 'MW', bg: '#DBEAFE', fg: '#1D4ED8', isLoggedIn: true  },
-  { initials: 'JO', bg: '#F5F3FF', fg: '#7C3AED', isLoggedIn: false },
-  { initials: 'EV', bg: '#FEF3C7', fg: '#D97706', isLoggedIn: false },
+// Presence avatar colours — same palette and hashing as DocumentEditor, so a
+// user keeps their colour across the Editor and Version Diff tabs.
+const AVATAR_PALETTE: Array<{ bg: string; fg: string }> = [
+  { bg: '#DBEAFE', fg: '#1D4ED8' },
+  { bg: '#F5F3FF', fg: '#7C3AED' },
+  { bg: '#FEF3C7', fg: '#D97706' },
+  { bg: '#D1FAE5', fg: '#065F46' },
+  { bg: '#FEE2E2', fg: '#B91C1C' },
+  { bg: '#E0E7FF', fg: '#3730A3' },
+  { bg: '#FCE7F3', fg: '#9D174D' },
 ]
 
-// Section that hosts all the diff content (matches prototype)
-const DIFF_SECTION_ID    = 's11_4'
-const DIFF_SECTION_LABEL = '§11.4.1 Progression-Free Survival'
-const DIFF_CHANGE_COUNT  = 3
-const DIFF_TOTAL_CHANGES = 17
+function hashString(s: string): number {
+  let h = 0
+  for (let i = 0; i < s.length; i++) h = ((h << 5) - h + s.charCodeAt(i)) | 0
+  return Math.abs(h)
+}
 
-function AISparkle({ size = 10, colour = '#2563EB' }: { size?: number; colour?: string }) {
+const avatarColor = (userId: string) => AVATAR_PALETTE[hashString(userId) % AVATAR_PALETTE.length]!
+
+function initialsFromName(name: string | null | undefined): string {
+  if (!name) return '?'
+  return name.trim().split(/\s+/).slice(0, 2).map(p => p[0]?.toUpperCase() ?? '').join('') || '?'
+}
+
+// Section HTML → plain text for the word diff (tags become spaces, entities decoded).
+function htmlToText(html: string): string {
+  const spaced = html.replace(/<[^>]*>/g, ' ')
+  const decoded = new DOMParser().parseFromString(spaced, 'text/html').body.textContent ?? ''
+  return decoded.replace(/\s+/g, ' ').trim()
+}
+
+// Same rule the restore worker uses for the version it creates (v0.N → v0.N+1).
+function bumpVersion(v: string): string {
+  const m = v.match(/^v(\d+)\.(\d+)$/)
+  return m ? `v${m[1]}.${Number(m[2]) + 1}` : `${v}.1`
+}
+
+// Shown in the viewer's local time; the UTC time is on hover.
+const fmtLocal = (iso: string | null | undefined) =>
+  iso ? new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : '—'
+const fmtUtc = (iso: string | null | undefined) =>
+  iso
+    ? `${new Date(iso).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' })} UTC`
+    : '—'
+
+// How long to wait for the restore worker to create the new version before saying so.
+const RESTORE_WAIT_MS = 60_000
+
+const DEL_STYLE = { backgroundColor: '#FEE2E2', color: '#DC2626', textDecoration: 'line-through', borderRadius: 2, padding: '0 2px' } as const
+const INS_STYLE = { backgroundColor: '#DCFCE7', color: '#15803D', textDecoration: 'none', borderRadius: 2, padding: '0 2px' } as const
+
+type SectionDiff = {
+  sectionId: string
+  number: string
+  title: string
+  kind: 'changed' | 'added' | 'removed' | 'unchanged'
+  ops: DiffOp[]
+  added: number
+  removed: number
+}
+
+const sectionLabel = (number: string) => (number.startsWith('§') ? number : `§${number}`)
+
+function DiffText({ ops }: { ops: DiffOp[] }) {
   return (
-    <svg width={size} height={size} viewBox="0 0 14 14" fill="none" className="flex-none">
-      <polygon points="7,1.2 8.6,5.4 12.8,7 8.6,8.6 7,12.8 5.4,8.6 1.2,7 5.4,5.4" fill={colour} />
-    </svg>
+    <p className="mt-3 text-sm leading-[1.9] text-slate-900">
+      {ops.map((op, i) => {
+        const text = op.words.join(' ')
+        const sep = i < ops.length - 1 ? ' ' : ''
+        if (op.type === 'del') return <span key={i}><del data-diff-del style={DEL_STYLE}>{text}</del>{sep}</span>
+        if (op.type === 'ins') return <span key={i}><ins data-diff-ins style={INS_STYLE}>{text}</ins>{sep}</span>
+        return <span key={i}>{text}{sep}</span>
+      })}
+    </p>
   )
 }
 
@@ -39,17 +100,10 @@ export function DiffView() {
   const clearRestoreSelection   = useDocumentStore(s => s.clearRestoreSelection)
   const closeDiff               = useDocumentStore(s => s.closeDiff)
   const toggleDiffMode          = useDocumentStore(s => s.toggleDiffMode)
-  const setActiveSection        = useDocumentStore(s => s.setActiveSection)
+  const activeSection           = useDocumentStore(s => s.activeSection)
   const setActiveDocument       = useDocumentStore(s => s.setActiveDocument)
 
   const [reason, setReason] = useState('')
-
-  // Fallback: if user hit /diff directly, seed the compare pair from the fixture
-  useEffect(() => {
-    if (!diffVersions) toggleDiffMode('v0.3', 'v0.4')
-    setActiveSection('s11')
-    return () => { /* leave diff state so back navigation shows editor if user re-enters */ }
-  }, [diffVersions, toggleDiffMode, setActiveSection])
 
   const { data: document } = useQuery({
     queryKey: ['document', documentId],
@@ -63,11 +117,41 @@ export function DiffView() {
     enabled:  !!projectId,
   })
 
-  const { data: versions = [] } = useQuery({
+  // Restore runs in the background worker: after it is queued, the version list is polled
+  // until the new version shows up (or RESTORE_WAIT_MS passes).
+  const [restoreWait, setRestoreWait] = useState<{ sinceCount: number; startedAt: number; timedOut: boolean } | null>(null)
+
+  const { data: versions = [], isLoading: versionsLoading } = useQuery({
     queryKey: ['versions', documentId],
     queryFn:  () => documentsApi.getVersions(documentId!),
     enabled:  !!documentId,
+    refetchInterval: restoreWait && !restoreWait.timedOut ? 2_000 : false,
   })
+
+  // Real presence on this document (same snapshot the Editor shows).
+  const { data: presenceSnapshot } = usePresenceSnapshot(documentId ?? '', { pollMs: 15_000 })
+  const currentUser = useAuthStore(s => s.user)
+  const { data: platformUsers = [] } = useQuery<PlatformUser[]>({
+    queryKey: ['platform-users'],
+    queryFn:  () => platformApi.listUsers(),
+    staleTime: 60_000,
+  })
+  const usersById = useMemo(() => new Map(platformUsers.map(u => [u.id, u])), [platformUsers])
+
+  const presenceStack = useMemo(() => {
+    if (!presenceSnapshot) return []
+    const seen = new Set<string>()
+    const out: Array<{ userId: string; name: string; initials: string; isCurrentUser: boolean; color: { bg: string; fg: string } }> = []
+    for (const section of presenceSnapshot.sections) {
+      for (const user of section.users) {
+        if (user.status === 'ended' || seen.has(user.userId)) continue
+        seen.add(user.userId)
+        const name = usersById.get(user.userId)?.name ?? 'Unknown'
+        out.push({ userId: user.userId, name, initials: initialsFromName(name), isCurrentUser: currentUser?.id === user.userId, color: avatarColor(user.userId) })
+      }
+    }
+    return out
+  }, [presenceSnapshot, usersById, currentUser])
 
   useEffect(() => {
     if (project) setActiveProject(project)
@@ -80,19 +164,71 @@ export function DiffView() {
     if (document) setActiveDocument(document)
   }, [document, setActiveDocument])
 
-  const fromVersion = diffVersions?.from ?? 'v0.3'
-  const toVersion   = diffVersions?.to   ?? 'v0.4'
-
-  const fromVersionRecord = useMemo(
-    () => versions.find(v => v.versionNumber === fromVersion) ?? null,
-    [versions, fromVersion],
+  // The pair being compared. "To" is the version picked in the Editor (default: the current
+  // one); "from" is the picked older version (default: the one just before "to"). Versions
+  // come newest-first. A pair left over from another document falls back to these defaults.
+  const toRecord = useMemo(
+    () => versions.find(v => v.versionNumber === diffVersions?.to) ?? versions.find(v => v.isCurrent) ?? versions[0] ?? null,
+    [versions, diffVersions],
   )
+  const olderVersions = useMemo(() => {
+    const toIdx = toRecord ? versions.findIndex(v => v.id === toRecord.id) : -1
+    return toIdx === -1 ? [] : versions.slice(toIdx + 1)
+  }, [versions, toRecord])
+  const fromRecord = useMemo(
+    () => olderVersions.find(v => v.versionNumber === diffVersions?.from) ?? olderVersions[0] ?? null,
+    [olderVersions, diffVersions],
+  )
+  const toVersion   = toRecord?.versionNumber ?? '—'
+  const fromVersion = fromRecord?.versionNumber ?? '—'
 
-  // Version picker for the "Comparing <from> → <to>" label. Writers wanted
-  // to diff against an older version than the previous (default), e.g. v0.1
-  // vs the current v0.4. The picker lists every version strictly OLDER than
-  // the active one (toVersion), newest-first. We filter out toVersion itself
-  // so the diff can't collapse into a nothing-to-compare case.
+  const { data: fromSections, isLoading: fromLoading, isError: fromFailed } = useQuery({
+    queryKey: ['version-sections', documentId, fromRecord?.id],
+    queryFn:  () => documentsApi.getVersionSections(documentId!, fromRecord!.id),
+    enabled:  !!documentId && !!fromRecord,
+    staleTime: Infinity,   // a stored version never changes
+  })
+  const { data: toSections, isLoading: toLoading, isError: toFailed } = useQuery({
+    queryKey: ['version-sections', documentId, toRecord?.id],
+    queryFn:  () => documentsApi.getVersionSections(documentId!, toRecord!.id),
+    enabled:  !!documentId && !!toRecord,
+    staleTime: Infinity,
+  })
+
+  // Section-by-section comparison, in the "to" version's order; sections only in "from" go last.
+  const sectionDiffs = useMemo<SectionDiff[]>(() => {
+    if (!fromSections || !toSections) return []
+    const fromById = new Map(fromSections.sections.map(s => [s.sectionId, s]))
+    const toIds = new Set(toSections.sections.map(s => s.sectionId))
+    const out: SectionDiff[] = []
+    for (const s of toSections.sections) {
+      const prev = fromById.get(s.sectionId)
+      const d = wordDiff(htmlToText(prev?.contentHtml ?? ''), htmlToText(s.contentHtml))
+      const kind = !prev ? 'added' : d.added + d.removed > 0 ? 'changed' : 'unchanged'
+      out.push({ sectionId: s.sectionId, number: s.sectionNumber, title: s.sectionTitle, kind, ops: d.ops, added: d.added, removed: d.removed })
+    }
+    for (const s of fromSections.sections) {
+      if (toIds.has(s.sectionId)) continue
+      const d = wordDiff(htmlToText(s.contentHtml), '')
+      out.push({ sectionId: s.sectionId, number: s.sectionNumber, title: s.sectionTitle, kind: 'removed', ops: d.ops, added: 0, removed: d.removed })
+    }
+    return out
+  }, [fromSections, toSections])
+
+  const changedDiffs   = sectionDiffs.filter(d => d.kind !== 'unchanged')
+  const unchangedDiffs = sectionDiffs.filter(d => d.kind === 'unchanged')
+  const wordsAdded     = changedDiffs.reduce((n, d) => n + d.added, 0)
+  const wordsRemoved   = changedDiffs.reduce((n, d) => n + d.removed, 0)
+  const diffById       = useMemo(() => new Map(sectionDiffs.map(d => [d.sectionId, d])), [sectionDiffs])
+
+  // Picking a section in the navigator scrolls to its comparison.
+  const diffPaneRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!activeSection) return
+    diffPaneRef.current?.querySelector(`[data-diff-section="${CSS.escape(activeSection)}"]`)?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  }, [activeSection])
+
+  // Version picker for the "Comparing <from> → <to>" label: any version older than "to".
   const [fromMenuOpen, setFromMenuOpen] = useState(false)
   const fromMenuRef = useRef<HTMLSpanElement>(null)
   useEffect(() => {
@@ -104,49 +240,53 @@ export function DiffView() {
     return () => window.document.removeEventListener('mousedown', onDown)
   }, [fromMenuOpen])
 
-  const olderVersions = useMemo(() => {
-    const toIdx = versions.findIndex(v => v.versionNumber === toVersion)
-    // Versions are returned newest-first by the API, so "older than to"
-    // means index > toIdx. Falls back to "everything except toVersion"
-    // when toVersion isn't found (unlikely but safe).
-    return toIdx === -1
-      ? versions.filter(v => v.versionNumber !== toVersion)
-      : versions.slice(toIdx + 1)
-  }, [versions, toVersion])
+  // The restore worker builds the new version on top of the current one.
+  const currentVersionNumber = versions.find(v => v.isCurrent)?.versionNumber ?? versions[0]?.versionNumber ?? null
+  const nextVersionLabel = currentVersionNumber ? bumpVersion(currentVersionNumber) : 'a new version'
 
-  const nextVersionLabel = 'v0.5'
-  const isSelected = selectedForRestore.includes(DIFF_SECTION_ID)
+  // Only sections that exist in the "from" version and differ can be restored from it.
+  const restorable = (d: SectionDiff) => d.kind === 'changed' || d.kind === 'removed'
+  const selectedHere = selectedForRestore.filter(id => {
+    const d = diffById.get(id)
+    return !!d && restorable(d)
+  })
 
   const restoreMut = useMutation({
     mutationFn: () => documentsApi.restoreSections(documentId!, {
-      sections: selectedForRestore.map(sectionId => ({
-        sectionId,
-        fromVersionId: fromVersionRecord?.id ?? 'ver-3',
-      })),
+      sections: selectedHere.map(sectionId => ({ sectionId, fromVersionId: fromRecord!.id })),
       reason,
     }),
     onSuccess: () => {
+      setRestoreWait({ sinceCount: versions.length, startedAt: Date.now(), timedOut: false })
+    },
+  })
+
+  // The new version has appeared → open it in the Editor. No new version in time → say so.
+  useEffect(() => {
+    if (!restoreWait || restoreWait.timedOut) return
+    if (versions.length > restoreWait.sinceCount) {
+      setRestoreWait(null)
       qc.invalidateQueries({ queryKey: ['document', documentId] })
-      qc.invalidateQueries({ queryKey: ['versions', documentId] })
       clearRestoreSelection()
       closeDiff()
       setReason('')
       navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)
-    },
-  })
+      return
+    }
+    const left = restoreWait.startedAt + RESTORE_WAIT_MS - Date.now()
+    const t = window.setTimeout(() => setRestoreWait(w => (w ? { ...w, timedOut: true } : w)), Math.max(0, left))
+    return () => window.clearTimeout(t)
+  }, [versions, restoreWait, qc, documentId, projectId, navigate, clearRestoreSelection, closeDiff])
+  const restoring = restoreMut.isPending || (!!restoreWait && !restoreWait.timedOut)
 
   const handleExitDiff = () => {
     closeDiff()
     navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)
   }
 
-  const handleToggleSection = () => {
-    toggleSectionForRestore(DIFF_SECTION_ID)
-  }
-
-  const canSubmit = selectedForRestore.length > 0 && reason.trim().length > 0 && !restoreMut.isPending
-  const restoreLabelList = selectedForRestore
-    .map(id => `§${id.replace('s', '').replace('_', '.')} from ${fromVersion}`)
+  const canSubmit = !!fromRecord && selectedHere.length > 0 && reason.trim().length > 0 && !restoring
+  const restoreLabelList = selectedHere
+    .map(id => `${sectionLabel(diffById.get(id)?.number ?? id)} from ${fromVersion}`)
     .join(' · ')
 
   if (!document) {
@@ -156,6 +296,10 @@ export function DiffView() {
       </div>
     )
   }
+
+  const toAuthor = toRecord ? (usersById.get(toRecord.createdBy)?.name ?? toRecord.createdBy) : null
+  const comparing = fromLoading || toLoading || versionsLoading
+  const compareFailed = fromFailed || toFailed
 
   return (
     <div className="flex h-full flex-col" data-screen="diff-view">
@@ -184,14 +328,12 @@ export function DiffView() {
               className="flex flex-none items-center gap-2 rounded-md transition-colors hover:bg-blue-100"
               style={{ border: '1px solid #2563EB', backgroundColor: '#EFF6FF', padding: '5px 9px' }}
             >
-              <span className="font-mono text-[11px] font-medium" style={{ color: '#2563EB' }}>{toVersion} · Draft</span>
+              <span className="font-mono text-[11px] font-medium" style={{ color: '#2563EB' }}>{toVersion}{toRecord?.label ? ` · ${toRecord.label}` : ''}</span>
               <span className="text-xs font-bold" style={{ color: '#2563EB' }}>×</span>
             </button>
 
             {/* Comparing label — fromVersion is a dropdown so the writer can
-                compare against any older version, not just the previous one.
-                toVersion is fixed by the active chip (what's currently open),
-                so it stays as plain text. */}
+                compare against any older version, not just the previous one. */}
             <span className="flex items-center gap-1 whitespace-nowrap font-mono text-[11px] font-medium text-slate-500">
               Comparing
               <span className="relative" ref={fromMenuRef}>
@@ -207,29 +349,41 @@ export function DiffView() {
                 </button>
                 {fromMenuOpen && (
                   <div
-                    className="absolute left-0 top-full z-20 mt-1 w-44 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
+                    className="absolute left-0 top-full z-30 mt-1 flex w-64 flex-col overflow-hidden rounded-lg border border-slate-200 bg-white font-sans shadow-xl"
                     role="listbox"
                     data-version-picker
                   >
+                    <p className="flex-none border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
+                      Compare {toVersion} with
+                    </p>
                     {olderVersions.length === 0 && (
                       <p className="px-3 py-2 text-[11px] italic text-slate-400">No older versions yet.</p>
                     )}
-                    {olderVersions.map(v => (
-                      <button
-                        key={v.id}
-                        type="button"
-                        role="option"
-                        aria-selected={v.versionNumber === fromVersion}
-                        onClick={() => {
-                          toggleDiffMode(v.versionNumber, toVersion)
-                          setFromMenuOpen(false)
-                        }}
-                        className={`flex w-full items-center justify-between gap-2 px-3 py-1.5 text-left text-[12px] hover:bg-slate-50 ${v.versionNumber === fromVersion ? 'bg-blue-50 text-blue-700' : 'text-slate-700'}`}
-                      >
-                        <span className="font-mono font-semibold">{v.versionNumber}</span>
-                        <span className="truncate text-[10px] text-slate-500">{v.label ?? ''}</span>
-                      </button>
-                    ))}
+                    <div className="max-h-72 overflow-y-auto py-1">
+                      {olderVersions.map(v => {
+                        const selected = v.id === fromRecord?.id
+                        return (
+                          <button
+                            key={v.id}
+                            type="button"
+                            role="option"
+                            aria-selected={selected}
+                            title={fmtUtc(v.createdAt)}
+                            onClick={() => {
+                              toggleDiffMode(v.versionNumber, toVersion)
+                              setFromMenuOpen(false)
+                            }}
+                            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-slate-50 ${selected ? 'bg-blue-50' : ''}`}
+                          >
+                            <span className={`w-12 flex-none font-mono text-[12px] font-semibold ${selected ? 'text-blue-700' : 'text-slate-800'}`}>{v.versionNumber}</span>
+                            <span className="min-w-0 flex-1 truncate text-[11px] text-slate-500">{fmtLocal(v.createdAt)}</span>
+                            {v.label && (
+                              <span className="flex-none rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-600">{v.label}</span>
+                            )}
+                          </button>
+                        )
+                      })}
+                    </div>
                   </div>
                 )}
               </span>
@@ -238,33 +392,38 @@ export function DiffView() {
           </div>
 
           <div className="flex flex-none items-center gap-3.5">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500">
-              <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#16A34A' }} />
-              Autosaved 09:14 UTC
-            </div>
+            {toRecord && (
+              <div className="flex items-center gap-1.5 text-xs text-slate-500" title={fmtUtc(toRecord.createdAt)}>
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#16A34A' }} />
+                {toVersion} saved {fmtLocal(toRecord.createdAt)}
+              </div>
+            )}
 
-            <div className="flex flex-none items-center">
-              {PRESENCE_STACK.map((p, i) => (
-                <div
-                  key={p.initials}
-                  className="flex h-6 w-6 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
-                  style={{
-                    backgroundColor: p.bg,
-                    color: p.fg,
-                    boxShadow: p.isLoggedIn
-                      ? '0 0 0 2px #FFFFFF, 0 0 0 4px #2563EB'
-                      : '0 0 0 2px #FFFFFF',
-                    marginLeft: i === 0 ? 0 : -6,
-                    zIndex: PRESENCE_STACK.length - i,
-                  }}
-                >
-                  {p.initials}
-                </div>
-              ))}
-            </div>
+            {presenceStack.length > 0 && (
+              <div className="flex flex-none items-center">
+                {presenceStack.slice(0, 5).map((p, i) => (
+                  <div
+                    key={p.userId}
+                    title={p.isCurrentUser ? `${p.name} (you)` : p.name}
+                    className="flex h-6 w-6 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
+                    style={{
+                      backgroundColor: p.color.bg,
+                      color: p.color.fg,
+                      boxShadow: p.isCurrentUser ? '0 0 0 2px #FFFFFF, 0 0 0 4px #2563EB' : '0 0 0 2px #FFFFFF',
+                      marginLeft: i === 0 ? 0 : -6,
+                      zIndex: presenceStack.length - i,
+                    }}
+                  >
+                    {p.initials}
+                  </div>
+                ))}
+              </div>
+            )}
 
             <span className="h-5 w-px" style={{ backgroundColor: '#E2E8F0' }} />
-            <span className="flex-none text-xs text-slate-500">{PRESENCE_STACK.length} active</span>
+            <span className="flex-none text-xs text-slate-500">
+              {presenceStack.length === 0 ? 'Only you' : `${presenceStack.length} active`}
+            </span>
 
             <button
               type="button"
@@ -310,14 +469,12 @@ export function DiffView() {
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: '#DC2626' }} />
               <span className="text-[11px] text-slate-500">Removed</span>
             </div>
-            <div className="flex items-center gap-1.5">
-              <AISparkle size={10} colour="#2563EB" />
-              <span className="text-[11px] text-slate-500">AI-drafted</span>
-            </div>
             <div className="flex-1" />
-            <span className="whitespace-nowrap font-mono text-[11px] text-slate-500">
-              {DIFF_TOTAL_CHANGES} changes · {DIFF_CHANGE_COUNT} in §11.4.1
-            </span>
+            {!comparing && fromRecord && (
+              <span className="whitespace-nowrap font-mono text-[11px] text-slate-500" data-diff-summary>
+                {changedDiffs.length} section{changedDiffs.length === 1 ? '' : 's'} changed · +{wordsAdded} / −{wordsRemoved} words
+              </span>
+            )}
             <button
               type="button"
               onClick={handleExitDiff}
@@ -328,145 +485,92 @@ export function DiffView() {
           </div>
 
           {/* Diff content */}
-          <div className="flex-1 overflow-y-auto px-12 py-8">
+          <div ref={diffPaneRef} className="flex-1 overflow-y-auto px-12 py-8">
             <div className="flex max-w-[760px] flex-col">
-              <h2 className="text-[22px] font-bold tracking-tight">11. Efficacy Evaluation</h2>
-              <h3 className="mt-4 text-[17px] font-bold">11.4 Primary Efficacy Endpoint</h3>
-
-              {/* Section header row for §11.4.1 */}
-              <div
-                className="mt-3 flex items-center gap-3 rounded-md px-3 py-2"
-                style={{ backgroundColor: '#F0FDF4' }}
-                data-section-header={DIFF_SECTION_ID}
-              >
-                <h4 className="min-w-0 flex-1 text-[15px] font-bold text-slate-900">11.4.1 Progression-Free Survival</h4>
-                <span
-                  className="flex-none rounded font-mono text-[9px] font-medium tracking-wide text-slate-500"
-                  style={{ backgroundColor: '#F1F5F9', padding: '2px 6px' }}
-                >
-                  {DIFF_CHANGE_COUNT} changes
-                </span>
-                <button
-                  type="button"
-                  onClick={handleToggleSection}
-                  title={isSelected ? 'Deselect' : 'Select for restore'}
-                  data-restore-checkbox
-                  data-checked={isSelected || undefined}
-                  className="flex h-4 w-4 flex-none cursor-pointer items-center justify-center rounded"
-                  style={{
-                    border: `1px solid ${isSelected ? '#2563EB' : '#CBD5E1'}`,
-                    backgroundColor: isSelected ? '#2563EB' : '#FFFFFF',
-                  }}
-                >
-                  {isSelected && (
-                    <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
-                      <polyline points="2,6.4 4.6,9 10,3.2" stroke="#FFFFFF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  )}
-                </button>
-                <button
-                  type="button"
-                  onClick={handleToggleSection}
-                  data-restore-link
-                  className="flex-none whitespace-nowrap text-xs font-semibold transition-colors"
-                  style={{ color: isSelected ? '#15803D' : '#2563EB' }}
-                >
-                  {isSelected ? 'Selected for restore ✓' : `Restore ${DIFF_SECTION_LABEL.split(' ')[0]} from ${fromVersion} →`}
-                </button>
-              </div>
-
-              {/* Word-level diff paragraph */}
-              <p className="mt-3.5 text-sm leading-[1.9] text-slate-900">
-                Veloricept in combination with pembrolizumab demonstrated a{' '}
-                <del
-                  data-diff-del
-                  style={{ backgroundColor: '#FEE2E2', color: '#DC2626', textDecoration: 'line-through', borderRadius: 2, padding: '0 2px' }}
-                >
-                  significant
-                </del>{' '}
-                <ins
-                  data-diff-ins
-                  style={{ backgroundColor: '#DCFCE7', color: '#15803D', textDecoration: 'none', borderRadius: 2, padding: '0 2px' }}
-                >
-                  statistically significant
-                </ins>{' '}
-                improvement in progression-free survival (PFS) compared to placebo plus pembrolizumab.
-              </p>
-
-              {/* Added-line block WITH AI badge */}
-              <div
-                className="relative mt-3"
-                style={{
-                  borderLeft: '3px solid #16A34A',
-                  backgroundColor: '#F0FDF4',
-                  borderRadius: '0 4px 4px 0',
-                  padding: '8px 14px 8px 26px',
-                }}
-                data-diff-added-line
-                data-ai-sourced
-              >
-                <span
-                  className="absolute font-mono font-medium"
-                  style={{ left: 8, top: 8, fontSize: 11, color: '#16A34A' }}
-                >
-                  +
-                </span>
-                <p className="text-sm leading-[1.8] text-slate-900" style={{ paddingRight: 44 }}>
-                  Median PFS was 14.2 months versus 8.7 months (HR 0.61; 95% CI 0.48–0.77; p&lt;0.0001), consistent with the pre-specified primary analysis outlined in the Statistical Analysis Plan (SAP v2.0, Section 6.3).
+              {!versionsLoading && !fromRecord && (
+                <p className="text-sm text-slate-500" data-diff-empty>
+                  {toRecord ? `${toVersion} is the only version of this document, so there is nothing to compare yet.` : 'This document has no saved versions yet.'}
                 </p>
-                <span
-                  className="absolute font-mono font-medium"
-                  data-ai-badge
-                  style={{
-                    top: 8, right: 10, fontSize: 9, color: '#1D4ED8', backgroundColor: '#DBEAFE',
-                    borderRadius: 4, padding: '2px 6px',
-                  }}
-                >
-                  AI
-                </span>
-              </div>
+              )}
+              {fromRecord && comparing && <p className="font-mono text-sm text-slate-400">Comparing {fromVersion} → {toVersion}…</p>}
+              {fromRecord && compareFailed && <p className="text-sm text-red-700">Could not load the versions to compare. Try again.</p>}
 
-              {/* Added-line block WITHOUT AI badge */}
-              <div
-                className="relative mt-3"
-                style={{
-                  borderLeft: '3px solid #16A34A',
-                  backgroundColor: '#F0FDF4',
-                  borderRadius: '0 4px 4px 0',
-                  padding: '8px 14px 8px 26px',
-                }}
-                data-diff-added-line
-              >
-                <span
-                  className="absolute font-mono font-medium"
-                  style={{ left: 8, top: 8, fontSize: 11, color: '#16A34A' }}
-                >
-                  +
-                </span>
-                <p className="text-sm leading-[1.8] text-slate-900">
-                  The Kaplan–Meier curves for PFS demonstrated early and sustained separation between treatment arms from Week 8 onwards, with the separation widening through to the data cut-off date of 30 September 2024.
-                </p>
-              </div>
+              {fromRecord && !comparing && !compareFailed && changedDiffs.length === 0 && (
+                <p className="text-sm text-slate-500" data-diff-empty>No differences between {fromVersion} and {toVersion}.</p>
+              )}
 
-              {/* Dimmed unchanged sections */}
-              <div
-                className="mt-7 flex flex-col gap-2.5"
-                style={{ opacity: 0.4 }}
-                data-diff-unchanged
-              >
-                <h4 className="text-[15px] font-bold text-slate-500">11.4.2 Overall Response Rate</h4>
-                <div className="h-2.5 w-full rounded-[5px] bg-slate-200" />
-                <div className="h-2.5 w-[94%] rounded-[5px] bg-slate-200" />
-                <div className="h-2.5 w-[88%] rounded-[5px] bg-slate-200" />
-                <p className="text-xs text-slate-500">
-                  Unchanged sections are dimmed — 14 further changes in §9, §12 and §16.
-                </p>
-              </div>
+              {!comparing && !compareFailed && changedDiffs.map((d, idx) => {
+                const isSelected = selectedForRestore.includes(d.sectionId)
+                const canRestore = restorable(d)
+                return (
+                  <div key={d.sectionId} className={idx === 0 ? '' : 'mt-7'} data-diff-section={d.sectionId}>
+                    <div className="flex items-center gap-3 rounded-md px-3 py-2" style={{ backgroundColor: d.kind === 'removed' ? '#FEF2F2' : '#F0FDF4' }}>
+                      <h4 className="min-w-0 flex-1 text-[15px] font-bold text-slate-900">
+                        {sectionLabel(d.number)} {d.title}
+                      </h4>
+                      <span
+                        className="flex-none rounded font-mono text-[9px] font-medium tracking-wide text-slate-500"
+                        style={{ backgroundColor: '#F1F5F9', padding: '2px 6px' }}
+                      >
+                        {d.kind === 'added' ? `new in ${toVersion}` : d.kind === 'removed' ? `removed in ${toVersion}` : `+${d.added} / −${d.removed} words`}
+                      </span>
+                      {canRestore && (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => toggleSectionForRestore(d.sectionId)}
+                            title={isSelected ? 'Deselect' : 'Select for restore'}
+                            data-restore-checkbox
+                            data-checked={isSelected || undefined}
+                            className="flex h-4 w-4 flex-none cursor-pointer items-center justify-center rounded"
+                            style={{
+                              border: `1px solid ${isSelected ? '#2563EB' : '#CBD5E1'}`,
+                              backgroundColor: isSelected ? '#2563EB' : '#FFFFFF',
+                            }}
+                          >
+                            {isSelected && (
+                              <svg width="10" height="10" viewBox="0 0 12 12" fill="none">
+                                <polyline points="2,6.4 4.6,9 10,3.2" stroke="#FFFFFF" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+                              </svg>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => toggleSectionForRestore(d.sectionId)}
+                            data-restore-link
+                            className="flex-none whitespace-nowrap text-xs font-semibold transition-colors"
+                            style={{ color: isSelected ? '#15803D' : '#2563EB' }}
+                          >
+                            {isSelected ? 'Selected for restore ✓' : `Restore ${sectionLabel(d.number)} from ${fromVersion} →`}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                    {d.ops.length === 0
+                      ? <p className="mt-3 text-sm italic text-slate-400">(empty)</p>
+                      : <DiffText ops={d.ops} />}
+                  </div>
+                )
+              })}
+
+              {/* Unchanged sections, dimmed */}
+              {!comparing && !compareFailed && unchangedDiffs.length > 0 && (
+                <div className="mt-7 flex flex-col gap-1" style={{ opacity: 0.5 }} data-diff-unchanged>
+                  <p className="text-xs font-semibold text-slate-500">
+                    {unchangedDiffs.length} unchanged section{unchangedDiffs.length === 1 ? '' : 's'}
+                  </p>
+                  {unchangedDiffs.map(d => (
+                    <p key={d.sectionId} className="text-[13px] text-slate-500" data-diff-section={d.sectionId}>
+                      {sectionLabel(d.number)} {d.title}
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 
           {/* Sticky restore bar */}
-          {selectedForRestore.length > 0 && (
+          {selectedHere.length > 0 && (
             <div
               className="flex flex-none flex-col bg-white"
               style={{
@@ -477,7 +581,7 @@ export function DiffView() {
             >
               <div className="flex h-14 flex-none items-center gap-3 px-7">
                 <p className="whitespace-nowrap text-[13px] font-bold text-slate-900">
-                  {selectedForRestore.length} section{selectedForRestore.length === 1 ? '' : 's'} selected for restore
+                  {selectedHere.length} section{selectedHere.length === 1 ? '' : 's'} selected for restore
                 </p>
                 <p className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] font-medium text-slate-500">
                   {restoreLabelList}
@@ -496,8 +600,9 @@ export function DiffView() {
                 </div>
                 <button
                   type="button"
-                  onClick={() => { clearRestoreSelection(); setReason('') }}
-                  className="flex-none rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-100 transition-colors"
+                  onClick={() => { clearRestoreSelection(); setReason(''); setRestoreWait(null) }}
+                  disabled={restoring}
+                  className="flex-none disabled:opacity-50 rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-100 transition-colors"
                 >
                   Cancel
                 </button>
@@ -505,18 +610,33 @@ export function DiffView() {
                   type="button"
                   onClick={() => restoreMut.mutate()}
                   disabled={!canSubmit}
+                  title={!reason.trim() ? 'Enter a reason for the restore first' : undefined}
                   className="flex-none whitespace-nowrap rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                   data-restore-submit
                 >
-                  {restoreMut.isPending ? 'Creating…' : `Create ${nextVersionLabel} from selected sections →`}
+                  {restoring ? `Creating ${nextVersionLabel}…` : `Create ${nextVersionLabel} from selected sections →`}
                 </button>
               </div>
-              <p
-                className="px-7 pb-2.5 text-center font-mono text-[11px] italic leading-relaxed text-slate-500"
-                data-restore-note
-              >
-                {fromVersion} and {toVersion} remain permanently in version history. A new {nextVersionLabel} will be created.
-              </p>
+              {restoreMut.isError ? (
+                <p className="px-7 pb-2.5 text-center text-[12px] font-semibold text-red-700" data-restore-note>
+                  Could not start the restore: {(restoreMut.error as { body?: { message?: string; error?: string } } | null)?.body?.message ?? (restoreMut.error as { body?: { error?: string } } | null)?.body?.error ?? (restoreMut.error as Error | null)?.message ?? 'unknown error'}
+                </p>
+              ) : restoreWait?.timedOut ? (
+                <p className="px-7 pb-2.5 text-center text-[12px] font-semibold text-amber-700" data-restore-note>
+                  The restore is queued, but {nextVersionLabel} hasn't been created yet — the background worker may not be running. It will appear in the version list once the worker processes it.
+                </p>
+              ) : (
+                <p
+                  className="px-7 pb-2.5 text-center font-mono text-[11px] italic leading-relaxed text-slate-500"
+                  data-restore-note
+                >
+                  {restoring
+                    ? `Restore queued — waiting for ${nextVersionLabel} to be created…`
+                    : !reason.trim()
+                      ? `Enter a reason to continue. ${fromVersion} and ${toVersion} remain permanently in version history.`
+                      : `${fromVersion} and ${toVersion} remain permanently in version history. A new ${nextVersionLabel} will be created.`}
+                </p>
+              )}
             </div>
           )}
 
@@ -525,7 +645,9 @@ export function DiffView() {
             className="flex h-10 flex-none items-center overflow-hidden truncate whitespace-nowrap border-t border-slate-200 px-5 text-xs text-slate-500"
             style={{ backgroundColor: '#F8FAFC' }}
           >
-            Diff: {fromVersion} → {toVersion} · §11.4.1 · {DIFF_CHANGE_COUNT} changes · Last edited Marcus Webb · 22 Oct 2024 09:14 UTC
+            Diff: {fromVersion} → {toVersion}
+            {fromRecord && !comparing && ` · ${changedDiffs.length} section${changedDiffs.length === 1 ? '' : 's'} changed`}
+            {toRecord && <span title={fmtUtc(toRecord.createdAt)}>&nbsp;· {toVersion} created by {toAuthor} · {fmtLocal(toRecord.createdAt)}</span>}
           </div>
         </div>
       </div>

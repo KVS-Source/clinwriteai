@@ -165,6 +165,42 @@ describe('GET /documents/:id/audit — date range', () => {
   })
 })
 
+describe('GET /documents/:id/audit — section scope', () => {
+  // 1,200 document-level entries (opens, presence) with a few §2 entries spread through them.
+  async function withSectionEntries() {
+    const app = await buildApp({ events: 1_200 })
+    const audit = (app as unknown as { audit: InMemoryAuditRepository }).audit
+    const add = (action: string, details: Record<string, unknown>) => audit.append({
+      timestamp: new Date().toISOString(), actorId: 'user-a', action, entityType: 'document', entityId: DOC, details, ipAddress: null,
+    })
+    await add('section_edited', { sectionId: 'sec-2', before: 'a', after: 'b' })
+    await add('comment_added', { sectionRef: '§2' })
+    await add('section_edited', { sectionId: 'sec-3', before: 'a', after: 'b' })
+    await add('ai_draft_accepted', { sectionId: 'sec-2', aiModel: 'm' })
+    return app
+  }
+
+  it("counts and returns only the section's own entries, not the document-level ones", async () => {
+    const app = await withSectionEntries()
+    const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/audit?limit=100&offset=0&sectionId=sec-2&sectionNumber=2` })).json()
+    expect(body.total).toBe(3)
+    expect(body.entries.map((e: { action: string }) => e.action)).toEqual(['ai_draft_accepted', 'comment_added', 'section_edited'])
+  })
+
+  it('pages within the section', async () => {
+    const app = await withSectionEntries()
+    const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/audit?limit=2&offset=2&sectionId=sec-2&sectionNumber=2` })).json()
+    expect(body.total).toBe(3)
+    expect(body.entries.map((e: { action: string }) => e.action)).toEqual(['section_edited'])
+  })
+
+  it('returns an empty list with a zero total for a section with no entries', async () => {
+    const app = await withSectionEntries()
+    const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/audit?sectionId=toc&sectionNumber=TOC` })).json()
+    expect(body).toMatchObject({ entries: [], total: 0 })
+  })
+})
+
 describe('GET /documents/:id/audit — "AI suggestion requested" entries', () => {
   async function withAiEntry(details: Record<string, unknown>) {
     const audit = new InMemoryAuditRepository('test-audit-secret-32-bytes-long-for-vitest')

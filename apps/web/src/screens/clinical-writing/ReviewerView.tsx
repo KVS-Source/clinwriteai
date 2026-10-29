@@ -89,8 +89,6 @@ export function ReviewerView() {
   const [severity,        setSeverity]        = useState<CommentSeverity>('minor')
   const [flagged,         setFlagged]         = useState(false)
   const [composerOpen,    setComposerOpen]    = useState(true)
-  const [returningReason, setReturningReason] = useState<string | null>(null)
-  const [returnText,      setReturnText]      = useState('')
   const [approveNote,     setApproveNote]     = useState<string | null>(null)
 
   const { data: document } = useQuery({
@@ -221,13 +219,12 @@ export function ReviewerView() {
   const requestChangesMut = useMutation({
     mutationFn: () => documentsApi.addComment(documentId!, {
       sectionRef: sectionRefFor(activeSection),
-      text:       returnText,
+      text:       '',
       severity:   'major',
       verdict:    'request_changes',
     }),
     onSuccess: () => {
-      setReturningReason(null)
-      setReturnText('')
+      setApproveNote(`Section returned for revision: ${sectionRefFor(activeSection)}`)
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
     },
   })
@@ -240,15 +237,7 @@ export function ReviewerView() {
   }
 
   const handleReturnForRevision = () => {
-    if (verdictBlockedReason) return
-    if (returningReason === null) {
-      setReturningReason('')
-      return
-    }
-    if (!returnText.trim()) {
-      setReturningReason('Reason is required')
-      return
-    }
+    if (!documentId || verdictBlockedReason) return
     requestChangesMut.mutate()
   }
 
@@ -358,7 +347,7 @@ export function ReviewerView() {
               className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
             >
-              Return for revision
+              {requestChangesMut.isPending ? 'Returning…' : 'Return for revision'}
             </button>
             {/* Review → Comments Resolution Meeting (PRD stage 5). */}
             {(document.status === 'in-review' || document.status === 'crm-in-progress') && (
@@ -427,35 +416,6 @@ export function ReviewerView() {
           Could not post return comment: {(requestChangesMut.error as { body?: { message?: string } } | null)?.body?.message ?? (requestChangesMut.error as Error | null)?.message ?? 'see console for details.'}
         </div>
       )}
-      {returningReason !== null && (
-        <div className="flex flex-none flex-col gap-2 border-b border-slate-200 px-6 py-3" style={{ backgroundColor: '#FFFBEB' }}>
-          <label className="text-[12px] font-semibold" style={{ color: '#B45309' }}>Reason for return (required)</label>
-          <input
-            type="text"
-            value={returnText}
-            onChange={e => { setReturnText(e.target.value); if (returningReason && returningReason !== '') setReturningReason('') }}
-            placeholder="Explain what needs revision"
-            className="h-8 rounded border px-2 text-[12px] outline-none focus:border-blue-600 focus:shadow-focus"
-            style={{ borderColor: '#E2E8F0' }}
-            autoFocus
-          />
-          {returningReason && (
-            <p className="text-[11px] font-semibold" style={{ color: '#DC2626' }}>{returningReason}</p>
-          )}
-          <div className="flex gap-2">
-            <button onClick={() => { setReturningReason(null); setReturnText('') }} className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold">Cancel</button>
-            <button
-              onClick={handleReturnForRevision}
-              disabled={requestChangesMut.isPending}
-              className="rounded px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
-              style={{ backgroundColor: '#B45309' }}
-            >
-              {requestChangesMut.isPending ? 'Posting…' : 'Confirm return'}
-            </button>
-          </div>
-        </div>
-      )}
-
       {/* ============ Three-panel row ============ */}
       <div className="flex flex-1 min-h-0">
 

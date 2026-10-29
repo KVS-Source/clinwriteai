@@ -237,8 +237,12 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
   // The trail is loaded a page at a time, newest first; "Load more" fetches the next page.
   // A From that is after the To isn't sent — the list keeps showing the last valid range.
   const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
-    queryKey: ['audit', documentId, 'pages', fromIso ?? null, toIso ?? null],
-    queryFn:  ({ pageParam }) => documentsApi.getAuditTrail(documentId, { limit: PAGE_SIZE, offset: pageParam, from: fromIso, to: toIso }),
+    // Section scope is applied by the API, so the total and "Load more" count only that section.
+    queryKey: ['audit', documentId, 'pages', fromIso ?? null, toIso ?? null, scopeSection?.id ?? null],
+    queryFn:  ({ pageParam }) => documentsApi.getAuditTrail(documentId, {
+      limit: PAGE_SIZE, offset: pageParam, from: fromIso, to: toIso,
+      sectionId: scopeSection?.id, sectionNumber: scopeSection?.number,
+    }),
     initialPageParam: 0,
     getNextPageParam: (last, all) => {
       const loaded = all.reduce((n, p) => n + p.entries.length, 0)
@@ -366,7 +370,8 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
         {!isLoading && filtered.length === 0 && (
           <div className="p-8 text-center">
             <p className="text-sm font-semibold text-slate-900">
-              {scopeSection ? 'No events for this section'
+              {scopeSection
+                ? `No events for this section${rangeActive ? ' in this date range' : ''}`
                 : rangeActive && entries.length === 0 ? 'No events in this date range'
                 : 'No matching events'}{hasNextPage ? ' in the entries loaded so far' : ''}
             </p>
@@ -450,8 +455,8 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <p className="text-xs text-slate-500">
               {filter === 'all'
-                ? `Showing ${entries.length} of ${total} entries`
-                : `${filtered.length} match in the ${entries.length} loaded (${total} entries in total)`}
+                ? `Showing ${entries.length} of ${total} entries${scopeSection ? ' for this section' : ''}`
+                : `${filtered.length} match in the ${entries.length} loaded (${total} entries${scopeSection ? ' for this section' : ''} in total)`}
             </p>
             <button
               type="button"
@@ -474,7 +479,7 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
           </div>
         )}
         {!isLoading && !hasNextPage && (filter === 'all' || total <= filtered.length) && filtered.length > 0 && (
-          <p className="px-4 py-3 text-xs text-slate-500">Showing all {filtered.length} entries{rangeActive ? ' in this date range' : ''}</p>
+          <p className="px-4 py-3 text-xs text-slate-500">Showing all {filtered.length} entries{scopeSection ? ' for this section' : ''}{rangeActive ? ' in this date range' : ''}</p>
         )}
       </div>
 

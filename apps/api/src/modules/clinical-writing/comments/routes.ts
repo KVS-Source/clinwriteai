@@ -25,7 +25,26 @@ const auditPageQuery = z.object({
   // Optional date-time range (ISO 8601 with Z or an offset); omitted = whole history.
   from:   z.string().datetime({ offset: true }).optional(),
   to:     z.string().datetime({ offset: true }).optional(),
+  // Optional section scope: the section key (edits, AI, references) and its number
+  // (comments record "§n"). Entries without a section are document-level and left out.
+  sectionId:     z.string().min(1).optional(),
+  sectionNumber: z.string().min(1).optional(),
 })
+
+// '§1' / '1' / '§ 1' → '1', so comment sectionRefs match the section number either way.
+const normSectionRef = (v: string) => v.replace(/^§\s*/, '').trim().toLowerCase()
+
+// Does this audit row belong to the section? Same rule as the panel's section scope.
+function rowInSection(details: unknown, sectionId: string | undefined, sectionNumber: string | undefined): boolean {
+  const d = (details ?? {}) as Record<string, unknown>
+  if (typeof d.sectionId === 'string') return d.sectionId === sectionId
+  if (typeof d.sectionRef === 'string' && sectionNumber) {
+    const ref = normSectionRef(d.sectionRef)
+    const num = normSectionRef(sectionNumber)
+    return ref === num || ref.startsWith(`${num} `)
+  }
+  return false
+}
 // CSV / PDF export: newest events up to this many, fetched in pages.
 const EXPORT_ENTRY_CAP = 10_000
 const EXPORT_PAGE_SIZE = 1_000
@@ -334,9 +353,26 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
     const parsedPage = auditPageQuery.safeParse(request.query)
     if (!parsedPage.success) return reply.code(400).send({ error: 'validation', issues: parsedPage.error.issues })
-    const { limit, offset, from, to } = parsedPage.data
+    const { limit, offset, from, to, sectionId, sectionNumber } = parsedPage.data
     if (from && to && Date.parse(from) > Date.parse(to)) {
       return reply.code(400).send({ error: 'validation', message: '"from" is after "to"' })
+    }
+
+    // Section scope: the section is recorded inside each entry's details, so read the
+    // document's entries in the range (newest first, up to the export cap) and keep the
+    // section's own. Total and paging then count only that section.
+    if (sectionId || sectionNumber) {
+      const matched: StoredAuditEvent[] = []
+      let scanned = 0
+      while (scanned < EXPORT_ENTRY_CAP) {
+        const batch = await app.audit.pageForEntity('document', documentId, {
+          limit: Math.min(EXPORT_PAGE_SIZE, EXPORT_ENTRY_CAP - scanned), offset: scanned, from, to,
+        })
+        scanned += batch.rows.length
+        matched.push(...batch.rows.filter(r => rowInSection(r.details, sectionId, sectionNumber)))
+        if (batch.rows.length === 0 || scanned >= batch.total) break
+      }
+      return { entries: await shapeAuditRows(matched.slice(offset, offset + limit)), total: matched.length, limit, offset }
     }
 
     // Newest first, with the TRUE total so the panel can page through the rest.

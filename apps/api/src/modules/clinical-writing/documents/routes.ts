@@ -493,6 +493,20 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
+  // One version's sections as stored — the Version Diff compares two of these. Read-only.
+  app.get('/:documentId/versions/:versionId/sections', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, versionId } = request.params as { documentId: string; versionId: string }
+    const version = await app.prisma.documentVersion.findFirst({
+      where:  { id: versionId, documentId },
+      select: { id: true, versionNumber: true, sections: {
+        select:  { sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true },
+        orderBy: { sectionId: 'asc' },
+      } },
+    })
+    if (!version) return reply.code(404).send({ error: 'not_found' })
+    return version
+  })
+
   app.post('/:documentId/restore', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = restoreSchema.safeParse(request.body)

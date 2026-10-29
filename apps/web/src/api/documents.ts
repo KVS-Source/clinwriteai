@@ -154,6 +154,13 @@ export const documentsApi = {
   // Versions
   getVersions: (documentId: string) =>
     api.get<DocumentVersion[]>(`/documents/${documentId}/versions`),
+  // One version's sections as stored (Version Diff compares two of these).
+  getVersionSections: (documentId: string, versionId: string) =>
+    api.get<{
+      id: string
+      versionNumber: string
+      sections: Array<{ sectionId: string; sectionNumber: string; sectionTitle: string; contentHtml: string }>
+    }>(`/documents/${documentId}/versions/${versionId}/sections`),
   // Explicit "Create new version" — snapshots the current section set into a
   // brand-new DocumentVersion row. Normal section saves mutate in place; this
   // is one of the three sanctioned triggers for a new version (the others are
@@ -313,10 +320,11 @@ export const documentsApi = {
     }),
   // Audit
   // Newest first. Without `page` the server returns up to its default page.
-  // `from` / `to` (ISO instants) narrow it to a date-time range.
-  getAuditTrail: (documentId: string, page?: { limit: number; offset: number; from?: string; to?: string }) => {
+  // `from` / `to` (ISO instants) narrow it to a date-time range; `sectionId` /
+  // `sectionNumber` to one section's entries (total and paging count only those).
+  getAuditTrail: (documentId: string, page?: { limit: number; offset: number; from?: string; to?: string; sectionId?: string; sectionNumber?: string }) => {
     const qs = page
-      ? new URLSearchParams(Object.entries({ limit: page.limit, offset: page.offset, from: page.from, to: page.to })
+      ? new URLSearchParams(Object.entries({ limit: page.limit, offset: page.offset, from: page.from, to: page.to, sectionId: page.sectionId, sectionNumber: page.sectionNumber })
           .filter(([, v]) => v !== undefined && v !== '')
           .map(([k, v]) => [k, String(v)])).toString()
       : ''

@@ -336,6 +336,9 @@ describe('isPreviewable', () => {
     for (const t of ['image/svg+xml', 'text/html', 'application/vnd.ms-excel', 'application/octet-stream', 'application/msword']) expect(isPreviewable(t)).toBe(false)
     // a generic type is accepted only for a text extension
     expect(isPreviewable('application/vnd.ms-excel', 'TEAE.CSV')).toBe(true)
+    expect(isPreviewable('application/x-csv', 'TEAE (8) (4).csv')).toBe(true)
+    expect(isPreviewable('', 'notes.txt')).toBe(true)
+    expect(isPreviewable('text/html', 'page.csv')).toBe(false)
     expect(isPreviewable('application/octet-stream', 'run.exe')).toBe(false)
   })
 })

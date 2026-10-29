@@ -74,15 +74,17 @@ const TEXT_EXTS = ['.txt', '.csv', '.md', '.json'] as const
 const baseType = (contentType: string) => contentType.toLowerCase().split(';')[0]!.trim()
 
 export type PreviewKind = 'binary' | 'docx' | 'text'
-// The file name is only a fallback for text files that browsers/OSes label with a generic type
-// (e.g. a CSV uploaded as application/vnd.ms-excel or octet-stream).
+// The file name is only a fallback for text files that browsers/OSes label with an odd type
+// (a CSV arrives as application/vnd.ms-excel, application/x-csv, octet-stream, empty, …). It never
+// overrides a type we already know is something else, and the bytes are served as inert text/plain.
 export function previewKind(contentType: string, fileName?: string): PreviewKind | null {
   const t = baseType(contentType)
   if ((PREVIEW_TYPES as readonly string[]).includes(t)) return 'binary'
   if (t === DOCX_TYPE) return 'docx'
   if ((TEXT_TYPES as readonly string[]).includes(t)) return 'text'
   const name = fileName?.toLowerCase() ?? ''
-  if (['application/vnd.ms-excel', 'application/octet-stream'].includes(t) && TEXT_EXTS.some(e => name.endsWith(e))) return 'text'
+  const knownOther = t.startsWith('image/') || t.startsWith('video/') || t.startsWith('audio/') || t.includes('html') || t.includes('xml') || t.startsWith('application/vnd.openxmlformats') || t === 'application/msword' || t === 'application/pdf'
+  if (!knownOther && TEXT_EXTS.some(e => name.endsWith(e))) return 'text'
   return null
 }
 export const isPreviewable = (contentType: string, fileName?: string) => previewKind(contentType, fileName) !== null

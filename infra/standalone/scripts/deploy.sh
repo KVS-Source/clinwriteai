@@ -83,7 +83,13 @@ fi
 MISSING_MAPS=()
 while IFS= read -r col; do
   [[ -z "${col}" ]] && continue
-  if ! grep -q "\"${col}\"" "${CLIENT_JS}"; then
+  # Fixed-string whole-word match — Prisma 5+ serializes the DMMF with
+  # escaped quotes (\"legacy_role\"), so grepping for the literal
+  # "legacy_role" (with surrounding quotes) misses every target. Plain
+  # word match catches the dbName string regardless of surrounding
+  # escaping. '_' counts as a word char under GNU grep, so partial
+  # matches like legacy_role_old don't false-pass.
+  if ! grep -qwF "${col}" "${CLIENT_JS}"; then
     MISSING_MAPS+=("${col}")
   fi
 done < <(grep -hoE '@@?map\("[^"]+"\)' "${SCHEMA_DIR}"/*.prisma 2>/dev/null \

@@ -19,12 +19,15 @@ interface Props {
   stageLabel: string
   assigneeName: string
   onClose: () => void
-  // panel? — optional right-rail mode to open the editor on (e.g. 'raci' to
-  // land the user straight in the RACI editor). Omitted → default view.
-  onOpen: (documentId: string, panel?: string) => void
+  // Open the full Document Editor for this document.
+  onOpen: (documentId: string) => void
+  // Open the RACI matrix for this document as a focused drawer, with no
+  // Document Editor behind it. Parent owns the drawer state. Omit this
+  // prop to hide the RACI button entirely.
+  onOpenRaci?: (documentId: string) => void
 }
 
-export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, assigneeName, onClose, onOpen }: Props) {
+export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, assigneeName, onClose, onOpen, onOpenRaci }: Props) {
   const [viewError, setViewError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState<string | null>(null)
   // The source shown inside the panel (PDF / image) instead of the document's details
@@ -205,14 +208,13 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                   <EyeIcon /> Open
                 </button>
                 {/* R-only RACI shortcut per the role shift (docs/roles-and-permissions.md §5a).
-                    Opens the document editor straight on the RACI panel so the lead R / co-Rs
-                    can assign reviewers, approvers, QC and guests without hunting through
-                    the editor rail. Hidden on signed docs since the panel renders read-only
-                    anyway and the entry point should match. */}
-                {doc.status !== 'signed' && (
+                    Opens the RACI matrix in a focused drawer owned by the parent screen —
+                    no Document Editor loaded behind it. Hidden on signed docs since the
+                    matrix is read-only once the chain closes. */}
+                {doc.status !== 'signed' && onOpenRaci && (
                   <button
                     type="button"
-                    onClick={() => onOpen(doc.id, 'raci')}
+                    onClick={() => onOpenRaci(doc.id)}
                     className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
                     data-action="open-raci"
                     title="Open RACI assignments for this document"

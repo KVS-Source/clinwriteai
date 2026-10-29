@@ -24,6 +24,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { seedChecklistBaseline } from './seeds/checklist-baseline.js'
+import { seedDocumentTemplates } from './seeds/document-templates.js'
 
 const prisma = new PrismaClient()
 const __filename = fileURLToPath(import.meta.url)
@@ -1700,6 +1701,20 @@ async function seedSlideDeck() {
     `   ${baselineReport.templatesTouched} templates (${baselineReport.templatesCreated} new) · `
     + `${baselineReport.itemsCreated} items created, ${baselineReport.itemsPreserved} preserved`,
   )
+
+  // --------------------------------------------------------------
+  // Document templates — section skeleton + source-category rules
+  // per Clinical Writing deliverable type. Powers the New Document
+  // wizard (type dropdown + step-2 source filter) and the document
+  // create route's initial section population.
+  // --------------------------------------------------------------
+  console.log('→ Seeding document templates...')
+  const templateReport = await seedDocumentTemplates(prisma, baselineActor?.id ?? 'system')
+  console.log(
+    `   ${templateReport.inserted} inserted · ${templateReport.skipped} already present`
+    + (templateReport.errors.length > 0 ? ` · ${templateReport.errors.length} errors` : ''),
+  )
+  for (const e of templateReport.errors) console.warn(`   ! ${e.type}: ${e.error}`)
 
   // --------------------------------------------------------------
   // TLF package — one validated T/L/F set for VELORA-301 so the

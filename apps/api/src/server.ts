@@ -231,6 +231,13 @@ async function buildServer() {
   await app.register(documentsProjectScopedRoutes, { prefix: '/projects' })
   await app.register(documentsRoutes, { prefix: '/documents' })
 
+  // Document templates — section skeleton + source-category rules per
+  // deliverable type. Powers the New Document wizard; mutations deferred
+  // to the Admin edit screen (seeded on deploy for now).
+  const { documentTemplatesRoutes } =
+    await import('./modules/clinical-writing/document-templates/routes.js')
+  await app.register(documentTemplatesRoutes, { prefix: '/document-templates' })
+
   const { documentsUploadRoutes } = await import('./modules/clinical-writing/documents/upload-routes.js')
   await app.register(documentsUploadRoutes, { prefix: '/projects' })
   const { documentsSourceRoutes } = await import('./modules/clinical-writing/documents/source-routes.js')

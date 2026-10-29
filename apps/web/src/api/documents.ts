@@ -542,4 +542,28 @@ export const documentsApi = {
     api.get<{ cadenceDays: number; lastReviewedAt: string | null; nextDueAt: string; isOverdue: boolean; daysOverdue: number }>(`/documents/${documentId}/qa-review`),
   logQAReview: (documentId: string, body: { reviewedBy: string; notes?: string }) =>
     api.post<{ auditEntryId: string; nextDueAt: string }>(`/documents/${documentId}/qa-review`, body),
+
+  // Document templates — section skeleton + source-category rules per
+  // deliverable type. Powers the New Document wizard.
+  listTemplates: () =>
+    api.get<DocumentTemplate[]>('/document-templates'),
+}
+
+export interface DocumentTemplateSection {
+  id:      string
+  number:  string
+  title:   string
+  usOnly?: boolean
+}
+
+export interface DocumentTemplate {
+  id:                       string
+  type:                     string
+  label:                    string
+  description:              string
+  framework:                string
+  sections:                 DocumentTemplateSection[]
+  requiredSourceCategories: string[]
+  version:                  number
+  updatedAt:                string
 }

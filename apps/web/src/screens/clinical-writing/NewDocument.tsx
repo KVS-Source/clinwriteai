@@ -12,19 +12,28 @@
 //   3. Details              — title, assignee, target date, description.
 //                             "Create document" at the end.
 //
-// M2+ will swap the hardcoded SOURCE_CATEGORIES_BY_DOC_TYPE map for a
-// DocumentTemplate DB row and add a 4th step for AI drafting opt-in.
+// M2 (this file): the type dropdown + its source-category filter now
+// come from GET /document-templates (DocumentTemplate DB rows seeded
+// per migration 53). The hardcoded DOC_TYPES_FALLBACK + the hardcoded
+// SOURCE_CATEGORIES_BY_DOC_TYPE map are retained ONLY as a graceful
+// degradation when the API call is in flight or fails, so the wizard
+// still renders without a stall.
+//
+// M3+ will add a 4th step for AI drafting opt-in.
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BestPractice, CreateDocumentBody, DocumentType, PlatformUser } from '@platform/types'
-import { documentsApi } from '../../api'
+import { documentsApi, type DocumentTemplate } from '../../api'
 import { ApiError } from '../../api/client'
 import { platformApi } from '../../platform/api/platformApi'
 import { sourceCategoryLabel } from '../../utils/sourceCategories'
 import { sourceCategoriesForDocType } from '../../utils/documentTypeSourceCategories'
 
-const DOC_TYPES: { value: DocumentType; label: string; description: string }[] = [
+// Fallback used only when /document-templates hasn't responded yet or
+// errors out. Keep in sync with apps/api/prisma/seeds/document-templates.ts
+// so dev-with-mocks + offline builds still show the right 10 types.
+const DOC_TYPES_FALLBACK: { value: DocumentType; label: string; description: string }[] = [
   { value: 'csr-full',             label: 'CSR (Full)',             description: 'Full Clinical Study Report — ICH E3 structure.' },
   { value: 'csr-synopsis',         label: 'CSR Synopsis',           description: 'Study report synopsis for regulatory submission.' },
   { value: 'protocol',             label: 'Protocol',               description: 'Study protocol — ICH E6(R3) GCP compliance.' },
@@ -84,6 +93,26 @@ export function NewDocumentForm({
   const [sourceIds,            setSourceIds]            = useState<string[]>(initialSourceIds ?? [])
   const [showAllCategories,    setShowAllCategories]    = useState(false)
 
+  // Document templates — DB-backed section skeleton + source-category
+  // rules per type. Drives both the step-1 dropdown and the step-2
+  // category filter so adding a new deliverable type is a seed-row
+  // change, not a code change.
+  const { data: dbTemplates = [] } = useQuery<DocumentTemplate[]>({
+    queryKey: ['document-templates'],
+    queryFn:  () => documentsApi.listTemplates(),
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+
+  // Dropdown options: prefer DB-fetched templates; fall back to the
+  // hardcoded list while the fetch is in flight or if it 403/errors.
+  const docTypeOptions = useMemo(() => {
+    if (dbTemplates.length > 0) {
+      return dbTemplates.map(t => ({ value: t.type as DocumentType, label: t.label, description: t.description }))
+    }
+    return DOC_TYPES_FALLBACK
+  }, [dbTemplates])
+
   // Saved source documents in this project's library (evidence the document is written from).
   const { data: sourcePage, refetch: refetchSources } = useQuery({
     queryKey: ['source-documents', projectId, 'picker'],
@@ -94,9 +123,15 @@ export function NewDocumentForm({
   const toggleSource = (id: string) =>
     setSourceIds(cur => (cur.includes(id) ? cur.filter(x => x !== id) : [...cur, id]))
 
-  // Categories recommended for the chosen document type. null means we
-  // don't know the type's needs — fall back to showing every source.
-  const recommendedCategories = useMemo(() => sourceCategoriesForDocType(type), [type])
+  // Categories recommended for the chosen document type. Pull from the
+  // DocumentTemplate row first; fall back to the hardcoded map when the
+  // API hasn't loaded yet. null means we don't know the type's needs —
+  // show every source as a safe default.
+  const recommendedCategories = useMemo<readonly string[] | null>(() => {
+    const dbRow = dbTemplates.find(t => t.type === type)
+    if (dbRow) return dbRow.requiredSourceCategories.length > 0 ? dbRow.requiredSourceCategories : null
+    return sourceCategoriesForDocType(type)
+  }, [dbTemplates, type])
   const recommendedSet = useMemo(() => new Set(recommendedCategories ?? []), [recommendedCategories])
 
   const filteredSources = useMemo(() => {
@@ -208,7 +243,7 @@ export function NewDocumentForm({
     else if (step === 2) setStep(1)
   }
 
-  const selectedTypeMeta = useMemo(() => DOC_TYPES.find(t => t.value === type), [type])
+  const selectedTypeMeta = useMemo(() => docTypeOptions.find(t => t.value === type), [docTypeOptions, type])
 
   const errorMsg = create.isError
     ? create.error instanceof ApiError
@@ -277,7 +312,7 @@ export function NewDocumentForm({
                 className="h-10 rounded-md border border-slate-300 px-3 text-[13px]"
                 data-field="type"
               >
-                {DOC_TYPES.map(t => (
+                {docTypeOptions.map(t => (
                   <option key={t.value} value={t.value}>{t.label}</option>
                 ))}
               </select>

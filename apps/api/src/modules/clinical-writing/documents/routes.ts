@@ -22,7 +22,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
-import { templateSections } from './templates.js'
+import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
 import { chooseModel } from '../../platform/config/ai-engine-settings.js'
 import {
@@ -285,14 +285,26 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
+    // Resolve starter sections. Prefer the DB-backed DocumentTemplate row
+    // (platform-managed, admin-editable per M2 of the New Document rework);
+    // fall back to the hardcoded templateSections() for deployments
+    // predating the migration-53 seed. Section-level usOnly filtering stays
+    // in templateSections() for the DB path so §16.4 only appears on US
+    // submissions regardless of where the skeleton came from.
+    const dbTemplate = await app.prisma.documentTemplate.findFirst({
+      where: { type: parsed.data.type, isCurrent: true, retiredAt: null },
+      select: { sections: true },
+    })
+    const sections = dbTemplate
+      ? templateSectionsFromRow(dbTemplate.sections, project.submissionCountries)
+      : templateSections(parsed.data.type, project.submissionCountries)
+
     const { document, version } = await svc.create({
       projectId,
       type: parsed.data.type,
       title: parsed.data.title,
       therapeuticArea,
-      // ICH E3 starter sections so the navigator isn't empty; §16.4 only
-      // when the project submits to the US (FR-A-003).
-      sections: templateSections(parsed.data.type, project.submissionCountries),
+      sections,
       assigneeId: parsed.data.assigneeId,
       createdBy: request.user!.id,
       templateId: parsed.data.templateId,

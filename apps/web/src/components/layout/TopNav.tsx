@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../../store/projectStore'
 import { useDocumentStore } from '../../store/documentStore'
-import { usePlatformStore, PLATFORM_DEMO_USERS, hasPersonaOverride, clearPersonaOverride } from '../../platform/store'
+import { usePlatformStore, hasPersonaOverride, clearPersonaOverride } from '../../platform/store'
+import { platformApi } from '../../platform/api/platformApi'
+import { ApiError } from '../../api/client'
 import { PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import type { PlatformUser } from '@platform/types'
 
@@ -137,7 +140,18 @@ export function TopNav() {
   ].filter(Boolean) as Array<{ label: string; href: string | null }>
 
   const currentRoleLabel = PLATFORM_USER_ROLE_LABEL[currentUser.role] ?? currentUser.role
-  const groups = groupPersonas(PLATFORM_DEMO_USERS)
+
+  // Persona list for the switcher — real tenant users via /admin/users.
+  // Lazy: only fetch when the dropdown is actually opened. The hardcoded
+  // PLATFORM_DEMO_USERS stays as a bootstrap/persistence lookup table
+  // (see platformStore.loadPersistedUser) but is NOT the render source.
+  const { data: liveUsers, isPending: usersPending, error: usersError } = useQuery({
+    queryKey: ['platform-users'],
+    queryFn:  () => platformApi.listUsers(),
+    enabled:  open,
+    staleTime: 60_000,
+  })
+  const groups = liveUsers ? groupPersonas(liveUsers) : []
 
   const switchTo = (u: PlatformUser) => {
     // setCurrentUser persists the user id under
@@ -232,6 +246,19 @@ export function TopNav() {
               </div>
 
               <div className="max-h-[70vh] overflow-y-auto">
+                {usersPending && (
+                  <p className="px-3 py-6 text-center text-[12px] italic text-slate-500">Loading users…</p>
+                )}
+                {usersError && (
+                  <p className="px-3 py-4 text-center text-[12px] text-rose-600">
+                    {usersError instanceof ApiError && usersError.status === 403
+                      ? 'Your role cannot list tenant users.'
+                      : 'Failed to load users. Check the API connection.'}
+                  </p>
+                )}
+                {!usersPending && !usersError && groups.length === 0 && (
+                  <p className="px-3 py-6 text-center text-[12px] italic text-slate-500">No users found.</p>
+                )}
                 {groups.map(group => (
                   <div key={group.label}>
                     <p className="px-3 pt-3 pb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{group.label}</p>

@@ -196,6 +196,12 @@ async function buildServer() {
   await app.register(projectRoutes, { prefix: '/projects' })
   await app.register(userRoutes, { prefix: '/admin/users' })
 
+  // External API credentials — admin-managed secrets for the Admin
+  // Panel's External APIs tab (Configure modal). GET lists masked
+  // credentials; PUT /:apiId upserts one connector; DELETE clears.
+  const { externalApiCredentialsRoutes } = await import('./modules/platform/external-api-credentials/routes.js')
+  await app.register(externalApiCredentialsRoutes, { prefix: '/admin/external-apis' })
+
   // ---------- Tenant Admin (Arc 3 of docs/pivot-plan.md) ----------
   // Four plugins, all mounted at root — path shapes mix /admin/tenants/*,
   // /admin/memberships/*, /admin/sso-connections/*, /admin/audit*.

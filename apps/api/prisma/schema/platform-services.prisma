@@ -470,6 +470,39 @@ model DocumentTemplate {
   @@index([type, isCurrent])
 }
 
+// --------------------------------------------------------------------------
+// External API credentials — admin-entered credentials for the regulatory /
+// publishing / messaging connectors on the Admin Panel's External APIs tab.
+// Scoped per-tenant with tenantId=null reserved for platform-level
+// connectors shared by every tenant (eg. PubMed, CrossRef).
+//
+// apiKey is stored as plain text today; adding column-level encryption is
+// tracked under phase-5 compliance (project_phase_5_deferrals.md). The
+// GET route always masks the key before returning, so even admins see
+// only the last 4 chars + a 'has value' flag — the raw secret never
+// leaves the DB except for the worker that actually uses it.
+// --------------------------------------------------------------------------
+model ExternalApiCredential {
+  id         String    @id @default(cuid())
+  tenantId   String?                                      // null = platform-wide
+  apiId      String                                       // 'fda-esg', 'ema-cesp', 'pubmed', 'crossref-orcid', 'anthropic', …
+  apiKey     String?
+  username   String?
+  baseUrl    String?
+  notes      String?
+  updatedBy  String                                       // User.id of the admin who last touched it
+  updatedAt  DateTime  @updatedAt
+  createdAt  DateTime  @default(now())
+
+  @@map("external_api_credentials")
+  // The real uniqueness is enforced by a COALESCE'd UNIQUE INDEX in
+  // migration 54 (NULL tenantId buckets to 'platform'); Prisma can't
+  // model that so we skip the @@unique here and route callers through
+  // findFirst + create/update instead of findUnique.
+  @@index([tenantId])
+  @@index([apiId])
+}
+
 model RegulatoryAlert {
   id                  String    @id @default(uuid())
   frameworkName       String                                           // 'ICH E3', 'FDA Guidance 2026-01', ...

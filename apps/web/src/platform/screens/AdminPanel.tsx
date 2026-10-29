@@ -526,11 +526,10 @@ function SubscriptionTab({ config, subscription }: { config: PlatformConfig; sub
   )
 }
 
-// Credentials entered in the Configure modal. Not persisted to a backend
-// yet (the External APIs tab is still a "doesn't persist until save" tab
-// per AdminPanel's otherUnsaved flag); next commit will add
-// POST /admin/external-apis/:id/credentials. Kept entirely in-memory
-// keyed by connector id for M4 of the Admin wiring; reload clears them.
+// Credentials entered in the Configure modal. Persisted to the API via
+// GET/PUT /admin/external-apis/:apiId/credentials. The GET response
+// masks every apiKey; this component never shows the raw secret back
+// after save (the user re-types if they need to see it).
 export interface ApiCredentialsDraft {
   apiKey?:   string
   baseUrl?:  string
@@ -538,20 +537,55 @@ export interface ApiCredentialsDraft {
   notes?:    string
 }
 
-function ExternalApisTab({ config, onChange }: { config: PlatformConfig; onChange: () => void }) {
-  const [credentials, setCredentials] = useState<Record<string, ApiCredentialsDraft>>({})
-  const [editing,     setEditing]     = useState<string | null>(null)
+function ExternalApisTab({ config, onChange: _onChange }: { config: PlatformConfig; onChange: () => void }) {
+  const qc = useQueryClient()
+  const [editing, setEditing] = useState<string | null>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
 
-  const openConfig = (id: string) => setEditing(id)
-  const closeConfig = () => setEditing(null)
+  const { data: credRows = [] } = useQuery({
+    queryKey: ['external-api-credentials'],
+    queryFn:  () => platformApi.listExternalApiCredentials(),
+    retry: false,
+  })
+  const credByApiId = useMemo(
+    () => new Map(credRows.map(r => [r.apiId, r])),
+    [credRows],
+  )
+
+  const saveMut = useMutation({
+    mutationFn: ({ apiId, body }: { apiId: string; body: ApiCredentialsDraft }) =>
+      // Omit (undefined) keeps the stored value; empty string clears it.
+      // Preserves "leave API key blank to keep the existing one" semantics
+      // because the modal passes undefined when the input is blank.
+      platformApi.saveExternalApiCredentials(apiId, {
+        apiKey:   body.apiKey   === undefined ? undefined : (body.apiKey   || null),
+        username: body.username === undefined ? undefined : (body.username || null),
+        baseUrl:  body.baseUrl  === undefined ? undefined : (body.baseUrl  || null),
+        notes:    body.notes    === undefined ? undefined : (body.notes    || null),
+      }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['external-api-credentials'] })
+      setSaveError(null)
+      setEditing(null)
+    },
+    onError: err => setSaveError(describeApiError(err).message),
+  })
+
+  const openConfig = (id: string) => { setSaveError(null); setEditing(id) }
+  const closeConfig = () => { setEditing(null); setSaveError(null) }
 
   const activeConnector = editing ? config.externalApis.find(a => a.id === editing) ?? null : null
-  const activeDraft     = editing ? (credentials[editing] ?? {}) : {}
+  const activeRow       = editing ? credByApiId.get(editing) ?? null : null
+  // Prefill the modal with what the server knows about this connector.
+  // apiKey is intentionally blank (we only have the mask); username,
+  // baseUrl, notes come through verbatim so admins can tweak without
+  // retyping.
+  const activeDraft: ApiCredentialsDraft = activeRow
+    ? { username: activeRow.username ?? undefined, baseUrl: activeRow.baseUrl ?? undefined, notes: activeRow.notes ?? undefined }
+    : {}
 
   const saveDraft = (id: string, next: ApiCredentialsDraft) => {
-    setCredentials(cur => ({ ...cur, [id]: next }))
-    onChange()
-    setEditing(null)
+    saveMut.mutate({ apiId: id, body: next })
   }
   return (
     <div className="flex flex-col gap-5" data-tab-panel="external-apis">
@@ -573,11 +607,12 @@ function ExternalApisTab({ config, onChange }: { config: PlatformConfig; onChang
           </thead>
           <tbody>
             {config.externalApis.map(a => {
-              // "Has local draft" wins over the backend status for the chip —
-              // once the admin types credentials, the row should read as
-              // configured until they explicitly clear or save fails.
-              const hasDraft = !!credentials[a.id]?.apiKey || !!credentials[a.id]?.username
-              const chipStatus = hasDraft || a.status === 'connected' ? 'connected' : a.status
+              // "Has saved key" wins over the backend status for the chip —
+              // once the admin stores credentials, the row reads as
+              // configured until explicitly cleared.
+              const saved = credByApiId.get(a.id)
+              const hasSaved = !!saved?.hasApiKey || !!saved?.username
+              const chipStatus = hasSaved || a.status === 'connected' ? 'connected' : a.status
               return (
                 <tr key={a.id} className="border-t border-slate-200" data-api-row={a.id}>
                   <td className="px-4 py-3">
@@ -612,6 +647,9 @@ function ExternalApisTab({ config, onChange }: { config: PlatformConfig; onChang
         <ApiCredentialsModal
           connector={activeConnector}
           initial={activeDraft}
+          existingApiKeyMasked={activeRow?.apiKeyMasked ?? null}
+          saving={saveMut.isPending}
+          error={saveError}
           onCancel={closeConfig}
           onSave={next => saveDraft(editing, next)}
         />
@@ -628,11 +666,18 @@ function ExternalApisTab({ config, onChange }: { config: PlatformConfig; onChang
 function ApiCredentialsModal({
   connector,
   initial,
+  existingApiKeyMasked,
+  saving,
+  error,
   onCancel,
   onSave,
 }: {
   connector: { id: string; label: string; note?: string }
   initial:   ApiCredentialsDraft
+  /** '••••abcd' if the server already stores a key; null if not set. */
+  existingApiKeyMasked: string | null
+  saving:  boolean
+  error:   string | null
   onCancel:  () => void
   onSave:    (next: ApiCredentialsDraft) => void
 }) {
@@ -642,7 +687,12 @@ function ApiCredentialsModal({
   const [notes,    setNotes]    = useState(initial.notes    ?? '')
   const [reveal,   setReveal]   = useState(false)
 
-  const canSave = apiKey.trim().length > 0 || username.trim().length > 0
+  // Save is allowed if the admin is editing an existing row (any field
+  // change is fine) OR entering a fresh row with at least a key/username.
+  const canSave =
+    existingApiKeyMasked !== null ||
+    apiKey.trim().length > 0 ||
+    username.trim().length > 0
 
   return (
     <div
@@ -685,7 +735,7 @@ function ApiCredentialsModal({
                 type={reveal ? 'text' : 'password'}
                 value={apiKey}
                 onChange={e => setApiKey(e.currentTarget.value)}
-                placeholder="paste the connector's API key"
+                placeholder={existingApiKeyMasked ? `current: ${existingApiKeyMasked} (type to replace)` : "paste the connector's API key"}
                 className="h-9 flex-1 rounded-md border border-slate-300 px-3 font-mono text-[12px]"
                 data-input="apiKey"
               />
@@ -697,6 +747,11 @@ function ApiCredentialsModal({
                 {reveal ? 'Hide' : 'Show'}
               </button>
             </div>
+            {existingApiKeyMasked && !apiKey && (
+              <span className="text-[11px] text-slate-500">
+                A key is already stored. Leave blank to keep it; type a new one to replace.
+              </span>
+            )}
           </label>
 
           <label className="flex flex-col gap-1">
@@ -739,18 +794,23 @@ function ApiCredentialsModal({
             />
           </label>
 
-          <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-800">
-            Backend persistence for external-API credentials is not wired yet &mdash; entries
-            survive until the page reloads. Click <span className="font-semibold">Save changes</span>
-            at the top to persist along with the other admin edits (once that endpoint ships).
+          <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
+            Credentials are stored server-side and masked in subsequent reads. The raw key never
+            leaves the server except for the worker that uses it.
           </p>
+          {error && (
+            <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700" role="alert">
+              {error}
+            </p>
+          )}
         </div>
 
         <div className="flex items-center justify-end gap-2 border-t border-slate-200 px-5 py-3">
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
+            disabled={saving}
+            className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
           >Cancel</button>
           <button
             type="button"
@@ -760,9 +820,9 @@ function ApiCredentialsModal({
               username: username.trim() || undefined,
               notes:    notes.trim()    || undefined,
             })}
-            disabled={!canSave}
+            disabled={!canSave || saving}
             className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >Save credentials</button>
+          >{saving ? 'Saving…' : 'Save credentials'}</button>
         </div>
       </div>
     </div>

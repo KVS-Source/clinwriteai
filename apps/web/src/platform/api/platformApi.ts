@@ -299,4 +299,32 @@ export const platformApi = {
     api.post<{ ok: true; revertedAt: string; restored: { title: string; bodyText: string; speakerNotes: string } | null }>(
       `/slide-edits/${editHistoryId}/revert`, {},
     ),
+
+  // External API credentials — admin-managed secrets for the Admin Panel's
+  // External APIs tab. GET returns masked keys only; PUT upserts; DELETE
+  // clears a connector.
+  listExternalApiCredentials: () =>
+    api.get<ExternalApiCredentialRow[]>('/admin/external-apis/credentials'),
+  saveExternalApiCredentials: (apiId: string, body: ExternalApiCredentialBody) =>
+    api.put<ExternalApiCredentialRow>(`/admin/external-apis/${encodeURIComponent(apiId)}/credentials`, body),
+  deleteExternalApiCredentials: (apiId: string) =>
+    api.delete<void>(`/admin/external-apis/${encodeURIComponent(apiId)}/credentials`),
+}
+
+export interface ExternalApiCredentialRow {
+  apiId:        string
+  hasApiKey:    boolean
+  apiKeyMasked: string | null
+  username:     string | null
+  baseUrl:      string | null
+  notes:        string | null
+  updatedAt:    string
+  updatedBy:    string
+}
+
+export interface ExternalApiCredentialBody {
+  apiKey?:   string | null
+  username?: string | null
+  baseUrl?:  string | null
+  notes?:    string | null
 }

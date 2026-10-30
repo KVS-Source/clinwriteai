@@ -6,6 +6,7 @@ import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill, SlidePanel } from '../../components/ui'
 import { RaciEditor } from '../../components/raci/RaciEditor'
+import { documentRaciKey } from './MyRaciRole'
 import { useProjectStore } from '../../store'
 import { NewDocumentForm } from './NewDocument'
 import { UploadDocumentForm } from './UploadDocument'
@@ -164,7 +165,7 @@ export function ClinicalWritingHome() {
   // Document whose comments panel is open (the table's "Comments" column).
   const [commentsDocId, setCommentsDocId] = useState<string | null>(null)
   // Document whose RACI matrix is open in a focused drawer (RACI button
-  // on DocumentDetailPanel). Deliberately NOT a navigation — the user
+  // on DocumentDetailPanel, or row "⋯ → RACI"). Deliberately NOT a navigation — the user
   // stays in the project context.
   const [raciDoc, setRaciDoc] = useState<Document | null>(null)
   const [docSort, setDocSort] = useState<{ key: DocSortKey; dir: 'asc' | 'desc' } | null>(null)
@@ -616,6 +617,7 @@ export function ClinicalWritingHome() {
                       onOpen={() => handleDocClick(doc)}
                       onDuplicate={() => setNewDocOpen({ duplicateSourceId: doc.id })}
                       onAuditTrail={() => setAuditDoc({ id: doc.id, title: doc.title })}
+                      onRaci={() => setRaciDoc(doc)}
                     />
                   </div>
                   {/* The whole cell is the button: it stretches over the row's padding so the full cell height is clickable. */}
@@ -711,6 +713,7 @@ export function ClinicalWritingHome() {
               documentId={raciDoc.id}
               documentStatus={raciDoc.status ?? 'not_started'}
               editable={raciDoc.status !== 'signed'}
+              onChanged={() => qc.invalidateQueries({ queryKey: documentRaciKey(raciDoc.id) })}
               className="h-full overflow-y-auto p-4"
             />
           )}
@@ -900,11 +903,12 @@ function SearchIcon() {
 // Document row "⋯" menu — Arc A5. Recommended default action set per
 // docs/decisions/module-a-defaults.md §1. Items marked (soon) are
 // backend-pending and show a tooltip explaining when they'll light up.
-function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail }: {
+function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail, onRaci }: {
   doc: Document
   onOpen: () => void
   onDuplicate: () => void
   onAuditTrail: () => void
+  onRaci: () => void
 }) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
@@ -977,6 +981,7 @@ function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail }: {
           <MenuItem onClick={() => { setOpen(false); onOpen() }}>Open</MenuItem>
           <MenuItem onClick={() => { setOpen(false); onDuplicate() }}>Duplicate</MenuItem>
           <MenuItem onClick={() => { setOpen(false); onAuditTrail() }}>Audit trail</MenuItem>
+          <MenuItem onClick={() => { setOpen(false); onRaci() }}>RACI</MenuItem>
           <MenuItem disabled title="Document-level PDF export is coming in a later release.">
             Export PDF <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
           </MenuItem>

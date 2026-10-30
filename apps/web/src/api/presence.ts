@@ -26,6 +26,8 @@ export interface PresenceSnapshot {
     users: Array<{
       sessionId: string
       userId: string
+      /** Display name — returned by the API so non-admins can label avatars. */
+      userName?: string | null
       status: 'active' | 'idle' | 'ended'
       startedAt: string
       heartbeatAt: string

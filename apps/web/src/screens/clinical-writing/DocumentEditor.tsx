@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DocumentStatus, PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { useDocumentPresence } from '../../hooks/usePresence'
+import { useCurrentUser } from '../../hooks/useCurrentUser'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { useSectionLock } from '../../hooks/useSectionLock'
 import { useAutosave }     from '../../hooks/useAutosave'
@@ -11,7 +12,7 @@ import { useDocumentSocket } from '../../hooks/useDocumentSocket'
 import { SectionAutosaveStatus } from './SectionAutosaveStatus'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill } from '../../components/ui'
-import { useDocumentStore, useProjectStore, useAuthStore, useEditorStore } from '../../store'
+import { useDocumentStore, useProjectStore, useEditorStore } from '../../store'
 import { SectionAIPrompt } from './SectionAIPrompt'
 import { SourceReferencesPanel } from '../../panels/SourceReferencesPanel'
 import {
@@ -19,6 +20,7 @@ import {
 } from './referenceHighlights'
 import { SectionNavigator } from './SectionNavigator'
 import { PresenceStack, avatarColor } from './PresenceStack'
+import { MyRaciRole, documentRaciKey } from './MyRaciRole'
 import { EditorToolbar }    from './EditorToolbar'
 import { EditorContent, useRichTextEditor } from './RichTextEditor'
 import { useCollabProvider } from './useCollabProvider'
@@ -96,7 +98,9 @@ export function DocumentEditor() {
     enabled:  !!documentId,
   })
 
-  const currentUser = useAuthStore(s => s.user)
+  // The session's user (/auth/me) — the legacy auth store is only filled by the old
+  // sign-in screen, so it can be empty or a different person than the one signed in.
+  const { data: currentUser } = useCurrentUser()
 
   // Resolve user id → PlatformUser so avatars can show initials + full
   // name tooltip without the presence payload having to carry them.
@@ -713,6 +717,7 @@ export function DocumentEditor() {
                 </div>
               )}
             </div>
+            {documentId && <MyRaciRole documentId={documentId} />}
           </div>
 
           {/* Right: autosave + presence + Save + Submit */}
@@ -728,7 +733,7 @@ export function DocumentEditor() {
 
             {/* Presence stack — real-time via /documents/:id/presence +
                  Socket.io presence:changed. */}
-            {documentId && <PresenceStack documentId={documentId} currentUserId={currentUser?.id} />}
+            {documentId && <PresenceStack documentId={documentId} currentUserId={currentUser?.id} currentUserName={currentUser?.name} />}
 
             <button
               type="button"
@@ -757,6 +762,7 @@ export function DocumentEditor() {
                   ['ai-history',        documentId],
                   ['ai-chat',           documentId],
                   ['audit',             documentId],
+                  ['document-raci',     documentId],
                 ]
                 for (const key of keys) {
                   void qc.invalidateQueries({ queryKey: key })
@@ -1120,6 +1126,7 @@ export function DocumentEditor() {
                 documentId={documentId}
                 documentStatus={document?.status ?? 'not_started'}
                 editable={document?.status !== 'signed'}
+                onChanged={() => qc.invalidateQueries({ queryKey: documentRaciKey(documentId) })}
                 className="h-full overflow-y-auto p-4"
               />
             )}

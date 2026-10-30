@@ -23,7 +23,9 @@ async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCr
     comment: {
       create,
       findMany,
-      findFirst: vi.fn(async () => (opts.existing === undefined ? { id: 'CMT-001', documentId: 'doc-b', sectionRef: '§11.4.1', status: 'open', reviewerId: 'user-jo' } : opts.existing)),
+      // The approve guard asks for the section's latest return verdict — none here.
+      findFirst: vi.fn(async (args?: { where?: { verdict?: unknown } }) => (args?.where?.verdict ? null
+        : opts.existing === undefined ? { id: 'CMT-001', documentId: 'doc-b', sectionRef: '§11.4.1', status: 'open', reviewerId: 'user-jo' } : opts.existing)),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'CMT-001', documentId: 'doc-b', reviewerId: 'user-jo', createdAt: new Date(), ...data })),
     },
     user: { findUnique: vi.fn(async () => ({ name: 'Dr. Elena Vasquez', initials: 'EV' })) },

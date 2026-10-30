@@ -84,3 +84,55 @@ describe('POST /documents/:id/comments — id allocation', () => {
     expect(res.json().id).toBe('CMT-002')
   })
 })
+
+describe('POST /documents/:id/comments — approving a returned section', () => {
+  // A returned section can be approved only after the writer has saved it again.
+  async function buildVerdictApp(opts: { returnedAt: Date | null; editedAt: Date | null }) {
+    const created: Array<Record<string, unknown>> = []
+    const app = Fastify()
+    app.decorate('prisma', {
+      document: {
+        findUnique: vi.fn(async () => ({ id: 'doc-a', currentVersion: { sections: [{ lastEditedAt: opts.editedAt }] } })),
+      },
+      comment: {
+        findFirst: vi.fn(async () => (opts.returnedAt ? { createdAt: opts.returnedAt } : null)),
+        findMany:  vi.fn(async () => []),
+        create:    vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          const row = { ...data, status: 'open', createdAt: new Date(), resolvedBy: null, resolvedAt: null, resolutionNote: null }
+          created.push(row)
+          return row
+        }),
+      },
+      user: { findUnique: vi.fn(async () => ({ name: 'Reviewer', initials: 'RV' })) },
+    } as never)
+    app.decorate('audit', { append: vi.fn(async () => undefined) } as never)
+    app.decorateRequest('user', null)
+    app.addHook('onRequest', async (request) => {
+      const user: AuthenticatedUser = { id: 'user-rev', email: 'r@clinwrite.ai', role: 'reviewer', modules: ['A'], tenantId: null }
+      ;(request as unknown as { user: AuthenticatedUser }).user = user
+    })
+    await app.register(commentsRoutes, { prefix: '/documents' })
+    await app.ready()
+    return { app, created }
+  }
+  const approve = (app: Awaited<ReturnType<typeof buildVerdictApp>>['app']) =>
+    app.inject({ method: 'POST', url: '/documents/doc-a/comments', payload: { sectionRef: '§5', text: '', severity: 'query', verdict: 'approve' } })
+
+  it('409 section_returned while the section has not been revised since it was returned', async () => {
+    const { app, created } = await buildVerdictApp({ returnedAt: new Date('2026-10-30T10:00:00Z'), editedAt: new Date('2026-10-30T09:00:00Z') })
+    const res = await approve(app)
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('section_returned')
+    expect(created).toHaveLength(0)
+  })
+
+  it('approves once the writer has saved the section after the return', async () => {
+    const { app } = await buildVerdictApp({ returnedAt: new Date('2026-10-30T10:00:00Z'), editedAt: new Date('2026-10-30T11:00:00Z') })
+    expect((await approve(app)).statusCode).toBe(201)
+  })
+
+  it('approves a section that was never returned', async () => {
+    const { app } = await buildVerdictApp({ returnedAt: null, editedAt: null })
+    expect((await approve(app)).statusCode).toBe(201)
+  })
+})

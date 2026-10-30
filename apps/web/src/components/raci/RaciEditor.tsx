@@ -16,11 +16,15 @@
 // inline on the document detail page. The parent owns open/close.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import type { PlatformUser } from '@platform/types'
 import {
   raciApi,
   type DocumentRaciRow,
   type RaciLetter,
 } from '../../api/raci'
+import { ApiError } from '../../api/client'
+import { platformApi } from '../../platform/api/platformApi'
 import { UserPicker } from './UserPicker'
 import { StatusStrip } from './StatusStrip'
 
@@ -57,6 +61,16 @@ const SIGNATURE_MEANINGS = [
 ] as const
 type SignatureMeaning = typeof SIGNATURE_MEANINGS[number]
 
+// The server's own message when it sent one ("This person has already
+// completed their part…"), not a bare "API error 409".
+function errorText(e: unknown, fallback: string): string {
+  if (e instanceof ApiError) {
+    const body = e.body as { message?: string; error?: string } | null
+    return body?.message ?? body?.error ?? `${fallback} (HTTP ${e.status})`
+  }
+  return e instanceof Error ? e.message : fallback
+}
+
 const DEFAULT_SIG_MEANING: Record<RaciLetter, SignatureMeaning> = {
   R: 'Author attestation',
   A: 'Medical approval',
@@ -65,10 +79,34 @@ const DEFAULT_SIG_MEANING: Record<RaciLetter, SignatureMeaning> = {
   I: 'Author attestation', // unused — I rows never require signatures
 }
 
-export function RaciEditor({ projectId, documentId, documentStatus, editable, onChanged, className }: RaciEditorProps) {
+export function RaciEditor({ projectId, documentId, documentStatus, editable: editableProp, onChanged, className }: RaciEditorProps) {
   const [rows, setRows] = useState<DocumentRaciRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  // A failed change is reported inside the letter section that was clicked —
+  // the panel-level banner sits at the top, out of view once scrolled.
+  const [letterError, setLetterError] = useState<{ letter: RaciLetter; message: string } | null>(null)
   const [busyLetter, setBusyLetter] = useState<RaciLetter | null>(null)
+
+  // Only an admin, an R on the document or its assignee may change RACI (server
+  // rule); everyone else gets the read-only view instead of a 403 per click.
+  const { data: permission } = useQuery({
+    queryKey: ['document-raci-can-edit', documentId],
+    queryFn:  () => raciApi.canEdit(documentId),
+    staleTime: 30_000,
+  })
+  const noPermission = permission?.canEdit === false
+  const editable = editableProp && !noPermission
+
+  // Names for the assigned users (rows carry only the user id).
+  const { data: users = [] } = useQuery<PlatformUser[]>({
+    queryKey: ['platform-users'],
+    queryFn:  () => platformApi.listUsers(),
+    staleTime: 60_000,
+  })
+  const nameOf = useCallback(
+    (userId: string) => rows?.find(r => r.userId === userId && r.userName)?.userName ?? users.find(u => u.id === userId)?.name ?? userId,
+    [rows, users],
+  )
 
   const refresh = useCallback(async () => {
     setError(null)
@@ -93,6 +131,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable, on
 
     setBusyLetter(letter)
     setError(null)
+    setLetterError(null)
     try {
       for (const userId of toAdd) {
         await raciApi.assign(documentId, { userId, letter })
@@ -103,7 +142,8 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable, on
       await refresh()
       onChanged?.()
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'RACI update failed')
+      setLetterError({ letter, message: errorText(e, 'RACI update failed') })
+      void refresh()
     } finally {
       setBusyLetter(null)
     }
@@ -117,7 +157,9 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable, on
           <p className="text-xs text-slate-500 mt-1">
             {editable
               ? 'You own this document — pick who authors, approves, reviews, releases QC, and should be kept informed.'
-              : 'Read-only view of the current assignments.'}
+              : noPermission
+                ? 'Read-only — only an admin, a Responsible (R) on this document or its assignee can change assignments.'
+                : 'Read-only view of the current assignments.'}
           </p>
         </div>
         <StatusStrip evaluation={transitionEval} showNextStatus />
@@ -149,11 +191,8 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable, on
             </header>
 
             {/* Signature-requirement controls per row. The I letter is
-                excluded — "informed" doesn't sign off. The toggle hits
-                raciApi.remove + raciApi.assign to swap the row (there is
-                no PATCH on document_raci — assignments are immutable
-                once written per the audit-chain design, so changing a
-                row's signature config = remove + re-add). */}
+                excluded — "informed" doesn't sign off. The toggle changes
+                the row in place (PATCH …/raci/:id/signature, audited). */}
             {letter !== 'I' && current.length > 0 && (
               <ul className="mb-3 space-y-1 text-xs">
                 {current.map(row => (
@@ -161,7 +200,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable, on
                     key={row.id}
                     className="flex items-center gap-3 px-2 py-1.5 rounded border border-slate-100 bg-slate-50/50"
                   >
-                    <span className="font-mono text-[10px] text-slate-500 shrink-0">{row.userId.slice(0, 10)}…</span>
+                    <span className="shrink-0 text-[12px] font-medium text-slate-800" title={row.userId}>{nameOf(row.userId)}</span>
                     <label className="flex items-center gap-1.5 cursor-pointer">
                       <input
                         type="checkbox"
@@ -188,12 +227,19 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable, on
               </ul>
             )}
 
+            {letterError?.letter === letter && (
+              <div className="mb-2 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700" role="alert" data-raci-letter-error>
+                {letterError.message}
+              </div>
+            )}
+
             <UserPicker
               projectId={projectId}
               letter={letter}
               value={selectedIds}
               onChange={ids => void addUser(letter, ids)}
               disabled={!editable || busyLetter === letter}
+              heldElsewhere={heldElsewhere(letter)}
             />
           </section>
         )
@@ -201,8 +247,17 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable, on
     </div>
   )
 
-  // Swap a row's signature config. document_raci rows are immutable
-  // (audit-chain invariant), so we remove + re-add with new flags.
+  // Users holding a different whole-document letter can't take this one too
+  // (one letter per person per document) — the picker greys them out.
+  function heldElsewhere(letter: RaciLetter): Map<string, RaciLetter> {
+    const out = new Map<string, RaciLetter>()
+    for (const l of LETTER_ORDER) {
+      if (l === letter) continue
+      for (const r of byLetter[l]) if (r.sectionId === null) out.set(r.userId, l)
+    }
+    return out
+  }
+
   async function toggleSignatureRequired(row: DocumentRaciRow) {
     const nextSigRequired = !row.signatureRequired
     const nextMeaning = nextSigRequired
@@ -222,20 +277,17 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable, on
   ) {
     setBusyLetter(row.letter)
     setError(null)
+    setLetterError(null)
     try {
-      await raciApi.remove(documentId, row.id)
-      await raciApi.assign(documentId, {
-        userId: row.userId,
-        letter: row.letter,
-        sectionId: row.sectionId,
-        approvalOrder: row.approvalOrder,
+      await raciApi.setSignature(documentId, row.id, {
         signatureRequired,
         signatureMeaning: signatureRequired ? signatureMeaning : null,
       })
       await refresh()
       onChanged?.()
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Signature update failed')
+      setLetterError({ letter: row.letter, message: errorText(e, 'Signature update failed') })
+      void refresh()   // show the server's current state, not a stale row
     } finally {
       setBusyLetter(null)
     }

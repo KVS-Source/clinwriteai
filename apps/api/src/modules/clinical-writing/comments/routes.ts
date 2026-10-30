@@ -220,6 +220,33 @@ async function fetchCommentReviewers(prisma: import('@prisma/client').PrismaClie
   return new Map(users.map(u => [u.id, { name: u.name, initials: u.initials }]))
 }
 
+// A section returned for revision (request_changes / block_approval verdict)
+// can't be approved until the writer has revised it: returns the newest such
+// verdict when the section hasn't been saved since, else null.
+export async function pendingRevision(
+  prisma: import('@prisma/client').PrismaClient,
+  documentId: string,
+  sectionRef: string,
+): Promise<{ returnedAt: Date } | null> {
+  const ret = await prisma.comment.findFirst({
+    where:   { documentId, sectionRef, verdict: { in: ['request_changes', 'block_approval'] } },
+    orderBy: { createdAt: 'desc' },
+    select:  { createdAt: true },
+  })
+  if (!ret) return null
+  const bare = sectionRef.replace(/^§/, '')
+  const doc = await prisma.document.findUnique({
+    where:  { id: documentId },
+    select: { currentVersion: { select: { sections: {
+      where:  { OR: [{ sectionNumber: sectionRef }, { sectionNumber: bare }] },
+      select: { lastEditedAt: true },
+      take:   1,
+    } } } },
+  })
+  const editedAt = doc?.currentVersion?.sections[0]?.lastEditedAt
+  return editedAt && editedAt > ret.createdAt ? null : { returnedAt: ret.createdAt }
+}
+
 export const commentsRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
@@ -249,6 +276,13 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+
+    if (parsed.data.verdict === 'approve' && await pendingRevision(app.prisma, documentId, parsed.data.sectionRef)) {
+      return reply.code(409).send({
+        error:   'section_returned',
+        message: `${parsed.data.sectionRef} was returned for revision — it can be approved once the writer has revised it.`,
+      })
+    }
 
     // Retry loop handles the P2002 race where two concurrent inserts both
     // read the same max CMT-### sequence (each retry re-reads the max, so it

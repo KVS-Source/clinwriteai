@@ -33,6 +33,11 @@ const rejectSchema = z.object({
   note: z.string().min(1),
 })
 
+const signatureSchema = z.object({
+  signatureRequired: z.boolean(),
+  signatureMeaning:  z.string().min(1).nullable().optional(),
+})
+
 const insertSchema = z.object({
   userId: z.string().min(1),
   letter: z.enum(VALID_LETTERS as readonly ['R', 'A', 'C', 'I', 'Q']),
@@ -67,7 +72,22 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       where: { documentId },
       orderBy: [{ letter: 'asc' }, { assignedAt: 'asc' }],
     })
-    return rows
+    // Carry each assignee's name: the client's only other source is the admin-only,
+    // tenant-scoped /admin/users, so contributors (and admins of another tenant)
+    // otherwise see raw user ids.
+    const users = await app.prisma.user.findMany({
+      where: { id: { in: [...new Set(rows.map(r => r.userId))] } },
+      select: { id: true, name: true },
+    })
+    const nameById = new Map(users.map(u => [u.id, u.name]))
+    return rows.map(r => ({ ...r, userName: nameById.get(r.userId) ?? null }))
+  })
+
+  // Whether the caller may change this document's RACI — lets the panel render
+  // read-only up front instead of failing every click with a 403.
+  app.get('/:documentId/raci/can-edit', { preHandler: requireAuth() }, async (request) => {
+    const { documentId } = request.params as { documentId: string }
+    return { canEdit: await actorCanEditDocumentRaci(app.prisma, request.user!, documentId) }
   })
 
   app.post('/:documentId/raci', { preHandler: requireAuth() }, async (request, reply) => {
@@ -159,18 +179,27 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
-    const created = await app.prisma.documentRaci.create({
-      data: {
-        documentId,
-        userId: parsed.data.userId,
-        letter: parsed.data.letter,
-        sectionId,
-        approvalOrder,
-        signatureRequired,
-        signatureMeaning,
-        assignedBy: actor.id,
-      },
+    // Re-assigning someone who was removed from this letter: the soft-removed row
+    // still holds the (document, user, letter, section) unique key, so a plain
+    // create would fail. Revive that row as a fresh assignment instead.
+    const [removed] = await app.prisma.documentRaci.findMany({
+      where: { documentId, userId: parsed.data.userId, letter: parsed.data.letter, sectionId, removedAt: { not: null } },
+      select: { id: true },
+      take: 1,
     })
+    const fields = { approvalOrder, signatureRequired, signatureMeaning, assignedBy: actor.id }
+    const created = removed
+      ? await app.prisma.documentRaci.update({
+          where: { id: removed.id },
+          data: {
+            ...fields,
+            assignedAt: new Date(), removedAt: null,
+            submittedAt: null, reviewedAt: null, approvedAt: null, signatureId: null, rejectedAt: null, rejectionNote: null,
+          },
+        })
+      : await app.prisma.documentRaci.create({
+          data: { documentId, userId: parsed.data.userId, letter: parsed.data.letter, sectionId, ...fields },
+        })
 
     const after: RaciAuditSnapshot = {
       documentId,
@@ -280,6 +309,63 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     }
 
     return reply.code(204).send()
+  })
+
+  // --- Change a row's signature requirement -------------------------------
+  // Updated in place (before/after in the audit trail). Remove + re-assign
+  // used to do this from the client: a failed re-assign (e.g. the user
+  // lacks the letter's capability) left the assignment deleted, and the
+  // unique index blocks re-adding a per-section row whose removed copy is
+  // still kept. Refused once the row's part is done — the signature
+  // terms it was completed under must not change afterwards.
+  app.patch('/:documentId/raci/:raciId/signature', { preHandler: requireAuth() }, async (request, reply) => {
+    const { documentId, raciId } = request.params as { documentId: string; raciId: string }
+    const parsed = signatureSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const { signatureRequired } = parsed.data
+    const signatureMeaning = signatureRequired ? (parsed.data.signatureMeaning ?? null) : null
+    if (signatureRequired && !signatureMeaning) {
+      return reply.code(400).send({ error: 'signature_meaning_required', message: 'signatureMeaning is required when signatureRequired = true' })
+    }
+
+    const existing = await app.prisma.documentRaci.findUnique({ where: { id: raciId } })
+    if (!existing || existing.documentId !== documentId) return reply.code(404).send({ error: 'not_found' })
+    if (existing.removedAt) return reply.code(409).send({ error: 'row_removed', message: 'This assignment was removed.' })
+    if (existing.submittedAt || existing.reviewedAt || existing.approvedAt || existing.rejectedAt || existing.signatureId) {
+      return reply.code(409).send({ error: 'row_completed', message: 'This person has already completed their part, so the signature requirement can no longer change.' })
+    }
+
+    const actor = request.user!
+    if (!(await actorCanEditDocumentRaci(app.prisma, actor, documentId))) {
+      return reply.code(403).send({
+        error: 'raci_edit_forbidden',
+        message: 'Only an R on this document (or an admin) can change RACI assignments.',
+      })
+    }
+
+    const updated = await app.prisma.documentRaci.update({
+      where: { id: raciId },
+      data:  { signatureRequired, signatureMeaning },
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: actor.id,
+      action: 'document_raci.signature_changed',
+      entityType: 'document_raci',
+      entityId: raciId,
+      details: {
+        documentId,
+        userId: existing.userId,
+        letter: existing.letter,
+        sectionId: existing.sectionId,
+        before: { signatureRequired: existing.signatureRequired, signatureMeaning: existing.signatureMeaning },
+        after:  { signatureRequired, signatureMeaning },
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return updated
   })
 
   // --- Complete my part ---------------------------------------------------

@@ -536,22 +536,32 @@ export const documentsApi = {
   // if you change one, change the other in the same commit. A previous
   // piecemeal landing (see c5150ef) left the panel's as-cast reading
   // fields the wrapper didn't declare and tanked the demo deploy's
-  // `tsc && vite build`. The panel consumes `code`, `sectionId`, `status`
-  // and the optional `waiver` payload directly off this shape.
+  // `tsc && vite build`. The panel consumes `code`, `sectionId`, `status`,
+  // `inDocument`, `conditional` and the optional `waiver` payload directly
+  // off this shape. `applicable` is false for anything but a full CSR;
+  // `canWaive` is the API's own role check for the current user.
   getICHE3: (documentId: string) =>
     api.get<{
+      applicable:        boolean
+      canWaive:          boolean
+      documentTitle:     string
       completionPercent: number
       completeSections:  number
+      completeCount:     number
+      waivedCount:       number
       totalSections:     number
       sections: Array<{
-        code:      string
-        title:     string
-        sectionId: string
-        status:    'complete' | 'in_progress' | 'not_started' | 'waived' | 'warning'
+        code:        string
+        title:       string
+        sectionId:   string
+        status:      'complete' | 'in_progress' | 'not_started' | 'waived' | 'warning'
+        inDocument:  boolean
+        conditional: boolean
         waiver?: {
-          waivedBy: string
-          waivedAt: string
-          reason:   string
+          waivedBy:     string
+          waivedByName: string | null
+          waivedAt:     string
+          reason:       string
           versionAtWaiver: string
         }
       }>

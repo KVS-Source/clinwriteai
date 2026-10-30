@@ -34,6 +34,8 @@ export interface RaciInsertInput {
   signatureMeaning: string | null
   assignedBy: string                                           // actor
   isActorTenantAdmin: boolean                                  // sourced from request.user by caller
+  /** Grant a missing capability instead of refusing (non-admin assignees only). */
+  autoGrantCapability?: boolean
 }
 
 export type ValidationFailure =
@@ -48,7 +50,8 @@ export type ValidationFailure =
   | { kind: 'signature_meaning_required' }
 
 export type ValidationResult =
-  | { ok: true }
+  /** `grant`: capability the caller must add to the assignee (autoGrantCapability). */
+  | { ok: true; grant?: Capability }
   | { ok: false; failure: ValidationFailure }
 
 const LETTER_TO_CAPABILITY: Record<RaciLetter, Capability | null> = {
@@ -89,6 +92,7 @@ export async function validateRaciInsert(
 
   // --- Capability enforcement ----------------------------------------
   const requiredCap = LETTER_TO_CAPABILITY[input.letter]
+  let grant: Capability | undefined
   if (requiredCap) {
     const userCaps = (user.capabilities ?? []) as Capability[]
     const hasCap = userCaps.includes(requiredCap)
@@ -99,7 +103,11 @@ export async function validateRaciInsert(
       input.userId === input.assignedBy &&
       input.isActorTenantAdmin
     if (!hasCap && !isSelfAdminGrant) {
-      return { ok: false, failure: { kind: 'missing_capability', required: requiredCap, letter: input.letter } }
+      const assigneeIsAdmin = ['admin', 'tenant-admin', 'super-admin'].includes(user.role)
+      if (!input.autoGrantCapability || assigneeIsAdmin) {
+        return { ok: false, failure: { kind: 'missing_capability', required: requiredCap, letter: input.letter } }
+      }
+      grant = requiredCap
     }
   }
 
@@ -130,5 +138,5 @@ export async function validateRaciInsert(
     }
   }
 
-  return { ok: true }
+  return { ok: true, grant }
 }

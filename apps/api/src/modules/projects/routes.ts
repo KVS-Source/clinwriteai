@@ -22,7 +22,7 @@ const projectCreateSchema = z.object({
   id: z.string().min(3),            // human-friendly id (e.g. 'PROJ-VELORA')
   name: z.string().min(1),
   shortTitle: z.string().min(1),
-  client: z.string().min(1),
+  client: z.string().default(''),   // no longer asked for when creating a project
   therapeuticArea: z.string().min(1),
   indication: z.string().optional(),
   phase: z.string().min(1),

@@ -35,13 +35,13 @@ function FolderIcon() {
   )
 }
 
-// Row columns: project · client · TA · phase · start date · submission countries · documents · status · chevron
-const ROW_GRID = 'minmax(200px,2fr) minmax(110px,1fr) minmax(110px,1fr) 80px 100px minmax(120px,1.2fr) 90px 100px 14px'
-type SortKey = 'project' | 'client' | 'ta' | 'phase' | 'start' | 'documents' | 'status'
+// Row columns: project · TA · phase · start date · submission countries · documents · status · chevron
+const ROW_GRID = 'minmax(200px,2fr) minmax(110px,1fr) 80px 100px minmax(120px,1.2fr) 90px 100px 14px'
+type SortKey = 'project' | 'ta' | 'phase' | 'start' | 'documents' | 'status'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
 // Countries has no sensible order, so it isn't sortable.
 const COLUMN_HEADERS: Array<{ label: string; key: SortKey | null }> = [
-  { label: 'Project', key: 'project' }, { label: 'Client', key: 'client' }, { label: 'TA', key: 'ta' },
+  { label: 'Project', key: 'project' }, { label: 'TA', key: 'ta' },
   { label: 'Phase', key: 'phase' }, { label: 'Start date', key: 'start' }, { label: 'Countries', key: null },
   { label: 'Documents', key: 'documents' }, { label: 'Status', key: 'status' },
 ]
@@ -136,7 +136,6 @@ export function AllProjects() {
     const val = (p: Project): string | number => {
       switch (sort.key) {
         case 'project':   return p.shortTitle
-        case 'client':    return p.client ?? ''
         case 'ta':        return p.therapeuticArea ?? ''
         case 'phase':     return phaseRank(p.phase ?? '')
         case 'start':     return p.startDate ? Date.parse(p.startDate) : 0
@@ -273,7 +272,7 @@ export function AllProjects() {
 
         {!isLoading && filtered.length > 0 && (
           <div className="overflow-x-auto">
-            <div className="min-w-[1000px]">
+            <div className="min-w-[900px]">
               <div className="grid items-center gap-4 px-6 pt-5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400" style={{ gridTemplateColumns: ROW_GRID }}>
                 {COLUMN_HEADERS.map(h => h.key ? (
                   <span key={h.label} aria-sort={sort?.key === h.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
@@ -303,7 +302,6 @@ export function AllProjects() {
                       <p className="truncate text-[15px] font-bold text-slate-900">{project.shortTitle}</p>
                       <p className="mt-0.5 truncate text-[13px] text-slate-500" title={project.name}>{project.name}</p>
                     </div>
-                    <span className="truncate text-[13px] text-slate-700" title={project.client}>{project.client || '—'}</span>
                     <span className="min-w-0">
                       {project.therapeuticArea
                         ? <span className="inline-block max-w-full truncate rounded px-2 py-0.5 font-mono text-[11px] text-slate-500" style={{ backgroundColor: '#F1F5F9' }} title={project.therapeuticArea}>{project.therapeuticArea}</span>

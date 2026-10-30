@@ -17,6 +17,15 @@ import {
   type RaciLetter,
 } from '../../api/raci'
 
+/** The search only filters once this many characters are typed; shorter input shows everyone. */
+export const MIN_SEARCH_CHARS = 3
+
+export function filterUsers(users: AssignableUser[], query: string): AssignableUser[] {
+  const q = query.trim().toLowerCase()
+  if (q.length < MIN_SEARCH_CHARS) return users
+  return users.filter(u => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+}
+
 export interface UserPickerProps {
   projectId: string
   letter: RaciLetter
@@ -25,10 +34,12 @@ export interface UserPickerProps {
   onChange: (userIds: string[]) => void
   /** Set to true when the parent is read-only (e.g. doc is signed). */
   disabled?: boolean
+  /** Users already holding another letter on the document — shown greyed out, not selectable. */
+  heldElsewhere?: Map<string, RaciLetter>
   className?: string
 }
 
-export function UserPicker({ projectId, letter, value, onChange, disabled, className }: UserPickerProps) {
+export function UserPicker({ projectId, letter, value, onChange, disabled, heldElsewhere, className }: UserPickerProps) {
   const [users, setUsers] = useState<AssignableUser[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -51,14 +62,9 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, class
     return () => { cancelled = true }
   }, [projectId, capability])
 
-  const filtered = useMemo(() => {
-    if (!users) return []
-    const q = query.trim().toLowerCase()
-    if (!q) return users
-    return users.filter(u =>
-      u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
-    )
-  }, [users, query])
+  const filtered = useMemo(() => (users ? filterUsers(users, query) : []), [users, query])
+  const typed = query.trim().length
+  const searching = typed >= MIN_SEARCH_CHARS
 
   const selected = useMemo(() => new Set(value), [value])
 
@@ -81,6 +87,11 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, class
         aria-label="Filter users"
         disabled={disabled}
       />
+      {typed > 0 && !searching && (
+        <p className="text-[11px] text-slate-500" data-search-hint>
+          Type at least {MIN_SEARCH_CHARS} characters to search.
+        </p>
+      )}
       <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-md divide-y divide-slate-100">
         {users === null && !error && (
           <div className="p-3 text-xs text-slate-500">Loading…</div>
@@ -90,23 +101,26 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, class
         )}
         {users && filtered.length === 0 && (
           <div className="p-3 text-xs text-slate-500">
-            {query ? 'No matches.' : capability
+            {searching ? 'No matches.' : capability
               ? `No active project members with the ${capability} capability.`
               : 'No active project members.'}
           </div>
         )}
         {filtered.map(u => {
           const isSelected = selected.has(u.id)
+          const otherLetter = isSelected ? undefined : heldElsewhere?.get(u.id)
+          const blocked = disabled || !!otherLetter
           return (
             <label
               key={u.id}
-              className={`flex items-center gap-3 px-3 py-2 text-sm cursor-pointer ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'} ${disabled ? 'opacity-60 cursor-not-allowed' : ''}`}
+              title={otherLetter ? `${u.name} already holds ${otherLetter} on this document — one letter per person.` : undefined}
+              className={`flex items-center gap-3 px-3 py-2 text-sm cursor-pointer ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'} ${blocked ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               <input
                 type="checkbox"
                 checked={isSelected}
                 onChange={() => toggle(u.id)}
-                disabled={disabled}
+                disabled={blocked}
                 className="shrink-0"
               />
               <span className="shrink-0 w-7 h-7 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-semibold">
@@ -116,6 +130,11 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, class
                 <span className="block font-medium text-slate-900 truncate">{u.name}</span>
                 <span className="block text-[11px] text-slate-500 truncate">{u.email}</span>
               </span>
+              {otherLetter && (
+                <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500" data-held-elsewhere>
+                  Already {otherLetter}
+                </span>
+              )}
               {u.projectRole && (
                 <span className="shrink-0 text-[11px] text-slate-500 italic">
                   {u.projectRole}

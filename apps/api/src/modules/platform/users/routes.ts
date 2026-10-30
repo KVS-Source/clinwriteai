@@ -44,7 +44,8 @@ const ROLES = [
 const ADMIN_ROLES = new Set<string>(['admin', 'tenant-admin'])
 
 const inviteSchema = z.object({
-  email: z.string().email(),
+  // Trim before validating: a pasted address often carries a trailing space.
+  email: z.string().trim().email(),
   name: z.string().min(1).optional(),
   firstName: z.string().min(1).optional(),
   lastName: z.string().min(1).optional(),

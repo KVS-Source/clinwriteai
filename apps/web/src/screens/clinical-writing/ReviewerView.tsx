@@ -195,6 +195,17 @@ export function ReviewerView() {
   const verdictBlockedReason = !hasSections ? 'This document has no sections yet'
                              : !activeSectionData ? 'Select a section to review'
                              : null
+  // Returned for revision (by any reviewer) and not saved by the writer since:
+  // it can't be approved until it comes back revised. The API enforces the same rule.
+  const lastReturn = activeRef
+    ? commentList
+        .filter(c => c.sectionRef === activeRef && (c.verdict === 'request_changes' || c.verdict === 'block_approval'))
+        .reduce<string | null>((latest, c) => (!latest || c.createdAt > latest ? c.createdAt : latest), null)
+    : null
+  const awaitingRevision = !!lastReturn
+    && !(activeSectionData?.lastEditedAt && new Date(activeSectionData.lastEditedAt) > new Date(lastReturn))
+  const approveBlockedReason = verdictBlockedReason
+    ?? (awaitingRevision ? `${activeRef} was returned for revision — it can be approved once the writer has revised it` : null)
 
   // Read-only render of the active section's real content (same TipTap schema
   // as the editor, so only known formatting is rendered).
@@ -267,7 +278,7 @@ export function ReviewerView() {
   const handleApproveSection = () => {
     // No approvals against "§?" (document without sections) and no duplicate
     // approvals of the same section by the same reviewer.
-    if (!documentId || verdictBlockedReason || alreadyApproved) return
+    if (!documentId || approveBlockedReason || alreadyApproved) return
     approveMut.mutate()
   }
 
@@ -339,18 +350,18 @@ export function ReviewerView() {
             )}
 
             {/* Presence stack — live, same as the Editor (FR-A-053 / AC-A-037). */}
-            {documentId && <PresenceStack documentId={documentId} currentUserId={me?.id} />}
+            {documentId && <PresenceStack documentId={documentId} currentUserId={me?.id} currentUserName={me?.name} />}
 
             <button
               type="button"
               onClick={handleApproveSection}
-              disabled={approveMut.isPending || !!verdictBlockedReason || alreadyApproved}
-              title={verdictBlockedReason ?? (alreadyApproved ? `You have already approved ${activeRef}` : undefined)}
+              disabled={approveMut.isPending || !!approveBlockedReason || alreadyApproved}
+              title={approveBlockedReason ?? (alreadyApproved ? `You have already approved ${activeRef}` : undefined)}
               data-action="approve-section"
               className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}
             >
-              {approveMut.isPending ? 'Approving…' : alreadyApproved ? '✓ Approved by you' : 'Approve section'}
+              {approveMut.isPending ? 'Approving…' : alreadyApproved ? '✓ Approved by you' : awaitingRevision ? 'Awaiting revision' : 'Approve section'}
             </button>
             <button
               type="button"

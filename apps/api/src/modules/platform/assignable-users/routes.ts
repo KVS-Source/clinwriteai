@@ -17,6 +17,8 @@
 //
 //   [{ id, name, email, initials, capabilities, projectRole }]
 //
+// Candidates: the project's members plus active module-A users of the project's tenant.
+//
 // If `capability` is passed, users without that capability are filtered
 // out server-side (keeps the client payload small for 100+ member
 // projects). The lead R who's a tenant-admin bypasses the capability
@@ -37,7 +39,7 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
     const parsed = querySchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
-    const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
+    const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true, tenantId: true } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
 
     // Active project members. Bridge the legacy ProjectTeamMember table
@@ -62,11 +64,21 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
     // new rows win over legacy on conflict.
     for (const t of legacyTeam) if (!projectRoleByUser.has(t.userId)) projectRoleByUser.set(t.userId, t.role)
 
-    if (projectRoleByUser.size === 0) return reply.send([])
-
+    // Candidates are the project's members plus every active Clinical Writing (module A) user in the
+    // project's tenant (users with no tenant recorded included). RACI assignment itself only checks the
+    // capability, so a writer doesn't have to be added to the project first to be picked.
     const userIds = Array.from(projectRoleByUser.keys())
     const users = await app.prisma.user.findMany({
-      where: { id: { in: userIds }, status: 'active' },
+      where: {
+        status: 'active',
+        OR: [
+          { id: { in: userIds } },
+          {
+            modules: { has: 'A' },
+            ...(project.tenantId ? { OR: [{ tenantId: project.tenantId }, { tenantId: null }] } : {}),
+          },
+        ],
+      },
       select: { id: true, name: true, email: true, initials: true, capabilities: true },
       orderBy: { name: 'asc' },
     })

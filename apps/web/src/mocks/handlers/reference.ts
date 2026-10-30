@@ -20,7 +20,30 @@ export const referenceHandlers = [
   }),
   http.get(`${BASE}/documents/:documentId/ich-e3`, async () => {
     await delay(100)
-    const complete = ichSections.filter(s => s.status === 'complete').length
-    return HttpResponse.json({ completionPercent: Math.round((complete / ichSections.length) * 100), completeSections: complete, totalSections: ichSections.length, sections: ichSections })
+    // Reshape the fixture to the live API's report: §16.4 is the conditional
+    // US-only row, shown waived; hyphenated statuses become underscored.
+    const sections = ichSections.map(s => {
+      const conditional = s.section === '§16.4'
+      return {
+        code:       s.section,
+        title:      s.title,
+        sectionId:  `s${s.section.slice(1).replace('.', '_')}`,
+        status:     conditional ? 'waived' : s.status.replace('-', '_'),
+        inDocument: true,
+        conditional,
+        ...(conditional && {
+          waiver: { waivedBy: 'usr-reviewer', waivedByName: 'Reviewer', waivedAt: '2026-10-01T09:00:00.000Z', reason: 'Not a US submission', versionAtWaiver: 'v0.3' },
+        }),
+      }
+    })
+    const mandatory     = sections.filter(s => !s.conditional)
+    const completeCount = mandatory.filter(s => s.status === 'complete').length
+    const waivedCount   = mandatory.filter(s => s.status === 'waived').length
+    return HttpResponse.json({
+      applicable: true, canWaive: true, documentTitle: 'Clinical Study Report',
+      completionPercent: Math.round(((completeCount + waivedCount) / mandatory.length) * 100),
+      completeSections: completeCount + waivedCount, completeCount, waivedCount,
+      totalSections: mandatory.length, sections,
+    })
   }),
 ]

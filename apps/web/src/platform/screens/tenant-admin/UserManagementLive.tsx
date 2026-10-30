@@ -102,8 +102,10 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
   const [err, setErr] = useState<string | null>(null)
 
   const invite = useMutation({
+    // Pasted addresses can carry stray spaces or zero-width characters that fail validation.
     mutationFn: () => usersApi.invite({
-      email, name, role, tenantId: tenantId || undefined, modules: ['A'],
+      email: email.replace(/[\s​-‍﻿]/g, ''),
+      name: name.trim(), role, tenantId: tenantId.trim() || undefined, modules: ['A'],
     }),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['admin-users'] })
@@ -115,25 +117,48 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4" data-section="invite-user">
       <h3 className="text-[13px] font-bold text-slate-900">Invite user</h3>
+      {/* Labelled fields, name first: with placeholders only, a filled form gave no hint which
+          box was which and names typed into the email box came back as "Invalid email". */}
       <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-        <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]" placeholder="name@example.com" value={email} onChange={e => setEmail(e.target.value)} data-input="email" />
-        <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]" placeholder="Display name"      value={name}  onChange={e => setName(e.target.value)}  data-input="name" />
-        <select
-          className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]"
-          value={role}
-          onChange={e => setRole(e.target.value)}
-          title={ROLE_OPTIONS.find(r => r.value === role)?.description}
-          data-input="role"
-        >
-          {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value} title={r.description}>{r.label}</option>)}
-        </select>
-        <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]" placeholder="Tenant id (optional)" value={tenantId} onChange={e => setTenantId(e.target.value)} data-input="tenantId" />
+        <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
+          Display name
+          <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder="e.g. Amelia Jones" value={name} onChange={e => { setName(e.target.value); setErr(null) }} data-input="name" />
+        </label>
+        <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
+          Email
+          <input type="email" className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder="name@example.com" value={email} onChange={e => { setEmail(e.target.value); setErr(null) }} data-input="email" />
+        </label>
+        <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
+          Role
+          <select
+            className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900"
+            value={role}
+            onChange={e => setRole(e.target.value)}
+            title={ROLE_OPTIONS.find(r => r.value === role)?.description}
+            data-input="role"
+          >
+            {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value} title={r.description}>{r.label}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
+          Tenant id (optional)
+          <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder="Leave blank for your tenant" value={tenantId} onChange={e => setTenantId(e.target.value)} data-input="tenantId" />
+        </label>
       </div>
       {err && <p className="mt-2 rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-error>{err}</p>}
       <div className="mt-3 flex justify-end">
         <button
           type="button"
-          onClick={() => invite.mutate()}
+          onClick={() => {
+            const clean = email.replace(/[\s​-‍﻿]/g, '')
+            if (!/^[^@]+@[^@]+\.[^@]+$/.test(clean)) {
+              setErr(name.includes('@')
+                ? 'The email address is in the Display name box — swap the two fields.'
+                : `"${email.trim()}" is not a valid email address (expected name@example.com).`)
+              return
+            }
+            invite.mutate()
+          }}
           disabled={!email || !name || invite.isPending}
           className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
           data-action="invite"

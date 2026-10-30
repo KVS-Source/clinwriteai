@@ -137,6 +137,11 @@ export const documentHandlers = [
     const doc = documents.find(d => d.id === params.documentId)
     return HttpResponse.json({ ...doc, updatedAt: new Date().toISOString(), version: 'v0.4' })
   }),
+  http.patch(`${BASE}/documents/:documentId/sections/:sectionId/ich-status`, async ({ params, request }) => {
+    await delay(150)
+    const { status } = await request.json() as { status: 'complete' | 'in_progress' }
+    return HttpResponse.json({ sectionId: params.sectionId, ichStatus: status })
+  }),
   http.get(`${BASE}/documents/:documentId/versions`, async () => {
     await delay(150)
     return HttpResponse.json([

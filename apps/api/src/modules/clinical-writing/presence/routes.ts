@@ -161,6 +161,14 @@ export const presenceRoutes: FastifyPluginAsync = async (app) => {
       bySection.set(s.sectionId, inSection)
     }
 
+    // Names for the avatars: the client's only other source is the admin-only
+    // /admin/users, so contributors would otherwise see "?" for everyone.
+    const people = await app.prisma.user.findMany({
+      where: { id: { in: [...new Set(sessions.map(s => s.userId))] } },
+      select: { id: true, name: true },
+    })
+    const nameById = new Map(people.map(u => [u.id, u.name]))
+
     return {
       documentId,
       staleSeconds: PRESENCE_STALE_SECONDS,
@@ -169,6 +177,7 @@ export const presenceRoutes: FastifyPluginAsync = async (app) => {
         users: Array.from(users.values()).map(s => ({
           sessionId: s.id,
           userId: s.userId,
+          userName: nameById.get(s.userId) ?? null,
           status: s.status,
           startedAt: s.startedAt,
           heartbeatAt: s.heartbeatAt,

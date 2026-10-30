@@ -3,8 +3,10 @@
 // Reads GET /documents/:id/ich-e3, which returns the 18 ICH E3 mandatory
 // sections with a status computed from the document's live section rows
 // plus any IchSectionWaiver rows. Waived rows show amber with reviewer +
-// reason + waived-at date. Each row carries a canonical `sectionId` so
-// "Open in editor →" always resolves (no hard-coded §11/§12 map).
+// reason + waived-at date. Each row carries the editor `sectionId` to open
+// and an `inDocument` flag, so "Open →" only shows when there's a section
+// to jump to. ICH E3 governs full CSRs only — other document types get a
+// short "not applicable" note instead of the list.
 
 import { useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -16,6 +18,14 @@ type IchStatus = 'complete' | 'in_progress' | 'not_started' | 'waived' | 'warnin
 
 type IchE3Report = Awaited<ReturnType<typeof documentsApi.getICHE3>>
 type IchSection = IchE3Report['sections'][number]
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { message?: string } | null
+    return body?.message ?? `${fallback} (HTTP ${err.status})`
+  }
+  return `${fallback} Please try again.`
+}
 
 // --- Status glyphs ---
 
@@ -65,115 +75,28 @@ function WaivedIcon() {
   )
 }
 
-function StatusIcon({ status }: { status: IchStatus }) {
-  if (status === 'complete')    return <CompleteIcon />
-  if (status === 'in_progress') return <InProgressIcon />
-  if (status === 'waived')      return <WaivedIcon />
-  if (status === 'warning')     return <WaivedIcon />
-  return <NotStartedIcon />
-}
-
-interface RowProps {
-  section:         IchSection
-  onOpen:          (sectionId: string) => void
-  canWaive:        boolean
-  onBeginWaive:    (code: string) => void
-  onClearWaiver:   (code: string) => void
-  isMutating:      boolean
-}
-
-function ICHRow(p: RowProps) {
-  const { section }   = p
-  const isWaived      = section.status === 'waived'
-  const isNotStarted  = section.status === 'not_started'
-  const [showReason, setShowReason] = useState(false)
-
+// Marked complete, then emptied — distinct from a waiver.
+function WarningIcon() {
   return (
     <div
-      className="border-b px-4 py-2 transition-colors hover:bg-slate-50"
-      style={{ borderColor: '#F1F5F9' }}
-      data-ich-row={section.code}
-      data-ich-status={section.status}
+      className="flex h-4 w-4 flex-none items-center justify-center rounded-full text-[10px] font-extrabold"
+      style={{ border: '1.5px solid #D97706', color: '#D97706' }}
+      data-status-icon="warning"
     >
-      <div className="flex items-center gap-2.5">
-        <StatusIcon status={section.status} />
-        <span
-          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]"
-          style={{ color: isNotStarted ? '#64748B' : '#1E293B' }}
-        >
-          {section.code} {section.title}
-        </span>
-
-        {isWaived && (
-          <span className="flex-none whitespace-nowrap text-[11px] font-semibold" style={{ color: '#B45309' }}>
-            Waived
-          </span>
-        )}
-
-        {!isWaived && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); p.onOpen(section.sectionId) }}
-            className="flex-none whitespace-nowrap text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-            data-open-in-editor={section.sectionId}
-          >
-            Open →
-          </button>
-        )}
-
-        {p.canWaive && !isWaived && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); p.onBeginWaive(section.code) }}
-            disabled={p.isMutating}
-            className="flex-none whitespace-nowrap text-[11px] font-semibold hover:text-amber-700 disabled:opacity-50"
-            style={{ color: '#B45309' }}
-            data-action="waive"
-          >
-            Waive
-          </button>
-        )}
-
-        {p.canWaive && isWaived && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); p.onClearWaiver(section.code) }}
-            disabled={p.isMutating}
-            className="flex-none whitespace-nowrap text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
-            data-action="clear-waiver"
-          >
-            Un-waive
-          </button>
-        )}
-      </div>
-
-      {isWaived && section.waiver && (
-        <div className="mt-1 ml-6">
-          <button
-            type="button"
-            onClick={() => setShowReason(v => !v)}
-            className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-          >
-            {showReason ? 'Hide waiver reason' : 'View waiver reason →'}
-          </button>
-          {showReason && (
-            <div
-              className="mt-1 rounded border px-2.5 py-2 text-[11px]"
-              style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', color: '#B45309' }}
-            >
-              <p className="font-semibold">{section.waiver.reason}</p>
-              <p className="mt-0.5 text-[10px]">
-                {section.waiver.waivedBy} · {new Date(section.waiver.waivedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · at {section.waiver.versionAtWaiver}
-              </p>
-            </div>
-          )}
-        </div>
-      )}
+      !
     </div>
   )
 }
 
-// --- Waive form (inline modal-ish) ---
+function StatusIcon({ status }: { status: IchStatus }) {
+  if (status === 'complete')    return <CompleteIcon />
+  if (status === 'in_progress') return <InProgressIcon />
+  if (status === 'waived')      return <WaivedIcon />
+  if (status === 'warning')     return <WarningIcon />
+  return <NotStartedIcon />
+}
+
+// --- Waive form (inline, under its row) ---
 
 function WaiveForm({ code, onCancel, onConfirm, submitting, error }: {
   code: string
@@ -185,7 +108,7 @@ function WaiveForm({ code, onCancel, onConfirm, submitting, error }: {
   const [reason, setReason] = useState('')
   return (
     <div
-      className="mx-4 mb-2 flex flex-col gap-2 rounded-lg p-3"
+      className="mt-2 ml-6 flex flex-col gap-2 rounded-lg p-3"
       style={{ border: '1px solid #FDE68A', backgroundColor: '#FFFBEB' }}
       data-form="waive"
       data-section-code={code}
@@ -228,18 +151,229 @@ function WaiveForm({ code, onCancel, onConfirm, submitting, error }: {
   )
 }
 
+// --- Un-waive confirmation (inline, under its row) ---
+
+function ClearWaiverConfirm({ code, onCancel, onConfirm, submitting, error }: {
+  code: string
+  onCancel: () => void
+  onConfirm: () => void
+  submitting: boolean
+  error: string | null
+}) {
+  return (
+    <div
+      className="mt-2 ml-6 flex flex-col gap-2 rounded-lg p-3"
+      style={{ border: '1px solid #E2E8F0', backgroundColor: '#F8FAFC' }}
+      data-form="clear-waiver"
+      data-section-code={code}
+    >
+      <p className="text-[12px] text-slate-700">
+        Remove the waiver for <span className="font-semibold">{code}</span>? This will be recorded in the audit trail.
+      </p>
+      {error && (
+        <p className="text-[11px] font-semibold text-red-700" role="alert">{error}</p>
+      )}
+      <div className="flex justify-end gap-2">
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={submitting}
+          className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          onClick={onConfirm}
+          disabled={submitting}
+          className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          data-action="confirm-clear-waiver"
+        >
+          {submitting ? 'Removing…' : 'Remove waiver'}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// --- Row ---
+
+interface RowProps {
+  section:       IchSection
+  isActive:      boolean
+  onOpen:        (sectionId: string) => void
+  canWaive:      boolean
+  isWaiving:     boolean
+  isClearing:    boolean
+  onBeginWaive:  () => void
+  onBeginClear:  () => void
+  onCancel:      () => void
+  onWaive:       (reason: string) => void
+  onClearWaiver: () => void
+  isMutating:    boolean
+  error:         string | null
+}
+
+function ICHRow(p: RowProps) {
+  const { section }   = p
+  const isWaived      = section.status === 'waived'
+  const isWarning     = section.status === 'warning'
+  const isNotStarted  = section.status === 'not_started'
+  const [showReason, setShowReason] = useState(false)
+  const fullTitle     = `${section.code} ${section.title}`
+
+  return (
+    <div
+      className="border-b px-4 py-2 transition-colors hover:bg-slate-50"
+      style={{
+        borderColor:     '#F1F5F9',
+        backgroundColor: p.isActive ? '#EFF6FF' : undefined,
+        boxShadow:       p.isActive ? 'inset 2px 0 0 #2563EB' : undefined,
+      }}
+      data-ich-row={section.code}
+      data-ich-status={section.status}
+      data-active={p.isActive || undefined}
+    >
+      <div className="flex items-center gap-2.5">
+        <StatusIcon status={section.status} />
+        <span
+          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]"
+          style={{ color: isNotStarted ? '#64748B' : '#1E293B' }}
+          title={fullTitle}
+        >
+          {fullTitle}
+        </span>
+
+        {section.conditional && (
+          <span
+            className="flex-none whitespace-nowrap rounded px-1.5 py-px text-[10px] font-semibold text-slate-500"
+            style={{ backgroundColor: '#F1F5F9' }}
+            title="Required for US submissions only — not counted toward completion"
+          >
+            US only
+          </span>
+        )}
+
+        {isWaived && (
+          <span className="flex-none whitespace-nowrap text-[11px] font-semibold" style={{ color: '#B45309' }}>
+            Waived
+          </span>
+        )}
+
+        {isWarning && (
+          <span
+            className="flex-none whitespace-nowrap text-[11px] font-semibold"
+            style={{ color: '#B45309' }}
+            title="Marked complete, but the section is now empty"
+          >
+            Needs attention
+          </span>
+        )}
+
+        {section.inDocument ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); p.onOpen(section.sectionId) }}
+            className="flex-none whitespace-nowrap text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+            data-open-in-editor={section.sectionId}
+          >
+            Open →
+          </button>
+        ) : (
+          <span
+            className="flex-none whitespace-nowrap text-[11px] text-slate-400"
+            title="This document has no section for this ICH E3 heading"
+            data-not-in-document
+          >
+            Not in document
+          </span>
+        )}
+
+        {p.canWaive && !isWaived && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); p.onBeginWaive() }}
+            disabled={p.isMutating}
+            className="flex-none whitespace-nowrap text-[11px] font-semibold hover:text-amber-700 disabled:opacity-50"
+            style={{ color: '#B45309' }}
+            data-action="waive"
+          >
+            Waive
+          </button>
+        )}
+
+        {p.canWaive && isWaived && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); p.onBeginClear() }}
+            disabled={p.isMutating}
+            className="flex-none whitespace-nowrap text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
+            data-action="clear-waiver"
+          >
+            Un-waive
+          </button>
+        )}
+      </div>
+
+      {isWaived && section.waiver && (
+        <div className="mt-1 ml-6">
+          <button
+            type="button"
+            onClick={() => setShowReason(v => !v)}
+            className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
+          >
+            {showReason ? 'Hide waiver reason' : 'View waiver reason →'}
+          </button>
+          {showReason && (
+            <div
+              className="mt-1 rounded border px-2.5 py-2 text-[11px]"
+              style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', color: '#B45309' }}
+            >
+              <p className="font-semibold">{section.waiver.reason}</p>
+              <p className="mt-0.5 text-[10px]">
+                {section.waiver.waivedByName ?? 'Unknown user'} · {new Date(section.waiver.waivedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · at {section.waiver.versionAtWaiver}
+              </p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {p.isWaiving && (
+        <WaiveForm
+          code={section.code}
+          onCancel={p.onCancel}
+          onConfirm={p.onWaive}
+          submitting={p.isMutating}
+          error={p.error}
+        />
+      )}
+
+      {p.isClearing && (
+        <ClearWaiverConfirm
+          code={section.code}
+          onCancel={p.onCancel}
+          onConfirm={p.onClearWaiver}
+          submitting={p.isMutating}
+          error={p.error}
+        />
+      )}
+    </div>
+  )
+}
+
 interface Props {
   documentId: string
 }
 
 export function ICHValidatorPanel({ documentId }: Props) {
   const qc = useQueryClient()
+  const activeSection    = useDocumentStore(s => s.activeSection)
   const setActiveSection = useDocumentStore(s => s.setActiveSection)
-  const setActivePanel   = useDocumentStore(s => s.setActivePanel)
   const currentUser      = useAuthStore(s => s.user)
 
-  const [waivingCode, setWaivingCode] = useState<string | null>(null)
-  const [waiveError,  setWaiveError]  = useState<string | null>(null)
+  // One inline action open at a time: waiving or clearing a waiver on a row.
+  const [pending, setPending]       = useState<{ code: string; action: 'waive' | 'clear' } | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['ich-e3', documentId],
@@ -248,63 +382,81 @@ export function ICHValidatorPanel({ documentId }: Props) {
   })
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['ich-e3', documentId] })
+  const closeAction = () => { setPending(null); setActionError(null) }
 
   const waiveMut = useMutation({
     mutationFn: (args: { code: string; reason: string }) =>
       documentsApi.waiveICHE3Section(documentId, args.code, args.reason),
-    onSuccess: () => {
-      setWaivingCode(null); setWaiveError(null); invalidate()
-    },
-    onError: (err: unknown) => {
-      if (err instanceof ApiError) {
-        const body = err.body as { message?: string } | null
-        setWaiveError(body?.message ?? `Could not waive (HTTP ${err.status})`)
-        return
-      }
-      setWaiveError('Could not waive the section. Please try again.')
-    },
+    onSuccess: () => { closeAction(); invalidate() },
+    onError:   (err: unknown) => setActionError(errorMessage(err, 'Could not waive the section.')),
   })
 
   const clearMut = useMutation({
     mutationFn: (code: string) => documentsApi.unwaiveICHE3Section(documentId, code),
-    onSuccess:  invalidate,
+    onSuccess:  () => { closeAction(); invalidate() },
+    onError:    (err: unknown) => setActionError(errorMessage(err, 'Could not remove the waiver.')),
   })
 
+  const applicable        = data?.applicable ?? true
   const sections          = data?.sections          ?? []
-  const completeSections  = data?.completeSections  ?? 0
+  const completeCount     = data?.completeCount     ?? 0
+  const waivedCount       = data?.waivedCount       ?? 0
   const totalSections     = data?.totalSections     ?? sections.length
   const completionPercent = data?.completionPercent ?? 0
 
-  // Only admins + reviewers can waive — matches the backend role gate.
-  const canWaive = currentUser?.role === 'admin' || currentUser?.role === 'reviewer'
+  // The API runs the same role check as the waive route (tenant-admin, or
+  // a contributor with can-review) and tells us the result.
+  const canWaive = applicable && (data?.canWaive ?? false)
 
-  const handleOpenInEditor = (sectionId: string) => {
-    setActiveSection(sectionId)
-    setActivePanel(null)
-  }
+  // Keep the panel open: the editor shows the chosen section beside it.
+  const handleOpenInEditor = (sectionId: string) => setActiveSection(sectionId)
+
+  // The row for the editor's current section — its own id or a parent
+  // heading (§11 for s11_4).
+  const isActiveRow = (s: IchSection) =>
+    !!activeSection && s.inDocument && (activeSection === s.sectionId || activeSection.startsWith(`${s.sectionId}_`))
 
   const handleExport = () => {
     // Build a plain-text report in-browser so admins can hand it to a
     // reviewer without a round-trip. A PDF variant via pdfkit can swap in
     // here later without touching the panel.
+    const title = data?.documentTitle || `Document ${documentId}`
     const lines: string[] = [
-      `ICH E3 Compliance Report — Document ${documentId}`,
-      `Generated: ${new Date().toISOString()}`,
-      `Completion: ${completeSections} / ${totalSections} (${completionPercent}%)`,
+      'ICH E3 Compliance Report',
+      `Document:     ${title}`,
+      `Generated by: ${currentUser?.name ?? 'Unknown user'}`,
+      `Generated at: ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`,
+      `Completion:   ${completionPercent}% — ${completeCount} complete, ${waivedCount} waived, of ${totalSections} mandatory sections`,
       '',
       ...sections.map(s => {
         const status = s.status.toUpperCase().replace('_', ' ')
-        const waiver = s.waiver ? `  — waived by ${s.waiver.waivedBy} (${s.waiver.reason})` : ''
-        return `${s.code.padEnd(7)} ${status.padEnd(13)} ${s.title}${waiver}`
+        const tag    = s.conditional ? ' [US only]' : ''
+        const where  = s.inDocument ? '' : ' (not in document)'
+        const waiver = s.waiver ? `  — waived by ${s.waiver.waivedByName ?? 'unknown user'} (${s.waiver.reason})` : ''
+        return `${s.code.padEnd(7)} ${status.padEnd(13)} ${s.title}${tag}${where}${waiver}`
       }),
     ]
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || documentId
     const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `ich-e3-${documentId}-${new Date().toISOString().slice(0, 10)}.txt`
+    a.download = `ich-e3-${slug}-${new Date().toISOString().slice(0, 10)}.txt`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  if (data && !applicable) {
+    return (
+      <div className="flex h-full flex-col" data-panel-body="ich-e3">
+        <div className="px-4 py-6" data-ich-not-applicable>
+          <p className="text-[13px] font-semibold text-slate-900">ICH E3 doesn’t apply to this document</p>
+          <p className="mt-1 text-[12px] text-slate-500">
+            The ICH E3 validator checks full Clinical Study Reports only.
+          </p>
+        </div>
+      </div>
+    )
   }
 
   return (
@@ -313,7 +465,9 @@ export function ICHValidatorPanel({ documentId }: Props) {
       {/* Completion strip */}
       <div className="flex-none border-b border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }} data-ich-completion>
         <div className="flex items-baseline justify-between">
-          <p className="text-xs font-bold text-slate-900">{completeSections} of {totalSections} sections complete</p>
+          <p className="text-xs font-bold text-slate-900">
+            {completeCount} complete{waivedCount > 0 && ` · ${waivedCount} waived`} of {totalSections}
+          </p>
           <p className="text-xs font-bold" style={{ color: '#2563EB' }}>{completionPercent}%</p>
         </div>
         <div className="mt-1.5 h-1.5 overflow-hidden rounded-[3px]" style={{ backgroundColor: '#E2E8F0' }}>
@@ -331,6 +485,11 @@ export function ICHValidatorPanel({ documentId }: Props) {
             Could not load the ICH E3 report.
           </p>
         )}
+        {!isLoading && !isError && sections.length === 0 && (
+          <p className="px-4 py-6 text-[12px] text-slate-500" data-ich-empty>
+            No ICH E3 sections found for this document.
+          </p>
+        )}
 
         {!isLoading && !isError && sections.length > 0 && (
           <>
@@ -344,24 +503,21 @@ export function ICHValidatorPanel({ documentId }: Props) {
               <ICHRow
                 key={section.code}
                 section={section}
+                isActive={isActiveRow(section)}
                 onOpen={handleOpenInEditor}
                 canWaive={canWaive}
-                onBeginWaive={(code) => { setWaivingCode(code); setWaiveError(null) }}
-                onClearWaiver={(code) => clearMut.mutate(code)}
+                isWaiving={pending?.code === section.code && pending.action === 'waive'}
+                isClearing={pending?.code === section.code && pending.action === 'clear'}
+                onBeginWaive={() => { setPending({ code: section.code, action: 'waive' }); setActionError(null) }}
+                onBeginClear={() => { setPending({ code: section.code, action: 'clear' }); setActionError(null) }}
+                onCancel={closeAction}
+                onWaive={(reason) => waiveMut.mutate({ code: section.code, reason })}
+                onClearWaiver={() => clearMut.mutate(section.code)}
                 isMutating={waiveMut.isPending || clearMut.isPending}
+                error={pending?.code === section.code ? actionError : null}
               />
             ))}
           </>
-        )}
-
-        {waivingCode && (
-          <WaiveForm
-            code={waivingCode}
-            onCancel={() => { setWaivingCode(null); setWaiveError(null) }}
-            onConfirm={(reason) => waiveMut.mutate({ code: waivingCode, reason })}
-            submitting={waiveMut.isPending}
-            error={waiveError}
-          />
         )}
       </div>
 

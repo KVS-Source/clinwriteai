@@ -26,6 +26,8 @@ export interface DocumentRaciRow {
   assignedBy: string
   assignedAt: string
   removedAt: string | null
+  /** Assignee's display name — set by GET /documents/:id/raci only. */
+  userName?: string | null
 }
 
 export interface RaciTransitionEvaluation {
@@ -44,6 +46,9 @@ export const raciApi = {
   list: (documentId: string) =>
     api.get<DocumentRaciRow[]>(`/documents/${documentId}/raci`),
 
+  canEdit: (documentId: string) =>
+    api.get<{ canEdit: boolean }>(`/documents/${documentId}/raci/can-edit`),
+
   assign: (documentId: string, body: {
     userId: string
     letter: RaciLetter
@@ -57,6 +62,10 @@ export const raciApi = {
 
   remove: (documentId: string, raciId: string) =>
     api.delete<void>(`/documents/${documentId}/raci/${raciId}`),
+
+  // Change a row's e-signature requirement in place (audited server-side).
+  setSignature: (documentId: string, raciId: string, body: { signatureRequired: boolean; signatureMeaning: string | null }) =>
+    api.patch<DocumentRaciRow>(`/documents/${documentId}/raci/${raciId}/signature`, body),
 
   complete: (documentId: string, raciId: string, body: { signatureId?: string | null } = {}) =>
     api.post<{

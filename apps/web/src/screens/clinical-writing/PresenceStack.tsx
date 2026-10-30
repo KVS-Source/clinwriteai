@@ -37,7 +37,12 @@ function initialsFromName(name: string | null | undefined, fallback = '?'): stri
   return parts.map(p => p[0]?.toUpperCase() ?? '').join('') || fallback
 }
 
-export function PresenceStack({ documentId, currentUserId }: { documentId: string; currentUserId?: string | null }) {
+export function PresenceStack({ documentId, currentUserId, currentUserName }: {
+  documentId: string
+  currentUserId?: string | null
+  /** Fallback for the viewer's own avatar — non-admins can't read /admin/users. */
+  currentUserName?: string | null
+}) {
   const { data: presenceSnapshot } = usePresenceSnapshot(documentId, { pollMs: 15_000 })
 
   // Resolve user id → PlatformUser so avatars can show initials + full
@@ -54,29 +59,29 @@ export function PresenceStack({ documentId, currentUserId }: { documentId: strin
     // Flatten all section rooms + dedupe by userId (same user may appear
     // on two sections if they rapidly navigated). "active" wins over
     // "idle" when the same user is in multiple states.
-    const bestByUser = new Map<string, { userId: string; status: 'active' | 'idle' | 'ended' }>()
+    const bestByUser = new Map<string, { userId: string; userName?: string | null; status: 'active' | 'idle' | 'ended' }>()
     for (const section of presenceSnapshot.sections) {
       for (const user of section.users) {
         const existing = bestByUser.get(user.userId)
         if (!existing || (existing.status !== 'active' && user.status === 'active')) {
-          bestByUser.set(user.userId, { userId: user.userId, status: user.status })
+          bestByUser.set(user.userId, { userId: user.userId, userName: user.userName, status: user.status })
         }
       }
     }
     return Array.from(bestByUser.values())
       .filter(u => u.status !== 'ended')
       .map(u => {
-        const platformUser = usersById.get(u.userId)
+        const name = u.userName ?? usersById.get(u.userId)?.name ?? (u.userId === currentUserId ? currentUserName : null)
         return {
           userId: u.userId,
-          name: platformUser?.name ?? 'Unknown',
-          initials: initialsFromName(platformUser?.name),
+          name: name ?? 'Unknown',
+          initials: initialsFromName(name),
           isCurrentUser: currentUserId === u.userId,
           color: avatarColor(u.userId),
           status: u.status,
         }
       })
-  }, [presenceSnapshot, usersById, currentUserId])
+  }, [presenceSnapshot, usersById, currentUserId, currentUserName])
 
   return (
     <>

@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
+import { raciApi } from '../../api/raci'
 import { platformApi } from '../../platform/api/platformApi'
 import { useCurrentUser, useInitiateSignatureChain } from '../../hooks'
 
@@ -60,6 +61,9 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   const users = useQuery({ queryKey: ['platform-users'], queryFn: () => platformApi.listUsers(), retry: false })
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => projectsApi.get(projectId), enabled: !!projectId })
 
+  // Approvers assigned on this document's own RACI (the Document RACI drawer) count too.
+  const docRaci = useQuery({ queryKey: ['document-raci', documentId], queryFn: () => raciApi.list(documentId), retry: false })
+
   const candidates: Candidate[] = useMemo(() => {
     const active = (users.data ?? []).filter(u => u.status === 'active').map(u => ({ id: u.id, name: u.name, role: u.role }))
     if (active.length) return active.sort((a, b) => a.name.localeCompare(b.name))
@@ -74,17 +78,17 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   // `missing_approvers`. We seed these rows locked, so the user can
   // reorder but not drop them.
   const approverSigners: SignerRow[] = useMemo(() => {
-    const team = project.data?.team ?? []
-    return team
-      .filter(t => t.raci === 'A')
-      .map(t => ({ signerId: t.userId, meaning: 'approved' as Meaning, locked: true }))
-  }, [project.data])
+    const ids = new Set<string>()
+    for (const t of project.data?.team ?? []) if (t.raci === 'A') ids.add(t.userId)
+    for (const r of docRaci.data ?? []) if (r.letter === 'A') ids.add(r.userId)
+    return [...ids].map(signerId => ({ signerId, meaning: 'approved' as Meaning, locked: true }))
+  }, [project.data, docRaci.data])
 
   // Seed the row list once project data has loaded: all Approvers (locked)
   // plus a convenience "me as author" row that the user can edit/remove.
   // Re-runs if the team changes (e.g. an Approver added mid-session).
   useEffect(() => {
-    if (!project.data) return
+    if (!project.data || (!docRaci.data && !docRaci.isError)) return
     setRows(prev => {
       // Keep any user-added rows (non-locked, not already an Approver).
       const approverIds = new Set(approverSigners.map(a => a.signerId))
@@ -94,7 +98,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
       }
       return [...approverSigners, ...userAdded]
     })
-  }, [project.data, approverSigners, me])
+  }, [project.data, docRaci.data, docRaci.isError, approverSigners, me])
 
   const effectiveRows = rows.length
     ? rows
@@ -129,7 +133,8 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   const incomplete = effectiveRows.some(r => !r.signerId)
   const hasAllApprovers = approverSigners.length > 0 &&
     approverSigners.every(a => effectiveRows.some(r => r.signerId === a.signerId && r.meaning === 'approved'))
-  const noApprovers = project.data !== undefined && approverSigners.length === 0
+  const approversLoaded = project.data !== undefined && (docRaci.data !== undefined || docRaci.isError)
+  const noApprovers = approversLoaded && approverSigners.length === 0
   const canSubmit = pending && !duplicate && !incomplete && !noApprovers && hasAllApprovers && !initiate.isPending
 
   const submit = () => {
@@ -175,7 +180,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
 
       {/* Required-Approvers notice — the chain cannot start without every
           team member with RACI='A' present as an 'approved' signer. */}
-      {!noApprovers && (
+      {approversLoaded && !noApprovers && (
         <p className="rounded-md border border-blue-200 bg-blue-50 p-2 text-[12px] text-blue-800" data-approvers-notice>
           <strong>Required ({approverSigners.length}):</strong> every team Approver (RACI='A') is pre-filled below as an
           <em> Approved</em> signer and can't be removed. You may reorder them, and add Authors or Reviewers alongside.
@@ -183,7 +188,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
       )}
       {noApprovers && (
         <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-800" data-no-approvers>
-          This project has no team members with RACI='A'. Add at least one Approver on the project team before starting the chain.
+          This document has no Approver (RACI='A'). Assign one in the document's RACI before starting the chain.
         </p>
       )}
 

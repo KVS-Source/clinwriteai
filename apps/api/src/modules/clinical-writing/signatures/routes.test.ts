@@ -76,6 +76,7 @@ function fakePrisma() {
     },
     // Document RACI — who may cancel a chain (the R / assignee, besides the initiator and admins).
     documentRaci: {
+      findMany: async () => [],   // no document-level Approvers in the default fixture
       findFirst: async ({ where }: Row) => (where.userId === 'u-owner' && where.letter === 'R' ? { id: 'raci-1' } : null),
     },
     $queryRawUnsafe: async () => [],

@@ -285,9 +285,7 @@ export function DiffView() {
   }
 
   const canSubmit = !!fromRecord && selectedHere.length > 0 && reason.trim().length > 0 && !restoring
-  const restoreLabelList = selectedHere
-    .map(id => `${sectionLabel(diffById.get(id)?.number ?? id)} from ${fromVersion}`)
-    .join(' · ')
+  const cancelRestore = () => { clearRestoreSelection(); setReason(''); setRestoreWait(null) }
 
   if (!document) {
     return (
@@ -569,77 +567,6 @@ export function DiffView() {
             </div>
           </div>
 
-          {/* Sticky restore bar */}
-          {selectedHere.length > 0 && (
-            <div
-              className="flex flex-none flex-col bg-white"
-              style={{
-                borderTop: '2px solid #2563EB',
-                boxShadow: '0 -4px 12px rgba(15,23,42,0.08)',
-              }}
-              data-restore-bar
-            >
-              <div className="flex h-14 flex-none items-center gap-3 px-7">
-                <p className="whitespace-nowrap text-[13px] font-bold text-slate-900">
-                  {selectedHere.length} section{selectedHere.length === 1 ? '' : 's'} selected for restore
-                </p>
-                <p className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap font-mono text-[11px] font-medium text-slate-500">
-                  {restoreLabelList}
-                </p>
-                <div className="flex flex-none items-center gap-2">
-                  <label htmlFor="restore-reason" className="whitespace-nowrap text-xs text-slate-500">Reason (required)</label>
-                  <input
-                    id="restore-reason"
-                    type="text"
-                    value={reason}
-                    onChange={e => setReason(e.target.value)}
-                    placeholder="Why are you restoring this section?"
-                    className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[13px] text-slate-900 outline-none focus:border-blue-600 focus:shadow-focus"
-                    style={{ width: 200 }}
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={() => { clearRestoreSelection(); setReason(''); setRestoreWait(null) }}
-                  disabled={restoring}
-                  className="flex-none disabled:opacity-50 rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-100 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={() => restoreMut.mutate()}
-                  disabled={!canSubmit}
-                  title={!reason.trim() ? 'Enter a reason for the restore first' : undefined}
-                  className="flex-none whitespace-nowrap rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
-                  data-restore-submit
-                >
-                  {restoring ? `Creating ${nextVersionLabel}…` : `Create ${nextVersionLabel} from selected sections →`}
-                </button>
-              </div>
-              {restoreMut.isError ? (
-                <p className="px-7 pb-2.5 text-center text-[12px] font-semibold text-red-700" data-restore-note>
-                  Could not start the restore: {(restoreMut.error as { body?: { message?: string; error?: string } } | null)?.body?.message ?? (restoreMut.error as { body?: { error?: string } } | null)?.body?.error ?? (restoreMut.error as Error | null)?.message ?? 'unknown error'}
-                </p>
-              ) : restoreWait?.timedOut ? (
-                <p className="px-7 pb-2.5 text-center text-[12px] font-semibold text-amber-700" data-restore-note>
-                  The restore is queued, but {nextVersionLabel} hasn't been created yet — the background worker may not be running. It will appear in the version list once the worker processes it.
-                </p>
-              ) : (
-                <p
-                  className="px-7 pb-2.5 text-center font-mono text-[11px] italic leading-relaxed text-slate-500"
-                  data-restore-note
-                >
-                  {restoring
-                    ? `Restore queued — waiting for ${nextVersionLabel} to be created…`
-                    : !reason.trim()
-                      ? `Enter a reason to continue. ${fromVersion} and ${toVersion} remain permanently in version history.`
-                      : `${fromVersion} and ${toVersion} remain permanently in version history. A new ${nextVersionLabel} will be created.`}
-                </p>
-              )}
-            </div>
-          )}
-
           {/* Provenance bar */}
           <div
             className="flex h-10 flex-none items-center overflow-hidden truncate whitespace-nowrap border-t border-slate-200 px-5 text-xs text-slate-500"
@@ -650,6 +577,118 @@ export function DiffView() {
             {toRecord && <span title={fmtUtc(toRecord.createdAt)}>&nbsp;· {toVersion} created by {toAuthor} · {fmtLocal(toRecord.createdAt)}</span>}
           </div>
         </div>
+
+        {/* Restore panel — beside the diff, like the Editor's right panels; open while sections are ticked. */}
+        {selectedHere.length > 0 && (
+          <div className="flex w-[360px] max-w-full flex-none flex-col border-l border-slate-200 bg-white" data-restore-panel>
+            <div className="flex h-12 flex-none items-center justify-between border-b border-slate-200 px-4">
+              <div className="flex items-center gap-2">
+                <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#2563EB" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" /><polyline points="2.5,2.5 2.5,5.5 5.5,5.5" />
+                </svg>
+                <h2 className="text-[14px] font-bold text-slate-900">Restore sections</h2>
+              </div>
+              <button
+                type="button"
+                onClick={cancelRestore}
+                disabled={restoring}
+                aria-label="Close and clear the selection"
+                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+              >
+                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><line x1="3" y1="3" x2="9" y2="9" /><line x1="9" y1="3" x2="3" y2="9" /></svg>
+              </button>
+            </div>
+
+            <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
+              <div>
+                <p className="mb-2 text-[12px] font-semibold text-slate-700">
+                  {selectedHere.length} section{selectedHere.length === 1 ? '' : 's'} selected · from {fromVersion}
+                </p>
+                <ul className="flex flex-col gap-1.5" data-restore-list>
+                  {selectedHere.map(id => {
+                    const d = diffById.get(id)
+                    return (
+                      <li key={id} className="flex items-start gap-2 rounded-md border border-slate-200 px-2.5 py-2">
+                        <div className="min-w-0 flex-1">
+                          <p className="text-[13px] font-semibold leading-snug text-slate-900">
+                            {sectionLabel(d?.number ?? id)} {d?.title ?? ''}
+                          </p>
+                          <p className="mt-0.5 font-mono text-[10px] text-slate-500">
+                            {d?.kind === 'removed' ? `removed in ${toVersion} — will be brought back` : `+${d?.added ?? 0} / −${d?.removed ?? 0} words will be undone`}
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => toggleSectionForRestore(id)}
+                          disabled={restoring}
+                          aria-label={`Remove ${sectionLabel(d?.number ?? id)} from the restore`}
+                          title="Remove from the restore"
+                          className="flex-none rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
+                        >
+                          <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><line x1="3" y1="3" x2="9" y2="9" /><line x1="9" y1="3" x2="3" y2="9" /></svg>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </div>
+
+              <div className="flex flex-col gap-1.5">
+                <label htmlFor="restore-reason" className="text-[12px] font-semibold text-slate-700">
+                  Reason <span className="text-red-600" aria-hidden="true">*</span>
+                </label>
+                <textarea
+                  id="restore-reason"
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  placeholder="Why are you restoring these sections?"
+                  rows={3}
+                  required
+                  aria-required="true"
+                  disabled={restoring}
+                  className="resize-y rounded-md border border-slate-200 bg-white px-2.5 py-2 text-[13px] text-slate-900 outline-none focus:border-blue-600 focus:shadow-focus disabled:bg-slate-50"
+                />
+              </div>
+
+              {restoreMut.isError ? (
+                <p className="text-[12px] font-semibold text-red-700" data-restore-note>
+                  Could not start the restore: {(restoreMut.error as { body?: { message?: string; error?: string } } | null)?.body?.message ?? (restoreMut.error as { body?: { error?: string } } | null)?.body?.error ?? (restoreMut.error as Error | null)?.message ?? 'unknown error'}
+                </p>
+              ) : restoreWait?.timedOut ? (
+                <p className="text-[12px] font-semibold text-amber-700" data-restore-note>
+                  The restore is queued, but {nextVersionLabel} hasn't been created yet — the background worker may not be running. It will appear in the version list once the worker processes it.
+                </p>
+              ) : (
+                <p className="text-[11px] leading-relaxed text-slate-500" data-restore-note>
+                  {restoring
+                    ? `Restore queued — waiting for ${nextVersionLabel} to be created…`
+                    : `A new ${nextVersionLabel} will be created with these sections as they were in ${fromVersion}. ${fromVersion} and ${toVersion} remain permanently in version history.`}
+                </p>
+              )}
+            </div>
+
+            <div className="flex flex-none items-center justify-end gap-2 border-t border-slate-200 px-4 py-3">
+              <button
+                type="button"
+                onClick={cancelRestore}
+                disabled={restoring}
+                className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-100 transition-colors disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => restoreMut.mutate()}
+                disabled={!canSubmit}
+                title={!reason.trim() ? 'Enter a reason for the restore first' : undefined}
+                className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
+                data-restore-submit
+              >
+                {restoring ? `Creating ${nextVersionLabel}…` : `Create ${nextVersionLabel} →`}
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

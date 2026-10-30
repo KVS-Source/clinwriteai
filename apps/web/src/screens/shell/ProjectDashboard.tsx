@@ -174,8 +174,7 @@ export function ProjectDashboard() {
               <ProjectStatusPill status={project.status} />
             </div>
             <div className="flex flex-wrap items-center gap-3.5 text-sm text-slate-500">
-              <span>{project.client}</span>
-              <span className="text-slate-300">·</span>
+              {project.client && <><span>{project.client}</span><span className="text-slate-300">·</span></>}
               <span>{phaseLabel}{project.indication ? ` · ${project.indication}` : ''}</span>
               <span className="text-slate-300">·</span>
               <span>Project lead {leadName}</span>

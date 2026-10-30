@@ -26,6 +26,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { BestPractice, CreateDocumentBody, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi, type DocumentTemplate } from '../../api'
 import { ApiError } from '../../api/client'
+import { assignableUsersApi } from '../../api/raci'
 import { platformApi } from '../../platform/api/platformApi'
 import { sourceCategoryLabel } from '../../utils/sourceCategories'
 import { sourceCategoriesForDocType } from '../../utils/documentTypeSourceCategories'
@@ -172,9 +173,16 @@ export function NewDocumentForm({
     }).length
   }, [sourceIds, sources, recommendedCategories, recommendedSet])
 
+  // The tenant user list is admin-only (403 for everyone else), so it can't be the only source of
+  // assignees: project members are listed by an endpoint any signed-in user can read.
   const { data: users = [] } = useQuery<PlatformUser[]>({
     queryKey: ['platform-users'],
     queryFn:  () => platformApi.listUsers(),
+    retry: false,
+  })
+  const { data: members = [] } = useQuery({
+    queryKey: ['assignable-users', projectId],
+    queryFn:  () => assignableUsersApi.list(projectId),
     retry: false,
   })
 
@@ -217,8 +225,13 @@ export function NewDocumentForm({
   // 'tenant-admin'; the legacy role names are still accepted for rows not yet rewritten. An API whose
   // Prisma client predates the capabilities column returns no `capabilities`, so a contributor
   // without the field still counts as a writer.
-  const assigneeOptions = useMemo(
-    () => users.filter(u => {
+  const assigneeOptions = useMemo((): { id: string; name: string; role: string }[] => {
+    // Project members who can author (a member without recorded capabilities counts as a writer, as below).
+    const fromMembers = members
+      .filter(m => m.capabilities.length === 0 || m.capabilities.includes('can-author'))
+      .map(m => ({ id: m.id, name: m.name, role: m.projectRole ?? 'member' }))
+    if (fromMembers.length > 0) return fromMembers
+    return users.filter(u => {
       const status = u.status as string   // the API also returns 'deprovisioned'
       if (status === 'suspended' || status === 'deprovisioned') return false
       const role = u.role as string
@@ -226,9 +239,8 @@ export function NewDocumentForm({
       if (role !== 'contributor') return false
       const capabilities = (u as { capabilities?: string[] }).capabilities
       return !capabilities || capabilities.includes('can-author')
-    }),
-    [users],
-  )
+    }).map(u => ({ id: u.id, name: u.name, role: u.role as string }))
+  }, [users, members])
 
   const create = useMutation({
     mutationFn: () => {

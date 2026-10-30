@@ -25,30 +25,24 @@ function useAutoCollapsed(): boolean {
   return false
 }
 
-// The user's choice survives reloads; it is only a convenience, so storage failures are ignored.
-const STORAGE_KEY = 'clinwrite.sidebar.editorOpen'
-const readPref = (): boolean | null => {
-  try { const v = window.localStorage.getItem(STORAGE_KEY); return v === null ? null : v === '1' } catch { return null }
-}
-const writePref = (open: boolean) => {
-  try { window.localStorage.setItem(STORAGE_KEY, open ? '1' : '0') } catch { /* ignore */ }
-}
-
 export function AppShell() {
   const activeModule  = useActiveModule()
   const autoCollapsed = useAutoCollapsed()
   const { pathname }  = useLocation()
 
   // Inside an editor the rail is the default, and the arrow opens the full navigation (all modules).
-  // Outside an editor the sidebar is open by default and the arrow collapses it. A choice made in
-  // one place doesn't carry into the other: the editor remembers its own, other pages reset.
-  const [editorOpen, setEditorOpen] = useState<boolean | null>(readPref)
+  // Outside an editor the sidebar is open by default and the arrow collapses it. Every document
+  // opens collapsed, so the editor gets the room: opening the navigation lasts while you stay in
+  // that document (across its tabs), and the next document — or a reload — starts collapsed again.
+  const [editorOpen, setEditorOpen] = useState(false)
   const [pageCollapsed, setPageCollapsed] = useState(false)
   useEffect(() => { setPageCollapsed(false) }, [autoCollapsed])
+  const openedDocument = pathname.match(/\/documents\/([^/]+)/)?.[1] ?? null
+  useEffect(() => { setEditorOpen(false) }, [openedDocument, autoCollapsed])
 
-  const collapsed = autoCollapsed ? !(editorOpen ?? false) : pageCollapsed
+  const collapsed = autoCollapsed ? !editorOpen : pageCollapsed
   const toggle = () => {
-    if (autoCollapsed) { const next = !(editorOpen ?? false); setEditorOpen(next); writePref(next) }
+    if (autoCollapsed) setEditorOpen(o => !o)
     else setPageCollapsed(c => !c)
   }
 

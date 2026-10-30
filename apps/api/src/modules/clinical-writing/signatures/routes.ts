@@ -130,10 +130,22 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     // UI (direct POST) can't skip approvals. Writers can still be added
     // for meaning='authored' and reviewers for meaning='reviewed'; those
     // are additive, not substitutes.
-    const approverTeam = await app.prisma.projectTeamMember.findMany({
+    const teamApprovers = await app.prisma.projectTeamMember.findMany({
       where: { projectId: doc.projectId, raci: 'A' },
       select: { userId: true, name: true },
     })
+    // Approvers assigned on the document's own RACI count as well.
+    const docApprovers = await app.prisma.documentRaci.findMany({
+      where: { documentId, letter: 'A' },
+      select: { userId: true },
+    })
+    const docApproverUsers = docApprovers.length === 0 ? [] : await app.prisma.user.findMany({
+      where: { id: { in: docApprovers.map(r => r.userId) } },
+      select: { id: true, name: true },
+    })
+    const approverById = new Map(teamApprovers.map(t => [t.userId, t]))
+    for (const u of docApproverUsers) if (!approverById.has(u.id)) approverById.set(u.id, { userId: u.id, name: u.name })
+    const approverTeam = [...approverById.values()]
     if (approverTeam.length === 0) {
       return reply.code(422).send({
         error: 'no_approvers_configured',

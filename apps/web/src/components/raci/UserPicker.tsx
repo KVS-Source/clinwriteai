@@ -17,6 +17,15 @@ import {
   type RaciLetter,
 } from '../../api/raci'
 
+/** The search only filters once this many characters are typed; shorter input shows everyone. */
+export const MIN_SEARCH_CHARS = 3
+
+export function filterUsers(users: AssignableUser[], query: string): AssignableUser[] {
+  const q = query.trim().toLowerCase()
+  if (q.length < MIN_SEARCH_CHARS) return users
+  return users.filter(u => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
+}
+
 export interface UserPickerProps {
   projectId: string
   letter: RaciLetter
@@ -51,14 +60,9 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, class
     return () => { cancelled = true }
   }, [projectId, capability])
 
-  const filtered = useMemo(() => {
-    if (!users) return []
-    const q = query.trim().toLowerCase()
-    if (!q) return users
-    return users.filter(u =>
-      u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q),
-    )
-  }, [users, query])
+  const filtered = useMemo(() => (users ? filterUsers(users, query) : []), [users, query])
+  const typed = query.trim().length
+  const searching = typed >= MIN_SEARCH_CHARS
 
   const selected = useMemo(() => new Set(value), [value])
 
@@ -81,6 +85,11 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, class
         aria-label="Filter users"
         disabled={disabled}
       />
+      {typed > 0 && !searching && (
+        <p className="text-[11px] text-slate-500" data-search-hint>
+          Type at least {MIN_SEARCH_CHARS} characters to search.
+        </p>
+      )}
       <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-md divide-y divide-slate-100">
         {users === null && !error && (
           <div className="p-3 text-xs text-slate-500">Loading…</div>
@@ -90,7 +99,7 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, class
         )}
         {users && filtered.length === 0 && (
           <div className="p-3 text-xs text-slate-500">
-            {query ? 'No matches.' : capability
+            {searching ? 'No matches.' : capability
               ? `No active project members with the ${capability} capability.`
               : 'No active project members.'}
           </div>

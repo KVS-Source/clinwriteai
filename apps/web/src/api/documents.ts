@@ -301,6 +301,23 @@ export const documentsApi = {
   // Checklist
   getChecklist: (documentId: string) =>
     api.get<ChecklistItem[]>(`/documents/${documentId}/checklist`),
+  // Compliance Summary appendix of the output document (FR-A-030 / AC-A-029).
+  getComplianceSummary: (documentId: string) =>
+    api.get<{
+      documentId: string
+      checklistTemplateVersion: number | null
+      generatedAt: string
+      frameworks: Array<{
+        name: string
+        version: string | null
+        jurisdiction: string | null
+        description: string | null
+        sourceUrl: string | null
+        inRegistry: boolean
+        rules: Array<{ text: string; mandatory: boolean; status: string }>
+      }>
+      waivedMandatory: Array<{ text: string; framework: string; waivedBy: string | null; waivedAt: string | null; reason: string | null }>
+    }>(`/documents/${documentId}/compliance-summary`),
   completeItem: (documentId: string, itemId: string, body: CompleteItemBody) =>
     api.patch<ChecklistItem>(`/documents/${documentId}/checklist/${itemId}/complete`, body),
   waiveItem: (documentId: string, itemId: string, body: WaiveItemBody) =>

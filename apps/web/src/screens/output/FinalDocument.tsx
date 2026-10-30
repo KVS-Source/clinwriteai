@@ -71,6 +71,18 @@ const bySectionNumber = (a: Section, b: Section) =>
 
 const isBlankHtml = (html: string | undefined) => !html || html.replace(/<[^>]*>/g, '').trim() === ''
 
+// A value for CSS `content:` (quoted, escaped) — used for the printed page header / footer.
+const cssText = (s: string) => `"${s.replace(/\\/g, '\\\\').replace(/"/g, '\\"').replace(/[\r\n]+/g, ' ')}"`
+
+// Outcome of a checklist rule, as printed in the Compliance Summary.
+const RULE_OUTCOME: Record<string, { label: string; colour: string }> = {
+  complete:      { label: 'Met',           colour: '#15803D' },
+  waived:        { label: 'Waived',        colour: '#B45309' },
+  pending:       { label: 'Not completed', colour: '#B91C1C' },
+  'in-progress': { label: 'Not completed', colour: '#B91C1C' },
+  in_progress:   { label: 'Not completed', colour: '#B91C1C' },
+}
+
 export function FinalDocument() {
   const { projectId, documentId } = useParams()
   const [auditOpen, setAuditOpen] = useState(false)
@@ -94,6 +106,12 @@ export function FinalDocument() {
   const { data: chain = [] } = useQuery({
     queryKey: ['signature-chain', documentId],
     queryFn:  () => documentsApi.getSignatureChain(documentId!),
+    enabled:  !!documentId,
+  })
+
+  const { data: compliance, isError: complianceFailed } = useQuery({
+    queryKey: ['compliance-summary', documentId],
+    queryFn:  () => documentsApi.getComplianceSummary(documentId!),
     enabled:  !!documentId,
   })
 
@@ -202,6 +220,35 @@ export function FinalDocument() {
   const sealHash = [...signedRecords].reverse().find(r => r.documentHash)?.documentHash
   const signedAtText = formatUtc(signedAtIso)
   const activeSectionData = document?.sections.find(s => s.id === activeSection)
+  // "Signed" status with no signature on record: the status was set without a completed
+  // e-signature chain (AC-A-045 / 046). It is not presented or exported as a signed record.
+  const signatureGap = isSigned && signedRecords.length === 0
+  const orderedSections = useMemo(() => (document ? [...document.sections].sort(bySectionNumber) : []), [document])
+
+  // Printed page header / footer (Download PDF): title, version and status on every page,
+  // "Page X of Y" at the bottom. The title page carries none of it.
+  useEffect(() => {
+    if (!document) return
+    const status = isSigned && !signatureGap ? 'Final · Signed' : 'Not signed'
+    const header = `${document.title} · ${isSigned ? signedVersion : document.version} · ${status}`
+    const style = window.document.createElement('style')
+    style.setAttribute('data-final-print-page', '')
+    style.textContent = `@media print {
+  @page {
+    size: A4;
+    margin: 20mm 16mm 18mm;
+    @top-left     { content: ${cssText(header)}; font: 8pt sans-serif; color: #64748b; }
+    @top-right    { content: ${cssText(project?.shortTitle ?? '')}; font: 8pt sans-serif; color: #64748b; }
+    @bottom-left  { content: ${cssText(`Printed ${formatUtc(new Date().toISOString()) ?? ''}`)}; font: 8pt sans-serif; color: #94a3b8; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 8pt sans-serif; color: #64748b; }
+  }
+  @page :first {
+    @top-left { content: none; } @top-right { content: none; }
+  }
+}`
+    window.document.head.appendChild(style)
+    return () => style.remove()
+  }, [document, project, isSigned, signatureGap, signedVersion])
 
   if (!document) {
     return (
@@ -218,6 +265,7 @@ export function FinalDocument() {
       <div
         className="flex flex-none flex-col gap-2 border-b border-slate-200 bg-white px-8 pt-3"
         style={{ position: 'relative', zIndex: 6 }}
+        data-screen-only
       >
         {/* Breadcrumb moved to TopNav (same cleanup as DocumentEditor). */}
 
@@ -260,14 +308,16 @@ export function FinalDocument() {
             )}
             <button
               type="button"
-              disabled={!isSigned}
+              disabled={!isSigned || signatureGap}
               onClick={() => {
                 // Browser-native PDF export of the current signed-and-locked
                 // document view. Replaced by a server-rendered PDF once the
                 // Phase 4 reports pipeline + puppeteer worker lands.
                 window.print()
               }}
-              title={isSigned ? 'Open browser Print dialog (Save as PDF)' : 'Available once the document is signed'}
+              title={signatureGap
+                ? 'No signature records are on file, so this cannot be exported as a signed document'
+                : isSigned ? 'Open browser Print dialog (Save as PDF)' : 'Available once the document is signed'}
               className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
             >
               Download PDF
@@ -298,6 +348,7 @@ export function FinalDocument() {
           ? { backgroundColor: '#F0FDF4', borderBottom: '1px solid #BBF7D0' }
           : { backgroundColor: '#FFFBEB', borderBottom: '1px solid #FDE68A' }}
         data-signed-banner={isSigned ? 'signed' : 'unsigned'}
+        data-screen-only
       >
         <ShieldIcon size={14} colour={isSigned ? '#15803D' : '#B45309'} />
         <p className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px]" style={{ color: isSigned ? '#15803D' : '#B45309' }}>
@@ -339,8 +390,54 @@ export function FinalDocument() {
           <div ref={scrollRef} className="flex-1 overflow-y-auto px-12 pt-6 pb-8" data-final-scroll>
             <div className="flex max-w-[760px] flex-col">
 
+              {/* Printed title page (Download PDF only) */}
+              <div data-print-only data-print-page-break className="pt-[30mm]">
+                <p className="text-[11px] font-semibold uppercase tracking-widest text-slate-500">{project?.shortTitle ?? ''}{project?.name ? ` · ${project.name}` : ''}</p>
+                <h1 className="mt-4 text-[28px] font-bold leading-tight text-slate-900">{document.title}</h1>
+                <table className="mt-10 w-full text-[12px]">
+                  <tbody>
+                    <tr><td className="w-44 py-1.5 text-slate-500">Version</td><td className="py-1.5 font-semibold text-slate-900">{isSigned ? `${signedVersion} · Final` : document.version}</td></tr>
+                    <tr><td className="py-1.5 text-slate-500">Status</td><td className="py-1.5 font-semibold text-slate-900">{signatureGap ? 'Marked signed — no signatures on record' : isSigned ? 'Signed ✓' : (STATUS_META[document.status] ?? STATUS_META['not-started']).label}</td></tr>
+                    {isSigned && signedAtText && <tr><td className="py-1.5 text-slate-500">Signed</td><td className="py-1.5 text-slate-900">{signedAtText}</td></tr>}
+                    {project?.therapeuticArea && <tr><td className="py-1.5 text-slate-500">Therapeutic area</td><td className="py-1.5 text-slate-900">{project.therapeuticArea}</td></tr>}
+                    {project?.phase && <tr><td className="py-1.5 text-slate-500">Phase</td><td className="py-1.5 text-slate-900">{project.phase}</td></tr>}
+                    {sealHash && <tr><td className="py-1.5 align-top text-slate-500">Document hash (SHA-256)</td><td className="break-all py-1.5 font-mono text-[10px] text-slate-900">{sealHash}</td></tr>}
+                    <tr><td className="py-1.5 text-slate-500">Document ID</td><td className="py-1.5 font-mono text-[11px] text-slate-900">{document.id}</td></tr>
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Printed table of contents */}
+              <div data-print-only data-print-page-break>
+                <h2 className="text-[20px] font-bold text-slate-900">Contents</h2>
+                <ol className="mt-4 flex flex-col gap-1.5 text-[13px] text-slate-900">
+                  {orderedSections.map(s => (
+                    <li key={s.id}>{s.number}. {s.title}</li>
+                  ))}
+                  <li>Appendix — Compliance Summary</li>
+                </ol>
+              </div>
+
+              {/* "Signed" with no signature on record: say so instead of presenting it as signed */}
+              {signatureGap && (
+                <div
+                  className="mb-6 flex items-start gap-4 rounded-lg px-5 py-4"
+                  style={{ backgroundColor: '#FFFBEB', border: '1px solid #FDE68A' }}
+                  data-signature-gap
+                >
+                  <ShieldIcon size={24} colour="#B45309" />
+                  <div className="flex min-w-0 flex-1 flex-col gap-1">
+                    <p className="text-sm font-bold" style={{ color: '#B45309' }}>Marked as signed, but no signatures are on record</p>
+                    <p className="text-[12px] leading-relaxed" style={{ color: '#92400E' }}>
+                      This document's status is Signed, but it has no completed e-signature chain, so there are no signers, signature meanings or document hash to show.
+                      It cannot be treated or exported as a signed record. Ask an administrator to check how its status was set.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Signature chain banner — only for a signed document, and only what was really signed */}
-              {isSigned && (
+              {isSigned && !signatureGap && (
               <div
                 className="mb-6 flex items-center gap-4 rounded-lg px-5 py-4"
                 style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}
@@ -349,8 +446,12 @@ export function FinalDocument() {
                 <ShieldIcon size={24} colour="#15803D" />
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <p className="text-sm font-bold" style={{ color: '#15803D' }}>Electronically signed document</p>
-                  <p className="font-mono text-[11px] font-medium" style={{ color: '#15803D', opacity: 0.7 }} title={sealHash ? `SHA-256: ${sealHash}` : undefined}>
+                  <p className="font-mono text-[11px] font-medium" style={{ color: '#15803D', opacity: 0.7 }} title={sealHash ? `SHA-256: ${sealHash}` : undefined} data-screen-only>
                     {document.title} · {signedVersion}{sealHash ? ` · SHA-256: ${shortHash(sealHash)}` : ''}
+                  </p>
+                  {/* In print the full hash, so the paper copy can be checked against the record. */}
+                  <p className="break-all font-mono text-[9px] font-medium" style={{ color: '#15803D' }} data-print-only>
+                    {document.title} · {signedVersion}{sealHash ? ` · SHA-256: ${sealHash}` : ''}
                   </p>
                 </div>
                 <div className="flex flex-none flex-col gap-1">
@@ -371,7 +472,7 @@ export function FinalDocument() {
                           {record.initials}
                         </div>
                         <p className="whitespace-nowrap text-[11px]" style={{ color: '#15803D' }}>
-                          {record.signer} · {MEANING_VERB[record.meaning] ?? record.meaning}{when ? ` · ${when}` : ''}
+                          {record.signer}{record.role ? ` · ${record.role}` : ''} · {MEANING_VERB[record.meaning] ?? record.meaning}{when ? ` · ${when}` : ''}
                         </p>
                       </div>
                     )
@@ -381,7 +482,7 @@ export function FinalDocument() {
               )}
 
               {/* Every section of the document, in order */}
-              {[...document.sections].sort(bySectionNumber).map(section => {
+              {orderedSections.map(section => {
                 const html = section.contentHtml
                 return (
                   <section
@@ -402,6 +503,94 @@ export function FinalDocument() {
               {document.sections.length === 0 && (
                 <p className="text-sm italic text-slate-400">This document has no sections.</p>
               )}
+
+              {/* Appendix — Compliance Summary (FR-A-030, FR-A-001d; AC-A-029, AC-A-013) */}
+              <section className="mt-4 border-t border-slate-200 pt-6" data-compliance-summary data-print-break-before>
+                <h2 className="text-[20px] font-bold" style={{ breakAfter: 'avoid' }}>Appendix — Compliance Summary</h2>
+                {complianceFailed && <p className="mt-2 text-sm text-red-700">The Compliance Summary could not be loaded.</p>}
+                {!compliance && !complianceFailed && <p className="mt-2 font-mono text-xs text-slate-400">Loading compliance summary…</p>}
+                {compliance && (
+                  <>
+                    <p className="mt-2 text-[13px] text-slate-600">
+                      Generated from this document's input checklist{compliance.checklistTemplateVersion != null ? ` (template v${compliance.checklistTemplateVersion})` : ''}.
+                    </p>
+
+                    <h3 className="mt-5 text-[15px] font-bold text-slate-900">Applicable regulatory frameworks</h3>
+                    {compliance.frameworks.length === 0
+                      ? <p className="mt-1 text-[13px] italic text-slate-500">No frameworks are recorded on this document's checklist.</p>
+                      : (
+                        <table className="mt-2 w-full border-collapse text-[12px]">
+                          <thead>
+                            <tr className="text-left text-slate-500">
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Framework</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Version</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Jurisdiction</th>
+                              <th className="border-b border-slate-200 py-1.5 font-semibold">Reference</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {compliance.frameworks.map(f => (
+                              <tr key={f.name} className="align-top">
+                                <td className="border-b border-slate-100 py-1.5 pr-3 font-semibold text-slate-900">{f.name}</td>
+                                <td className="border-b border-slate-100 py-1.5 pr-3 text-slate-700">{f.version ?? '—'}</td>
+                                <td className="border-b border-slate-100 py-1.5 pr-3 text-slate-700">{f.jurisdiction ?? '—'}</td>
+                                <td className="break-all border-b border-slate-100 py-1.5 text-slate-700">
+                                  {f.sourceUrl ?? (f.inRegistry ? '—' : 'Not in the framework registry')}
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+
+                    <h3 className="mt-6 text-[15px] font-bold text-slate-900">Rules applied</h3>
+                    {compliance.frameworks.map(f => (
+                      <div key={f.name} className="mt-3" style={{ breakInside: 'avoid' }}>
+                        <p className="text-[13px] font-semibold text-slate-800">{f.name}</p>
+                        <ul className="mt-1 flex flex-col gap-1">
+                          {f.rules.map((r, i) => {
+                            const outcome = RULE_OUTCOME[r.status] ?? { label: r.status, colour: '#475569' }
+                            return (
+                              <li key={i} className="flex items-start gap-3 text-[12px]">
+                                <span className="min-w-0 flex-1 text-slate-800">{r.text}{r.mandatory ? '' : ' (recommended)'}</span>
+                                <span className="flex-none font-semibold" style={{ color: outcome.colour }}>{outcome.label}</span>
+                              </li>
+                            )
+                          })}
+                        </ul>
+                      </div>
+                    ))}
+
+                    <h3 className="mt-6 text-[15px] font-bold text-slate-900">Waived Framework Mandatory items</h3>
+                    {compliance.waivedMandatory.length === 0
+                      ? <p className="mt-1 text-[13px] text-slate-600">None — no Framework Mandatory checklist item was waived.</p>
+                      : (
+                        <table className="mt-2 w-full border-collapse text-[12px]" data-waived-items>
+                          <thead>
+                            <tr className="text-left text-slate-500">
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Item</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Framework</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Waived by</th>
+                              <th className="border-b border-slate-200 py-1.5 font-semibold">Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {compliance.waivedMandatory.map((w, i) => (
+                              <tr key={i} className="align-top">
+                                <td className="border-b border-slate-100 py-1.5 pr-3 text-slate-900">{w.text}</td>
+                                <td className="border-b border-slate-100 py-1.5 pr-3 text-slate-700">{w.framework}</td>
+                                <td className="border-b border-slate-100 py-1.5 pr-3 text-slate-700">
+                                  {w.waivedBy ?? '—'}{w.waivedAt ? <><br /><span className="text-[11px] text-slate-500">{formatUtc(w.waivedAt)}</span></> : null}
+                                </td>
+                                <td className="border-b border-slate-100 py-1.5 text-slate-700">{w.reason ?? '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
+                  </>
+                )}
+              </section>
             </div>
           </div>
 

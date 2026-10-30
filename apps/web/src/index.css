@@ -115,10 +115,45 @@
   body.printing-final-document [data-final-section] h2 {
     break-after: avoid;
   }
-  body.printing-final-document [data-provenance-bar] {
-    display: block !important;
-    margin-top: 12px;
+  /* Only the document itself: no tab bar, status bar, dev badges, toasts, or
+     anything a browser extension injects next to #root. */
+  body.printing-final-document > :not(#root),
+  body.printing-final-document [data-subnav],
+  body.printing-final-document [data-provenance-bar],
+  body.printing-final-document [role='status'],
+  body.printing-final-document .tsqd-parent-container,
+  body.printing-final-document [data-screen-only] {
+    display: none !important;
   }
+  body.printing-final-document [data-print-only] {
+    display: block !important;
+  }
+  /* White paper, not the app's grey canvas below the last section. */
+  html:has(body.printing-final-document),
+  body.printing-final-document,
+  body.printing-final-document #root,
+  body.printing-final-document #root div,
+  body.printing-final-document main {
+    background: #ffffff !important;
+  }
+  /* Normal letter spacing so the PDF keeps the spaces between heading words
+     (tight tracking made copied headings read "§2.IntroductionandRationale"). */
+  body.printing-final-document [data-print-root] :is(h1, h2, h3, h4, p, li, span) {
+    letter-spacing: normal !important;
+  }
+  body.printing-final-document [data-final-scroll] > div {
+    max-width: none !important;
+  }
+  body.printing-final-document [data-print-page-break] {
+    break-after: page;
+  }
+  body.printing-final-document [data-print-break-before] {
+    break-before: page;
+  }
+}
+/* Print-only blocks (title page, contents, full hash) stay hidden on screen. */
+[data-print-only] {
+  display: none;
 }
 
 /* Reference-linked text in a document section (FR-A-022) — see referenceHighlights.ts */

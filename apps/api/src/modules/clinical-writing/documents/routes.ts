@@ -733,6 +733,22 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send({ error: 'invalid_transition', message: err.message })
     }
 
+    // A document becomes Signed only through a completed e-signature chain
+    // (AC-A-045 / AC-A-046) — the last signature sets it. A status change can't
+    // mark it signed without that chain.
+    if (to === 'signed') {
+      const completeChain = await app.prisma.signatureChain.findFirst({
+        where:  { documentId, status: 'complete' },
+        select: { id: true },
+      })
+      if (!completeChain) {
+        return reply.code(409).send({
+          error:   'signature_chain_incomplete',
+          message: 'A document is signed by completing its e-signature chain, not by a status change.',
+        })
+      }
+    }
+
     const updated = await app.prisma.document.update({
       where: { id: documentId },
       data: { status: to },

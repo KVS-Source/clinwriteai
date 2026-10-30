@@ -51,6 +51,70 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
     return instance.items
   })
 
+  // Compliance Summary appendix for the output document (FR-A-030, FR-A-001d,
+  // AC-A-029, AC-A-013): the frameworks the document's checklist applies, the
+  // rules (checklist items) applied under each with their outcome, the
+  // frameworks' references, and every waived Framework Mandatory item with who
+  // waived it, when and why. Read-only — never creates a checklist instance.
+  app.get('/:documentId/compliance-summary', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+
+    const instance = await app.prisma.checklistInstance.findUnique({
+      where:  { documentId },
+      select: { templateVersion: true, items: { orderBy: { sortOrder: 'asc' } } },
+    })
+    const items = instance?.items ?? []
+
+    const userIds = [...new Set(items.flatMap(i => [i.waivedBy, i.completedBy]).filter((v): v is string => !!v))]
+    const users = userIds.length
+      ? await app.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
+      : []
+    const nameOf = (id: string | null) => (id ? users.find(u => u.id === id)?.name ?? id : null)
+
+    const frameworkNames = [...new Set(items.map(i => i.framework))]
+    const registry = frameworkNames.length
+      ? await app.prisma.regulatoryFramework.findMany({ where: { name: { in: frameworkNames } } })
+      : []
+
+    const frameworks = frameworkNames.map(name => {
+      const reg = registry.find(r => r.name === name) ?? null
+      const rules = items.filter(i => i.framework === name)
+      return {
+        name,
+        version:       reg?.version ?? null,
+        jurisdiction:  reg?.jurisdiction ?? null,
+        description:   reg?.description ?? null,
+        sourceUrl:     reg?.sourceUrl ?? null,
+        inRegistry:    !!reg,
+        rules: rules.map(i => ({
+          text:      i.text,
+          mandatory: i.frameworkMandatory,
+          status:    i.status,
+        })),
+      }
+    })
+
+    const waivedMandatory = items
+      .filter(i => i.status === 'waived' && i.frameworkMandatory)
+      .map(i => ({
+        text:      i.text,
+        framework: i.framework,
+        waivedBy:  nameOf(i.waivedBy),
+        waivedAt:  i.waivedAt?.toISOString() ?? null,
+        reason:    i.waiverReason ?? null,
+      }))
+
+    return {
+      documentId,
+      checklistTemplateVersion: instance?.templateVersion ?? null,
+      generatedAt: new Date().toISOString(),
+      frameworks,
+      waivedMandatory,
+    }
+  })
+
   app.patch('/:documentId/checklist/:itemId/complete', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, itemId } = request.params as { documentId: string; itemId: string }
 

@@ -151,6 +151,12 @@ export const documentsApi = {
     api.post<Document>(`/projects/${projectId}/documents/confirm-classification`, body),
   updateSection: (documentId: string, sectionId: string, body: UpdateSectionBody) =>
     api.patch<Document>(`/documents/${documentId}/sections/${sectionId}`, body),
+  // Mark a section complete / reopen it. Saving content moves a section back
+  // to in_progress, so this is the only route to complete (ICH E3 validator).
+  setSectionIchStatus: (documentId: string, sectionId: string, status: 'complete' | 'in_progress') =>
+    api.patch<{ sectionId: string; ichStatus: 'complete' | 'in_progress' }>(
+      `/documents/${documentId}/sections/${encodeURIComponent(sectionId)}/ich-status`, { status },
+    ),
   // Versions
   getVersions: (documentId: string) =>
     api.get<DocumentVersion[]>(`/documents/${documentId}/versions`),

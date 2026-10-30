@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { DocumentStatus, PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { ApiError } from '../../api/client'
 import { useDocumentPresence } from '../../hooks/usePresence'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { useSectionLock } from '../../hooks/useSectionLock'
@@ -199,6 +200,28 @@ export function DocumentEditor() {
       return result
     }, [documentId, activeSectionData, qc]),
   })
+
+  // Mark complete / Reopen. Any pending typing is saved first — a save moves
+  // the section back to in_progress, so a late autosave would undo the mark.
+  const [sectionStatusError, setSectionStatusError] = useState<string | null>(null)
+  useEffect(() => { setSectionStatusError(null) }, [activeSectionData?.id])
+  const setSectionStatus = useMutation({
+    mutationFn: async (args: { sectionId: string; status: 'complete' | 'in_progress' }) => {
+      await autosave.flush()
+      return documentsApi.setSectionIchStatus(documentId!, args.sectionId, args.status)
+    },
+    onSuccess: () => {
+      setSectionStatusError(null)
+      qc.invalidateQueries({ queryKey: ['document', documentId] })
+      qc.invalidateQueries({ queryKey: ['ich-e3', documentId] })
+    },
+    onError: (err: unknown) => {
+      const body = err instanceof ApiError ? err.body as { message?: string } | null : null
+      setSectionStatusError(body?.message ?? 'Could not update the section status. Please try again.')
+    },
+  })
+  const sectionIsComplete = activeSectionData?.status === 'complete'
+  const sectionHasText    = draftContent.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() !== ''
 
   // 423 Locked on an autosave is a signal that the foreign lock we thought
   // was stale is actually alive — re-run the acquire so the UI drops into
@@ -888,7 +911,44 @@ export function DocumentEditor() {
                         <polyline points="2.2,2.4 2.2,4.6 4.4,4.6" />
                       </svg>
                     </button>
+                    {/* Mark complete / Reopen — the only way a section reaches
+                        "complete" for the ICH E3 validator. Hidden while the
+                        document is locked for authoring. */}
+                    {!authoringLock && (
+                      <button
+                        type="button"
+                        onClick={() => setSectionStatus.mutate({
+                          sectionId: activeSectionData.id,
+                          status:    sectionIsComplete ? 'in_progress' : 'complete',
+                        })}
+                        disabled={setSectionStatus.isPending || isLockedByOther || (!sectionIsComplete && !sectionHasText)}
+                        title={
+                          isLockedByOther ? 'Another user is editing this section'
+                          : !sectionIsComplete && !sectionHasText ? 'Add content before marking this section complete'
+                          : sectionIsComplete ? 'Move this section back to in progress'
+                          : 'Mark this section complete'
+                        }
+                        data-action={sectionIsComplete ? 'reopen-section' : 'mark-section-complete'}
+                        className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
+                          sectionIsComplete
+                            ? 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                            : 'border-green-600 bg-white text-green-700 hover:bg-green-50'
+                        }`}
+                      >
+                        {!sectionIsComplete && (
+                          <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                            <polyline points="2,6.4 4.6,9 10,3.2" />
+                          </svg>
+                        )}
+                        {setSectionStatus.isPending ? 'Saving…' : sectionIsComplete ? 'Reopen' : 'Mark complete'}
+                      </button>
+                    )}
                   </div>
+                  {sectionStatusError && (
+                    <p className="mt-1 text-[11px] font-semibold text-red-700" role="alert" data-section-status-error>
+                      {sectionStatusError}
+                    </p>
+                  )}
                   {/* Section meta — demoted from the pre-f196934 bottom bar so
                       the AI prompt dock owns the bottom of the pane. Lives
                       inline under the title. */}

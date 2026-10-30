@@ -112,7 +112,10 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     // Default signature_required: true for A (per §3.2), false otherwise.
     // Q defaults false but QC-release gates commonly turn it on in the UI.
     const signatureRequired = parsed.data.signatureRequired ?? (parsed.data.letter === 'A')
-    const signatureMeaning = parsed.data.signatureMeaning ?? null
+    // The defaulted A signature needs a meaning too, or the insert fails its own
+    // validation — 'Medical approval' matches the RACI panel's default for A.
+    const signatureMeaning = parsed.data.signatureMeaning
+      ?? (signatureRequired && parsed.data.signatureRequired === undefined ? 'Medical approval' : null)
 
     const validation = await validateRaciInsert(app.prisma, {
       documentId,
@@ -124,6 +127,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       signatureMeaning,
       assignedBy: actor.id,
       isActorTenantAdmin,
+      autoGrantCapability: true,
     })
 
     if (!validation.ok) {
@@ -176,6 +180,26 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({
         error: 'self_grant_reason_required',
         message: 'A tenant-admin granting themselves a RACI letter must supply selfGrantReason',
+      })
+    }
+
+    // Assignee lacked the letter's capability: the picker offers every non-admin,
+    // so assigning grants it (audited as its own event, like a User Management change).
+    if (validation.grant) {
+      const grant = validation.grant
+      const target = await app.prisma.user.update({
+        where: { id: parsed.data.userId },
+        data: { capabilities: { push: grant } },
+        select: { capabilities: true },
+      })
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: actor.id,
+        action: 'user.capability_granted',
+        entityType: 'user',
+        entityId: parsed.data.userId,
+        details: { capability: grant, capabilities: target.capabilities, reason: 'raci_assignment', documentId, letter: parsed.data.letter },
+        ipAddress: request.ip ?? null,
       })
     }
 

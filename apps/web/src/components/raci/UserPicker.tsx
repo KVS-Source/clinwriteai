@@ -50,7 +50,8 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
     let cancelled = false
     setUsers(null)
     setError(null)
-    assignableUsersApi.list(projectId, capability ?? undefined)
+    // Every non-admin is offered; assigning someone without the letter's capability grants it server-side.
+    assignableUsersApi.listForRaci(projectId)
       .then(list => {
         if (cancelled) return
         setUsers(list)
@@ -60,7 +61,7 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
         setError(e instanceof Error ? e.message : 'Failed to load users')
       })
     return () => { cancelled = true }
-  }, [projectId, capability])
+  }, [projectId])
 
   const filtered = useMemo(() => (users ? filterUsers(users, query) : []), [users, query])
   const typed = query.trim().length
@@ -82,7 +83,7 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
         type="search"
         value={query}
         onChange={e => setQuery(e.target.value)}
-        placeholder={`Search ${letter === 'Q' ? 'QC' : letter}-capable users…`}
+        placeholder="Search users…"
         className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
         aria-label="Filter users"
         disabled={disabled}
@@ -101,15 +102,14 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
         )}
         {users && filtered.length === 0 && (
           <div className="p-3 text-xs text-slate-500">
-            {searching ? 'No matches.' : capability
-              ? `No active project members with the ${capability} capability.`
-              : 'No active project members.'}
+            {searching ? 'No matches.' : 'No users available.'}
           </div>
         )}
         {filtered.map(u => {
           const isSelected = selected.has(u.id)
           const otherLetter = isSelected ? undefined : heldElsewhere?.get(u.id)
           const blocked = disabled || !!otherLetter
+          const grants = !isSelected && !otherLetter && capability && !u.capabilities.includes(capability) ? capability : null
           return (
             <label
               key={u.id}
@@ -130,6 +130,15 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
                 <span className="block font-medium text-slate-900 truncate">{u.name}</span>
                 <span className="block text-[11px] text-slate-500 truncate">{u.email}</span>
               </span>
+              {grants && (
+                <span
+                  className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
+                  title={`${u.name} doesn't have ${grants} yet — assigning grants it (recorded in the audit log).`}
+                  data-grants-capability
+                >
+                  Grants {grants}
+                </span>
+              )}
               {otherLetter && (
                 <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500" data-held-elsewhere>
                   Already {otherLetter}

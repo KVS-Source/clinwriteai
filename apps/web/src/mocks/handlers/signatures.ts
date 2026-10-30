@@ -87,9 +87,13 @@ export const signatureHandlers = [
     const found = findRecord(String(params.recordId))
     if (!found) return HttpResponse.json({ error: 'not_found' }, { status: 404 })
     const { chain, record } = found
-    const body = await request.json() as { credentialProof?: string; localTime?: string; timeSource?: string }
-    if (!body.credentialProof || body.credentialProof.length < 8) {
-      return HttpResponse.json({ error: 'validation', issues: [{ message: 'credential proof required (§11.200)' }] }, { status: 400 })
+    const body = await request.json() as { confirmName?: string; localTime?: string; deviceInfo?: string }
+    if (!body.confirmName?.trim()) {
+      return HttpResponse.json({ error: 'validation', issues: [{ message: 'Type your full name to confirm the signature' }] }, { status: 400 })
+    }
+    const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
+    if (norm(body.confirmName) !== norm(record.signerName)) {
+      return HttpResponse.json({ error: 'name_mismatch', message: `Type your full name exactly as shown (${record.signerName}) to confirm the signature.` }, { status: 422 })
     }
     if (record.signerId !== 'user-MW') return HttpResponse.json({ error: 'wrong_signer' }, { status: 403 })
     if (record.status === 'signed') return HttpResponse.json({ error: 'already_signed' }, { status: 409 })
@@ -98,7 +102,9 @@ export const signatureHandlers = [
 
     Object.assign(record, {
       status: 'signed', timestampUtc: new Date().toISOString(), localTime: body.localTime ?? null,
-      timeSource: body.timeSource ?? null, authMethod: 'password re-auth (mock)', documentHash: 'mock-sha256', versionAtSigning: 'v0.4',
+      timeSource: 'Server clock (UTC)', authMethod: 'SSO session + typed full-name confirmation (re-authentication not yet configured)',
+      deviceInfo: body.deviceInfo ?? null, networkInfo: '127.0.0.1', auditEntryId: 'mock-audit-1',
+      documentHash: 'mock-sha256', versionAtSigning: 'v0.4',
     })
     chain.status = 'in_progress'
     if (chain.chainType === 'sequential') {

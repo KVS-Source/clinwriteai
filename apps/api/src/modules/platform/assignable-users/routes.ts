@@ -11,6 +11,8 @@
 // Query:
 //   capability (optional) — can-author | can-review | can-approve |
 //                           can-qc | can-publish
+//   scope=raci (optional) — active + invited non-admins, capability filter
+//                           off (POST …/raci grants a missing capability)
 //
 // Response is a minimal shape — the picker only needs name/email/
 // capabilities to render a chip + capability-match check:
@@ -31,7 +33,11 @@ import { requireAuth, type Capability } from '../../../auth/rbac.js'
 const CAPABILITY_VALUES = ['can-author', 'can-review', 'can-approve', 'can-qc', 'can-publish'] as const
 const querySchema = z.object({
   capability: z.enum(CAPABILITY_VALUES).optional(),
+  // scope=raci — the RACI picker: every active or invited non-admin candidate,
+  // whatever their capabilities (assigning a letter grants the missing one).
+  scope: z.enum(['raci']).optional(),
 })
+const ADMIN_ROLES = ['admin', 'tenant-admin', 'super-admin']
 
 export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:projectId/assignable-users', { preHandler: requireAuth() }, async (request, reply) => {
@@ -68,9 +74,12 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
     // project's tenant (users with no tenant recorded included). RACI assignment itself only checks the
     // capability, so a writer doesn't have to be added to the project first to be picked.
     const userIds = Array.from(projectRoleByUser.keys())
+    const forRaci = parsed.data.scope === 'raci'
     const users = await app.prisma.user.findMany({
       where: {
-        status: 'active',
+        ...(forRaci
+          ? { status: { in: ['active', 'invited'] }, role: { notIn: ADMIN_ROLES } }
+          : { status: 'active' }),
         OR: [
           { id: { in: userIds } },
           {
@@ -84,7 +93,7 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
     })
 
     const cap = parsed.data.capability as Capability | undefined
-    const filtered = cap
+    const filtered = cap && !forRaci
       ? users.filter(u => (u.capabilities as string[]).includes(cap))
       : users
 

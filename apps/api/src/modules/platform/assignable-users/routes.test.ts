@@ -6,16 +6,19 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { assignableUsersRoutes } from './routes.js'
 
-type U = { id: string; name: string; email: string; initials: string | null; capabilities: string[]; modules: string[]; status: string; tenantId: string | null }
+type U = { id: string; name: string; email: string; initials: string | null; capabilities: string[]; modules: string[]; status: string; role: string; tenantId: string | null }
 const u = (id: string, over: Partial<U> = {}): U => ({
-  id, name: id, email: `${id}@x.io`, initials: null, capabilities: ['can-author'], modules: ['A'], status: 'active', tenantId: 'T1', ...over,
+  id, name: id, email: `${id}@x.io`, initials: null, capabilities: ['can-author'], modules: ['A'], status: 'active', role: 'contributor', tenantId: 'T1', ...over,
 })
+
+type Where = { status: string | { in: string[] }; role?: { notIn: string[] }; OR: Array<Record<string, unknown>> }
 
 async function build(users: U[], members: Array<{ userId: string; projectRole: string | null }> = [], projectTenant: string | null = 'T1') {
   // A tiny in-memory evaluation of the where clause the route builds.
-  const findMany = vi.fn(async ({ where }: { where: { status: string; OR: Array<Record<string, unknown>> } }) =>
+  const findMany = vi.fn(async ({ where }: { where: Where }) =>
     users.filter(x => {
-      if (x.status !== where.status) return false
+      if (typeof where.status === 'string' ? x.status !== where.status : !where.status.in.includes(x.status)) return false
+      if (where.role && where.role.notIn.includes(x.role)) return false
       return where.OR.some(clause => {
         if ('id' in clause) return ((clause.id as { in: string[] }).in).includes(x.id)
         if (!(clause.modules as { has: string }).has || !x.modules.includes((clause.modules as { has: string }).has)) return false
@@ -61,6 +64,16 @@ describe('assignable users', () => {
     const app = await build([u('author'), u('reviewer', { capabilities: ['can-review'] }), u('invited', { status: 'invited' })])
     expect(await names(app)).toEqual(['author', 'reviewer'])
     expect(await names(app, '?capability=can-review')).toEqual(['reviewer'])
+    await app.close()
+  })
+
+  it('scope=raci: every active or invited non-admin, ignoring capabilities', async () => {
+    const app = await build([
+      u('author'), u('no-caps', { capabilities: [] }), u('invited', { status: 'invited', capabilities: [] }),
+      u('admin', { role: 'tenant-admin' }), u('gone', { status: 'deprovisioned' }), u('paused', { status: 'suspended' }),
+    ])
+    expect(await names(app, '?scope=raci')).toEqual(['author', 'invited', 'no-caps'])
+    expect(await names(app, '?scope=raci&capability=can-approve')).toEqual(['author', 'invited', 'no-caps'])
     await app.close()
   })
 

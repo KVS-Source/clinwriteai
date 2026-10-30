@@ -15,11 +15,14 @@ export interface SignatureRecord {
   scopeSections: string[]
   documentHash: string | null
   versionAtSigning: string | null
-  credentialHash: string | null
   timestampUtc: string | null
   localTime: string | null
   timeSource: string | null
   authMethod: string | null
+  deviceInfo?: string | null
+  networkInfo?: string | null
+  // The audit trail entry written when this step was signed (null until signed).
+  auditEntryId?: string | null
 }
 
 export interface SignatureChain {
@@ -47,9 +50,9 @@ export interface InitiateChainBody {
 }
 
 export interface SignRecordBody {
-  credentialProof: string
+  // Interim confirmation until re-authentication is configured: the signer's own full name.
+  confirmName: string
   localTime: string
-  timeSource?: string
   deviceInfo?: string
 }
 

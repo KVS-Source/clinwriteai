@@ -112,6 +112,9 @@ export const assignableUsersApi = {
     api.get<AssignableUser[]>(
       `/projects/${projectId}/assignable-users${capability ? `?capability=${capability}` : ''}`,
     ),
+  /** RACI picker candidates — every active or invited non-admin, whatever their capabilities. */
+  listForRaci: (projectId: string) =>
+    api.get<AssignableUser[]>(`/projects/${projectId}/assignable-users?scope=raci`),
 }
 
 // --- Project members ------------------------------------------------------

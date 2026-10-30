@@ -9,7 +9,7 @@ export const projectsApi = {
     return api.get<Project[]>(`/projects${qs ? `?${qs}` : ''}`)
   },
   get:    (projectId: string) => api.get<Project>(`/projects/${projectId}`),
-  create: (body: Omit<Project, 'id' | 'team' | 'activeModules'>) =>
+  create: (body: Omit<Project, 'id' | 'team' | 'activeModules' | 'client'> & { client?: string }) =>
     api.post<Project>('/projects', body),
   // TLF packages delivered to the project (Clinical Writing). Newest first.
   listTlfPackages: (projectId: string) =>

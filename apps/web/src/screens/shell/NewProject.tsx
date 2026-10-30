@@ -34,7 +34,6 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
   const [name,            setName]            = useState('')
   const [idOverride,      setIdOverride]      = useState('')
   const [shortTitle,      setShortTitle]      = useState('')
-  const [client,          setClient]          = useState('')
   const { labels: taLabels, isLoading: tasLoading } = useTaLabels()
   const [therapeuticArea, setTherapeuticArea] = useState('')
   const [indication,      setIndication]      = useState('')
@@ -56,7 +55,6 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
         id: derivedId,
         name,
         shortTitle: shortTitle || name,
-        client,
         therapeuticArea,
         indication: indication || undefined,
         phase,
@@ -75,7 +73,6 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
   const canSubmit =
     derivedId.length >= 3 &&
     name.trim().length > 0 &&
-    client.trim().length > 0 &&
     therapeuticArea.length > 0 &&
     phase.length > 0 &&
     activeModules.length > 0
@@ -110,10 +107,6 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
         <Field label="Short title">
           <input value={shortTitle} onChange={e => setShortTitle(e.currentTarget.value)}
             placeholder="Defaults to project name"
-            className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
-        </Field>
-        <Field label="Client *">
-          <input value={client} onChange={e => setClient(e.currentTarget.value)} required
             className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
         </Field>
         <Field label="Project id *" hint="Auto-derived from name. Override if the project has an established code.">

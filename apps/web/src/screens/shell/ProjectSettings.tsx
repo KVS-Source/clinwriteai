@@ -144,7 +144,7 @@ export function ProjectSettings() {
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 px-4 py-4 text-[13px]">
             <MetaRow label="Short title"           value={project.shortTitle} />
             <MetaRow label="Full name"             value={project.name} />
-            <MetaRow label="Client"                value={project.client} />
+            <MetaRow label="Client"                value={project.client || '—'} />
             <MetaRow label="Status"                value={STATUS_LABEL[project.status] ?? project.status} />
             <MetaRow label="Phase"                 value={project.phase} />
             <MetaRow label="Therapeutic area"      value={project.therapeuticArea} />

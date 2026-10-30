@@ -215,8 +215,9 @@ export function FinalDocument() {
     const times = signedRecords.map(r => r.timestamp).filter((t): t is string => !!t).sort()
     return times.length ? times[times.length - 1]! : null
   }, [document, signedRecords])
-  // The version and document hash that were bound to the signatures.
-  const signedVersion = signedRecords.find(r => r.version_at_signing)?.version_at_signing ?? document?.version ?? ''
+  // The signed document's version — v1.0 once the chain completes (AC-A-046) — and the
+  // document hash bound to the signatures.
+  const signedVersion = document?.version ?? signedRecords.find(r => r.version_at_signing)?.version_at_signing ?? ''
   const sealHash = [...signedRecords].reverse().find(r => r.documentHash)?.documentHash
   const signedAtText = formatUtc(signedAtIso)
   const activeSectionData = document?.sections.find(s => s.id === activeSection)

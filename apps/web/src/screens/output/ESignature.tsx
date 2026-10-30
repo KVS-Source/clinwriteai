@@ -45,12 +45,26 @@ const initialsOf = (name: string) =>
 const fmtUtc = (iso: string | null | undefined) =>
   iso ? `${new Date(iso).toISOString().replace('T', ' ').slice(0, 16)} UTC` : '—'
 
+// Signing panel width (Screen 20: 320–760px, default 480), remembered per browser.
+const PANEL_MIN = 320
+const PANEL_MAX = 760
+const PANEL_DEFAULT = 480
+const PANEL_WIDTH_KEY = 'clinwrite.signPanelWidth'
+const clampPanel = (w: number) => Math.min(PANEL_MAX, Math.max(PANEL_MIN, Math.round(w)))
+function savedPanelWidth(): number {
+  try {
+    const v = Number(window.localStorage.getItem(PANEL_WIDTH_KEY))
+    return Number.isFinite(v) && v > 0 ? clampPanel(v) : PANEL_DEFAULT
+  } catch { return PANEL_DEFAULT }
+}
+
 // Map the API's refusal codes to plain messages.
 function signErrorText(err: unknown): string {
   if (err instanceof ApiError) {
     const body = err.body as { error?: string; message?: string; issues?: Array<{ message: string }> } | null
     switch (body?.error) {
       case 'wrong_signer':   return 'Only the designated signer can sign this step.'
+      case 'name_mismatch':  return body.message ?? 'Type your full name exactly as shown to confirm.'
       case 'already_signed': return 'This step has already been signed.'
       case 'not_awaiting':   return "It isn't this step's turn yet — earlier signatures are still pending."
       case 'chain_closed':   return 'This signature chain is closed (completed or cancelled).'
@@ -180,6 +194,9 @@ function SignedPanel({ record }: { record: ChainRecord }) {
           <KVRow label="Document hash signed" value={record.documentHash ?? '—'} mono />
           <KVRow label="Version at signing"   value={record.versionAtSigning ?? '—'} />
           <KVRow label="Scope"                value={record.scopeSections.length ? record.scopeSections.join(', ') : 'Whole document'} />
+          <KVRow label="Audit entry ID"       value={record.auditEntryId ?? '—'} mono />
+          <KVRow label="Device"               value={record.deviceInfo ?? '—'} />
+          <KVRow label="Network"              value={record.networkInfo ?? '—'} mono />
         </div>
       </div>
       <div className="flex items-start gap-2 rounded-lg border border-slate-200 px-3.5 py-2.5" style={{ backgroundColor: '#F8FAFC' }}>
@@ -231,34 +248,41 @@ function YouPanel({ record, email, credential, onCredential, error }: {
       </div>
 
       <div className="flex flex-col gap-2">
-        <p className="text-[13px] font-bold">Confirm your identity</p>
+        <p className="text-[13px] font-bold">Confirm it's you</p>
         <div className="flex items-center gap-2">
           <LockIcon colour="#94A3B8" size={12} />
-          <p className="truncate text-[13px] text-slate-500">{email ?? '—'}</p>
+          <p className="truncate text-[13px] text-slate-500">Signed in as {email ?? '—'}</p>
         </div>
-        <label htmlFor="sig-pw" className="text-xs font-semibold text-slate-500">ClinWrite.AI password</label>
+        <label htmlFor="sig-name" className="text-xs font-semibold text-slate-500">
+          Type your full name — <span className="text-slate-700">{record.signerName}</span>
+        </label>
         <input
-          id="sig-pw"
-          type="password"
-          autoComplete="current-password"
+          id="sig-name"
+          type="text"
+          autoComplete="off"
+          spellCheck={false}
           value={credential}
           onChange={e => onCredential(e.target.value)}
-          placeholder="Re-enter password"
+          placeholder={record.signerName}
           className="h-10 rounded-md border px-3 text-sm outline-none focus:border-blue-600 focus:shadow-focus"
-          style={{ borderColor: '#E2E8F0', letterSpacing: '0.14em' }}
+          style={{ borderColor: '#E2E8F0' }}
           data-credential-input
         />
-        <p className="text-[11px] italic text-slate-500">Re-enter credentials each time — signatures cannot be delegated.</p>
+        <p className="text-[11px] leading-relaxed text-slate-500">
+          Re-authentication at signing (logging in again) isn't set up yet. Until it is, you confirm by typing your full name, and the signature record says so.
+          Only you can sign this step — signatures can't be delegated.
+        </p>
         {error && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-sign-error>{error}</p>}
       </div>
 
       <div>
         <MonoLabel>What this signature will record</MonoLabel>
         <div className="mt-1.5">
-          <KVRow label="Timestamp"     value="Server time at signing (UTC)" />
-          <KVRow label="Document hash" value="SHA-256 of the current version" />
-          <KVRow label="Scope"         value={record.scopeSections.length ? record.scopeSections.join(', ') : 'Whole document'} />
-          <KVRow label="Device"        value={typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 60) : '—'} />
+          <KVRow label="Timestamp"      value="Server clock at signing (UTC)" />
+          <KVRow label="Authentication" value="SSO session + typed full-name confirmation" />
+          <KVRow label="Document hash"  value="SHA-256 of the current version" />
+          <KVRow label="Scope"          value={record.scopeSections.length ? record.scopeSections.join(', ') : 'Whole document'} />
+          <KVRow label="Device"         value={typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 60) : '—'} />
         </div>
       </div>
     </div>
@@ -303,6 +327,29 @@ export function ESignature() {
   const [cancelOpen, setCancelOpen] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
 
+  // Drag the panel's left edge to resize it; the width is remembered.
+  const [panelWidth, setPanelWidth] = useState(savedPanelWidth)
+  const [dragging, setDragging] = useState(false)
+  useEffect(() => {
+    if (!dragging) return
+    const onMove = (e: MouseEvent) => setPanelWidth(clampPanel(window.innerWidth - e.clientX))
+    const onUp = () => setDragging(false)
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+    window.document.body.style.userSelect = 'none'
+    window.document.body.style.cursor = 'ew-resize'
+    return () => {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+      window.document.body.style.userSelect = ''
+      window.document.body.style.cursor = ''
+    }
+  }, [dragging])
+  useEffect(() => {
+    if (dragging) return
+    try { window.localStorage.setItem(PANEL_WIDTH_KEY, String(panelWidth)) } catch { /* width just isn't remembered */ }
+  }, [dragging, panelWidth])
+
   const signMut   = useSignRecord({ chainId: chain?.id ?? '', documentId: documentId! })
   const cancelMut = useCancelSignatureChain({ chainId: chain?.id ?? '', documentId: documentId! })
 
@@ -328,9 +375,8 @@ export function ESignature() {
       {
         recordId: record.id,
         body: {
-          credentialProof: credential,
+          confirmName: credential.trim(),
           localTime: new Date().toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }),
-          timeSource: 'Signer device clock (server UTC timestamp is authoritative)',
           deviceInfo: navigator.userAgent.slice(0, 200),
         },
       },
@@ -450,7 +496,13 @@ export function ESignature() {
                 className="rounded-md bg-amber-600 px-3 text-[13px] font-semibold text-white disabled:opacity-50"
               >{cancelMut.isPending ? 'Cancelling…' : 'Confirm cancel'}</button>
             </div>
-            {cancelMut.isError && <p className="text-[12px] text-red-800">Could not cancel the chain. Please try again.</p>}
+            {cancelMut.isError && (
+              <p className="text-[12px] text-red-800" data-cancel-error>
+                {cancelMut.error instanceof ApiError && (cancelMut.error.body as { error?: string; message?: string } | null)?.error === 'cancel_forbidden'
+                  ? (cancelMut.error.body as { message?: string }).message ?? 'Only the document owner can cancel the signature chain.'
+                  : 'Could not cancel the chain. Please try again.'}
+              </p>
+            )}
           </div>
         )}
       </div>
@@ -550,8 +602,28 @@ export function ESignature() {
         {selected && selectedState && (
           <div
             className="absolute top-0 right-0 bottom-0 flex flex-col border-l border-slate-200 bg-white"
-            style={{ width: 480, zIndex: 10, boxShadow: '-16px 0 40px rgba(15,23,42,0.12)', minHeight: 0 }}
+            style={{ width: panelWidth, maxWidth: '100%', zIndex: 10, boxShadow: '-16px 0 40px rgba(15,23,42,0.12)', minHeight: 0 }}
+            data-sign-panel
           >
+            <div
+              role="separator"
+              aria-orientation="vertical"
+              aria-label="Resize panel"
+              aria-valuemin={PANEL_MIN}
+              aria-valuemax={PANEL_MAX}
+              aria-valuenow={panelWidth}
+              tabIndex={0}
+              title="Drag to resize · double-click to reset"
+              onMouseDown={e => { e.preventDefault(); setDragging(true) }}
+              onDoubleClick={() => setPanelWidth(PANEL_DEFAULT)}
+              onKeyDown={e => {
+                if (e.key === 'ArrowLeft')  { e.preventDefault(); setPanelWidth(w => clampPanel(w + 20)) }
+                if (e.key === 'ArrowRight') { e.preventDefault(); setPanelWidth(w => clampPanel(w - 20)) }
+              }}
+              className="absolute inset-y-0 -left-1 z-10 w-2 cursor-ew-resize transition-colors hover:bg-blue-300/60 focus:bg-blue-300/60 focus:outline-none"
+              style={dragging ? { backgroundColor: 'rgba(147,197,253,0.7)' } : undefined}
+              data-panel-resize
+            />
             <div className="flex h-12 flex-none items-center gap-2 border-b border-slate-200 px-4">
               <span style={{ color: '#2563EB' }}><LockIcon size={14} /></span>
               <h3 className="whitespace-nowrap text-sm font-bold">{panelTitle}</h3>

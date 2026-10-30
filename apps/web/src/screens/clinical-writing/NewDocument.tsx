@@ -61,6 +61,8 @@ interface Props {
   // upload drawer stacked over the wizard. The wizard stays mounted so
   // the user returns to step 2 with their picks + the new source visible.
   onRequestUpload?: () => void
+  // Id of the source just saved from that upload drawer — selected automatically.
+  uploadedSourceId?: string | null
   onCreated?: (documentId: string) => void
   onCancel?:  () => void
 }
@@ -80,6 +82,7 @@ export function NewDocumentForm({
   projectTherapeuticArea,
   projectShortTitle,
   onRequestUpload,
+  uploadedSourceId,
   onCreated,
   onCancel,
 }: Props) {
@@ -93,6 +96,8 @@ export function NewDocumentForm({
   const [description,          setDescription]          = useState('')
   const [sourceIds,            setSourceIds]            = useState<string[]>(initialSourceIds ?? [])
   const [showAllCategories,    setShowAllCategories]    = useState(false)
+  // Sources uploaded from this wizard (via "+ Upload source").
+  const [uploadedHere,         setUploadedHere]         = useState<string[]>([])
   // Step 4 — AI drafting opt-in. Default to AI drafting since the whole
   // wizard is set up to feed sources into the worker; writers who want
   // to type from scratch flip to Create blank.
@@ -119,7 +124,7 @@ export function NewDocumentForm({
   }, [dbTemplates])
 
   // Saved source documents in this project's library (evidence the document is written from).
-  const { data: sourcePage, refetch: refetchSources } = useQuery({
+  const { data: sourcePage } = useQuery({
     queryKey: ['source-documents', projectId, 'picker'],
     queryFn:  () => documentsApi.listSources(projectId, { state: 'saved', sort: 'title', dir: 'asc', pageSize: 100 }),
   })
@@ -139,14 +144,26 @@ export function NewDocumentForm({
   }, [dbTemplates, type])
   const recommendedSet = useMemo(() => new Set(recommendedCategories ?? []), [recommendedCategories])
 
-  const filteredSources = useMemo(() => {
-    if (showAllCategories || !recommendedCategories) return sources
-    return sources.filter(s => recommendedSet.has(s.category))
-  }, [sources, showAllCategories, recommendedCategories, recommendedSet])
+  // A source uploaded from this wizard is picked for the document straight away.
+  useEffect(() => {
+    if (!uploadedSourceId) return
+    setSourceIds(cur => (cur.includes(uploadedSourceId) ? cur : [...cur, uploadedSourceId]))
+    setUploadedHere(cur => (cur.includes(uploadedSourceId) ? cur : [...cur, uploadedSourceId]))
+    setShowAllCategories(false)
+  }, [uploadedSourceId])
 
-  // If the user had sources selected that fall outside the recommended
-  // set, keep them (don't silently drop) — they'll see them under the
-  // "Show all categories" toggle. But flag the count so they can act.
+  // After an upload from this wizard the list shows the source(s) uploaded here
+  // plus everything selected; otherwise the recommended categories plus
+  // everything selected. "Show all categories" lists every source.
+  const filteredSources = useMemo(() => {
+    if (showAllCategories) return sources
+    if (uploadedHere.length > 0) return sources.filter(s => uploadedHere.includes(s.id) || sourceIds.includes(s.id))
+    if (!recommendedCategories) return sources
+    return sources.filter(s => recommendedSet.has(s.category) || sourceIds.includes(s.id))
+  }, [sources, showAllCategories, uploadedHere, recommendedCategories, recommendedSet, sourceIds])
+
+  // Sources selected outside the recommended set stay selected and listed —
+  // flag the count so the user can act.
   const outOfScopeSelectedCount = useMemo(() => {
     if (!recommendedCategories) return 0
     return sourceIds.filter(id => {
@@ -357,7 +374,10 @@ export function NewDocumentForm({
               <h3 className="text-[14px] font-semibold text-slate-900">Pick the sources this document is written from</h3>
               <p className="mt-0.5 text-[12px] text-slate-500">
                 Mandatory — the writer (and later, the AI drafter) uses these as evidence.
-                {recommendedCategories && !showAllCategories && (
+                {uploadedHere.length > 0 && !showAllCategories && (
+                  <> Showing the sources you selected — tick <span className="font-semibold">Show all categories</span> to pick others.</>
+                )}
+                {recommendedCategories && !showAllCategories && uploadedHere.length === 0 && (
                   <> Filtered to <span className="font-semibold">{recommendedCategories.map(c => sourceCategoryLabel(c)).join(' · ')}</span> for {selectedTypeMeta?.label}.</>
                 )}
               </p>
@@ -377,10 +397,12 @@ export function NewDocumentForm({
                 )}
                 <button
                   type="button"
-                  onClick={() => refetchSources()}
-                  className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] text-slate-600 hover:bg-slate-50"
+                  onClick={() => setShowAllCategories(true)}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
+                  title="Pick from the source documents already in this project's library"
+                  data-action="pick-existing-source"
                 >
-                  Refresh
+                  Upload from existing
                 </button>
               </div>
               {recommendedCategories && (
@@ -402,24 +424,6 @@ export function NewDocumentForm({
                     ? "This project's library has no source documents yet."
                     : "No sources match the recommended categories for this document type."}
                 </p>
-                {onRequestUpload && (
-                  <button
-                    type="button"
-                    onClick={onRequestUpload}
-                    className="mt-3 rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
-                  >
-                    + Upload a source
-                  </button>
-                )}
-                {sources.length > 0 && !showAllCategories && (
-                  <button
-                    type="button"
-                    onClick={() => setShowAllCategories(true)}
-                    className="ml-2 mt-3 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
-                  >
-                    Show all categories
-                  </button>
-                )}
               </div>
             ) : (
               <div className="flex max-h-[55vh] flex-col gap-1.5 overflow-y-auto">
@@ -614,10 +618,15 @@ export function NewDocumentForm({
               Back
             </button>
           )}
+          {/* Distinct keys: without them React reuses one <button> for Next and
+              Create, flipping it to type="submit" while the Next click is still
+              being handled — the browser then submits the form and the
+              document is created without the user ever seeing step 4. */}
           {step < 4 ? (
             <button
+              key="wizard-next"
               type="button"
-              onClick={next}
+              onClick={e => { e.preventDefault(); next() }}
               disabled={
                 (step === 2 && !canAdvanceFromStep2) ||
                 (step === 3 && !canAdvanceFromStep3)
@@ -629,6 +638,7 @@ export function NewDocumentForm({
             </button>
           ) : (
             <button
+              key="wizard-create"
               type="submit"
               disabled={!canSubmit}
               className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"

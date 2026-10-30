@@ -35,6 +35,8 @@ interface SlidePanelProps {
   expandedWidth?: number
   // Show an Expand / Shrink button in the header (expands to most of the window).
   expandable?: boolean
+  // Show a Refresh button next to the close button.
+  onRefresh?: () => void
 }
 
 export function SlidePanel({
@@ -50,6 +52,7 @@ export function SlidePanel({
   closeOnOutsideClick = false,
   expandedWidth,
   expandable = false,
+  onRefresh,
 }: SlidePanelProps) {
   const [expanded, setExpanded] = useState(false)
   const [width, setWidth] = useState<number>(() => {
@@ -169,6 +172,21 @@ export function SlidePanel({
               {expanded
                 ? <path d="M9 2v3h3M5 12V9H2M9 5l3-3M5 9l-3 3" />
                 : <path d="M8 2h4v4M6 12H2V8M12 2 8 6M2 12l4-4" />}
+            </svg>
+          </button>
+        )}
+        {onRefresh && (
+          <button
+            type="button"
+            onClick={onRefresh}
+            aria-label="Refresh"
+            title="Refresh"
+            className="flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
+            data-action="panel-refresh"
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M11.5 7a4.5 4.5 0 1 1-1.3-3.2" />
+              <polyline points="11.6,1.8 11.6,4.4 9,4.4" />
             </svg>
           </button>
         )}

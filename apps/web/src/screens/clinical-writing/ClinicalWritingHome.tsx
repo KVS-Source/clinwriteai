@@ -172,6 +172,9 @@ export function ClinicalWritingHome() {
   // Set after "Save to library" in the upload drawer: we stay on the Source Documents
   // tab and offer to write a document from the file that was just saved.
   const [justAdded, setJustAdded] = useState<{ uploadId: string } | null>(null)
+  // Source saved from the upload drawer while the New document wizard was open.
+  const [wizardUploadId, setWizardUploadId] = useState<string | null>(null)
+  useEffect(() => { if (newDocOpen === false) setWizardUploadId(null) }, [newDocOpen])
 
   useEffect(() => { if (view !== 'documents') { setDetailDoc(null); setCommentsDocId(null); setRaciDoc(null) } }, [view])
 
@@ -739,6 +742,11 @@ export function ClinicalWritingHome() {
         subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
         storageKey="panel-width-new-document"
         closeOnOutsideClick
+        // Reload the wizard's lists (source library, document templates) from the server.
+        onRefresh={() => {
+          void qc.invalidateQueries({ queryKey: ['source-documents', projectId] })
+          void qc.invalidateQueries({ queryKey: ['document-templates'] })
+        }}
       >
         {newDocOpen !== false && projectId && (
           <NewDocumentForm
@@ -752,6 +760,7 @@ export function ClinicalWritingHome() {
             // picks + chosen type survive; after upload closes they're
             // back in step 2 with the new source available.
             onRequestUpload={() => setUploadOpen(true)}
+            uploadedSourceId={wizardUploadId}
             onCancel={() => setNewDocOpen(false)}
             onCreated={id => {
               setNewDocOpen(false)
@@ -801,8 +810,11 @@ export function ClinicalWritingHome() {
             onCancel={closeUpload}
             onPendingChange={id => { pendingUploadRef.current = id }}
             onSaved={uploadId => {
-              // Stay on the project's source-document list: the new row appears here as "Saved".
               closeUpload()
+              // Opened from the New document wizard: hand the source back to it (selected),
+              // and leave the page behind the wizard as it was.
+              if (newDocOpen !== false) { setWizardUploadId(uploadId); return }
+              // Stay on the project's source-document list: the new row appears here as "Saved".
               showSources()
               setJustAdded({ uploadId })
             }}

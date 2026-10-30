@@ -1,6 +1,6 @@
 // QA regression — left navigation panel arrow.
 //
-// Inside a document editor the left nav shrinks to an icon rail. An arrow button on the rail's edge
+// Inside a document the left nav shrinks to an icon rail — every document opens that way. An arrow button on the rail's edge
 // opens the full panel (all modules) and collapses it again; on other pages the panel starts open and
 // the same arrow collapses it.
 //
@@ -44,7 +44,6 @@ async function openEditor(page: Page) {
 }
 
 test('in the editor the nav is an icon rail with an arrow that opens the full panel and closes it again', async ({ page }) => {
-  await page.evaluate(() => window.localStorage.removeItem('clinwrite.sidebar.editorOpen')).catch(() => undefined)
   await openEditor(page)
 
   // rail: narrow, the arrow offers to open it
@@ -72,19 +71,20 @@ test('in the editor the nav is an icon rail with an arrow that opens the full pa
   await expect.poll(() => width(page)).toBeLessThan(80)
 })
 
-test('the choice is remembered after a reload, and the arrow works from the keyboard', async ({ page }) => {
+test('every document opens collapsed (also after a reload), and the arrow works from the keyboard', async ({ page }) => {
   await openEditor(page)
-  if ((await toggle(page).getAttribute('aria-expanded')) === 'true') await toggle(page).click()   // start from the rail
+  await expect(toggle(page)).toHaveAttribute('aria-expanded', 'false')
 
   await toggle(page).focus()
   await page.keyboard.press('Enter')
   await expect.poll(() => width(page)).toBeGreaterThan(200)
 
-  await page.reload()
-  await expect(page.locator('[data-section-content]')).toBeVisible({ timeout: 60_000 })
+  // stays open across the document's own tabs
+  await page.getByRole('link', { name: 'Version Diff' }).click()
   await expect.poll(() => width(page)).toBeGreaterThan(200)
 
-  await toggle(page).click()   // leave the browser as we found it
+  // reopening the document starts collapsed again
+  await page.reload()
   await expect.poll(() => width(page)).toBeLessThan(80)
 })
 

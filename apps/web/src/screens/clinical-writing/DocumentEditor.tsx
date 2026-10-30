@@ -638,58 +638,26 @@ export function DocumentEditor() {
                   style={{ top: '100%', marginTop: 6, minWidth: 240, maxHeight: 320, overflowY: 'auto', border: '1px solid #E2E8F0', boxShadow: '0 8px 20px rgba(15,23,42,0.10)' }}
                   data-version-menu
                 >
-                  <p className="px-3 pb-1 pt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400">Versions</p>
-                  {versions.length === 0 && (
-                    <p className="px-3 py-2 text-[12px] text-slate-500">Only the current version exists.</p>
-                  )}
-                  {versions.map(v => (
-                    <button
-                      key={v.id}
-                      type="button"
-                      role="menuitem"
-                      disabled={v.isCurrent}
-                      onClick={() => compareWith(v.versionNumber)}
-                      title={v.isCurrent ? 'This is the version you are editing' : `Compare ${v.versionNumber} with ${currentVersion}`}
-                      className="flex items-center justify-between gap-3 rounded px-3 py-2 text-left transition-colors hover:bg-slate-50 disabled:cursor-default disabled:hover:bg-transparent"
-                      data-version-option={v.versionNumber}
-                    >
-                      <span className="flex flex-col">
-                        <span className="font-mono text-[12px] font-semibold text-slate-800">{v.versionNumber} <span className="font-sans font-normal text-slate-500">· {v.label}</span></span>
-                        <span className="text-[11px] text-slate-400">{new Date(v.createdAt).toLocaleString()}</span>
-                      </span>
-                      {v.isCurrent
-                        ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">Current</span>
-                        : <span className="text-[11px] font-semibold text-blue-600">Compare →</span>}
-                    </button>
-                  ))}
-                  {versions.length > 1 && (
-                    <button
-                      type="button"
-                      role="menuitem"
-                      onClick={openCompareVersions}
-                      className="mt-1 rounded border-t border-slate-100 px-3 py-2 text-left text-[12px] font-semibold text-blue-700 hover:bg-slate-50"
-                      data-version-compare-previous
-                    >Compare with previous version ({previousVersion} → {currentVersion})</button>
-                  )}
-
                   {/* --- Create new version — explicit snapshot ----------------
-                       Section saves mutate the current version in place. This
-                       button is one of the three sanctioned ways to create a
-                       new DocumentVersion row (the other two happen on
-                       review-bounce and section restore). */}
+                       First in the menu so it's reachable without scrolling
+                       past a long version list. Section saves mutate the
+                       current version in place. This button is one of the
+                       three sanctioned ways to create a new DocumentVersion
+                       row (the other two happen on review-bounce and section
+                       restore). */}
                   {!createVersionFormOpen && (
                     <button
                       type="button"
                       role="menuitem"
                       onClick={() => setCreateVersionFormOpen(true)}
-                      className="mt-1 rounded border-t border-slate-100 px-3 py-2 text-left text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50"
+                      className="mb-1 rounded border-b border-slate-100 px-3 py-2 text-left text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50"
                       data-version-create
                     >+ Create new version</button>
                   )}
                   {createVersionFormOpen && (
                     <form
                       onSubmit={e => { e.preventDefault(); createVersion.mutate() }}
-                      className="mt-1 flex flex-col gap-2 border-t border-slate-100 px-3 py-3"
+                      className="mb-1 flex flex-col gap-2 border-b border-slate-100 px-3 py-3"
                       data-version-create-form
                     >
                       <label className="flex flex-col gap-1">
@@ -736,6 +704,40 @@ export function DocumentEditor() {
                         >{createVersion.isPending ? 'Creating…' : 'Create'}</button>
                       </div>
                     </form>
+                  )}
+
+                  <p className="px-3 pb-1 pt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400">Versions</p>
+                  {versions.length === 0 && (
+                    <p className="px-3 py-2 text-[12px] text-slate-500">Only the current version exists.</p>
+                  )}
+                  {versions.map(v => (
+                    <button
+                      key={v.id}
+                      type="button"
+                      role="menuitem"
+                      disabled={v.isCurrent}
+                      onClick={() => compareWith(v.versionNumber)}
+                      title={v.isCurrent ? 'This is the version you are editing' : `Compare ${v.versionNumber} with ${currentVersion}`}
+                      className="flex items-center justify-between gap-3 rounded px-3 py-2 text-left transition-colors hover:bg-slate-50 disabled:cursor-default disabled:hover:bg-transparent"
+                      data-version-option={v.versionNumber}
+                    >
+                      <span className="flex flex-col">
+                        <span className="font-mono text-[12px] font-semibold text-slate-800">{v.versionNumber} <span className="font-sans font-normal text-slate-500">· {v.label}</span></span>
+                        <span className="text-[11px] text-slate-400">{new Date(v.createdAt).toLocaleString()}</span>
+                      </span>
+                      {v.isCurrent
+                        ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">Current</span>
+                        : <span className="text-[11px] font-semibold text-blue-600">Compare →</span>}
+                    </button>
+                  ))}
+                  {versions.length > 1 && (
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={openCompareVersions}
+                      className="mt-1 rounded border-t border-slate-100 px-3 py-2 text-left text-[12px] font-semibold text-blue-700 hover:bg-slate-50"
+                      data-version-compare-previous
+                    >Compare with previous version ({previousVersion} → {currentVersion})</button>
                   )}
                 </div>
               )}

@@ -552,11 +552,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const version = await app.prisma.documentVersion.findFirst({
       where:  { id: versionId, documentId },
       select: { id: true, versionNumber: true, sections: {
-        select:  { sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true },
-        orderBy: { sectionId: 'asc' },
+        select: { sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true },
       } },
     })
     if (!version) return reply.code(404).send({ error: 'not_found' })
+    // Numeric-aware, so s3 comes before s10 (a plain text sort gives s1, s10, s11, …, s2, s3).
+    version.sections.sort((a, b) => a.sectionId.localeCompare(b.sectionId, undefined, { numeric: true }))
     return version
   })
 

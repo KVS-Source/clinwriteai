@@ -7,8 +7,15 @@
 //   • §11.70 artefact format: canonical JSON (hashSections() of the
 //     document's current version at signing time). Reproducible,
 //     machine-verifiable. A rendered-PDF binding is additive, not a swap.
-//   • §11.200 "two components": per-signature password re-auth + TOTP.
-//     We store sha256(credential proof) — the plaintext never touches the DB.
+//   • §11.200 re-authentication at signing is NOT in place yet: login is SSO
+//     and no step-up (IdP re-login / TOTP / passkey) is configured. Until it
+//     is, the signer confirms by typing their full name, and each record says
+//     exactly that in authMethod (SIGNING_AUTH_METHOD) — never a method that
+//     wasn't used.
+//   • Time source: the server clock (UTC) is authoritative; the signer's
+//     local time is kept alongside for reference.
+//   • The final signature makes the document v1.0 (AC-A-046): a "Final"
+//     snapshot of the signed content becomes the current version.
 //
 // Document state machine driven here:
 //   pending_signature  →  signed     (terminal sign of a sequential chain)
@@ -25,10 +32,11 @@ import type { FastifyPluginAsync } from 'fastify'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { hashSections } from '../documents/service.js'
+import { DocumentService, hashSections } from '../documents/service.js'
 import type { PrismaClient } from '@prisma/client'
 import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
+import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
 
 const initiateSchema = z.object({
   chainType: z.enum(['sequential', 'parallel']).default('sequential'),
@@ -42,22 +50,50 @@ const initiateSchema = z.object({
 })
 
 const signSchema = z.object({
-  // Password re-auth proof — client POSTs the fresh password, server hashes
-  // immediately and stores sha256(proof). The raw proof is never written.
-  // (Compliance may replace this with a signed WebAuthn assertion later;
-  //  shape stays the same, hash input changes.)
-  credentialProof: z.string().min(8, 'credential proof required (§11.200)'),
-  // Optional environment context — supplements the server-side ip/user agent.
+  // Interim confirmation until re-authentication is configured: the signer
+  // types their full name, which must match the signer on the record.
+  confirmName: z.string().trim().min(1, 'Type your full name to confirm the signature'),
+  // Signer-side context, kept for reference (the server UTC time is authoritative).
   localTime: z.string().min(1),                 // '16:32 CET'
-  timeSource: z.string().optional(),            // 'Aurora time server, NTP stratum 2'
   deviceInfo: z.string().optional(),
 })
+
+// What each signature records as its authentication method — exactly what happened.
+export const SIGNING_AUTH_METHOD = 'SSO session + typed full-name confirmation (re-authentication not yet configured)'
+export const SIGNING_TIME_SOURCE = 'Server clock (UTC)'
+
+// "Dr  Sarah  Chen" vs "dr sarah chen": same name, ignoring case and spacing.
+const sameName = (a: string, b: string) =>
+  a.trim().replace(/\s+/g, ' ').toLowerCase() === b.trim().replace(/\s+/g, ' ').toLowerCase()
 
 const cancelSchema = z.object({
   cancelReason: z.string().min(1, 'cancel reason required for Part 11 audit'),
 })
 
 export const signatureRoutes: FastifyPluginAsync = async (app) => {
+  // In-app notice to a signer that it's their turn (contract §9 "notifies next
+  // signer"). Never blocks or fails the signature itself.
+  const notifySigners = async (
+    signers: Array<{ signerId: string; step: number }>,
+    doc: { id: string; projectId: string; title: string },
+  ) => {
+    if (!app.hasDecorator('notifications')) return
+    for (const s of signers) {
+      try {
+        await app.notifications.send({
+          recipientId: s.signerId,
+          kind:        'signature_requested',
+          title:       `Your signature is needed on "${doc.title}"`,
+          body:        `It's your turn to sign (step ${s.step}). Open the E-Signature tab to review and sign.`,
+          linkPath:    `/projects/${doc.projectId}/clinical-writing/documents/${doc.id}/sign`,
+          payload:     { documentId: doc.id, step: s.step },
+        })
+      } catch (err) {
+        app.log.warn({ err, documentId: doc.id, signerId: s.signerId }, 'signature_requested notification failed')
+      }
+    }
+  }
+
   // --- Chain initiation + listing ----------------------------------------
 
   app.post('/documents/:documentId/signature-chains', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -162,6 +198,11 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       where: { id: created.id },
       include: { records: { orderBy: { step: 'asc' } } },
     })
+    // Tell whoever can sign now: step 1 of a sequential chain, everyone in a parallel one.
+    await notifySigners(
+      (withRecords?.records ?? []).filter(r => r.status === 'awaiting'),
+      { id: doc.id, projectId: doc.projectId, title: doc.title },
+    )
     return reply.code(201).send(withRecords)
   })
 
@@ -169,11 +210,29 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
-    return app.prisma.signatureChain.findMany({
+    const chains = await app.prisma.signatureChain.findMany({
       where: { documentId },
       orderBy: { initiatedAt: 'desc' },
       include: { records: { orderBy: { step: 'asc' } } },
     })
+
+    // Each signed record's audit trail entry (FR-A-066 "audit entry ID"): the
+    // signature_recorded / document_signed event written when it was signed,
+    // found by the record id it carries.
+    const auditIdByRecord = new Map<string, string>()
+    if (chains.some(c => c.records.some(r => r.status === 'signed'))) {
+      for (const action of ['signature_recorded', 'document_signed']) {
+        const page = await app.audit.pageForEntity('document', documentId, { action, limit: 500 })
+        for (const row of page.rows) {
+          const recordId = (row.details as { recordId?: unknown } | null)?.recordId
+          if (typeof recordId === 'string' && !auditIdByRecord.has(recordId)) auditIdByRecord.set(recordId, String(row.id))
+        }
+      }
+    }
+    return chains.map(c => ({
+      ...c,
+      records: c.records.map(r => ({ ...r, credentialHash: undefined, auditEntryId: auditIdByRecord.get(r.id) ?? null })),
+    }))
   })
 
   app.get('/signature-chains/:chainId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -183,7 +242,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       include: { records: { orderBy: { step: 'asc' } } },
     })
     if (!chain) return reply.code(404).send({ error: 'not_found' })
-    return chain
+    return { ...chain, records: chain.records.map(r => ({ ...r, credentialHash: undefined })) }
   })
 
   // --- The signing act (§11.200) -----------------------------------------
@@ -199,8 +258,9 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     })
     if (!record) return reply.code(404).send({ error: 'not_found' })
 
-    // Only the designated signer (or admin) can sign.
-    if (record.signerId !== request.user!.id && !['admin'].includes(request.user!.role)) {
+    // Only the designated signer can sign — no one, admins included, signs on
+    // someone else's behalf (Part 11: signatures cannot be delegated, FR-A-063).
+    if (record.signerId !== request.user!.id) {
       return reply.code(403).send({ error: 'wrong_signer', message: 'Only the designated signer may sign this step' })
     }
     if (record.status === 'signed') {
@@ -224,10 +284,20 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send({ error: 'document_missing_version', message: 'Document has no current version to bind' })
     }
 
+    // Interim confirmation: the typed name must be the signer's own.
+    if (!sameName(parsed.data.confirmName, record.signerName)) {
+      return reply.code(422).send({
+        error:   'name_mismatch',
+        message: `Type your full name exactly as shown (${record.signerName}) to confirm the signature.`,
+      })
+    }
+
     const documentHash = hashSections(
       doc.currentVersion.sections.map(s => ({ sectionId: s.sectionId, contentHtml: s.contentHtml })),
     )
-    const credentialHash = createHash('sha256').update(parsed.data.credentialProof, 'utf8').digest('hex')
+    // Hash of what confirmed the signature (the typed name) — kept in place of a
+    // credential until re-authentication is configured. Never the plain value.
+    const credentialHash = createHash('sha256').update(`name-confirmation:${parsed.data.confirmName.trim()}`, 'utf8').digest('hex')
     const now = new Date()
 
     const result = await app.prisma.$transaction(async (tx) => {
@@ -241,8 +311,8 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
           credentialHash,
           timestampUtc: now,
           localTime: parsed.data.localTime,
-          timeSource: parsed.data.timeSource ?? 'server clock (UTC)',
-          authMethod: 'password re-auth + TOTP',
+          timeSource: SIGNING_TIME_SOURCE,
+          authMethod: SIGNING_AUTH_METHOD,
           deviceInfo: parsed.data.deviceInfo ?? null,
           networkInfo: request.ip ?? null,
         },
@@ -251,12 +321,14 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       // 2. Promote the next sequential step (if any) from queued → awaiting.
       let chainStatus = record.chain.status
       let completedAt: Date | null = null
+      let released: { signerId: string; step: number } | null = null
       if (record.chain.chainType === 'sequential') {
         const next = await tx.signatureRecord.findFirst({
           where: { chainId: record.chainId, step: record.step + 1 },
         })
         if (next) {
           await tx.signatureRecord.update({ where: { id: next.id }, data: { status: 'awaiting' } })
+          released = { signerId: next.signerId, step: next.step }
         }
       }
 
@@ -278,15 +350,44 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
           data: { status: 'signed', signedAt: now, watermarked: false },
         })
       }
-      return { signed, chainStatus, completedAt }
+      return { signed, chainStatus, completedAt, released }
     })
+
+    // The next signer in a sequential chain is told it's their turn.
+    if (result.released) {
+      await notifySigners([result.released], { id: doc.id, projectId: doc.projectId, title: doc.title })
+    }
 
     // Auto-complete items tagged autoCompleteOn='document_signed' —
     // only fires when the whole chain terminates (not on each individual
     // step). Typically "Final signature by Medical Director" on CSR and
     // "Sponsor signature on final version" on ICF. Non-fatal.
     let autoCompletedCount = 0
+    let finalVersionNumber: string | null = null
     if (result.chainStatus === 'complete') {
+      // AC-A-046: the signed document becomes v1.0 — a "Final" snapshot of the
+      // exact content that was signed becomes the current version. Skipped if a
+      // v1.0 already exists (never overwrite a version).
+      const v1 = await app.prisma.documentVersion.findFirst({
+        where: { documentId: record.chain.documentId, versionNumber: 'v1.0' },
+        select: { id: true },
+      })
+      if (!v1) {
+        try {
+          const snap = await new DocumentService(app.prisma).createVersionSnapshot({
+            documentId: record.chain.documentId,
+            createdBy:  request.user!.id,
+            label:      'Final',
+            reason:     'final_signature',
+            note:       `Signed — signature chain ${record.chainId} complete`,
+            versionNumber: 'v1.0',
+          })
+          finalVersionNumber = snap.version.versionNumber
+        } catch (err) {
+          app.log.error({ err, documentId: record.chain.documentId }, 'final v1.0 version snapshot failed')
+        }
+      }
+
       const autoReport = await fireAutoComplete(app.prisma, app.audit, {
         trigger: 'document_signed',
         documentId: record.chain.documentId,
@@ -299,7 +400,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       autoCompletedCount = autoReport?.completedCount ?? 0
     }
 
-    await app.audit.append({
+    const auditEntry = await app.audit.append({
       timestamp: now.toISOString(),
       actorId: request.user!.id,
       action: result.chainStatus === 'complete' ? 'document_signed' : 'signature_recorded',
@@ -312,12 +413,14 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         meaning: record.meaning,
         documentHash,
         versionAtSigning: doc.currentVersion.versionNumber,
+        authMethod: SIGNING_AUTH_METHOD,
+        finalVersionNumber,
         autoCompletedCount,
       },
       ipAddress: request.ip ?? null,
     })
 
-    return result.signed
+    return { ...result.signed, credentialHash: undefined, auditEntryId: auditEntry ? String(auditEntry.id) : null }
   })
 
   // --- Cancellation -------------------------------------------------------
@@ -331,6 +434,16 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     if (!chain) return reply.code(404).send({ error: 'not_found' })
     if (chain.status === 'complete' || chain.status === 'cancelled') {
       return reply.code(409).send({ error: 'chain_closed' })
+    }
+    // Only the document owner cancels (AC-A-045): the person who started the
+    // chain, the document's R / assignee, or an admin.
+    const isOwner = chain.initiatedBy === request.user!.id
+      || await actorCanEditDocumentRaci(app.prisma, request.user!, chain.documentId)
+    if (!isOwner) {
+      return reply.code(403).send({
+        error:   'cancel_forbidden',
+        message: "Only the document's owner (its Responsible author), the person who started the chain, or an admin can cancel it.",
+      })
     }
 
     const now = new Date()

@@ -504,8 +504,10 @@ export class DocumentService {
     documentId: string
     createdBy: string
     label?: 'Draft' | 'For Review' | 'Final'
-    reason: 'explicit' | 'review_bounce' | 'crm_bounce' | 'signature_bounce'
+    reason: 'explicit' | 'review_bounce' | 'crm_bounce' | 'signature_bounce' | 'final_signature'
     note?: string
+    // A fixed number instead of the next v0.N — the completed signature chain makes the document v1.0.
+    versionNumber?: string
   }) {
     return this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${args.documentId}))`
@@ -521,7 +523,8 @@ export class DocumentService {
         where: { documentId: doc.id },
         select: { versionNumber: true },
       })
-      const nextVersionNumber = bumpVersion(highestVersion(allVersions.map(v => v.versionNumber), current.versionNumber))
+      const nextVersionNumber = args.versionNumber
+        ?? bumpVersion(highestVersion(allVersions.map(v => v.versionNumber), current.versionNumber))
 
       await tx.documentVersion.updateMany({
         where: { documentId: doc.id, isCurrent: true },

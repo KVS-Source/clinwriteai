@@ -900,6 +900,9 @@ function SearchIcon() {
   )
 }
 
+// RACI is offered from the row menu only while the document is being worked on.
+const RACI_MENU_STATUSES: ReadonlySet<string> = new Set(['in-authoring', 'in-review', 'crm-in-progress'])
+
 // Document row "⋯" menu — Arc A5. Recommended default action set per
 // docs/decisions/module-a-defaults.md §1. Items marked (soon) are
 // backend-pending and show a tooltip explaining when they'll light up.
@@ -981,7 +984,9 @@ function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail, onRaci }: {
           <MenuItem onClick={() => { setOpen(false); onOpen() }}>Open</MenuItem>
           <MenuItem onClick={() => { setOpen(false); onDuplicate() }}>Duplicate</MenuItem>
           <MenuItem onClick={() => { setOpen(false); onAuditTrail() }}>Audit trail</MenuItem>
-          <MenuItem onClick={() => { setOpen(false); onRaci() }}>RACI</MenuItem>
+          {RACI_MENU_STATUSES.has(doc.status) && (
+            <MenuItem onClick={() => { setOpen(false); onRaci() }}>RACI</MenuItem>
+          )}
           <MenuItem disabled title="Document-level PDF export is coming in a later release.">
             Export PDF <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
           </MenuItem>

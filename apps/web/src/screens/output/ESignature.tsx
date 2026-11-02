@@ -19,17 +19,19 @@ import { useCancelSignatureChain, useCurrentUser, useSignatureChains, useSignRec
 import { useDocumentStore } from '../../store'
 import { InitiateSignatureChain } from './InitiateSignatureChain'
 
-// Signer avatar palette (matches Pattern 7)
-const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
-  MW: { bg: '#DBEAFE', fg: '#1D4ED8' },
-  SC: { bg: '#F0FDF4', fg: '#15803D' },
-  JO: { bg: '#F5F3FF', fg: '#7C3AED' },
-  EV: { bg: '#FEF3C7', fg: '#D97706' },
-  PN: { bg: '#FEE2E2', fg: '#DC2626' },
-  AH: { bg: '#E0F2FE', fg: '#0369A1' },
-  RT: { bg: '#FCE7F3', fg: '#9D174D' },
-  LP: { bg: '#F3F4F6', fg: '#374151' },
-}
+// Signer avatar palette (matches Pattern 7). A signer's colour comes from their initials, so it is stable.
+const AVATAR_PALETTE: Array<{ bg: string; fg: string }> = [
+  { bg: '#DBEAFE', fg: '#1D4ED8' },
+  { bg: '#F0FDF4', fg: '#15803D' },
+  { bg: '#F5F3FF', fg: '#7C3AED' },
+  { bg: '#FEF3C7', fg: '#D97706' },
+  { bg: '#FEE2E2', fg: '#DC2626' },
+  { bg: '#E0F2FE', fg: '#0369A1' },
+  { bg: '#FCE7F3', fg: '#9D174D' },
+  { bg: '#F3F4F6', fg: '#374151' },
+]
+const avatarColour = (initials: string) =>
+  AVATAR_PALETTE[[...initials].reduce((h, ch) => h + ch.charCodeAt(0), 0) % AVATAR_PALETTE.length]!
 
 // 'you' = awaiting and yours to sign; 'awaiting' = awaiting someone else.
 type RowState = 'signed' | 'you' | 'awaiting' | 'queued'
@@ -90,7 +92,7 @@ function LockIcon({ colour = '#2563EB', size = 20 }: { colour?: string; size?: n
 }
 
 function Avatar({ initials, size = 24 }: { initials: string; size?: number }) {
-  const c = AVATAR_COLOURS[initials] ?? AVATAR_COLOURS.MW
+  const c = avatarColour(initials)
   return (
     <div
       className="flex flex-none items-center justify-center rounded-full font-mono font-bold"

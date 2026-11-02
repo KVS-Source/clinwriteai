@@ -16,7 +16,22 @@ type Candidate = { id: string; name: string; role: string }
 // `locked` rows represent mandated team Approvers (RACI='A') — the user
 // cannot remove them, change their signer, or change their meaning. They
 // may be reordered.
-type SignerRow = { signerId: string; meaning: Meaning; locked?: boolean }
+// `source` says where a locked Approver came from, so the tooltips can point to the right place.
+type ApproverSource = 'project' | 'document' | 'both'
+type SignerRow = { signerId: string; meaning: Meaning; locked?: boolean; source?: ApproverSource }
+
+const MEANING_ROLE: Record<Meaning, string> = { authored: 'Author', reviewed: 'Reviewer', approved: 'Approver' }
+
+// Tooltip for a locked row's signer / lock button, by where the Approver is assigned.
+const LOCK_HELP: Record<ApproverSource, { signer: string; lock: string }> = {
+  project:  { signer: "Required Approver — assigned on the project team. Change it under the project's team settings.",
+              lock:   'Required Approver — remove them as Approver on the project team to drop this signature.' },
+  document: { signer: "Required Approver — assigned in this document's RACI. Change it in the document's RACI.",
+              lock:   "Required Approver — remove them as Approver in this document's RACI to drop this signature." },
+  both:     { signer: "Required Approver — assigned both in this document's RACI and on the project team.",
+              lock:   "Required Approver — remove them as Approver in both the document's RACI and the project team to drop this signature." },
+}
+const SOURCE_TAG: Record<ApproverSource, string> = { project: 'Project team', document: 'Document RACI', both: 'Document RACI + project team' }
 
 const MEANINGS: { value: Meaning; label: string }[] = [
   { value: 'authored', label: 'Will sign as: Author' },
@@ -87,10 +102,16 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   // `missing_approvers`. We seed these rows locked, so the user can
   // reorder but not drop them.
   const approverSigners: SignerRow[] = useMemo(() => {
-    const ids = new Set<string>()
-    for (const t of project.data?.team ?? []) if (t.raci === 'A') ids.add(t.userId)
-    for (const r of docRaci.data ?? []) if (r.letter === 'A') ids.add(r.userId)
-    return [...ids].map(signerId => ({ signerId, meaning: 'approved' as Meaning, locked: true }))
+    const fromProject  = new Set<string>()
+    const fromDocument = new Set<string>()
+    for (const t of project.data?.team ?? []) if (t.raci === 'A') fromProject.add(t.userId)
+    for (const r of docRaci.data ?? []) if (r.letter === 'A') fromDocument.add(r.userId)
+    return [...new Set([...fromProject, ...fromDocument])].map(signerId => ({
+      signerId,
+      meaning: 'approved' as Meaning,
+      locked: true,
+      source: (fromProject.has(signerId) && fromDocument.has(signerId) ? 'both' : fromDocument.has(signerId) ? 'document' : 'project') as ApproverSource,
+    }))
   }, [project.data, docRaci.data])
 
   // Seed the row list once project data has loaded: all Approvers (locked)
@@ -152,7 +173,8 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
       chainType,
       signers: effectiveRows.map(r => {
         const c = byId.get(r.signerId)
-        return { signerId: r.signerId, signerName: c?.name ?? r.signerId, signerRole: c?.role ?? 'signer', meaning: r.meaning }
+        const teamRole = project.data?.team?.find(t => t.userId === r.signerId)?.role
+        return { signerId: r.signerId, signerName: c?.name ?? r.signerId, signerRole: teamRole ?? MEANING_ROLE[r.meaning], meaning: r.meaning }
       }),
     })
   }
@@ -214,11 +236,14 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
               disabled={r.locked}
               className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
               data-signer-select
-              title={r.locked ? 'Required — team Approver (RACI=A), cannot be changed here. Edit on the Project Settings page.' : undefined}
+              title={r.locked && r.source ? LOCK_HELP[r.source].signer : undefined}
             >
               <option value="" disabled>Select signer…</option>
               {candidates.map(c => <option key={c.id} value={c.id}>{c.name} · {c.role}</option>)}
             </select>
+            {r.locked && r.source && (
+              <span className="hidden flex-none whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 sm:inline" data-approver-source={r.source}>{SOURCE_TAG[r.source]}</span>
+            )}
             <select
               value={r.meaning}
               onChange={e => setRow(i, { meaning: e.currentTarget.value as Meaning })}
@@ -236,7 +261,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
               disabled={r.locked || effectiveRows.length === 1}
               className="h-9 w-8 rounded-md border border-slate-200 text-slate-500 hover:text-red-700 disabled:opacity-30"
               aria-label="Remove signer"
-              title={r.locked ? 'Required Approver — remove from the project team to drop this signature.' : undefined}
+              title={r.locked && r.source ? LOCK_HELP[r.source].lock : undefined}
             >
               {r.locked ? '🔒' : '✕'}
             </button>

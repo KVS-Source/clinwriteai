@@ -100,7 +100,7 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
       const doc = await app.prisma.document.findUnique({
         where: { id: documentId },
         select: {
-          status: true, projectId: true, deletedAt: true,
+          status: true, type: true, projectId: true, deletedAt: true,
           currentVersion: { select: { versionNumber: true, sections: {
             where:  { OR: [{ sectionId }, { id: sectionId }] },
             select: { id: true, sectionId: true, contentHtml: true, ichStatus: true },
@@ -109,6 +109,7 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
         },
       })
       if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+      if (!isIchE3Applicable(doc.type)) return reply.code(400).send(NOT_APPLICABLE)
 
       const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { status: true } })
       const locked = authoringLockReason(doc.status, project?.status)

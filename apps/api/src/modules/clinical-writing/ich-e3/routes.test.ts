@@ -114,6 +114,15 @@ describe('waive / un-waive — CSR only', () => {
 })
 
 describe('PATCH /documents/:id/sections/:sectionId/ich-status', () => {
+  it('rejects a non-CSR document with 400 not_applicable and writes nothing', async () => {
+    const { app, sectionUpdates, append } = await build({ type: 'dsur' })
+    const res = await setStatus(app, 'complete')
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toBe('not_applicable')
+    expect(sectionUpdates).toEqual([])
+    expect(append).not.toHaveBeenCalled()
+  })
+
   it('marks a section complete and records it in the audit trail', async () => {
     const { app, sectionUpdates, append } = await build()
     const res = await setStatus(app, 'complete')

@@ -225,6 +225,9 @@ export function DocumentEditor() {
     },
   })
   const sectionIsComplete = activeSectionData?.status === 'complete'
+  // ICH E3 governs full CSRs only — other document types have no validator,
+  // so "Mark complete" has nothing to feed and is not shown.
+  const ichApplicable = document?.type === 'csr-full' || (document?.type as string) === 'csr_full'
   const sectionHasText    = draftContent.replace(/<[^>]*>/g, '').replace(/&nbsp;/g, ' ').trim() !== ''
 
   // 423 Locked on an autosave is a signal that the foreign lock we thought
@@ -921,8 +924,8 @@ export function DocumentEditor() {
                     </button>
                     {/* Mark complete / Reopen — the only way a section reaches
                         "complete" for the ICH E3 validator. Hidden while the
-                        document is locked for authoring. */}
-                    {!authoringLock && (
+                        document is locked for authoring, and for non-CSR documents. */}
+                    {!authoringLock && ichApplicable && (
                       <button
                         type="button"
                         onClick={() => setSectionStatus.mutate({

@@ -370,6 +370,25 @@ export function ESignature() {
   // The typed name belongs to one signing panel: clear it whenever a different row is opened or the panel is closed.
   useEffect(() => { setCredential('') }, [selectedIndex])
 
+  // Opening another signer shows the top of the panel, not wherever the last one was scrolled to.
+  const panelBodyRef = useRef<HTMLDivElement>(null)
+  useEffect(() => { panelBodyRef.current?.scrollTo({ top: 0 }) }, [selectedIndex])
+
+  // Esc or a click outside the panel closes it (clicking a signer row switches to that signer instead).
+  const panelOpen = selectedIndex !== null
+  useEffect(() => {
+    if (!panelOpen) return
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setSelectedIndex(null) }
+    const onDown = (e: MouseEvent) => {
+      const t = e.target as Element | null
+      if (!t || t.closest('[data-sign-panel], [data-signer-id]')) return
+      setSelectedIndex(null)
+    }
+    window.addEventListener('keydown', onKey)
+    window.document.addEventListener('mousedown', onDown)
+    return () => { window.removeEventListener('keydown', onKey); window.document.removeEventListener('mousedown', onDown) }
+  }, [panelOpen])
+
   const refreshAfterChange = () => {
     // Final signature flips the document to signed + clears the watermark.
     qc.invalidateQueries({ queryKey: ['document', documentId] })
@@ -432,10 +451,12 @@ export function ESignature() {
           </p>
         )}
         <InitiateSignatureChain documentId={documentId!} projectId={projectId!} documentStatus={document?.status} />
-        <button onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/review`)}
-          className="text-[12px] font-semibold text-slate-600 hover:underline">
-          Open Reviewer View
-        </button>
+        {document?.status !== 'signed' && (
+          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/review`)}
+            className="text-[12px] font-semibold text-slate-600 hover:underline">
+            Open Reviewer View
+          </button>
+        )}
       </div>
     )
   }
@@ -459,20 +480,20 @@ export function ESignature() {
     <div className="flex h-full flex-col" data-screen="e-signature">
 
       {/* ============ Document header ============ */}
-      <div className="flex flex-none flex-col gap-2 border-b border-slate-200 bg-white px-8 pt-3" style={{ position: 'relative', zIndex: 6 }}>
+      <div className="flex flex-none flex-col gap-2 border-b border-slate-200 bg-white px-6 pt-3" style={{ position: 'relative', zIndex: 6 }}>
         {/* Breadcrumb moved to TopNav (same cleanup as DocumentEditor). */}
         <div className="flex h-14 items-center justify-between gap-6">
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-base font-bold tracking-tight">{title}</h1>
-            <span className="flex-none font-mono text-[11px] text-slate-500">{document?.version ?? ''}</span>
             <span
-              className="flex-none rounded-full px-2.5 py-1 text-xs font-semibold"
+              className="inline-flex flex-none items-center rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold"
               style={chain.status === 'complete' ? { backgroundColor: '#F0FDF4', color: '#15803D' } : { backgroundColor: '#FFFBEB', color: '#B45309' }}
               data-chain-status={chain.status}
             >
               {statusLabel}
             </span>
             {documentId && <MyRaciRole documentId={documentId} />}
+            <span className="flex-none font-mono text-[11px] text-slate-500">{document?.version ?? ''}</span>
           </div>
           {chainActive && (
             <button
@@ -647,7 +668,7 @@ export function ESignature() {
               >✕</button>
             </div>
 
-            <div className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
+            <div ref={panelBodyRef} className="flex flex-1 flex-col gap-4 overflow-y-auto p-4">
               <div className="flex items-center gap-2.5">
                 <Avatar initials={initialsOf(selected.signerName)} size={32} />
                 <div className="flex min-w-0 flex-col gap-0.5">

@@ -40,6 +40,7 @@ import { AIChatPanel }            from '../../panels/AIChatPanel'
 import { SectionHistoryPanel }    from '../../panels/SectionHistoryPanel'
 import { AIPromptHelpPanel }      from '../../panels/AIPromptHelpPanel'
 import { TlfPanel }               from '../../panels/TlfPanel'
+import { AiDraftingReportPanel }  from '../../panels/AiDraftingReportPanel'
 
 // Panel titles for the right panel header
 const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
@@ -57,6 +58,7 @@ const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
   'meddra':            'MedDRA Lookup',
   'tlf':               'TLF Cross-Reference',
   'raci':              'RACI Assignments',
+  'ai-drafting-report': 'AI Drafting Report',
 }
 
 // Statuses where the document is locked for authoring — mirrors the API's
@@ -635,7 +637,11 @@ export function DocumentEditor() {
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-base font-bold tracking-tight text-slate-900">{document.title}</h1>
             <span className="flex-none"><StatusPill status={document.status} size="sm" /></span>
-            <AiConfidenceChip state={aiState} summary={aiDraft.summary} />
+            <AiConfidenceChip
+              state={aiState}
+              summary={aiDraft.summary}
+              onClick={() => setActivePanel('ai-drafting-report')}
+            />
             <div ref={versionMenuRef} className="relative flex-none" data-version-dropdown>
               <button
                 type="button"
@@ -1320,7 +1326,10 @@ export function DocumentEditor() {
                 activeSectionLabel={activeSectionData ? `${withSectionMark(activeSectionData.number)} ${activeSectionData.title}` : undefined}
               />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && (
+            {activePanel === 'ai-drafting-report' && (
+              <AiDraftingReportPanel status={aiDraft.data} loading={aiDraft.isLoading} />
+            )}
+            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && activePanel !== 'ai-drafting-report' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
                 <p className="mt-2 text-sm text-slate-700">

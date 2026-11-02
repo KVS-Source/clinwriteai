@@ -197,6 +197,7 @@ export async function computeProjectChecklistSummary(
   let mandatoryPending = 0
 
   for (const it of items) {
+    if (it.status === 'removed') continue
     if (it.status === 'complete') complete++
     else if (it.status === 'waived') waived++
     else {
@@ -208,7 +209,7 @@ export async function computeProjectChecklistSummary(
   return {
     totalDocuments: docIds.length,
     documentsWithChecklist: instances.length,
-    totalItems: items.length,
+    totalItems: items.filter(i => i.status !== 'removed').length,
     complete,
     pending,
     waived,

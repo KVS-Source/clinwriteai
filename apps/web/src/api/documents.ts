@@ -323,11 +323,14 @@ export const documentsApi = {
         rules: Array<{ text: string; mandatory: boolean; status: string }>
       }>
       waivedMandatory: Array<{ text: string; framework: string; waivedBy: string | null; waivedAt: string | null; reason: string | null }>
+      removedMandatory?: Array<{ text: string; framework: string; removedBy: string | null; removedAt: string | null; reason: string | null }>
     }>(`/documents/${documentId}/compliance-summary`),
   completeItem: (documentId: string, itemId: string, body: CompleteItemBody) =>
     api.patch<ChecklistItem>(`/documents/${documentId}/checklist/${itemId}/complete`, body),
   waiveItem: (documentId: string, itemId: string, body: WaiveItemBody) =>
     api.patch<ChecklistItem>(`/documents/${documentId}/checklist/${itemId}/waive`, body),
+  removeChecklistItem: (documentId: string, itemId: string, body: { reason: string }) =>
+    api.post<ChecklistItem>(`/documents/${documentId}/checklist/${itemId}/remove`, body),
   addChecklistItem: (documentId: string, body: { text: string; framework: string }) =>
     api.post<ChecklistItem>(`/documents/${documentId}/checklist`, body),
   // Comments

@@ -28,6 +28,10 @@ const waiveSchema = z.object({
   reason: z.string().min(3, 'A waiver reason is required (21 CFR Part 11)'),
 })
 
+const removeSchema = z.object({
+  reason: z.string().min(3, 'A removal reason is required (21 CFR Part 11)'),
+})
+
 const addCustomSchema = z.object({
   text: z.string().min(1),
   framework: z.string().default('Custom'),
@@ -49,7 +53,28 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
       actorId: request.user!.id,
     })
 
-    return instance.items
+    // Resolve user ids to display names (batched) and tell the panel whether
+    // this caller may edit, so it can hide buttons the API would refuse.
+    const ids = [...new Set(instance.items.flatMap(i => [i.completedBy, i.waivedBy]).filter((v): v is string => !!v))]
+    const users = ids.length
+      ? await app.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
+      : []
+    const nameOf = (id: string | null) => (id ? users.find(u => u.id === id)?.name ?? id : null)
+    const canEdit = await actorCanEditDocumentRaci(app.prisma, request.user!, documentId)
+
+    return instance.items.map(i => {
+      // A removed item keeps its actor / time / reason in the waiver columns.
+      const removed = i.status === 'removed'
+      return {
+        ...i,
+        completedBy: nameOf(i.completedBy),
+        waivedBy:    removed ? null : nameOf(i.waivedBy),
+        waivedAt:    removed ? null : i.waivedAt,
+        waiverReason: removed ? null : i.waiverReason,
+        ...(removed && { removal: { by: nameOf(i.waivedBy), at: i.waivedAt, reason: i.waiverReason } }),
+        canEdit,
+      }
+    })
   })
 
   // Compliance Summary appendix for the output document (FR-A-030, FR-A-001d,
@@ -66,7 +91,9 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
       where:  { documentId },
       select: { templateVersion: true, items: { orderBy: { sortOrder: 'asc' } } },
     })
-    const items = instance?.items ?? []
+    const allItems = instance?.items ?? []
+    // Removed items are not "rules applied" — they are disclosed separately.
+    const items = allItems.filter(i => i.status !== 'removed')
 
     // ICH E3 section waivers (full CSRs only) are Framework Mandatory
     // waivers too, so they are disclosed alongside the checklist ones.
@@ -79,7 +106,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
       : []
 
     const userIds = [...new Set([
-      ...items.flatMap(i => [i.waivedBy, i.completedBy]),
+      ...allItems.flatMap(i => [i.waivedBy, i.completedBy]),
       ...ichWaivers.map(w => w.waivedBy),
     ].filter((v): v is string => !!v))]
     const users = userIds.length
@@ -133,12 +160,24 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
       })),
     ]
 
+    // FR-A-001d: removing a Framework Mandatory item is disclosed too.
+    const removedMandatory = allItems
+      .filter(i => i.status === 'removed' && i.frameworkMandatory)
+      .map(i => ({
+        text:      i.text,
+        framework: i.framework,
+        removedBy: nameOf(i.waivedBy),
+        removedAt: i.waivedAt?.toISOString() ?? null,
+        reason:    i.waiverReason ?? null,
+      }))
+
     return {
       documentId,
       checklistTemplateVersion: instance?.templateVersion ?? null,
       generatedAt: new Date().toISOString(),
       frameworks,
       waivedMandatory,
+      removedMandatory,
     }
   })
 
@@ -155,7 +194,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
 
     const item = await loadItem(app.prisma, documentId, itemId)
     if (!item) return reply.code(404).send({ error: 'not_found' })
-    if (item.status === 'complete' || item.status === 'waived') {
+    if (item.status === 'complete' || item.status === 'waived' || item.status === 'removed') {
       return reply.code(409).send({ error: 'conflict', message: `Item already ${item.status}` })
     }
 
@@ -197,6 +236,9 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
 
     const item = await loadItem(app.prisma, documentId, itemId)
     if (!item) return reply.code(404).send({ error: 'not_found' })
+    if (item.status === 'removed') {
+      return reply.code(409).send({ error: 'conflict', message: 'Item already removed' })
+    }
 
     const updated = await app.prisma.checklistInstanceItem.update({
       where: { id: itemId },
@@ -218,6 +260,60 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
         itemId,
         framework: item.framework,
         frameworkMandatory: item.frameworkMandatory,
+        reason: parsed.data.reason,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return updated
+  })
+
+  // Remove an item (PRD FR-A-001b): allowed for any item, mandatory included,
+  // but it needs a reason and is audited. Kept as a 'removed' row — never
+  // deleted — so it stays visible to the team and, for Framework Mandatory
+  // items, is disclosed in the Compliance Summary (FR-A-001d). The actor,
+  // time and reason reuse the waiver columns.
+  app.post('/:documentId/checklist/:itemId/remove', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, itemId } = request.params as { documentId: string; itemId: string }
+
+    if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({
+        error: 'checklist_edit_forbidden',
+        message: 'Only an R on this document (or an admin) can remove checklist items.',
+      })
+    }
+
+    const parsed = removeSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const item = await loadItem(app.prisma, documentId, itemId)
+    if (!item) return reply.code(404).send({ error: 'not_found' })
+    if (item.status === 'removed') {
+      return reply.code(409).send({ error: 'conflict', message: 'Item already removed' })
+    }
+
+    const updated = await app.prisma.checklistInstanceItem.update({
+      where: { id: itemId },
+      data: {
+        status: 'removed',
+        waivedBy: request.user!.id,
+        waivedAt: new Date(),
+        waiverReason: parsed.data.reason,
+      },
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'checklist_item_removed',
+      entityType: 'document',
+      entityId: documentId,
+      details: {
+        itemId,
+        text: item.text,
+        framework: item.framework,
+        frameworkMandatory: item.frameworkMandatory,
+        previousStatus: item.status,
         reason: parsed.data.reason,
       },
       ipAddress: request.ip ?? null,

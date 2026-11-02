@@ -40,7 +40,8 @@ export function ChecklistHub({ documentId, tab, onTabChange, showIch, lockReason
     enabled:  !!documentId && showIch,
   })
 
-  const inputsDone = items.filter(i => i.status === 'complete').length
+  const liveItems  = items.filter(i => i.status !== 'removed')
+  const inputsDone = liveItems.filter(i => i.status === 'complete' || i.status === 'waived').length
   const ichTotal   = ich?.totalSections ?? 0
   const ichDone    = ich?.completeCount ?? 0
   const ichWaived  = ich?.waivedCount ?? 0
@@ -59,7 +60,7 @@ export function ChecklistHub({ documentId, tab, onTabChange, showIch, lockReason
             style={{ backgroundColor: '#FFFFFF' }}
             data-checklist-summary
           >
-            Inputs {inputsDone}/{items.length}
+            Inputs {inputsDone}/{liveItems.length}
             {ich && ich.applicable && (
               <> · ICH E3 {ichDone}/{ichTotal}{ichWaived > 0 && ` · ${ichWaived} waived`}</>
             )}

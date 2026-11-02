@@ -591,6 +591,34 @@ export function FinalDocument() {
                           </tbody>
                         </table>
                       )}
+
+                    <h3 className="mt-6 text-[15px] font-bold text-slate-900">Removed Framework Mandatory items</h3>
+                    {(compliance.removedMandatory ?? []).length === 0
+                      ? <p className="mt-1 text-[13px] text-slate-600">None — no Framework Mandatory checklist item was removed.</p>
+                      : (
+                        <table className="mt-2 w-full border-collapse text-[12px]" data-removed-items>
+                          <thead>
+                            <tr className="text-left text-slate-500">
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Item</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Framework</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Removed by</th>
+                              <th className="border-b border-slate-200 py-1.5 font-semibold">Reason</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {(compliance.removedMandatory ?? []).map((r, i) => (
+                              <tr key={i} className="align-top">
+                                <td className="border-b border-slate-100 py-1.5 pr-3 text-slate-900">{r.text}</td>
+                                <td className="border-b border-slate-100 py-1.5 pr-3 text-slate-700">{r.framework}</td>
+                                <td className="border-b border-slate-100 py-1.5 pr-3 text-slate-700">
+                                  {r.removedBy ?? '—'}{r.removedAt ? <><br /><span className="text-[11px] text-slate-500">{formatUtc(r.removedAt)}</span></> : null}
+                                </td>
+                                <td className="border-b border-slate-100 py-1.5 text-slate-700">{r.reason ?? '—'}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      )}
                   </>
                 )}
               </section>

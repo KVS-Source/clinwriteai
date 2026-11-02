@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { ChecklistItem, ChecklistItemStatus } from '@platform/types'
 import { documentsApi } from '../api'
 import { useAuthStore } from '../store/authStore'
+import { ApiError } from '../api/client'
 
 interface Props {
   documentId: string
@@ -59,6 +60,14 @@ function autoCompleteLabelFor(tag: string | null | undefined): string | null {
   const strategy = tag.split(':')[0]
   if (!strategy) return null
   return `Auto: ${strategy}`
+}
+
+function errorMessage(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { message?: string } | null
+    return body?.message ?? `${fallback} (HTTP ${err.status})`
+  }
+  return `${fallback} Please try again.`
 }
 
 // --- Icons ---
@@ -135,6 +144,15 @@ interface ItemRowProps {
   isMutating:    boolean
   showReason:    string | null
   onShowReason:  (id: string | null) => void
+  // Whether the caller may change items; false hides every action.
+  canEdit:       boolean
+  removingId:    string | null
+  removeText:    string
+  removeError:   string | null
+  onRemoveBegin: (id: string) => void
+  onRemoveText:  (text: string) => void
+  onRemoveCancel:() => void
+  onRemoveConfirm:() => void
 }
 
 function ItemRow(p: ItemRowProps) {
@@ -142,6 +160,7 @@ function ItemRow(p: ItemRowProps) {
   const isComplete      = item.status === 'complete'
   const isWaived        = item.status === 'waived'
   const isCurrWaiving   = p.waivingId === item.id
+  const isCurrRemoving  = p.removingId === item.id
   const isMandatory     = item.frameworkMandatory
   const secondaryColour =
     isComplete   ? '#15803D' :
@@ -227,25 +246,39 @@ function ItemRow(p: ItemRowProps) {
           </>
         )}
 
-        {/* Actions row — hidden for complete + waived */}
-        {!isComplete && !isWaived && !isCurrWaiving && (
+        {/* Actions row — only for people who can edit. Complete and waived
+            items can still be removed (with a reason). */}
+        {p.canEdit && !isCurrWaiving && !isCurrRemoving && (
           <div className="mt-1 flex gap-3">
+            {!isComplete && !isWaived && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => p.onComplete(item.id)}
+                  disabled={p.isMutating}
+                  className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                >
+                  Mark complete
+                </button>
+                <button
+                  type="button"
+                  onClick={() => p.onWaiveBegin(item.id)}
+                  disabled={p.isMutating}
+                  className="text-[11px] font-semibold hover:text-amber-700 disabled:opacity-50"
+                  style={{ color: '#B45309' }}
+                >
+                  Waive
+                </button>
+              </>
+            )}
             <button
               type="button"
-              onClick={() => p.onComplete(item.id)}
+              onClick={() => p.onRemoveBegin(item.id)}
               disabled={p.isMutating}
-              className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
+              data-action="remove-item"
+              className="text-[11px] font-semibold text-slate-500 hover:text-red-700 disabled:opacity-50"
             >
-              Mark complete
-            </button>
-            <button
-              type="button"
-              onClick={() => p.onWaiveBegin(item.id)}
-              disabled={p.isMutating}
-              className="text-[11px] font-semibold hover:text-amber-700 disabled:opacity-50"
-              style={{ color: '#B45309' }}
-            >
-              Waive
+              Remove
             </button>
           </div>
         )}
@@ -293,6 +326,50 @@ function ItemRow(p: ItemRowProps) {
             </div>
           </div>
         )}
+
+        {/* Inline remove form */}
+        {isCurrRemoving && (
+          <div className="mt-2 flex flex-col gap-1.5 rounded border p-2" style={{ borderColor: '#FECACA', backgroundColor: '#FEF2F2' }} data-form="remove-item">
+            <p className="text-[11px] font-semibold" style={{ color: '#B91C1C' }}>
+              {isMandatory
+                ? `Removing a Framework Mandatory item (${item.framework}) — it is recorded in the audit trail and disclosed in the Compliance Summary.`
+                : 'Removing this item — it is recorded in the audit trail.'}
+            </p>
+            <label className="block">
+              <span className="text-[11px] font-semibold text-slate-700">Removal reason (required)</span>
+              <input
+                type="text"
+                value={p.removeText}
+                onChange={e => p.onRemoveText(e.target.value)}
+                placeholder="Why is this item being removed?"
+                className="mt-1 h-8 w-full rounded border px-2 text-[12px] outline-none focus:border-blue-600 focus:shadow-focus"
+                style={{ borderColor: '#E2E8F0' }}
+                autoFocus
+              />
+            </label>
+            {p.removeError && (
+              <p className="text-[11px] font-semibold" style={{ color: '#DC2626' }}>{p.removeError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={p.onRemoveCancel}
+                className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={p.onRemoveConfirm}
+                disabled={p.isMutating}
+                className="rounded px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
+                style={{ backgroundColor: '#B91C1C' }}
+              >
+                Confirm remove
+              </button>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )
@@ -304,12 +381,21 @@ export function ChecklistPanel({ documentId }: Props) {
   const qc = useQueryClient()
   const currentUserName = useAuthStore(s => s.user?.name ?? 'unknown')
 
-  const { data: items = [] } = useQuery({
+  const { data: allItems = [] } = useQuery({
     queryKey: ['checklist', documentId],
     queryFn:  () => documentsApi.getChecklist(documentId),
     enabled:  !!documentId,
   })
+  // Removed items stay visible (PRD FR-A-001b) but are not part of the counts.
+  const items        = useMemo(() => allItems.filter(i => i.status !== 'removed'), [allItems])
+  const removedItems = useMemo(() => allItems.filter(i => i.status === 'removed'), [allItems])
+  // The API says whether this caller may change the list; absent = yes.
+  const canEdit = allItems[0]?.canEdit !== false
 
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [removingId,  setRemovingId]  = useState<string | null>(null)
+  const [removeText,  setRemoveText]  = useState('')
+  const [removeError, setRemoveError] = useState<string | null>(null)
   const [waivingId,   setWaivingId]   = useState<string | null>(null)
   const [waiverText,  setWaiverText]  = useState('')
   const [waiverError, setWaiverError] = useState<string | null>(null)
@@ -322,7 +408,9 @@ export function ChecklistPanel({ documentId }: Props) {
 
   const completeMut = useMutation({
     mutationFn: (id: string) => documentsApi.completeItem(documentId, id, { completedBy: currentUserName }),
+    onMutate:   () => setActionError(null),
     onSuccess:  invalidate,
+    onError:    (err: unknown) => setActionError(errorMessage(err, 'Could not mark the item complete.')),
   })
 
   const waiveMut = useMutation({
@@ -332,18 +420,33 @@ export function ChecklistPanel({ documentId }: Props) {
       setWaivingId(null); setWaiverText(''); setWaiverError(null)
       invalidate()
     },
+    onError: (err: unknown) => setWaiverError(errorMessage(err, 'Could not waive the item.')),
+  })
+
+  const removeMut = useMutation({
+    mutationFn: (args: { id: string; reason: string }) =>
+      documentsApi.removeChecklistItem(documentId, args.id, { reason: args.reason }),
+    onSuccess: () => {
+      setRemovingId(null); setRemoveText(''); setRemoveError(null)
+      invalidate()
+      // A removed Framework Mandatory item is disclosed in the Compliance Summary.
+      qc.invalidateQueries({ queryKey: ['compliance-summary', documentId] })
+    },
+    onError: (err: unknown) => setRemoveError(errorMessage(err, 'Could not remove the item.')),
   })
 
   const addMut = useMutation({
     mutationFn: (args: { text: string; framework: string }) =>
       documentsApi.addChecklistItem(documentId, args),
+    onMutate:  () => setActionError(null),
     onSuccess: () => {
       setAddingItem(false); setNewItemText(''); setNewItemFwk('Custom')
       invalidate()
     },
+    onError: (err: unknown) => setActionError(errorMessage(err, 'Could not add the item.')),
   })
 
-  const isMutating = completeMut.isPending || waiveMut.isPending || addMut.isPending
+  const isMutating = completeMut.isPending || waiveMut.isPending || addMut.isPending || removeMut.isPending
 
   // --- Derived groupings ---
 
@@ -367,8 +470,11 @@ export function ChecklistPanel({ documentId }: Props) {
     return ordered
   }, [items])
 
+  // A waived item is a recorded decision that it doesn't apply, so it counts
+  // as done — the same rule the ICH E3 tab uses.
   const completeCount = items.filter(i => i.status === 'complete').length
-  const pct = items.length > 0 ? Math.round((completeCount / items.length) * 100) : 0
+  const waivedCount   = items.filter(i => i.status === 'waived').length
+  const pct = items.length > 0 ? Math.round(((completeCount + waivedCount) / items.length) * 100) : 0
 
   // Per-stage completion count — rendered beside each stage heading so
   // the writer sees "4 of 7" at a glance before expanding.
@@ -382,8 +488,20 @@ export function ChecklistPanel({ documentId }: Props) {
 
   // --- Handlers ---
 
+  const beginRemove = (id: string) => {
+    setRemovingId(id); setRemoveText(''); setRemoveError(null)
+    setWaivingId(null)
+  }
+  const cancelRemove = () => { setRemovingId(null); setRemoveText(''); setRemoveError(null) }
+  const confirmRemove = () => {
+    if (!removingId) return
+    if (removeText.trim().length < 3) { setRemoveError('A removal reason is required'); return }
+    removeMut.mutate({ id: removingId, reason: removeText.trim() })
+  }
+
   const beginWaive = (id: string) => {
     setWaivingId(id)
+    setRemovingId(null)
     setWaiverText('')
     setWaiverError(null)
   }
@@ -417,7 +535,15 @@ export function ChecklistPanel({ documentId }: Props) {
     onWaiveConfirm:confirmWaive,
     onShowReason:  setShowReason,
     isWaiving:     waivingId !== null,
-  }), [waivingId, waiverText, waiverError, isMutating, showReason, completeMut, confirmWaive])
+    canEdit,
+    removingId,
+    removeText,
+    removeError,
+    onRemoveBegin:   beginRemove,
+    onRemoveText:    (t: string) => { setRemoveText(t); if (removeError) setRemoveError(null) },
+    onRemoveCancel:  cancelRemove,
+    onRemoveConfirm: confirmRemove,
+  }), [waivingId, waiverText, waiverError, isMutating, showReason, completeMut, confirmWaive, canEdit, removingId, removeText, removeError, confirmRemove])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -426,7 +552,7 @@ export function ChecklistPanel({ documentId }: Props) {
       <div className="flex-none border-b border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }}>
         <div className="flex items-baseline justify-between">
           <p className="text-xs font-semibold text-slate-900">
-            {completeCount} of {items.length} items complete
+            {completeCount} complete{waivedCount > 0 && ` · ${waivedCount} waived`} of {items.length}
           </p>
           <p className="text-xs font-bold" style={{ color: '#2563EB' }}>{pct}%</p>
         </div>
@@ -434,6 +560,25 @@ export function ChecklistPanel({ documentId }: Props) {
           <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: '#2563EB' }} />
         </div>
       </div>
+
+      {actionError && (
+        <p
+          className="flex-none border-b px-4 py-2 text-[11px] font-semibold"
+          style={{ backgroundColor: '#FEF2F2', borderColor: '#FECACA', color: '#B91C1C' }}
+          role="alert"
+          data-checklist-error
+        >
+          {actionError}
+        </p>
+      )}
+      {!canEdit && allItems.length > 0 && (
+        <p
+          className="flex-none border-b border-slate-200 px-4 py-2 text-[11px] text-slate-500"
+          data-checklist-readonly
+        >
+          Only an R on this document (or an admin) can change this checklist.
+        </p>
+      )}
 
       {/* Scroll list */}
       <div className="flex-1 overflow-y-auto">
@@ -462,7 +607,7 @@ export function ChecklistPanel({ documentId }: Props) {
         })}
 
         {/* Add item form */}
-        <div className="m-4">
+        {canEdit && <div className="m-4">
           {!addingItem ? (
             <button
               type="button"
@@ -510,7 +655,29 @@ export function ChecklistPanel({ documentId }: Props) {
               </div>
             </div>
           )}
-        </div>
+        </div>}
+
+        {/* Removed items — kept visible to the whole team, set apart from the live list */}
+        {removedItems.length > 0 && (
+          <div className="border-t border-slate-200 pb-3" data-removed-items>
+            <p className="px-4 pt-3 pb-1.5 font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
+              Removed items ({removedItems.length})
+            </p>
+            {removedItems.map(item => (
+              <div key={item.id} className="border-b px-4 py-2" style={{ borderColor: '#F1F5F9' }} data-removed-item={item.id}>
+                <p className="text-[12px] text-slate-500 line-through">{item.text}</p>
+                <p className="text-[11px] text-slate-500">
+                  {item.framework}{item.frameworkMandatory ? ' · Mandatory' : ''}
+                </p>
+                <p className="text-[11px]" style={{ color: '#B91C1C' }}>
+                  Removed · {item.removal?.by ?? '—'}
+                  {item.removal?.at ? ' · ' + new Date(item.removal.at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
+                </p>
+                {item.removal?.reason && <p className="text-[11px] text-slate-600">Reason: {item.removal.reason}</p>}
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   )

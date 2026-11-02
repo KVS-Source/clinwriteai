@@ -29,7 +29,7 @@ export type SignatureStatus = 'signed' | 'awaiting' | 'queued'
 export type SignatureMeaning = 'authored' | 'reviewed' | 'approved'
 export type CommentSeverity = 'major' | 'minor' | 'query'
 export type CommentStatus = 'open' | 'resolved'
-export type ChecklistItemStatus = 'pending' | 'in-progress' | 'complete' | 'waived'
+export type ChecklistItemStatus = 'pending' | 'in-progress' | 'complete' | 'waived' | 'removed'
 export type ICHSectionStatus = 'complete' | 'in-progress' | 'not-started' | 'warning'
 export type TLFItemType = 'T' | 'L' | 'F'
 export type ResolutionType = 'accept' | 'accept-with-modification' | 'reject'
@@ -160,6 +160,11 @@ export interface ChecklistItem {
   waivedBy?: string
   waivedAt?: string
   waiverReason?: string
+  // Set when status === 'removed' (PRD FR-A-001b): who removed it, when, why.
+  removal?: { by: string | null; at: string | null; reason: string | null }
+  // Whether the caller may complete / waive / add / remove items (R on the
+  // document, its assignee, or an admin). Absent = assume yes.
+  canEdit?: boolean
   // Phase 1+ fields — snapshotted from the template item at document
   // creation so a later template bump never retro-mutates an in-flight
   // document (PRD rule). Values match DbStage / RACI letter / trigger name.

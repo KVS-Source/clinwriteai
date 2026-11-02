@@ -3,6 +3,8 @@ import { useQuery } from '@tanstack/react-query'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../../store/projectStore'
 import { useDocumentStore } from '../../store/documentStore'
+import { useAuthStore } from '../../store/authStore'
+import { authApi } from '../../api'
 import { usePlatformStore, hasPersonaOverride, clearPersonaOverride, PLATFORM_DEMO_USERS } from '../../platform/store'
 import { platformApi } from '../../platform/api/platformApi'
 import { ApiError } from '../../api/client'
@@ -43,6 +45,15 @@ function ChevronIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
       <path d="M3 4.5 6 7.5 9 4.5" strokeLinecap="round" strokeLinejoin="round"/>
+    </svg>
+  )
+}
+
+function LogOutIcon() {
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M5.25 12.25H2.917a1.167 1.167 0 0 1-1.167-1.167V2.917A1.167 1.167 0 0 1 2.917 1.75H5.25" strokeLinecap="round" strokeLinejoin="round"/>
+      <path d="M9.333 9.917 12.25 7 9.333 4.083M12.25 7h-7" strokeLinecap="round" strokeLinejoin="round"/>
     </svg>
   )
 }
@@ -100,6 +111,7 @@ export function TopNav() {
   const activeDocument = useDocumentStore(s => s.activeDocument)
   const currentUser    = usePlatformStore(s => s.currentUser)
   const setCurrentUser = usePlatformStore(s => s.setCurrentUser)
+  const logoutLocal    = useAuthStore(s => s.logout)
 
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -180,6 +192,19 @@ export function TopNav() {
     if (typeof window !== 'undefined') window.location.reload()
   }
 
+  // Log out: end the server session (revokes it, clears the cookie, audits
+  // auth.logout), forget the demo persona, then a full page load to /sign-in so
+  // every in-memory store and query cache starts empty. A failed API call
+  // (e.g. no session under the dev bypass) still logs out locally.
+  const [loggingOut, setLoggingOut] = useState(false)
+  const logOut = async () => {
+    setLoggingOut(true)
+    try { await authApi.logout() } catch { /* still sign out locally */ }
+    clearPersonaOverride()
+    logoutLocal()
+    window.location.assign('/sign-in')
+  }
+
   return (
     <header
       className="flex h-14 flex-none items-center justify-between px-6"
@@ -250,17 +275,33 @@ export function TopNav() {
 
           {open && (
             <div
-              className="absolute right-0 top-full z-50 mt-2 w-[320px] overflow-hidden rounded-lg border border-slate-700 bg-white shadow-xl"
+              className="absolute right-0 top-full z-50 mt-2 flex w-[320px] flex-col overflow-hidden rounded-lg border border-slate-700 bg-white shadow-xl"
+              style={{ maxHeight: 'calc(100vh - 4.5rem)' }}
               data-persona-menu
             >
-              <div className="px-3 py-2" style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+              {/* Log out sits at the top so it's never pushed off-screen by a long persona list
+                  (or hidden under the dev MSW badge in the bottom-right corner). */}
+              <div className="flex-none px-3 py-2" style={{ borderBottom: '1px solid #E2E8F0' }}>
+                <button
+                  type="button"
+                  onClick={() => { void logOut() }}
+                  disabled={loggingOut}
+                  className="flex w-full items-center justify-center gap-2 rounded-md bg-rose-600 px-2 py-2 text-[13px] font-semibold text-white hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  data-action="log-out"
+                >
+                  <LogOutIcon />
+                  {loggingOut ? 'Logging out…' : 'Log out'}
+                </button>
+              </div>
+
+              <div className="flex-none px-3 py-2" style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
                 <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Switch persona (demo)</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">
                   Role guards are enforced: each persona only reaches the pages its role allows. Switching persona changes this browser's demo context (RACI, notifications, menus); it does not change your real sign-in.
                 </p>
               </div>
 
-              <div className="max-h-[70vh] overflow-y-auto">
+              <div className="min-h-0 flex-1 overflow-y-auto">
                 {usersPending && (
                   <p className="px-3 py-6 text-center text-[12px] italic text-slate-500">Loading users…</p>
                 )}
@@ -314,7 +355,7 @@ export function TopNav() {
                 ))}
               </div>
 
-              <div className="border-t border-slate-200 px-3 py-2">
+              <div className="flex-none border-t border-slate-200 px-3 py-2">
                 {hasPersonaOverride() && (
                   <button
                     type="button"

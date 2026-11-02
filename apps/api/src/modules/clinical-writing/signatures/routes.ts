@@ -59,6 +59,9 @@ const signSchema = z.object({
 })
 
 // What each signature records as its authentication method — exactly what happened.
+// Postgres advisory-lock key serialising signature-id allocation (arbitrary, unique to this use).
+const SIGNATURE_ID_LOCK_KEY = 7301001
+
 export const SIGNING_AUTH_METHOD = 'SSO session + typed full-name confirmation (re-authentication not yet configured)'
 export const SIGNING_TIME_SOURCE = 'Server clock (UTC)'
 
@@ -92,6 +95,36 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         app.log.warn({ err, documentId: doc.id, signerId: s.signerId }, 'signature_requested notification failed')
       }
     }
+  }
+
+  // AC-A-046: the signed document becomes v1.0 — a "Final" snapshot of the exact content that was
+  // signed. Never overwrites an existing v1.0. A failure is retried, then reported (versionNumber
+  // null) so the caller can record it — it must not undo a signature that is already committed.
+  const ensureFinalVersion = async (
+    documentId: string, userId: string, chainId: string,
+  ): Promise<{ versionNumber: string | null; created: boolean }> => {
+    const existing = await app.prisma.documentVersion.findFirst({
+      where: { documentId, versionNumber: 'v1.0' },
+      select: { id: true },
+    })
+    if (existing) return { versionNumber: 'v1.0', created: false }
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        const snap = await new DocumentService(app.prisma).createVersionSnapshot({
+          documentId,
+          createdBy: userId,
+          label:     'Final',
+          reason:    'final_signature',
+          note:      `Signed — signature chain ${chainId} complete`,
+          versionNumber: 'v1.0',
+        })
+        return { versionNumber: snap.version.versionNumber, created: true }
+      } catch (err) {
+        app.log.error({ err, documentId, attempt }, 'final v1.0 version snapshot failed')
+        if (attempt < 3) await new Promise(r => setTimeout(r, 150 * attempt))
+      }
+    }
+    return { versionNumber: null, created: false }
   }
 
   // --- Chain initiation + listing ----------------------------------------
@@ -167,9 +200,11 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const signers = parsed.data.signers
-    const sigIds = await reserveSignatureIds(app.prisma, signers.length)
-
     const created = await app.prisma.$transaction(async (tx) => {
+      // Take the ids under a lock held until commit, so two chains started at the same moment
+      // can't be handed the same ones.
+      await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${SIGNATURE_ID_LOCK_KEY})`)
+      const sigIds = await reserveSignatureIds(tx, signers.length)
       const chain = await tx.signatureChain.create({
         data: {
           documentId,
@@ -241,6 +276,27 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         }
       }
     }
+    // A signed document without its v1.0 snapshot (the snapshot failed when the last signature was
+    // recorded): create it now. The content can't have changed since — signed documents are locked.
+    const completedChain = chains.find(c => c.status === 'complete')
+    if (doc.status === 'signed' && completedChain) {
+      try {
+        const final = await ensureFinalVersion(documentId, request.user!.id, completedChain.id)
+        if (final.created) {
+          await app.audit.append({
+            timestamp: new Date().toISOString(),
+            actorId: request.user!.id,
+            action: 'final_version_created_late',
+            entityType: 'document',
+            entityId: documentId,
+            details: { chainId: completedChain.id, versionNumber: final.versionNumber },
+            ipAddress: request.ip ?? null,
+          })
+        }
+      } catch (err) {
+        app.log.warn({ err, documentId }, 'late v1.0 snapshot repair failed')
+      }
+    }
     return chains.map(c => ({
       ...c,
       records: c.records.map(r => ({ ...r, credentialHash: undefined, auditEntryId: auditIdByRecord.get(r.id) ?? null })),
@@ -292,6 +348,14 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       where: { id: record.chain.documentId },
       include: { currentVersion: { include: { sections: true } } },
     })
+    // The document must still be awaiting signature. Something else (a status change) may have moved
+    // it since the chain started; signing then would complete a chain on a document that can't become signed.
+    if (doc && doc.status !== 'pending_signature') {
+      return reply.code(409).send({
+        error:   'document_not_pending_signature',
+        message: `This document is no longer awaiting signature (status: ${doc.status}). Cancel this chain and start a new one once it is back in Pending signature.`,
+      })
+    }
     if (!doc || !doc.currentVersion) {
       return reply.code(409).send({ error: 'document_missing_version', message: 'Document has no current version to bind' })
     }
@@ -376,29 +440,11 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     // "Sponsor signature on final version" on ICF. Non-fatal.
     let autoCompletedCount = 0
     let finalVersionNumber: string | null = null
+    let finalSnapshotFailed = false
     if (result.chainStatus === 'complete') {
-      // AC-A-046: the signed document becomes v1.0 — a "Final" snapshot of the
-      // exact content that was signed becomes the current version. Skipped if a
-      // v1.0 already exists (never overwrite a version).
-      const v1 = await app.prisma.documentVersion.findFirst({
-        where: { documentId: record.chain.documentId, versionNumber: 'v1.0' },
-        select: { id: true },
-      })
-      if (!v1) {
-        try {
-          const snap = await new DocumentService(app.prisma).createVersionSnapshot({
-            documentId: record.chain.documentId,
-            createdBy:  request.user!.id,
-            label:      'Final',
-            reason:     'final_signature',
-            note:       `Signed — signature chain ${record.chainId} complete`,
-            versionNumber: 'v1.0',
-          })
-          finalVersionNumber = snap.version.versionNumber
-        } catch (err) {
-          app.log.error({ err, documentId: record.chain.documentId }, 'final v1.0 version snapshot failed')
-        }
-      }
+      const final = await ensureFinalVersion(record.chain.documentId, request.user!.id, record.chainId)
+      finalVersionNumber = final.created ? final.versionNumber : null
+      finalSnapshotFailed = final.versionNumber === null
 
       const autoReport = await fireAutoComplete(app.prisma, app.audit, {
         trigger: 'document_signed',
@@ -412,7 +458,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       autoCompletedCount = autoReport?.completedCount ?? 0
     }
 
-    const auditEntry = await app.audit.append({
+    const signatureAudit = {
       timestamp: now.toISOString(),
       actorId: request.user!.id,
       action: result.chainStatus === 'complete' ? 'document_signed' : 'signature_recorded',
@@ -427,10 +473,25 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         versionAtSigning: doc.currentVersion.versionNumber,
         authMethod: SIGNING_AUTH_METHOD,
         finalVersionNumber,
+        finalSnapshotFailed,
         autoCompletedCount,
       },
       ipAddress: request.ip ?? null,
-    })
+    }
+
+    // The signature is already committed, so a failed audit write must not make it look like the
+    // signing failed (the signer would retry and hit already_signed). Retry a few times; if it still
+    // fails, log the full entry loudly so it can be recovered, and return the signature without an
+    // audit id.
+    let auditEntry: { id: unknown } | null | undefined = null
+    for (let attempt = 1; attempt <= 3 && !auditEntry; attempt++) {
+      try {
+        auditEntry = await app.audit.append(signatureAudit)
+      } catch (err) {
+        app.log.error({ err, attempt, recordId: record.id, signatureAudit }, 'signature audit entry failed')
+        if (attempt < 3) await new Promise(r => setTimeout(r, 150 * attempt))
+      }
+    }
 
     return { ...result.signed, credentialHash: undefined, auditEntryId: auditEntry ? String(auditEntry.id) : null }
   })
@@ -491,7 +552,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
 // SIG-####-## format (datamodel §9.2 — 4-digit chain seq + 2-char step).
 // For simplicity we generate from current max; UNIQUE(chainId, step) is the
 // real safety net. The second component is a step-index-derived suffix.
-async function reserveSignatureIds(prisma: PrismaClient, count: number): Promise<string[]> {
+async function reserveSignatureIds(prisma: Pick<PrismaClient, '$queryRawUnsafe'>, count: number): Promise<string[]> {
   const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
     "SELECT \"id\" FROM signature_records WHERE \"id\" LIKE 'SIG-%' ORDER BY \"id\" DESC LIMIT 1",
   )

@@ -9,7 +9,7 @@
 // shown read-only here. The step the signed-in user may sign is the record
 // that is `awaiting` AND has their signerId (no delegation).
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { documentsApi, type SignatureChain, type SignatureRecord as ChainRecord } from '../../api'
@@ -356,13 +356,19 @@ export function ESignature() {
   const signMut   = useSignRecord({ chainId: chain?.id ?? '', documentId: documentId! })
   const cancelMut = useCancelSignatureChain({ chainId: chain?.id ?? '', documentId: documentId! })
 
-  // Default selection: the user's own awaiting step, else the first awaiting.
+  // Default selection: the user's own awaiting step, else the first awaiting. Done once per chain,
+  // when it first loads — after that, closing the panel or signing leaves it closed.
   const yourIndex = states.indexOf('you')
+  const autoSelectedChain = useRef<string | null>(null)
   useEffect(() => {
-    if (selectedIndex !== null || records.length === 0) return
+    if (!chain || records.length === 0 || autoSelectedChain.current === chain.id) return
+    autoSelectedChain.current = chain.id
     const i = yourIndex >= 0 ? yourIndex : states.indexOf('awaiting')
     if (i >= 0) setSelectedIndex(i)
-  }, [records.length, yourIndex, states, selectedIndex])
+  }, [chain, records.length, yourIndex, states])
+
+  // The typed name belongs to one signing panel: clear it whenever a different row is opened or the panel is closed.
+  useEffect(() => { setCredential('') }, [selectedIndex])
 
   const refreshAfterChange = () => {
     // Final signature flips the document to signed + clears the watermark.

@@ -26,11 +26,10 @@ import { EditorToolbar }    from './EditorToolbar'
 import { EditorContent, useRichTextEditor } from './RichTextEditor'
 import { useCollabProvider } from './useCollabProvider'
 import { VoiceNotePanel }         from '../../panels/VoiceNotePanel'
-import { ChecklistPanel }         from '../../panels/ChecklistPanel'
+import { ChecklistHub }           from '../../panels/ChecklistHub'
 import { RaciEditor }             from '../../components/raci/RaciEditor'
 import { AuditTrailPanel }        from '../../panels/AuditTrailPanel'
 import { ReviewAssignmentPanel }  from '../../panels/ReviewAssignmentPanel'
-import { ICHValidatorPanel }      from '../../panels/ICHValidatorPanel'
 import { MedDRAPanel }            from '../../panels/MedDRAPanel'
 import { CommentsPanel }          from '../../panels/CommentsPanel'
 import { cleanSectionRef, withSectionMark } from '../../panels/CommentComposer'
@@ -46,12 +45,12 @@ const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
   'history':           'Section History',
   'traceability':      'Source References',
   'voice':             'Voice Note',
-  'checklist':         'Input Checklist',
+  'checklist':         'Checklist',
   'audit':             'Audit Trail',
   'comments':          'Comments',
   'review-assignment': 'Submit for Review',
   'crm-resolution':    'CRM Resolution',
-  'ich-e3':            'ICH E3 Validator',
+  'ich-e3':            'Checklist',
   'meddra':            'MedDRA Lookup',
   'tlf':               'TLF Cross-Reference',
   'raci':              'RACI Assignments',
@@ -870,7 +869,7 @@ export function DocumentEditor() {
             band so content narrows (text wraps) instead of being hidden
             when the panel opens. */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar editor={editor} />
+          <EditorToolbar editor={editor} ichApplicable={ichApplicable} />
 
           {/* Split row — content column (scrollable + AI prompt dock
               stacked) + optional right panel column (fixed width,
@@ -1182,8 +1181,13 @@ export function DocumentEditor() {
                 initialSectionId={activeSection}
               />
             )}
-            {activePanel === 'checklist' && documentId && (
-              <ChecklistPanel documentId={documentId} />
+            {(activePanel === 'checklist' || activePanel === 'ich-e3') && documentId && (
+              <ChecklistHub
+                documentId={documentId}
+                tab={activePanel === 'ich-e3' ? 'ich-e3' : 'inputs'}
+                onTabChange={t => setActivePanel(t === 'ich-e3' ? 'ich-e3' : 'checklist')}
+                showIch={ichApplicable}
+              />
             )}
             {activePanel === 'raci' && documentId && projectId && (
               <RaciEditor
@@ -1207,9 +1211,6 @@ export function DocumentEditor() {
                 projectId={projectId}
                 onClose={() => setActivePanel(null)}
               />
-            )}
-            {activePanel === 'ich-e3' && documentId && (
-              <ICHValidatorPanel documentId={documentId} />
             )}
             {activePanel === 'meddra' && documentId && (
               <MedDRAPanel documentId={documentId} />

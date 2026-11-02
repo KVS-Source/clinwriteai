@@ -123,9 +123,11 @@ interface EditorToolbarProps {
   // Phase 2.1 — TipTap editor instance drives the formatting cluster.
   // Null while no section is active (buttons render disabled).
   editor?: import('@tiptap/react').Editor | null
+  // ICH E3 governs full CSRs only; other documents hide the ICH shortcut.
+  ichApplicable?: boolean
 }
 
-export function EditorToolbar({ editor }: EditorToolbarProps = {}) {
+export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarProps = {}) {
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
@@ -205,13 +207,13 @@ export function EditorToolbar({ editor }: EditorToolbarProps = {}) {
 
       <Divider />
 
-      <ReferenceDropdown />
+      <ReferenceDropdown showIch={ichApplicable} />
 
       <Divider />
 
       {/* Panel triggers */}
       <IconButton title="Voice note"      active={activePanel === 'voice'}     panelTrigger onClick={() => toggle('voice')}><VoiceIcon /></IconButton>
-      <IconButton title="Input checklist" active={activePanel === 'checklist'} panelTrigger onClick={() => toggle('checklist')}><ChecklistIcon /></IconButton>
+      <IconButton title="Checklist" active={activePanel === 'checklist'} panelTrigger onClick={() => toggle('checklist')}><ChecklistIcon /></IconButton>
       <IconButton title="Audit trail"     active={activePanel === 'audit'}     panelTrigger onClick={() => toggle('audit')}><AuditIcon /></IconButton>
 
       {/* Spacer */}

@@ -245,6 +245,20 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       : []
     const assigneeById = new Map(assignees.map(u => [u.id, u]))
 
+    // The assignee's RACI letters on each document (active, whole-document rows), for the "Assigned To" column.
+    const raciRows = rows.length
+      ? await app.prisma.documentRaci.findMany({
+          where: { documentId: { in: rows.map(r => r.id) }, removedAt: null, sectionId: null },
+          select: { documentId: true, userId: true, letter: true },
+        })
+      : []
+    const RACI_ORDER = 'RACIQ'
+    const lettersFor = (documentId: string, userId: string | null) =>
+      userId
+        ? Array.from(new Set(raciRows.filter(x => x.documentId === documentId && x.userId === userId).map(x => x.letter)))
+            .sort((x, y) => RACI_ORDER.indexOf(x) - RACI_ORDER.indexOf(y))
+        : []
+
     return rows.map(r => {
       const a = r.assigneeId ? assigneeById.get(r.assigneeId) : null
       return documentShapeMeta({
@@ -252,6 +266,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
         version: r.currentVersion?.versionNumber,
         assigneeName: a?.name ?? null,
         assigneeInitials: a?.initials ?? null,
+        assigneeRaci: lettersFor(r.id, r.assigneeId),
       })
     })
   })

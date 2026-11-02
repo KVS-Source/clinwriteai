@@ -97,6 +97,8 @@ export interface Document {
   signedAt?: string | null
   /** Interim versions are watermarked; cleared on final sign-off (FR-A-011). */
   watermarked?: boolean
+  /** The assignee's RACI letters on this document (list route only), e.g. ['R']. */
+  assigneeRaci?: string[]
   sections: Section[]
 }
 

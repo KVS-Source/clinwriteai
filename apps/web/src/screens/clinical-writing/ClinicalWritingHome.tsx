@@ -595,14 +595,12 @@ export function ClinicalWritingHome() {
                   <div className="text-slate-500">{STAGE_LABELS[doc.stage]}</div>
                   <div><StatusPill status={doc.status} size="sm" /></div>
                   <div className="text-slate-500">{doc.updatedAt ? new Date(doc.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div>
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div
-                      className="flex h-6 w-6 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
-                      style={{ backgroundColor: '#F1F5F9', color: '#475569' }}
-                    >
-                      {assignee.initials}
-                    </div>
-                    <div className="truncate text-slate-900">{assignee.name}</div>
+                  {/* Name, then the assignee's RACI letter(s) on this document, e.g. "Dr Elena Vasquez (R)". */}
+                  <div className="truncate text-slate-900 min-w-0" data-assignee-cell title={`${assignee.name}${doc.assigneeRaci?.length ? ` (${doc.assigneeRaci.join(', ')})` : ''}`}>
+                    {assignee.name}
+                    {!!doc.assigneeRaci?.length && (
+                      <>{' '}<span className="text-slate-500" data-assignee-raci>({doc.assigneeRaci.join(', ')})</span></>
+                    )}
                   </div>
                   <div className="flex items-center justify-end gap-2" onClick={e => e.stopPropagation()}>
                     <button

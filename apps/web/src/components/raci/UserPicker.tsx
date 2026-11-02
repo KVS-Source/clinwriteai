@@ -17,12 +17,12 @@ import {
   type RaciLetter,
 } from '../../api/raci'
 
-/** The search only filters once this many characters are typed; shorter input shows everyone. */
-export const MIN_SEARCH_CHARS = 3
+/** No one is listed until something is typed; from the first letter the list shows only the matches. */
+export const MIN_SEARCH_CHARS = 1
 
 export function filterUsers(users: AssignableUser[], query: string): AssignableUser[] {
   const q = query.trim().toLowerCase()
-  if (q.length < MIN_SEARCH_CHARS) return users
+  if (q.length < MIN_SEARCH_CHARS) return []
   return users.filter(u => u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q))
 }
 
@@ -64,8 +64,7 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
   }, [projectId])
 
   const filtered = useMemo(() => (users ? filterUsers(users, query) : []), [users, query])
-  const typed = query.trim().length
-  const searching = typed >= MIN_SEARCH_CHARS
+  const searching = query.trim().length >= MIN_SEARCH_CHARS
 
   const selected = useMemo(() => new Set(value), [value])
 
@@ -88,22 +87,16 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
         aria-label="Filter users"
         disabled={disabled}
       />
-      {typed > 0 && !searching && (
-        <p className="text-[11px] text-slate-500" data-search-hint>
-          Type at least {MIN_SEARCH_CHARS} characters to search.
-        </p>
+      {error && (
+        <div className="p-3 text-xs text-rose-600">{error}</div>
       )}
-      <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-md divide-y divide-slate-100">
-        {users === null && !error && (
+      {searching && !error && (
+      <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-md divide-y divide-slate-100" data-user-results>
+        {users === null && (
           <div className="p-3 text-xs text-slate-500">Loading…</div>
         )}
-        {error && (
-          <div className="p-3 text-xs text-rose-600">{error}</div>
-        )}
         {users && filtered.length === 0 && (
-          <div className="p-3 text-xs text-slate-500">
-            {searching ? 'No matches.' : 'No users available.'}
-          </div>
+          <div className="p-3 text-xs text-slate-500">No matches.</div>
         )}
         {filtered.map(u => {
           const isSelected = selected.has(u.id)
@@ -153,6 +146,7 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
           )
         })}
       </div>
+      )}
     </div>
   )
 }

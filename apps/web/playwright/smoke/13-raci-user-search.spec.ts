@@ -1,7 +1,7 @@
-// QA regression — the RACI user search only filters from 3 characters.
+// QA regression — the RACI user search lists no one until something is typed.
 //
-// Each RACI letter has a "Filter users" box. One or two characters must not narrow the list (a hint asks for
-// 3), three or more filter by name or email, and clearing the box brings everyone back.
+// Each RACI letter has a "Filter users" box. With the box empty no user list is shown; from the first letter
+// it lists only the users whose name or email matches; clearing the box hides the list again.
 //
 //   E2E_BASE_URL=http://localhost:5173 E2E_PROJECT_ID=PROJ-AURORA \
 //     npx playwright test playwright/smoke/13-raci-user-search.spec.ts
@@ -50,31 +50,32 @@ async function openRaci(page: Page) {
   await expect(page.getByLabel('Filter users').first()).toBeVisible({ timeout: 30_000 })
 }
 
-const names = (page: Page) => page.getByText(/^(Sarah Chen|Samir Patel|Maria Lopez)$/)
-
-test('1-2 characters do not filter and show a hint; 3+ characters filter; clearing restores everyone', async ({ page }) => {
+test('no list while empty; matches from the first letter; clearing hides the list again', async ({ page }) => {
   await openRaci(page)
   const box = page.getByLabel('Filter users').first()
   const picker = box.locator('xpath=..')
+  const results = picker.locator('[data-user-results]')
   const letterNames = (n: string) => picker.getByText(n, { exact: true })
 
-  await expect(letterNames('Sarah Chen')).toBeVisible()
-  await expect(picker.locator('[data-search-hint]')).toHaveCount(0)
+  // empty box: no list
+  await expect(results).toHaveCount(0)
+  await expect(letterNames('Sarah Chen')).toHaveCount(0)
 
-  // one and two characters: everyone still listed, hint shown
-  await box.fill('s')
-  await expect(picker.locator('[data-search-hint]')).toContainText('at least 3 characters')
-  for (const n of ['Sarah Chen', 'Samir Patel', 'Maria Lopez']) await expect(letterNames(n)).toBeVisible()
-  await box.fill('sa')
-  await expect(picker.locator('[data-search-hint]')).toBeVisible()
+  // first letter: matches only (name or email containing "i" — Sarah's has none)
+  await box.fill('i')
+  await expect(results).toBeVisible()
+  await expect(letterNames('Samir Patel')).toBeVisible()
   await expect(letterNames('Maria Lopez')).toBeVisible()
+  await expect(letterNames('Sarah Chen')).toHaveCount(0)
 
-  // three characters: filters, hint gone
-  await box.fill('sar')
-  await expect(picker.locator('[data-search-hint]')).toHaveCount(0)
+  // narrowing as more is typed
+  await box.fill('sa')
   await expect(letterNames('Sarah Chen')).toBeVisible()
-  await expect(letterNames('Samir Patel')).toBeHidden()
-  await expect(letterNames('Maria Lopez')).toBeHidden()
+  await expect(letterNames('Samir Patel')).toBeVisible()
+  await expect(letterNames('Maria Lopez')).toHaveCount(0)
+  await box.fill('sar')
+  await expect(letterNames('Sarah Chen')).toBeVisible()
+  await expect(letterNames('Samir Patel')).toHaveCount(0)
 
   // also matches e-mail, and a miss says so
   await box.fill('lopez@')
@@ -82,11 +83,9 @@ test('1-2 characters do not filter and show a hint; 3+ characters filter; cleari
   await box.fill('zzz')
   await expect(picker.getByText('No matches.')).toBeVisible()
 
-  // spaces don't count toward the 3, and clearing restores the list
-  await box.fill('  s ')
-  await expect(picker.locator('[data-search-hint]')).toBeVisible()
+  // only spaces is still empty, and clearing hides the list again
+  await box.fill('   ')
+  await expect(results).toHaveCount(0)
   await box.fill('')
-  await expect(picker.locator('[data-search-hint]')).toHaveCount(0)
-  await expect(letterNames('Samir Patel')).toBeVisible()
-  expect(await names(page).count()).toBeGreaterThanOrEqual(3)
+  await expect(results).toHaveCount(0)
 })

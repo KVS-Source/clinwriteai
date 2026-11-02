@@ -4,6 +4,9 @@ import { AuthGuard } from '../components/layout/AuthGuard'
 import { PlaceholderScreen } from '../components/layout/PlaceholderScreen'
 import { ModuleGate } from '../components/layout/ModuleGate'
 import { SignIn }               from '../screens/shell/SignIn'
+import { ForgotPassword }       from '../screens/shell/ForgotPassword'
+import { ResetPassword }        from '../screens/shell/ResetPassword'
+import { SetPassword }          from '../screens/shell/SetPassword'
 import { MFAVerify }            from '../screens/shell/MFAVerify'
 import { TCGate }               from '../screens/shell/TCGate'
 import { AllProjects }          from '../screens/shell/AllProjects'
@@ -100,6 +103,11 @@ import { PortfolioDashboard }           from '../screens/dashboards/PortfolioDas
 export const router = createBrowserRouter([
   // Auth screens — no shell
   { path: '/sign-in', element: <SignIn /> },
+  { path: '/forgot-password', element: <ForgotPassword /> },
+  { path: '/reset-password',  element: <ResetPassword /> },
+  // Needs a session but sits outside AuthGuard — AuthGuard redirects
+  // must-change sessions here, so guarding it too would loop.
+  { path: '/set-password',    element: <SetPassword /> },
   { path: '/mfa',     element: <MFAVerify /> },
   { path: '/terms',   element: <TCGate /> },
   { path: '/accept-invitation', element: <AcceptInvitation /> },

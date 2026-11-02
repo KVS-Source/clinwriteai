@@ -247,13 +247,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
   // The SPA needs the display fields too (it can't derive a name or status
   // from the JWT claims), so enrich the authorization view with the profile.
   // name + initials are what the UI shows as "you": the server records comments,
-  // signatures and audit entries under this same identity.
+  // signatures and audit entries under this same identity. mustChangePassword
+  // lets the SPA keep a temp-password session on the set-password screen across
+  // a reload, not just straight after /auth/password-login.
   app.get('/auth/me', { preHandler: requireAuth() }, async (request) => {
     const user = request.user!
     const profile = await app.prisma.user
       .findUnique({
         where: { id: user.id },
-        select: { name: true, initials: true, status: true, lastActiveAt: true },
+        select: { name: true, initials: true, status: true, lastActiveAt: true, mustChangePassword: true },
       })
       .catch(() => null)                       // synthetic users (e.g. the collab sidecar) have no row
     const name = profile?.name ?? user.email
@@ -263,6 +265,7 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       initials: profile?.initials ?? initialsOf(name),
       status: profile?.status ?? 'active',
       lastActiveAt: profile?.lastActiveAt?.toISOString() ?? null,
+      mustChangePassword: profile?.mustChangePassword ?? false,
     }
   })
 }

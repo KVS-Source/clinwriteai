@@ -6,6 +6,8 @@ import { useDocumentStore } from '../../store/documentStore'
 import { usePlatformStore, hasPersonaOverride, clearPersonaOverride, PLATFORM_DEMO_USERS } from '../../platform/store'
 import { platformApi } from '../../platform/api/platformApi'
 import { ApiError } from '../../api/client'
+import { authApi } from '../../api'
+import { AUTH_BYPASS } from '../../config/auth'
 import { PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import type { PlatformUser } from '@platform/types'
 import { MODULE_KEY_TO_LABEL, type ModuleKey } from '../../config/modules'
@@ -160,7 +162,7 @@ export function TopNav() {
   const { data: liveUsers, isPending: usersPending, error: usersError } = useQuery({
     queryKey: ['platform-users'],
     queryFn:  () => platformApi.listUsers(),
-    enabled:  open,
+    enabled:  open && AUTH_BYPASS,
     staleTime: 60_000,
     retry: false,
   })
@@ -178,6 +180,14 @@ export function TopNav() {
     // Reload so every query re-fetches under the new persona and permission-scoped
     // fixtures (notifications, RACI, etc.) render for the new user.
     if (typeof window !== 'undefined') window.location.reload()
+  }
+
+  // Real sign-in only: end the session server-side, then back to sign-in.
+  const [signingOut, setSigningOut] = useState(false)
+  const signOut = async () => {
+    setSigningOut(true)
+    await authApi.logout().catch(() => undefined)
+    window.location.assign('/sign-in')
   }
 
   return (
@@ -248,7 +258,34 @@ export function TopNav() {
             <span className="text-slate-400"><ChevronIcon /></span>
           </button>
 
-          {open && (
+          {/* Account menu — real sign-in replaces the demo persona switcher. */}
+          {open && !AUTH_BYPASS && (
+            <div
+              className="absolute right-0 top-full z-50 mt-2 w-[260px] overflow-hidden rounded-lg border border-slate-700 bg-white shadow-xl"
+              data-account-menu
+            >
+              <div className="px-3 py-2.5" style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
+                <p className="truncate text-[13px] font-semibold text-slate-900">{currentUser.name}</p>
+                <p className="truncate text-[11px] text-slate-500">{currentUser.email}</p>
+                <p className="mt-0.5 font-mono text-[10px] text-slate-500">{currentRoleLabel}</p>
+              </div>
+              <button
+                type="button"
+                onClick={() => { setOpen(false); navigate('/set-password') }}
+                className="flex w-full items-center px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
+                data-action="change-password"
+              >Change password</button>
+              <button
+                type="button"
+                onClick={signOut}
+                disabled={signingOut}
+                className="flex w-full items-center border-t border-slate-100 px-3 py-2 text-left text-[13px] font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
+                data-action="sign-out"
+              >{signingOut ? 'Signing out…' : 'Sign out'}</button>
+            </div>
+          )}
+
+          {open && AUTH_BYPASS && (
             <div
               className="absolute right-0 top-full z-50 mt-2 w-[320px] overflow-hidden rounded-lg border border-slate-700 bg-white shadow-xl"
               data-persona-menu

@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from './rbac.js'
 import { authRoutes, initialsOf } from './routes.js'
 
-async function build(opts: { user?: AuthenticatedUser | null; row?: { name: string; initials: string | null } | null; dbFails?: boolean } = {}) {
+async function build(opts: { user?: AuthenticatedUser | null; row?: { name: string; initials: string | null; mustChangePassword?: boolean } | null; dbFails?: boolean } = {}) {
   const app = Fastify()
   const findUnique = vi.fn(async () => {
     if (opts.dbFails) throw new Error('db down')
@@ -46,6 +46,14 @@ describe('GET /auth/me', () => {
     await current?.close()
     const dbDown = await setup({ dbFails: true })
     expect((await dbDown.app.inject({ method: 'GET', url: '/auth/me' })).statusCode).toBe(200)
+  })
+
+  it('reports mustChangePassword so a temp-password session stays on the set-password screen', async () => {
+    const temp = await setup({ row: { name: 'New User', initials: 'NU', mustChangePassword: true } })
+    expect((await temp.app.inject({ method: 'GET', url: '/auth/me' })).json()).toMatchObject({ mustChangePassword: true })
+    await current?.close()
+    const normal = await setup()
+    expect((await normal.app.inject({ method: 'GET', url: '/auth/me' })).json()).toMatchObject({ mustChangePassword: false })
   })
 
   it('requires a signed-in user', async () => {

@@ -1,14 +1,20 @@
 import { useState, type FormEvent } from 'react'
-import { useNavigate } from 'react-router-dom'
-import { authApi }      from '../../api'
-import { useAuthStore } from '../../store'
+import { Link, useSearchParams } from 'react-router-dom'
+import { authApi } from '../../api'
+import { safeReturnTo } from '../../config/auth'
+import { AuthCard, AuthError, AuthField, AuthNotice, AuthSubmit, authErrorMessage } from './AuthCard'
 
+// Password sign-in (POST /auth/password-login). On success the API has set
+// the session cookie; a temporary password goes to /set-password first,
+// everyone else back to where they were heading (?return_to) or home. A
+// full page load (not navigate) so the session sync re-runs as the new user.
 export function SignIn() {
-  const navigate = useNavigate()
-  const login    = useAuthStore(s => s.login)
+  const [params] = useSearchParams()
+  const returnTo = safeReturnTo(params.get('return_to'))
+  const justReset = params.get('reset') === '1'
 
-  const [email,    setEmail]    = useState('marcus.webb@genbiocat.com')
-  const [password, setPassword] = useState('password')
+  const [email,    setEmail]    = useState('')
+  const [password, setPassword] = useState('')
   const [loading,  setLoading]  = useState(false)
   const [error,    setError]    = useState<string | null>(null)
 
@@ -17,102 +23,49 @@ export function SignIn() {
     setLoading(true)
     setError(null)
     try {
-      const res = await authApi.login({ email, password })
-      login(res.user as Parameters<typeof login>[0])
-      navigate('/mfa')
-    } catch {
-      setError('Invalid email or password. Try marcus.webb@genbiocat.com')
-    } finally {
+      const res = await authApi.passwordLogin({ email: email.trim(), password })
+      window.location.assign(res.mustChangePassword ? '/set-password' : (returnTo ?? '/home'))
+    } catch (err) {
+      setError(authErrorMessage(err, 'Sign-in failed. Please try again.'))
       setLoading(false)
     }
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4" data-screen="sign-in">
-      <div
-        className="w-full max-w-[400px] rounded-xl border border-slate-200 bg-white p-10"
-        style={{ boxShadow: '0 4px 24px rgba(15,23,42,0.08)' }}
-      >
+    <AuthCard
+      screen="sign-in"
+      title="Sign in to your account"
+      subtitle={<span className="font-mono text-[11px] text-blue-600">Clinical Writing Module</span>}
+    >
+      <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+        {justReset && <AuthNotice>Your password has been updated. Sign in with your new password.</AuthNotice>}
 
-        {/* Header */}
-        <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 flex-none items-center justify-center rounded-lg bg-blue-600">
-            <span className="font-mono text-sm font-bold text-white">C</span>
-          </div>
-          <div>
-            <p className="text-lg font-bold leading-tight text-slate-900">ClinWrite.AI</p>
-            <p className="text-xs leading-tight text-slate-400">AI-Native Authoring for Life Sciences</p>
+        <AuthField id="email" label="Email address" type="email" value={email} onChange={setEmail} autoComplete="username" autoFocus placeholder="name@company.com" />
+
+        <div>
+          <AuthField id="password" label="Password" type="password" value={password} onChange={setPassword} autoComplete="current-password" />
+          <div className="mt-1.5 text-right">
+            <Link to="/forgot-password" className="text-[12px] font-medium text-blue-600 hover:text-blue-700" data-link="forgot-password">
+              Forgot password?
+            </Link>
           </div>
         </div>
 
-        {/* Divider */}
-        <div className="my-6 border-t border-slate-200" />
+        {error && <AuthError>{error}</AuthError>}
 
-        {/* Form title */}
-        <div className="mb-6">
-          <h1 className="text-lg font-bold text-slate-900">Sign in to your account</h1>
-          <p className="mt-1 font-mono text-[11px] text-blue-600">Clinical Writing Module</p>
-        </div>
+        <AuthSubmit loading={loading} label="Sign in" loadingLabel="Signing in…" />
+      </form>
 
-        {/* Form */}
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-
-          {/* Email */}
-          <div>
-            <label className="block text-[13px] font-medium text-slate-600" htmlFor="email">
-              Email address
-            </label>
-            <input
-              id="email"
-              type="email"
-              value={email}
-              onChange={e => setEmail(e.target.value)}
-              placeholder="marcus.webb@genbiocat.com"
-              required
-              className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-600 focus:shadow-focus transition-colors"
-            />
-          </div>
-
-          {/* Password */}
-          <div>
-            <label className="block text-[13px] font-medium text-slate-600" htmlFor="password">
-              Password
-            </label>
-            <input
-              id="password"
-              type="password"
-              value={password}
-              onChange={e => setPassword(e.target.value)}
-              placeholder="••••••••"
-              required
-              className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-600 focus:shadow-focus transition-colors"
-            />
-          </div>
-
-          {/* Error */}
-          {error && (
-            <p className="rounded-lg bg-red-50 px-3 py-2 text-[13px] text-red-600">
-              {error}
-            </p>
-          )}
-
-          {/* Submit */}
-          <button
-            type="submit"
-            disabled={loading}
-            className="mt-2 h-10 w-full rounded-lg bg-blue-600 text-sm font-semibold text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-70"
-          >
-            {loading ? 'Signing in…' : 'Sign in'}
-          </button>
-
-        </form>
-
-        {/* Footer */}
-        <p className="mt-6 text-center font-mono text-[11px] text-slate-400">
-          Protected by 21 CFR Part 11 compliant authentication
+      <div className="mt-6 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2.5 text-[12px] leading-relaxed text-slate-600" data-first-login-help>
+        <p className="font-semibold text-slate-700">First time signing in?</p>
+        <p className="mt-0.5">
+          Use the temporary password your administrator gave you — you’ll choose your own password next.
+          No temporary password?{' '}
+          <Link to="/forgot-password?first=1" className="font-medium text-blue-600 hover:text-blue-700" data-link="first-login">
+            Set your password by email
+          </Link>.
         </p>
-
       </div>
-    </div>
+    </AuthCard>
   )
 }

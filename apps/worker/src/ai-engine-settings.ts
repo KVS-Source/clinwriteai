@@ -7,7 +7,9 @@
 //      ai-engine-settings.ts's loadSavedAiEngineSettings — same source
 //      of truth, no duplicate state.
 //   2. ANTHROPIC_DRAFT_MODEL env override (per-deployment).
-//   3. Hardcoded 'claude-sonnet-4-5' default.
+//   3. Hardcoded 'claude-sonnet-4-6' default (updated 2026-11-02 —
+//      claude-sonnet-4-5 was deprecated and Anthropic was warning
+//      "Please migrate to a newer model" on every call).
 //
 // Why not per-tenant yet: the current save flow writes a single global
 // row; a tenant filter would be the natural next step once the Admin
@@ -18,7 +20,7 @@
 import type { PrismaClient } from '@prisma/client'
 
 const AI_ENGINE_SAVED_ACTION = 'ai.engine_saved'
-const DEFAULT_MODEL = 'claude-sonnet-4-5'
+const DEFAULT_MODEL = 'claude-sonnet-4-6'
 
 /**
  * Returns the model id to use for AI drafting / validation. tenantId is

@@ -383,6 +383,14 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
             origin:       'ai',
             beforeHtml:   '',
             afterHtml:    contentHtml,
+            // Clinical-section convenience columns. The DB column is
+            // NOT NULL (migration 38) even though the Prisma schema has
+            // it as optional (migration 39 didn't relax the constraint
+            // — drift). Writing them here keeps inserts valid and the
+            // Module A index on (documentId, sectionId, createdAt) hot.
+            documentId,
+            sectionId:          sec.id,
+            documentVersionId:  versionId,
           },
         })
       })

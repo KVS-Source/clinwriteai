@@ -59,6 +59,12 @@ export function hasSectionContent(contentHtml: string | null | undefined): boole
   return html !== '' && html !== '<p></p>'
 }
 
+/** Whitespace-separated word count of the section's visible text. */
+export function sectionWordCount(contentHtml: string | null | undefined): number {
+  const text = (contentHtml ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').trim()
+  return text === '' ? 0 : text.split(/\s+/).length
+}
+
 /**
  * Match an ICH catalog section against the Document's SectionContent rows.
  * The DB stores section ids like `s11`, `s16_1`; the catalog expects an
@@ -92,6 +98,11 @@ export interface IchSectionReport {
   status:      IchSectionStatus
   inDocument:  boolean         // false → no editor section to open
   conditional: boolean         // true → listed for information, not counted
+  hasContent:  boolean         // the matched editor section holds real text
+  wordCount:   number          // words in the matched section (0 when none)
+  // Conditional (US-only) rows only: whether the project's submission
+  // countries make the section required. Absent when the countries are unknown.
+  requirement?: 'required' | 'not-required'
   waiver?: {
     waivedBy:     string
     waivedByName: string | null
@@ -129,6 +140,7 @@ export interface IchE3Report {
 export function buildIchE3Report(args: {
   applicable?:    boolean
   documentTitle?: string
+  submissionCountries?: ReadonlyArray<string>
   sections:  ReadonlyArray<{ sectionId: string; contentHtml: string | null; ichStatus: string }>
   waivers:   ReadonlyArray<{ sectionCode: string; waivedBy: string; waivedByName?: string | null; waivedAt: Date; reason: string; versionAtWaiver: string }>
 }): IchE3Report {
@@ -149,11 +161,20 @@ export function buildIchE3Report(args: {
     const conditional = def.conditional === true
     const section     = findMatchingSection(def.sectionId, args.sections)
     const waiver      = waiverByCode.get(def.code)
-    if (conditional && !section && !waiver) continue
+    const requirement = conditional && args.submissionCountries
+      ? (args.submissionCountries.includes('US') ? 'required' as const : 'not-required' as const)
+      : undefined
+    // A US-only section the project must file is listed even before it exists.
+    if (conditional && !section && !waiver && requirement !== 'required') continue
 
     // sectionId is the editor section "Open →" jumps to — the matched row's
     // id, so a doc holding only §11.4 opens s11_4 rather than a missing s11.
-    const base = { code: def.code, title: def.title, sectionId: section?.sectionId ?? def.sectionId, inDocument: section !== null, conditional }
+    const base = {
+      code: def.code, title: def.title, sectionId: section?.sectionId ?? def.sectionId, inDocument: section !== null, conditional,
+      hasContent: hasSectionContent(section?.contentHtml),
+      wordCount:  sectionWordCount(section?.contentHtml),
+      ...(requirement && { requirement }),
+    }
     if (waiver) {
       reports.push({
         ...base,

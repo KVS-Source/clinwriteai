@@ -21,9 +21,11 @@ interface Props {
   onTabChange: (tab: ChecklistTab) => void
   /** True for full CSRs — the only document type ICH E3 governs. */
   showIch:    boolean
+  /** Why the document is locked for authoring (e.g. "in review"); null when editable. */
+  lockReason?: string | null
 }
 
-export function ChecklistHub({ documentId, tab, onTabChange, showIch }: Props) {
+export function ChecklistHub({ documentId, tab, onTabChange, showIch, lockReason = null }: Props) {
   // A stale 'ich-e3' request on a non-CSR falls back to the inputs list.
   const activeTab: ChecklistTab = showIch ? tab : 'inputs'
 
@@ -86,6 +88,15 @@ export function ChecklistHub({ documentId, tab, onTabChange, showIch }: Props) {
             })}
           </div>
         </>
+      )}
+      {activeTab === 'ich-e3' && lockReason && (
+        <p
+          className="flex-none border-b px-4 py-2 text-[11px] font-semibold"
+          style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', color: '#92400E' }}
+          data-ich-locked-note
+        >
+          Document is {lockReason} — sections can’t be marked complete or reopened.
+        </p>
       )}
       <div className="min-h-0 flex-1">
         {activeTab === 'inputs'

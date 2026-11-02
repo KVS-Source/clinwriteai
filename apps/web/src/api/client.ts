@@ -9,14 +9,22 @@
 //   `credentials: 'include'` makes the aurora_session cookie travel on every
 //   cross-origin request. The API enforces SameSite=Lax, HttpOnly, Secure in
 //   production, so we never touch the raw token from JS. 401 responses bounce
-//   the user to the login URL (VITE_AUTH_LOGIN_URL, default `${API}/auth/login`).
+//   the user to the login URL (VITE_AUTH_LOGIN_URL, default the SPA's /sign-in).
+
+import { PUBLIC_AUTH_PATHS } from '../config/auth'
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '')
 // `||` not `??`: a blank VITE_AUTH_LOGIN_URL= line in .env.local comes through
 // as '' and must fall back to the default (otherwise location.assign('')
-// just reloads the current page).
+// just reloads the current page). Default is the SPA's own password sign-in
+// page; point it at `${API}/auth/login` for the SSO redirect instead.
 const LOGIN_URL =
-  (import.meta.env.VITE_AUTH_LOGIN_URL as string | undefined) || `${API_BASE}/auth/login`
+  (import.meta.env.VITE_AUTH_LOGIN_URL as string | undefined) || '/sign-in'
+
+// No bounce from the sign-in screens themselves — it would reload them in a loop.
+function onPublicAuthPage(): boolean {
+  return PUBLIC_AUTH_PATHS.some(p => window.location.pathname === p)
+}
 
 // A caller can opt out of the auto-redirect for a specific request — useful
 // when a route needs to render its own "please log in" UI instead of leaving
@@ -58,14 +66,16 @@ async function request<T>(endpoint: string, options?: RequestOptions): Promise<T
     credentials: 'include',
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      // Only declare JSON when there is a body — a body-less DELETE/POST with
+      // this header is rejected by Fastify ("Body cannot be empty").
+      ...(init.body != null ? { 'Content-Type': 'application/json' } : {}),
       Accept: 'application/json',
       ...demoPersonaHeader(),
       ...(init.headers ?? {}),
     },
   })
 
-  if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined') {
+  if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined' && !onPublicAuthPage()) {
     // Preserve where the user was heading so we can bounce them back post-login.
     const returnTo = encodeURIComponent(window.location.pathname + window.location.search)
     window.location.assign(`${LOGIN_URL}?return_to=${returnTo}`)
@@ -98,7 +108,7 @@ async function upload<T>(endpoint: string, body: FormData, options?: RequestOpti
     },
   })
 
-  if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined') {
+  if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined' && !onPublicAuthPage()) {
     const returnTo = encodeURIComponent(window.location.pathname + window.location.search)
     window.location.assign(`${LOGIN_URL}?return_to=${returnTo}`)
     await new Promise(resolve => setTimeout(resolve, 100))
@@ -116,7 +126,7 @@ async function upload<T>(endpoint: string, body: FormData, options?: RequestOpti
 async function download(endpoint: string, options?: Pick<RequestOptions, 'on401'>): Promise<{ blob: Blob; filename: string | null }> {
   const { on401 = 'throw' } = options ?? {}
   const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include', headers: { ...demoPersonaHeader() } })
-  if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined') {
+  if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined' && !onPublicAuthPage()) {
     window.location.assign(`${LOGIN_URL}?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`)
     throw new ApiError(401, null)
   }

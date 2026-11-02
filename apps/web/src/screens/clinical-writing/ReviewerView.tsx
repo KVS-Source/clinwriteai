@@ -16,7 +16,7 @@ import { SectionNavigator } from './SectionNavigator'
 import { PresenceStack } from './PresenceStack'
 import { ReviewerToolbar } from './ReviewerToolbar'
 import { CommentsPanel }   from '../../panels/CommentsPanel'
-import { ChecklistPanel }  from '../../panels/ChecklistPanel'
+import { ChecklistHub, type ChecklistTab } from '../../panels/ChecklistHub'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
 
 // Avatar colours for known people; anyone else gets the neutral blue. The person
@@ -54,7 +54,7 @@ function reviewDueLabel(reviewDueAt: string | null | undefined): string | null {
 
 const PANEL_TITLES: Record<string, string> = {
   comments:  'Comments',
-  checklist: 'Input Checklist',
+  checklist: 'Checklist',
   audit:     'Audit Trail',
 }
 
@@ -62,6 +62,7 @@ export function ReviewerView() {
   const { projectId, documentId } = useParams()
   const navigate                  = useNavigate()
   const qc                        = useQueryClient()
+  const [checklistTab, setChecklistTab] = useState<ChecklistTab>('inputs')
   const setActiveProject          = useProjectStore(s => s.setActiveProject)
 
   const activeSection      = useDocumentStore(s => s.activeSection)
@@ -670,7 +671,12 @@ export function ReviewerView() {
                 />
               )}
               {activePanel === 'checklist' && documentId && (
-                <ChecklistPanel documentId={documentId} />
+                <ChecklistHub
+                  documentId={documentId}
+                  tab={checklistTab}
+                  onTabChange={setChecklistTab}
+                  showIch={document?.type === 'csr-full' || (document?.type as string) === 'csr_full'}
+                />
               )}
               {activePanel === 'audit' && documentId && (
                 <AuditTrailPanel

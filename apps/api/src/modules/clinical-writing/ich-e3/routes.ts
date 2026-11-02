@@ -70,11 +70,13 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
       select: { sectionCode: true, waivedBy: true, waivedAt: true, reason: true, versionAtWaiver: true },
     })
     const names = await fetchUserNames(waivers.map(w => w.waivedBy))
+    const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { submissionCountries: true } })
 
     const applicable = isIchE3Applicable(doc.type)
     const report = buildIchE3Report({
       applicable,
       documentTitle: doc.title,
+      submissionCountries: project?.submissionCountries,
       sections:      doc.currentVersion?.sections ?? [],
       waivers:       waivers.map(w => ({ ...w, waivedByName: names.get(w.waivedBy) ?? null })),
     })

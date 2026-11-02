@@ -566,7 +566,7 @@ export function FinalDocument() {
 
                     <h3 className="mt-6 text-[15px] font-bold text-slate-900">Waived Framework Mandatory items</h3>
                     {compliance.waivedMandatory.length === 0
-                      ? <p className="mt-1 text-[13px] text-slate-600">None — no Framework Mandatory checklist item was waived.</p>
+                      ? <p className="mt-1 text-[13px] text-slate-600">None — no Framework Mandatory item (checklist item or ICH E3 section) was waived.</p>
                       : (
                         <table className="mt-2 w-full border-collapse text-[12px]" data-waived-items>
                           <thead>

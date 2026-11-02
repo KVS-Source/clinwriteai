@@ -79,18 +79,15 @@ function InProgressArc() {
   )
 }
 
-function WarnGlyph() {
-  return <span className="text-[11px] font-extrabold leading-none" style={{ color: '#B45309' }}>⚠</span>
-}
-
 // --- State icon ---
 
+// Same glyphs as the ICH E3 tab so both lists read as one tool.
 function StatusIcon({ status }: { status: ChecklistItemStatus }) {
   if (status === 'complete') {
     return (
       <div
-        className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded"
-        style={{ backgroundColor: '#2563EB' }}
+        className="flex h-4 w-4 flex-none items-center justify-center rounded-full"
+        style={{ backgroundColor: '#16A34A' }}
       >
         <CheckIcon />
       </div>
@@ -98,10 +95,7 @@ function StatusIcon({ status }: { status: ChecklistItemStatus }) {
   }
   if (status === 'in-progress') {
     return (
-      <div
-        className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded"
-        style={{ backgroundColor: '#FFFFFF', border: '2px solid #2563EB' }}
-      >
+      <div className="flex h-4 w-4 flex-none items-center justify-center">
         <InProgressArc />
       </div>
     )
@@ -109,18 +103,18 @@ function StatusIcon({ status }: { status: ChecklistItemStatus }) {
   if (status === 'waived') {
     return (
       <div
-        className="flex h-[18px] w-[18px] flex-none items-center justify-center rounded"
-        style={{ backgroundColor: '#FFFBEB', border: '1px solid #D97706' }}
+        className="flex h-4 w-4 flex-none items-center justify-center text-xs font-extrabold"
+        style={{ color: '#D97706' }}
       >
-        <WarnGlyph />
+        ⚠
       </div>
     )
   }
   // pending
   return (
     <div
-      className="h-[18px] w-[18px] flex-none rounded"
-      style={{ backgroundColor: '#FFFFFF', border: '1px solid #CBD5E1' }}
+      className="h-4 w-4 flex-none rounded-full"
+      style={{ border: '1px solid #CBD5E1', backgroundColor: '#FFFFFF' }}
     />
   )
 }

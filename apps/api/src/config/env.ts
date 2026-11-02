@@ -61,6 +61,32 @@ const EnvSchema = z.object({
 
   // Queue (ADR 0008)
   REDIS_URL: z.string().url(),
+
+  // Password auth + email (Phase A, 2026-11-02).
+  //
+  // APP_BASE_URL is the public URL where the SPA lives — used to build
+  // the reset-password link we email ("${APP_BASE_URL}/reset-password?
+  // token=…"). Defaults to CORS_ORIGIN since that's the SPA origin in
+  // the single-host dev case; override when API + SPA live on
+  // different hosts and the email link should land on the SPA host.
+  APP_BASE_URL:                 z.string().url().optional(),
+
+  // Minutes a password reset token stays valid. 30 is a GxP-reasonable
+  // default — long enough to switch inbox / mail client, short enough
+  // that a stale link in a forwarded email is useless.
+  PASSWORD_RESET_TOKEN_TTL_MIN: z.coerce.number().int().positive().default(30),
+
+  // SMTP transport for outbound email (nodemailer). The project ships
+  // raw SMTP first (Gmail / corporate relay); SES / SendGrid can wrap
+  // the same mailer interface later. Leaving SMTP_HOST empty puts the
+  // mailer in "log only" mode (writes the message to stdout, does not
+  // transmit) — safe default for local dev + CI.
+  SMTP_HOST:                    z.string().optional(),
+  SMTP_PORT:                    z.coerce.number().int().positive().default(587),
+  SMTP_SECURE:                  z.coerce.boolean().default(false),
+  SMTP_USER:                    z.string().optional(),
+  SMTP_PASS:                    z.string().optional(),
+  EMAIL_FROM:                   z.string().default('ClinWrite.AI <noreply@clinwrite.ai>'),
 })
 
 export type Env = z.infer<typeof EnvSchema>

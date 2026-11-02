@@ -16,11 +16,12 @@ const item = (over: Record<string, unknown>) => ({
   waiverReason: null, sortOrder: 0, ...over,
 })
 
-async function build(items: Array<Record<string, unknown>> | null) {
+async function build(items: Array<Record<string, unknown>> | null, opts: { type?: string; ichWaivers?: Array<Record<string, unknown>> } = {}) {
   const findInstance = vi.fn(async () => (items ? { templateVersion: 3, items } : null))
   const app = Fastify()
   app.decorate('prisma', {
-    document: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => (where.id === DOC ? { id: DOC } : null)) },
+    document: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => (where.id === DOC ? { id: DOC, type: opts.type ?? 'dsur' } : null)) },
+    ichSectionWaiver: { findMany: vi.fn(async () => opts.ichWaivers ?? []) },
     checklistInstance: { findUnique: findInstance, create: vi.fn() },
     user: { findMany: vi.fn(async () => [{ id: 'u-waiver', name: 'Dr Priya Nair' }]) },
     regulatoryFramework: { findMany: vi.fn(async () => [
@@ -61,6 +62,24 @@ describe('GET /documents/:id/compliance-summary', () => {
       text: '§16.4 patient listings', framework: 'ICH E3', waivedBy: 'Dr Priya Nair',
       waivedAt: '2026-10-20T10:00:00.000Z', reason: 'Not a US submission',
     }])
+  })
+
+  it('also discloses ICH E3 section waivers on a full CSR, after the checklist ones', async () => {
+    const { app } = await build(
+      [item({ text: 'Synopsis present', status: 'complete' })],
+      { type: 'csr_full', ichWaivers: [{ sectionCode: '§16.4', waivedBy: 'u-waiver', waivedAt: new Date('2026-10-21T09:30:00Z'), reason: 'No US submission planned' }] },
+    )
+    const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/compliance-summary` })).json()
+    expect(body.waivedMandatory).toEqual([{
+      text: '§16.4 Appendix — Individual Patient Data Listings (US)', framework: 'ICH E3', waivedBy: 'Dr Priya Nair',
+      waivedAt: '2026-10-21T09:30:00.000Z', reason: 'No US submission planned',
+    }])
+  })
+
+  it('does not read ICH E3 waivers for a non-CSR document', async () => {
+    const { app } = await build([], { type: 'dsur', ichWaivers: [{ sectionCode: '§16.4', waivedBy: 'u-waiver', waivedAt: new Date(), reason: 'x' }] })
+    const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/compliance-summary` })).json()
+    expect(body.waivedMandatory).toEqual([])
   })
 
   it('returns an empty summary, without creating a checklist, when the document has none', async () => {

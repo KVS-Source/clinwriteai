@@ -8,6 +8,10 @@ import type { AiDraftState } from '../../api/ai-drafter'
 interface Props {
   state:    AiDraftState | null
   summary:  AiDraftSummary
+  /** Optional click handler — wires the chip to the AI Drafting Report
+   *  panel in DocumentEditor. When omitted the chip renders as a static
+   *  span (used by non-editor views if any). */
+  onClick?: () => void
 }
 
 const TONE_STYLE: Record<NonNullable<AiDraftSummary['tone']>, { bg: string; border: string; fg: string; dot: string }> = {
@@ -26,14 +30,14 @@ const STATE_LABEL: Record<AiDraftState, string> = {
   failed:     'AI draft failed',
 }
 
-export function AiConfidenceChip({ state, summary }: Props) {
+export function AiConfidenceChip({ state, summary, onClick }: Props) {
   // No AI draft ever ran for this doc → no chip at all.
   if (state === null) return null
 
   // Settled 'failed' is its own tone — not green/amber/rose confidence.
   if (state === 'failed') {
     const sty = { bg: '#FFF1F2', border: '#FECDD3', fg: '#BE123C', dot: '#E11D48' }
-    return <ChipShell style={sty} label="AI draft failed" sub="click to regenerate" testid="ai-chip-failed" />
+    return <ChipShell style={sty} label="AI draft failed" sub="open report" testid="ai-chip-failed" onClick={onClick} />
   }
 
   // In-flight: show the live pass label.
@@ -41,7 +45,7 @@ export function AiConfidenceChip({ state, summary }: Props) {
     const sty = IN_FLIGHT_STYLE
     const label = STATE_LABEL[state]
     const sub = summary.currentPass > 0 ? `pass ${summary.currentPass}` : `${summary.totalSections || 0} sections`
-    return <ChipShell style={sty} label={label} sub={sub} testid="ai-chip-inflight" spinning />
+    return <ChipShell style={sty} label={label} sub={sub} testid="ai-chip-inflight" spinning onClick={onClick} />
   }
 
   // Settled complete — show confidence + flagged count.
@@ -56,6 +60,7 @@ export function AiConfidenceChip({ state, summary }: Props) {
       label={`${summary.confidence}% AI confidence`}
       sub={flaggedLabel}
       testid="ai-chip-complete"
+      onClick={onClick}
     />
   )
 }
@@ -66,16 +71,12 @@ interface ChipShellProps {
   sub:      string
   testid:   string
   spinning?: boolean
+  onClick?:  () => void
 }
 
-function ChipShell({ style, label, sub, testid, spinning }: ChipShellProps) {
-  return (
-    <span
-      className="flex flex-none items-center gap-1.5 rounded-full border px-2.5 py-[3px] text-[11px] font-medium"
-      style={{ backgroundColor: style.bg, borderColor: style.border, color: style.fg }}
-      data-testid={testid}
-      title={`${label} · ${sub}`}
-    >
+function ChipShell({ style, label, sub, testid, spinning, onClick }: ChipShellProps) {
+  const body = (
+    <>
       {spinning ? (
         <span
           className="h-2 w-2 flex-none animate-spin rounded-full border-[1.5px]"
@@ -86,6 +87,33 @@ function ChipShell({ style, label, sub, testid, spinning }: ChipShellProps) {
       )}
       <span>{label}</span>
       <span className="opacity-70">· {sub}</span>
+    </>
+  )
+  const shared = 'flex flex-none items-center gap-1.5 rounded-full border px-2.5 py-[3px] text-[11px] font-medium'
+  const styleObj = { backgroundColor: style.bg, borderColor: style.border, color: style.fg }
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className={`${shared} transition-colors hover:brightness-95`}
+        style={styleObj}
+        data-testid={testid}
+        title={`${label} · ${sub} — open AI Drafting Report`}
+      >
+        {body}
+      </button>
+    )
+  }
+  return (
+    <span
+      className={shared}
+      style={styleObj}
+      data-testid={testid}
+      title={`${label} · ${sub}`}
+    >
+      {body}
     </span>
   )
 }

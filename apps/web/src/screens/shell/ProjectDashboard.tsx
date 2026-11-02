@@ -7,6 +7,7 @@ import { ProjectStatusPill } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { usePlatformStore } from '../../platform/store'
 import { MODULE_KEY_TO_SLUG, type ModuleKey, type ModuleSlug } from '../../config/modules'
+import { isAdminRole } from '../../config/roles'
 
 // --- Module metadata for the "Available modules" grid (filtered against project.activeModules) ---
 const INACTIVE_MODULES = [
@@ -70,7 +71,7 @@ export function ProjectDashboard() {
   // The audit trail page is admin-only — don't offer the button to anyone else.
   const currentUser = usePlatformStore(s => s.currentUser)
   const role    = currentUser.role
-  const isAdmin = role === 'admin'
+  const isAdmin = isAdminRole(role)
 
   // Project Settings is gated to Authors — team members with RACI='R'
   // whose userId matches the current user. Any Author can add / edit /

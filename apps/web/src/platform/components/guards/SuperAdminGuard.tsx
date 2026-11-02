@@ -6,13 +6,14 @@
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { usePlatformStore } from '../../store'
+import { isPlatformAdmin } from '../../../config/roles'
 
 // Enforced: the signed-in user's role (from /auth/me) now decides access.
 const BYPASS_ROLE_GUARD_IN_PROTOTYPE = false
 
 export function SuperAdminGuard({ children }: { children: ReactNode }) {
   const currentUser = usePlatformStore(s => s.currentUser)
-  const allowed     = currentUser.role === 'admin' && currentUser.tenantId == null
+  const allowed     = isPlatformAdmin(currentUser)
 
   if (!allowed && !BYPASS_ROLE_GUARD_IN_PROTOTYPE) {
     return <Navigate to="/home" replace />

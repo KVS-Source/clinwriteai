@@ -4,6 +4,7 @@ import type { BestPractice, ModuleKey } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
+import { isPlatformAdmin } from '../../config/roles'
 
 type TabKey = 'all' | 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
 
@@ -49,7 +50,7 @@ function formatDay(iso: string | null | undefined): string {
 
 export function BestPracticesLibrary() {
   const currentUser = usePlatformStore(s => s.currentUser)
-  const canAuthor   = currentUser.role === 'admin' && currentUser.tenantId == null
+  const canAuthor   = isPlatformAdmin(currentUser)
   const qc = useQueryClient()
 
   const { data: items = [], isLoading, isError, refetch } = useQuery<BestPractice[]>({

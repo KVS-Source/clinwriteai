@@ -245,7 +245,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       : []
     const assigneeById = new Map(assignees.map(u => [u.id, u]))
 
-    // The assignee's RACI letters on each document (active, whole-document rows), for the "Assigned To" column.
+    // The assignee's and the caller's RACI letters on each document (active, whole-document rows), for the "Assigned To" column.
     const raciRows = rows.length
       ? await app.prisma.documentRaci.findMany({
           where: { documentId: { in: rows.map(r => r.id) }, removedAt: null, sectionId: null },
@@ -267,6 +267,8 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
         assigneeName: a?.name ?? null,
         assigneeInitials: a?.initials ?? null,
         assigneeRaci: lettersFor(r.id, r.assigneeId),
+        // The caller's own letters on this document — contributors see their role per document.
+        myRaci: lettersFor(r.id, request.user!.id),
       })
     })
   })

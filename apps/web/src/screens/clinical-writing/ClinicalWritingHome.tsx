@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
+import { usePlatformStore } from '../../platform/store'
 import { StatusPill, SlidePanel } from '../../components/ui'
 import { RaciEditor } from '../../components/raci/RaciEditor'
 import { documentRaciKey } from './MyRaciRole'
@@ -48,6 +49,9 @@ const STATUS_LABELS: Record<DocumentStatus, string> = {
   'pending-signature': 'Pending Signature',
   'signed':            'Signed',
 }
+
+// Same admin set as TopNav — the session user's role is the raw API role ('tenant-admin'), demo personas use 'admin'.
+const ADMIN_ROLES: ReadonlySet<string> = new Set(['admin', 'tenant-admin', 'super-admin'])
 
 const STAGES_ORDERED: DocumentStage[] = [
   'study-start-up',
@@ -126,6 +130,8 @@ const COL_TEMPLATE = '2fr 1fr 1.2fr 1.1fr 0.9fr 1.1fr 120px 240px'
 export function ClinicalWritingHome() {
   const { projectId }    = useParams()
   const navigate         = useNavigate()
+  const currentUser      = usePlatformStore(s => s.currentUser)
+  const isAdminViewer    = ADMIN_ROLES.has(currentUser.role)
   const setActiveProject = useProjectStore(s => s.setActiveProject)
 
   // Tab, filters and search live in the URL (?tab=sources&stage=…&status=…&type=…&q=…), so Back
@@ -595,13 +601,25 @@ export function ClinicalWritingHome() {
                   <div className="text-slate-500">{STAGE_LABELS[doc.stage]}</div>
                   <div><StatusPill status={doc.status} size="sm" /></div>
                   <div className="text-slate-500">{doc.updatedAt ? new Date(doc.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div>
-                  {/* Name, then the assignee's RACI letter(s) on this document, e.g. "Dr Elena Vasquez (R)". */}
-                  <div className="truncate text-slate-900 min-w-0" data-assignee-cell title={`${assignee.name}${doc.assigneeRaci?.length ? ` (${doc.assigneeRaci.join(', ')})` : ''}`}>
-                    {assignee.name}
-                    {!!doc.assigneeRaci?.length && (
-                      <>{' '}<span className="text-slate-500" data-assignee-raci>({doc.assigneeRaci.join(', ')})</span></>
-                    )}
-                  </div>
+                  {/* Admin: the assignee's RACI letter(s), e.g. "Dr Elena Vasquez (R)".
+                      Others: the assignee's name, then the viewer's own letters on this document, e.g. "Ravi Kumar: C". */}
+                  {isAdminViewer ? (
+                    <div className="truncate text-slate-900 min-w-0" data-assignee-cell title={`${assignee.name}${doc.assigneeRaci?.length ? ` (${doc.assigneeRaci.join(', ')})` : ''}`}>
+                      {assignee.name}
+                      {!!doc.assigneeRaci?.length && (
+                        <>{' '}<span className="text-slate-500" data-assignee-raci>({doc.assigneeRaci.join(', ')})</span></>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="min-w-0" data-assignee-cell>
+                      <div className="truncate text-slate-900" title={assignee.name}>{assignee.name}</div>
+                      {!!doc.myRaci?.length && (
+                        <div className="truncate text-xs font-semibold text-blue-700" data-my-raci title={`${currentUser.name}: ${doc.myRaci.join(', ')}`}>
+                          {currentUser.name}: {doc.myRaci.join(', ')}
+                        </div>
+                      )}
+                    </div>
+                  )}
                   <div className="flex items-center justify-end gap-2" onClick={e => e.stopPropagation()}>
                     <button
                       type="button"

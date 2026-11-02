@@ -99,6 +99,7 @@ export interface Document {
   watermarked?: boolean
   /** The assignee's RACI letters on this document (list route only), e.g. ['R']. */
   assigneeRaci?: string[]
+  myRaci?: string[]
   sections: Section[]
 }
 

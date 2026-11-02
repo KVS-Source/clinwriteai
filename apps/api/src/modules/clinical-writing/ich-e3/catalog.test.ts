@@ -57,6 +57,37 @@ describe('buildIchE3Report', () => {
     expect(row(r, '§15')?.waiver).toMatchObject({ waivedBy: 'u-1', waivedByName: 'Dr A Rao', reason: 'Not a US submission' })
   })
 
+  describe('content flags and §16.4 requirement', () => {
+    it('reports hasContent and wordCount per section', () => {
+      const r = buildIchE3Report({ sections: [sec('s7', '<p>Four words in here</p>'), sec('s8', '<p></p>')], waivers: [] })
+      expect(row(r, '§7')).toMatchObject({ hasContent: true, wordCount: 4 })
+      expect(row(r, '§8')).toMatchObject({ hasContent: false, wordCount: 0 })
+      expect(row(r, '§9')).toMatchObject({ hasContent: false, wordCount: 0, inDocument: false })
+    })
+
+    it('flags a waived section that has content', () => {
+      const r = buildIchE3Report({ sections: [sec('s7', '<p>written</p>')], waivers: [waiver('§7')] })
+      expect(row(r, '§7')).toMatchObject({ status: 'waived', hasContent: true })
+    })
+
+    it('marks §16.4 required for a US submission and lists it before the section exists', () => {
+      const r = buildIchE3Report({ submissionCountries: ['US', 'IN'], sections: [], waivers: [] })
+      expect(row(r, '§16.4')).toMatchObject({ requirement: 'required', inDocument: false, conditional: true })
+      expect(r.totalSections).toBe(ICH_E3_MANDATORY_COUNT)
+    })
+
+    it('marks §16.4 not required without a US country, and stays hidden when absent', () => {
+      expect(row(buildIchE3Report({ submissionCountries: ['EU'], sections: [], waivers: [] }), '§16.4')).toBeUndefined()
+      const r = buildIchE3Report({ submissionCountries: ['EU'], sections: [sec('s16_4', '<p>x</p>')], waivers: [] })
+      expect(row(r, '§16.4')?.requirement).toBe('not-required')
+    })
+
+    it('leaves requirement unset when the countries are unknown', () => {
+      const r = buildIchE3Report({ sections: [sec('s16_4', '<p>x</p>')], waivers: [] })
+      expect(row(r, '§16.4')?.requirement).toBeUndefined()
+    })
+  })
+
   describe('§16.4 (conditional, US only)', () => {
     it('is hidden when the document has no §16.4 section and no waiver', () => {
       expect(row(buildIchE3Report({ sections: [], waivers: [] }), '§16.4')).toBeUndefined()

@@ -58,7 +58,9 @@ async function request<T>(endpoint: string, options?: RequestOptions): Promise<T
     credentials: 'include',
     ...init,
     headers: {
-      'Content-Type': 'application/json',
+      // Only declare JSON when there is a body — a body-less DELETE/POST with
+      // this header is rejected by Fastify ("Body cannot be empty").
+      ...(init.body != null ? { 'Content-Type': 'application/json' } : {}),
       Accept: 'application/json',
       ...demoPersonaHeader(),
       ...(init.headers ?? {}),

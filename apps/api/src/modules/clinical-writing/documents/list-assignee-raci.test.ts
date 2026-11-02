@@ -42,7 +42,25 @@ describe('GET /projects/:projectId/documents assigneeRaci', () => {
     expect(res.statusCode).toBe(200)
     const byId = Object.fromEntries((res.json() as Array<{ id: string; assigneeRaci: string[] }>).map(d => [d.id, d.assigneeRaci]))
     expect(byId).toEqual({ d1: ['R', 'C'], d2: [], d3: [] })
-    // only active, whole-document rows count
+    await app.close()
+  })
+
+  it("myRaci carries the caller's own letters per document, whoever the assignee is", async () => {
+    const { app } = await build([
+      { documentId: 'd1', userId: 'admin', letter: 'I' },
+      { documentId: 'd2', userId: 'admin', letter: 'C' },
+      { documentId: 'd2', userId: 'admin', letter: 'A' },
+      { documentId: 'd2', userId: 'u2', letter: 'R' },
+    ])
+    const res = await app.inject({ method: 'GET', url: '/projects/p1/documents' })
+    const byId = Object.fromEntries((res.json() as Array<{ id: string; myRaci: string[]; assigneeRaci: string[] }>).map(d => [d.id, [d.myRaci, d.assigneeRaci]]))
+    expect(byId).toEqual({ d1: [['I'], []], d2: [['A', 'C'], ['R']], d3: [[], []] })
+    await app.close()
+  })
+
+  it('only active, whole-document rows count', async () => {
+    const { app, raciFind } = await build([])
+    await app.inject({ method: 'GET', url: '/projects/p1/documents' })
     expect(raciFind).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ removedAt: null, sectionId: null }) }))
     await app.close()
   })

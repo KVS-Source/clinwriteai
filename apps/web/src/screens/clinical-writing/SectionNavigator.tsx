@@ -2,12 +2,22 @@ import { useMemo, useState } from 'react'
 import type { Section } from '@platform/types'
 import { useDocumentStore } from '../../store'
 import { usePlatformStore } from '../../platform/store/platformStore'
+import { AiSectionConfidenceBadge } from '../../components/ai-drafter/AiSectionConfidenceBadge'
+
+interface AiSectionStatus {
+  confidence: number | null
+  flags:      string[]
+}
 
 interface Props {
   sections: Section[]
   loggedInUser?: { initials: string; colourKey: 'MW' | 'SC' | 'JO' | 'EV' | 'PN' | 'AH' | 'RT' | 'LP' | 'AI' }
   activeSectionBadge?: string  // e.g. "IN REVIEW" for reviewer view
   progressLabelSuffix?: string // e.g. "reviewed" so footer reads "N of M sections reviewed · X%"
+  // Per-section AI confidence + flags, keyed by Section.id. Rendered as
+  // a small numeric badge next to the title. Missing entries render
+  // nothing (section was never AI-evaluated). See AI-1 / AI-2 arcs.
+  aiConfidenceBySectionId?: Map<string, AiSectionStatus>
 }
 
 // Presence avatar colours — matches design-system Pattern 7
@@ -52,6 +62,7 @@ export function SectionNavigator({
   loggedInUser,
   activeSectionBadge,
   progressLabelSuffix,
+  aiConfidenceBySectionId,
 }: Props) {
   // The active-section avatar is the signed-in user (initials from their real name), not a fixed persona.
   const currentUser = usePlatformStore(s => s.currentUser)
@@ -180,6 +191,16 @@ export function SectionNavigator({
               <span className="flex-1 truncate">
                 {section.number} {section.title}
               </span>
+
+              {/* AI confidence badge (per-section). Renders only when this
+                  section was evaluated by the validator — see AI-2 arc.
+                  Hover reveals the specific flags; full drill-down lives in
+                  the AI Drafting Report (AI-3, deferred). */}
+              {(() => {
+                const ai = aiConfidenceBySectionId?.get(section.id)
+                if (!ai || ai.confidence === null) return null
+                return <AiSectionConfidenceBadge confidence={ai.confidence} flags={ai.flags} />
+              })()}
 
               {/* Reviewer badge (e.g. "IN REVIEW") on active section — reviewer variant */}
               {isActive && activeSectionBadge && (

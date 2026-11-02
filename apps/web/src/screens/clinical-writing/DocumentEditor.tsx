@@ -20,6 +20,9 @@ import {
   applyReferenceHighlights, buildTextIndex, clearReferenceHighlights, normalizeSpan, referenceAtPoint, spanOfRange, type LinkedRange,
 } from './referenceHighlights'
 import { SectionNavigator } from './SectionNavigator'
+import { useAiDraftStatus } from '../../hooks/useAiDraftStatus'
+import { AiConfidenceChip } from '../../components/ai-drafter/AiConfidenceChip'
+import { AiDraftingProgressToast } from '../../components/ai-drafter/AiDraftingProgressToast'
 import { PresenceStack, avatarColor } from './PresenceStack'
 import { MyRaciRole, documentRaciKey } from './MyRaciRole'
 import { EditorToolbar }    from './EditorToolbar'
@@ -85,6 +88,19 @@ export function DocumentEditor() {
     queryFn:  () => documentsApi.get(documentId!),
     enabled:  !!documentId,
   })
+
+  // AI drafter status — polls while the worker chain is in flight, settles
+  // once state is complete / failed. Feeds the header chip, the section
+  // badges, and the floating progress toast. See useAiDraftStatus.
+  const aiDraft = useAiDraftStatus(documentId)
+  const aiState = aiDraft.data?.state ?? null
+  const aiSectionsByKey = useMemo(() => {
+    const map = new Map<string, { confidence: number | null; flags: string[] }>()
+    for (const s of aiDraft.data?.sections ?? []) {
+      map.set(s.sectionId, { confidence: s.confidence, flags: s.flags })
+    }
+    return map
+  }, [aiDraft.data])
 
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
@@ -619,6 +635,7 @@ export function DocumentEditor() {
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-base font-bold tracking-tight text-slate-900">{document.title}</h1>
             <span className="flex-none"><StatusPill status={document.status} size="sm" /></span>
+            <AiConfidenceChip state={aiState} summary={aiDraft.summary} />
             <div ref={versionMenuRef} className="relative flex-none" data-version-dropdown>
               <button
                 type="button"
@@ -861,7 +878,7 @@ export function DocumentEditor() {
       {/* ============ Three-panel row ============ */}
       <div className="flex flex-1 min-h-0">
 
-        <SectionNavigator sections={document.sections} />
+        <SectionNavigator sections={document.sections} aiConfidenceBySectionId={aiSectionsByKey} />
 
         {/* Editor pane — split: section content column + right panel column.
             Toolbar and AI prompt dock span full editor-pane width; the
@@ -1317,6 +1334,11 @@ export function DocumentEditor() {
 
       </div>
       </div>
+
+      {/* Floating AI progress toast — bottom-right, non-blocking. Hides
+          itself when the chain settles (complete / failed) or when the
+          user dismisses. See AiDraftingProgressToast. */}
+      <AiDraftingProgressToast state={aiState} summary={aiDraft.summary} />
     </div>
   )
 }

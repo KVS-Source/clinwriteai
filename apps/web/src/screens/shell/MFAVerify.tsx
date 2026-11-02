@@ -28,7 +28,7 @@ export function MFAVerify() {
       verifyMFA()
       navigate(hasAcceptedTC ? '/projects' : '/terms')
     } catch {
-      setError('Invalid code. Enter any 6-digit number for the prototype.')
+      setError('Invalid code. Enter any 6-digit number to continue.')
       setCode('')
     } finally {
       setLoading(false)

@@ -49,7 +49,7 @@
     "module": "D",
     "category": "MHRA Configuration",
     "name": "Module-D-MHRA-OQ-D-008-v1.0-2026-01",
-    "guidance": "MHRA API procurement is required before production. Include MHRA in all prototype UI designs as Priority 4 (disabled state). OQ-D-008 is resolved for prototype purposes.",
+    "guidance": "MHRA API procurement is required before production. Include MHRA in all UI designs as Priority 4 (disabled state). OQ-D-008 is resolved.",
     "applicableDocTypes": [
       "NDA",
       "MAA"

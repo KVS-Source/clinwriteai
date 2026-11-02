@@ -45,6 +45,15 @@ function errorText(err: unknown): string {
   return 'Could not start the signature chain. Please try again.'
 }
 
+// What to tell the user when no chain can start yet, by document status (UI form, hyphen-case).
+const BLOCKED_HINT: Record<string, string> = {
+  'not-started':     'This document has not been started yet. Write it and submit it for review first.',
+  'in-authoring':    'This document is still being written. Submit it for review first.',
+  'in-review':       'The document is in review. Start the Comments Resolution Meeting and resolve all comments to continue.',
+  'crm-in-progress': 'The Comments Resolution Meeting is in progress. Complete it to move the document to signature.',
+  'signed':          'This document is already signed. See the Final Document tab.',
+}
+
 interface Props {
   documentId: string
   projectId: string
@@ -149,13 +158,11 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   }
 
   if (!pending) {
+    const hint = BLOCKED_HINT[documentStatus ?? ''] ?? 'A signature chain can only be started once the document is Pending signature.'
     return (
       <div className="flex flex-col items-center gap-2 text-center" data-initiate-blocked>
         <p className="font-mono text-sm text-slate-500">No signature chain has been initiated for this document.</p>
-        <p className="max-w-md text-xs text-slate-500">
-          The chain can be started once review and the Comments Resolution Meeting are complete
-          (current status: <span className="font-semibold">{documentStatus ? documentStatus.replace(/-/g, ' ') : '—'}</span>).
-        </p>
+        <p className="max-w-md text-xs text-slate-500">{hint}</p>
       </div>
     )
   }

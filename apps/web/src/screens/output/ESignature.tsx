@@ -203,7 +203,7 @@ function SignedPanel({ record }: { record: ChainRecord }) {
       <div className="flex items-start gap-2 rounded-lg border border-slate-200 px-3.5 py-2.5" style={{ backgroundColor: '#F8FAFC' }}>
         <span className="mt-0.5"><LockIcon colour="#94A3B8" size={12} /></span>
         <p className="text-[12px] italic leading-relaxed text-slate-500">
-          Signature manifest is immutable. Any later edit to the document voids this signature and restarts the chain.
+          Signature manifest is immutable. The document is locked against editing while signatures are collected and once it is signed.
         </p>
       </div>
     </div>
@@ -481,7 +481,7 @@ export function ESignature() {
         {cancelOpen && chainActive && (
           <div className="mb-3 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3" data-cancel-form>
             <p className="text-[12px] text-amber-900">
-              Cancelling voids the signatures recorded so far and returns the document to In Authoring. A reason is required for the audit trail.
+              Cancelling stops this chain and returns the document to In Authoring. Signatures already recorded stay in the audit trail, but a new chain is needed and everyone signs again. A reason is required for the audit trail.
             </p>
             <div className="flex gap-2">
               <input
@@ -594,7 +594,7 @@ export function ESignature() {
             <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }}>
               <span className="mt-0.5"><LockIcon colour="#94A3B8" size={12} /></span>
               <p className="text-[12px] italic leading-relaxed text-slate-500">
-                The document is locked for authoring while signatures are being collected. Cancelling the chain returns it to In Authoring and voids the signatures recorded so far.
+                The document is locked for authoring while signatures are being collected. Cancelling the chain returns it to In Authoring; a new chain is then needed and everyone signs again.
               </p>
             </div>
           </div>

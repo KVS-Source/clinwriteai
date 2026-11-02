@@ -7,6 +7,22 @@
 
 import { z } from 'zod'
 
+// Why not z.coerce.boolean(): it just calls Boolean(input), and
+// Boolean("false") === true (any non-empty string is truthy). So an env
+// var set to "false" silently reads back as true — a classic foot-gun.
+// This helper does what every reader of SMTP_SECURE=false expects.
+const envBool = (defaultValue: boolean) =>
+  z.preprocess(
+    (v) => {
+      if (typeof v !== 'string') return v
+      const s = v.trim().toLowerCase()
+      if (['true', '1', 'yes', 'on'].includes(s)) return true
+      if (['false', '0', 'no', 'off', ''].includes(s)) return false
+      return v  // let zod reject anything else
+    },
+    z.boolean(),
+  ).default(defaultValue)
+
 const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   HOST: z.string().default('0.0.0.0'),
@@ -83,7 +99,11 @@ const EnvSchema = z.object({
   // transmit) — safe default for local dev + CI.
   SMTP_HOST:                    z.string().optional(),
   SMTP_PORT:                    z.coerce.number().int().positive().default(587),
-  SMTP_SECURE:                  z.coerce.boolean().default(false),
+  // Uses envBool, NOT z.coerce.boolean — the stdlib coerce reads "false"
+  // as true (non-empty string is truthy). Gmail port 587 wants
+  // secure=false + STARTTLS; secure=true would attempt implicit TLS and
+  // the connection would fail.
+  SMTP_SECURE:                  envBool(false),
   SMTP_USER:                    z.string().optional(),
   SMTP_PASS:                    z.string().optional(),
   EMAIL_FROM:                   z.string().default('ClinWrite.AI <noreply@clinwrite.ai>'),

@@ -310,10 +310,18 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     // predating the migration-53 seed. Section-level usOnly filtering stays
     // in templateSections() for the DB path so §16.4 only appears on US
     // submissions regardless of where the skeleton came from.
-    const dbTemplate = await app.prisma.documentTemplate.findFirst({
-      where: { type: parsed.data.type, isCurrent: true, retiredAt: null },
-      select: { sections: true },
-    })
+    // A failed lookup (Prisma client generated before migration 53, or a DB
+    // without the table) falls back to the built-in skeleton instead of
+    // 500-ing the whole create.
+    let dbTemplate: { sections: unknown } | null = null
+    try {
+      dbTemplate = await app.prisma.documentTemplate.findFirst({
+        where: { type: parsed.data.type, isCurrent: true, retiredAt: null },
+        select: { sections: true },
+      })
+    } catch (err) {
+      app.log.warn({ err, type: parsed.data.type }, 'document template lookup failed — using built-in sections (run `npm --workspace=apps/api run db:generate`)')
+    }
     const sections = dbTemplate
       ? templateSectionsFromRow(dbTemplate.sections, project.submissionCountries)
       : templateSections(parsed.data.type, project.submissionCountries)

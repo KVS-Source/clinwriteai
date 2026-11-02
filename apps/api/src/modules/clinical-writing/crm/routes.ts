@@ -131,7 +131,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/documents/:documentId/crm', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
-    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true } })
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, status: true } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
     const [meetings, ctx] = await Promise.all([
       app.prisma.crmMeeting.findMany({
@@ -141,10 +141,32 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       }),
       fetchCrmContext(app.prisma, documentId),
     ])
+    // Self-heal: completing a meeting moves the document to pending_signature, but that step only
+    // applies when the document is crm_in_progress at that instant. If a meeting is complete, none
+    // is still running or scheduled, and the document is stuck in crm_in_progress, finish the move.
+    const hasComplete = meetings.some(m => m.status === 'complete')
+    const hasOpen     = meetings.some(m => m.status === 'in_progress' || m.status === 'scheduled')
+    if (doc.status === 'crm_in_progress' && hasComplete && !hasOpen) {
+      const moved = await app.prisma.document.updateMany({
+        where: { id: documentId, status: 'crm_in_progress' },
+        data:  { status: 'pending_signature' },
+      })
+      if (moved.count > 0) {
+        await app.audit.append({
+          timestamp: new Date().toISOString(),
+          actorId:   request.user!.id,
+          action:    'document_status_corrected',
+          entityType: 'document',
+          entityId:  documentId,
+          details:   { from: 'crm_in_progress', to: 'pending_signature', reason: 'crm_meeting_already_complete' },
+          ipAddress: request.ip ?? null,
+        })
+      }
+    }
     return Promise.all(meetings.map(m => crmMeetingShape(app.prisma, m, ctx)))
   })
 
-  app.post('/documents/:documentId/crm', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+  app.post('/documents/:documentId/crm',{ preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = scheduleSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })

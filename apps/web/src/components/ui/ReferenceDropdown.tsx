@@ -17,7 +17,7 @@ const OPTIONS: { mode: ReferenceMode; label: string; Icon: () => React.ReactElem
   },
   {
     mode: 'ich-e3',
-    label: 'ICH E3 Validator',
+    label: 'ICH E3 Checklist',
     Icon: () => (
       <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3">
         <rect x="1.2" y="1.8" width="3.6" height="3.6" rx="0.9" />
@@ -69,7 +69,7 @@ function CaretDownIcon() {
 
 const REFERENCE_MODES: ReferenceMode[] = ['traceability', 'ich-e3', 'meddra', 'tlf']
 
-export function ReferenceDropdown() {
+export function ReferenceDropdown({ showIch = true }: { showIch?: boolean } = {}) {
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
   const [open, setOpen] = useState(false)
@@ -124,7 +124,7 @@ export function ReferenceDropdown() {
           }}
           data-reference-menu
         >
-          {OPTIONS.map(({ mode, label, Icon }) => {
+          {OPTIONS.filter(o => showIch || o.mode !== 'ich-e3').map(({ mode, label, Icon }) => {
             const isActive = activePanel === mode
             return (
               <button

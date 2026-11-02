@@ -7,6 +7,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
+import { raciApi } from '../../api/raci'
 import { platformApi } from '../../platform/api/platformApi'
 import { useCurrentUser, useInitiateSignatureChain } from '../../hooks'
 
@@ -15,12 +16,27 @@ type Candidate = { id: string; name: string; role: string }
 // `locked` rows represent mandated team Approvers (RACI='A') — the user
 // cannot remove them, change their signer, or change their meaning. They
 // may be reordered.
-type SignerRow = { signerId: string; meaning: Meaning; locked?: boolean }
+// `source` says where a locked Approver came from, so the tooltips can point to the right place.
+type ApproverSource = 'project' | 'document' | 'both'
+type SignerRow = { signerId: string; meaning: Meaning; locked?: boolean; source?: ApproverSource }
+
+const MEANING_ROLE: Record<Meaning, string> = { authored: 'Author', reviewed: 'Reviewer', approved: 'Approver' }
+
+// Tooltip for a locked row's signer / lock button, by where the Approver is assigned.
+const LOCK_HELP: Record<ApproverSource, { signer: string; lock: string }> = {
+  project:  { signer: "Required Approver — assigned on the project team. Change it under the project's team settings.",
+              lock:   'Required Approver — remove them as Approver on the project team to drop this signature.' },
+  document: { signer: "Required Approver — assigned in this document's RACI. Change it in the document's RACI.",
+              lock:   "Required Approver — remove them as Approver in this document's RACI to drop this signature." },
+  both:     { signer: "Required Approver — assigned both in this document's RACI and on the project team.",
+              lock:   "Required Approver — remove them as Approver in both the document's RACI and the project team to drop this signature." },
+}
+const SOURCE_TAG: Record<ApproverSource, string> = { project: 'Project team', document: 'Document RACI', both: 'Document RACI + project team' }
 
 const MEANINGS: { value: Meaning; label: string }[] = [
-  { value: 'authored', label: 'Authored' },
-  { value: 'reviewed', label: 'Reviewed' },
-  { value: 'approved', label: 'Approved' },
+  { value: 'authored', label: 'Will sign as: Author' },
+  { value: 'reviewed', label: 'Will sign as: Reviewer' },
+  { value: 'approved', label: 'Will sign as: Approver' },
 ]
 
 function errorText(err: unknown): string {
@@ -44,6 +60,15 @@ function errorText(err: unknown): string {
   return 'Could not start the signature chain. Please try again.'
 }
 
+// What to tell the user when no chain can start yet, by document status (UI form, hyphen-case).
+const BLOCKED_HINT: Record<string, string> = {
+  'not-started':     'This document has not been started yet. Write it and submit it for review first.',
+  'in-authoring':    'This document is still being written. Submit it for review first.',
+  'in-review':       'The document is in review. Start the Comments Resolution Meeting and resolve all comments to continue.',
+  'crm-in-progress': 'The Comments Resolution Meeting is in progress. Complete it to move the document to signature.',
+  'signed':          'This document is already signed. See the Final Document tab.',
+}
+
 interface Props {
   documentId: string
   projectId: string
@@ -60,6 +85,9 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   const users = useQuery({ queryKey: ['platform-users'], queryFn: () => platformApi.listUsers(), retry: false })
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => projectsApi.get(projectId), enabled: !!projectId })
 
+  // Approvers assigned on this document's own RACI (the Document RACI drawer) count too.
+  const docRaci = useQuery({ queryKey: ['document-raci', documentId], queryFn: () => raciApi.list(documentId), retry: false })
+
   const candidates: Candidate[] = useMemo(() => {
     const active = (users.data ?? []).filter(u => u.status === 'active').map(u => ({ id: u.id, name: u.name, role: u.role }))
     if (active.length) return active.sort((a, b) => a.name.localeCompare(b.name))
@@ -74,17 +102,23 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   // `missing_approvers`. We seed these rows locked, so the user can
   // reorder but not drop them.
   const approverSigners: SignerRow[] = useMemo(() => {
-    const team = project.data?.team ?? []
-    return team
-      .filter(t => t.raci === 'A')
-      .map(t => ({ signerId: t.userId, meaning: 'approved' as Meaning, locked: true }))
-  }, [project.data])
+    const fromProject  = new Set<string>()
+    const fromDocument = new Set<string>()
+    for (const t of project.data?.team ?? []) if (t.raci === 'A') fromProject.add(t.userId)
+    for (const r of docRaci.data ?? []) if (r.letter === 'A') fromDocument.add(r.userId)
+    return [...new Set([...fromProject, ...fromDocument])].map(signerId => ({
+      signerId,
+      meaning: 'approved' as Meaning,
+      locked: true,
+      source: (fromProject.has(signerId) && fromDocument.has(signerId) ? 'both' : fromDocument.has(signerId) ? 'document' : 'project') as ApproverSource,
+    }))
+  }, [project.data, docRaci.data])
 
   // Seed the row list once project data has loaded: all Approvers (locked)
   // plus a convenience "me as author" row that the user can edit/remove.
   // Re-runs if the team changes (e.g. an Approver added mid-session).
   useEffect(() => {
-    if (!project.data) return
+    if (!project.data || (!docRaci.data && !docRaci.isError)) return
     setRows(prev => {
       // Keep any user-added rows (non-locked, not already an Approver).
       const approverIds = new Set(approverSigners.map(a => a.signerId))
@@ -94,7 +128,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
       }
       return [...approverSigners, ...userAdded]
     })
-  }, [project.data, approverSigners, me])
+  }, [project.data, docRaci.data, docRaci.isError, approverSigners, me])
 
   const effectiveRows = rows.length
     ? rows
@@ -129,7 +163,8 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   const incomplete = effectiveRows.some(r => !r.signerId)
   const hasAllApprovers = approverSigners.length > 0 &&
     approverSigners.every(a => effectiveRows.some(r => r.signerId === a.signerId && r.meaning === 'approved'))
-  const noApprovers = project.data !== undefined && approverSigners.length === 0
+  const approversLoaded = project.data !== undefined && (docRaci.data !== undefined || docRaci.isError)
+  const noApprovers = approversLoaded && approverSigners.length === 0
   const canSubmit = pending && !duplicate && !incomplete && !noApprovers && hasAllApprovers && !initiate.isPending
 
   const submit = () => {
@@ -138,25 +173,24 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
       chainType,
       signers: effectiveRows.map(r => {
         const c = byId.get(r.signerId)
-        return { signerId: r.signerId, signerName: c?.name ?? r.signerId, signerRole: c?.role ?? 'signer', meaning: r.meaning }
+        const teamRole = project.data?.team?.find(t => t.userId === r.signerId)?.role
+        return { signerId: r.signerId, signerName: c?.name ?? r.signerId, signerRole: teamRole ?? MEANING_ROLE[r.meaning], meaning: r.meaning }
       }),
     })
   }
 
   if (!pending) {
+    const hint = BLOCKED_HINT[documentStatus ?? ''] ?? 'A signature chain can only be started once the document is Pending signature.'
     return (
       <div className="flex flex-col items-center gap-2 text-center" data-initiate-blocked>
         <p className="font-mono text-sm text-slate-500">No signature chain has been initiated for this document.</p>
-        <p className="max-w-md text-xs text-slate-500">
-          The chain can be started once review and the Comments Resolution Meeting are complete
-          (current status: <span className="font-semibold">{documentStatus ? documentStatus.replace(/-/g, ' ') : '—'}</span>).
-        </p>
+        <p className="max-w-md text-xs text-slate-500">{hint}</p>
       </div>
     )
   }
 
   return (
-    <div className="flex w-full max-w-[720px] flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5 text-left" data-initiate-chain>
+    <div className="flex w-full max-w-[860px] flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5 text-left" data-initiate-chain>
       <div>
         <p className="text-sm font-bold text-slate-900">Initiate signature chain</p>
         <p className="mt-1 text-xs text-slate-500">
@@ -175,15 +209,15 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
 
       {/* Required-Approvers notice — the chain cannot start without every
           team member with RACI='A' present as an 'approved' signer. */}
-      {!noApprovers && (
+      {approversLoaded && !noApprovers && (
         <p className="rounded-md border border-blue-200 bg-blue-50 p-2 text-[12px] text-blue-800" data-approvers-notice>
           <strong>Required ({approverSigners.length}):</strong> every team Approver (RACI='A') is pre-filled below as an
-          <em> Approved</em> signer and can't be removed. You may reorder them, and add Authors or Reviewers alongside.
+          <em> Approver</em> and can't be removed. Nobody has signed yet — each person signs after the chain starts. You may reorder them, and add Authors or Reviewers alongside.
         </p>
       )}
       {noApprovers && (
         <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-800" data-no-approvers>
-          This project has no team members with RACI='A'. Add at least one Approver on the project team before starting the chain.
+          This document has no Approver (RACI='A'). Assign one in the document's RACI before starting the chain.
         </p>
       )}
 
@@ -202,16 +236,19 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
               disabled={r.locked}
               className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
               data-signer-select
-              title={r.locked ? 'Required — team Approver (RACI=A), cannot be changed here. Edit on the Project Settings page.' : undefined}
+              title={r.locked && r.source ? LOCK_HELP[r.source].signer : undefined}
             >
               <option value="" disabled>Select signer…</option>
               {candidates.map(c => <option key={c.id} value={c.id}>{c.name} · {c.role}</option>)}
             </select>
+            {r.locked && r.source && (
+              <span className="hidden flex-none whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 sm:inline" data-approver-source={r.source}>{SOURCE_TAG[r.source]}</span>
+            )}
             <select
               value={r.meaning}
               onChange={e => setRow(i, { meaning: e.currentTarget.value as Meaning })}
               disabled={r.locked}
-              className="h-9 w-32 flex-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
+              className="h-9 w-52 flex-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
               data-meaning-select
             >
               {MEANINGS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
@@ -224,7 +261,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
               disabled={r.locked || effectiveRows.length === 1}
               className="h-9 w-8 rounded-md border border-slate-200 text-slate-500 hover:text-red-700 disabled:opacity-30"
               aria-label="Remove signer"
-              title={r.locked ? 'Required Approver — remove from the project team to drop this signature.' : undefined}
+              title={r.locked && r.source ? LOCK_HELP[r.source].lock : undefined}
             >
               {r.locked ? '🔒' : '✕'}
             </button>

@@ -17,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CRMMeeting, CRMResolution, Comment, ResolutionType } from '@platform/types'
 import { crmApi, documentsApi, projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
+import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import type { CRMResolutionRow, ScheduleMeetingBody } from '../../api/crm'
 import { platformApi } from '../../platform/api/platformApi'
 import { useCurrentUser } from '../../hooks'
@@ -566,6 +567,17 @@ export function CRMModule() {
   const inProgress    = meeting?.status === 'in_progress'
   const isComplete    = meeting?.status === 'complete'
 
+  // The meetings request fixes a document stuck in CRM after its meeting completed; pick that up.
+  const stuckInCrm = isComplete && activeDoc?.status === 'crm-in-progress'
+  useEffect(() => {
+    if (!stuckInCrm) return
+    const t = setTimeout(() => {
+      qc.invalidateQueries({ queryKey: ['documents', projectId] })
+      qc.invalidateQueries({ queryKey: ['document', activeDocId] })
+    }, 800)
+    return () => clearTimeout(t)
+  }, [stuckInCrm, qc, projectId, activeDocId])
+
   const docPicker = routeDocumentId ? null : (
     <label className="flex items-center gap-2 text-xs text-slate-500">
       Document
@@ -630,6 +642,7 @@ export function CRMModule() {
             </p>
           </div>
           <div className="flex-1" />
+          {routeDocumentId && <MyRaciRole documentId={routeDocumentId} />}
           <div className="flex flex-none items-center gap-2 rounded-full px-3.5 py-1.5" style={{ backgroundColor: statusPill.bg, border: `1px solid ${statusPill.border}` }} data-crm-status-pill>
             {inProgress && <span className="h-2 w-2 rounded-full animate-pulse-green" style={{ backgroundColor: '#16A34A' }} />}
             <span className="whitespace-nowrap text-[13px] font-semibold" style={{ color: statusPill.fg }}>{statusPill.label}</span>
@@ -667,11 +680,15 @@ export function CRMModule() {
             {startMut.isError ? apiMessage(startMut.error, 'Could not start the meeting.') : apiMessage(endMut.error, 'Could not end the meeting.')}
           </p>
         )}
-        {isComplete && (
+        {isComplete && (activeDoc?.status === 'crm-in-progress' ? (
+          <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-800" data-crm-complete-pending>
+            Meeting complete — updating the document status to Pending signature…
+          </p>
+        ) : (
           <p className="rounded-md bg-green-50 p-2 text-[12px] text-green-800" data-crm-complete>
             ✓ Meeting complete — all comments resolved. The document is now Pending signature.
           </p>
-        )}
+        ))}
       </div>
 
       {/* 3-panel row */}

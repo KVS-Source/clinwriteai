@@ -3,12 +3,14 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { MyRaciRole } from './MyRaciRole'
 import { platformApi } from '../../platform/api/platformApi'
 import { usePresenceSnapshot } from '../../hooks/usePresence'
 import { StatusPill } from '../../components/ui'
 import { useAuthStore, useDocumentStore, useProjectStore } from '../../store'
 import { wordDiff, type DiffOp } from '../../panels/wordDiff'
 import { SectionNavigator } from './SectionNavigator'
+import { HtmlDiff } from './HtmlDiff'
 
 // Presence avatar colours — same palette and hashing as DocumentEditor, so a
 // user keeps their colour across the Editor and Version Diff tabs.
@@ -59,9 +61,6 @@ const fmtUtc = (iso: string | null | undefined) =>
 // How long to wait for the restore worker to create the new version before saying so.
 const RESTORE_WAIT_MS = 60_000
 
-const DEL_STYLE = { backgroundColor: '#FEE2E2', color: '#DC2626', textDecoration: 'line-through', borderRadius: 2, padding: '0 2px' } as const
-const INS_STYLE = { backgroundColor: '#DCFCE7', color: '#15803D', textDecoration: 'none', borderRadius: 2, padding: '0 2px' } as const
-
 type SectionDiff = {
   sectionId: string
   number: string
@@ -70,23 +69,12 @@ type SectionDiff = {
   ops: DiffOp[]
   added: number
   removed: number
+  // Section HTML on each side, for the structure-preserving render (HtmlDiff).
+  fromHtml: string
+  toHtml: string
 }
 
 const sectionLabel = (number: string) => (number.startsWith('§') ? number : `§${number}`)
-
-function DiffText({ ops }: { ops: DiffOp[] }) {
-  return (
-    <p className="mt-3 text-sm leading-[1.9] text-slate-900">
-      {ops.map((op, i) => {
-        const text = op.words.join(' ')
-        const sep = i < ops.length - 1 ? ' ' : ''
-        if (op.type === 'del') return <span key={i}><del data-diff-del style={DEL_STYLE}>{text}</del>{sep}</span>
-        if (op.type === 'ins') return <span key={i}><ins data-diff-ins style={INS_STYLE}>{text}</ins>{sep}</span>
-        return <span key={i}>{text}{sep}</span>
-      })}
-    </p>
-  )
-}
 
 export function DiffView() {
   const { projectId, documentId } = useParams()
@@ -205,12 +193,12 @@ export function DiffView() {
       const prev = fromById.get(s.sectionId)
       const d = wordDiff(htmlToText(prev?.contentHtml ?? ''), htmlToText(s.contentHtml))
       const kind = !prev ? 'added' : d.added + d.removed > 0 ? 'changed' : 'unchanged'
-      out.push({ sectionId: s.sectionId, number: s.sectionNumber, title: s.sectionTitle, kind, ops: d.ops, added: d.added, removed: d.removed })
+      out.push({ sectionId: s.sectionId, number: s.sectionNumber, title: s.sectionTitle, kind, ops: d.ops, added: d.added, removed: d.removed, fromHtml: prev?.contentHtml ?? '', toHtml: s.contentHtml })
     }
     for (const s of fromSections.sections) {
       if (toIds.has(s.sectionId)) continue
       const d = wordDiff(htmlToText(s.contentHtml), '')
-      out.push({ sectionId: s.sectionId, number: s.sectionNumber, title: s.sectionTitle, kind: 'removed', ops: d.ops, added: 0, removed: d.removed })
+      out.push({ sectionId: s.sectionId, number: s.sectionNumber, title: s.sectionTitle, kind: 'removed', ops: d.ops, added: 0, removed: d.removed, fromHtml: s.contentHtml, toHtml: '' })
     }
     return out
   }, [fromSections, toSections])
@@ -316,6 +304,7 @@ export function DiffView() {
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-base font-bold tracking-tight text-slate-900">{document.title}</h1>
             <span className="flex-none"><StatusPill status={document.status} size="sm" /></span>
+            {documentId && <MyRaciRole documentId={documentId} />}
 
             {/* Version chip — active diff state */}
             <button
@@ -546,7 +535,7 @@ export function DiffView() {
                     </div>
                     {d.ops.length === 0
                       ? <p className="mt-3 text-sm italic text-slate-400">(empty)</p>
-                      : <DiffText ops={d.ops} />}
+                      : <HtmlDiff fromHtml={d.fromHtml} toHtml={d.toHtml} />}
                   </div>
                 )
               })}

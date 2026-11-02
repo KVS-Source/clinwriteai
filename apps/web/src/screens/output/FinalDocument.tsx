@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { STATUS_META, type Section, type SignatureRecord } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import { useDocumentStore, useProjectStore } from '../../store'
 import { SectionNavigator } from '../clinical-writing/SectionNavigator'
 import { EditorContent, useRichTextEditor } from '../clinical-writing/RichTextEditor'
@@ -298,6 +299,7 @@ export function FinalDocument() {
                 {(STATUS_META[document.status] ?? STATUS_META['not-started']).label}
               </span>
             )}
+            {documentId && <MyRaciRole documentId={documentId} />}
           </div>
 
           <div className="flex flex-none items-center gap-3">
@@ -564,7 +566,7 @@ export function FinalDocument() {
 
                     <h3 className="mt-6 text-[15px] font-bold text-slate-900">Waived Framework Mandatory items</h3>
                     {compliance.waivedMandatory.length === 0
-                      ? <p className="mt-1 text-[13px] text-slate-600">None — no Framework Mandatory checklist item was waived.</p>
+                      ? <p className="mt-1 text-[13px] text-slate-600">None — no Framework Mandatory item (checklist item or ICH E3 section) was waived.</p>
                       : (
                         <table className="mt-2 w-full border-collapse text-[12px]" data-waived-items>
                           <thead>

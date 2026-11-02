@@ -230,7 +230,7 @@ export function GatewaySubmission() {
               <div className="mt-2 rounded-md border p-3" style={{ borderColor: '#E2E8F0', backgroundColor: '#F8FAFC' }} data-gateway-row="mhra">
                 <div className="flex items-center gap-2">
                   <span className="font-mono text-[11px] font-semibold text-slate-500">MHRA (Priority {GATEWAY_PRIORITY['mhra'].priority})</span>
-                  <span className="ml-auto text-[11px] text-slate-500">UI only — API procurement required before production. OQ-D-008 resolved: include in prototype.</span>
+                  <span className="ml-auto text-[11px] text-slate-500">UI only — API procurement required before production.</span>
                 </div>
                 <button
                   type="button"

@@ -40,6 +40,26 @@ model User {
   // (AC-PM-007). Null for users who pre-date the invitation flow.
   termsAcceptedAt DateTime?
   termsVersion    String?
+
+  // First-party password login (Phase A, 2026-11-02). Per-tenant SSO is still
+  // supported (via Tenant.ssoConnections); the sign-in page checks the user's
+  // tenant for an active SsoConnection and routes to SSO when present. When
+  // the tenant has no SSO bound, the user signs in with email + password.
+  // passwordHash is nullable so SSO-only users (and pre-password-era rows)
+  // remain valid without one.
+  passwordHash           String?    @map("password_hash")
+  // When true, the next sign-in forces the user through ForcePasswordChange
+  // before the SPA mounts. Set by the demo-user migration (temp passwords)
+  // and by admin-triggered password resets.
+  mustChangePassword     Boolean    @default(false) @map("must_change_password")
+  // Password reset. Only the SHA-256 of the raw token is stored; the raw
+  // token lives in the email link. Follows the same pattern as
+  // UserInvitation.tokenHash. Nulled on successful reset.
+  passwordResetTokenHash String?    @unique @map("password_reset_token_hash")
+  passwordResetExpiresAt DateTime?  @map("password_reset_expires_at")
+  // Audit metadata for the password lifecycle. passwordChangedAt is used
+  // by the "force re-auth after N days" admin policy (not shipped yet).
+  passwordChangedAt      DateTime?  @map("password_changed_at")
   // User's primary (home) tenant. Multi-tenant users have additional
   // memberships; this is just where they land on sign-in by default.
   // Nullable because super-admins at the platform level don't need one.

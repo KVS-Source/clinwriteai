@@ -18,6 +18,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
+import { ICH_E3_SECTIONS, isIchE3Applicable } from '../ich-e3/catalog.js'
 import {
   computeProjectChecklistSummary,
   ensureChecklistInstance,
@@ -58,7 +59,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
   // waived it, when and why. Read-only — never creates a checklist instance.
   app.get('/:documentId/compliance-summary', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
-    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true } })
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, type: true } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
     const instance = await app.prisma.checklistInstance.findUnique({
@@ -67,7 +68,20 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
     })
     const items = instance?.items ?? []
 
-    const userIds = [...new Set(items.flatMap(i => [i.waivedBy, i.completedBy]).filter((v): v is string => !!v))]
+    // ICH E3 section waivers (full CSRs only) are Framework Mandatory
+    // waivers too, so they are disclosed alongside the checklist ones.
+    const ichWaivers = isIchE3Applicable(doc.type ?? '')
+      ? await app.prisma.ichSectionWaiver.findMany({
+          where:   { documentId },
+          orderBy: { waivedAt: 'asc' },
+          select:  { sectionCode: true, waivedBy: true, waivedAt: true, reason: true },
+        })
+      : []
+
+    const userIds = [...new Set([
+      ...items.flatMap(i => [i.waivedBy, i.completedBy]),
+      ...ichWaivers.map(w => w.waivedBy),
+    ].filter((v): v is string => !!v))]
     const users = userIds.length
       ? await app.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } })
       : []
@@ -96,15 +110,28 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
       }
     })
 
-    const waivedMandatory = items
-      .filter(i => i.status === 'waived' && i.frameworkMandatory)
-      .map(i => ({
-        text:      i.text,
-        framework: i.framework,
-        waivedBy:  nameOf(i.waivedBy),
-        waivedAt:  i.waivedAt?.toISOString() ?? null,
-        reason:    i.waiverReason ?? null,
-      }))
+    const sectionTitle = (code: string) => {
+      const def = ICH_E3_SECTIONS.find(s => s.code === code)
+      return def ? `${def.code} ${def.title}` : code
+    }
+    const waivedMandatory = [
+      ...items
+        .filter(i => i.status === 'waived' && i.frameworkMandatory)
+        .map(i => ({
+          text:      i.text,
+          framework: i.framework,
+          waivedBy:  nameOf(i.waivedBy),
+          waivedAt:  i.waivedAt?.toISOString() ?? null,
+          reason:    i.waiverReason ?? null,
+        })),
+      ...ichWaivers.map(w => ({
+        text:      sectionTitle(w.sectionCode),
+        framework: 'ICH E3',
+        waivedBy:  nameOf(w.waivedBy),
+        waivedAt:  w.waivedAt?.toISOString() ?? null,
+        reason:    w.reason ?? null,
+      })),
+    ]
 
     return {
       documentId,

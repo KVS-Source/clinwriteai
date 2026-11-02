@@ -19,9 +19,9 @@ type Candidate = { id: string; name: string; role: string }
 type SignerRow = { signerId: string; meaning: Meaning; locked?: boolean }
 
 const MEANINGS: { value: Meaning; label: string }[] = [
-  { value: 'authored', label: 'Authored' },
-  { value: 'reviewed', label: 'Reviewed' },
-  { value: 'approved', label: 'Approved' },
+  { value: 'authored', label: 'Will sign as: Author' },
+  { value: 'reviewed', label: 'Will sign as: Reviewer' },
+  { value: 'approved', label: 'Will sign as: Approver' },
 ]
 
 function errorText(err: unknown): string {
@@ -161,7 +161,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   }
 
   return (
-    <div className="flex w-full max-w-[720px] flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5 text-left" data-initiate-chain>
+    <div className="flex w-full max-w-[860px] flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5 text-left" data-initiate-chain>
       <div>
         <p className="text-sm font-bold text-slate-900">Initiate signature chain</p>
         <p className="mt-1 text-xs text-slate-500">
@@ -183,7 +183,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
       {approversLoaded && !noApprovers && (
         <p className="rounded-md border border-blue-200 bg-blue-50 p-2 text-[12px] text-blue-800" data-approvers-notice>
           <strong>Required ({approverSigners.length}):</strong> every team Approver (RACI='A') is pre-filled below as an
-          <em> Approved</em> signer and can't be removed. You may reorder them, and add Authors or Reviewers alongside.
+          <em> Approver</em> and can't be removed. Nobody has signed yet — each person signs after the chain starts. You may reorder them, and add Authors or Reviewers alongside.
         </p>
       )}
       {noApprovers && (
@@ -216,7 +216,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
               value={r.meaning}
               onChange={e => setRow(i, { meaning: e.currentTarget.value as Meaning })}
               disabled={r.locked}
-              className="h-9 w-32 flex-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
+              className="h-9 w-52 flex-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
               data-meaning-select
             >
               {MEANINGS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}

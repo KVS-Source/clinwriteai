@@ -1,0 +1,98 @@
+{
+  "language": {
+    "label": "Language",
+    "description": "Switch the ClinWrite.AI interface between English and Japanese. Content you've authored (documents, comments, reviews) is not translated.",
+    "en": "English",
+    "ja": "日本語"
+  },
+
+  "button": {
+    "save": "Save",
+    "cancel": "Cancel",
+    "delete": "Delete",
+    "edit": "Edit",
+    "add": "Add",
+    "remove": "Remove",
+    "confirm": "Confirm",
+    "close": "Close",
+    "back": "Back",
+    "next": "Next",
+    "submit": "Submit",
+    "apply": "Apply",
+    "clear": "Clear",
+    "search": "Search",
+    "refresh": "Refresh",
+    "export": "Export",
+    "download": "Download",
+    "upload": "Upload",
+    "view": "View",
+    "approve": "Approve",
+    "reject": "Reject",
+    "open": "Open",
+    "retry": "Retry",
+    "continue": "Continue"
+  },
+
+  "status": {
+    "loading": "Loading…",
+    "empty": "No results.",
+    "offline": "Offline",
+    "online": "Online",
+    "saving": "Saving…",
+    "saved": "Saved",
+    "pending": "Pending",
+    "active": "Active",
+    "inactive": "Inactive"
+  },
+
+  "toast": {
+    "success_title": "Success",
+    "error_title": "Error",
+    "warning_title": "Warning",
+    "info_title": "Information",
+    "not_authorized": "You are not authorised to perform this action.",
+    "unable_to_load": "Unable to load. Please try again.",
+    "saved": "Saved.",
+    "deleted": "Deleted.",
+    "something_went_wrong": "Something went wrong. Please try again."
+  },
+
+  "nav": {
+    "home": "Home",
+    "projects": "Projects",
+    "clinical_writing": "Clinical Writing",
+    "scientific_writing": "Scientific Writing",
+    "medical_writing": "Medical Writing",
+    "regulatory_writing": "Regulatory Writing",
+    "ideation_publishing": "Ideation & Publishing",
+    "notifications": "Notifications",
+    "settings": "Settings",
+    "admin": "Admin"
+  },
+
+  "header": {
+    "notifications_label": "Notifications",
+    "user_menu_label": "Account menu",
+    "sign_out": "Sign out",
+    "signing_out": "Signing out…",
+    "change_password": "Change password",
+    "language": "Language"
+  },
+
+  "page": {
+    "sign_in": {
+      "title": "Sign in to your account",
+      "subtitle": "Clinical Writing Module",
+      "email_label": "Email address",
+      "email_placeholder": "name@company.com",
+      "password_label": "Password",
+      "forgot_password_link": "Forgot password?",
+      "submit": "Sign in",
+      "submitting": "Signing in…",
+      "generic_error": "Sign-in failed. Please try again.",
+      "reset_notice": "Your password has been updated. Sign in with your new password.",
+      "first_time_heading": "First time signing in?",
+      "first_time_body": "Use the temporary password your administrator gave you — you'll choose your own password next. No temporary password? <firstLoginLink>Set your password by email</firstLoginLink>."
+    }
+  }
+}

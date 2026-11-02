@@ -1,0 +1,92 @@
+{
+  "language": {
+    "label": "言語",
+    "description": "ClinWrite.AI のインターフェースを英語と日本語で切り替えます。入力済みのコンテンツ(ドキュメント、コメント、レビュー)は翻訳されません。",
+    "en": "English",
+    "ja": "日本語"
+  },
+  "button": {
+    "save": "保存",
+    "cancel": "キャンセル",
+    "delete": "削除",
+    "edit": "編集",
+    "add": "追加",
+    "remove": "削除",
+    "confirm": "確認",
+    "close": "閉じる",
+    "back": "戻る",
+    "next": "次へ",
+    "submit": "送信",
+    "apply": "適用",
+    "clear": "クリア",
+    "search": "検索",
+    "refresh": "更新",
+    "export": "エクスポート",
+    "download": "ダウンロード",
+    "upload": "アップロード",
+    "view": "表示",
+    "approve": "承認",
+    "reject": "却下",
+    "open": "開く",
+    "retry": "再試行",
+    "continue": "続行"
+  },
+  "status": {
+    "loading": "読み込み中…",
+    "empty": "結果はありません。",
+    "offline": "オフライン",
+    "online": "オンライン",
+    "saving": "保存中…",
+    "saved": "保存しました",
+    "pending": "保留中",
+    "active": "アクティブ",
+    "inactive": "非アクティブ"
+  },
+  "toast": {
+    "success_title": "成功",
+    "error_title": "エラー",
+    "warning_title": "警告",
+    "info_title": "お知らせ",
+    "not_authorized": "この操作を実行する権限がありません。",
+    "unable_to_load": "読み込めませんでした。もう一度お試しください。",
+    "saved": "保存しました。",
+    "deleted": "削除しました。",
+    "something_went_wrong": "問題が発生しました。もう一度お試しください。"
+  },
+  "nav": {
+    "home": "ホーム",
+    "projects": "プロジェクト",
+    "clinical_writing": "クリニカル ライティング",
+    "scientific_writing": "サイエンティフィック ライティング",
+    "medical_writing": "メディカル ライティング",
+    "regulatory_writing": "レギュラトリー ライティング",
+    "ideation_publishing": "アイデア & パブリッシング",
+    "notifications": "通知",
+    "settings": "設定",
+    "admin": "管理"
+  },
+  "header": {
+    "notifications_label": "通知",
+    "user_menu_label": "アカウント メニュー",
+    "sign_out": "サインアウト",
+    "signing_out": "サインアウトしています…",
+    "change_password": "パスワード変更",
+    "language": "言語"
+  },
+  "page": {
+    "sign_in": {
+      "title": "アカウントにサインイン",
+      "subtitle": "クリニカル ライティング モジュール",
+      "email_label": "メールアドレス",
+      "email_placeholder": "name@company.com",
+      "password_label": "パスワード",
+      "forgot_password_link": "パスワードをお忘れですか?",
+      "submit": "サインイン",
+      "submitting": "サインインしています…",
+      "generic_error": "サインインに失敗しました。もう一度お試しください。",
+      "reset_notice": "パスワードが更新されました。新しいパスワードでサインインしてください。",
+      "first_time_heading": "初めてサインインしますか?",
+      "first_time_body": "管理者から配布された仮パスワードを使用してください。次の画面でご自身のパスワードを設定していただきます。仮パスワードをお持ちでない場合は、<firstLoginLink>メールでパスワードを設定</firstLoginLink>してください。"
+    }
+  }
+}

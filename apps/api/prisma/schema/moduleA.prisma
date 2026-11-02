@@ -43,6 +43,12 @@ model Document {
   updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
 
+  // ---- Author's prompt to the AI drafter (migration 58, 2026-11-02) ----
+  // Captured in the New Document wizard when "Draft with AI" is opted in.
+  // Flows into the system prompt of every AI call for this document.
+  // Max 2000 chars enforced at the API edge (createSchema).
+  aiInstructions         String?   @map("ai_instructions")
+
   // ---- AI drafting state (migration 56, 2026-11-02) ----
   // aiDraftState tracks the ai_initial_draft → ai_validation_pass chain:
   //   null | 'pending' | 'drafting' | 'validating' | 'complete' | 'failed'

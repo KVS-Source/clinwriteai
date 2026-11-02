@@ -103,6 +103,9 @@ export function NewDocumentForm({
   // wizard is set up to feed sources into the worker; writers who want
   // to type from scratch flip to Create blank.
   const [aiDraft,              setAiDraft]              = useState<boolean>(true)
+  // Author's free-text prompt to the AI drafter. Max 2000 chars enforced
+  // at the API edge; UI shows a live char counter + warns at 1900.
+  const [aiInstructions,       setAiInstructions]       = useState<string>('')
 
   // Document templates — DB-backed section skeleton + source-category
   // rules per type. Drives both the step-1 dropdown and the step-2
@@ -254,6 +257,11 @@ export function NewDocumentForm({
         // Only ask the server to enqueue the draft job when the user
         // opted in AND there's at least one source to draft from.
         aiDraft: aiDraft && sourceIds.length > 0 ? true : undefined,
+        // Author's prompt to the AI drafter — only sent when they opted
+        // into AI drafting (so toggling off doesn't persist a stale
+        // directive). Empty string → undefined so the API treats it as
+        // "no directive" rather than "clear directive".
+        aiInstructions: aiDraft && aiInstructions.trim().length > 0 ? aiInstructions.trim() : undefined,
       }
       return documentsApi.create(projectId, body)
     },
@@ -599,6 +607,13 @@ export function NewDocumentForm({
               </label>
             </div>
 
+            {/* Author's prompt to the AI drafter. Shown only when
+                "Draft with AI" is selected AND at least one source is
+                attached — otherwise the directive would never be used. */}
+            {aiDraft && sourceIds.length > 0 && (
+              <AiInstructionsField value={aiInstructions} onChange={setAiInstructions} />
+            )}
+
             {sourceIds.length === 0 && (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
                 AI drafting is disabled because you haven't attached any source documents.
@@ -740,6 +755,82 @@ function BestPracticesCard({ items, docTypeLabel }: { items: BestPractice[]; doc
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// Instructions for the AI drafter — appears below the "Draft with AI"
+// opt-in in the NewDocument wizard. Free-text with inline helper +
+// clickable example chips that prepend to the current value. 2000-char
+// cap enforced server-side; the UI shows a live counter + warns at 1900.
+const AI_INSTRUCTIONS_MAX = 2000
+const AI_INSTRUCTIONS_WARN_AT = 1900
+const AI_INSTRUCTIONS_EXAMPLES = [
+  'Draft in Japanese',
+  'Plain English, no jargon',
+  'Include tables where helpful',
+  'Follow MHRA house style',
+]
+
+function AiInstructionsField({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const remaining = AI_INSTRUCTIONS_MAX - value.length
+  const counterTone =
+    value.length > AI_INSTRUCTIONS_MAX ? 'text-rose-600' :
+    value.length > AI_INSTRUCTIONS_WARN_AT ? 'text-amber-700' : 'text-slate-400'
+
+  const prependExample = (example: string) => {
+    if (value.trim().length === 0) {
+      onChange(example)
+      return
+    }
+    // Prepend as its own line so the author can keep adding directives.
+    const next = `${example}\n${value}`
+    onChange(next.slice(0, AI_INSTRUCTIONS_MAX))
+  }
+
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-md border border-slate-200 bg-white p-3"
+      data-ai-instructions
+    >
+      <div className="flex items-baseline justify-between">
+        <label htmlFor="ai-instructions" className="text-[12px] font-semibold text-slate-800">
+          Instructions for the AI drafter
+          <span className="ml-2 font-normal text-slate-500">(optional)</span>
+        </label>
+        <span className={`font-mono text-[10px] ${counterTone}`} data-ai-instructions-counter>
+          {remaining} left
+        </span>
+      </div>
+      <p className="text-[12px] text-slate-600">
+        Tell the AI how you want the draft written — language, tone, structure. These
+        instructions apply to every section the AI drafts (initial draft and any later
+        regenerate). Not shown to reviewers.
+      </p>
+      <textarea
+        id="ai-instructions"
+        value={value}
+        onChange={e => onChange(e.currentTarget.value.slice(0, AI_INSTRUCTIONS_MAX))}
+        rows={3}
+        maxLength={AI_INSTRUCTIONS_MAX}
+        placeholder="e.g. Draft in Japanese. Use short paragraphs. Include a dosing table where helpful."
+        className="w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-100"
+        data-ai-instructions-input
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="font-mono text-[10px] text-slate-400 uppercase tracking-wider">Examples:</span>
+        {AI_INSTRUCTIONS_EXAMPLES.map(ex => (
+          <button
+            key={ex}
+            type="button"
+            onClick={() => prependExample(ex)}
+            className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+            data-ai-instructions-example={ex}
+          >
+            + {ex}
+          </button>
+        ))}
+      </div>
     </div>
   )
 }

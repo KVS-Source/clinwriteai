@@ -159,12 +159,22 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
       })
       modelUsed = await resolveDraftModel(prisma, project?.tenantId ?? null)
       const sourcePdfs = await loadSourcePdfsForJob(prisma, job.data.sourceUploadIds, log)
+      // Thread the author's instructions through so the critique scores
+      // sections against the SAME directives the drafter was asked to
+      // follow (e.g. "draft in Japanese" — the validator shouldn't flag
+      // Japanese prose as off-template).
+      const docRow = await prisma.document.findUnique({
+        where:  { id: documentId },
+        select: { aiInstructions: true },
+      })
+      const aiInstructions = docRow?.aiInstructions?.trim() || null
       const aiFlagged = await runLlmChecks({
         apiKey,
         model:     modelUsed,
         docType:   job.data.type,
         sections:  rows.map(r => ({ id: r.sectionId, html: r.contentHtml ?? '' })),
         sourcePdfs,
+        aiInstructions,
       })
       for (const flag of aiFlagged) {
         const bucket = flagsBySection.get(flag.sectionId)
@@ -387,11 +397,24 @@ async function runLlmChecks(args: {
   docType:    string
   sections:   Array<{ id: string; html: string }>
   sourcePdfs: SourcePdfPayload[]
+  aiInstructions: string | null
 }): Promise<AiCheckFlag[]> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
   })
   const client = new Anthropic({ apiKey: args.apiKey })
+
+  // Author's instructions anchor the "Template compliance" judgement
+  // when they override defaults (e.g. "draft in Japanese" — the critic
+  // mustn't flag Japanese prose as off-template). Omitted when null.
+  const authorBlock = args.aiInstructions
+    ? [
+        ``,
+        `Author's instructions for this document (judge sections AGAINST these, not against defaults):`,
+        args.aiInstructions,
+        ``,
+      ].join('\n')
+    : ''
 
   const system = [
     `You are reviewing a draft of a regulatory clinical writing deliverable (${args.docType}) for quality issues.`,
@@ -402,6 +425,7 @@ async function runLlmChecks(args: {
     `  4. Source consistency — are the quantitative/clinical claims supported by the attached source documents?`,
     `Return ONLY a JSON array of { "sectionId": "...", "reason": "short issue summary" } for sections that need revision.`,
     `Return an EMPTY array ("[]") if every section passes. No prose before or after. No code fences.`,
+    authorBlock,
   ].join('\n')
 
   const sectionList = args.sections

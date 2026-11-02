@@ -54,6 +54,9 @@ export interface CreateDocumentArgs {
   targetCompletionDate?: Date
   /** Starter sections for v0.1 (e.g. the ICH E3 template). Default: none. */
   sections?: SectionPayload[]
+  /** Author's free-text prompt to the AI drafter. Flows into every AI
+   *  call for this doc. Max 2000 chars (enforced at the route edge). */
+  aiInstructions?: string
 }
 
 export class DocumentService {
@@ -71,6 +74,7 @@ export class DocumentService {
           createdBy: args.createdBy,
           templateId: args.templateId ?? null,
           targetCompletionDate: args.targetCompletionDate ?? null,
+          aiInstructions: args.aiInstructions ?? null,
           status: 'not_started',
           stage: 'study_start_up',
         },

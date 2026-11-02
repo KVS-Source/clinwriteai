@@ -251,6 +251,21 @@ interface Report {
 export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (job, { prisma, log, enqueue }) => {
   const { documentId, versionId, type, sourceUploadIds, targetSectionIds } = job.data
 
+  // --- Mark document as drafting (migration 56, 2026-11-02) --------------
+  // Writers polling GET /documents/:id/ai-draft-status need a signal that
+  // the worker has picked the job up. Only move state → 'drafting' from a
+  // full-document initial draft; targeted re-drafts fired by the validator
+  // keep state='validating' so the SPA doesn't bounce back to the drafting
+  // toast mid-loop.
+  if (!targetSectionIds || targetSectionIds.length === 0) {
+    await prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'drafting' },
+    }).catch((err: unknown) => {
+      log.warn({ err, documentId }, 'ai_initial_draft: could not set aiDraftState=drafting (document gone?)')
+    })
+  }
+
   // --- Resolve the drafting model (DB-saved default → env → hardcode) ----
   // tenantId lookup via projectId; passed to resolveDraftModel so the
   // helper is ready for per-tenant selection without further wiring.
@@ -395,6 +410,14 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // re-draft calls are themselves enqueued by validation and chaining
   // from them would double-schedule.
   if (!targetSet) {
+    // Flip state → 'validating' before enqueueing so the SPA's progress
+    // toast moves off "Drafting…" the moment the drafter commits.
+    await prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'validating' },
+    }).catch((err: unknown) => {
+      log.warn({ err, documentId }, 'ai_initial_draft: could not set aiDraftState=validating')
+    })
     try {
       await enqueue('clinical.ai_validation_pass', {
         documentId,
@@ -408,6 +431,13 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
       }, { delayMs: 2_000, jobId: `ai-validation-${documentId}-1` })
     } catch (err) {
       log.warn({ err, documentId }, 'ai_initial_draft: failed to enqueue validation pass — draft stands')
+      // If we can't enqueue the validator, mark the chain as complete so
+      // the SPA stops polling. The sections ARE drafted at this point —
+      // only the critique/consistency loop didn't run.
+      await prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'complete' },
+      }).catch(() => undefined)
     }
   }
 

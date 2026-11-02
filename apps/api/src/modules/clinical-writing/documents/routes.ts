@@ -390,6 +390,13 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     // asynchronously. On enqueue failure (Redis down) the document still
     // exists — the user can retry via the editor's AI Chat panel.
     if (parsed.data.aiDraft && sourceUploadIds.length > 0) {
+      // Mark the document as 'pending' BEFORE the enqueue so the SPA's
+      // first poll of /ai-draft-status returns something meaningful even
+      // if BullMQ hasn't picked the job up yet.
+      await app.prisma.document.update({
+        where: { id: document.id },
+        data:  { aiDraftState: 'pending' },
+      }).catch(() => undefined)
       try {
         await app.queue.enqueue('clinical.ai_initial_draft', {
           documentId:      document.id,
@@ -402,6 +409,13 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
         }, { jobId: `ai-initial-draft-${document.id}` })
       } catch (err) {
         app.log.warn({ err, documentId: document.id }, 'ai_initial_draft enqueue failed — document created without AI draft')
+        // Enqueue failed — flip state → 'failed' so the SPA stops polling
+        // and shows an actionable error (writer can regenerate from the
+        // editor's AI Chat panel).
+        await app.prisma.document.update({
+          where: { id: document.id },
+          data:  { aiDraftState: 'failed' },
+        }).catch(() => undefined)
       }
     }
 
@@ -582,6 +596,84 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // Numeric-aware, so s3 comes before s10 (a plain text sort gives s1, s10, s11, …, s2, s3).
     version.sections.sort((a, b) => a.sectionId.localeCompare(b.sectionId, undefined, { numeric: true }))
     return version
+  })
+
+  // ────────────────────────────────────────────────────────────────────
+  // AI drafting status (migration 56, 2026-11-02).
+  //
+  // The SPA polls this every 3s while a draft/validation chain is in
+  // flight to drive the live progress toast, document-header confidence
+  // chip, per-section sidebar badge, and the AI Drafting Report panel.
+  //
+  // Returns:
+  //   state                — null | pending | drafting | validating | complete | failed
+  //   confidenceOverall    — 0-100 roll-up (null until first pass runs)
+  //   lastPassNumber       — 1-5 (null until first pass runs)
+  //   lastPassAt           — ISO (null until first pass runs)
+  //   sections             — [{ sectionId, sectionNumber, sectionTitle, confidence, flags }]
+  //   passes               — [{ passNumber, startedAt, finishedAt, sectionsFlagged, confidenceAfter, modelUsed, flagsJson }]
+  //
+  // Section + pass arrays are always ordered by number ascending.
+  app.get('/:documentId/ai-draft-status', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: {
+        id: true,
+        currentVersionId: true,
+        aiDraftState: true,
+        aiConfidenceOverall: true,
+        aiLastPassAt: true,
+        aiLastPassNumber: true,
+      },
+    })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+
+    const sectionRows = doc.currentVersionId
+      ? await app.prisma.sectionContent.findMany({
+          where:  { documentVersionId: doc.currentVersionId },
+          select: {
+            sectionId: true, sectionNumber: true, sectionTitle: true,
+            aiConfidence: true, aiFlags: true,
+          },
+        })
+      : []
+    // Numeric-aware sort so §3 comes before §10.
+    sectionRows.sort((a, b) => a.sectionId.localeCompare(b.sectionId, undefined, { numeric: true }))
+
+    const passRows = await app.prisma.aiDraftingPass.findMany({
+      where:   { documentId },
+      orderBy: { passNumber: 'asc' },
+      select: {
+        passNumber: true, startedAt: true, finishedAt: true,
+        sectionsFlagged: true, confidenceAfter: true, modelUsed: true,
+        flagsJson: true,
+      },
+    })
+
+    return {
+      state:              doc.aiDraftState,
+      confidenceOverall:  doc.aiConfidenceOverall,
+      lastPassNumber:     doc.aiLastPassNumber,
+      lastPassAt:         doc.aiLastPassAt?.toISOString() ?? null,
+      sections: sectionRows.map(s => ({
+        sectionId:     s.sectionId,
+        sectionNumber: s.sectionNumber,
+        sectionTitle:  s.sectionTitle,
+        confidence:    s.aiConfidence,
+        flags:         s.aiFlags,
+      })),
+      passes: passRows.map(p => ({
+        passNumber:      p.passNumber,
+        startedAt:       p.startedAt.toISOString(),
+        finishedAt:      p.finishedAt?.toISOString() ?? null,
+        sectionsFlagged: p.sectionsFlagged,
+        confidenceAfter: p.confidenceAfter,
+        modelUsed:       p.modelUsed,
+        flagsJson:       p.flagsJson,
+      })),
+    }
   })
 
   app.post('/:documentId/restore', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {

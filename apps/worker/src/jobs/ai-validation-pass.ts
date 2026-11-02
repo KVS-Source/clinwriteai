@@ -48,7 +48,45 @@ interface AiValidationPassPayload {
   iteration:       number
 }
 
+// ────────────────────────────────────────────────────────────────────────
+// Confidence rubric. Keep in sync with
+// apps/api/src/modules/clinical-writing/documents/ai-confidence.ts — the
+// worker inlines the constants so this file stays a zero-dependency
+// handler (worker is a separate package from the API).
+
+const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
+  'completeness:too_short': 40,
+  'ai:self_critique':       30,
+  'ai:template_mismatch':   20,
+  'ai:coherence_issue':     20,
+  'ai:unsupported_claim':   30,
+}
+const AI_UNKNOWN_WEIGHT = 15
+
+function scoreSection(flags: ReadonlyArray<string>): number {
+  if (flags.length === 0) return 100
+  let penalty = 0
+  for (const f of flags) penalty += FLAG_WEIGHTS[f] ?? AI_UNKNOWN_WEIGHT
+  return Math.max(0, Math.min(100, 100 - penalty))
+}
+
+function overallConfidence(scores: ReadonlyArray<number>): number {
+  if (scores.length === 0) return 0
+  return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length)
+}
+
+const CONFIDENCE_TARGET = 85
+const MIN_ITERATIONS = 3
 const MAX_ITERATIONS = 5
+
+function shouldStopLoop(a: { iteration: number; confidenceOverall: number; failingCount: number }): boolean {
+  if (a.iteration >= MAX_ITERATIONS) return true
+  if (a.failingCount === 0) return true
+  if (a.iteration >= MIN_ITERATIONS && a.confidenceOverall >= CONFIDENCE_TARGET) return true
+  return false
+}
+
+// ────────────────────────────────────────────────────────────────────────
 
 // Minimum visible-text length (stripped of HTML tags) a drafted section
 // must have to count as "complete". Set deliberately low — the point is
@@ -67,34 +105,50 @@ interface SectionResult {
 
 export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async (job, { prisma, log, enqueue }) => {
   const { documentId, versionId, iteration } = job.data
+  const passStartedAt = new Date()
 
   if (iteration > MAX_ITERATIONS) {
     log.warn({ documentId, iteration }, 'ai_validation_pass: iteration cap reached — stopping chain')
+    await prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'complete' },
+    }).catch(() => undefined)
     return { skipped: 'iteration_cap_reached', iteration }
   }
 
   const rows = await prisma.sectionContent.findMany({
     where: { documentVersionId: versionId },
-    select: { sectionId: true, contentHtml: true },
+    select: { id: true, sectionId: true, sectionNumber: true, contentHtml: true },
   })
   if (rows.length === 0) {
     log.warn({ documentId, versionId }, 'ai_validation_pass: no section_content rows — nothing to validate')
+    await prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'complete' },
+    }).catch(() => undefined)
     return { skipped: 'no_sections', iteration }
   }
 
-  const results: SectionResult[] = rows.map(row => {
+  // Flag collector keyed by sectionId. Each section accumulates ≥0 flag
+  // codes from the three check kinds; the rubric scores them.
+  const flagsBySection = new Map<string, string[]>()
+  const reasonsBySection = new Map<string, string[]>()
+  for (const row of rows) flagsBySection.set(row.sectionId, [])
+
+  // --- 1. Completeness check (deterministic) ----------------------------
+  for (const row of rows) {
     const visible = stripTags(row.contentHtml ?? '')
     if (visible.length < MIN_CONTENT_CHARS) {
-      return { sectionId: row.sectionId, pass: false, reason: `content too short (${visible.length} < ${MIN_CONTENT_CHARS} chars)` }
+      flagsBySection.get(row.sectionId)!.push('completeness:too_short')
+      ;(reasonsBySection.get(row.sectionId) ?? reasonsBySection.set(row.sectionId, []).get(row.sectionId)!)
+        .push(`content too short (${visible.length} < ${MIN_CONTENT_CHARS} chars)`)
     }
-    return { sectionId: row.sectionId, pass: true, reason: 'completeness ok' }
-  })
-  const failingSet = new Set(results.filter(r => !r.pass).map(r => r.sectionId))
+  }
 
-  // --- LLM-gated checks: self-critique + cross-source consistency ----
-  // Only run when a key is present AND there's enough drafted content
-  // to be worth critiquing. Combined into a single Claude call per pass
-  // (one prompt, both check kinds) to keep cost + latency bounded.
+  // --- 2+3. LLM self-critique + cross-source consistency ----------------
+  // Combined into one Claude call per pass. Only runs when a key is set
+  // AND there's enough drafted content to be worth critiquing.
+  let modelUsed: string | null = null
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   const hasDraftedContent = rows.some(r => stripTags(r.contentHtml ?? '').length >= MIN_CONTENT_CHARS)
   if (apiKey && hasDraftedContent) {
@@ -103,22 +157,25 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
         where: { id: job.data.projectId },
         select: { tenantId: true },
       })
-      const model = await resolveDraftModel(prisma, project?.tenantId ?? null)
+      modelUsed = await resolveDraftModel(prisma, project?.tenantId ?? null)
       const sourcePdfs = await loadSourcePdfsForJob(prisma, job.data.sourceUploadIds, log)
       const aiFlagged = await runLlmChecks({
         apiKey,
-        model,
+        model:     modelUsed,
         docType:   job.data.type,
         sections:  rows.map(r => ({ id: r.sectionId, html: r.contentHtml ?? '' })),
         sourcePdfs,
       })
       for (const flag of aiFlagged) {
-        failingSet.add(flag.sectionId)
-        const target = results.find(r => r.sectionId === flag.sectionId)
-        if (target && target.pass) {
-          target.pass = false
-          target.reason = `ai: ${flag.reason}`
-        }
+        const bucket = flagsBySection.get(flag.sectionId)
+        if (!bucket) continue
+        // Map the free-text reason to one of the three AI flag codes so
+        // the rubric can weight it. Simple heuristic — the LLM's own
+        // narrative is kept in reasonsBySection for the report panel.
+        const code = classifyAiReason(flag.reason)
+        bucket.push(code)
+        ;(reasonsBySection.get(flag.sectionId) ?? reasonsBySection.set(flag.sectionId, []).get(flag.sectionId)!)
+          .push(flag.reason)
       }
       log.info({ documentId, iteration, aiFlaggedCount: aiFlagged.length }, 'ai_validation_pass: Claude critique applied')
     } catch (err) {
@@ -126,30 +183,103 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
       log.warn({ documentId, iteration, err: message }, 'ai_validation_pass: Claude critique failed — continuing with completeness only')
     }
   }
-  const failingIds = Array.from(failingSet)
+
+  // --- Compute scores + persist per-section + build report snapshot -----
+  const perSectionScores: number[] = []
+  const reportSnapshot: Array<{
+    sectionId: string
+    sectionNumber: string
+    confidence: number
+    flags: string[]
+    reasons: string[]
+  }> = []
+  const failingIds: string[] = []
+
+  await prisma.$transaction(async (tx) => {
+    for (const row of rows) {
+      const flags = flagsBySection.get(row.sectionId) ?? []
+      const reasons = reasonsBySection.get(row.sectionId) ?? []
+      const confidence = scoreSection(flags)
+      perSectionScores.push(confidence)
+      reportSnapshot.push({
+        sectionId:     row.sectionId,
+        sectionNumber: row.sectionNumber,
+        confidence,
+        flags,
+        reasons,
+      })
+      if (flags.length > 0) failingIds.push(row.sectionId)
+      await tx.sectionContent.update({
+        where: { id: row.id },
+        data:  { aiConfidence: confidence, aiFlags: flags },
+      })
+    }
+  })
+
+  const confidenceOverall = overallConfidence(perSectionScores)
+  const stop = shouldStopLoop({ iteration, confidenceOverall, failingCount: failingIds.length })
 
   log.info({
     documentId,
     iteration,
-    sectionsTotal: results.length,
+    sectionsTotal: rows.length,
     failing:       failingIds.length,
+    confidenceOverall,
+    willStop:      stop,
   }, 'ai_validation_pass: evaluated')
 
-  if (failingIds.length === 0) {
-    log.info({ documentId, iteration }, 'ai_validation_pass: all sections passed — chain complete')
-    return { documentId, iteration, passing: results.length, failing: 0, status: 'complete' }
+  // --- Persist document roll-up + log this pass -------------------------
+  const nextState: 'validating' | 'complete' = stop ? 'complete' : 'validating'
+  const passFinishedAt = new Date()
+  await prisma.$transaction([
+    prisma.document.update({
+      where: { id: documentId },
+      data: {
+        aiDraftState:        nextState,
+        aiConfidenceOverall: confidenceOverall,
+        aiLastPassAt:        passFinishedAt,
+        aiLastPassNumber:    iteration,
+      },
+    }),
+    prisma.aiDraftingPass.upsert({
+      where:  { documentId_passNumber: { documentId, passNumber: iteration } },
+      create: {
+        documentId,
+        versionId,
+        passNumber:      iteration,
+        startedAt:       passStartedAt,
+        finishedAt:      passFinishedAt,
+        sectionsFlagged: failingIds.length,
+        confidenceAfter: confidenceOverall,
+        modelUsed,
+        flagsJson:       reportSnapshot as unknown as object,
+      },
+      update: {
+        finishedAt:      passFinishedAt,
+        sectionsFlagged: failingIds.length,
+        confidenceAfter: confidenceOverall,
+        modelUsed,
+        flagsJson:       reportSnapshot as unknown as object,
+      },
+    }),
+  ])
+
+  if (stop) {
+    log.info({ documentId, iteration, confidenceOverall, residualFailing: failingIds.length }, 'ai_validation_pass: loop stopped')
+    return {
+      documentId,
+      iteration,
+      passing:            rows.length - failingIds.length,
+      failing:            failingIds.length,
+      failingIds,
+      confidenceOverall,
+      status:             failingIds.length === 0 ? 'complete' : 'complete_with_residuals',
+    }
   }
 
-  // Still some failures. If we have budget, enqueue a targeted re-draft
-  // then re-enqueue ourselves for the follow-up evaluation.
-  if (iteration >= MAX_ITERATIONS) {
-    log.warn({ documentId, iteration, failingIds }, 'ai_validation_pass: last iteration reached with sections still failing')
-    return { documentId, iteration, passing: results.length - failingIds.length, failing: failingIds.length, status: 'exhausted', failingIds }
-  }
-
+  // Still below target + under the cap. Enqueue a targeted re-draft of
+  // the failing sections followed by the next validation pass.
   try {
-    // Re-draft just the failing sections (ai_initial_draft honours
-    // targetSectionIds). Delay 1s to let any in-flight writes commit.
     await enqueue('clinical.ai_initial_draft', {
       documentId,
       versionId,
@@ -161,24 +291,43 @@ export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async
       targetSectionIds: failingIds,
     }, { delayMs: 1_000, jobId: `ai-redraft-${documentId}-${iteration}` })
 
-    // Chase it with the next validation pass. 10s delay gives the draft
-    // room to run (stub is instant; real LLM takes seconds per section).
     await enqueue('clinical.ai_validation_pass', {
       ...job.data,
       iteration: iteration + 1,
     }, { delayMs: 10_000, jobId: `ai-validation-${documentId}-${iteration + 1}` })
   } catch (err) {
     log.error({ err, documentId, iteration }, 'ai_validation_pass: failed to enqueue re-draft or next pass — chain breaks')
+    // Chain broke mid-loop; mark complete so the SPA stops polling.
+    await prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'complete' },
+    }).catch(() => undefined)
   }
 
   return {
     documentId,
     iteration,
-    passing:    results.length - failingIds.length,
-    failing:    failingIds.length,
+    passing:            rows.length - failingIds.length,
+    failing:            failingIds.length,
     failingIds,
-    status:     'reworking',
+    confidenceOverall,
+    status:             'reworking',
   }
+}
+
+/** Collapse Claude's free-text reason into one of the weighted codes. */
+function classifyAiReason(reason: string): string {
+  const r = reason.toLowerCase()
+  if (/\b(unsupported|not supported by|no evidence|invent(ed)?|fabricat)/.test(r)) {
+    return 'ai:unsupported_claim'
+  }
+  if (/\b(template|section (number|title|structure)|should (contain|include))/.test(r)) {
+    return 'ai:template_mismatch'
+  }
+  if (/\b(coherence|incoherent|disjointed|inconsistent|contradict)/.test(r)) {
+    return 'ai:coherence_issue'
+  }
+  return 'ai:self_critique'
 }
 
 // -------- LLM-gated check helpers ------------------------------------------

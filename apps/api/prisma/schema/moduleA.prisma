@@ -43,12 +43,25 @@ model Document {
   updatedAt              DateTime  @updatedAt
   deletedAt              DateTime?
 
+  // ---- AI drafting state (migration 56, 2026-11-02) ----
+  // aiDraftState tracks the ai_initial_draft → ai_validation_pass chain:
+  //   null | 'pending' | 'drafting' | 'validating' | 'complete' | 'failed'
+  // Null for documents not drafted with AI. The other states let the SPA
+  // poll /documents/:id/ai-draft-status instead of staring at empty sections.
+  aiDraftState           String?   @map("ai_draft_state")
+  // 0–100 roll-up (average of per-section aiConfidence). Updated at the
+  // end of every validation pass. Null until the first pass runs.
+  aiConfidenceOverall    Int?      @map("ai_confidence_overall")
+  aiLastPassAt           DateTime? @map("ai_last_pass_at")
+  aiLastPassNumber       Int?      @map("ai_last_pass_number")
+
   versions               DocumentVersion[]   @relation("DocumentVersions")
   currentVersion         DocumentVersion?    @relation("DocumentCurrentVersion", fields: [currentVersionId], references: [id])
   checklistInstance      ChecklistInstance?
   comments               Comment[]
   ichWaivers             IchSectionWaiver[]
   raciRows               DocumentRaci[]
+  aiDraftingPasses       AiDraftingPass[]
 
   @@map("documents")
   @@index([projectId])
@@ -148,6 +161,15 @@ model SectionContent {
   humanSpanCount     Int      @default(0)
   lastEditedBy       String?
   lastEditedAt       DateTime?
+
+  // ---- AI confidence (migration 56, 2026-11-02) ----
+  // 0-100, computed per section from aiFlags using the rubric in
+  // apps/api/src/modules/clinical-writing/documents/ai-confidence.ts.
+  // Null until the first ai_validation_pass evaluates this section.
+  aiConfidence       Int?       @map("ai_confidence")
+  // Array of flag codes attached by the current/last validation pass.
+  // Each code is weighted in the rubric. Empty = clean section.
+  aiFlags            String[]   @default([]) @map("ai_flags")
 
   version            DocumentVersion @relation(fields: [documentVersionId], references: [id], onDelete: Cascade)
 
@@ -808,4 +830,38 @@ model SectionLock {
   @@unique([documentId, sectionId])
   @@index([userId])
   @@index([lastHeartbeatAt])
+}
+
+// --------------------------------------------------------------------------
+// AiDraftingPass — iteration log for the AI drafter + validator pipeline
+// (migration 56, 2026-11-02).
+//
+// One row per validation pass per document. Written by
+// apps/worker/src/jobs/ai-validation-pass.ts at the end of each pass.
+// Powers the "AI Drafting Report" panel in the editor (iteration history,
+// per-pass confidence delta, flag counts).
+//
+// flagsJson is a JSON array of { sectionId, sectionNumber, flags, confidence,
+// reason? } snapshots AT THIS PASS — not the current state. The current
+// per-section state lives on section_contents.ai_* columns.
+// --------------------------------------------------------------------------
+model AiDraftingPass {
+  id               String    @id @default(cuid())
+  documentId       String    @map("document_id")
+  versionId        String    @map("version_id")
+  passNumber       Int       @map("pass_number")
+  startedAt        DateTime  @default(now()) @map("started_at")
+  finishedAt       DateTime? @map("finished_at")
+  sectionsFlagged  Int       @default(0)       @map("sections_flagged")
+  confidenceAfter  Int?      @map("confidence_after")
+  modelUsed        String?   @map("model_used")
+  // Snapshot of per-section flags + confidence at this pass. See the
+  // model-level doc comment above for the shape.
+  flagsJson        Json      @default("[]")    @map("flags_json")
+
+  document         Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@map("ai_drafting_passes")
+  @@unique([documentId, passNumber])
+  @@index([documentId])
 }

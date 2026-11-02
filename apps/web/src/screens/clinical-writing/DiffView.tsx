@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { MyRaciRole } from './MyRaciRole'
 import { platformApi } from '../../platform/api/platformApi'
 import { usePresenceSnapshot } from '../../hooks/usePresence'
 import { StatusPill } from '../../components/ui'
@@ -303,6 +304,7 @@ export function DiffView() {
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-base font-bold tracking-tight text-slate-900">{document.title}</h1>
             <span className="flex-none"><StatusPill status={document.status} size="sm" /></span>
+            {documentId && <MyRaciRole documentId={documentId} />}
 
             {/* Version chip — active diff state */}
             <button

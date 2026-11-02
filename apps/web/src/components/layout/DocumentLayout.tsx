@@ -1,8 +1,7 @@
-import { Outlet, useLocation, useParams } from 'react-router-dom'
+import { Outlet, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { SubNav, type SubNavTab } from '../ui/SubNav'
 import { documentsApi } from '../../api/documents'
-import { MyRaciRole } from '../../screens/clinical-writing/MyRaciRole'
 
 // Tab-level read-only lockdown per docs/roles-and-permissions.md §11.3
 // stage transitions:
@@ -35,7 +34,6 @@ function tabDisablesFor(status: string | undefined): {
 
 export function DocumentLayout() {
   const { projectId, documentId } = useParams()
-  const { pathname } = useLocation()
   const base = `/projects/${projectId}/clinical-writing/documents/${documentId}`
 
   // Cheap doc fetch to drive the tab lockdown. Cached under the shared
@@ -64,20 +62,11 @@ export function DocumentLayout() {
     { to: `${base}/final`,  label: 'Final Document' },
   ]
 
-  // The Editor shows the signed-in user's RACI role in its own title row; every
-  // other tab gets it at the right of the tab bar.
-  const onEditor = pathname.replace(/\/$/, '') === base
-
+  // The signed-in user's RACI role chip lives in each tab's own title row
+  // (MyRaciRole), next to the document's status.
   return (
     <div className="flex h-full flex-col">
-      <div className="relative">
-        <SubNav tabs={tabs} label="Document navigation" />
-        {documentId && !onEditor && (
-          <div className="absolute inset-y-0 right-6 flex items-center bg-white pl-3">
-            <MyRaciRole documentId={documentId} />
-          </div>
-        )}
-      </div>
+      <SubNav tabs={tabs} label="Document navigation" />
       <div className="flex-1 overflow-auto">
         <Outlet />
       </div>

@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { documentsApi, type SignatureChain, type SignatureRecord as ChainRecord } from '../../api'
 import { ApiError } from '../../api/client'
+import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import { useCancelSignatureChain, useCurrentUser, useSignatureChains, useSignRecord } from '../../hooks'
 import { useDocumentStore } from '../../store'
 import { InitiateSignatureChain } from './InitiateSignatureChain'
@@ -463,6 +464,7 @@ export function ESignature() {
             >
               {statusLabel}
             </span>
+            {documentId && <MyRaciRole documentId={documentId} />}
           </div>
           {chainActive && (
             <button

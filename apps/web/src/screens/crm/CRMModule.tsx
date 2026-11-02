@@ -17,6 +17,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CRMMeeting, CRMResolution, Comment, ResolutionType } from '@platform/types'
 import { crmApi, documentsApi, projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
+import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import type { CRMResolutionRow, ScheduleMeetingBody } from '../../api/crm'
 import { platformApi } from '../../platform/api/platformApi'
 import { useCurrentUser } from '../../hooks'
@@ -630,6 +631,7 @@ export function CRMModule() {
             </p>
           </div>
           <div className="flex-1" />
+          {routeDocumentId && <MyRaciRole documentId={routeDocumentId} />}
           <div className="flex flex-none items-center gap-2 rounded-full px-3.5 py-1.5" style={{ backgroundColor: statusPill.bg, border: `1px solid ${statusPill.border}` }} data-crm-status-pill>
             {inProgress && <span className="h-2 w-2 rounded-full animate-pulse-green" style={{ backgroundColor: '#16A34A' }} />}
             <span className="whitespace-nowrap text-[13px] font-semibold" style={{ color: statusPill.fg }}>{statusPill.label}</span>

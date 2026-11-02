@@ -4,6 +4,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { CommentSeverity } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { MyRaciRole } from './MyRaciRole'
 import { useCurrentUser } from '../../hooks'
 import { useDocumentPresence } from '../../hooks/usePresence'
 import { withSectionMark } from '../../panels/CommentComposer'
@@ -337,6 +338,7 @@ export function ReviewerView() {
             >
               {statusMeta.label}
             </span>
+            {documentId && <MyRaciRole documentId={documentId} />}
             <span className="flex-none font-mono text-[11px] text-slate-500">
               {String(document.version).startsWith('v') ? document.version : `v${document.version}`}
               {document.status === 'in-review' ? ' · For Review' : ''}

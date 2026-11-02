@@ -10,6 +10,8 @@ import fastifyJwt from '@fastify/jwt'
 import { createSsoProvider, type SsoProvider } from './sso.js'
 import { authRoutes } from './routes.js'
 import { invitationRoutes } from './invitation-routes.js'
+import { passwordAuthRoutes } from './password-routes.js'
+import { mailerPlugin } from '../mailer/mailer.js'
 import { SESSION_COOKIE_NAME, type SessionClaims } from './jwt.js'
 import type { AuthenticatedUser, Capability, ModuleKey, Role } from './rbac.js'
 
@@ -172,8 +174,14 @@ const authPlugin: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // Mailer must be in place before password-auth routes (reset emails).
+  // Safe to register at this scope: no routes outside this plugin reach
+  // for app.mailer yet, and this plugin runs after env/secrets are ready.
+  await app.register(mailerPlugin)
+
   await app.register(authRoutes)
   await app.register(invitationRoutes)
+  await app.register(passwordAuthRoutes)
 }
 
 declare module 'fastify' {

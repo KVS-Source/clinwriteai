@@ -563,6 +563,9 @@ export const documentsApi = {
         status:      'complete' | 'in_progress' | 'not_started' | 'waived' | 'warning'
         inDocument:  boolean
         conditional: boolean
+        hasContent?:  boolean
+        wordCount?:   number
+        requirement?: 'required' | 'not-required'
         waiver?: {
           waivedBy:     string
           waivedByName: string | null

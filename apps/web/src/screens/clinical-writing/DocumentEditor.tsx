@@ -1187,6 +1187,7 @@ export function DocumentEditor() {
                 tab={activePanel === 'ich-e3' ? 'ich-e3' : 'inputs'}
                 onTabChange={t => setActivePanel(t === 'ich-e3' ? 'ich-e3' : 'checklist')}
                 showIch={ichApplicable}
+                lockReason={authoringLock?.short ?? null}
               />
             )}
             {activePanel === 'raci' && documentId && projectId && (

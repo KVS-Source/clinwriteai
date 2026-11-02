@@ -198,6 +198,9 @@ function ClearWaiverConfirm({ code, onCancel, onConfirm, submitting, error }: {
 
 // --- Row ---
 
+// A section with fewer words than this gets a "check it's finished" hint.
+const SHORT_SECTION_WORDS = 20
+
 interface RowProps {
   section:       IchSection
   isActive:      boolean
@@ -234,10 +237,10 @@ function ICHRow(p: RowProps) {
       data-ich-status={section.status}
       data-active={p.isActive || undefined}
     >
-      <div className="flex items-center gap-2.5">
-        <StatusIcon status={section.status} />
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex flex-none"><StatusIcon status={section.status} /></span>
         <span
-          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]"
+          className="min-w-0 flex-1 break-words text-[13px] leading-snug"
           style={{ color: isNotStarted ? '#64748B' : '#1E293B' }}
           title={fullTitle}
         >
@@ -247,10 +250,13 @@ function ICHRow(p: RowProps) {
         {section.conditional && (
           <span
             className="flex-none whitespace-nowrap rounded px-1.5 py-px text-[10px] font-semibold text-slate-500"
-            style={{ backgroundColor: '#F1F5F9' }}
+            style={section.requirement === 'required' ? { backgroundColor: '#FEF3C7', color: '#92400E' } : { backgroundColor: '#F1F5F9' }}
             title="Required for US submissions only — not counted toward completion"
+            data-ich-requirement={section.requirement ?? 'unknown'}
           >
-            US only
+            {section.requirement === 'required' ? 'Required · US submission'
+              : section.requirement === 'not-required' ? 'Not required · no US country'
+              : 'US only'}
           </span>
         )}
 
@@ -315,6 +321,19 @@ function ICHRow(p: RowProps) {
         )}
       </div>
 
+      {isWaived && section.hasContent && (
+        <p className="mt-1 ml-6 text-[11px] font-semibold" style={{ color: '#B45309' }} data-ich-waived-has-content>
+          Waived, but this section now has content — review the waiver.
+        </p>
+      )}
+
+      {!isWaived && (section.status === 'complete' || section.status === 'in_progress')
+        && (section.wordCount ?? 0) > 0 && (section.wordCount ?? 0) < SHORT_SECTION_WORDS && (
+        <p className="mt-1 ml-6 text-[11px] text-slate-500" data-ich-short-section>
+          Only {section.wordCount} {section.wordCount === 1 ? 'word' : 'words'} — check this section is really finished.
+        </p>
+      )}
+
       {isWaived && section.waiver && (
         <div className="mt-1 ml-6">
           <button
@@ -374,6 +393,7 @@ export function ICHValidatorPanel({ documentId }: Props) {
   // One inline action open at a time: waiving or clearing a waiver on a row.
   const [pending, setPending]       = useState<{ code: string; action: 'waive' | 'clear' } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
+  const [filter, setFilter] = useState<'all' | 'incomplete' | 'waived'>('all')
 
   const { data, isLoading, isError } = useQuery({
     queryKey: ['ich-e3', documentId],
@@ -415,6 +435,32 @@ export function ICHValidatorPanel({ documentId }: Props) {
   // heading (§11 for s11_4).
   const isActiveRow = (s: IchSection) =>
     !!activeSection && s.inDocument && (activeSection === s.sectionId || activeSection.startsWith(`${s.sectionId}_`))
+
+  const visibleSections = sections.filter(s =>
+    filter === 'all' ? true
+    : filter === 'waived' ? s.status === 'waived'
+    : s.status !== 'complete' && s.status !== 'waived')
+
+  const fileSlug = () => (data?.documentTitle || `Document ${documentId}`).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || documentId
+
+  // Spreadsheet-friendly export for auditors. Quotes every cell.
+  const handleExportCsv = () => {
+    const cell = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`
+    const rows = [
+      ['Section', 'Title', 'Status', 'In document', 'Words', 'US only', 'Waived by', 'Waived at (UTC)', 'Waiver reason'],
+      ...sections.map(s => [
+        s.code, s.title, s.status.replace('_', ' '), s.inDocument ? 'yes' : 'no', s.wordCount ?? '',
+        s.conditional ? 'yes' : 'no', s.waiver?.waivedByName ?? '', s.waiver?.waivedAt ?? '', s.waiver?.reason ?? '',
+      ]),
+    ]
+    const blob = new Blob(['\uFEFF' + rows.map(r => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `ich-e3-${fileSlug()}-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
 
   const handleExport = () => {
     // Build a plain-text report in-browser so admins can hand it to a
@@ -475,6 +521,27 @@ export function ICHValidatorPanel({ documentId }: Props) {
         </div>
       </div>
 
+      {/* Filter */}
+      <div className="flex flex-none gap-1.5 border-b border-slate-200 px-4 py-2" role="group" aria-label="Filter sections" data-ich-filter>
+        {([['all', 'All'], ['incomplete', 'Incomplete'], ['waived', 'Waived']] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setFilter(key)}
+            aria-pressed={filter === key}
+            data-ich-filter-option={key}
+            className="rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors hover:bg-slate-50"
+            style={{
+              borderColor:     filter === key ? '#2563EB' : '#E2E8F0',
+              backgroundColor: filter === key ? '#EFF6FF' : '#FFFFFF',
+              color:           filter === key ? '#2563EB' : '#64748B',
+            }}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* Scroll region */}
       <div className="flex-1 overflow-y-auto">
         {isLoading && (
@@ -499,7 +566,13 @@ export function ICHValidatorPanel({ documentId }: Props) {
               </p>
             </div>
 
-            {sections.map(section => (
+            {visibleSections.length === 0 && (
+              <p className="px-4 py-6 text-center text-[12px] text-slate-500" data-ich-filter-empty>
+                {filter === 'waived' ? 'No waived sections.' : 'Every section is complete or waived.'}
+              </p>
+            )}
+
+            {visibleSections.map(section => (
               <ICHRow
                 key={section.code}
                 section={section}
@@ -523,15 +596,31 @@ export function ICHValidatorPanel({ documentId }: Props) {
 
       {/* Footer */}
       <div className="flex-none border-t border-slate-200 px-4 py-3">
-        <button
-          type="button"
-          onClick={handleExport}
-          disabled={sections.length === 0}
-          data-ich-export
-          className="w-full rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:text-slate-400"
-        >
-          Export ICH E3 report
-        </button>
+        {waivedCount > 0 && (
+          <p className="mb-2 text-[11px] text-slate-500" data-ich-compliance-note>
+            Waivers are disclosed in the Compliance Summary on the Final Document.
+          </p>
+        )}
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleExport}
+            disabled={sections.length === 0}
+            data-ich-export
+            className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:text-slate-400"
+          >
+            Export report (.txt)
+          </button>
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={sections.length === 0}
+            data-ich-export-csv
+            className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:text-slate-400"
+          >
+            Export CSV
+          </button>
+        </div>
       </div>
     </div>
   )

@@ -80,6 +80,7 @@ function fakePrisma() {
       findFirst: async ({ where }: Row) => (where.userId === 'u-owner' && where.letter === 'R' ? { id: 'raci-1' } : null),
     },
     $queryRawUnsafe: async () => [],
+    $executeRawUnsafe: async () => 0,
     $transaction: async (fn: (tx: Row) => unknown) => fn(prisma),
   }
   return { prisma, documents, chains, records, versions }
@@ -189,6 +190,62 @@ describe('signature chain routes', () => {
     expect(rec.credentialHash).toMatch(/^[0-9a-f]{64}$/)          // a hash, never the typed value
     expect(res.json().credentialHash).toBeUndefined()            // and never sent back
     expect(res.json().auditEntryId).toBe('1')
+  })
+
+  it('still returns the recorded signature when the audit write fails once, retrying it', async () => {
+    const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
+    const real = (t.app as unknown as { audit: { append: (e: Row) => Promise<Row> } }).audit.append
+    let calls = 0
+    ;(t.app as unknown as { audit: { append: (e: Row) => Promise<Row> } }).audit.append = async (e: Row) => {
+      calls += 1
+      if (calls === 1) throw new Error('audit down')
+      return real(e)
+    }
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    expect(res.statusCode).toBe(200)
+    expect(calls).toBe(2)
+    expect(res.json().auditEntryId).toBe('1')
+  })
+
+  it('does not report a recorded signature as failed when the audit write keeps failing', async () => {
+    const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
+    ;(t.app as unknown as { audit: { append: () => Promise<never> } }).audit.append = async () => { throw new Error('audit down') }
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    expect(res.statusCode).toBe(200)
+    expect(res.json().auditEntryId).toBeNull()
+    expect(t.db.records[0].status).toBe('signed')
+  })
+
+  it('refuses to sign once the document is no longer pending_signature, and leaves the step awaiting', async () => {
+    const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
+    t.db.documents[0].status = 'in_authoring'            // moved by a status change while the chain was active
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('document_not_pending_signature')
+    expect(t.db.records[0].status).toBe('awaiting')
+    expect(t.db.documents[0].status).toBe('in_authoring')
+  })
+
+  it('records a failed v1.0 snapshot in the audit entry, and creates the snapshot later when the chain is listed', async () => {
+    const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
+    const dv = (t.db.prisma as unknown as { documentVersion: { create: (a: Row) => Promise<Row> } }).documentVersion
+    const realCreate = dv.create
+    dv.create = async () => { throw new Error('db down') }
+    t.as(USERS.author)
+    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    t.as(USERS.reviewer)
+    const last = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[1].id}/sign`, payload: signAs('Rob Reviewer') })
+    expect(last.statusCode).toBe(200)                                   // the signature stands
+    expect(t.db.documents[0].status).toBe('signed')
+    expect(t.db.versions.find(v => v.versionNumber === 'v1.0')).toBeUndefined()
+    expect(t.audit.at(-1)).toMatchObject({ action: 'document_signed', details: { finalVersionNumber: null, finalSnapshotFailed: true } })
+
+    dv.create = realCreate                                              // the database is back
+    ;(t.app as unknown as { audit: Row }).audit.pageForEntity = async () => ({ rows: [] })
+    const list = await t.app.inject({ method: 'GET', url: '/documents/DOC-1/signature-chains' })
+    expect(list.statusCode).toBe(200)
+    expect(t.db.versions.find(v => v.versionNumber === 'v1.0')).toMatchObject({ label: 'Final' })
+    expect(t.audit.at(-1)).toMatchObject({ action: 'final_version_created_late' })
   })
 
   it('refuses a signature when the typed name is not the signer’s own', async () => {

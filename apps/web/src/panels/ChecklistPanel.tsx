@@ -153,6 +153,14 @@ interface ItemRowProps {
   onRemoveText:  (text: string) => void
   onRemoveCancel:() => void
   onRemoveConfirm:() => void
+  reopeningId:   string | null
+  reopenText:    string
+  reopenError:   string | null
+  onReopenBegin: (id: string) => void
+  onReopenText:  (text: string) => void
+  onReopenCancel:() => void
+  onReopenConfirm:() => void
+  onUntick:      (id: string) => void
 }
 
 function ItemRow(p: ItemRowProps) {
@@ -161,6 +169,7 @@ function ItemRow(p: ItemRowProps) {
   const isWaived        = item.status === 'waived'
   const isCurrWaiving   = p.waivingId === item.id
   const isCurrRemoving  = p.removingId === item.id
+  const isCurrReopening = p.reopeningId === item.id
   const isMandatory     = item.frameworkMandatory
   const secondaryColour =
     isComplete   ? '#15803D' :
@@ -248,7 +257,7 @@ function ItemRow(p: ItemRowProps) {
 
         {/* Actions row — only for people who can edit. Complete and waived
             items can still be removed (with a reason). */}
-        {p.canEdit && !isCurrWaiving && !isCurrRemoving && (
+        {p.canEdit && !isCurrWaiving && !isCurrRemoving && !isCurrReopening && (
           <div className="mt-1 flex gap-3">
             {!isComplete && !isWaived && (
               <>
@@ -270,6 +279,28 @@ function ItemRow(p: ItemRowProps) {
                   Waive
                 </button>
               </>
+            )}
+            {isComplete && (
+              <button
+                type="button"
+                onClick={() => p.onUntick(item.id)}
+                disabled={p.isMutating}
+                data-action="reopen-item"
+                className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
+              >
+                Mark incomplete
+              </button>
+            )}
+            {isWaived && (
+              <button
+                type="button"
+                onClick={() => p.onReopenBegin(item.id)}
+                disabled={p.isMutating}
+                data-action="unwaive-item"
+                className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
+              >
+                Un-waive
+              </button>
             )}
             <button
               type="button"
@@ -322,6 +353,47 @@ function ItemRow(p: ItemRowProps) {
                 style={{ backgroundColor: '#B45309' }}
               >
                 Confirm waive
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Inline un-waive form */}
+        {isCurrReopening && (
+          <div className="mt-2 flex flex-col gap-1.5 rounded border p-2" style={{ borderColor: '#BFDBFE', backgroundColor: '#EFF6FF' }} data-form="unwaive-item">
+            <p className="text-[11px] font-semibold" style={{ color: '#1D4ED8' }}>
+              Un-waiving puts this item back to pending and is recorded in the audit trail.
+            </p>
+            <label className="block">
+              <span className="text-[11px] font-semibold text-slate-700">Reason (required)</span>
+              <input
+                type="text"
+                value={p.reopenText}
+                onChange={e => p.onReopenText(e.target.value)}
+                placeholder="Why is the waiver being reversed?"
+                className="mt-1 h-8 w-full rounded border px-2 text-[12px] outline-none focus:border-blue-600 focus:shadow-focus"
+                style={{ borderColor: '#E2E8F0' }}
+                autoFocus
+              />
+            </label>
+            {p.reopenError && (
+              <p className="text-[11px] font-semibold" style={{ color: '#DC2626' }}>{p.reopenError}</p>
+            )}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={p.onReopenCancel}
+                className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={p.onReopenConfirm}
+                disabled={p.isMutating}
+                className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              >
+                Confirm un-waive
               </button>
             </div>
           </div>
@@ -393,6 +465,10 @@ export function ChecklistPanel({ documentId }: Props) {
   const canEdit = allItems[0]?.canEdit !== false
 
   const [actionError, setActionError] = useState<string | null>(null)
+  const [filter,      setFilter]      = useState<'all' | 'pending' | 'mandatory' | 'waived'>('all')
+  const [reopeningId, setReopeningId] = useState<string | null>(null)
+  const [reopenText,  setReopenText]  = useState('')
+  const [reopenError, setReopenError] = useState<string | null>(null)
   const [removingId,  setRemovingId]  = useState<string | null>(null)
   const [removeText,  setRemoveText]  = useState('')
   const [removeError, setRemoveError] = useState<string | null>(null)
@@ -403,6 +479,8 @@ export function ChecklistPanel({ documentId }: Props) {
   const [addingItem,  setAddingItem]  = useState(false)
   const [newItemText, setNewItemText] = useState('')
   const [newItemFwk,  setNewItemFwk]  = useState('Custom')
+  const [newItemMandatory, setNewItemMandatory] = useState(false)
+  const [newItemStage, setNewItemStage] = useState<NonNullable<ChecklistItem['stage']>>('study_start_up')
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['checklist', documentId] })
 
@@ -435,18 +513,33 @@ export function ChecklistPanel({ documentId }: Props) {
     onError: (err: unknown) => setRemoveError(errorMessage(err, 'Could not remove the item.')),
   })
 
+  const reopenMut = useMutation({
+    mutationFn: (args: { id: string; reason?: string }) =>
+      documentsApi.reopenChecklistItem(documentId, args.id, args.reason ? { reason: args.reason } : {}),
+    onMutate:  () => setActionError(null),
+    onSuccess: () => {
+      setReopeningId(null); setReopenText(''); setReopenError(null)
+      invalidate()
+      qc.invalidateQueries({ queryKey: ['compliance-summary', documentId] })
+    },
+    onError: (err: unknown) => {
+      const msg = errorMessage(err, 'Could not reopen the item.')
+      if (reopeningId) setReopenError(msg); else setActionError(msg)
+    },
+  })
+
   const addMut = useMutation({
-    mutationFn: (args: { text: string; framework: string }) =>
+    mutationFn: (args: { text: string; framework: string; frameworkMandatory: boolean; stage: NonNullable<ChecklistItem['stage']> }) =>
       documentsApi.addChecklistItem(documentId, args),
     onMutate:  () => setActionError(null),
     onSuccess: () => {
-      setAddingItem(false); setNewItemText(''); setNewItemFwk('Custom')
+      setAddingItem(false); setNewItemText(''); setNewItemFwk('Custom'); setNewItemMandatory(false); setNewItemStage('study_start_up')
       invalidate()
     },
     onError: (err: unknown) => setActionError(errorMessage(err, 'Could not add the item.')),
   })
 
-  const isMutating = completeMut.isPending || waiveMut.isPending || addMut.isPending || removeMut.isPending
+  const isMutating = completeMut.isPending || waiveMut.isPending || addMut.isPending || removeMut.isPending || reopenMut.isPending
 
   // --- Derived groupings ---
 
@@ -455,7 +548,12 @@ export function ChecklistPanel({ documentId }: Props) {
   // fall into the "Unscoped" bucket at the bottom.
   const byStage = useMemo(() => {
     const groups = new Map<string | 'unscoped', ChecklistItem[]>()
-    for (const i of items) {
+    const shown = items.filter(i =>
+      filter === 'all' ? true
+      : filter === 'pending' ? i.status === 'pending'
+      : filter === 'mandatory' ? i.frameworkMandatory
+      : i.status === 'waived')
+    for (const i of shown) {
       const key = i.stage ?? 'unscoped'
       const list = groups.get(key) ?? []
       list.push(i)
@@ -468,12 +566,19 @@ export function ChecklistPanel({ documentId }: Props) {
     }
     if (groups.has('unscoped')) ordered.push({ stage: 'unscoped', label: 'Unscoped', items: groups.get('unscoped')! })
     return ordered
-  }, [items])
+  }, [items, filter])
 
   // A waived item is a recorded decision that it doesn't apply, so it counts
   // as done — the same rule the ICH E3 tab uses.
   const completeCount = items.filter(i => i.status === 'complete').length
   const waivedCount   = items.filter(i => i.status === 'waived').length
+  // Mandatory items still pending block "Submit for review" (docs §11.3).
+  const mandatoryPendingTotal = items.filter(i => i.frameworkMandatory && i.status === 'pending').length
+  // Frameworks already on this document, offered when adding an item.
+  const frameworkOptions = useMemo(
+    () => ['Custom', ...[...new Set(items.map(i => i.framework))].filter(f => f !== 'Custom').sort()],
+    [items],
+  )
   const pct = items.length > 0 ? Math.round(((completeCount + waivedCount) / items.length) * 100) : 0
 
   // Per-stage completion count — rendered beside each stage heading so
@@ -488,9 +593,20 @@ export function ChecklistPanel({ documentId }: Props) {
 
   // --- Handlers ---
 
+  const beginReopen = (id: string) => {
+    setReopeningId(id); setReopenText(''); setReopenError(null)
+    setWaivingId(null); setRemovingId(null)
+  }
+  const cancelReopen = () => { setReopeningId(null); setReopenText(''); setReopenError(null) }
+  const confirmReopen = () => {
+    if (!reopeningId) return
+    if (reopenText.trim().length < 3) { setReopenError('A reason is required to un-waive an item'); return }
+    reopenMut.mutate({ id: reopeningId, reason: reopenText.trim() })
+  }
+
   const beginRemove = (id: string) => {
     setRemovingId(id); setRemoveText(''); setRemoveError(null)
-    setWaivingId(null)
+    setWaivingId(null); setReopeningId(null)
   }
   const cancelRemove = () => { setRemovingId(null); setRemoveText(''); setRemoveError(null) }
   const confirmRemove = () => {
@@ -501,7 +617,7 @@ export function ChecklistPanel({ documentId }: Props) {
 
   const beginWaive = (id: string) => {
     setWaivingId(id)
-    setRemovingId(null)
+    setRemovingId(null); setReopeningId(null)
     setWaiverText('')
     setWaiverError(null)
   }
@@ -519,7 +635,7 @@ export function ChecklistPanel({ documentId }: Props) {
 
   const submitAdd = () => {
     if (!newItemText.trim()) return
-    addMut.mutate({ text: newItemText.trim(), framework: newItemFwk || 'Custom' })
+    addMut.mutate({ text: newItemText.trim(), framework: newItemFwk || 'Custom', frameworkMandatory: newItemMandatory, stage: newItemStage })
   }
 
   const rowProps = useMemo(() => ({
@@ -543,7 +659,15 @@ export function ChecklistPanel({ documentId }: Props) {
     onRemoveText:    (t: string) => { setRemoveText(t); if (removeError) setRemoveError(null) },
     onRemoveCancel:  cancelRemove,
     onRemoveConfirm: confirmRemove,
-  }), [waivingId, waiverText, waiverError, isMutating, showReason, completeMut, confirmWaive, canEdit, removingId, removeText, removeError, confirmRemove])
+    reopeningId,
+    reopenText,
+    reopenError,
+    onReopenBegin:   beginReopen,
+    onReopenText:    (t: string) => { setReopenText(t); if (reopenError) setReopenError(null) },
+    onReopenCancel:  cancelReopen,
+    onReopenConfirm: confirmReopen,
+    onUntick:        (id: string) => reopenMut.mutate({ id }),
+  }), [reopeningId, reopenText, reopenError, confirmReopen, waivingId, waiverText, waiverError, isMutating, showReason, completeMut, confirmWaive, canEdit, removingId, removeText, removeError, confirmRemove])
 
   return (
     <div className="flex h-full flex-col overflow-hidden">
@@ -560,6 +684,38 @@ export function ChecklistPanel({ documentId }: Props) {
           <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: '#2563EB' }} />
         </div>
       </div>
+
+      {mandatoryPendingTotal > 0 && (
+        <p
+          className="flex-none border-b px-4 py-2 text-[11px] font-semibold"
+          style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', color: '#92400E' }}
+          data-checklist-mandatory-banner
+        >
+          {mandatoryPendingTotal} mandatory {mandatoryPendingTotal === 1 ? 'item' : 'items'} pending — {mandatoryPendingTotal === 1 ? 'it blocks' : 'they block'} Submit for review.
+        </p>
+      )}
+
+      {items.length > 0 && (
+        <div className="flex flex-none flex-wrap gap-1.5 border-b border-slate-200 px-4 py-2" role="group" aria-label="Filter items" data-checklist-filter>
+          {([['all', 'All'], ['pending', 'Pending'], ['mandatory', 'Mandatory'], ['waived', 'Waived']] as const).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              onClick={() => setFilter(key)}
+              aria-pressed={filter === key}
+              data-checklist-filter-option={key}
+              className="rounded-full border px-2.5 py-0.5 text-[11px] font-semibold transition-colors hover:bg-slate-50"
+              style={{
+                borderColor:     filter === key ? '#2563EB' : '#E2E8F0',
+                backgroundColor: filter === key ? '#EFF6FF' : '#FFFFFF',
+                color:           filter === key ? '#2563EB' : '#64748B',
+              }}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+      )}
 
       {actionError && (
         <p
@@ -582,6 +738,12 @@ export function ChecklistPanel({ documentId }: Props) {
 
       {/* Scroll list */}
       <div className="flex-1 overflow-y-auto">
+
+        {items.length > 0 && byStage.length === 0 && (
+          <p className="px-4 py-6 text-center text-[12px] text-slate-500" data-checklist-filter-empty>
+            No {filter} items.
+          </p>
+        )}
 
         {byStage.map(group => {
           const sum = stageSummary(group.items)
@@ -628,18 +790,43 @@ export function ChecklistPanel({ documentId }: Props) {
                 style={{ borderColor: '#E2E8F0' }}
                 autoFocus
               />
-              <input
-                type="text"
-                value={newItemFwk}
-                onChange={e => setNewItemFwk(e.target.value)}
-                placeholder="Framework (e.g. Custom)"
-                className="h-8 rounded border px-2 text-[12px] outline-none focus:border-blue-600 focus:shadow-focus"
-                style={{ borderColor: '#E2E8F0' }}
-              />
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-700">Framework</span>
+                <select
+                  value={newItemFwk}
+                  onChange={e => setNewItemFwk(e.target.value)}
+                  className="mt-1 h-8 w-full rounded border bg-white px-2 text-[12px] outline-none focus:border-blue-600"
+                  style={{ borderColor: '#E2E8F0' }}
+                  data-add-framework
+                >
+                  {frameworkOptions.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </label>
+              <label className="block">
+                <span className="text-[11px] font-semibold text-slate-700">Stage</span>
+                <select
+                  value={newItemStage}
+                  onChange={e => setNewItemStage(e.currentTarget.value as NonNullable<ChecklistItem['stage']>)}
+                  className="mt-1 h-8 w-full rounded border bg-white px-2 text-[12px] outline-none focus:border-blue-600"
+                  style={{ borderColor: '#E2E8F0' }}
+                  data-add-stage
+                >
+                  {STAGE_ORDER.map(st => <option key={st} value={st}>{STAGE_LABEL[st]}</option>)}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-[12px] text-slate-700">
+                <input
+                  type="checkbox"
+                  checked={newItemMandatory}
+                  onChange={e => setNewItemMandatory(e.target.checked)}
+                  data-add-mandatory
+                />
+                Mandatory — blocks Submit for review until done, waived or removed
+              </label>
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => { setAddingItem(false); setNewItemText(''); setNewItemFwk('Custom') }}
+                  onClick={() => { setAddingItem(false); setNewItemText(''); setNewItemFwk('Custom'); setNewItemMandatory(false); setNewItemStage('study_start_up') }}
                   className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   Cancel

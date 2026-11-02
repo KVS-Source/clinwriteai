@@ -32,9 +32,24 @@ const removeSchema = z.object({
   reason: z.string().min(3, 'A removal reason is required (21 CFR Part 11)'),
 })
 
+const CHECKLIST_STAGES = [
+  'study_start_up', 'during_study', 'reporting', 'cross_functional_review', 'crm', 'final_output',
+] as const
+
 const addCustomSchema = z.object({
   text: z.string().min(1),
-  framework: z.string().default('Custom'),
+  framework: z.string().min(1).default('Custom'),
+  // A user may flag the item as Framework Mandatory (it then blocks submit
+  // for review until done, waived or removed) and choose its stage.
+  frameworkMandatory: z.boolean().default(false),
+  stage: z.enum(CHECKLIST_STAGES).default('study_start_up'),
+})
+
+// Undo a completion or a waiver. A reason is optional for un-ticking a
+// completed item; un-waiving needs one (the waiver was itself a reasoned,
+// audited decision, so reversing it is too).
+const reopenSchema = z.object({
+  reason: z.string().min(3, 'A reason is required to un-waive an item').optional(),
 })
 
 export const checklistRoutes: FastifyPluginAsync = async (app) => {
@@ -268,6 +283,61 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
     return updated
   })
 
+  // Reopen an item (undo a completion or a waiver) — R-only, audited. The
+  // item goes back to 'pending' and its completion / waiver details are
+  // cleared (the audit trail keeps who did what before).
+  app.post('/:documentId/checklist/:itemId/reopen', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, itemId } = request.params as { documentId: string; itemId: string }
+
+    if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({
+        error: 'checklist_edit_forbidden',
+        message: 'Only an R on this document (or an admin) can reopen checklist items.',
+      })
+    }
+
+    const parsed = reopenSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const item = await loadItem(app.prisma, documentId, itemId)
+    if (!item) return reply.code(404).send({ error: 'not_found' })
+    if (item.status !== 'complete' && item.status !== 'waived') {
+      return reply.code(409).send({ error: 'conflict', message: `Only a complete or waived item can be reopened (item is ${item.status})` })
+    }
+    if (item.status === 'waived' && !parsed.data.reason) {
+      return reply.code(400).send({ error: 'validation', message: 'A reason is required to un-waive an item' })
+    }
+
+    const updated = await app.prisma.checklistInstanceItem.update({
+      where: { id: itemId },
+      data: {
+        status: 'pending',
+        completedBy: null, completedAt: null,
+        waivedBy: null, waivedAt: null, waiverReason: null,
+      },
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'checklist_item_reopened',
+      entityType: 'document',
+      entityId: documentId,
+      details: {
+        itemId,
+        text: item.text,
+        framework: item.framework,
+        frameworkMandatory: item.frameworkMandatory,
+        previousStatus: item.status,
+        ...(item.status === 'waived' && { previousWaiverReason: item.waiverReason }),
+        reason: parsed.data.reason ?? null,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return updated
+  })
+
   // Remove an item (PRD FR-A-001b): allowed for any item, mandatory included,
   // but it needs a reason and is audited. Kept as a 'removed' row — never
   // deleted — so it stays visible to the team and, for Framework Mandatory
@@ -351,7 +421,8 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
         instanceId: instance.id,
         text: parsed.data.text,
         framework: parsed.data.framework,
-        frameworkMandatory: false,
+        frameworkMandatory: parsed.data.frameworkMandatory,
+        stage: parsed.data.stage,
         isUserAdded: true,
         sortOrder: (maxSort._max.sortOrder ?? 0) + 10,
       },

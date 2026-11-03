@@ -1,7 +1,7 @@
 import { api } from './client'
 import type {
   Publication, PublicationAuthor, Citation, SubmissionCheck, SubmissionCheckSummary,
-  ReviewRound, ReviewComment,
+  ReviewRound, ReviewComment, Slide,
   CreatePublicationBody, UpdatePublicationBody, AddAuthorBody,
   InsertCitationBody, SubmitReviewResponseBody, CongressExportBody,
 } from '@platform/types'
@@ -138,6 +138,13 @@ export const publicationsApi = {
   congressExport: (publicationId: string, body: CongressExportBody) =>
     api.post<{ exportId: string; format: string; congress: string; createdAt: string }>(
       `/publications/${publicationId}/congress-export`, body,
+    ),
+
+  // Slide deck job — seeds a slide-per-section skeleton on the server and
+  // returns the jobId so the UI can poll /publications/:id/slides/:jobId.
+  createSlideJob: (publicationId: string, body: { styleProfileId?: string } = {}) =>
+    api.post<{ jobId: string; status: 'queued' | 'generating'; slides: Slide[] }>(
+      `/publications/${publicationId}/slides`, body,
     ),
 
   // Final output (B09)

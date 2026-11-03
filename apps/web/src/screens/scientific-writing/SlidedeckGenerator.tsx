@@ -1,8 +1,9 @@
 import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { SlideDeckJob, Slide } from '@platform/types'
 import { MODULE_B_SB10_ACCENT } from '@platform/types'
+import { publicationsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { SlideHistoryPanel } from '../../panels/SlideHistoryPanel'
 
@@ -17,12 +18,14 @@ type RightTab = 'content' | 'notes' | 'figures'
 
 const SOURCES = ['Full manuscript', 'Abstract', 'Selected sections'] as const
 
-// Collaborative editing strip — per brief §41 + §87
-const PRESENCE = [
-  { userId: 'user-cl', name: 'Dr Elena Vasquez',  state: 'you'                       as const },
-  { userId: 'user-ma', name: 'Dr Rebecca Morton', state: 'viewing'                   as const },
-  { userId: 'user-dc', name: 'Mr David Chen',     state: 'editing-slide-06'          as const },
-]
+// Presence strip is driven by the publication's live presence snapshot once
+// a publication-scoped presence endpoint lands. Until then the strip renders
+// empty — the UI still reserves the layout slot so the viewport doesn't
+// reflow when the real data arrives.
+// TODO(swr-wiring): replace with useDocumentPresence equivalent for
+// publications when POST /publications/:id/presence exists. Blocked on
+// the publication-presence endpoint — see Module B deferrals memory.
+const PRESENCE: Array<{ userId: string; name: string; state: 'you' | 'viewing' | 'editing-slide-06' }> = []
 
 function formatUTC(iso: string): string {
   const d = new Date(iso)
@@ -43,9 +46,22 @@ export function SlidedeckGenerator() {
 
   const pubId = publicationId ?? DEMO_PUB_ID
 
+  // Active job id — defaults to the seeded demo deck but is swapped for the
+  // real jobId once the user clicks "+ Create slide deck with AI" (or on a
+  // first-mount auto-create when wired up later).
+  const [jobId, setJobId] = useState<string>(DEMO_JOB_ID)
+
   const { data: job } = useQuery<SlideDeckJob>({
-    queryKey: ['slidedeck', pubId, DEMO_JOB_ID],
-    queryFn:  () => platformApi.getSlideDeckJob(pubId, DEMO_JOB_ID),
+    queryKey: ['slidedeck', pubId, jobId],
+    queryFn:  () => platformApi.getSlideDeckJob(pubId, jobId),
+  })
+
+  const createJob = useMutation({
+    mutationFn: () => publicationsApi.createSlideJob(pubId, {}),
+    onSuccess:  (res) => {
+      setJobId(res.jobId)
+      qc.invalidateQueries({ queryKey: ['slidedeck', pubId, res.jobId] })
+    },
   })
 
   const [source, setSource]         = useState<typeof SOURCES[number]>('Full manuscript')
@@ -79,18 +95,18 @@ export function SlidedeckGenerator() {
   const saveAlt = () => {
     if (!altText.trim()) return
     setAltSaved(true)
-    void platformApi.updateSlide(pubId, DEMO_JOB_ID, 'slide-006', {
+    void platformApi.updateSlide(pubId, jobId, 'slide-006', {
       figures: (activeSlide?.figures ?? []).map(f => f.figureId === 'fig-003' ? { ...f, altText } : f),
     } as Partial<Slide>).catch(() => {})
   }
   const acceptSlide = () => activeSlide && setAcceptedIds(new Set([...acceptedIds, activeSlide.id]))
   const regenerate = () => {
     // Regenerating replaces every slide not accepted. Accepted slides are kept.
-    void qc.invalidateQueries({ queryKey: ['slidedeck', pubId, DEMO_JOB_ID] })
+    void qc.invalidateQueries({ queryKey: ['slidedeck', pubId, jobId] })
   }
   const doExport = async (format: 'pptx' | 'pdf') => {
     if (!canExport) return
-    await platformApi.exportSlideDeck(pubId, DEMO_JOB_ID).catch(() => {})
+    await platformApi.exportSlideDeck(pubId, jobId).catch(() => {})
     void format
   }
 
@@ -143,7 +159,14 @@ export function SlidedeckGenerator() {
             </p>
 
             <div className="flex flex-col gap-2">
-              <button type="button" className="h-9 rounded-md px-3 text-[12px] font-semibold text-white" style={{ backgroundColor: MODULE_B_SB10_ACCENT.primary }} data-create-deck>+ Create slide deck with AI</button>
+              <button
+                type="button"
+                onClick={() => createJob.mutate()}
+                disabled={createJob.isPending}
+                className="h-9 rounded-md px-3 text-[12px] font-semibold text-white disabled:cursor-wait disabled:opacity-70"
+                style={{ backgroundColor: MODULE_B_SB10_ACCENT.primary }}
+                data-create-deck
+              >{createJob.isPending ? 'Creating…' : '+ Create slide deck with AI'}</button>
               <button type="button" onClick={regenerate} className="h-9 rounded-md border px-3 text-[12px] font-semibold" style={{ borderColor: MODULE_B_SB10_ACCENT.primary, color: MODULE_B_SB10_ACCENT.primary }} data-regenerate>Regenerate ✦</button>
               <button type="button" className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50" data-present>▶ Present</button>
             </div>
@@ -197,8 +220,11 @@ export function SlidedeckGenerator() {
               )}
             </div>
 
-            {/* Presence strip */}
+            {/* Presence strip — empty until a publication-presence endpoint lands. */}
             <div className="flex items-center gap-2 rounded-md p-2" style={{ backgroundColor: `${MODULE_B_SB10_ACCENT.primary}11` }} data-presence-strip>
+              {PRESENCE.length === 0 && (
+                <span className="font-mono text-[10px] text-slate-500">No collaborators viewing right now</span>
+              )}
               {PRESENCE.map(p => (
                 <div key={p.userId} className="flex items-center gap-1" data-presence-user={p.userId} data-presence-state={p.state}>
                   <span

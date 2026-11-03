@@ -408,3 +408,32 @@ model SlideFigure {
   @@map("slide_figures")
   @@index([slideId])
 }
+
+// --------------------------------------------------------------------------
+// journals — target-journal catalogue for JournalSubmissionReadiness.
+//
+// Static reference data (impact factor, acceptance rate, time-to-decision,
+// ICMJE/EQUATOR flags). Seeded from the fixture that used to live inline in
+// JournalSubmissionReadiness.tsx. Not tenant-scoped — the catalogue is a
+// platform-wide reference set. Scope is a free-text tag (e.g. "oncology")
+// used for coarse filtering; a richer taxonomy is deferred.
+// --------------------------------------------------------------------------
+
+model Journal {
+  id                       String   @id @default(uuid())
+  name                     String
+  abbreviation             String
+  impactFactor             Float?
+  acceptanceRate           Float?                                         // 0.0..1.0
+  timeToDecision           Int?                                           // median days to first decision
+  isICMJE                  Boolean  @default(false)
+  isEQUATOR                Boolean  @default(false)
+  scope                    String?                                        // free-text tag, e.g. "oncology"
+  submissionGuidelinesUrl  String?
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@map("journals")
+  @@index([scope])
+  @@index([isICMJE])
+}

@@ -331,6 +331,11 @@ async function buildServer() {
   const { slidesRoutes } = await import('./modules/scientific-writing/slides/routes.js')
   await app.register(slidesRoutes)
 
+  // Target-journal catalogue — read-only reference data for the
+  // JournalSubmissionReadiness screen. Replaces the JOURNALS inline array.
+  const { journalsRoutes } = await import('./modules/scientific-writing/journals/routes.js')
+  await app.register(journalsRoutes)
+
   // ---------- Module C — Medical Writing ----------
   const { medContentProjectScopedRoutes, medContentRoutes } =
     await import('./modules/medical-writing/content/routes.js')

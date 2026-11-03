@@ -25,6 +25,16 @@ interface SectionDef {
   childRows?: { label: string; warn?: boolean; note?: string }[]
 }
 
+// IMRAD section skeleton for the manuscript editor outline. Status/
+// child-row/presence annotations are UI-only until the Publication model
+// grows a sections relation + GET /publications/:id/sections returns them.
+// TODO(swr-wiring): replace with publicationsApi.getSections() once the
+// Publication model gains a sections relation (Prisma schema change +
+// routes update). Documents follow this shape already — see
+// apps/api/src/modules/clinical-writing/documents/routes.ts for the
+// canonical sectionShape(). Blocked on the Publication-sections schema
+// decision (whether to reuse DocumentVersion sections or model manuscript
+// sections separately).
 const SECTIONS: SectionDef[] = [
   { id: 'title',       label: 'Title & authors', status: 'complete' },
   { id: 'abstract',    label: 'Abstract',        status: 'complete' },
@@ -37,12 +47,9 @@ const SECTIONS: SectionDef[] = [
       { label: 'CONSORT items', warn: true, note: '3 open' },
     ] },
   { id: 'results',     label: 'Results',         status: 'progress', kind: 'results',  consort: 'CONSORT 2010 — results',
-    who: { initials: 'PN', bg: '#DBEAFE', fg: '#1D4ED8', title: 'Dr Priya Nair is viewing this section' },
     childRows: [{ label: 'Primary endpoint', note: 'draft' }] },
   { id: 'discussion',  label: 'Discussion',      status: 'none', kind: 'empty', consort: 'CONSORT 2010 — discussion',
-    hint: 'Interpretation, limitations and generalisability are drafted here.',
-    locked: true,
-    who: { initials: 'SC', bg: '#F5F3FF', fg: '#7C3AED', title: 'Locked by Dr Sarah Chen — editing now' } },
+    hint: 'Interpretation, limitations and generalisability are drafted here.' },
   { id: 'conclusion',  label: 'Conclusion',      status: 'none', kind: 'empty', consort: 'CONSORT 2010 — conclusion',
     hint: 'A single paragraph stating the trial conclusion.' },
   { id: 'references',  label: 'References',      status: 'none', kind: 'empty', consort: 'Vancouver style',
@@ -58,17 +65,22 @@ const STATUS_MARKS: Record<SectionDef['status'], { bg: string; border: string; m
   none:     { bg: '#FFFFFF', border: '#CBD5E1', mark: '' },
 }
 
-const PRESENCE = [
-  { initials: 'MW', bg: '#CCFBF1', fg: '#0F766E', title: 'Marcus Webb — lead medical writer · editing Methods' },
-  { initials: 'PN', bg: '#DBEAFE', fg: '#1D4ED8', title: 'Dr Priya Nair — biostatistician · viewing Results' },
-  { initials: 'SC', bg: '#F5F3FF', fg: '#7C3AED', title: 'Dr Sarah Chen — publication manager · editing Discussion' },
-]
+// Presence strip is driven by the publication's live presence snapshot
+// once a publication-presence endpoint lands (DocumentEditor consumes an
+// equivalent for Module A via useDocumentPresence).
+// TODO(swr-wiring): replace with useDocumentPresence equivalent for
+// publications. Blocked on POST /publications/:id/presence — the current
+// presence routes are gated to Module A documents only (see
+// apps/api/src/modules/clinical-writing/presence/routes.ts).
+const PRESENCE: Array<{ initials: string; bg: string; fg: string; title: string }> = []
 
-const REVISIONS = [
-  { name: 'v0.2 · Draft',              meta: 'Marcus Webb · 22 Oct 2024 09:14 UTC',    state: 'Current',    tone: 'cur' as const },
-  { name: 'v0.1 · Co-author review',   meta: 'Dr Sarah Chen · 15 Oct 2024 10:22 UTC',  state: 'Reviewed',   tone: 'rev' as const },
-  { name: 'v0.1 · Initial draft',      meta: 'Marcus Webb · 08 Oct 2024 08:20 UTC',    state: 'Superseded', tone: 'old' as const },
-]
+// Revision history waits on a publications/versions endpoint — documents
+// have GET /documents/:id/versions but publications don't persist edit
+// history today (no PublicationVersion model, no equivalent of
+// SectionContentHistory per publication).
+// TODO(swr-wiring): wire to GET /publications/:id/versions when
+// publication versioning lands.
+const REVISIONS: Array<{ name: string; meta: string; state: string; tone: 'cur' | 'rev' | 'old' }> = []
 
 const REV_TONES = {
   cur: { bg: '#F0FDF4', fg: '#15803D' },
@@ -76,26 +88,31 @@ const REV_TONES = {
   old: { bg: '#F1F5F9', fg: '#475569' },
 }
 
-const TLFS = [
-  { ref: 'Table 14.2.1', title: 'Primary efficacy analysis — PFS, ITT population',        value: 'HR = 0.61 (0.48–0.77)',       changed: true  },
-  { ref: 'Figure 11.1',  title: 'Kaplan–Meier plot — progression-free survival',           value: 'Median 14.2 vs 8.7 mo',       changed: false },
-  { ref: 'Table 14.3.2', title: 'Treatment-emergent adverse events by grade',              value: 'Grade ≥3: 41.2% vs 33.8%',    changed: false },
-  { ref: 'Table 14.2.3', title: 'Sensitivity analysis — prior thoracic radiotherapy',      value: 'HR = 0.64 (0.49–0.83)',       changed: false },
-]
+// TLF references live under Module A (`GET /documents/:documentId/tlf`,
+// `GET /projects/:projectId/tlf-packages`). Module B / scientific-writing
+// doesn't expose its own TLF route and the Module A routes are gated to
+// `requireAuth({ modules: ['A'] })` — Module B tokens can't call them.
+// TODO(swr-wiring): expose a Module-B-visible TLF endpoint (or lift the
+// RBAC gate on `/documents/:id/tlf`) and wire this list to it with the
+// publication's sourceDocumentId / projectId.
+const TLFS: Array<{ ref: string; title: string; value: string; changed: boolean }> = []
 
-const FLAGS = [
-  { section: 'Results',  phrase: '"demonstrated superior PFS"', advice: 'Efficacy claim without safety context. Add corresponding safety data or cite CI and p-value.', target: 'results' },
-  { section: 'Abstract', phrase: '"well tolerated"',            advice: 'Tolerability claim without grade ≥3 event rates. Cite Table 14.3.2.',                          target: 'abstract' },
-]
+// Compliance (ICMJE / fair-balance) flags live under submission-checks
+// today — `publicationsApi.getSubmissionChecks(id)` returns the real
+// per-check state. Rather than hard-coding the two flagged phrases, the
+// Fair-Balance panel renders the submission-check summary once the
+// Methods route surfaces a `fair_balance` groupId.
+// TODO(swr-wiring): add a `fair_balance` groupId to SubmissionCheck and
+// derive flags from it. Until then the panel renders empty.
+const FLAGS: Array<{ section: string; phrase: string; advice: string; target: string }> = []
 
-const CONSORT_ITEMS = [
-  { item: '4a',  label: 'Eligibility criteria for participants',                        done: false },
-  { item: '4b',  label: 'Settings and locations where data were collected',             done: true  },
-  { item: '8a',  label: 'Method used to generate the random allocation sequence',       done: true  },
-  { item: '10',  label: 'Who enrolled participants and who assigned them',              done: false },
-  { item: '11a', label: 'Blinding — who was blinded after assignment',                  done: true  },
-  { item: '12b', label: 'Methods for additional analyses, such as subgroup analyses',   done: false },
-]
+// CONSORT 2010 checklist items are advisory, derived from a dedicated
+// CONSORT-engine evaluation of the manuscript body. No such engine exists
+// yet.
+// TODO(swr-wiring): add GET /publications/:id/consort-items returning
+// a full 25-item CONSORT 2010 checklist with pass/warn state per item.
+// Blocked on the CONSORT-engine scope decision (Phase 4+).
+const CONSORT_ITEMS: Array<{ item: string; label: string; done: boolean }> = []
 
 // (Panel titles are inlined at each panel body's PanelShell prop.)
 
@@ -411,18 +428,11 @@ function SuggestBody({ api, onAccept }: { api: ResizablePanelApi; onAccept: () =
 function TLFBody({ api }: { api: ResizablePanelApi }) {
   return (
     <PanelShell title="TLF reference" mode="tlf" api={api}>
-      <div
-        className="flex items-start gap-2.5 rounded-md"
-        style={{ backgroundColor: '#FFFBEB', border: '1px solid #FDE68A', padding: '10px 12px' }}
-        data-tlf-update-banner
-      >
-        <span className="mt-1 h-1.5 w-1.5 flex-none rounded-full" style={{ backgroundColor: '#D97706' }} />
-        <p className="text-xs leading-relaxed">
-          <span className="font-bold">TLF updated — review references.</span>{' '}
-          TLF package v3 was revised in Clinical Writing on 21 Oct 2024, after this manuscript last referenced it.
+      {TLFS.length === 0 && (
+        <p className="text-xs leading-relaxed" style={{ color: '#64748B' }} data-tlf-empty>
+          No TLFs linked yet. Open the TLF package in Clinical Writing to attach tables, listings or figures.
         </p>
-      </div>
-      <p className="font-mono text-[10px] font-medium" style={{ color: '#64748B' }}>Linked package · TLF v3</p>
+      )}
       <div className="flex flex-col gap-2" data-tlf-body>
         {TLFS.map(t => (
           <div
@@ -470,6 +480,11 @@ function BalanceBody({ api }: { api: ResizablePanelApi }) {
         <p className="text-[22px] font-bold" style={{ color: '#B45309' }}>{FLAGS.length}</p>
         <p className="text-xs" style={{ color: '#64748B' }}>advisory flags · none blocking</p>
       </div>
+      {FLAGS.length === 0 && (
+        <p className="text-xs leading-relaxed" style={{ color: '#64748B' }} data-balance-empty>
+          No fair-balance flags open on this manuscript.
+        </p>
+      )}
       <div className="flex flex-col gap-2">
         {FLAGS.map((flag, i) => (
           <div
@@ -502,12 +517,11 @@ function BalanceBody({ api }: { api: ResizablePanelApi }) {
 function ConsortBody({ api }: { api: ResizablePanelApi }) {
   return (
     <PanelShell title="CONSORT 2010 items" mode="consort" api={api}>
-      <div className="flex flex-col gap-1.5" data-consort-body>
-        <p className="font-mono text-[10px] font-medium" style={{ color: '#64748B' }}>CONSORT 2010 · 18/25 items</p>
-        <div className="h-1 overflow-hidden rounded-[2px]" style={{ backgroundColor: '#E2E8F0' }}>
-          <div className="h-full" style={{ width: '72%', backgroundColor: '#0D9488' }} />
-        </div>
-      </div>
+      {CONSORT_ITEMS.length === 0 && (
+        <p className="text-xs leading-relaxed" style={{ color: '#64748B' }} data-consort-empty>
+          CONSORT checklist is unavailable for this manuscript. Open Submission Readiness to review the EQUATOR checks that run against the publication.
+        </p>
+      )}
       <div className="flex flex-col gap-2">
         {CONSORT_ITEMS.map(item => (
           <div
@@ -748,6 +762,11 @@ export function ManuscriptEditor() {
                   <p className="font-mono text-[10px] font-medium uppercase tracking-widest" style={{ color: '#64748B', padding: '4px 10px' }}>
                     Revisions
                   </p>
+                  {REVISIONS.length === 0 && (
+                    <p className="text-[11px]" style={{ color: '#94A3B8', padding: '4px 10px 8px' }} data-rev-empty>
+                      Revision history coming soon.
+                    </p>
+                  )}
                   {REVISIONS.map(r => {
                     const tone = REV_TONES[r.tone]
                     return (

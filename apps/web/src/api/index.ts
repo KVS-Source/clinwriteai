@@ -5,6 +5,8 @@ export type { DocumentTemplate, DocumentTemplateSection } from './documents'
 export { crmApi }          from './crm'
 export { meddraApi }       from './meddra'
 export { publicationsApi } from './publications'
+export { journalsApi }     from './journalsApi'
+export type { ListJournalsFilters } from './journalsApi'
 
 export { signaturesApi }   from './signatures'
 export type { InitiateChainBody, SignRecordBody, SignatureChain, SignatureRecord } from './signatures'

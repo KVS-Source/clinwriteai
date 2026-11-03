@@ -69,7 +69,116 @@ function slideShape(s: {
   }
 }
 
+const createJobSchema = z.object({
+  styleProfileId: z.string().min(1).optional(),
+}).partial()
+
 export const slidesRoutes: FastifyPluginAsync = async (app) => {
+  // ---- POST create slide-job (seed slide-per-section skeleton) -------------
+  //
+  // The SlidedeckGenerator UI calls this on first-mount for a publication
+  // that has no deck yet. We synthesise one slide per IMRAD section of the
+  // manuscript (title, body stub) so the editor has something concrete to
+  // open against; the real AI render runs server-side later and overwrites
+  // the stubs in-place. The job returns `status: 'queued' | 'generating'`
+  // so the client can poll /publications/:id/slides/:jobId for progress.
+  //
+  // The styleProfileId body field is accepted but ignored today — style-
+  // profile wiring is a Phase 4+ scope choice and tracked in the Module B
+  // deferrals memory.
+  app.post('/publications/:publicationId/slides', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { publicationId } = request.params as { publicationId: string }
+    const parsed = createJobSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const pub = await app.prisma.publication.findUnique({
+      where: { id: publicationId },
+      select: { id: true, deletedAt: true, title: true },
+    })
+    if (!pub || pub.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    // Section skeleton: the Publication model doesn't own section rows the way
+    // Document does — manuscripts are drafted inside the editor and we don't
+    // persist a per-section split yet (see ManuscriptEditor TODO). Until that
+    // lands we seed from a conservative IMRAD outline. If a prior job for
+    // this publication exists we reuse the slide titles from the latest one
+    // so repeated job-creates land on a stable skeleton.
+    const prior = await app.prisma.slideDeckJob.findFirst({
+      where: { publicationId },
+      orderBy: { createdAt: 'desc' },
+      include: { slides: { orderBy: { position: 'asc' }, select: { title: true, bodyText: true } } },
+    })
+
+    const skeletonSections = prior && prior.slides.length > 0
+      ? prior.slides.map((s, i) => ({ title: s.title, bullets: s.bodyText || '' , position: i + 1 }))
+      : [
+          { title: 'Title and authors',              bullets: 'Title · author list · affiliations',                position: 1 },
+          { title: 'Background',                      bullets: 'Disease context\nUnmet need',                       position: 2 },
+          { title: 'Study design',                    bullets: 'Phase · randomisation · masking',                   position: 3 },
+          { title: 'Primary endpoint',                bullets: 'HR point estimate · 95% CI · p-value',              position: 4 },
+          { title: 'Safety',                          bullets: 'Grade ≥3 TEAE summary\nTreatment discontinuations', position: 5 },
+          { title: 'Conclusions',                     bullets: 'Clinical takeaway · next steps',                    position: 6 },
+        ]
+
+    // Carry prior deck's congress target forward if any — otherwise null,
+    // the UI's congress-gate chip renders a neutral chip when it's unset.
+    const congressTarget = prior?.congressTarget ?? null
+    const slideCountLimit = prior?.slideCountLimit ?? 20
+
+    const created = await app.prisma.$transaction(async (tx) => {
+      const job = await tx.slideDeckJob.create({
+        data: {
+          publicationId,
+          source:          'full-manuscript',
+          congressTarget,
+          slideCountLimit,
+          status:          'generating',
+          aiModel:         'claude-sonnet-4-6',
+          aiFootprintPct:  0,
+          generatedAt:     new Date(),
+        },
+      })
+      for (const s of skeletonSections) {
+        await tx.slide.create({
+          data: {
+            slideDeckJobId: job.id,
+            position:       s.position,
+            title:          s.title,
+            bodyText:       s.bullets,
+            speakerNotes:   '',
+          },
+        })
+      }
+      return job
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'scientific-writing.slide.job-created',
+      entityType: 'slide_deck',
+      entityId: created.id,
+      details: {
+        publicationId,
+        slideCount: skeletonSections.length,
+        styleProfileId: parsed.data.styleProfileId ?? null,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    const slides = await app.prisma.slide.findMany({
+      where: { slideDeckJobId: created.id },
+      orderBy: { position: 'asc' },
+      include: { figures: true },
+    })
+
+    return reply.code(201).send({
+      jobId:  created.id,
+      status: created.status as 'queued' | 'generating',
+      slides: slides.map(slideShape),
+    })
+  })
+
   // ---- GET deck ------------------------------------------------------------
   app.get('/publications/:publicationId/slides/:jobId', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
     const { publicationId, jobId } = request.params as { publicationId: string; jobId: string }

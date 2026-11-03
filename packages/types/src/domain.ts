@@ -1979,6 +1979,23 @@ export interface AccessibilityMissingAltText {
   figureDescription:  string
 }
 
+// Target-journal catalogue entry (JournalSubmissionReadiness).
+// Backed by the `journals` table + GET /journals route. Static reference
+// data; impactFactor / acceptanceRate / timeToDecision are nullable so
+// entries without published figures still serialise.
+export interface Journal {
+  id:                       string
+  name:                     string
+  abbreviation:             string
+  impactFactor:             number | null
+  acceptanceRate:           number | null
+  timeToDecision:           number | null
+  isICMJE:                  boolean
+  isEQUATOR:                boolean
+  scope:                    string | null
+  submissionGuidelinesUrl:  string | null
+}
+
 export interface SlideDeckJob {
   id:                    string
   publicationId:         string

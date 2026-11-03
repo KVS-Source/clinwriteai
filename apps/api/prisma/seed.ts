@@ -518,6 +518,13 @@ async function main() {
     console.warn('   Slide deck seed skipped:', (e as Error).message)
   }
 
+  try {
+    console.log('→ Seeding Module B target-journal catalogue (JournalSubmissionReadiness)…')
+    await seedJournals()
+  } catch (e) {
+    console.warn('   Journal seed skipped:', (e as Error).message)
+  }
+
   // --------------------------------------------------------------
   // Done.
   // --------------------------------------------------------------
@@ -547,6 +554,7 @@ async function main() {
     slideDeckJobs: await prisma.slideDeckJob.count(),
     slides: await prisma.slide.count(),
     slideFigures: await prisma.slideFigure.count(),
+    journals: await prisma.journal.count(),
   }
   console.log('✔ Seed complete.')
   console.table(counts)
@@ -1822,6 +1830,55 @@ async function seedVeloraTlfPackage(validatedBy: string): Promise<void> {
   } else {
     console.log(`   ${items.length} TLF items seeded; DOC-001 not present so no section links written`)
   }
+}
+
+// ---------- Target-journal catalogue seeding (JournalSubmissionReadiness)
+//
+// Replaces the inline JOURNALS object that used to live in
+// apps/web/src/screens/scientific-writing/JournalSubmissionReadiness.tsx.
+// Stable string ids so the UI can hard-code links / dev fixtures against
+// them. Figures are the current public values at seed time; the API
+// returns them as-is and the UI is responsible for formatting.
+async function seedJournals() {
+  const rows = [
+    {
+      id: 'jnl-nejm', name: 'New England Journal of Medicine', abbreviation: 'NEJM',
+      impactFactor: 96.2, acceptanceRate: 0.05, timeToDecision: 28,
+      isICMJE: true, isEQUATOR: true, scope: 'general-medicine',
+      submissionGuidelinesUrl: 'https://www.nejm.org/author-center',
+    },
+    {
+      id: 'jnl-jco', name: 'Journal of Clinical Oncology', abbreviation: 'JCO',
+      impactFactor: 45.3, acceptanceRate: 0.18, timeToDecision: 35,
+      isICMJE: true, isEQUATOR: true, scope: 'oncology',
+      submissionGuidelinesUrl: 'https://ascopubs.org/jco/authors',
+    },
+    {
+      id: 'jnl-lancet-oncology', name: 'Lancet Oncology', abbreviation: 'Lancet Oncol',
+      impactFactor: 41.6, acceptanceRate: 0.12, timeToDecision: 32,
+      isICMJE: true, isEQUATOR: true, scope: 'oncology',
+      submissionGuidelinesUrl: 'https://www.thelancet.com/pb/assets/raw/Lancet/authors/tlo-info-for-authors.pdf',
+    },
+    {
+      id: 'jnl-annals-oncology', name: 'Annals of Oncology', abbreviation: 'Ann Oncol',
+      impactFactor: 51.8, acceptanceRate: 0.16, timeToDecision: 40,
+      isICMJE: true, isEQUATOR: true, scope: 'oncology',
+      submissionGuidelinesUrl: 'https://www.annalsofoncology.org/content/authorinfo',
+    },
+  ]
+  for (const r of rows) {
+    await prisma.journal.upsert({
+      where:  { id: r.id },
+      create: r,
+      update: {
+        name: r.name, abbreviation: r.abbreviation, impactFactor: r.impactFactor,
+        acceptanceRate: r.acceptanceRate, timeToDecision: r.timeToDecision,
+        isICMJE: r.isICMJE, isEQUATOR: r.isEQUATOR, scope: r.scope,
+        submissionGuidelinesUrl: r.submissionGuidelinesUrl,
+      },
+    })
+  }
+  console.log(`   ${rows.length} journals seeded`)
 }
 
 main()

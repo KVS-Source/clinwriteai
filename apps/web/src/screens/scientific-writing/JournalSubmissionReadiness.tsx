@@ -1,31 +1,52 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useParams } from 'react-router-dom'
-import type { SubmissionCheck, SubmissionCheckGroup, SubmissionCheckState } from '@platform/types'
-import { publicationsApi } from '../../api'
+import type { Journal, SubmissionCheck, SubmissionCheckGroup, SubmissionCheckState } from '@platform/types'
+import { journalsApi, publicationsApi } from '../../api'
 
 // --- Static config ---
 
 const CANONICAL_PUB = 'pub-001'
 
-interface JournalDef {
-  id:        'nejm' | 'jco' | 'lancet' | 'annals'
-  name:      string
-  meta:      string
-  score:     number
-  wordLimit: number
+// Default fit-score + word-limit tuning per journal id. The DB catalogue
+// doesn't yet persist these two display-only tuning values (both are
+// derived from the publication's content + the editorial team's choice);
+// until a dedicated per-publication scoring endpoint lands, we fall back
+// to this static lookup keyed by journal id. Journals outside the lookup
+// render with a neutral 50% score and the default 4,000-word cap.
+//
+// TODO(swr-wiring): replace with GET /publications/:id/journal-fit when
+// a real scoring engine lands. Blocked on the Journal Fit AI model which
+// is Phase 4+ scope.
+const JOURNAL_UI_TUNING: Record<string, { score: number; wordLimit: number; rationale?: string }> = {
+  'jnl-nejm':             { score: 62, wordLimit: 3500 },
+  'jnl-jco':              { score: 94, wordLimit: 5000,
+                            rationale: 'Best fit: NSCLC clinical trial data, PFS primary endpoint, and your study size.' },
+  'jnl-lancet-oncology':  { score: 87, wordLimit: 4500 },
+  'jnl-annals-oncology':  { score: 81, wordLimit: 4000 },
+}
+
+interface JournalRow {
+  id:         string
+  name:       string
+  meta:       string
+  score:      number
+  wordLimit:  number
   rationale?: string
 }
 
-const JOURNALS: Record<JournalDef['id'], JournalDef> = {
-  nejm:   { id: 'nejm',   name: 'New England Journal of Medicine', meta: 'Impact factor 96.2 · Open access: no · Acceptance rate ~5%', score: 62, wordLimit: 3500 },
-  jco:    { id: 'jco',    name: 'Journal of Clinical Oncology',    meta: 'Impact factor 45.3 · Open access: optional · Acceptance rate ~18%', score: 94, wordLimit: 5000,
-            rationale: 'Best fit: NSCLC clinical trial data, PFS primary endpoint, and your study size.' },
-  lancet: { id: 'lancet', name: 'Lancet Oncology',                 meta: 'Impact factor 41.6 · Open access: optional', score: 87, wordLimit: 4500 },
-  annals: { id: 'annals', name: 'Annals of Oncology',              meta: 'Impact factor 51.8 · Open access: optional', score: 81, wordLimit: 4000 },
+function pct(rate: number | null): string | null {
+  if (rate === null || rate === undefined) return null
+  return `${Math.round(rate * 100)}%`
 }
-
-const JOURNAL_ORDER: JournalDef['id'][] = ['jco', 'lancet', 'annals']
+function metaFor(j: Journal): string {
+  const parts: string[] = []
+  if (j.impactFactor !== null) parts.push(`Impact factor ${j.impactFactor}`)
+  const accPct = pct(j.acceptanceRate)
+  if (accPct) parts.push(`Acceptance rate ~${accPct}`)
+  if (j.isICMJE) parts.push('ICMJE')
+  return parts.join(' · ')
+}
 
 const GROUP_LABELS: Record<SubmissionCheckGroup, string> = {
   format:     'Manuscript format',
@@ -65,7 +86,38 @@ export function JournalSubmissionReadiness() {
   const pubId             = publicationId ?? CANONICAL_PUB
   const qc                = useQueryClient()
 
-  const [journalId,      setJournalId]      = useState<JournalDef['id']>('nejm')
+  const { data: journals = [] } = useQuery({
+    queryKey: ['journals'],
+    queryFn:  () => journalsApi.list(),
+    staleTime: 5 * 60_000,
+  })
+
+  const journalRows: JournalRow[] = useMemo(() => journals.map(j => {
+    const tuning = JOURNAL_UI_TUNING[j.id] ?? { score: 50, wordLimit: 4000 }
+    return {
+      id:        j.id,
+      name:      j.name,
+      meta:      metaFor(j),
+      score:     tuning.score,
+      wordLimit: tuning.wordLimit,
+      rationale: tuning.rationale,
+    }
+  }), [journals])
+  const journalById = useMemo(
+    () => new Map(journalRows.map(j => [j.id, j])),
+    [journalRows],
+  )
+
+  // Default selection: NEJM first (matches the previous hard-coded default);
+  // if the catalogue is empty while journals load, fall back to a neutral
+  // placeholder that the UI null-checks below.
+  const [journalId, setJournalId] = useState<string>('jnl-nejm')
+  useEffect(() => {
+    if (!journalById.has(journalId) && journalRows.length > 0) {
+      setJournalId(journalRows[0].id)
+    }
+  }, [journalById, journalRows, journalId])
+
   const [running,        setRunning]        = useState(false)
   const [openGroups,     setOpenGroups]     = useState<Record<string, boolean>>({
     format: false, words: true, equator: true, figures: false, statements: true, plagiarism: true, refs: false,
@@ -179,13 +231,21 @@ export function JournalSubmissionReadiness() {
     }
   }
 
-  const currentJournal = JOURNALS[journalId]
+  const currentJournal = journalById.get(journalId)
   const submitDisabled = totals.blocking > 0
 
-  const handleSwitchJournal = (id: JournalDef['id']) => {
+  const handleSwitchJournal = (id: string) => {
+    const j = journalById.get(id)
+    if (!j) return
     setJournalId(id)
-    setToast(`Target journal switched to ${JOURNALS[id].name}. Word limit revalidated (${JOURNALS[id].wordLimit.toLocaleString()} words).`)
+    setToast(`Target journal switched to ${j.name}. Word limit revalidated (${j.wordLimit.toLocaleString()} words).`)
   }
+
+  // Ranked alternatives — all journals bar the current one, highest-score first.
+  const rankedAlternatives = useMemo(
+    () => journalRows.filter(j => j.id !== journalId).sort((a, b) => b.score - a.score),
+    [journalRows, journalId],
+  )
 
   return (
     <div className="bg-slate-50" data-screen="submission-readiness">
@@ -222,7 +282,9 @@ export function JournalSubmissionReadiness() {
           <div className="flex flex-col gap-1.5">
             <h1 className="text-2xl font-bold tracking-tight" style={{ margin: 0 }}>Submission readiness</h1>
             <p className="font-mono text-xs font-medium" style={{ color: '#64748B' }}>
-              {currentJournal.name} · Vancouver · {currentJournal.wordLimit.toLocaleString()} word limit
+              {currentJournal
+                ? `${currentJournal.name} · Vancouver · ${currentJournal.wordLimit.toLocaleString()} word limit`
+                : 'Loading journal catalogue…'}
             </p>
           </div>
           <div className="flex flex-none gap-2">
@@ -398,57 +460,58 @@ export function JournalSubmissionReadiness() {
 
           {/* Journal panel */}
           <aside className="flex w-[320px] flex-none flex-col gap-3" data-journal-panel>
-            <div
-              className="flex flex-col gap-2 rounded-lg bg-white"
-              style={{ border: '2px solid #0D9488', padding: 16 }}
-              data-journal-current={journalId}
-            >
-              <p className="font-mono text-[10px] font-medium uppercase tracking-widest" style={{ color: '#0F766E' }}>
-                Current target
-              </p>
-              <p className="text-[15px] font-bold">{currentJournal.name}</p>
-              <p className="text-xs leading-relaxed" style={{ color: '#64748B' }}>{currentJournal.meta}</p>
-              {journalId === 'nejm' && (
-                <span
-                  className="self-start rounded-full text-[11px] font-semibold"
-                  style={{ padding: '3px 9px', backgroundColor: '#FFFBEB', color: '#B45309' }}
-                  data-not-recommended
-                >
-                  ⚠ Not top recommendation
-                </span>
-              )}
-              {journalId === 'jco' && (
-                <span
-                  className="self-start rounded-full text-[11px] font-semibold"
-                  style={{ padding: '3px 9px', backgroundColor: '#F0FDF4', color: '#15803D' }}
-                >
-                  ✓ Best fit
-                </span>
-              )}
-              <div className="mt-1 flex items-center gap-2">
-                <div className="h-1.5 flex-1 overflow-hidden rounded-[3px]" style={{ backgroundColor: '#E2E8F0' }}>
-                  <div className="h-full" style={{ width: `${currentJournal.score}%`, backgroundColor: '#0D9488' }} />
+            {currentJournal && (
+              <div
+                className="flex flex-col gap-2 rounded-lg bg-white"
+                style={{ border: '2px solid #0D9488', padding: 16 }}
+                data-journal-current={journalId}
+              >
+                <p className="font-mono text-[10px] font-medium uppercase tracking-widest" style={{ color: '#0F766E' }}>
+                  Current target
+                </p>
+                <p className="text-[15px] font-bold">{currentJournal.name}</p>
+                <p className="text-xs leading-relaxed" style={{ color: '#64748B' }}>{currentJournal.meta}</p>
+                {currentJournal.score < 70 && (
+                  <span
+                    className="self-start rounded-full text-[11px] font-semibold"
+                    style={{ padding: '3px 9px', backgroundColor: '#FFFBEB', color: '#B45309' }}
+                    data-not-recommended
+                  >
+                    ⚠ Not top recommendation
+                  </span>
+                )}
+                {currentJournal.score >= 90 && (
+                  <span
+                    className="self-start rounded-full text-[11px] font-semibold"
+                    style={{ padding: '3px 9px', backgroundColor: '#F0FDF4', color: '#15803D' }}
+                  >
+                    ✓ Best fit
+                  </span>
+                )}
+                <div className="mt-1 flex items-center gap-2">
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-[3px]" style={{ backgroundColor: '#E2E8F0' }}>
+                    <div className="h-full" style={{ width: `${currentJournal.score}%`, backgroundColor: '#0D9488' }} />
+                  </div>
+                  <span className="font-mono text-[11px] font-medium" style={{ color: '#0F766E' }}>{currentJournal.score}%</span>
                 </div>
-                <span className="font-mono text-[11px] font-medium" style={{ color: '#0F766E' }}>{currentJournal.score}%</span>
               </div>
-            </div>
+            )}
 
             <p className="font-mono text-[10px] font-medium uppercase tracking-widest" style={{ color: '#64748B' }}>
               Ranked alternatives
             </p>
-            {JOURNAL_ORDER.map((jid, idx) => {
-              const j = JOURNALS[jid]
-              const isCurrent = journalId === jid
+            {rankedAlternatives.map((j, idx) => {
+              const isCurrent = false // alternatives filter out the current journal
               return (
                 <div
-                  key={jid}
+                  key={j.id}
                   className="flex flex-col gap-1.5 rounded-lg bg-white"
                   style={{
-                    border:          isCurrent ? '2px solid #0D9488' : '1px solid #E2E8F0',
+                    border:          '1px solid #E2E8F0',
                     padding:         12,
-                    backgroundColor: jid === 'jco' ? '#F0FDFA' : '#FFFFFF',
+                    backgroundColor: j.score >= 90 ? '#F0FDFA' : '#FFFFFF',
                   }}
-                  data-journal-alt={jid}
+                  data-journal-alt={j.id}
                 >
                   <div className="flex items-baseline justify-between">
                     <p className="font-mono text-[10px] font-medium" style={{ color: '#94A3B8' }}>#{idx + 1}</p>
@@ -465,8 +528,8 @@ export function JournalSubmissionReadiness() {
                   {!isCurrent && (
                     <button
                       type="button"
-                      onClick={() => handleSwitchJournal(jid)}
-                      data-switch-journal={jid}
+                      onClick={() => handleSwitchJournal(j.id)}
+                      data-switch-journal={j.id}
                       className="mt-1 rounded-md bg-white text-[11px] font-semibold"
                       style={{ padding: '6px 10px', border: '1px solid #0D9488', color: '#0F766E' }}
                     >

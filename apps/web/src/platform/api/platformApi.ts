@@ -123,6 +123,9 @@ export const platformApi = {
   // sPM06 — users
   listUsers: () =>
     api.get<PlatformUser[]>('/admin/users'),
+  // Demo persona switcher: same users as listUsers, open to every persona (bypass mode only).
+  listDemoPersonas: () =>
+    api.get<PlatformUser[]>('/auth/demo-personas'),
   inviteUser: (body: InviteUserBody) =>
     api.post<PlatformUser>('/admin/users/invite', body),
   updateUser: (userId: string, patch: Partial<PlatformUser>) =>

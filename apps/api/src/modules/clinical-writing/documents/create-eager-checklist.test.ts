@@ -42,6 +42,10 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1', therapeuticArea: 'Oncology', submissionCountries: [] })) },
+    // Project visibility for the PM creator: a member of proj-1.
+    projectMember:     { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
+    projectTeamMember: { findMany: vi.fn(async () => []) },
+    document:          { findMany: vi.fn(async () => []) },
     documentUpload: { findMany: vi.fn(async () => []) },
     documentSource: { createMany: vi.fn(async () => ({ count: 0 })) },
     documentRaci: {
@@ -56,7 +60,7 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    const user: AuthenticatedUser = { id: 'writer-1', email: 'w@x.io', role: 'clinical-writer', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'pm-1', email: 'pm@x.io', role: 'pm', modules: ['A'], tenantId: null }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
   })
   await app.register(documentsProjectScopedRoutes, { prefix: '/projects' })

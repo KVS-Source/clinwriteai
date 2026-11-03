@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useBlocker, useLocation, useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type {
   RaciMatrix as RaciMatrixData, RaciTask, PlatformUser, RACIRole, AuditTrailEntry, PlatformUserRole,
   ProjectRaciAssignment, ProjectRaciAssignmentBody,
@@ -39,9 +40,12 @@ const RACI_COLOURS: Record<RACIRole, { bg: string; fg: string }> = {
   I: { bg: '#F1F5F9', fg: '#475569' },
 }
 
-const MODULE_LABELS: Record<'A' | 'B' | 'C' | 'D' | 'E', string> = {
-  A: 'Clinical Writing', B: 'Scientific Writing', C: 'Medical Writing',
-  D: 'Regulatory Writing', E: 'Ideation & Publishing',
+const MODULE_LABEL_KEYS: Record<'A' | 'B' | 'C' | 'D' | 'E', string> = {
+  A: 'page.raci_matrix.module_a',
+  B: 'page.raci_matrix.module_b',
+  C: 'page.raci_matrix.module_c',
+  D: 'page.raci_matrix.module_d',
+  E: 'page.raci_matrix.module_e',
 }
 
 // Account role as a readable label. The API's roles (reviewer, read-only, …) aren't all
@@ -84,6 +88,7 @@ function marksFromOverride(o: ProjectRaciAssignment, roleOfUser: (id: string) =>
 }
 
 export function RACIMatrix() {
+  const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
   // Mirrors the API's requireAuth({ roles: ['admin'] }) on PUT/DELETE.
   const canEdit = isAdminRole(currentUser.role)
@@ -143,12 +148,12 @@ export function RACIMatrix() {
 
   const discardPrompt = blocker.state === 'blocked'
     ? {
-        what:    blocker.location.pathname === pathname ? 'Switching project or module' : 'Leaving this page',
+        what:    blocker.location.pathname === pathname ? t('page.raci_matrix.discard_switching') : t('page.raci_matrix.discard_leaving'),
         keep:    () => blocker.reset(),
         discard: () => blocker.proceed(),
       }
     : pendingClose
-      ? { what: 'Closing', keep: () => setPendingClose(false), discard: closePanel }
+      ? { what: t('page.raci_matrix.discard_closing'), keep: () => setPendingClose(false), discard: closePanel }
       : null
 
   const { data: overrides = [], isLoading: overridesLoading, isError: overridesError, refetch: refetchOverrides } = useQuery<ProjectRaciAssignment[]>({
@@ -170,7 +175,7 @@ export function RACIMatrix() {
     if (!id) return '—'
     const name = usersById.get(id)?.name
     if (name) return name
-    return usersLoaded ? 'Unknown user' : '—'
+    return usersLoaded ? t('page.raci_matrix.unknown_user') : '—'
   }
   // Deprovisioned / suspended accounts can't take on RACI work.
   const assignableUsers = useMemo(
@@ -180,22 +185,22 @@ export function RACIMatrix() {
 
   const selectedProject = projects.find(p => p.id === projectId)
   const moduleTasks = raci.modules[activeModule]?.tasks ?? []
-  const moduleLabel = MODULE_LABELS[activeModule]
-  const customisedCount = moduleTasks.filter(t => overrideByActivity.has(activityKey(activeModule, t.id))).length
+  const moduleLabel = t(MODULE_LABEL_KEYS[activeModule])
+  const customisedCount = moduleTasks.filter(ta => overrideByActivity.has(activityKey(activeModule, ta.id))).length
 
   // Marks shown per task: the template's, or — for a customised task — derived from the saved people.
   const marksByTask = useMemo(() => {
     const m = new Map<string, Record<string, RACIRole | undefined>>()
-    for (const t of moduleTasks) {
-      const o = overrideByActivity.get(activityKey(activeModule, t.id))
-      m.set(t.id, o ? marksFromOverride(o, roleOfUserId) : (t.assignments as Record<string, RACIRole | undefined>))
+    for (const ta of moduleTasks) {
+      const o = overrideByActivity.get(activityKey(activeModule, ta.id))
+      m.set(ta.id, o ? marksFromOverride(o, roleOfUserId) : (ta.assignments as Record<string, RACIRole | undefined>))
     }
     return m
   }, [moduleTasks, overrideByActivity, activeModule, roleOfUserId])
 
   const allRoles = useMemo(() => {
     const s = new Set<string>()
-    moduleTasks.forEach(t => Object.keys(t.assignments).forEach(r => s.add(r)))
+    moduleTasks.forEach(ta => Object.keys(ta.assignments).forEach(r => s.add(r)))
     return Array.from(s)
   }, [moduleTasks])
 
@@ -203,12 +208,12 @@ export function RACIMatrix() {
   // tasks fall back to matching the current user's role column.
   const filteredTasks = useMemo(() => {
     if (!mineOn) return moduleTasks
-    return moduleTasks.filter(t => {
-      const o = overrideByActivity.get(activityKey(activeModule, t.id))
+    return moduleTasks.filter(ta => {
+      const o = overrideByActivity.get(activityKey(activeModule, ta.id))
       if (o) {
         return [o.responsibleId, o.accountableId, ...o.consultedIds, ...o.informedIds].includes(currentUser.id)
       }
-      return Object.keys(t.assignments).includes(currentUser.role)
+      return Object.keys(ta.assignments).includes(currentUser.role)
     })
   }, [moduleTasks, mineOn, overrideByActivity, activeModule, currentUser.id, currentUser.role])
 
@@ -232,16 +237,16 @@ export function RACIMatrix() {
       <div className="flex flex-col gap-4 px-4 pb-12 pt-5 sm:px-8" style={{ maxWidth: 1440 }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Platform</span>
+          <span>{t('page.raci_matrix.crumb_platform')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">RACI Matrix</span>
+          <span className="font-semibold text-slate-900">{t('page.raci_matrix.crumb_raci_matrix')}</span>
         </nav>
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>RACI matrix</h1>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.raci_matrix.title')}</h1>
             <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>
-              {currentUser.name} · {isAdminRole(currentUser.role) ? 'Admin' : PLATFORM_USER_ROLE_LABEL[currentUser.role]}
+              {currentUser.name} · {isAdminRole(currentUser.role) ? t('page.raci_matrix.role_admin') : PLATFORM_USER_ROLE_LABEL[currentUser.role]}
             </p>
           </div>
         </div>
@@ -250,11 +255,11 @@ export function RACIMatrix() {
 
           {/* Left panel */}
           <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-4" data-project-selector>
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Project</p>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.raci_matrix.project_label')}</p>
             {projectsError && (
               <p className="text-[11px] text-red-700" role="alert" data-error="projects">
-                Couldn't load projects.{' '}
-                <button type="button" onClick={() => refetchProjects()} className="font-semibold underline">Retry</button>
+                {t('page.raci_matrix.err_load_projects')}{' '}
+                <button type="button" onClick={() => refetchProjects()} className="font-semibold underline">{t('page.raci_matrix.retry')}</button>
               </p>
             )}
             <select
@@ -264,13 +269,13 @@ export function RACIMatrix() {
               disabled={projects.length === 0}
               className="h-9 w-full min-w-0 truncate rounded-md border border-slate-300 bg-white px-3 text-[13px]"
             >
-              {projects.length === 0 && <option value="">{projectsLoading ? 'Loading projects…' : 'No projects'}</option>}
+              {projects.length === 0 && <option value="">{projectsLoading ? t('page.raci_matrix.loading_projects') : t('page.raci_matrix.no_projects')}</option>}
               {projects.map(p => (
                 <option key={p.id} value={p.id} title={p.name}>{p.shortTitle || p.name}</option>
               ))}
             </select>
 
-            <p className="mt-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Module</p>
+            <p className="mt-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.raci_matrix.module_label')}</p>
             <div className="flex flex-wrap gap-1 lg:flex-col" data-module-tabs>
               {(['A','B','C','D','E'] as const).map(m => {
                 const isActive = m === activeModule
@@ -283,13 +288,13 @@ export function RACIMatrix() {
                     onClick={() => setActiveModule(m)}
                     data-module-tab={m}
                     data-active={isActive || undefined}
-                    title={disabled ? 'No RACI template for this module yet' : undefined}
+                    title={disabled ? t('page.raci_matrix.no_template_tooltip') : undefined}
                     className="h-9 min-w-[8rem] flex-1 rounded-md px-3 text-left text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-40 lg:w-full lg:flex-none"
                     style={{
                       backgroundColor: isActive ? PLATFORM_ACCENT.primary : '#F1F5F9',
                       color:           isActive ? '#FFFFFF' : '#334155',
                     }}
-                  >{MODULE_LABELS[m]}</button>
+                  >{t(MODULE_LABEL_KEYS[m])}</button>
                 )
               })}
             </div>
@@ -299,15 +304,15 @@ export function RACIMatrix() {
           <section className="flex min-w-0 flex-col gap-4 rounded-lg border border-slate-200 bg-white p-4 sm:p-5" data-raci-content>
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div>
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Matrix</p>
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.raci_matrix.matrix_eyebrow')}</p>
                 <p className="mt-1 text-[16px] font-bold text-slate-900" data-heading>
                   {moduleLabel} · {selectedProject ? (selectedProject.shortTitle || selectedProject.name) : '—'}
                 </p>
                 <p className="mt-1 text-[12px] text-slate-600" data-customised-count={customisedCount}>
                   {customisedCount === 0
-                    ? 'Default RACI template applied.'
-                    : `${customisedCount} task${customisedCount === 1 ? '' : 's'} customised for this project.`}
-                  {' '}Adjustments are project-specific and do not affect other projects.
+                    ? t('page.raci_matrix.default_template_applied')
+                    : t('page.raci_matrix.customised_count', { count: customisedCount })}
+                  {' '}{t('page.raci_matrix.project_specific_note')}
                 </p>
               </div>
               <div className="flex items-center gap-2">
@@ -317,7 +322,7 @@ export function RACIMatrix() {
                   data-mine-toggle
                   data-mine-on={mineOn || undefined}
                   className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
-                >{mineOn ? 'Show all tasks' : 'Show my tasks'}</button>
+                >{mineOn ? t('page.raci_matrix.show_all_tasks') : t('page.raci_matrix.show_my_tasks')}</button>
                 {canEdit && (
                   <button
                     type="button"
@@ -326,7 +331,7 @@ export function RACIMatrix() {
                     disabled={!projectId || moduleTasks.length === 0}
                     className="h-8 rounded-md border px-3 text-[12px] font-semibold disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
-                  >Edit assignments →</button>
+                  >{t('page.raci_matrix.edit_assignments')}</button>
                 )}
               </div>
             </div>
@@ -335,20 +340,20 @@ export function RACIMatrix() {
               <div className="flex flex-col gap-1 rounded-md border border-red-200 bg-red-50 p-3 text-[12px] text-red-800" role="alert" data-error="load">
                 {overridesError && (
                   <p>
-                    Couldn't load this project's customised assignments, so only the default template is shown.{' '}
-                    <button type="button" onClick={() => refetchOverrides()} className="font-semibold underline">Retry</button>
+                    {t('page.raci_matrix.err_overrides')}{' '}
+                    <button type="button" onClick={() => refetchOverrides()} className="font-semibold underline">{t('page.raci_matrix.retry')}</button>
                   </p>
                 )}
                 {usersError && (
                   <p>
-                    Couldn't load the people list, so names and roles may be missing.{' '}
-                    <button type="button" onClick={() => refetchUsers()} className="font-semibold underline">Retry</button>
+                    {t('page.raci_matrix.err_users')}{' '}
+                    <button type="button" onClick={() => refetchUsers()} className="font-semibold underline">{t('page.raci_matrix.retry')}</button>
                   </p>
                 )}
               </div>
             )}
             {overridesLoading && !!projectId && (
-              <p className="text-[12px] text-slate-500" data-loading="overrides">Loading project assignments…</p>
+              <p className="text-[12px] text-slate-500" data-loading="overrides">{t('page.raci_matrix.loading_overrides')}</p>
             )}
 
             {/* Matrix table */}
@@ -356,7 +361,7 @@ export function RACIMatrix() {
               <table className="w-full min-w-[640px] text-[12px]">
                 <thead style={{ backgroundColor: '#F8FAFC' }}>
                   <tr className="text-left">
-                    <th className="sticky left-0 z-10 border-r border-slate-100 px-3 py-2 font-semibold" style={{ backgroundColor: '#F8FAFC' }}>Task</th>
+                    <th className="sticky left-0 z-10 border-r border-slate-100 px-3 py-2 font-semibold" style={{ backgroundColor: '#F8FAFC' }}>{t('page.raci_matrix.col_task')}</th>
                     {allRoles.map(r => {
                       const mine = r === currentUser.role
                       return (
@@ -368,37 +373,37 @@ export function RACIMatrix() {
                           data-my-column={mine || undefined}
                         >
                           {(PLATFORM_USER_ROLE_LABEL[r as PlatformUserRole] ?? r).split(' ').map((w, i) => i === 0 ? w : w[0]).join(' ')}
-                          {mine && <span className="block font-mono text-[9px] uppercase tracking-widest">You</span>}
+                          {mine && <span className="block font-mono text-[9px] uppercase tracking-widest">{t('page.raci_matrix.you')}</span>}
                         </th>
                       )
                     })}
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredTasks.map(t => {
-                    const locked = isRowLocked(t.label)
-                    const override = overrideByActivity.get(activityKey(activeModule, t.id))
+                  {filteredTasks.map(ta => {
+                    const locked = isRowLocked(ta.label)
+                    const override = overrideByActivity.get(activityKey(activeModule, ta.id))
                     return (
-                      <tr key={t.id} className="border-t border-slate-200" data-raci-row={t.id} data-row-locked={locked || undefined} data-row-customised={!!override || undefined}>
+                      <tr key={ta.id} className="border-t border-slate-200" data-raci-row={ta.id} data-row-locked={locked || undefined} data-row-customised={!!override || undefined}>
                         <td className="sticky left-0 z-10 border-r border-slate-100 bg-white px-3 py-2 font-semibold text-slate-900" style={{ backgroundColor: '#FFFFFF' }}>
-                          {t.label}
-                          {locked && <span className="ml-2 font-mono text-[10px] text-slate-400">🔒 locked</span>}
+                          {ta.label}
+                          {locked && <span className="ml-2 font-mono text-[10px] text-slate-400">{t('page.raci_matrix.locked_tag')}</span>}
                           {override && (
                             <>
                               <span
                                 className="ml-2 rounded px-1.5 py-0.5 font-mono text-[10px]"
                                 style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
-                              >customised</span>
+                              >{t('page.raci_matrix.customised_tag')}</span>
                               <p className="mt-1 font-mono text-[10px] font-normal text-slate-500" data-override-people>
-                                R: {userName(override.responsibleId)} · A: {userName(override.accountableId)}
-                                {override.consultedIds.length > 0 && ` · C: ${override.consultedIds.map(userName).join(', ')}`}
-                                {override.informedIds.length > 0 && ` · I: ${override.informedIds.map(userName).join(', ')}`}
+                                {t('page.raci_matrix.override_r')} {userName(override.responsibleId)} · {t('page.raci_matrix.override_a')} {userName(override.accountableId)}
+                                {override.consultedIds.length > 0 && ` · ${t('page.raci_matrix.override_c')} ${override.consultedIds.map(userName).join(', ')}`}
+                                {override.informedIds.length > 0 && ` · ${t('page.raci_matrix.override_i')} ${override.informedIds.map(userName).join(', ')}`}
                               </p>
                             </>
                           )}
                         </td>
                         {allRoles.map(r => {
-                          const mark = marksByTask.get(t.id)?.[r]
+                          const mark = marksByTask.get(ta.id)?.[r]
                           const colStyle = r === currentUser.role ? { backgroundColor: PLATFORM_ACCENT.bgTint } : undefined
                           if (!mark) return <td key={r} className="px-3 py-2 text-center text-slate-300" style={colStyle}>—</td>
                           const c = RACI_COLOURS[mark]
@@ -420,27 +425,29 @@ export function RACIMatrix() {
             </div>
 
             <p className="font-mono text-[11px] text-slate-500" data-row-count>
-              {filteredTasks.length} task{filteredTasks.length === 1 ? '' : 's'}{mineOn ? ` assigned to ${currentUser.name}` : ''}
+              {mineOn
+                ? t('page.raci_matrix.task_count_mine', { count: filteredTasks.length, name: currentUser.name })
+                : t('page.raci_matrix.task_count', { count: filteredTasks.length })}
             </p>
             {mineOn && filteredTasks.length === 0 && (
               <p className="text-[12px] text-slate-500" data-mine-empty>
-                You have no assignments in {moduleLabel} for this project.
+                {t('page.raci_matrix.no_assignments', { module: moduleLabel })}
               </p>
             )}
 
             <div className="flex flex-wrap gap-3 text-[11px]" data-raci-legend>
-              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: RACI_COLOURS.R.bg, border: `1px solid ${RACI_COLOURS.R.fg}` }} />R = responsible</span>
-              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: RACI_COLOURS.A.bg, border: `1px solid ${RACI_COLOURS.A.fg}` }} />A = accountable</span>
-              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: RACI_COLOURS.C.bg, border: `1px solid ${RACI_COLOURS.C.fg}` }} />C = consulted</span>
-              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: RACI_COLOURS.I.bg, border: `1px solid ${RACI_COLOURS.I.fg}` }} />I = informed</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: RACI_COLOURS.R.bg, border: `1px solid ${RACI_COLOURS.R.fg}` }} />{t('page.raci_matrix.legend_r')}</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: RACI_COLOURS.A.bg, border: `1px solid ${RACI_COLOURS.A.fg}` }} />{t('page.raci_matrix.legend_a')}</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: RACI_COLOURS.C.bg, border: `1px solid ${RACI_COLOURS.C.fg}` }} />{t('page.raci_matrix.legend_c')}</span>
+              <span className="flex items-center gap-1"><span className="inline-block h-3 w-3 rounded-sm" style={{ backgroundColor: RACI_COLOURS.I.bg, border: `1px solid ${RACI_COLOURS.I.fg}` }} />{t('page.raci_matrix.legend_i')}</span>
             </div>
 
             <p className="font-mono text-[11px] text-slate-500" data-accountability-note>
-              Exactly one role is Accountable per task. Accountability cannot be reassigned after a stage is signed.
+              {t('page.raci_matrix.accountability_note')}
             </p>
 
             <div className="border-t border-slate-200 pt-4" data-people-panel>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">People in these roles</p>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.raci_matrix.people_in_roles')}</p>
               <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))' }}>
                 {peopleInRoles.map(({ role, people }) => (
                   <div key={role} className="flex flex-col gap-2 rounded-md border border-slate-200 p-2" data-person-role={role}>
@@ -448,7 +455,7 @@ export function RACIMatrix() {
                       {PLATFORM_USER_ROLE_LABEL[role as PlatformUserRole] ?? role}
                     </p>
                     {people.length === 0 && (
-                      <p className="text-[12px] italic text-slate-400" data-role-empty>No one in this role yet</p>
+                      <p className="text-[12px] italic text-slate-400" data-role-empty>{t('page.raci_matrix.no_one_in_role')}</p>
                     )}
                     {people.map(user => {
                       const isMe = user.id === currentUser.id
@@ -460,9 +467,9 @@ export function RACIMatrix() {
                           >{initialsFor(user.name)}</span>
                           <div>
                             <p className="text-[12px] font-semibold text-slate-900">
-                              {user.name}{isMe && <span className="ml-1 font-mono text-[10px] text-slate-500">(you)</span>}
+                              {user.name}{isMe && <span className="ml-1 font-mono text-[10px] text-slate-500">{t('page.raci_matrix.you_suffix')}</span>}
                             </p>
-                            {user.status === 'invited' && <p className="font-mono text-[10px] text-slate-500">Invited</p>}
+                            {user.status === 'invited' && <p className="font-mono text-[10px] text-slate-500">{t('page.raci_matrix.invited')}</p>}
                           </div>
                         </div>
                       )
@@ -477,7 +484,7 @@ export function RACIMatrix() {
               style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
               data-audit-note
             >
-              Every assignment change is written to the audit trail with the acting Admin named and a UTC timestamp.
+              {t('page.raci_matrix.audit_note')}
             </p>
           </section>
         </div>
@@ -487,7 +494,7 @@ export function RACIMatrix() {
         <SlidePanel
           open={editOpen}
           onClose={requestClosePanel}
-          title="Edit assignments"
+          title={t('page.raci_matrix.edit_panel_title')}
           subtitle={`${moduleLabel} · ${selectedProject?.shortTitle || selectedProject?.name || projectId}`}
           storageKey="raci-edit-panel-width"
           defaultWidth={560}
@@ -496,25 +503,25 @@ export function RACIMatrix() {
             {discardPrompt && (
               <div className="rounded-md border border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-900" role="alert" data-raci-discard-confirm>
                 <p>
-                  {dirtyTasks.size} task{dirtyTasks.size === 1 ? ' has' : 's have'} unsaved changes. {discardPrompt.what} will discard them.
+                  {t('page.raci_matrix.discard_prompt', { count: dirtyTasks.size, what: discardPrompt.what })}
                 </p>
                 <div className="mt-2 flex gap-2">
                   <button type="button" onClick={discardPrompt.keep}
-                    className="h-7 rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700">Keep editing</button>
+                    className="h-7 rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700">{t('page.raci_matrix.keep_editing')}</button>
                   <button type="button" onClick={discardPrompt.discard} data-raci-discard
-                    className="h-7 rounded-md bg-amber-700 px-3 text-[11px] font-semibold text-white">Discard changes</button>
+                    className="h-7 rounded-md bg-amber-700 px-3 text-[11px] font-semibold text-white">{t('page.raci_matrix.discard_changes')}</button>
                 </div>
               </div>
             )}
-            {moduleTasks.map(t => (
+            {moduleTasks.map(ta => (
               <RaciTaskEditor
-                key={`${projectId}-${t.id}`}
+                key={`${projectId}-${ta.id}`}
                 projectId={projectId}
-                activity={activityKey(activeModule, t.id)}
-                task={t}
-                override={overrideByActivity.get(activityKey(activeModule, t.id))}
+                activity={activityKey(activeModule, ta.id)}
+                task={ta}
+                override={overrideByActivity.get(activityKey(activeModule, ta.id))}
                 users={assignableUsers}
-                accountableLocked={isRowLocked(t.label)}
+                accountableLocked={isRowLocked(ta.label)}
                 onDirtyChange={reportDirty}
               />
             ))}
@@ -535,6 +542,7 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
   accountableLocked: boolean
   onDirtyChange:     (activity: string, dirty: boolean) => void
 }) {
+  const { t } = useTranslation()
   const queryClient = useQueryClient()
   const fromOverride = (): ProjectRaciAssignmentBody => ({
     activity,
@@ -561,15 +569,15 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
 
   // Inline, human-readable messages only — never the raw API status or body.
   const onError = (e: unknown) => {
-    if (!(e instanceof ApiError)) return setError('Could not reach the server. Check your connection and try again.')
-    if (e.status === 401) return setError('Your session has expired. Sign in again to continue.')
-    if (e.status === 403) return setError('Only Admins can change RACI assignments.')
-    if (e.status === 404) return setError('This project or assignment no longer exists. Refresh the page.')
+    if (!(e instanceof ApiError)) return setError(t('page.raci_matrix.err_network'))
+    if (e.status === 401) return setError(t('page.raci_matrix.err_session_expired'))
+    if (e.status === 403) return setError(t('page.raci_matrix.err_forbidden'))
+    if (e.status === 404) return setError(t('page.raci_matrix.err_not_found'))
     if (e.status === 400 && (e.body as { error?: string } | null)?.error === 'unknown_user') {
-      return setError('One or more selected people no longer exist. Refresh the page and pick again.')
+      return setError(t('page.raci_matrix.err_unknown_user'))
     }
-    if (e.status === 400 || e.status === 422) return setError('These assignments are not valid. Check the people selected and try again.')
-    return setError('Something went wrong on our side. Please try again.')
+    if (e.status === 400 || e.status === 422) return setError(t('page.raci_matrix.err_invalid'))
+    return setError(t('page.raci_matrix.err_generic'))
   }
   const invalidate = () => queryClient.invalidateQueries({ queryKey: ['project-raci', projectId] })
 
@@ -619,7 +627,7 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
       aria-invalid={invalid || undefined}
       className={`h-9 w-full rounded-md border bg-white px-2 text-[12px] disabled:bg-slate-50 ${invalid ? 'border-red-400' : 'border-slate-300'}`}
     >
-      <option value="">— Unassigned —</option>
+      <option value="">{t('page.raci_matrix.unassigned_option')}</option>
       {groupedUsers.map(([label, list]) => (
         <optgroup key={label} label={label}>
           {list.map(u => <option key={u.id} value={u.id}>{u.name} — {label}</option>)}
@@ -643,16 +651,16 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
             <span className="text-[13px] font-semibold text-slate-900">{task.label}</span>
             {override && (
               <span className="rounded px-1.5 py-0.5 font-mono text-[10px]"
-                style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}>customised</span>
+                style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}>{t('page.raci_matrix.customised_tag')}</span>
             )}
-            {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] text-amber-800" data-raci-unsaved>unsaved</span>}
+            {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] text-amber-800" data-raci-unsaved>{t('page.raci_matrix.unsaved_tag')}</span>}
           </span>
           {!open && (
             <span className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1" data-raci-summary>
               <SummaryItem letter="R" value={draft.responsibleId ? nameOf(draft.responsibleId) : null} />
               <SummaryItem letter="A" value={draft.accountableId ? nameOf(draft.accountableId) : null} />
-              <SummaryItem letter="C" value={draft.consultedIds.length ? `${draft.consultedIds.length} ${draft.consultedIds.length === 1 ? 'person' : 'people'}` : null} />
-              <SummaryItem letter="I" value={draft.informedIds.length ? `${draft.informedIds.length} ${draft.informedIds.length === 1 ? 'person' : 'people'}` : null} />
+              <SummaryItem letter="C" value={draft.consultedIds.length ? t('page.raci_matrix.people_count', { count: draft.consultedIds.length }) : null} />
+              <SummaryItem letter="I" value={draft.informedIds.length ? t('page.raci_matrix.people_count', { count: draft.informedIds.length }) : null} />
             </span>
           )}
         </span>
@@ -662,26 +670,26 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
         <div className="border-t border-slate-200 px-4 py-4">
           <div className="grid grid-cols-2 gap-3">
             <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
-              R · Responsible
+              {t('page.raci_matrix.field_responsible')}
               {userSelect('responsibleId')}
             </label>
             <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
-              <span>A · Accountable <span className="text-red-700" aria-hidden="true">*</span>{accountableLocked && ' 🔒'}</span>
+              <span>{t('page.raci_matrix.field_accountable')} <span className="text-red-700" aria-hidden="true">*</span>{accountableLocked && ' 🔒'}</span>
               {userSelect('accountableId', accountableLocked, !draft.accountableId)}
             </label>
           </div>
           {!draft.accountableId && !accountableLocked && (
             <p className="mt-1 text-[11px] text-red-700" role="alert" data-raci-accountable-hint>
-              Choose one Accountable person to save.
+              {t('page.raci_matrix.accountable_hint')}
             </p>
           )}
           {accountableLocked && (
-            <p className="mt-1 font-mono text-[10px] text-slate-400">Stage is signed — accountability cannot be reassigned.</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-400">{t('page.raci_matrix.stage_signed_note')}</p>
           )}
 
           <div className="mt-4 flex flex-col gap-4">
             <PeoplePicker
-              label="C · Consulted"
+              label={t('page.raci_matrix.field_consulted')}
               field="consultedIds"
               users={users}
               selectedIds={draft.consultedIds}
@@ -690,7 +698,7 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
               onClear={() => clearField('consultedIds')}
             />
             <PeoplePicker
-              label="I · Informed"
+              label={t('page.raci_matrix.field_informed')}
               field="informedIds"
               users={users}
               selectedIds={draft.informedIds}
@@ -710,17 +718,17 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
                 onClick={() => setConfirmReset(true)}
                 data-raci-reset
                 className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-              >Reset to template</button>
+              >{t('page.raci_matrix.reset_to_template')}</button>
             )}
             <button
               type="button"
               disabled={!dirty || busy || !draft.accountableId}
-              title={!draft.accountableId ? 'Exactly one person must be Accountable' : undefined}
+              title={!draft.accountableId ? t('page.raci_matrix.save_tooltip_no_a') : undefined}
               onClick={() => save.mutate()}
               data-raci-save
               className="h-8 rounded-md px-4 text-[12px] font-semibold text-white disabled:opacity-40"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >{save.isPending ? 'Saving…' : 'Save'}</button>
+            >{save.isPending ? t('page.raci_matrix.saving') : t('page.raci_matrix.save')}</button>
           </div>
         </div>
       )}
@@ -740,6 +748,7 @@ function RaciTaskEditor({ projectId, activity, task, override, users, accountabl
 
 // One "R  Name" pair in a collapsed task's summary row.
 function SummaryItem({ letter, value }: { letter: RACIRole; value: string | null }) {
+  const { t } = useTranslation()
   const c = RACI_COLOURS[letter]
   return (
     <span className="inline-flex items-center gap-1.5 text-[11px]">
@@ -747,7 +756,7 @@ function SummaryItem({ letter, value }: { letter: RACIRole; value: string | null
         className="inline-flex h-4 w-4 items-center justify-center rounded font-mono text-[9px] font-bold"
         style={{ backgroundColor: c.bg, color: c.fg, border: `1px solid ${c.fg}44` }}
       >{letter}</span>
-      <span className={value ? 'font-medium text-slate-700' : 'text-slate-400'}>{value ?? 'Not set'}</span>
+      <span className={value ? 'font-medium text-slate-700' : 'text-slate-400'}>{value ?? t('page.raci_matrix.not_set')}</span>
     </span>
   )
 }
@@ -764,6 +773,7 @@ function PeoplePicker({ label, field, users, selectedIds, disabled, onToggle, on
   onToggle:    (id: string) => void
   onClear:     () => void
 }) {
+  const { t } = useTranslation()
   const [adding, setAdding] = useState(false)
   const [query, setQuery] = useState('')
 
@@ -782,12 +792,12 @@ function PeoplePicker({ label, field, users, selectedIds, disabled, onToggle, on
     <div data-raci-chips={field}>
       <div className="flex items-center justify-between gap-2">
         <p className="text-[11px] font-semibold text-slate-600">
-          {label} <span className="font-normal text-slate-400">· {selectedIds.length} selected</span>
+          {label} <span className="font-normal text-slate-400">· {t('page.raci_matrix.selected_count', { count: selectedIds.length })}</span>
         </p>
         <div className="flex items-center gap-2">
           {selectedIds.length > 0 && (
             <button type="button" disabled={disabled} onClick={onClear}
-              className="text-[11px] text-slate-500 underline disabled:opacity-40">Clear all</button>
+              className="text-[11px] text-slate-500 underline disabled:opacity-40">{t('page.raci_matrix.clear_all')}</button>
           )}
           <button
             type="button"
@@ -795,13 +805,13 @@ function PeoplePicker({ label, field, users, selectedIds, disabled, onToggle, on
             aria-expanded={adding}
             onClick={() => { setAdding(a => !a); setQuery('') }}
             className="h-7 rounded-md border border-slate-300 bg-white px-2.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-40"
-          >{adding ? 'Done' : '+ Add people'}</button>
+          >{adding ? t('page.raci_matrix.done') : t('page.raci_matrix.add_people')}</button>
         </div>
       </div>
 
       <div className="mt-1.5 flex flex-wrap gap-1.5">
         {selected.length === 0 && unknownCount === 0 && (
-          <p className="text-[11px] italic text-slate-400">No one selected</p>
+          <p className="text-[11px] italic text-slate-400">{t('page.raci_matrix.no_one_selected')}</p>
         )}
         {selected.map(u => (
           <span
@@ -815,13 +825,13 @@ function PeoplePicker({ label, field, users, selectedIds, disabled, onToggle, on
               type="button"
               disabled={disabled}
               onClick={() => onToggle(u.id)}
-              aria-label={`Remove ${u.name}`}
+              aria-label={t('page.raci_matrix.remove_person_aria', { name: u.name })}
               className="ml-0.5 flex h-4 w-4 items-center justify-center rounded text-[12px] leading-none hover:bg-white/60 disabled:opacity-40"
             >×</button>
           </span>
         ))}
         {unknownCount > 0 && (
-          <span className="text-[11px] text-slate-400">+{unknownCount} unknown user{unknownCount === 1 ? '' : 's'}</span>
+          <span className="text-[11px] text-slate-400">{t('page.raci_matrix.unknown_users', { count: unknownCount })}</span>
         )}
       </div>
 
@@ -832,8 +842,8 @@ function PeoplePicker({ label, field, users, selectedIds, disabled, onToggle, on
             autoFocus
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search by name or role"
-            aria-label={`Search people for ${label}`}
+            placeholder={t('page.raci_matrix.search_placeholder')}
+            aria-label={t('page.raci_matrix.search_aria', { label })}
             className="h-8 w-full rounded-t-md border-b border-slate-200 px-3 text-[12px] outline-none"
           />
           <ul className="max-h-48 overflow-y-auto py-1">
@@ -849,10 +859,10 @@ function PeoplePicker({ label, field, users, selectedIds, disabled, onToggle, on
                 </li>
               )
             })}
-            {matches.length === 0 && <li className="px-3 py-2 text-[12px] text-slate-400">No one matches "{query}"</li>}
+            {matches.length === 0 && <li className="px-3 py-2 text-[12px] text-slate-400">{t('page.raci_matrix.no_matches', { query })}</li>}
           </ul>
           <p className="border-t border-slate-100 px-3 py-1 font-mono text-[10px] text-slate-400">
-            {matches.length} of {users.length} people
+            {t('page.raci_matrix.match_count', { shown: matches.length, total: users.length })}
           </p>
         </div>
       )}
@@ -869,6 +879,7 @@ function ConfirmResetDialog({ taskLabel, busy, error, onCancel, onConfirm }: {
   onCancel:  () => void
   onConfirm: () => void
 }) {
+  const { t } = useTranslation()
   // Escape cancels the dialog only — capture phase so the panel's own Escape handler doesn't also close it.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -888,10 +899,9 @@ function ConfirmResetDialog({ taskLabel, busy, error, onCancel, onConfirm }: {
       data-raci-reset-dialog
     >
       <div role="alertdialog" aria-modal="true" aria-labelledby="raci-reset-title" className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl">
-        <h2 id="raci-reset-title" className="text-[15px] font-bold text-slate-900">Reset to template?</h2>
+        <h2 id="raci-reset-title" className="text-[15px] font-bold text-slate-900">{t('page.raci_matrix.reset_dialog_title')}</h2>
         <p className="mt-2 text-[13px] text-slate-600">
-          This removes this project's customised assignment for <span className="font-semibold">{taskLabel}</span> and
-          restores the default template. This can't be undone.
+          {t('page.raci_matrix.reset_dialog_body_prefix')} <span className="font-semibold">{taskLabel}</span> {t('page.raci_matrix.reset_dialog_body_suffix')}
         </p>
         {error && <p className="mt-2 text-[12px] text-red-700" role="alert">{error}</p>}
         <div className="mt-4 flex justify-end gap-2">
@@ -901,14 +911,14 @@ function ConfirmResetDialog({ taskLabel, busy, error, onCancel, onConfirm }: {
             disabled={busy}
             onClick={onCancel}
             className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 disabled:opacity-40"
-          >Cancel</button>
+          >{t('button.cancel')}</button>
           <button
             type="button"
             disabled={busy}
             onClick={onConfirm}
             data-raci-reset-confirm
             className="h-8 rounded-md bg-red-700 px-3 text-[12px] font-semibold text-white disabled:opacity-40"
-          >{busy ? 'Resetting…' : 'Yes, reset'}</button>
+          >{busy ? t('page.raci_matrix.resetting') : t('page.raci_matrix.confirm_reset')}</button>
         </div>
       </div>
     </div>,

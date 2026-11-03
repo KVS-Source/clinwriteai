@@ -6,6 +6,7 @@ import { STATUS_META } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { reportsApi } from '../../api/reports'
 import { platformApi } from '../../platform/api/platformApi'
+import { usePlatformStore } from '../../platform/store'
 import { SlidePanel } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { NewDocumentForm } from '../clinical-writing/NewDocument'
@@ -256,6 +257,8 @@ export function PortfolioDashboard() {
   const navigate         = useNavigate()
   const setActiveProject = useProjectStore(s => s.setActiveProject)
   const [newDocOpen, setNewDocOpen] = useState(false)
+  // New Document is PM-only (POST /projects/:id/documents requires role='pm').
+  const isPm = usePlatformStore(s => s.currentUser.role) === 'pm'
 
   // Search, filters and sort live in the URL (?q=&stage=&status=&type=&sort=), so a refresh and
   // Back from a document keep them (PRD A §8.4).
@@ -439,14 +442,16 @@ export function PortfolioDashboard() {
             >
               Export report
             </button>
-            <button
-              type="button"
-              onClick={() => setNewDocOpen(true)}
-              data-panel-trigger
-              className="rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors focus:outline-none focus:shadow-focus"
-            >
-              + New Document
-            </button>
+            {isPm && (
+              <button
+                type="button"
+                onClick={() => setNewDocOpen(true)}
+                data-panel-trigger
+                className="rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors focus:outline-none focus:shadow-focus"
+              >
+                + New Document
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -537,9 +542,11 @@ export function PortfolioDashboard() {
           {!isLoading && !isError && totalCount === 0 && (
             <div className="flex flex-col items-center gap-2 rounded-lg border border-dashed border-slate-300 px-5 py-12 text-center" data-state="empty">
               <p className="text-sm font-semibold text-slate-900">No documents yet</p>
-              <button type="button" onClick={() => setNewDocOpen(true)} data-panel-trigger className="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                + New Document
-              </button>
+              {isPm && (
+                <button type="button" onClick={() => setNewDocOpen(true)} data-panel-trigger className="text-xs font-semibold text-blue-600 hover:text-blue-700">
+                  + New Document
+                </button>
+              )}
             </div>
           )}
 

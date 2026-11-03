@@ -1,7 +1,7 @@
-// QA regression — All Stages "⋯" row menu: RACI only for documents that are being worked on.
+// QA regression — All Stages "⋯" row menu: RACI only for documents not yet at signature.
 //
-// RACI is listed for In Authoring, In Review and CRM In Progress; it is not listed for any other status
-// (Not Started, Pending Signature, Signed). Choosing it opens the RACI drawer for that document.
+// RACI is listed for Not Started, In Authoring, In Review and CRM In Progress; it is not listed for
+// Pending Signature or Signed. Choosing it opens the RACI drawer for that document.
 //
 //   E2E_BASE_URL=http://localhost:5173 E2E_PROJECT_ID=PROJ-AURORA \
 //     npx playwright test playwright/smoke/15-row-menu-raci.spec.ts
@@ -15,7 +15,7 @@ const PROJECT_ID = process.env.E2E_PROJECT_ID ?? PROTOTYPE_PROJECT_ID
 test.setTimeout(120_000)
 
 const STATUSES = ['in-authoring', 'in-review', 'crm-in-progress', 'not-started', 'pending-signature', 'signed'] as const
-const WITH_RACI = new Set<string>(['in-authoring', 'in-review', 'crm-in-progress'])
+const WITH_RACI = new Set<string>(['not-started', 'in-authoring', 'in-review', 'crm-in-progress'])
 const docId = (s: string) => `DOC-E2E-MENU-${s}`
 
 test.beforeEach(async ({ page }) => {
@@ -46,7 +46,7 @@ async function openMenu(page: Page, status: string) {
   return menu
 }
 
-test('RACI appears in the row menu only for In Authoring, In Review and CRM In Progress', async ({ page }) => {
+test('RACI appears in the row menu only for Not Started, In Authoring, In Review and CRM In Progress', async ({ page }) => {
   await page.goto(`/projects/${PROJECT_ID}/clinical-writing`)
   await expect(page.locator(`[data-doc-row="${docId('in-authoring')}"]`)).toBeVisible({ timeout: 60_000 })
 

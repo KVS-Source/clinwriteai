@@ -1,20 +1,11 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { TATag } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { ApiError } from '../../api/client'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
-
-// Prefer the API's human-readable message (e.g. the in-use refusal).
-function errorMessage(err: unknown): string {
-  if (err instanceof ApiError) {
-    const body = err.body as { message?: string; error?: string } | null
-    if (body?.message) return body.message
-    if (err.status === 403) return 'Only Admins can manage TA tags.'
-  }
-  return 'Something went wrong. Please try again.'
-}
 
 // createdAt arrives as an ISO timestamp (or 'YYYY-MM-DD' from mocks); only the
 // date part is shown, parsed as a local date so the day never shifts with the
@@ -27,18 +18,30 @@ function formatCreated(ymd: string | undefined): string {
 }
 
 function StatusChip({ status }: { status: 'active' | 'archived' }) {
+  const { t } = useTranslation()
   if (status === 'active')
-    return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0' }} data-status-chip="active">✓ Active</span>
-  return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: '#F1F5F9', color: '#475569', border: '1px solid #CBD5E1' }} data-status-chip="archived">○ Archived</span>
+    return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: '#F0FDF4', color: '#166534', border: '1px solid #BBF7D0' }} data-status-chip="active">{t('page.ta_tag_configuration.chip_active')}</span>
+  return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: '#F1F5F9', color: '#475569', border: '1px solid #CBD5E1' }} data-status-chip="archived">{t('page.ta_tag_configuration.chip_archived')}</span>
 }
 
 export function TATagConfiguration() {
+  const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
   const qc = useQueryClient()
   const { data: tags = [], isLoading, error: loadError } = useQuery<TATag[]>({
     queryKey: ['ta-tags'],
     queryFn:  () => platformApi.listTATags(),
   })
+
+  // Prefer the API's human-readable message (e.g. the in-use refusal).
+  const errorMessage = (err: unknown): string => {
+    if (err instanceof ApiError) {
+      const body = err.body as { message?: string; error?: string } | null
+      if (body?.message) return body.message
+      if (err.status === 403) return t('page.ta_tag_configuration.err_forbidden')
+    }
+    return t('page.ta_tag_configuration.err_generic')
+  }
 
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [name,       setName]       = useState('')
@@ -47,13 +50,13 @@ export function TATagConfiguration() {
 
   const [confirmArchive, setConfirmArchive] = useState<TATag | null>(null)
 
-  const activeCount = tags.filter(t => t.status === 'active').length
+  const activeCount = tags.filter(ta => ta.status === 'active').length
 
   // In-use tags (linked to projects/documents) first, then the rest; newest
   // created first within each group, name as the tie-break. createdAt is a full
   // ISO timestamp, so string order is creation order — same-day tags included.
   const sortedTags = useMemo(() => {
-    const inUse = (t: TATag) => t.projectCount + t.documentCount > 0
+    const inUse = (ta: TATag) => ta.projectCount + ta.documentCount > 0
     return [...tags].sort((a, b) =>
       Number(inUse(b)) - Number(inUse(a))
       || (b.createdAt ?? '').localeCompare(a.createdAt ?? '')
@@ -61,18 +64,18 @@ export function TATagConfiguration() {
   }, [tags])
 
   const nameRule = useMemo(() => {
-    if (name === '')                                                          return 'Tag name is required'
-    if (tags.some(t => t.name.toLowerCase() === name.trim().toLowerCase()))   return 'This tag name already exists'
+    if (name === '')                                                             return t('page.ta_tag_configuration.rule_name_required')
+    if (tags.some(ta => ta.name.toLowerCase() === name.trim().toLowerCase()))    return t('page.ta_tag_configuration.rule_name_duplicate')
     return ''
-  }, [tags, name])
+  }, [tags, name, t])
 
   const abbrevRule = useMemo(() => {
-    if (abbrev.length > 6)                                                    return 'Maximum 6 characters'
-    if (abbrev && !/^[A-Z][A-Z0-9]{1,5}$/.test(abbrev))                       return '2–6 letters or digits, starting with a letter'
-    if (abbrev && tags.some(t => t.abbreviation.toLowerCase() === abbrev.toLowerCase()))
-      return 'This abbreviation is already in use'
+    if (abbrev.length > 6)                                                       return t('page.ta_tag_configuration.rule_abbrev_max')
+    if (abbrev && !/^[A-Z][A-Z0-9]{1,5}$/.test(abbrev))                          return t('page.ta_tag_configuration.rule_abbrev_format')
+    if (abbrev && tags.some(ta => ta.abbreviation.toLowerCase() === abbrev.toLowerCase()))
+      return t('page.ta_tag_configuration.rule_abbrev_duplicate')
     return ''
-  }, [tags, abbrev])
+  }, [tags, abbrev, t])
 
   const canSave = name.trim() && abbrev && !nameRule && !abbrevRule
 
@@ -100,33 +103,33 @@ export function TATagConfiguration() {
       setName(''); setAbbrev(''); setDrawerOpen(false)
     }
   }
-  const archive = (t: TATag) => run(() => platformApi.archiveTATag(t.id))
+  const archive = (ta: TATag) => run(() => platformApi.archiveTATag(ta.id))
   const doArchive = async () => {
     if (!confirmArchive) return
     await archive(confirmArchive)
     setConfirmArchive(null)
   }
-  const restore = (t: TATag) => run(() => platformApi.restoreTATag(t.id))
-  const del = (t: TATag) => run(() => platformApi.deleteTATag(t.id))
+  const restore = (ta: TATag) => run(() => platformApi.restoreTATag(ta.id))
+  const del = (ta: TATag) => run(() => platformApi.deleteTATag(ta.id))
 
   return (
     <div className="bg-slate-50" data-screen="ta-tag-configuration">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Platform</span>
+          <span>{t('page.ta_tag_configuration.crumb_platform')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">TA Tags</span>
+          <span className="font-semibold text-slate-900">{t('page.ta_tag_configuration.crumb_ta_tags')}</span>
         </nav>
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Therapeutic area tags</h1>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.ta_tag_configuration.title')}</h1>
             <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>
-              {currentUser.name} · Admin · <span data-active-count>{activeCount}</span> active
+              {t('page.ta_tag_configuration.user_byline', { name: currentUser.name })} · <span data-active-count>{t('page.ta_tag_configuration.active_count', { count: activeCount })}</span>
             </p>
             <p className="mt-2 max-w-[720px] text-[13px] text-slate-600" data-scope-note>
-              TA tags are mandatory on every project, document and content artefact. Tags are available across all disciplines immediately after creation.
+              {t('page.ta_tag_configuration.scope_note')}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -136,16 +139,16 @@ export function TATagConfiguration() {
               data-add-tag
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >+ Add tag →</button>
+            >{t('page.ta_tag_configuration.add_tag')}</button>
           </div>
         </div>
 
         {(loadError || actionError) && (
           <div className="rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-800" data-ta-error>
-            {actionError ?? `Could not load TA tags: ${errorMessage(loadError)}`}
+            {actionError ?? t('page.ta_tag_configuration.err_load', { message: errorMessage(loadError) })}
           </div>
         )}
-        {isLoading && <p className="text-[13px] text-slate-500" data-ta-loading>Loading TA tags…</p>}
+        {isLoading && <p className="text-[13px] text-slate-500" data-ta-loading>{t('page.ta_tag_configuration.loading')}</p>}
 
         <div className="grid gap-4" style={{ gridTemplateColumns: drawerOpen ? '1fr 360px' : '1fr' }}>
 
@@ -153,43 +156,41 @@ export function TATagConfiguration() {
             <table className="w-full text-[13px]">
               <thead style={{ backgroundColor: '#F8FAFC' }}>
                 <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                  <th className="px-4 py-2">Tag name</th>
-                  <th className="px-4 py-2">Abbreviation</th>
-                  <th className="px-4 py-2">Status</th>
-                  <th className="px-4 py-2">Created date</th>
-                  <th className="px-4 py-2">In use</th>
-                  <th className="px-4 py-2 text-right">Actions</th>
+                  <th className="px-4 py-2">{t('page.ta_tag_configuration.col_tag_name')}</th>
+                  <th className="px-4 py-2">{t('page.ta_tag_configuration.col_abbreviation')}</th>
+                  <th className="px-4 py-2">{t('page.ta_tag_configuration.col_status')}</th>
+                  <th className="px-4 py-2">{t('page.ta_tag_configuration.col_created')}</th>
+                  <th className="px-4 py-2">{t('page.ta_tag_configuration.col_in_use')}</th>
+                  <th className="px-4 py-2 text-right">{t('page.ta_tag_configuration.col_actions')}</th>
                 </tr>
               </thead>
               <tbody>
-                {sortedTags.map(t => {
-                  const inUse = t.projectCount + t.documentCount > 0
-                  const note  = inUse ? `${t.projectCount} projects · ${t.documentCount} documents — cannot delete` : ''
-                  const primaryLabel = t.status === 'archived' ? 'Restore' : 'Archive'
-                  const showDelete   = !inUse && t.status === 'active'
+                {sortedTags.map(ta => {
+                  const inUse = ta.projectCount + ta.documentCount > 0
+                  const note  = inUse ? t('page.ta_tag_configuration.in_use_note', { projects: ta.projectCount, documents: ta.documentCount }) : ''
+                  const showDelete   = !inUse && ta.status === 'active'
                   return (
-                    <tr key={t.id} className="border-t border-slate-200"
-                        data-tag-row={t.id}
-                        data-tag-status={t.status}
+                    <tr key={ta.id} className="border-t border-slate-200"
+                        data-tag-row={ta.id}
+                        data-tag-status={ta.status}
                         data-tag-in-use={inUse || undefined}
                         data-can-delete={showDelete || undefined}>
-                      <td className="px-4 py-3 font-semibold text-slate-900">{t.name}</td>
-                      <td className="px-4 py-3 font-mono text-[11px] text-slate-700">{t.abbreviation}</td>
-                      <td className="px-4 py-3"><StatusChip status={t.status} /></td>
-                      <td className="px-4 py-3 text-[12px] text-slate-600" data-tag-created>{formatCreated(t.createdAt)}</td>
+                      <td className="px-4 py-3 font-semibold text-slate-900">{ta.name}</td>
+                      <td className="px-4 py-3 font-mono text-[11px] text-slate-700">{ta.abbreviation}</td>
+                      <td className="px-4 py-3"><StatusChip status={ta.status} /></td>
+                      <td className="px-4 py-3 text-[12px] text-slate-600" data-tag-created>{formatCreated(ta.createdAt)}</td>
                       <td className="px-4 py-3 text-[12px] text-slate-600" data-tag-note>
                         {note || <span className="text-slate-400">—</span>}
                       </td>
                       <td className="px-4 py-3 text-right">
-                        {t.status === 'archived'
-                          ? <button type="button" onClick={() => restore(t)} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-tag-primary-action="restore">Restore</button>
+                        {ta.status === 'archived'
+                          ? <button type="button" onClick={() => restore(ta)} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-tag-primary-action="restore">{t('page.ta_tag_configuration.action_restore')}</button>
                           : (inUse
-                              ? <button type="button" onClick={() => setConfirmArchive(t)} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-tag-primary-action="archive">Archive</button>
-                              : <button type="button" onClick={() => { void archive(t) }} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-tag-primary-action="archive">Archive</button>)}
+                              ? <button type="button" onClick={() => setConfirmArchive(ta)} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-tag-primary-action="archive">{t('page.ta_tag_configuration.action_archive')}</button>
+                              : <button type="button" onClick={() => { void archive(ta) }} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-tag-primary-action="archive">{t('page.ta_tag_configuration.action_archive')}</button>)}
                         {showDelete && (
-                          <button type="button" onClick={() => del(t)} className="ml-3 text-[12px] font-semibold text-slate-500 hover:text-red-700" data-tag-delete>Delete</button>
+                          <button type="button" onClick={() => del(ta)} className="ml-3 text-[12px] font-semibold text-slate-500 hover:text-red-700" data-tag-delete>{t('page.ta_tag_configuration.action_delete')}</button>
                         )}
-                        {(void primaryLabel)}
                       </td>
                     </tr>
                   )
@@ -199,7 +200,7 @@ export function TATagConfiguration() {
             <p className="border-t border-slate-200 p-3 text-[12px]"
                style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
                data-archive-note>
-              A tag in use cannot be deleted — archive it instead. Archiving keeps historical tagging intact and removes the tag from new selections.
+              {t('page.ta_tag_configuration.archive_note')}
             </p>
           </section>
 
@@ -207,14 +208,14 @@ export function TATagConfiguration() {
             <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5" data-add-drawer>
               <div className="flex items-start justify-between">
                 <div>
-                  <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Add therapeutic area tag</p>
-                  <p className="mt-1 text-[13px] font-semibold text-slate-900">Available in every discipline on save</p>
+                  <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.ta_tag_configuration.drawer_eyebrow')}</p>
+                  <p className="mt-1 text-[13px] font-semibold text-slate-900">{t('page.ta_tag_configuration.drawer_subtitle')}</p>
                 </div>
-                <button type="button" onClick={() => setDrawerOpen(false)} className="text-[12px] font-semibold text-slate-500 hover:underline" data-close-drawer>Close</button>
+                <button type="button" onClick={() => setDrawerOpen(false)} className="text-[12px] font-semibold text-slate-500 hover:underline" data-close-drawer>{t('button.close')}</button>
               </div>
 
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Tag name</span>
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.ta_tag_configuration.field_tag_name')}</span>
                 <input type="text" value={name} onChange={(e) => setName(e.currentTarget.value)}
                   data-input-name
                   className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
@@ -222,14 +223,14 @@ export function TATagConfiguration() {
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Abbreviation</span>
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.ta_tag_configuration.field_abbreviation')}</span>
                 <div className="flex items-center gap-2">
                   <input type="text" value={abbrev} onChange={(e) => setAbbrev(e.currentTarget.value.toUpperCase())} maxLength={6}
                     data-input-abbrev
                     className="h-9 flex-1 rounded-md border border-slate-300 px-3 font-mono text-[13px]" />
                   <button type="button" onClick={autoSuggest} data-auto-suggest
                     className="text-[11px] font-semibold hover:underline"
-                    style={{ color: PLATFORM_ACCENT.primary }}>Auto-suggest</button>
+                    style={{ color: PLATFORM_ACCENT.primary }}>{t('page.ta_tag_configuration.auto_suggest')}</button>
                 </div>
                 {abbrevRule && <p className="text-[11px] font-semibold" style={{ color: '#B45309' }} data-abbrev-rule>{abbrevRule}</p>}
               </label>
@@ -237,7 +238,7 @@ export function TATagConfiguration() {
               <p className="rounded-md p-3 text-[12px]"
                  style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
                  data-audit-note>
-                New tags appear in every discipline's tag selector immediately. Creation is written to the audit trail with the acting Admin named.
+                {t('page.ta_tag_configuration.audit_note')}
               </p>
 
               <div className="flex items-center gap-2">
@@ -245,10 +246,10 @@ export function TATagConfiguration() {
                   data-save-tag
                   className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                   style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-                >Save tag →</button>
+                >{t('page.ta_tag_configuration.save_tag')}</button>
                 <button type="button" onClick={() => setDrawerOpen(false)}
                   className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
-                >Cancel</button>
+                >{t('button.cancel')}</button>
               </div>
             </aside>
           )}
@@ -259,14 +260,14 @@ export function TATagConfiguration() {
                style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }}
                data-archive-confirm={confirmArchive.id}>
             <p className="text-[13px] font-semibold" style={{ color: '#78350F' }}>
-              Archive {confirmArchive.name}? This tag is in use by {confirmArchive.projectCount} projects and {confirmArchive.documentCount} documents. It will be removed from new selections but existing tags are preserved.
+              {t('page.ta_tag_configuration.confirm_archive_body', { name: confirmArchive.name, projects: confirmArchive.projectCount, documents: confirmArchive.documentCount })}
             </p>
             <div className="mt-3 flex gap-2">
               <button type="button" onClick={doArchive} data-confirm-archive
                 className="h-8 rounded-md px-3 text-[12px] font-semibold text-white"
-                style={{ backgroundColor: PLATFORM_ACCENT.primary }}>Confirm archive</button>
+                style={{ backgroundColor: PLATFORM_ACCENT.primary }}>{t('page.ta_tag_configuration.confirm_archive_action')}</button>
               <button type="button" onClick={() => setConfirmArchive(null)}
-                className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700">Cancel</button>
+                className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700">{t('button.cancel')}</button>
             </div>
           </div>
         )}

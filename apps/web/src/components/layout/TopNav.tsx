@@ -169,20 +169,19 @@ export function TopNav() {
 
   const currentRoleLabel = PLATFORM_USER_ROLE_LABEL[currentUser.role] ?? currentUser.role
 
-  // Persona list for the switcher — real tenant users via /admin/users.
-  // Lazy: only fetch when the dropdown is actually opened. On 403 (non-
-  // admin personas like contributor/pm can't list tenant users), fall
-  // back to the hardcoded PLATFORM_DEMO_USERS fixture so the user still
-  // has a way to switch back to an admin persona — otherwise once you
-  // pick 'contributor' you're locked in forever.
+  // Persona list for the switcher — the real users, via /auth/demo-personas,
+  // so every persona (admin or contributor) sees the same names. Lazy: only
+  // fetch when the dropdown is actually opened. If that fails (e.g. an older
+  // API without the route), fall back to the hardcoded PLATFORM_DEMO_USERS
+  // fixture so the user still has a way to switch back to an admin persona.
   const { data: liveUsers, isPending: usersPending, error: usersError } = useQuery({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
+    queryKey: ['demo-personas'],
+    queryFn:  () => platformApi.listDemoPersonas(),
     enabled:  open && AUTH_BYPASS,
     staleTime: 60_000,
     retry: false,
   })
-  const forbidden = usersError instanceof ApiError && usersError.status === 403
+  const forbidden = usersError instanceof ApiError
   const effectiveUsers = liveUsers ?? (forbidden ? PLATFORM_DEMO_USERS : null)
   const groups = effectiveUsers ? groupPersonas(effectiveUsers) : []
 

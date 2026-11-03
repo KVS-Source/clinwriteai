@@ -16,7 +16,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
-import { actorCanEditDocumentRaci } from './access.js'
+import { actorCanEditRaciAssignments } from './access.js'
 import { nudgePendingCohort } from './nudge.js'
 
 const nudgeSchema = z.object({
@@ -87,7 +87,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   // read-only up front instead of failing every click with a 403.
   app.get('/:documentId/raci/can-edit', { preHandler: requireAuth() }, async (request) => {
     const { documentId } = request.params as { documentId: string }
-    return { canEdit: await actorCanEditDocumentRaci(app.prisma, request.user!, documentId) }
+    return { canEdit: await actorCanEditRaciAssignments(app.prisma, request.user!, documentId) }
   })
 
   app.post('/:documentId/raci', { preHandler: requireAuth() }, async (request, reply) => {
@@ -100,11 +100,11 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     const actor = request.user!
     const isActorTenantAdmin = actor.role === 'tenant-admin' || actor.role === 'admin'
 
-    // §5a: only R-on-this-doc (or admin) can edit RACI on the doc.
-    if (!(await actorCanEditDocumentRaci(app.prisma, actor, documentId))) {
+    // §5a: only R-on-this-doc can edit RACI on the doc (never admins / PMs).
+    if (!(await actorCanEditRaciAssignments(app.prisma, actor, documentId))) {
       return reply.code(403).send({
         error: 'raci_edit_forbidden',
-        message: 'Only an R on this document (or an admin) can assign RACI. Ask the lead writer.',
+        message: 'Only an author (R) on this document can assign RACI. Ask the lead writer.',
       })
     }
     const sectionId = parsed.data.sectionId ?? null
@@ -279,14 +279,14 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
 
     const actor = request.user!
 
-    // §5a: only R-on-this-doc (or admin) can remove RACI rows. Exception:
+    // §5a: only R-on-this-doc can remove RACI rows (never admins / PMs). Exception:
     // a user can always remove their own row (self-opt-out) — otherwise a
     // reviewer couldn't excuse themselves from a doc.
     const isSelfRow = existing.userId === actor.id
-    if (!isSelfRow && !(await actorCanEditDocumentRaci(app.prisma, actor, documentId))) {
+    if (!isSelfRow && !(await actorCanEditRaciAssignments(app.prisma, actor, documentId))) {
       return reply.code(403).send({
         error: 'raci_edit_forbidden',
-        message: 'Only an R on this document (or an admin) can remove other users\' RACI assignments.',
+        message: 'Only an author (R) on this document can remove other users\' RACI assignments.',
       })
     }
     const removed = await app.prisma.documentRaci.update({
@@ -360,10 +360,10 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const actor = request.user!
-    if (!(await actorCanEditDocumentRaci(app.prisma, actor, documentId))) {
+    if (!(await actorCanEditRaciAssignments(app.prisma, actor, documentId))) {
       return reply.code(403).send({
         error: 'raci_edit_forbidden',
-        message: 'Only an R on this document (or an admin) can change RACI assignments.',
+        message: 'Only an author (R) on this document can change RACI assignments.',
       })
     }
 

@@ -9,11 +9,11 @@ import { documentRaciRoutes } from './routes.js'
 
 type Row = Record<string, unknown>
 
-async function build(row: Row | null, actorRole: AuthenticatedUser['role'] = 'tenant-admin') {
+async function build(row: Row | null, actorRole: AuthenticatedUser['role'] = 'contributor', actorIsAssignee = true) {
   const updates: Row[] = []
   const app = Fastify()
   app.decorate('prisma', {
-    document:     { findUnique: vi.fn(async () => ({ id: 'DOC-1', assigneeId: 'someone-else' })) },
+    document:     { findUnique: vi.fn(async () => ({ id: 'DOC-1', assigneeId: actorIsAssignee ? 'actor' : 'someone-else' })) },
     documentRaci: {
       findUnique: vi.fn(async () => row),
       findFirst:  vi.fn(async () => null),
@@ -71,8 +71,8 @@ describe('PATCH …/raci/:raciId/signature', () => {
     expect((await patch((await build({ ...ACTIVE, submittedAt: new Date() })).app, { signatureRequired: false })).json().error).toBe('row_completed')
   })
 
-  it('403 for someone who is not R on the document or an admin', async () => {
-    const { app, updates } = await build(ACTIVE, 'contributor')
+  it('403 for someone who is not R on the document', async () => {
+    const { app, updates } = await build(ACTIVE, 'contributor', false)
     expect((await patch(app, { signatureRequired: true, signatureMeaning: 'Author attestation' })).statusCode).toBe(403)
     expect(updates).toHaveLength(0)
   })

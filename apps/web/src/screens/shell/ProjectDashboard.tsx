@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { STATUS_META, type Document } from '@platform/types'
 import { documentsApi, projectsApi, reportsApi } from '../../api'
 import { ProjectStatusPill } from '../../components/ui'
@@ -33,6 +34,7 @@ const ACTIVE_MODULE_META: Record<string, { label: string; colour: string; descri
 }
 
 export function ProjectDashboard() {
+  const { t } = useTranslation()
   const { projectId }    = useParams()
   const navigate         = useNavigate()
   const setActiveProject = useProjectStore(s => s.setActiveProject)
@@ -111,43 +113,43 @@ export function ProjectDashboard() {
   // of the hardcoded "3 writers · 2 stats · 3 reviewers" string.
   const teamBreakdown = useMemo(() => {
     if (!project) return ''
-    const writers   = project.team.filter(t => t.raci === 'R').length
-    const approvers = project.team.filter(t => t.raci === 'A').length
-    const consulted = project.team.filter(t => t.raci === 'C').length
-    const informed  = project.team.filter(t => t.raci === 'I').length
+    const writers   = project.team.filter(m => m.raci === 'R').length
+    const approvers = project.team.filter(m => m.raci === 'A').length
+    const consulted = project.team.filter(m => m.raci === 'C').length
+    const informed  = project.team.filter(m => m.raci === 'I').length
     return [
-      writers   && `${writers} responsible`,
-      approvers && `${approvers} accountable`,
-      consulted && `${consulted} consulted`,
-      informed  && `${informed} informed`,
+      writers   && t('page.project_dashboard.team_responsible',  { count: writers }),
+      approvers && t('page.project_dashboard.team_accountable',  { count: approvers }),
+      consulted && t('page.project_dashboard.team_consulted',    { count: consulted }),
+      informed  && t('page.project_dashboard.team_informed',     { count: informed }),
     ].filter(Boolean).join(' · ')
-  }, [project])
+  }, [project, t])
 
   // Days-to-data-cutoff — real relative value from project.dataCutoff.
   const daysToCutoff = useMemo(() => {
-    if (!project?.dataCutoff) return { value: '—', sub: 'No cutoff set', complete: false }
+    if (!project?.dataCutoff) return { value: '—', sub: t('page.project_dashboard.cutoff_none'), complete: false }
     const diff = Math.ceil((new Date(project.dataCutoff).getTime() - Date.now()) / (24 * 60 * 60 * 1000))
     if (diff <= 0) {
-      return { value: '0', sub: `Data cut completed ${project.dataCutoff.slice(0, 10)}`, complete: true }
+      return { value: '0', sub: t('page.project_dashboard.cutoff_completed', { date: project.dataCutoff.slice(0, 10) }), complete: true }
     }
-    return { value: String(diff), sub: `Cutoff ${project.dataCutoff.slice(0, 10)}`, complete: false }
-  }, [project])
+    return { value: String(diff), sub: t('page.project_dashboard.cutoff_at', { date: project.dataCutoff.slice(0, 10) }), complete: false }
+  }, [project, t])
 
   if (isLoading || !project) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="font-mono text-sm text-slate-400">Loading project…</p>
+        <p className="font-mono text-sm text-slate-400">{t('page.project_dashboard.loading')}</p>
       </div>
     )
   }
 
-  const leadName = project.team.find(t => t.raci === 'R')?.name ?? project.team[0]?.name ?? '—'
+  const leadName = project.team.find(m => m.raci === 'R')?.name ?? project.team[0]?.name ?? '—'
   // Time summary (architecture §44.3): days elapsed since the project's start date.
   const startMs = project.startDate ? new Date(project.startDate).getTime() : NaN
   const daysSinceStart = Number.isNaN(startMs) ? null : Math.floor((Date.now() - startMs) / (24 * 60 * 60 * 1000))
   const startLabel = Number.isNaN(startMs) ? null : new Date(startMs).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
   // Stored phases vary ("Phase III", "IIb", "Preclinical") — only add the "Phase" prefix when it's missing.
-  const phaseLabel = /^phase\b|preclinical/i.test(project.phase) ? project.phase : `Phase ${project.phase}`
+  const phaseLabel = /^phase\b|preclinical/i.test(project.phase) ? project.phase : t('page.project_dashboard.phase_prefix', { phase: project.phase })
   const activeSlugs = new Set(project.activeModules.map(k => MODULE_KEY_TO_SLUG[k as ModuleKey] ?? k))
   const availableModules = INACTIVE_MODULES.filter(m => !activeSlugs.has(m.key))
 
@@ -178,14 +180,14 @@ export function ProjectDashboard() {
               {project.client && <><span>{project.client}</span><span className="text-slate-300">·</span></>}
               <span>{phaseLabel}{project.indication ? ` · ${project.indication}` : ''}</span>
               <span className="text-slate-300">·</span>
-              <span>Project lead {leadName}</span>
+              <span>{t('page.project_dashboard.project_lead', { name: leadName })}</span>
               {daysSinceStart !== null && (
                 <>
                   <span className="text-slate-300">·</span>
                   <span data-days-since-start>
                     {daysSinceStart >= 0
-                      ? `Started ${startLabel} · ${daysSinceStart} day${daysSinceStart === 1 ? '' : 's'} ago`
-                      : `Starts ${startLabel}`}
+                      ? t('page.project_dashboard.started_days_ago', { date: startLabel, count: daysSinceStart })
+                      : t('page.project_dashboard.starts_at', { date: startLabel })}
                   </span>
                 </>
               )}
@@ -200,28 +202,28 @@ export function ProjectDashboard() {
             >
               <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ backgroundColor: '#16A34A' }} />
               {stats.lastActivity
-                ? `Last activity ${new Date(stats.lastActivity).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })}`
-                : 'No activity yet'}
+                ? t('page.project_dashboard.last_activity', { time: new Date(stats.lastActivity).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) })
+                : t('page.project_dashboard.no_activity')}
             </div>
             {isProjectAuthor && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${encodeURIComponent(projectId ?? '')}/settings`)}
-                title="Author · This project's metadata + team RACI"
+                title={t('page.project_dashboard.project_settings_tooltip')}
                 className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
                 data-action="project-settings"
               >
-                Project settings
+                {t('page.project_dashboard.project_settings')}
               </button>
             )}
             {isAdmin && (
               <button
                 type="button"
                 onClick={() => navigate(`/admin/audit?projectId=${encodeURIComponent(projectId ?? '')}`)}
-                title="Admin · Hash-chained audit trail"
+                title={t('page.project_dashboard.audit_trail_tooltip')}
                 className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
               >
-                Audit trail
+                {t('page.project_dashboard.audit_trail')}
               </button>
             )}
           </div>
@@ -247,8 +249,8 @@ export function ProjectDashboard() {
               </div>
               <div className="flex-1 text-[13px] leading-relaxed text-slate-900">
                 {hasTlfs
-                  ? <>Data cut-off passed on {project.dataCutoff?.slice(0, 10)}. Final TLFs are available in the Master Library — sections dependent on data lock are unblocked for authoring.</>
-                  : <>Data cut-off passed on {project.dataCutoff?.slice(0, 10)}.</>}
+                  ? t('page.project_dashboard.cutoff_passed_with_tlfs', { date: project.dataCutoff?.slice(0, 10) ?? '' })
+                  : t('page.project_dashboard.cutoff_passed', { date: project.dataCutoff?.slice(0, 10) ?? '' })}
               </div>
             </div>
           )}
@@ -256,27 +258,27 @@ export function ProjectDashboard() {
           {/* 4 KPI cards — real per-project values */}
           <div className="grid grid-cols-4 gap-4">
             <KpiCard
-              label="Documents In Flight"
+              label={t('page.project_dashboard.kpi_docs_in_flight')}
               value={String(stats.inFlight)}
-              sub={`${stats.inReview} in review · ${stats.inCrm} in CRM · ${stats.awaitingSign} awaiting sign-off`}
+              sub={t('page.project_dashboard.kpi_docs_in_flight_sub', { review: stats.inReview, crm: stats.inCrm, sign: stats.awaitingSign })}
             />
             <KpiCard
-              label="Completed Documents"
+              label={t('page.project_dashboard.kpi_completed_docs')}
               value={String(stats.signed)}
-              sub={stats.inAuthoring > 0 ? `${stats.inAuthoring} in authoring` : 'None in authoring'}
+              sub={stats.inAuthoring > 0 ? t('page.project_dashboard.kpi_in_authoring', { count: stats.inAuthoring }) : t('page.project_dashboard.kpi_none_in_authoring')}
             />
             <KpiCard
-              label="Days to Data Cut-off"
+              label={t('page.project_dashboard.kpi_days_to_cutoff')}
               value={daysToCutoff.value}
               valueRight={daysToCutoff.complete
-                ? <span className="text-xs font-semibold" style={{ color: '#15803D' }}>Complete</span>
+                ? <span className="text-xs font-semibold" style={{ color: '#15803D' }}>{t('page.project_dashboard.cutoff_complete_badge')}</span>
                 : null}
               sub={daysToCutoff.sub}
             />
             <KpiCard
-              label="Team Members"
+              label={t('page.project_dashboard.kpi_team_members')}
               value={String(project.team.length)}
-              sub={teamBreakdown || 'Roster pending'}
+              sub={teamBreakdown || t('page.project_dashboard.roster_pending')}
             />
           </div>
 
@@ -302,16 +304,16 @@ export function ProjectDashboard() {
                         className="rounded-[5px] px-2.5 py-0.5 text-xs font-semibold"
                         style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}
                       >
-                        Active
+                        {t('page.project_dashboard.active_badge')}
                       </span>
                     </div>
                     <p className="text-sm leading-relaxed text-slate-500">{meta.description.replace('{project}', project.shortTitle)}</p>
                   </div>
 
                   <div className="flex gap-8">
-                    <KV label="Documents"      value={`${stats.inFlight} active · ${stats.signed} completed`} />
-                    <KV label="Current focus"  value={stats.current ? `${stats.current.title} · ${STATUS_META[stats.current.status]?.label ?? stats.current.status}` : 'No active document'} />
-                    <KV label="Last updated"   value={stats.lastActivity ? new Date(stats.lastActivity).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} />
+                    <KV label={t('page.project_dashboard.kv_documents')}     value={t('page.project_dashboard.kv_documents_value', { active: stats.inFlight, completed: stats.signed })} />
+                    <KV label={t('page.project_dashboard.kv_current_focus')} value={stats.current ? `${stats.current.title} · ${STATUS_META[stats.current.status]?.label ?? stats.current.status}` : t('page.project_dashboard.kv_no_active_doc')} />
+                    <KV label={t('page.project_dashboard.kv_last_updated')}  value={stats.lastActivity ? new Date(stats.lastActivity).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'} />
                   </div>
 
                   {(() => {
@@ -320,8 +322,8 @@ export function ProjectDashboard() {
                     return (
                       <div className="flex flex-col gap-2">
                         <div className="flex justify-between text-xs text-slate-500">
-                          <span className="font-semibold">Documents complete</span>
-                          <span>{pct}% ({stats.signed}/{total})</span>
+                          <span className="font-semibold">{t('page.project_dashboard.documents_complete')}</span>
+                          <span>{t('page.project_dashboard.documents_complete_pct', { pct, done: stats.signed, total })}</span>
                         </div>
                         <div className="h-1.5 overflow-hidden rounded-[3px] bg-slate-200">
                           <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: meta.colour }} />
@@ -339,48 +341,48 @@ export function ProjectDashboard() {
                     className="w-full rounded-md px-4 py-3 text-sm font-semibold text-white transition-colors hover:opacity-90"
                     style={{ backgroundColor: meta.colour }}
                   >
-                    Open {meta.label}
+                    {t('page.project_dashboard.open_module', { module: meta.label })}
                   </button>
                   <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-slate-50 p-3.5">
-                    <p className="text-xs font-semibold text-slate-500">Document status</p>
+                    <p className="text-xs font-semibold text-slate-500">{t('page.project_dashboard.document_status')}</p>
                     {stats.notStarted > 0 && (
                       <div className="flex justify-between text-[13px]">
-                        <span>Not started</span>
+                        <span>{t('page.project_dashboard.doc_status_not_started')}</span>
                         <span className="font-semibold text-slate-500">{stats.notStarted}</span>
                       </div>
                     )}
                     {stats.inAuthoring > 0 && (
                       <div className="flex justify-between text-[13px]">
-                        <span>In authoring</span>
+                        <span>{t('page.project_dashboard.doc_status_in_authoring')}</span>
                         <span className="font-semibold text-slate-700">{stats.inAuthoring}</span>
                       </div>
                     )}
                     {stats.inReview > 0 && (
                       <div className="flex justify-between text-[13px]">
-                        <span>In review</span>
+                        <span>{t('page.project_dashboard.doc_status_in_review')}</span>
                         <span className="font-semibold" style={{ color: '#B45309' }}>{stats.inReview}</span>
                       </div>
                     )}
                     {stats.inCrm > 0 && (
                       <div className="flex justify-between text-[13px]">
-                        <span>CRM in progress</span>
+                        <span>{t('page.project_dashboard.doc_status_in_crm')}</span>
                         <span className="font-semibold" style={{ color: '#7C3AED' }}>{stats.inCrm}</span>
                       </div>
                     )}
                     {stats.awaitingSign > 0 && (
                       <div className="flex justify-between text-[13px]">
-                        <span>Awaiting signature</span>
+                        <span>{t('page.project_dashboard.doc_status_awaiting_sig')}</span>
                         <span className="font-semibold" style={{ color: '#2563EB' }}>{stats.awaitingSign}</span>
                       </div>
                     )}
                     {stats.signed > 0 && (
                       <div className="flex justify-between text-[13px]">
-                        <span>Signed</span>
+                        <span>{t('page.project_dashboard.doc_status_signed')}</span>
                         <span className="font-semibold" style={{ color: '#15803D' }}>{stats.signed}</span>
                       </div>
                     )}
                     {documents.length === 0 && (
-                      <p className="text-[12px] italic text-slate-400">No documents yet. Use + New Document on the module home.</p>
+                      <p className="text-[12px] italic text-slate-400">{t('page.project_dashboard.no_documents_yet')}</p>
                     )}
                   </div>
                 </div>
@@ -392,9 +394,9 @@ export function ProjectDashboard() {
           {availableModules.length > 0 && (
           <div className="flex flex-col gap-3">
             <div className="flex items-baseline justify-between">
-              <p className="text-xs font-semibold text-slate-500">Available modules</p>
+              <p className="text-xs font-semibold text-slate-500">{t('page.project_dashboard.available_modules')}</p>
               <button type="button" className="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                Compare module scopes
+                {t('page.project_dashboard.compare_scopes')}
               </button>
             </div>
             <div className="grid grid-cols-4 gap-4">
@@ -409,9 +411,9 @@ export function ProjectDashboard() {
                   </div>
                   <p className="flex-1 text-xs leading-relaxed text-slate-500">{m.desc}</p>
                   <div className="mt-auto flex items-center justify-between">
-                    <span className="text-xs text-slate-500">Not Active</span>
+                    <span className="text-xs text-slate-500">{t('page.project_dashboard.not_active')}</span>
                     <button type="button" className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors">
-                      + Add Module
+                      + {t('page.project_dashboard.add_module')}
                     </button>
                   </div>
                 </div>
@@ -434,39 +436,46 @@ export function ProjectDashboard() {
               <div className="flex flex-col gap-4">
                 <div className="flex items-baseline justify-between">
                   <div className="flex flex-col gap-1">
-                    <p className="font-mono text-[11px] font-medium uppercase tracking-widest text-slate-500">Cost &amp; Performance</p>
-                    <h3 className="text-xl font-bold tracking-tight text-slate-900">AI usage and cost</h3>
+                    <p className="font-mono text-[11px] font-medium uppercase tracking-widest text-slate-500">{t('page.project_dashboard.ai_section_label')}</p>
+                    <h3 className="text-xl font-bold tracking-tight text-slate-900">{t('page.project_dashboard.ai_section_title')}</h3>
                     <p className="text-xs text-slate-500" data-ai-usage-note>
-                      {aiFailed ? 'AI usage could not be loaded.' : "Measured from this project's AI call log."}
+                      {aiFailed ? t('page.project_dashboard.ai_load_failed') : t('page.project_dashboard.ai_measured_note')}
                     </p>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-4 lg:grid-cols-4" data-ai-usage>
                   <KpiCard
-                    label="AI Spend"
+                    label={t('page.project_dashboard.kpi_ai_spend')}
                     value={u ? money(u.costUsd) : none}
-                    sub={u ? `${u.calls.toLocaleString()} AI call${u.calls === 1 ? '' : 's'} · ${tokens} tokens${u.calls > 0 ? ` · avg ${(u.avgLatencyMs / 1000).toFixed(1)}s` : ''}` : undefined}
+                    sub={u
+                      ? t('page.project_dashboard.kpi_ai_spend_sub', {
+                          calls: u.calls.toLocaleString(),
+                          callsCount: u.calls,
+                          tokens,
+                          avg: u.calls > 0 ? ` · ${t('page.project_dashboard.kpi_ai_spend_avg', { secs: (u.avgLatencyMs / 1000).toFixed(1) })}` : '',
+                        })
+                      : undefined}
                   />
                   <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-[18px]">
-                    <p className="text-xs font-semibold text-slate-500">AI Drafts Accepted</p>
+                    <p className="text-xs font-semibold text-slate-500">{t('page.project_dashboard.kpi_drafts_accepted')}</p>
                     <p className="text-[28px] font-bold leading-none tracking-tight">
                       {u ? (u.draftsGenerated === 0 ? '—' : u.draftsAccepted) : none}
-                      {u && u.draftsGenerated > 0 && <span className="text-base font-semibold text-slate-500"> of {u.draftsGenerated}</span>}
+                      {u && u.draftsGenerated > 0 && <span className="text-base font-semibold text-slate-500"> {t('page.project_dashboard.of_total', { total: u.draftsGenerated })}</span>}
                     </p>
                     <div className="h-1.5 overflow-hidden rounded-[3px] bg-slate-200">
                       <div className="h-full transition-all" style={{ width: `${rate ?? 0}%`, backgroundColor: '#2563EB' }} />
                     </div>
-                    <p className="text-xs text-slate-500">{u ? (rate == null ? 'No AI drafts yet' : `${rate}% accepted into sections`) : ''}</p>
+                    <p className="text-xs text-slate-500">{u ? (rate == null ? t('page.project_dashboard.kpi_no_drafts_yet') : t('page.project_dashboard.kpi_accepted_pct', { pct: rate })) : ''}</p>
                   </div>
                   <KpiCard
-                    label="Cost per Completed Document"
+                    label={t('page.project_dashboard.kpi_cost_per_doc')}
                     value={u && stats.signed > 0 ? money(u.costUsd / stats.signed) : none}
-                    sub={stats.signed > 0 ? `AI spend ÷ ${stats.signed} completed document${stats.signed === 1 ? '' : 's'}` : 'No completed documents yet'}
+                    sub={stats.signed > 0 ? t('page.project_dashboard.kpi_cost_per_doc_sub', { count: stats.signed }) : t('page.project_dashboard.kpi_no_completed_docs')}
                   />
                   <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-[18px]">
-                    <p className="text-xs font-semibold text-slate-500">Documents Completed</p>
+                    <p className="text-xs font-semibold text-slate-500">{t('page.project_dashboard.kpi_docs_completed')}</p>
                     <p className="text-[28px] font-bold leading-none tracking-tight">
-                      {stats.signed} <span className="text-base font-semibold text-slate-500">of {total}</span>
+                      {stats.signed} <span className="text-base font-semibold text-slate-500">{t('page.project_dashboard.of_total', { total })}</span>
                     </p>
                     <div className="h-1.5 overflow-hidden rounded-[3px] bg-slate-200">
                       <div className="h-full transition-all" style={{ width: `${pct}%`, backgroundColor: '#16A34A' }} />

@@ -6,6 +6,7 @@
 
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { documentsApi } from '../../api/documents'
 import { projectsApi } from '../../api/projects'
 import { ApiError } from '../../api/client'
@@ -28,26 +29,26 @@ const STAGE_ORDER = [
   'final_output',
 ] as const
 
-const STAGE_LABEL: Record<(typeof STAGE_ORDER)[number], string> = {
-  study_start_up:          'Study Start-Up',
-  during_study:            'During Study',
-  reporting:               'Post-Study',
-  cross_functional_review: 'Cross-Functional Review',
-  crm:                     'CRM',
-  final_output:            'Final Output',
+const STAGE_LABEL_KEYS: Record<(typeof STAGE_ORDER)[number], string> = {
+  study_start_up:          'page.checklist_templates_admin.stage_study_start_up',
+  during_study:            'page.checklist_templates_admin.stage_during_study',
+  reporting:               'page.checklist_templates_admin.stage_reporting',
+  cross_functional_review: 'page.checklist_templates_admin.stage_cross_functional_review',
+  crm:                     'page.checklist_templates_admin.stage_crm',
+  final_output:            'page.checklist_templates_admin.stage_final_output',
 }
 
-const DELIVERABLE_LABEL: Record<string, string> = {
-  csr_full:              'CSR (Full)',
-  csr_synopsis:          'CSR Synopsis',
-  protocol:              'Protocol',
-  protocol_amendment:    'Protocol Amendment',
-  ib:                    "Investigator's Brochure",
-  icf:                   'Informed Consent Form',
-  safety_narrative:      'Safety Narrative',
-  dsur:                  'DSUR',
-  end_of_study_summary:  'End of Study Summary',
-  patient_narrative:     'Patient Narrative',
+const DELIVERABLE_LABEL_KEYS: Record<string, string> = {
+  csr_full:              'page.checklist_templates_admin.deliverable_csr_full',
+  csr_synopsis:          'page.checklist_templates_admin.deliverable_csr_synopsis',
+  protocol:              'page.checklist_templates_admin.deliverable_protocol',
+  protocol_amendment:    'page.checklist_templates_admin.deliverable_protocol_amendment',
+  ib:                    'page.checklist_templates_admin.deliverable_ib',
+  icf:                   'page.checklist_templates_admin.deliverable_icf',
+  safety_narrative:      'page.checklist_templates_admin.deliverable_safety_narrative',
+  dsur:                  'page.checklist_templates_admin.deliverable_dsur',
+  end_of_study_summary:  'page.checklist_templates_admin.deliverable_end_of_study_summary',
+  patient_narrative:     'page.checklist_templates_admin.deliverable_patient_narrative',
 }
 
 const RACI_COLOUR: Record<'R' | 'A' | 'C' | 'I', { bg: string; fg: string }> = {
@@ -57,14 +58,15 @@ const RACI_COLOUR: Record<'R' | 'A' | 'C' | 'I', { bg: string; fg: string }> = {
   I: { bg: '#F1F5F9', fg: '#475569' },
 }
 
-const AUTO_LABEL: Record<string, string> = {
-  submit_for_review: 'Auto on submit',
-  crm_complete:      'Auto on CRM close',
-  document_signed:   'Auto on signature',
+const AUTO_LABEL_KEYS: Record<string, string> = {
+  submit_for_review: 'page.checklist_templates_admin.auto_submit_for_review',
+  crm_complete:      'page.checklist_templates_admin.auto_crm_complete',
+  document_signed:   'page.checklist_templates_admin.auto_document_signed',
 }
 
-function deliverableTypeLabel(key: string): string {
-  return DELIVERABLE_LABEL[key] ?? key
+const TEMPLATE_STATUS_KEYS: Record<string, string> = {
+  draft:  'page.checklist_templates_admin.status_draft',
+  locked: 'page.checklist_templates_admin.status_locked',
 }
 
 function fmtDate(iso: string | null): string {
@@ -73,11 +75,17 @@ function fmtDate(iso: string | null): string {
 }
 
 export function ChecklistTemplatesAdmin() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const [selected, setSelected] = useState<string | null>(null)
   const [approveError, setApproveError] = useState<string | null>(null)
   // When set, the project-override wizard is open for this template id.
   const [cloneForTemplateId, setCloneForTemplateId] = useState<string | null>(null)
+
+  const deliverableTypeLabel = (key: string): string => {
+    const k = DELIVERABLE_LABEL_KEYS[key]
+    return k ? t(k) : key
+  }
 
   const listQ = useQuery({
     queryKey: ['checklist-templates'],
@@ -100,13 +108,13 @@ export function ChecklistTemplatesAdmin() {
       const body = err.body as { message?: string } | null
       return body?.message ?? `HTTP ${err.status}`
     }
-    return (err instanceof Error ? err.message : 'Request failed')
+    return (err instanceof Error ? err.message : t('page.checklist_templates_admin.err_request_failed'))
   }
 
   const approveMut = useMutation({
     mutationFn: (id: string) => documentsApi.approveChecklistTemplate(id),
     onSuccess:  () => { setApproveError(null); invalidate() },
-    onError: (err: unknown) => setApproveError(`Could not approve: ${extractApiError(err)}`),
+    onError: (err: unknown) => setApproveError(t('page.checklist_templates_admin.err_approve', { message: extractApiError(err) })),
   })
 
   const bumpMut = useMutation({
@@ -116,7 +124,7 @@ export function ChecklistTemplatesAdmin() {
       invalidate()
       setSelected(created.id)
     },
-    onError: (err: unknown) => setApproveError(`Could not create draft: ${extractApiError(err)}`),
+    onError: (err: unknown) => setApproveError(t('page.checklist_templates_admin.err_create_draft', { message: extractApiError(err) })),
   })
 
   const cloneMut = useMutation({
@@ -128,7 +136,7 @@ export function ChecklistTemplatesAdmin() {
       invalidate()
       setSelected(created.id)
     },
-    onError: (err: unknown) => setApproveError(`Could not clone to project: ${extractApiError(err)}`),
+    onError: (err: unknown) => setApproveError(t('page.checklist_templates_admin.err_clone', { message: extractApiError(err) })),
   })
 
   const addItemMut = useMutation({
@@ -156,10 +164,10 @@ export function ChecklistTemplatesAdmin() {
   // Group templates by deliverable type so the catalog reads naturally.
   const grouped = useMemo(() => {
     const bins = new Map<string, Template[]>()
-    for (const t of listQ.data ?? []) {
-      const list = bins.get(t.deliverableType) ?? []
-      list.push(t)
-      bins.set(t.deliverableType, list)
+    for (const tpl of listQ.data ?? []) {
+      const list = bins.get(tpl.deliverableType) ?? []
+      list.push(tpl)
+      bins.set(tpl.deliverableType, list)
     }
     return Array.from(bins.entries())
       .map(([deliverableType, rows]) => ({
@@ -168,17 +176,17 @@ export function ChecklistTemplatesAdmin() {
         rows: rows.sort((a, b) => (a.projectId ?? '') < (b.projectId ?? '') ? -1 : 1),
       }))
       .sort((a, b) => a.label.localeCompare(b.label))
-  }, [listQ.data])
+  // deliverableTypeLabel depends on t; include listQ.data as the data source
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listQ.data, t])
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-screen="checklist-templates-admin">
       <div className="flex flex-none items-start justify-between gap-4 border-b border-slate-200 bg-white px-8 py-5">
         <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">Checklist Templates</h1>
+          <h1 className="text-xl font-bold tracking-tight text-slate-900">{t('page.checklist_templates_admin.title')}</h1>
           <p className="mt-1 text-sm text-slate-500">
-            The compliance floor each new document inherits. Platform baselines ship with the app;
-            project overrides, once approved by an Admin, lock in and apply to new documents in
-            their project.
+            {t('page.checklist_templates_admin.subtitle')}
           </p>
         </div>
       </div>
@@ -188,49 +196,51 @@ export function ChecklistTemplatesAdmin() {
         <div className="flex w-[420px] flex-none flex-col overflow-hidden border-r border-slate-200 bg-white">
           <div className="flex-1 overflow-y-auto">
             {listQ.isLoading && (
-              <p className="px-6 py-6 text-sm text-slate-400">Loading templates…</p>
+              <p className="px-6 py-6 text-sm text-slate-400">{t('page.checklist_templates_admin.loading_list')}</p>
             )}
             {listQ.isError && (
               <p className="px-6 py-6 text-sm text-red-700" role="alert">
-                Failed to load templates.
+                {t('page.checklist_templates_admin.load_failed_list')}
               </p>
             )}
             {!listQ.isLoading && !listQ.isError && grouped.length === 0 && (
-              <p className="px-6 py-6 text-sm text-slate-500">No templates yet.</p>
+              <p className="px-6 py-6 text-sm text-slate-500">{t('page.checklist_templates_admin.empty_list')}</p>
             )}
             {grouped.map(group => (
               <section key={group.deliverableType} data-group={group.deliverableType}>
                 <div className="sticky top-0 bg-slate-50 px-6 py-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
                   {group.label}
                 </div>
-                {group.rows.map(t => {
-                  const isSelected = selected === t.id
-                  const isPlatformBaseline = t.projectId == null
+                {group.rows.map(tpl => {
+                  const isSelected = selected === tpl.id
+                  const isPlatformBaseline = tpl.projectId == null
                   return (
                     <button
-                      key={t.id}
+                      key={tpl.id}
                       type="button"
-                      onClick={() => { setSelected(t.id); setApproveError(null) }}
+                      onClick={() => { setSelected(tpl.id); setApproveError(null) }}
                       className={`flex w-full flex-col gap-1 border-b border-slate-100 px-6 py-3 text-left transition-colors hover:bg-slate-50 ${isSelected ? 'bg-blue-50/60' : ''}`}
                       aria-selected={isSelected}
-                      data-template-row={t.id}
+                      data-template-row={tpl.id}
                     >
                       <div className="flex items-baseline justify-between gap-3">
                         <p className="text-[13px] font-semibold text-slate-900">
-                          v{t.version} {isPlatformBaseline ? '· Platform baseline' : `· Project ${t.projectId}`}
+                          {isPlatformBaseline
+                            ? t('page.checklist_templates_admin.row_version_platform', { version: tpl.version })
+                            : t('page.checklist_templates_admin.row_version_project', { version: tpl.version, projectId: tpl.projectId })}
                         </p>
                         <span
                           className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase"
-                          style={t.templateStatus === 'locked'
+                          style={tpl.templateStatus === 'locked'
                             ? { backgroundColor: '#DCFCE7', color: '#15803D' }
                             : { backgroundColor: '#FEF3C7', color: '#B45309' }}
                         >
-                          {t.templateStatus}
+                          {TEMPLATE_STATUS_KEYS[tpl.templateStatus] ? t(TEMPLATE_STATUS_KEYS[tpl.templateStatus]) : tpl.templateStatus}
                         </span>
                       </div>
                       <p className="text-[11px] text-slate-500">
-                        {t.itemCount} item{t.itemCount === 1 ? '' : 's'} · {t.instanceCount} doc{t.instanceCount === 1 ? '' : 's'}
-                        {t.isCurrent ? ' · current' : ''}
+                        {t('page.checklist_templates_admin.row_summary', { items: tpl.itemCount, docs: tpl.instanceCount })}
+                        {tpl.isCurrent ? t('page.checklist_templates_admin.row_current_suffix') : ''}
                       </p>
                     </button>
                   )
@@ -244,20 +254,21 @@ export function ChecklistTemplatesAdmin() {
         <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {!selected && (
             <p className="px-8 py-10 text-sm text-slate-500">
-              Select a template on the left to view its items.
+              {t('page.checklist_templates_admin.pick_hint')}
             </p>
           )}
           {selected && detailQ.isLoading && (
-            <p className="px-8 py-10 text-sm text-slate-400">Loading template…</p>
+            <p className="px-8 py-10 text-sm text-slate-400">{t('page.checklist_templates_admin.loading_detail')}</p>
           )}
           {selected && detailQ.isError && (
             <p className="px-8 py-10 text-sm text-red-700" role="alert">
-              Failed to load this template.
+              {t('page.checklist_templates_admin.load_failed_detail')}
             </p>
           )}
           {selected && detailQ.data && (
             <TemplateDetailView
               template={detailQ.data}
+              deliverableTypeLabel={deliverableTypeLabel}
               onApprove={() => approveMut.mutate(detailQ.data!.id)}
               approving={approveMut.isPending}
               approveError={approveError}
@@ -296,6 +307,7 @@ function CloneToProjectModal({ templateId, onCancel, onConfirm, submitting, erro
   submitting: boolean
   error: string | null
 }) {
+  const { t } = useTranslation()
   const [projectId, setProjectId] = useState<string>('')
   const projectsQ = useQuery({
     queryKey: ['projects'],
@@ -320,20 +332,20 @@ function CloneToProjectModal({ templateId, onCancel, onConfirm, submitting, erro
         onClick={e => e.stopPropagation()}
       >
         <h3 id="clone-modal-title" className="text-base font-semibold text-slate-900">
-          Create a project-scoped override
+          {t('page.checklist_templates_admin.clone_title')}
         </h3>
         <p className="mt-1 text-[12px] text-slate-500">
-          Pick the project to clone this template into. A new <span className="font-semibold">draft</span>
-          {' '}copy will be created, scoped to that project. The baseline stays untouched.
+          {t('page.checklist_templates_admin.clone_hint_prefix')} <span className="font-semibold">{t('page.checklist_templates_admin.clone_hint_draft_word')}</span>
+          {' '}{t('page.checklist_templates_admin.clone_hint_suffix')}
         </p>
 
         <label className="mt-4 block">
-          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Project</span>
+          <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.checklist_templates_admin.clone_project_label')}</span>
           {projectsQ.isLoading && (
-            <p className="mt-1 text-[12px] text-slate-400">Loading projects…</p>
+            <p className="mt-1 text-[12px] text-slate-400">{t('page.checklist_templates_admin.loading_projects')}</p>
           )}
           {projectsQ.isError && (
-            <p className="mt-1 text-[12px] text-red-700">Could not load the project list.</p>
+            <p className="mt-1 text-[12px] text-red-700">{t('page.checklist_templates_admin.err_load_projects')}</p>
           )}
           {projectsQ.data && (
             <select
@@ -342,7 +354,7 @@ function CloneToProjectModal({ templateId, onCancel, onConfirm, submitting, erro
               className="mt-1 h-9 w-full rounded border border-slate-200 bg-white px-2 text-[13px] outline-none focus:border-blue-600"
               data-field="project-id"
             >
-              <option value="">— Select a project —</option>
+              <option value="">{t('page.checklist_templates_admin.clone_select_project')}</option>
               {projectsQ.data.map(p => (
                 <option key={p.id} value={p.id}>
                   {p.shortTitle ?? p.name} ({p.id})
@@ -365,7 +377,7 @@ function CloneToProjectModal({ templateId, onCancel, onConfirm, submitting, erro
             disabled={submitting}
             className="rounded border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
           >
-            Cancel
+            {t('button.cancel')}
           </button>
           <button
             type="button"
@@ -374,7 +386,7 @@ function CloneToProjectModal({ templateId, onCancel, onConfirm, submitting, erro
             className="rounded bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
             data-action="confirm-clone"
           >
-            {submitting ? 'Creating draft…' : 'Create override draft'}
+            {submitting ? t('page.checklist_templates_admin.creating_draft') : t('page.checklist_templates_admin.create_override_draft')}
           </button>
         </div>
       </div>
@@ -384,6 +396,7 @@ function CloneToProjectModal({ templateId, onCancel, onConfirm, submitting, erro
 
 interface TemplateDetailViewProps {
   template: TemplateDetail
+  deliverableTypeLabel: (key: string) => string
   onApprove: () => void
   approving: boolean
   approveError: string | null
@@ -398,6 +411,7 @@ interface TemplateDetailViewProps {
 }
 
 function TemplateDetailView(props: TemplateDetailViewProps) {
+  const { t } = useTranslation()
   const { template } = props
   const [editingId, setEditingId] = useState<string | null>(null)
   const [addingStage, setAddingStage] = useState<Stage | null>(null)
@@ -413,10 +427,10 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
     }
     const ordered: Array<{ stage: Stage; label: string; items: TemplateDetail['items'] }> = []
     for (const s of STAGE_ORDER) {
-      if (bins.has(s)) ordered.push({ stage: s, label: STAGE_LABEL[s], items: bins.get(s)! })
+      if (bins.has(s)) ordered.push({ stage: s, label: t(STAGE_LABEL_KEYS[s]), items: bins.get(s)! })
     }
     return ordered
-  }, [template])
+  }, [template, t])
 
   const isPlatformBaseline = template.projectId == null
   const isDraft    = template.templateStatus === 'draft'
@@ -428,19 +442,19 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
       <div className="flex flex-none items-start justify-between gap-4 border-b border-slate-200 bg-white px-8 py-5">
         <div>
           <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-            {deliverableTypeLabel(template.deliverableType)}
+            {props.deliverableTypeLabel(template.deliverableType)}
           </p>
           <h2 className="mt-1 text-lg font-semibold text-slate-900">
-            v{template.version}
+            {t('page.checklist_templates_admin.detail_version', { version: template.version })}
             <span className="ml-2 text-sm font-normal text-slate-500">
-              {isPlatformBaseline ? 'Platform baseline' : `Project ${template.projectId}`}
+              {isPlatformBaseline
+                ? t('page.checklist_templates_admin.scope_platform_baseline')
+                : t('page.checklist_templates_admin.scope_project', { projectId: template.projectId })}
             </span>
           </h2>
           <p className="mt-1 text-[12px] text-slate-500">
-            {template.items.length} item{template.items.length === 1 ? '' : 's'} ·
-            {' '}{template.instanceCount} document{template.instanceCount === 1 ? '' : 's'} tracked ·
-            {' '}effective {fmtDate(template.effectiveDate)}
-            {template.approvedAt && ` · approved ${fmtDate(template.approvedAt)}`}
+            {t('page.checklist_templates_admin.detail_summary', { items: template.items.length, docs: template.instanceCount, effective: fmtDate(template.effectiveDate) })}
+            {template.approvedAt && t('page.checklist_templates_admin.detail_approved_suffix', { date: fmtDate(template.approvedAt) })}
           </p>
           <p className="mt-1 text-[11px] italic text-slate-500">{template.changeReason}</p>
         </div>
@@ -451,7 +465,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
               ? { backgroundColor: '#FEF3C7', color: '#B45309' }
               : { backgroundColor: '#DCFCE7', color: '#15803D' }}
           >
-            {template.templateStatus}
+            {TEMPLATE_STATUS_KEYS[template.templateStatus] ? t(TEMPLATE_STATUS_KEYS[template.templateStatus]) : template.templateStatus}
           </span>
           {canApprove && (
             <button
@@ -461,7 +475,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
               className="rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
               data-action="approve-template"
             >
-              {props.approving ? 'Approving…' : 'Approve + Lock'}
+              {props.approving ? t('page.checklist_templates_admin.approving') : t('page.checklist_templates_admin.approve_and_lock')}
             </button>
           )}
           {canBump && (
@@ -471,9 +485,9 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
               disabled={props.bumping}
               className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-900 hover:bg-slate-50 disabled:text-slate-400"
               data-action="bump-draft"
-              title="Clone this locked template into a new draft version you can edit."
+              title={t('page.checklist_templates_admin.bump_draft_tooltip')}
             >
-              {props.bumping ? 'Creating draft…' : 'Bump new draft'}
+              {props.bumping ? t('page.checklist_templates_admin.creating_draft') : t('page.checklist_templates_admin.bump_new_draft')}
             </button>
           )}
           {/* Project override — allowed from any locked template (baseline
@@ -485,9 +499,9 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
               onClick={props.onCloneToProject}
               className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-900 hover:bg-slate-50"
               data-action="clone-to-project"
-              title="Clone this template into a project-scoped draft a PM can customise."
+              title={t('page.checklist_templates_admin.create_project_override_tooltip')}
             >
-              Create project override
+              {t('page.checklist_templates_admin.create_project_override')}
             </button>
           )}
           {props.approveError && (
@@ -501,7 +515,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
       <div className="flex-1 overflow-y-auto bg-slate-50">
         {byStage.length === 0 && !isDraft && (
           <p className="px-8 py-10 text-sm text-slate-500">
-            This template has no items yet.
+            {t('page.checklist_templates_admin.empty_template')}
           </p>
         )}
         {/* On a draft, always render every stage so the admin can add
@@ -513,7 +527,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
           return (
             <section key={stage} className="mt-4 first:mt-0" data-stage-group={stage}>
               <h3 className="px-8 pt-4 pb-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                {STAGE_LABEL[stage]} · {items.length} item{items.length === 1 ? '' : 's'}
+                {t('page.checklist_templates_admin.stage_heading', { stage: t(STAGE_LABEL_KEYS[stage]), count: items.length })}
               </h3>
               <div className="mx-8 overflow-hidden rounded-lg border border-slate-200 bg-white">
                 {items.map((it, i) => (
@@ -548,7 +562,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
                     data-action="add-item"
                     data-stage={stage}
                   >
-                    + Add item
+                    {t('page.checklist_templates_admin.add_item')}
                   </button>
                 )}
                 {isDraft && addingStage === stage && (
@@ -581,6 +595,7 @@ function ReadItemRow({ item, isLast, canEdit, canMoveUp, canMoveDown, onEdit, on
   onMove: (dir: 'up' | 'down') => void
   busy: boolean
 }) {
+  const { t } = useTranslation()
   return (
     <div
       className={`flex items-start gap-3 px-4 py-3 ${isLast ? '' : 'border-b border-slate-100'}`}
@@ -590,7 +605,7 @@ function ReadItemRow({ item, isLast, canEdit, canMoveUp, canMoveDown, onEdit, on
         <p className="text-[13px] font-semibold text-slate-900">{item.text}</p>
         <p className="mt-0.5 text-[11px] text-slate-500">
           {item.framework}
-          {item.frameworkMandatory ? ' · Mandatory' : ' · Recommended'}
+          {item.frameworkMandatory ? t('page.checklist_templates_admin.mandatory_suffix') : t('page.checklist_templates_admin.recommended_suffix')}
         </p>
         <div className="mt-1 flex flex-wrap gap-1.5">
           <span
@@ -604,25 +619,25 @@ function ReadItemRow({ item, isLast, canEdit, canMoveUp, canMoveDown, onEdit, on
               className="inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[10px] font-medium"
               style={{ backgroundColor: '#F0F9FF', borderColor: '#BAE6FD', color: '#0369A1' }}
             >
-              ⚡ {AUTO_LABEL[item.autoCompleteOn]}
+              ⚡ {AUTO_LABEL_KEYS[item.autoCompleteOn] ? t(AUTO_LABEL_KEYS[item.autoCompleteOn]) : item.autoCompleteOn}
             </span>
           )}
         </div>
       </div>
       {canEdit && (
         <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
-          <button type="button" onClick={() => onMove('up')}   disabled={!canMoveUp   || busy} className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:text-slate-300" title="Move up"   data-action="move-up">↑</button>
-          <button type="button" onClick={() => onMove('down')} disabled={!canMoveDown || busy} className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:text-slate-300" title="Move down" data-action="move-down">↓</button>
-          <button type="button" onClick={onEdit} disabled={busy} className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:text-slate-300" data-action="edit-item">Edit</button>
+          <button type="button" onClick={() => onMove('up')}   disabled={!canMoveUp   || busy} className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:text-slate-300" title={t('page.checklist_templates_admin.move_up')}   data-action="move-up">↑</button>
+          <button type="button" onClick={() => onMove('down')} disabled={!canMoveDown || busy} className="rounded border border-slate-200 bg-white px-1.5 py-0.5 text-[11px] text-slate-700 hover:bg-slate-50 disabled:text-slate-300" title={t('page.checklist_templates_admin.move_down')} data-action="move-down">↓</button>
+          <button type="button" onClick={onEdit} disabled={busy} className="rounded border border-slate-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:text-slate-300" data-action="edit-item">{t('page.checklist_templates_admin.edit')}</button>
           <button
             type="button"
             onClick={onDelete}
             disabled={busy || item.frameworkMandatory}
             className="rounded border border-red-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50 disabled:border-slate-200 disabled:text-slate-300"
-            title={item.frameworkMandatory ? "Mandatory items can't be deleted; waive them on the document instead." : 'Delete item'}
+            title={item.frameworkMandatory ? t('page.checklist_templates_admin.delete_mandatory_tooltip') : t('page.checklist_templates_admin.delete_item_tooltip')}
             data-action="delete-item"
           >
-            Delete
+            {t('page.checklist_templates_admin.delete')}
           </button>
         </div>
       )}
@@ -645,6 +660,7 @@ function AddItemRow({ stage, onCancel, onSave, disabled }: {
   onSave: (body: Parameters<typeof documentsApi.addChecklistTemplateItem>[1]) => void
   disabled: boolean
 }) {
+  const { t } = useTranslation()
   const [v, setV] = useState<ItemFormValues>({
     text: '',
     framework: 'Custom',
@@ -668,8 +684,8 @@ function AddItemRow({ stage, onCancel, onSave, disabled }: {
     <div className="border-t border-slate-100 bg-slate-50 px-4 py-3" data-form="add-item">
       <ItemFormFields v={v} setV={setV} />
       <div className="mt-2 flex justify-end gap-2">
-        <button type="button" onClick={onCancel} disabled={disabled} className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
-        <button type="button" onClick={submit} disabled={disabled || !v.text.trim()} className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300">Add</button>
+        <button type="button" onClick={onCancel} disabled={disabled} className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
+        <button type="button" onClick={submit} disabled={disabled || !v.text.trim()} className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300">{t('page.checklist_templates_admin.add')}</button>
       </div>
     </div>
   )
@@ -681,6 +697,7 @@ function EditItemRow({ item, onCancel, onSave, disabled }: {
   onSave: (body: Parameters<typeof documentsApi.patchChecklistTemplateItem>[1]) => void
   disabled: boolean
 }) {
+  const { t } = useTranslation()
   const [v, setV] = useState<ItemFormValues>({
     text: item.text,
     framework: item.framework,
@@ -704,14 +721,15 @@ function EditItemRow({ item, onCancel, onSave, disabled }: {
     <div className="border-b border-slate-100 bg-amber-50/40 px-4 py-3" data-form="edit-item" data-item-id={item.id}>
       <ItemFormFields v={v} setV={setV} />
       <div className="mt-2 flex justify-end gap-2">
-        <button type="button" onClick={onCancel} disabled={disabled} className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">Cancel</button>
-        <button type="button" onClick={submit} disabled={disabled || !v.text.trim()} className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300">Save</button>
+        <button type="button" onClick={onCancel} disabled={disabled} className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
+        <button type="button" onClick={submit} disabled={disabled || !v.text.trim()} className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300">{t('page.checklist_templates_admin.save')}</button>
       </div>
     </div>
   )
 }
 
 function ItemFormFields({ v, setV }: { v: ItemFormValues; setV: (next: ItemFormValues) => void }) {
+  const { t } = useTranslation()
   const inputCls = 'h-8 rounded border border-slate-200 bg-white px-2 text-[12px] outline-none focus:border-blue-600'
   return (
     <div className="flex flex-col gap-2">
@@ -719,7 +737,7 @@ function ItemFormFields({ v, setV }: { v: ItemFormValues; setV: (next: ItemFormV
         type="text"
         value={v.text}
         onChange={e => setV({ ...v, text: e.target.value })}
-        placeholder="Item description"
+        placeholder={t('page.checklist_templates_admin.item_description_placeholder')}
         className={inputCls}
         autoFocus
       />
@@ -728,28 +746,28 @@ function ItemFormFields({ v, setV }: { v: ItemFormValues; setV: (next: ItemFormV
           type="text"
           value={v.framework}
           onChange={e => setV({ ...v, framework: e.target.value })}
-          placeholder="Framework (e.g. ICH E3)"
+          placeholder={t('page.checklist_templates_admin.framework_placeholder')}
           className={inputCls}
         />
         <select value={v.stage} onChange={e => setV({ ...v, stage: e.target.value as Stage })} className={inputCls}>
-          {STAGE_ORDER.map(s => <option key={s} value={s}>{STAGE_LABEL[s]}</option>)}
+          {STAGE_ORDER.map(s => <option key={s} value={s}>{t(STAGE_LABEL_KEYS[s])}</option>)}
         </select>
         <select value={v.ownerRaci} onChange={e => setV({ ...v, ownerRaci: e.target.value as Raci })} className={inputCls}>
-          <option value="R">R — Responsible</option>
-          <option value="A">A — Accountable</option>
-          <option value="C">C — Consulted</option>
-          <option value="I">I — Informed</option>
+          <option value="R">{t('page.checklist_templates_admin.raci_r')}</option>
+          <option value="A">{t('page.checklist_templates_admin.raci_a')}</option>
+          <option value="C">{t('page.checklist_templates_admin.raci_c')}</option>
+          <option value="I">{t('page.checklist_templates_admin.raci_i')}</option>
         </select>
         <select
           value={v.autoCompleteOn}
           onChange={e => setV({ ...v, autoCompleteOn: e.target.value as AutoTrigger | '' })}
           className={inputCls}
-          title="Auto-complete trigger (optional)"
+          title={t('page.checklist_templates_admin.auto_complete_tooltip')}
         >
-          <option value="">Manual tick</option>
-          <option value="submit_for_review">Auto on submit</option>
-          <option value="crm_complete">Auto on CRM close</option>
-          <option value="document_signed">Auto on signature</option>
+          <option value="">{t('page.checklist_templates_admin.auto_manual')}</option>
+          <option value="submit_for_review">{t('page.checklist_templates_admin.auto_submit_for_review')}</option>
+          <option value="crm_complete">{t('page.checklist_templates_admin.auto_crm_complete')}</option>
+          <option value="document_signed">{t('page.checklist_templates_admin.auto_document_signed')}</option>
         </select>
         <label className="flex items-center gap-1.5 px-1 text-[12px] text-slate-700">
           <input
@@ -757,7 +775,7 @@ function ItemFormFields({ v, setV }: { v: ItemFormValues; setV: (next: ItemFormV
             checked={v.frameworkMandatory}
             onChange={e => setV({ ...v, frameworkMandatory: e.target.checked })}
           />
-          Mandatory
+          {t('page.checklist_templates_admin.mandatory_checkbox')}
         </label>
       </div>
     </div>

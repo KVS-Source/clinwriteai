@@ -165,35 +165,20 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send(blockedBody('signature', gate))
     }
 
-    // Everyone named on the document — Author (R), Reviewer (C), Approver (A), Informed (I), plus the
-    // project team's Approvers — must be on the chain, signing with the meaning of their role. Enforced
-    // here so bypassing the screen (a direct POST) can't leave a named person out. The starter may add
-    // extra signers on top; those are additive.
-    const required = await requiredSigners(app.prisma, doc)
-    if (!required.some(r => r.meanings.has('approved'))) {
+    // The chain needs at least one Approver: without an approval the document can't become signed.
+    // Everyone named on the document (Author, Reviewer, Approver, Informed) is pre-filled on the screen,
+    // but the starter may remove people, so naming is not enforced here. Anyone named who is left off is
+    // recorded in the audit entry below, so the omission is traceable.
+    if (!parsed.data.signers.some(s => s.meaning === 'approved')) {
       return reply.code(422).send({
-        error: 'no_approvers_configured',
-        message: "This document has no Approver (RACI='A'). Assign one in the document's RACI before starting the signature chain.",
+        error: 'approver_required',
+        message: 'The signature chain needs at least one Approver. Add an Approver to the chain.',
       })
     }
-    const missing = required.filter(r =>
-      !parsed.data.signers.some(s => s.signerId === r.userId && r.meanings.has(s.meaning)))
-    const missingApprovers = missing.filter(r => r.meanings.has('approved'))
-    if (missingApprovers.length > 0) {
-      const total = required.filter(r => r.meanings.has('approved')).length
-      return reply.code(422).send({
-        error: 'missing_approvers',
-        message: `Every Approver on this document must sign the chain. Missing ${missingApprovers.length} of ${total}: ${missingApprovers.map(m => m.name).join(', ')}.`,
-        missingApprovers: missingApprovers.map(m => ({ userId: m.userId, name: m.name })),
-      })
-    }
-    if (missing.length > 0) {
-      return reply.code(422).send({
-        error: 'missing_signers',
-        message: `Everyone named on this document must sign the chain. Missing: ${missing.map(m => m.name).join(', ')}.`,
-        missingSigners: missing.map(m => ({ userId: m.userId, name: m.name })),
-      })
-    }
+    const named = await requiredSigners(app.prisma, doc)
+    const omittedNamedSigners = named
+      .filter(r => !parsed.data.signers.some(s => s.signerId === r.userId && r.meanings.has(s.meaning)))
+      .map(r => ({ userId: r.userId, name: r.name, meanings: [...r.meanings] }))
 
     const signers = parsed.data.signers
     const created = await app.prisma.$transaction(async (tx) => {
@@ -233,7 +218,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       action: 'signature_initiated',
       entityType: 'document',
       entityId: documentId,
-      details: { chainId: created.id, chainType: created.chainType, signerCount: signers.length },
+      details: { chainId: created.id, chainType: created.chainType, signerCount: signers.length, omittedNamedSigners },
       ipAddress: request.ip ?? null,
     })
 

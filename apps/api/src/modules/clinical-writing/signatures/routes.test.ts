@@ -413,42 +413,45 @@ describe('signature chain — who may start it', () => {
     expect((await startAs(USERS.outsider, all4)).statusCode).toBe(403)
   })
 
-  it('requires everyone named as Author, Reviewer, Approver or Informed to be on the chain', async () => {
+  it('lets the starter leave named people off the chain, and records who was left off in the audit entry', async () => {
     const res = await startAs(USERS.author, twoSigners)                       // leaves out Reviewer + Informed
+    expect(res.statusCode).toBe(201)
+    expect(res.json().records).toHaveLength(2)
+    const init = t.audit.find(a => a.action === 'signature_initiated')!
+    expect(init.details.omittedNamedSigners.map((m: Row) => m.name).sort()).toEqual(['Cora Consulted', 'Ian Informed'])
+  })
+
+  it('counts a named person who signs under a different meaning as left off, and says so', async () => {
+    const other = { ...all4, signers: all4.signers.map(sg => sg.signerId === 'u-cons' ? { ...sg, meaning: 'authored' } : sg) }
+    expect((await startAs(USERS.author, other)).statusCode).toBe(201)
+    const init = t.audit.find(a => a.action === 'signature_initiated')!
+    expect(init.details.omittedNamedSigners.map((m: Row) => m.name)).toEqual(['Cora Consulted'])
+  })
+
+  it('refuses a chain with no Approver in it, even when every other named person is on it', async () => {
+    const noApprover = { ...all4, signers: all4.signers.filter(sg => sg.meaning !== 'approved') }
+    const res = await startAs(USERS.author, noApprover)
     expect(res.statusCode).toBe(422)
-    expect(res.json().error).toBe('missing_signers')
-    expect(res.json().missingSigners.map((m: Row) => m.name).sort()).toEqual(['Cora Consulted', 'Ian Informed'])
+    expect(res.json().error).toBe('approver_required')
     expect(t.db.chains).toHaveLength(0)
   })
 
-  it('requires each named person to sign with the meaning of their role', async () => {
-    const wrong = { ...all4, signers: all4.signers.map(sg => sg.signerId === 'u-cons' ? { ...sg, meaning: 'approved' } : sg) }
-    const res = await startAs(USERS.author, wrong)
-    expect(res.statusCode).toBe(422)
-    expect(res.json().error).toBe('missing_signers')
-  })
-
-  it('refuses a chain that leaves out a named Approver, with the Approver error', async () => {
-    const noApprover = { ...all4, signers: all4.signers.filter(sg => sg.signerId !== 'u-reviewer') }
-    const res = await startAs(USERS.author, noApprover)
-    expect(res.statusCode).toBe(422)
-    expect(res.json().error).toBe('missing_approvers')
-    expect(res.json().missingApprovers.map((m: Row) => m.name)).toEqual(['Reviewer Name'])
-  })
-
-  it('does not require QC (Q), and ignores rows that were removed', async () => {
-    t.db.raciRows.push({ id: 'raci-gone', documentId: 'DOC-1', userId: 'u-gone', letter: 'A', removedAt: new Date() })
+  it('does not list QC (Q) or a removed assignment as left off', async () => {
     t.db.raciRows.find(r => r.id === 'raci-c')!.removedAt = new Date()        // Reviewer removed
     t.db.raciRows.find(r => r.id === 'raci-i')!.removedAt = new Date()        // Informed removed
-    expect((await startAs(USERS.author, twoSigners)).statusCode).toBe(201)    // only Author + Approver remain; Q is not a signer
+    expect((await startAs(USERS.author, twoSigners)).statusCode).toBe(201)    // Author + Approver remain; Q is not a signer
+    const init = t.audit.find(a => a.action === 'signature_initiated')!
+    expect(init.details.omittedNamedSigners).toEqual([])
   })
 
-  it('refuses a chain when the document has no Approver at all', async () => {
+  it('lets the starter add an Approver by hand when the document has none named', async () => {
     t.db.raciRows.find(r => r.id === 'raci-2')!.removedAt = new Date()        // the document-RACI Approver
     t.db.projectTeamMembers.length = 0                                        // and no project-team Approver
-    const res = await startAs(USERS.author, all4)
-    expect(res.statusCode).toBe(422)
-    expect(res.json().error).toBe('no_approvers_configured')
+    const noApprover = { ...all4, signers: all4.signers.filter(sg => sg.meaning !== 'approved') }
+    expect((await startAs(USERS.author, noApprover)).json().error).toBe('approver_required')
+    t.db.chains.length = 0; t.db.records.length = 0
+    const withApprover = { ...noApprover, signers: [...noApprover.signers, { signerId: 'u-extra', signerName: 'Eve Extra', signerRole: 'Approver', meaning: 'approved' }] }
+    expect((await startAs(USERS.author, withApprover)).statusCode).toBe(201)
   })
 
   it('lets the starter add extra signers on top of the named people', async () => {

@@ -23,6 +23,10 @@ out/
 .env.development.local
 .env.production
 .env.*.local
+# Backup copies of env files carry real secrets — never commit them.
+.env.bak*
+.env.*.bak*
+.env.local.bak*
 !.env.example
 
 # docs/.env.example here is a per-env reference template dropped by the user

@@ -33,6 +33,9 @@ export const authApi = {
     api.post<{ ok: true }>('/auth/reset-password', { token, newPassword }, NO_REDIRECT),
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<{ ok: true }>('/auth/change-password', { currentPassword, newPassword }, NO_REDIRECT),
+  // Register from an invite link: set a password, which activates the account.
+  registerFromInvite: (token: string, newPassword: string) =>
+    api.post<{ ok: true; email: string }>('/auth/invitations/register', { token, newPassword, acceptTerms: true }, NO_REDIRECT),
   session: () =>
     api.get<User & { email: string; mustChangePassword?: boolean }>('/auth/me', NO_REDIRECT),
 }

@@ -13,7 +13,8 @@ export function SignIn() {
   const { t } = useTranslation()
   const [params] = useSearchParams()
   const returnTo = safeReturnTo(params.get('return_to'))
-  const justReset = params.get('reset') === '1'
+  const justReset      = params.get('reset') === '1'
+  const justRegistered = params.get('registered') === '1'
 
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
@@ -41,6 +42,7 @@ export function SignIn() {
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {justReset && <AuthNotice>{t('page.sign_in.reset_notice')}</AuthNotice>}
+        {justRegistered && <AuthNotice>{t('page.sign_in.registered_notice')}</AuthNotice>}
 
         <AuthField
           id="email"

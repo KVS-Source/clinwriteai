@@ -165,17 +165,20 @@ class TwilioSmsAdapter implements SmsAdapter {
 
 export function createEmailAdapter(): EmailAdapter {
   const provider = (process.env.EMAIL_PROVIDER ?? 'noop').toLowerCase()
-  const from = process.env.EMAIL_FROM_ADDRESS ?? 'noreply@clinwrite.ai'
+  // Accept the API mailer's env names too (SMTP_PASS / EMAIL_FROM) so both
+  // services run off one apps/api/.env. Without this, EMAIL_PROVIDER=smtp with
+  // only SMTP_PASS set silently fell back to noop and dropped every email.
+  const from = process.env.EMAIL_FROM_ADDRESS ?? process.env.EMAIL_FROM ?? 'noreply@clinwrite.ai'
   if (provider === 'ses') {
     return new SesEmailAdapter(from)
   }
   if (provider === 'smtp') {
     const host = process.env.SMTP_HOST
     const user = process.env.SMTP_USER
-    const password = process.env.SMTP_PASSWORD
+    const password = process.env.SMTP_PASSWORD ?? process.env.SMTP_PASS
     if (!host || !user || !password) {
       // eslint-disable-next-line no-console
-      console.warn('[notification-providers] EMAIL_PROVIDER=smtp but SMTP_HOST/SMTP_USER/SMTP_PASSWORD not set; falling back to noop.')
+      console.warn('[notification-providers] EMAIL_PROVIDER=smtp but SMTP_HOST/SMTP_USER/SMTP_PASSWORD(or SMTP_PASS) not set; falling back to noop.')
       return new NoopEmailAdapter()
     }
     const port = Number(process.env.SMTP_PORT ?? 465)

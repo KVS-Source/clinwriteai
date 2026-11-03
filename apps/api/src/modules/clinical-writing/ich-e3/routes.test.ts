@@ -29,12 +29,15 @@ async function build(opts: Opts = {}) {
         projectId: 'proj-1', deletedAt: null,
         currentVersion: {
           versionNumber: 'v0.3',
-          sections: section ? [{ id: 'row-1', sectionId: 's5', ...section }] : [],
+          sections: section ? [{ id: 'row-1', sectionId: 's5', sectionNumber: '§5', lastEditedBy: 'u-9', lastEditedAt: new Date('2026-11-01T09:00:00Z'), ...section }] : [],
         },
       })),
     },
     project:          { findUnique: vi.fn(async () => ({ status: opts.projectStatus ?? 'ongoing' })) },
     user:             { findMany: vi.fn(async () => [{ id: 'u-9', name: 'Dr A Rao' }]) },
+    comment:          { findMany: vi.fn(async () => [{ sectionRef: '§5', verdict: null }, { sectionRef: '§5', verdict: 'approve' }]) },
+    sourceReference:  { findMany: vi.fn(async () => [{ id: 'ref-1', sectionId: 's5' }, { id: 'ref-2', sectionId: 's5' }]) },
+    sourceReferenceRemoval: { findMany: vi.fn(async () => [{ referenceId: 'ref-2' }]) },
     sectionContent:   { update: vi.fn(async (args: { where: { id: string }; data: { ichStatus: string } }) => { sectionUpdates.push(args); return {} }) },
     ichSectionWaiver: {
       findMany:   vi.fn(async () => [{ sectionCode: '§15', waivedBy: 'u-9', waivedAt: new Date('2026-10-30T10:00:00Z'), reason: 'No references cited', versionAtWaiver: 'v0.2' }]),
@@ -68,6 +71,17 @@ describe('GET /documents/:id/ich-e3', () => {
     const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/ich-e3` })).json()
     expect(body).toMatchObject({ applicable: true, documentTitle: 'CSR Velora-301', waivedCount: 1 })
     expect(body.sections.find((s: { code: string }) => s.code === '§15').waiver).toMatchObject({ waivedBy: 'u-9', waivedByName: 'Dr A Rao' })
+  })
+
+  it('adds per-section progress: open comments (approvals excluded), live references, last editor', async () => {
+    const { app } = await build()
+    const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/ich-e3` })).json()
+    expect(body.sections.find((s: { code: string }) => s.code === '§5').progress).toMatchObject({
+      wordCount: 1, placeholders: 0, markedComplete: false,
+      openComments: 1, sourceReferences: 1,
+      lastEditedAt: '2026-11-01T09:00:00.000Z', lastEditedByName: 'Dr A Rao',
+      checksDone: 2, checksTotal: 4,
+    })
   })
 
   it('marks a non-CSR document as not applicable, with no rows', async () => {

@@ -9,6 +9,7 @@
 // adds the tab bar and the summary, reusing the same query keys (no extra fetch).
 
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { documentsApi } from '../api'
 import { ChecklistPanel } from './ChecklistPanel'
 import { ICHValidatorPanel } from './ICHValidatorPanel'
@@ -26,6 +27,7 @@ interface Props {
 }
 
 export function ChecklistHub({ documentId, tab, onTabChange, showIch, lockReason = null }: Props) {
+  const { t } = useTranslation()
   // A stale 'ich-e3' request on a non-CSR falls back to the inputs list.
   const activeTab: ChecklistTab = showIch ? tab : 'inputs'
 
@@ -47,8 +49,8 @@ export function ChecklistHub({ documentId, tab, onTabChange, showIch, lockReason
   const ichWaived  = ich?.waivedCount ?? 0
 
   const tabs: { key: ChecklistTab; label: string }[] = [
-    { key: 'inputs', label: 'Inputs' },
-    ...(showIch ? [{ key: 'ich-e3' as const, label: 'ICH E3' }] : []),
+    { key: 'inputs', label: t('page.checklist_hub.tab_inputs') },
+    ...(showIch ? [{ key: 'ich-e3' as const, label: t('page.checklist_hub.tab_ich_e3') }] : []),
   ]
 
   return (
@@ -60,22 +62,22 @@ export function ChecklistHub({ documentId, tab, onTabChange, showIch, lockReason
             style={{ backgroundColor: '#FFFFFF' }}
             data-checklist-summary
           >
-            Inputs {inputsDone}/{liveItems.length}
+            {t('page.checklist_hub.summary_inputs', { done: inputsDone, total: liveItems.length })}
             {ich && ich.applicable && (
-              <> · ICH E3 {ichDone}/{ichTotal}{ichWaived > 0 && ` · ${ichWaived} waived`}</>
+              <> · {t('page.checklist_hub.summary_ich_e3', { done: ichDone, total: ichTotal })}{ichWaived > 0 && ` · ${t('page.checklist_hub.summary_waived_count', { count: ichWaived })}`}</>
             )}
           </div>
           <div className="flex flex-none border-b border-slate-200" role="tablist" data-checklist-tabs>
-            {tabs.map(t => {
-              const active = t.key === activeTab
+            {tabs.map(ty => {
+              const active = ty.key === activeTab
               return (
                 <button
-                  key={t.key}
+                  key={ty.key}
                   type="button"
                   role="tab"
                   aria-selected={active}
-                  data-checklist-tab={t.key}
-                  onClick={() => onTabChange(t.key)}
+                  data-checklist-tab={ty.key}
+                  onClick={() => onTabChange(ty.key)}
                   className="flex-1 px-3 py-2 text-xs font-semibold transition-colors hover:bg-slate-50"
                   style={{
                     color:        active ? '#2563EB' : '#64748B',
@@ -83,7 +85,7 @@ export function ChecklistHub({ documentId, tab, onTabChange, showIch, lockReason
                     marginBottom: -1,
                   }}
                 >
-                  {t.label}
+                  {ty.label}
                 </button>
               )
             })}
@@ -96,7 +98,7 @@ export function ChecklistHub({ documentId, tab, onTabChange, showIch, lockReason
           style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', color: '#92400E' }}
           data-ich-locked-note
         >
-          Document is {lockReason} — sections can’t be marked complete or reopened.
+          {t('page.checklist_hub.locked_note', { reason: lockReason })}
         </p>
       )}
       <div className="min-h-0 flex-1">

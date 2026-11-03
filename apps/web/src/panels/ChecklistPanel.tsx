@@ -1,5 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { ChecklistItem, ChecklistItemStatus } from '@platform/types'
 import { documentsApi } from '../api'
 import { useAuthStore } from '../store/authStore'
@@ -20,21 +22,21 @@ const STAGE_ORDER: NonNullable<ChecklistItem['stage']>[] = [
   'final_output',
 ]
 
-const STAGE_LABEL: Record<NonNullable<ChecklistItem['stage']>, string> = {
-  study_start_up:          'Study Start-Up',
-  during_study:            'During Study',
-  reporting:               'Post-Study',
-  cross_functional_review: 'Cross-Functional Review',
-  crm:                     'CRM',
-  final_output:            'Final Output',
+const STAGE_LABEL_KEYS: Record<NonNullable<ChecklistItem['stage']>, string> = {
+  study_start_up:          'page.checklist_panel.stage_study_start_up',
+  during_study:            'page.checklist_panel.stage_during_study',
+  reporting:               'page.checklist_panel.stage_reporting',
+  cross_functional_review: 'page.checklist_panel.stage_cross_functional_review',
+  crm:                     'page.checklist_panel.stage_crm',
+  final_output:            'page.checklist_panel.stage_final_output',
 }
 
-const RACI_LABEL: Record<NonNullable<ChecklistItem['ownerRaci']>, string> = {
-  R: 'Responsible',
-  A: 'Accountable',
-  C: 'Consulted',
-  I: 'Informed',
-  Q: 'QC release',
+const RACI_LABEL_KEYS: Record<NonNullable<ChecklistItem['ownerRaci']>, string> = {
+  R: 'page.checklist_panel.raci_responsible',
+  A: 'page.checklist_panel.raci_accountable',
+  C: 'page.checklist_panel.raci_consulted',
+  I: 'page.checklist_panel.raci_informed',
+  Q: 'page.checklist_panel.raci_qc_release',
 }
 
 const RACI_COLOUR: Record<NonNullable<ChecklistItem['ownerRaci']>, { bg: string; fg: string }> = {
@@ -47,27 +49,27 @@ const RACI_COLOUR: Record<NonNullable<ChecklistItem['ownerRaci']>, { bg: string;
 
 // Legacy workflow-trigger labels. Modern autocheck strategies (content-min-words,
 // references-complete, signal:*, ai-pass:*) fall through to a generic label.
-const AUTO_COMPLETE_LABEL: Record<string, string> = {
-  submit_for_review: 'Auto on submit',
-  crm_complete:      'Auto on CRM close',
-  document_signed:   'Auto on signature',
+const AUTO_COMPLETE_LABEL_KEYS: Record<string, string> = {
+  submit_for_review: 'page.checklist_panel.auto_on_submit',
+  crm_complete:      'page.checklist_panel.auto_on_crm_close',
+  document_signed:   'page.checklist_panel.auto_on_signature',
 }
 
-function autoCompleteLabelFor(tag: string | null | undefined): string | null {
+function autoCompleteLabelFor(tag: string | null | undefined, t: TFunction): string | null {
   if (!tag) return null
-  if (AUTO_COMPLETE_LABEL[tag]) return AUTO_COMPLETE_LABEL[tag]
+  if (AUTO_COMPLETE_LABEL_KEYS[tag]) return t(AUTO_COMPLETE_LABEL_KEYS[tag])
   // Autocheck strategy tag — show a shortened form (strategy name, no args).
   const strategy = tag.split(':')[0]
   if (!strategy) return null
-  return `Auto: ${strategy}`
+  return t('page.checklist_panel.auto_generic', { strategy })
 }
 
-function errorMessage(err: unknown, fallback: string): string {
+function errorMessage(err: unknown, fallback: string, t: TFunction): string {
   if (err instanceof ApiError) {
     const body = err.body as { message?: string } | null
-    return body?.message ?? `${fallback} (HTTP ${err.status})`
+    return body?.message ?? t('page.checklist_panel.error_with_http', { fallback, status: err.status })
   }
-  return `${fallback} Please try again.`
+  return t('page.checklist_panel.error_please_try_again', { fallback })
 }
 
 // --- Icons ---
@@ -164,6 +166,7 @@ interface ItemRowProps {
 }
 
 function ItemRow(p: ItemRowProps) {
+  const { t } = useTranslation()
   const { item }        = p
   const isComplete      = item.status === 'complete'
   const isWaived        = item.status === 'waived'
@@ -178,10 +181,19 @@ function ItemRow(p: ItemRowProps) {
     '#B45309'  // pending → amber
 
   const secondaryText =
-    isComplete   ? (item.completedBy ? `Completed · ${item.completedBy}` : 'Complete') :
-    item.status === 'in-progress' ? 'In progress' :
-    isWaived     ? `Waived · ${item.waivedBy ?? '—'}${item.waivedAt ? ' · ' + new Date(item.waivedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}` :
-    'Pending'
+    isComplete
+      ? (item.completedBy
+          ? t('page.checklist_panel.secondary_completed_by', { name: item.completedBy })
+          : t('page.checklist_panel.secondary_complete'))
+    : item.status === 'in-progress' ? t('page.checklist_panel.secondary_in_progress')
+    : isWaived
+      ? t('page.checklist_panel.secondary_waived', {
+          name: item.waivedBy ?? '—',
+          suffix: item.waivedAt ? ' · ' + new Date(item.waivedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '',
+        })
+    : t('page.checklist_panel.secondary_pending')
+
+  const mandatorySuffix = isMandatory ? t('page.checklist_panel.mandatory_suffix') : ''
 
   return (
     <div className="flex items-start gap-2.5 border-b px-4 py-2.5 transition-colors hover:bg-slate-50" style={{ borderColor: '#F1F5F9' }}>
@@ -195,13 +207,13 @@ function ItemRow(p: ItemRowProps) {
               className="inline-block rounded border px-1.5 py-px text-[11px] font-semibold"
               style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#D97706' }}
             >
-              {item.framework}{isMandatory ? ' · Mandatory' : ''}
+              {item.framework}{mandatorySuffix}
             </span>
           </div>
         ) : (
           <p className="text-[11px] text-slate-500">
-            {item.framework}{isMandatory ? ' · Mandatory' : ''}
-            {item.isUserAdded && ' · Custom'}
+            {item.framework}{mandatorySuffix}
+            {item.isUserAdded && t('page.checklist_panel.custom_suffix')}
           </p>
         )}
 
@@ -215,7 +227,7 @@ function ItemRow(p: ItemRowProps) {
               <span
                 className="inline-flex items-center rounded-full px-1.5 py-px text-[10px] font-semibold uppercase tracking-wide"
                 style={{ backgroundColor: RACI_COLOUR[item.ownerRaci].bg, color: RACI_COLOUR[item.ownerRaci].fg }}
-                title={`Owner: ${RACI_LABEL[item.ownerRaci]} (${item.ownerRaci})`}
+                title={t('page.checklist_panel.raci_owner_tooltip', { role: t(RACI_LABEL_KEYS[item.ownerRaci]), code: item.ownerRaci })}
                 data-raci={item.ownerRaci}
               >
                 {item.ownerRaci}
@@ -225,10 +237,10 @@ function ItemRow(p: ItemRowProps) {
               <span
                 className="inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[10px] font-medium"
                 style={{ backgroundColor: '#F0F9FF', borderColor: '#BAE6FD', color: '#0369A1' }}
-                title="This item will auto-tick when the matching system event fires."
+                title={t('page.checklist_panel.auto_complete_tooltip')}
                 data-auto-complete={item.autoCompleteOn}
               >
-                ⚡ {autoCompleteLabelFor(item.autoCompleteOn)}
+                ⚡ {autoCompleteLabelFor(item.autoCompleteOn, t)}
               </span>
             )}
           </div>
@@ -244,7 +256,7 @@ function ItemRow(p: ItemRowProps) {
               onClick={() => p.onShowReason(p.showReason === item.id ? null : item.id)}
               className="text-left text-[11px] font-semibold text-blue-600 hover:text-blue-700"
             >
-              {p.showReason === item.id ? 'Hide waiver reason' : 'View waiver reason →'}
+              {p.showReason === item.id ? t('page.checklist_panel.hide_waiver_reason') : t('page.checklist_panel.view_waiver_reason')}
             </button>
             {p.showReason === item.id && (
               <p className="mt-1 rounded border px-2 py-1.5 text-[11px] text-slate-700"
@@ -267,7 +279,7 @@ function ItemRow(p: ItemRowProps) {
                   disabled={p.isMutating}
                   className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
                 >
-                  Mark complete
+                  {t('page.checklist_panel.action_mark_complete')}
                 </button>
                 <button
                   type="button"
@@ -276,7 +288,7 @@ function ItemRow(p: ItemRowProps) {
                   className="text-[11px] font-semibold hover:text-amber-700 disabled:opacity-50"
                   style={{ color: '#B45309' }}
                 >
-                  Waive
+                  {t('page.checklist_panel.action_waive')}
                 </button>
               </>
             )}
@@ -288,7 +300,7 @@ function ItemRow(p: ItemRowProps) {
                 data-action="reopen-item"
                 className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
               >
-                Mark incomplete
+                {t('page.checklist_panel.action_mark_incomplete')}
               </button>
             )}
             {isWaived && (
@@ -299,7 +311,7 @@ function ItemRow(p: ItemRowProps) {
                 data-action="unwaive-item"
                 className="text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
               >
-                Un-waive
+                {t('page.checklist_panel.action_unwaive')}
               </button>
             )}
             <button
@@ -309,7 +321,7 @@ function ItemRow(p: ItemRowProps) {
               data-action="remove-item"
               className="text-[11px] font-semibold text-slate-500 hover:text-red-700 disabled:opacity-50"
             >
-              Remove
+              {t('button.remove')}
             </button>
           </div>
         )}
@@ -319,16 +331,16 @@ function ItemRow(p: ItemRowProps) {
           <div className="mt-2 flex flex-col gap-1.5 rounded border p-2" style={{ borderColor: '#FDE68A', backgroundColor: '#FFFBEB' }}>
             {isMandatory && (
               <p className="text-[11px] font-semibold" style={{ color: '#B45309' }}>
-                Waiving a Framework Mandatory item — reason required.
+                {t('page.checklist_panel.waive_mandatory_warning')}
               </p>
             )}
             <label className="block">
-              <span className="text-[11px] font-semibold text-slate-700">Waiver reason (required)</span>
+              <span className="text-[11px] font-semibold text-slate-700">{t('page.checklist_panel.waiver_reason_label')}</span>
               <input
                 type="text"
                 value={p.waiverText}
                 onChange={e => p.onWaiveText(e.target.value)}
-                placeholder="Why is this item being waived?"
+                placeholder={t('page.checklist_panel.waiver_reason_placeholder')}
                 className="mt-1 h-8 w-full rounded border px-2 text-[12px] outline-none focus:border-blue-600 focus:shadow-focus"
                 style={{ borderColor: '#E2E8F0' }}
                 autoFocus
@@ -343,7 +355,7 @@ function ItemRow(p: ItemRowProps) {
                 onClick={p.onWaiveCancel}
                 className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Cancel
+                {t('button.cancel')}
               </button>
               <button
                 type="button"
@@ -352,7 +364,7 @@ function ItemRow(p: ItemRowProps) {
                 className="rounded px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
                 style={{ backgroundColor: '#B45309' }}
               >
-                Confirm waive
+                {t('page.checklist_panel.confirm_waive')}
               </button>
             </div>
           </div>
@@ -362,15 +374,15 @@ function ItemRow(p: ItemRowProps) {
         {isCurrReopening && (
           <div className="mt-2 flex flex-col gap-1.5 rounded border p-2" style={{ borderColor: '#BFDBFE', backgroundColor: '#EFF6FF' }} data-form="unwaive-item">
             <p className="text-[11px] font-semibold" style={{ color: '#1D4ED8' }}>
-              Un-waiving puts this item back to pending and is recorded in the audit trail.
+              {t('page.checklist_panel.unwaive_hint')}
             </p>
             <label className="block">
-              <span className="text-[11px] font-semibold text-slate-700">Reason (required)</span>
+              <span className="text-[11px] font-semibold text-slate-700">{t('page.checklist_panel.reason_required_label')}</span>
               <input
                 type="text"
                 value={p.reopenText}
                 onChange={e => p.onReopenText(e.target.value)}
-                placeholder="Why is the waiver being reversed?"
+                placeholder={t('page.checklist_panel.unwaive_reason_placeholder')}
                 className="mt-1 h-8 w-full rounded border px-2 text-[12px] outline-none focus:border-blue-600 focus:shadow-focus"
                 style={{ borderColor: '#E2E8F0' }}
                 autoFocus
@@ -385,7 +397,7 @@ function ItemRow(p: ItemRowProps) {
                 onClick={p.onReopenCancel}
                 className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Cancel
+                {t('button.cancel')}
               </button>
               <button
                 type="button"
@@ -393,7 +405,7 @@ function ItemRow(p: ItemRowProps) {
                 disabled={p.isMutating}
                 className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               >
-                Confirm un-waive
+                {t('page.checklist_panel.confirm_unwaive')}
               </button>
             </div>
           </div>
@@ -404,16 +416,16 @@ function ItemRow(p: ItemRowProps) {
           <div className="mt-2 flex flex-col gap-1.5 rounded border p-2" style={{ borderColor: '#FECACA', backgroundColor: '#FEF2F2' }} data-form="remove-item">
             <p className="text-[11px] font-semibold" style={{ color: '#B91C1C' }}>
               {isMandatory
-                ? `Removing a Framework Mandatory item (${item.framework}) — it is recorded in the audit trail and disclosed in the Compliance Summary.`
-                : 'Removing this item — it is recorded in the audit trail.'}
+                ? t('page.checklist_panel.remove_mandatory_warning', { framework: item.framework })
+                : t('page.checklist_panel.remove_hint')}
             </p>
             <label className="block">
-              <span className="text-[11px] font-semibold text-slate-700">Removal reason (required)</span>
+              <span className="text-[11px] font-semibold text-slate-700">{t('page.checklist_panel.removal_reason_label')}</span>
               <input
                 type="text"
                 value={p.removeText}
                 onChange={e => p.onRemoveText(e.target.value)}
-                placeholder="Why is this item being removed?"
+                placeholder={t('page.checklist_panel.removal_reason_placeholder')}
                 className="mt-1 h-8 w-full rounded border px-2 text-[12px] outline-none focus:border-blue-600 focus:shadow-focus"
                 style={{ borderColor: '#E2E8F0' }}
                 autoFocus
@@ -428,7 +440,7 @@ function ItemRow(p: ItemRowProps) {
                 onClick={p.onRemoveCancel}
                 className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
               >
-                Cancel
+                {t('button.cancel')}
               </button>
               <button
                 type="button"
@@ -437,7 +449,7 @@ function ItemRow(p: ItemRowProps) {
                 className="rounded px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-50"
                 style={{ backgroundColor: '#B91C1C' }}
               >
-                Confirm remove
+                {t('page.checklist_panel.confirm_remove')}
               </button>
             </div>
           </div>
@@ -450,6 +462,7 @@ function ItemRow(p: ItemRowProps) {
 // --- Panel ---
 
 export function ChecklistPanel({ documentId }: Props) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const currentUserName = useAuthStore(s => s.user?.name ?? 'unknown')
 
@@ -488,7 +501,7 @@ export function ChecklistPanel({ documentId }: Props) {
     mutationFn: (id: string) => documentsApi.completeItem(documentId, id, { completedBy: currentUserName }),
     onMutate:   () => setActionError(null),
     onSuccess:  invalidate,
-    onError:    (err: unknown) => setActionError(errorMessage(err, 'Could not mark the item complete.')),
+    onError:    (err: unknown) => setActionError(errorMessage(err, t('page.checklist_panel.error_complete_failed'), t)),
   })
 
   const waiveMut = useMutation({
@@ -498,7 +511,7 @@ export function ChecklistPanel({ documentId }: Props) {
       setWaivingId(null); setWaiverText(''); setWaiverError(null)
       invalidate()
     },
-    onError: (err: unknown) => setWaiverError(errorMessage(err, 'Could not waive the item.')),
+    onError: (err: unknown) => setWaiverError(errorMessage(err, t('page.checklist_panel.error_waive_failed'), t)),
   })
 
   const removeMut = useMutation({
@@ -510,7 +523,7 @@ export function ChecklistPanel({ documentId }: Props) {
       // A removed Framework Mandatory item is disclosed in the Compliance Summary.
       qc.invalidateQueries({ queryKey: ['compliance-summary', documentId] })
     },
-    onError: (err: unknown) => setRemoveError(errorMessage(err, 'Could not remove the item.')),
+    onError: (err: unknown) => setRemoveError(errorMessage(err, t('page.checklist_panel.error_remove_failed'), t)),
   })
 
   const reopenMut = useMutation({
@@ -523,7 +536,7 @@ export function ChecklistPanel({ documentId }: Props) {
       qc.invalidateQueries({ queryKey: ['compliance-summary', documentId] })
     },
     onError: (err: unknown) => {
-      const msg = errorMessage(err, 'Could not reopen the item.')
+      const msg = errorMessage(err, t('page.checklist_panel.error_reopen_failed'), t)
       if (reopeningId) setReopenError(msg); else setActionError(msg)
     },
   })
@@ -536,7 +549,7 @@ export function ChecklistPanel({ documentId }: Props) {
       setAddingItem(false); setNewItemText(''); setNewItemFwk('Custom'); setNewItemMandatory(false); setNewItemStage('study_start_up')
       invalidate()
     },
-    onError: (err: unknown) => setActionError(errorMessage(err, 'Could not add the item.')),
+    onError: (err: unknown) => setActionError(errorMessage(err, t('page.checklist_panel.error_add_failed'), t)),
   })
 
   const isMutating = completeMut.isPending || waiveMut.isPending || addMut.isPending || removeMut.isPending || reopenMut.isPending
@@ -562,11 +575,11 @@ export function ChecklistPanel({ documentId }: Props) {
     // Preserve the canonical stage order; unscoped last.
     const ordered: Array<{ stage: string | 'unscoped'; label: string; items: ChecklistItem[] }> = []
     for (const s of STAGE_ORDER) {
-      if (groups.has(s)) ordered.push({ stage: s, label: STAGE_LABEL[s], items: groups.get(s)! })
+      if (groups.has(s)) ordered.push({ stage: s, label: t(STAGE_LABEL_KEYS[s]), items: groups.get(s)! })
     }
-    if (groups.has('unscoped')) ordered.push({ stage: 'unscoped', label: 'Unscoped', items: groups.get('unscoped')! })
+    if (groups.has('unscoped')) ordered.push({ stage: 'unscoped', label: t('page.checklist_panel.stage_unscoped'), items: groups.get('unscoped')! })
     return ordered
-  }, [items, filter])
+  }, [items, filter, t])
 
   // A waived item is a recorded decision that it doesn't apply, so it counts
   // as done — the same rule the ICH E3 tab uses.
@@ -600,7 +613,7 @@ export function ChecklistPanel({ documentId }: Props) {
   const cancelReopen = () => { setReopeningId(null); setReopenText(''); setReopenError(null) }
   const confirmReopen = () => {
     if (!reopeningId) return
-    if (reopenText.trim().length < 3) { setReopenError('A reason is required to un-waive an item'); return }
+    if (reopenText.trim().length < 3) { setReopenError(t('page.checklist_panel.error_unwaive_reason_required')); return }
     reopenMut.mutate({ id: reopeningId, reason: reopenText.trim() })
   }
 
@@ -611,7 +624,7 @@ export function ChecklistPanel({ documentId }: Props) {
   const cancelRemove = () => { setRemovingId(null); setRemoveText(''); setRemoveError(null) }
   const confirmRemove = () => {
     if (!removingId) return
-    if (removeText.trim().length < 3) { setRemoveError('A removal reason is required'); return }
+    if (removeText.trim().length < 3) { setRemoveError(t('page.checklist_panel.error_removal_reason_required')); return }
     removeMut.mutate({ id: removingId, reason: removeText.trim() })
   }
 
@@ -627,7 +640,7 @@ export function ChecklistPanel({ documentId }: Props) {
   const confirmWaive = () => {
     if (!waivingId) return
     if (!waiverText.trim()) {
-      setWaiverError('Waiver reason is required')
+      setWaiverError(t('page.checklist_panel.error_waiver_reason_required'))
       return
     }
     waiveMut.mutate({ id: waivingId, reason: waiverText.trim() })
@@ -676,7 +689,9 @@ export function ChecklistPanel({ documentId }: Props) {
       <div className="flex-none border-b border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }}>
         <div className="flex items-baseline justify-between">
           <p className="text-xs font-semibold text-slate-900">
-            {completeCount} complete{waivedCount > 0 && ` · ${waivedCount} waived`} of {items.length}
+            {waivedCount > 0
+              ? t('page.checklist_panel.progress_summary_with_waived', { complete: completeCount, waived: waivedCount, total: items.length })
+              : t('page.checklist_panel.progress_summary', { complete: completeCount, total: items.length })}
           </p>
           <p className="text-xs font-bold" style={{ color: '#2563EB' }}>{pct}%</p>
         </div>
@@ -691,13 +706,18 @@ export function ChecklistPanel({ documentId }: Props) {
           style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', color: '#92400E' }}
           data-checklist-mandatory-banner
         >
-          {mandatoryPendingTotal} mandatory {mandatoryPendingTotal === 1 ? 'item' : 'items'} pending — {mandatoryPendingTotal === 1 ? 'it blocks' : 'they block'} Submit for review.
+          {t('page.checklist_panel.mandatory_banner', { count: mandatoryPendingTotal })}
         </p>
       )}
 
       {items.length > 0 && (
-        <div className="flex flex-none flex-wrap gap-1.5 border-b border-slate-200 px-4 py-2" role="group" aria-label="Filter items" data-checklist-filter>
-          {([['all', 'All'], ['pending', 'Pending'], ['mandatory', 'Mandatory'], ['waived', 'Waived']] as const).map(([key, label]) => (
+        <div className="flex flex-none flex-wrap gap-1.5 border-b border-slate-200 px-4 py-2" role="group" aria-label={t('page.checklist_panel.filter_items_aria')} data-checklist-filter>
+          {([
+            ['all', 'page.checklist_panel.filter_all'],
+            ['pending', 'page.checklist_panel.filter_pending'],
+            ['mandatory', 'page.checklist_panel.filter_mandatory'],
+            ['waived', 'page.checklist_panel.filter_waived'],
+          ] as const).map(([key, labelKey]) => (
             <button
               key={key}
               type="button"
@@ -711,7 +731,7 @@ export function ChecklistPanel({ documentId }: Props) {
                 color:           filter === key ? '#2563EB' : '#64748B',
               }}
             >
-              {label}
+              {t(labelKey)}
             </button>
           ))}
         </div>
@@ -732,7 +752,7 @@ export function ChecklistPanel({ documentId }: Props) {
           className="flex-none border-b border-slate-200 px-4 py-2 text-[11px] text-slate-500"
           data-checklist-readonly
         >
-          Only an R on this document (or an admin) can change this checklist.
+          {t('page.checklist_panel.readonly_note')}
         </p>
       )}
 
@@ -741,7 +761,7 @@ export function ChecklistPanel({ documentId }: Props) {
 
         {items.length > 0 && byStage.length === 0 && (
           <p className="px-4 py-6 text-center text-[12px] text-slate-500" data-checklist-filter-empty>
-            No {filter} items.
+            {t('page.checklist_panel.filter_empty', { filter: t(`page.checklist_panel.filter_${filter}`) })}
           </p>
         )}
 
@@ -758,7 +778,7 @@ export function ChecklistPanel({ documentId }: Props) {
                   {sum.complete}/{sum.total}
                   {stageBlockedByMandatory && (
                     <span className="ml-2 font-semibold" style={{ color: '#B45309' }}>
-                      · {sum.mandatoryPending} mandatory pending
+                      {t('page.checklist_panel.stage_mandatory_pending_suffix', { count: sum.mandatoryPending })}
                     </span>
                   )}
                 </p>
@@ -777,7 +797,7 @@ export function ChecklistPanel({ documentId }: Props) {
               className="w-full rounded-md border border-dashed px-3 py-2.5 text-center text-[13px] text-slate-700 transition-colors hover:bg-slate-50"
               style={{ borderColor: '#CBD5E1', backgroundColor: '#FFFFFF' }}
             >
-              ＋ Add checklist item
+              ＋ {t('page.checklist_panel.add_checklist_item')}
             </button>
           ) : (
             <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-white p-3">
@@ -785,13 +805,13 @@ export function ChecklistPanel({ documentId }: Props) {
                 type="text"
                 value={newItemText}
                 onChange={e => setNewItemText(e.target.value)}
-                placeholder="Item description"
+                placeholder={t('page.checklist_panel.item_description_placeholder')}
                 className="h-8 rounded border px-2 text-[12px] outline-none focus:border-blue-600 focus:shadow-focus"
                 style={{ borderColor: '#E2E8F0' }}
                 autoFocus
               />
               <label className="block">
-                <span className="text-[11px] font-semibold text-slate-700">Framework</span>
+                <span className="text-[11px] font-semibold text-slate-700">{t('page.checklist_panel.framework_label')}</span>
                 <select
                   value={newItemFwk}
                   onChange={e => setNewItemFwk(e.target.value)}
@@ -803,7 +823,7 @@ export function ChecklistPanel({ documentId }: Props) {
                 </select>
               </label>
               <label className="block">
-                <span className="text-[11px] font-semibold text-slate-700">Stage</span>
+                <span className="text-[11px] font-semibold text-slate-700">{t('page.checklist_panel.stage_label')}</span>
                 <select
                   value={newItemStage}
                   onChange={e => setNewItemStage(e.currentTarget.value as NonNullable<ChecklistItem['stage']>)}
@@ -811,7 +831,7 @@ export function ChecklistPanel({ documentId }: Props) {
                   style={{ borderColor: '#E2E8F0' }}
                   data-add-stage
                 >
-                  {STAGE_ORDER.map(st => <option key={st} value={st}>{STAGE_LABEL[st]}</option>)}
+                  {STAGE_ORDER.map(st => <option key={st} value={st}>{t(STAGE_LABEL_KEYS[st])}</option>)}
                 </select>
               </label>
               <label className="flex items-center gap-2 text-[12px] text-slate-700">
@@ -821,7 +841,7 @@ export function ChecklistPanel({ documentId }: Props) {
                   onChange={e => setNewItemMandatory(e.target.checked)}
                   data-add-mandatory
                 />
-                Mandatory — blocks Submit for review until done, waived or removed
+                {t('page.checklist_panel.mandatory_checkbox_label')}
               </label>
               <div className="flex gap-2">
                 <button
@@ -829,7 +849,7 @@ export function ChecklistPanel({ documentId }: Props) {
                   onClick={() => { setAddingItem(false); setNewItemText(''); setNewItemFwk('Custom'); setNewItemMandatory(false); setNewItemStage('study_start_up') }}
                   className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
                 >
-                  Cancel
+                  {t('button.cancel')}
                 </button>
                 <button
                   type="button"
@@ -837,7 +857,7 @@ export function ChecklistPanel({ documentId }: Props) {
                   disabled={isMutating || !newItemText.trim()}
                   className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
                 >
-                  Add item
+                  {t('page.checklist_panel.add_item')}
                 </button>
               </div>
             </div>
@@ -848,19 +868,19 @@ export function ChecklistPanel({ documentId }: Props) {
         {removedItems.length > 0 && (
           <div className="border-t border-slate-200 pb-3" data-removed-items>
             <p className="px-4 pt-3 pb-1.5 font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-              Removed items ({removedItems.length})
+              {t('page.checklist_panel.removed_items_header', { count: removedItems.length })}
             </p>
             {removedItems.map(item => (
               <div key={item.id} className="border-b px-4 py-2" style={{ borderColor: '#F1F5F9' }} data-removed-item={item.id}>
                 <p className="text-[12px] text-slate-500 line-through">{item.text}</p>
                 <p className="text-[11px] text-slate-500">
-                  {item.framework}{item.frameworkMandatory ? ' · Mandatory' : ''}
+                  {item.framework}{item.frameworkMandatory ? t('page.checklist_panel.mandatory_suffix') : ''}
                 </p>
                 <p className="text-[11px]" style={{ color: '#B91C1C' }}>
-                  Removed · {item.removal?.by ?? '—'}
+                  {t('page.checklist_panel.removed_prefix')} · {item.removal?.by ?? '—'}
                   {item.removal?.at ? ' · ' + new Date(item.removal.at).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : ''}
                 </p>
-                {item.removal?.reason && <p className="text-[11px] text-slate-600">Reason: {item.removal.reason}</p>}
+                {item.removal?.reason && <p className="text-[11px] text-slate-600">{t('page.checklist_panel.removed_reason_label', { reason: item.removal.reason })}</p>}
               </div>
             ))}
           </div>

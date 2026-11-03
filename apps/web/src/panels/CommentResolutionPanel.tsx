@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Comment, ResolutionType } from '@platform/types'
 import { crmApi, documentsApi } from '../api'
 import { useCRMStore } from '../store'
@@ -25,15 +26,15 @@ const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
 }
 
 const SEVERITY_META = {
-  major: { bg: '#FEE2E2', fg: '#DC2626', label: 'Major' },
-  minor: { bg: '#FFFBEB', fg: '#B45309', label: 'Minor' },
-  query: { bg: '#EFF6FF', fg: '#2563EB', label: 'Query' },
+  major: { bg: '#FEE2E2', fg: '#DC2626', labelKey: 'page.comment_resolution.severity_major' },
+  minor: { bg: '#FFFBEB', fg: '#B45309', labelKey: 'page.comment_resolution.severity_minor' },
+  query: { bg: '#EFF6FF', fg: '#2563EB', labelKey: 'page.comment_resolution.severity_query' },
 }
 
-const RESOLUTION_ACTIONS: { type: ResolutionType; title: string; sub: string }[] = [
-  { type: 'accept',                   title: 'Accept',                   sub: 'Implement as requested' },
-  { type: 'accept-with-modification', title: 'Accept with modification', sub: 'Implement with changes' },
-  { type: 'reject',                   title: 'Reject',                   sub: 'Do not implement' },
+const RESOLUTION_ACTIONS: { type: ResolutionType; titleKey: string; subKey: string }[] = [
+  { type: 'accept',                   titleKey: 'page.comment_resolution.action_accept',           subKey: 'page.comment_resolution.action_accept_sub' },
+  { type: 'accept-with-modification', titleKey: 'page.comment_resolution.action_accept_mod',       subKey: 'page.comment_resolution.action_accept_mod_sub' },
+  { type: 'reject',                   titleKey: 'page.comment_resolution.action_reject',           subKey: 'page.comment_resolution.action_reject_sub' },
 ]
 
 function Avatar({ initials, size = 20 }: { initials: string; size?: number }) {
@@ -101,6 +102,7 @@ function SignatureIcon() {
 }
 
 export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props) {
+  const { t } = useTranslation()
   const qc                 = useQueryClient()
   const currentUserName    = useAuthStore(s => s.user?.name ?? 'unknown')
   // Store is keyed by meetingId since the CRM store refactor — read via
@@ -159,7 +161,7 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
   const handleSubmit = () => {
     if (!selectedType) return
     if (!note.trim()) {
-      setNoteError('Resolution note is required')
+      setNoteError(t('page.comment_resolution.error_note_required'))
       return
     }
     logMut.mutate({ type: selectedType, note: note.trim() })
@@ -173,7 +175,7 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
   if (!activeComment) {
     return (
       <div className="flex h-full items-center justify-center p-6">
-        <p className="font-mono text-xs text-slate-400">No comment selected</p>
+        <p className="font-mono text-xs text-slate-400">{t('page.comment_resolution.no_comment_selected')}</p>
       </div>
     )
   }
@@ -186,13 +188,13 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
       {/* Header (48px) */}
       <div className="flex h-12 flex-none items-center gap-2 border-b border-slate-200 px-4">
         <span style={{ color: '#2563EB' }}><SignatureIcon /></span>
-        <h3 className="whitespace-nowrap text-sm font-bold">Resolve comment</h3>
+        <h3 className="whitespace-nowrap text-sm font-bold">{t('page.comment_resolution.title')}</h3>
         <span className="ml-1 font-mono text-[10px] tracking-wider text-slate-500">{activeComment.id}</span>
         <div className="flex-1" />
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close resolution panel"
+          aria-label={t('page.comment_resolution.close_aria')}
           className="flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
         >
           ✕
@@ -215,7 +217,7 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
               className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
               style={{ backgroundColor: sev.bg, color: sev.fg }}
             >
-              {sev.label}
+              {t(sev.labelKey)}
             </span>
           </div>
           <p className="text-[13px] leading-relaxed text-slate-900">{activeComment.text}</p>
@@ -224,7 +226,7 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
         {/* Source excerpt */}
         <div className="rounded-lg border border-slate-200 bg-white p-3.5">
           <p className="mb-1.5 font-mono text-[9px] font-medium uppercase tracking-widest text-slate-500">
-            SOURCE EXCERPT · {activeComment.sectionRef}
+            {t('page.comment_resolution.source_excerpt_prefix', { section: activeComment.sectionRef })}
           </p>
           <p className="text-[13px] italic leading-relaxed text-slate-500">
             …Grade ≥3 TEAE in the Veloricept arm was{' '}
@@ -232,13 +234,13 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
             {' '}(6.2%), which was managed with corticosteroid therapy in all cases.
           </p>
           <div className="mt-2 text-right">
-            <button className="text-xs font-semibold text-blue-600 hover:text-blue-700">Open in editor →</button>
+            <button className="text-xs font-semibold text-blue-600 hover:text-blue-700">{t('page.comment_resolution.open_in_editor')}</button>
           </div>
         </div>
 
         {/* Resolution action */}
         <div className="flex flex-col gap-2">
-          <p className="text-[13px] font-bold">Resolution action</p>
+          <p className="text-[13px] font-bold">{t('page.comment_resolution.resolution_action_label')}</p>
           <div className="flex flex-wrap gap-2">
             {RESOLUTION_ACTIONS.map(action => {
               const isSelected = selectedType === action.type
@@ -258,8 +260,8 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
                   data-action-type={action.type}
                   data-selected={isSelected || undefined}
                 >
-                  <p className="text-[13px] font-bold text-slate-900">{action.title}</p>
-                  <p className="text-[11px] leading-tight text-slate-500">{action.sub}</p>
+                  <p className="text-[13px] font-bold text-slate-900">{t(action.titleKey)}</p>
+                  <p className="text-[11px] leading-tight text-slate-500">{t(action.subKey)}</p>
                 </button>
               )
             })}
@@ -269,8 +271,8 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
         {/* Resolution note */}
         <div className="flex flex-col gap-1.5">
           <div className="flex items-baseline justify-between">
-            <label htmlFor="cr-note" className="text-[13px] font-bold">Resolution note</label>
-            <p className="font-mono text-[9px] font-medium tracking-widest text-slate-500">REQUIRED</p>
+            <label htmlFor="cr-note" className="text-[13px] font-bold">{t('page.comment_resolution.resolution_note_label')}</label>
+            <p className="font-mono text-[9px] font-medium tracking-widest text-slate-500">{t('page.comment_resolution.required_label')}</p>
           </div>
           <textarea
             id="cr-note"
@@ -281,7 +283,7 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
               setNote(val)
               if (noteError) setNoteError(null)
             }}
-            placeholder="Describe the resolution and any actions required..."
+            placeholder={t('page.comment_resolution.resolution_note_placeholder')}
             className="w-full rounded-md border p-2.5 text-[13px] leading-relaxed outline-none focus:border-blue-600 focus:shadow-focus"
             style={{ borderColor: noteError ? '#DC2626' : '#E2E8F0', resize: 'vertical' }}
           />
@@ -298,11 +300,11 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
           <ToggleSwitch
             checked={notify}
             onChange={setNotify}
-            ariaLabel={notify ? 'Notification on' : 'Notification off'}
+            ariaLabel={notify ? t('page.comment_resolution.notification_on') : t('page.comment_resolution.notification_off')}
           />
           <div className="flex min-w-0 flex-col gap-0.5">
-            <p className="text-[13px] text-slate-900">Notify {activeComment.reviewerName} of resolution</p>
-            <p className="text-[11px] text-slate-500">Email notification will be sent on confirm.</p>
+            <p className="text-[13px] text-slate-900">{t('page.comment_resolution.notify_reviewer', { name: activeComment.reviewerName })}</p>
+            <p className="text-[11px] text-slate-500">{t('page.comment_resolution.notify_hint')}</p>
           </div>
         </div>
 
@@ -310,7 +312,7 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
         <div className="flex items-start gap-2 rounded-lg border border-slate-200 px-3.5 py-2.5" style={{ backgroundColor: '#F8FAFC' }}>
           <span className="mt-0.5"><LockIcon /></span>
           <p className="text-[12px] italic leading-relaxed text-slate-500">
-            This resolution will be permanently recorded to the audit trail and cannot be edited after confirmation.
+            {t('page.comment_resolution.audit_trail_note')}
           </p>
         </div>
       </div>
@@ -324,7 +326,7 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
             disabled={logMut.isPending}
             className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-[13px] font-semibold text-slate-900 hover:bg-slate-100 transition-colors disabled:opacity-50"
           >
-            Cancel
+            {t('button.cancel')}
           </button>
           <div className="flex-1" />
           <button
@@ -333,11 +335,11 @@ export function CommentResolutionPanel({ documentId, meetingId, onClose }: Props
             disabled={!canSubmit}
             className="whitespace-nowrap rounded-md bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {logMut.isPending ? 'Signing…' : 'Sign and confirm resolution'}
+            {logMut.isPending ? t('page.comment_resolution.signing') : t('page.comment_resolution.sign_and_confirm')}
           </button>
         </div>
         <p className="pb-2.5 text-center font-mono text-[10px] font-medium tracking-wider text-slate-500">
-          Requires your ClinWrite.AI credentials · Part 11 compliant
+          {t('page.comment_resolution.part11_note')}
         </p>
       </div>
     </div>

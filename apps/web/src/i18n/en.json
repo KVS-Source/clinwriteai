@@ -297,6 +297,330 @@
       "cannot_edit_acquiring_lock":       "Acquiring edit lock…"
     },
 
+    "comments_panel": {
+      "time_just_now":           "just now",
+      "time_minutes_ago_one":    "{{count}} min ago",
+      "time_minutes_ago_other":  "{{count}} min ago",
+      "time_hours_ago_one":      "{{count}} hour ago",
+      "time_hours_ago_other":    "{{count}} hours ago",
+      "time_days_ago_one":       "{{count}} day ago",
+      "time_days_ago_other":     "{{count}} days ago",
+      "time_months_ago_one":     "{{count}} month ago",
+      "time_months_ago_other":   "{{count}} months ago",
+      "time_years_ago_one":      "{{count}} year ago",
+      "time_years_ago_other":    "{{count}} years ago",
+
+      "created_by":              "Created by {{name}} · {{age}}",
+      "last_edited_by":          "Last edited by {{name}} · {{age}}",
+      "not_edited_yet":          "Not edited yet",
+      "last_save_tooltip":       "Last save of this comment's section",
+
+      "severity_major":          "Major",
+      "severity_minor":          "Minor",
+      "severity_query":          "Query",
+
+      "status_open":             "Open",
+      "status_resolved":         "Resolved",
+      "verdict_returned_for_revision": "Returned for revision",
+      "verdict_approval_blocked": "Approval blocked",
+      "action_resolve":          "Resolve",
+
+      "resolution_by_suffix":    " · by {{name}}",
+      "resolution_via_crm_suffix": " · in CRM {{crm}}",
+
+      "approved_label":          "Approved",
+      "by_reviewer":             "by {{name}}",
+
+      "all_comments_in_document":"All comments in this document",
+      "scope_counts":            "{{open}} open · {{resolved}} resolved",
+      "show_all_in_document":    "Show all comments in document",
+      "show_this_section_only":  "Show this section only",
+
+      "posted_toast":            "Comment {{id}} posted.",
+      "empty_section_scoped":    "No comments on this section yet",
+      "empty_no_open_comments":  "No open comments.",
+      "error_already_resolved":  "This comment was already resolved.",
+
+      "resolved_group_header":   "Resolved ({{count}})",
+      "section_approvals_header":"Section approvals ({{count}})",
+      "add_comment":             "Add comment"
+    },
+
+    "comment_composer": {
+      "draft_label":                 "Draft",
+      "section_tag_label":           "Section tag (required)",
+      "no_sections_available":       "No sections available",
+      "severity_label":              "Severity (required)",
+      "severity_aria":               "Severity",
+      "severity_major":              "Major",
+      "severity_minor":              "Minor",
+      "severity_query":              "Query",
+      "comment_label":               "Comment (required)",
+      "comment_placeholder":         "Write a comment…",
+      "comment_placeholder_for_section": "Write a comment for {{section}}…",
+      "error_missing_severity":      "Choose a severity: Major, Minor or Query.",
+      "error_missing_section":       "Choose the section this comment is about.",
+      "error_missing_text":          "Write the comment before posting.",
+      "post_failed":                 "Could not post comment: {{reason}}",
+      "posting":                     "Posting…",
+      "post_comment":                "Post comment"
+    },
+
+    "comment_resolution": {
+      "title":                       "Resolve comment",
+      "close_aria":                  "Close resolution panel",
+      "no_comment_selected":         "No comment selected",
+
+      "severity_major":              "Major",
+      "severity_minor":              "Minor",
+      "severity_query":              "Query",
+
+      "action_accept":               "Accept",
+      "action_accept_sub":           "Implement as requested",
+      "action_accept_mod":           "Accept with modification",
+      "action_accept_mod_sub":       "Implement with changes",
+      "action_reject":               "Reject",
+      "action_reject_sub":           "Do not implement",
+
+      "source_excerpt_prefix":       "SOURCE EXCERPT · {{section}}",
+      "open_in_editor":              "Open in editor →",
+
+      "resolution_action_label":     "Resolution action",
+      "resolution_note_label":       "Resolution note",
+      "required_label":              "REQUIRED",
+      "resolution_note_placeholder": "Describe the resolution and any actions required...",
+      "error_note_required":         "Resolution note is required",
+
+      "notification_on":             "Notification on",
+      "notification_off":            "Notification off",
+      "notify_reviewer":             "Notify {{name}} of resolution",
+      "notify_hint":                 "Email notification will be sent on confirm.",
+
+      "audit_trail_note":            "This resolution will be permanently recorded to the audit trail and cannot be edited after confirmation.",
+
+      "signing":                     "Signing…",
+      "sign_and_confirm":            "Sign and confirm resolution",
+      "part11_note":                 "Requires your ClinWrite.AI credentials · Part 11 compliant"
+    },
+
+    "checklist_panel": {
+      "stage_study_start_up":          "Study Start-Up",
+      "stage_during_study":            "During Study",
+      "stage_reporting":               "Post-Study",
+      "stage_cross_functional_review": "Cross-Functional Review",
+      "stage_crm":                     "CRM",
+      "stage_final_output":            "Final Output",
+      "stage_unscoped":                "Unscoped",
+
+      "raci_responsible":              "Responsible",
+      "raci_accountable":              "Accountable",
+      "raci_consulted":                "Consulted",
+      "raci_informed":                 "Informed",
+      "raci_qc_release":               "QC release",
+      "raci_owner_tooltip":            "Owner: {{role}} ({{code}})",
+
+      "auto_on_submit":                "Auto on submit",
+      "auto_on_crm_close":             "Auto on CRM close",
+      "auto_on_signature":             "Auto on signature",
+      "auto_generic":                  "Auto: {{strategy}}",
+      "auto_complete_tooltip":         "This item will auto-tick when the matching system event fires.",
+
+      "error_with_http":               "{{fallback}} (HTTP {{status}})",
+      "error_please_try_again":        "{{fallback}} Please try again.",
+      "error_complete_failed":         "Could not mark the item complete.",
+      "error_waive_failed":            "Could not waive the item.",
+      "error_remove_failed":           "Could not remove the item.",
+      "error_reopen_failed":           "Could not reopen the item.",
+      "error_add_failed":              "Could not add the item.",
+      "error_waiver_reason_required":  "Waiver reason is required",
+      "error_unwaive_reason_required": "A reason is required to un-waive an item",
+      "error_removal_reason_required": "A removal reason is required",
+
+      "secondary_complete":            "Complete",
+      "secondary_completed_by":        "Completed · {{name}}",
+      "secondary_in_progress":         "In progress",
+      "secondary_waived":              "Waived · {{name}}{{suffix}}",
+      "secondary_pending":             "Pending",
+      "mandatory_suffix":              " · Mandatory",
+      "custom_suffix":                 " · Custom",
+
+      "view_waiver_reason":            "View waiver reason →",
+      "hide_waiver_reason":            "Hide waiver reason",
+
+      "action_mark_complete":          "Mark complete",
+      "action_waive":                  "Waive",
+      "action_mark_incomplete":        "Mark incomplete",
+      "action_unwaive":                "Un-waive",
+
+      "waive_mandatory_warning":       "Waiving a Framework Mandatory item — reason required.",
+      "waiver_reason_label":           "Waiver reason (required)",
+      "waiver_reason_placeholder":     "Why is this item being waived?",
+      "confirm_waive":                 "Confirm waive",
+
+      "unwaive_hint":                  "Un-waiving puts this item back to pending and is recorded in the audit trail.",
+      "reason_required_label":         "Reason (required)",
+      "unwaive_reason_placeholder":    "Why is the waiver being reversed?",
+      "confirm_unwaive":               "Confirm un-waive",
+
+      "remove_mandatory_warning":      "Removing a Framework Mandatory item ({{framework}}) — it is recorded in the audit trail and disclosed in the Compliance Summary.",
+      "remove_hint":                   "Removing this item — it is recorded in the audit trail.",
+      "removal_reason_label":          "Removal reason (required)",
+      "removal_reason_placeholder":    "Why is this item being removed?",
+      "confirm_remove":                "Confirm remove",
+
+      "progress_summary":              "{{complete}} complete of {{total}}",
+      "progress_summary_with_waived":  "{{complete}} complete · {{waived}} waived of {{total}}",
+
+      "mandatory_banner_one":          "{{count}} mandatory item pending — it blocks Submit for review.",
+      "mandatory_banner_other":        "{{count}} mandatory items pending — they block Submit for review.",
+
+      "filter_items_aria":             "Filter items",
+      "filter_all":                    "All",
+      "filter_pending":                "Pending",
+      "filter_mandatory":              "Mandatory",
+      "filter_waived":                 "Waived",
+      "filter_empty":                  "No {{filter}} items.",
+
+      "readonly_note":                 "Only an R on this document (or an admin) can change this checklist.",
+
+      "stage_mandatory_pending_suffix":"· {{count}} mandatory pending",
+
+      "add_checklist_item":            "Add checklist item",
+      "item_description_placeholder":  "Item description",
+      "framework_label":               "Framework",
+      "stage_label":                   "Stage",
+      "mandatory_checkbox_label":      "Mandatory — blocks Submit for review until done, waived or removed",
+      "add_item":                      "Add item",
+
+      "removed_items_header":          "Removed items ({{count}})",
+      "removed_prefix":                "Removed",
+      "removed_reason_label":          "Reason: {{reason}}"
+    },
+
+    "checklist_hub": {
+      "tab_inputs":                "Inputs",
+      "tab_ich_e3":                "ICH E3",
+      "summary_inputs":            "Inputs {{done}}/{{total}}",
+      "summary_ich_e3":            "ICH E3 {{done}}/{{total}}",
+      "summary_waived_count_one":  "{{count}} waived",
+      "summary_waived_count_other":"{{count}} waived",
+      "locked_note":               "Document is {{reason}} — sections can’t be marked complete or reopened."
+    },
+
+    "voice_note_panel": {
+      "pick_section_placeholder":   "Pick a section",
+      "record_to_section_header":   "Record to section",
+      "change_section_aria":        "Change section",
+
+      "btn_requesting_mic":         "Requesting microphone…",
+      "btn_tap_to_stop":            "Tap to stop",
+      "btn_uploading":              "Uploading…",
+      "btn_tap_to_record_again":    "Tap to record again",
+      "btn_tap_to_retry":           "Tap to retry",
+      "btn_tap_to_record":          "Tap to record",
+
+      "audio_unavailable":          "Audio recording unavailable in this browser.",
+
+      "error_browser_unsupported":  "Your browser does not support audio recording. Use Chrome, Edge, Firefox or Safari.",
+      "error_mic_denied":           "Microphone access denied. Grant permission in your browser settings and try again.",
+      "error_no_mic":               "No microphone detected. Connect a mic and try again.",
+      "error_mic_generic":          "Could not access microphone. Please try again.",
+      "error_recording_failed":     "Recording failed. Please try again.",
+      "error_no_audio":             "Recording produced no audio. Please try again.",
+
+      "upload_failed_http":         "Upload failed (HTTP {{status}})",
+      "upload_failed_network":      "Upload failed. Check your connection and try again.",
+
+      "playback_failed_http":       "Playback failed (HTTP {{status}})",
+      "playback_failed_generic":    "Playback failed. Please try again.",
+
+      "appended_to_section":        "Appended to {{section}}",
+      "insert_failed_locked":       "Section is locked by another editor. Try again shortly.",
+      "insert_failed_http":         "Insert failed (HTTP {{status}})",
+      "insert_failed_generic":      "Insert failed. Please try again.",
+
+      "copied_to_clipboard":        "Copied to clipboard",
+
+      "last_recording_header":      "Last recording",
+      "recorded_at":                "Recorded {{date}} · {{time}}",
+      "stop":                       "Stop",
+      "play":                       "Play",
+      "transcription_pending":      "Transcription pending — will appear here when the worker completes.",
+      "inserting":                  "Inserting…",
+      "insert_into_section":        "Insert into {{section}}",
+      "copy_text":                  "Copy text",
+      "insert_audit_hint":          "Inserting creates an audit trail entry",
+
+      "past_recordings_header":     "Past recordings",
+      "refresh":                    "Refresh",
+      "empty_past_recordings":      "No past recordings yet",
+      "past_recording_label":       "Recording · {{date}} · {{duration}}",
+      "transcript_pending_badge":   "transcript pending"
+    },
+
+    "source_references_panel": {
+      "locked_note_in_review":         "The document is in review and locked for authoring, so references can’t be added or removed.",
+      "locked_note_pending_signature": "The document is awaiting signature, so references can’t be added or removed.",
+      "locked_note_signed":            "The document is signed, so references can’t be added or removed.",
+      "locked_note_project_closed":    "The project is closed and read-only, so references can’t be added or removed.",
+
+      "file_not_found":                "The stored file could not be found.",
+      "something_went_wrong":          "Something went wrong. Please try again.",
+
+      "back_to_references":            "← References",
+      "source_document":               "Source document",
+      "cited_text_label":              "Cited text:",
+      "go_to_page":                    "Go to page",
+      "source_unavailable":            "This source document is no longer available in the project.",
+      "not_previewable":               "This file type can’t be shown here — PDF, image, Word (.docx) and text/CSV files can. Use Download to open it.",
+
+      "references_locked":             "References locked",
+      "references_locked_with_section":"References locked · {{section}}",
+      "source_linked":                 "Source linked",
+      "source_linked_with_section":    "Source linked · {{section}}",
+      "text_already_linked":           "The selected text is already linked to a source document (highlighted below). Remove that reference to link it to a different one, or select other text.",
+      "clear_selection":               "Clear selection",
+
+      "add_reference":                 "Add a reference",
+      "add_reference_with_section":    "Add a reference · {{section}}",
+      "add_reference_hint":            "Select text in the section, then choose the source it comes from.",
+
+      "no_text_selected":              "No text selected",
+      "source_document_label":         "Source document",
+      "select_source_option":          "Select a source document",
+      "no_sources_in_project":         "No source documents in this project",
+      "page_label":                    "Page",
+      "locator_label":                 "Section / table",
+      "optional_suffix":               "(optional)",
+      "locator_placeholder":           "e.g. §9.4 Table 3",
+      "adding":                        "Adding…",
+      "add_reference_button":          "Add reference",
+      "audit_trail_hint":              "Every reference you add or remove is recorded in the document’s audit trail.",
+
+      "references_in_section":         "References in this section",
+      "load_references_failed":        "Couldn’t load references.",
+      "no_references_yet":             "No references yet for this section.",
+      "source_no_longer_available":    "Source no longer available",
+      "page_short":                    "p. {{page}}",
+      "no_page_or_section":            "No page or section noted",
+      "unknown_user":                  "Unknown",
+
+      "remove_confirm_title":          "Remove this reference?",
+      "reason_optional_placeholder":   "Reason (optional)",
+      "removing":                      "Removing…",
+
+      "view_source":                   "View source",
+      "more_in_other_sections_one":    "{{count}} more in other sections of this document.",
+      "more_in_other_sections_other":  "{{count}} more in other sections of this document.",
+
+      "project_source_documents":      "Project source documents"
+    },
+
+    "section_history_panel": {
+      "select_section_first":        "Select a section first — history is per-section.",
+      "current_section":             "Current section"
+    },
+
     "clinical_writing_home": {
       "title": "Clinical Writing",
       "documents_count_one":   "{{count}} document",

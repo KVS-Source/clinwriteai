@@ -297,6 +297,330 @@
       "cannot_edit_acquiring_lock":       "編集ロックを取得中…"
     },
 
+    "comments_panel": {
+      "time_just_now":           "たった今",
+      "time_minutes_ago_one":    "{{count}} 分前",
+      "time_minutes_ago_other":  "{{count}} 分前",
+      "time_hours_ago_one":      "{{count}} 時間前",
+      "time_hours_ago_other":    "{{count}} 時間前",
+      "time_days_ago_one":       "{{count}} 日前",
+      "time_days_ago_other":     "{{count}} 日前",
+      "time_months_ago_one":     "{{count}} か月前",
+      "time_months_ago_other":   "{{count}} か月前",
+      "time_years_ago_one":      "{{count}} 年前",
+      "time_years_ago_other":    "{{count}} 年前",
+
+      "created_by":              "{{name}} が作成 · {{age}}",
+      "last_edited_by":          "{{name}} が最終編集 · {{age}}",
+      "not_edited_yet":          "未編集",
+      "last_save_tooltip":       "このコメントのセクションの最終保存",
+
+      "severity_major":          "重大",
+      "severity_minor":          "軽微",
+      "severity_query":          "質問",
+
+      "status_open":             "未解決",
+      "status_resolved":         "解決済み",
+      "verdict_returned_for_revision": "差し戻し",
+      "verdict_approval_blocked": "承認ブロック",
+      "action_resolve":          "解決",
+
+      "resolution_by_suffix":    " · {{name}} 対応",
+      "resolution_via_crm_suffix": " · CRM {{crm}} にて",
+
+      "approved_label":          "承認済み",
+      "by_reviewer":             "{{name}} より",
+
+      "all_comments_in_document":"このドキュメントのすべてのコメント",
+      "scope_counts":            "未解決 {{open}} 件 · 解決済み {{resolved}} 件",
+      "show_all_in_document":    "ドキュメント内のすべてのコメントを表示",
+      "show_this_section_only":  "このセクションのみ表示",
+
+      "posted_toast":            "コメント {{id}} を投稿しました。",
+      "empty_section_scoped":    "このセクションにはまだコメントがありません",
+      "empty_no_open_comments":  "未解決のコメントはありません。",
+      "error_already_resolved":  "このコメントはすでに解決済みです。",
+
+      "resolved_group_header":   "解決済み ({{count}})",
+      "section_approvals_header":"セクション承認 ({{count}})",
+      "add_comment":             "コメントを追加"
+    },
+
+    "comment_composer": {
+      "draft_label":                 "ドラフト",
+      "section_tag_label":           "セクション タグ (必須)",
+      "no_sections_available":       "利用可能なセクションがありません",
+      "severity_label":              "重要度 (必須)",
+      "severity_aria":               "重要度",
+      "severity_major":              "重大",
+      "severity_minor":              "軽微",
+      "severity_query":              "質問",
+      "comment_label":               "コメント (必須)",
+      "comment_placeholder":         "コメントを入力…",
+      "comment_placeholder_for_section": "{{section}} へのコメントを入力…",
+      "error_missing_severity":      "重要度を選択してください: 重大、軽微、または質問。",
+      "error_missing_section":       "コメント対象のセクションを選択してください。",
+      "error_missing_text":          "投稿前にコメントを入力してください。",
+      "post_failed":                 "コメントを投稿できませんでした: {{reason}}",
+      "posting":                     "投稿中…",
+      "post_comment":                "コメントを投稿"
+    },
+
+    "comment_resolution": {
+      "title":                       "コメントを解決",
+      "close_aria":                  "解決パネルを閉じる",
+      "no_comment_selected":         "コメントが選択されていません",
+
+      "severity_major":              "重大",
+      "severity_minor":              "軽微",
+      "severity_query":              "質問",
+
+      "action_accept":               "承諾",
+      "action_accept_sub":           "要求どおりに反映",
+      "action_accept_mod":           "修正のうえ承諾",
+      "action_accept_mod_sub":       "変更を加えて反映",
+      "action_reject":               "却下",
+      "action_reject_sub":           "反映しない",
+
+      "source_excerpt_prefix":       "ソース抜粋 · {{section}}",
+      "open_in_editor":              "エディターで開く →",
+
+      "resolution_action_label":     "解決アクション",
+      "resolution_note_label":       "解決メモ",
+      "required_label":              "必須",
+      "resolution_note_placeholder": "解決内容と必要な対応を記載してください...",
+      "error_note_required":         "解決メモは必須です",
+
+      "notification_on":             "通知オン",
+      "notification_off":            "通知オフ",
+      "notify_reviewer":             "{{name}} に解決を通知",
+      "notify_hint":                 "確定時にメール通知が送信されます。",
+
+      "audit_trail_note":            "この解決は監査証跡に恒久的に記録され、確定後は編集できません。",
+
+      "signing":                     "署名中…",
+      "sign_and_confirm":            "署名して解決を確定",
+      "part11_note":                 "ClinWrite.AI の認証情報が必要です · Part 11 準拠"
+    },
+
+    "checklist_panel": {
+      "stage_study_start_up":          "試験開始準備",
+      "stage_during_study":            "試験実施中",
+      "stage_reporting":               "試験後",
+      "stage_cross_functional_review": "部門横断レビュー",
+      "stage_crm":                     "CRM",
+      "stage_final_output":            "最終成果物",
+      "stage_unscoped":                "未分類",
+
+      "raci_responsible":              "実行責任者",
+      "raci_accountable":              "説明責任者",
+      "raci_consulted":                "協議者",
+      "raci_informed":                 "情報共有者",
+      "raci_qc_release":               "QC リリース",
+      "raci_owner_tooltip":            "オーナー: {{role}} ({{code}})",
+
+      "auto_on_submit":                "提出時に自動",
+      "auto_on_crm_close":             "CRM クローズ時に自動",
+      "auto_on_signature":             "署名時に自動",
+      "auto_generic":                  "自動: {{strategy}}",
+      "auto_complete_tooltip":         "対応するシステム イベントが発生すると、この項目は自動でチェックされます。",
+
+      "error_with_http":               "{{fallback}} (HTTP {{status}})",
+      "error_please_try_again":        "{{fallback}} もう一度お試しください。",
+      "error_complete_failed":         "項目を完了にできませんでした。",
+      "error_waive_failed":            "項目を免除できませんでした。",
+      "error_remove_failed":           "項目を削除できませんでした。",
+      "error_reopen_failed":           "項目を再オープンできませんでした。",
+      "error_add_failed":              "項目を追加できませんでした。",
+      "error_waiver_reason_required":  "免除理由は必須です",
+      "error_unwaive_reason_required": "免除解除には理由が必要です",
+      "error_removal_reason_required": "削除理由は必須です",
+
+      "secondary_complete":            "完了",
+      "secondary_completed_by":        "完了 · {{name}}",
+      "secondary_in_progress":         "作成中",
+      "secondary_waived":              "免除 · {{name}}{{suffix}}",
+      "secondary_pending":             "未完了",
+      "mandatory_suffix":              " · 必須",
+      "custom_suffix":                 " · カスタム",
+
+      "view_waiver_reason":            "免除理由を表示 →",
+      "hide_waiver_reason":            "免除理由を非表示",
+
+      "action_mark_complete":          "完了としてマーク",
+      "action_waive":                  "免除",
+      "action_mark_incomplete":        "未完了に戻す",
+      "action_unwaive":                "免除を解除",
+
+      "waive_mandatory_warning":       "フレームワーク必須項目を免除します — 理由が必要です。",
+      "waiver_reason_label":           "免除理由 (必須)",
+      "waiver_reason_placeholder":     "この項目を免除する理由を入力してください",
+      "confirm_waive":                 "免除を確定",
+
+      "unwaive_hint":                  "免除を解除すると項目は未完了に戻り、監査証跡に記録されます。",
+      "reason_required_label":         "理由 (必須)",
+      "unwaive_reason_placeholder":    "免除を解除する理由を入力してください",
+      "confirm_unwaive":               "免除解除を確定",
+
+      "remove_mandatory_warning":      "フレームワーク必須項目 ({{framework}}) を削除します — 監査証跡に記録され、コンプライアンス サマリーに開示されます。",
+      "remove_hint":                   "この項目を削除します — 監査証跡に記録されます。",
+      "removal_reason_label":          "削除理由 (必須)",
+      "removal_reason_placeholder":    "この項目を削除する理由を入力してください",
+      "confirm_remove":                "削除を確定",
+
+      "progress_summary":              "{{total}} 件中 {{complete}} 件完了",
+      "progress_summary_with_waived":  "{{total}} 件中 完了 {{complete}} 件 · 免除 {{waived}} 件",
+
+      "mandatory_banner_one":          "必須項目 {{count}} 件が未完了 — レビューに提出をブロックしています。",
+      "mandatory_banner_other":        "必須項目 {{count}} 件が未完了 — レビューに提出をブロックしています。",
+
+      "filter_items_aria":             "項目をフィルター",
+      "filter_all":                    "すべて",
+      "filter_pending":                "未完了",
+      "filter_mandatory":              "必須",
+      "filter_waived":                 "免除",
+      "filter_empty":                  "{{filter}} の項目はありません。",
+
+      "readonly_note":                 "このドキュメントの R (実行責任者) または管理者のみ、このチェックリストを変更できます。",
+
+      "stage_mandatory_pending_suffix":"· 必須未完了 {{count}} 件",
+
+      "add_checklist_item":            "チェックリスト項目を追加",
+      "item_description_placeholder":  "項目の説明",
+      "framework_label":               "フレームワーク",
+      "stage_label":                   "ステージ",
+      "mandatory_checkbox_label":      "必須 — 完了、免除、または削除されるまでレビューに提出をブロック",
+      "add_item":                      "項目を追加",
+
+      "removed_items_header":          "削除された項目 ({{count}})",
+      "removed_prefix":                "削除済み",
+      "removed_reason_label":          "理由: {{reason}}"
+    },
+
+    "checklist_hub": {
+      "tab_inputs":                "入力",
+      "tab_ich_e3":                "ICH E3",
+      "summary_inputs":            "入力 {{done}}/{{total}}",
+      "summary_ich_e3":            "ICH E3 {{done}}/{{total}}",
+      "summary_waived_count_one":  "免除 {{count}} 件",
+      "summary_waived_count_other":"免除 {{count}} 件",
+      "locked_note":               "ドキュメントは {{reason}} のため、セクションの完了マークや再オープンはできません。"
+    },
+
+    "voice_note_panel": {
+      "pick_section_placeholder":   "セクションを選択",
+      "record_to_section_header":   "セクションに録音",
+      "change_section_aria":        "セクションを変更",
+
+      "btn_requesting_mic":         "マイクをリクエスト中…",
+      "btn_tap_to_stop":            "タップで停止",
+      "btn_uploading":              "アップロード中…",
+      "btn_tap_to_record_again":    "タップで再録音",
+      "btn_tap_to_retry":           "タップで再試行",
+      "btn_tap_to_record":          "タップで録音",
+
+      "audio_unavailable":          "このブラウザでは音声録音を利用できません。",
+
+      "error_browser_unsupported":  "このブラウザは音声録音に対応していません。Chrome、Edge、Firefox、Safari をご利用ください。",
+      "error_mic_denied":           "マイクへのアクセスが拒否されました。ブラウザの設定で許可してから再度お試しください。",
+      "error_no_mic":               "マイクが検出されません。マイクを接続して再度お試しください。",
+      "error_mic_generic":          "マイクにアクセスできませんでした。もう一度お試しください。",
+      "error_recording_failed":     "録音に失敗しました。もう一度お試しください。",
+      "error_no_audio":             "録音に音声データがありません。もう一度お試しください。",
+
+      "upload_failed_http":         "アップロードに失敗しました (HTTP {{status}})",
+      "upload_failed_network":      "アップロードに失敗しました。接続を確認してもう一度お試しください。",
+
+      "playback_failed_http":       "再生に失敗しました (HTTP {{status}})",
+      "playback_failed_generic":    "再生に失敗しました。もう一度お試しください。",
+
+      "appended_to_section":        "{{section}} に追加しました",
+      "insert_failed_locked":       "セクションは他のエディターによってロックされています。少し待ってから再度お試しください。",
+      "insert_failed_http":         "挿入に失敗しました (HTTP {{status}})",
+      "insert_failed_generic":      "挿入に失敗しました。もう一度お試しください。",
+
+      "copied_to_clipboard":        "クリップボードにコピーしました",
+
+      "last_recording_header":      "最新の録音",
+      "recorded_at":                "録音 {{date}} · {{time}}",
+      "stop":                       "停止",
+      "play":                       "再生",
+      "transcription_pending":      "文字起こしは処理中です — ワーカーの完了後にここに表示されます。",
+      "inserting":                  "挿入中…",
+      "insert_into_section":        "{{section}} に挿入",
+      "copy_text":                  "テキストをコピー",
+      "insert_audit_hint":          "挿入すると監査証跡にエントリが作成されます",
+
+      "past_recordings_header":     "過去の録音",
+      "refresh":                    "更新",
+      "empty_past_recordings":      "過去の録音はまだありません",
+      "past_recording_label":       "録音 · {{date}} · {{duration}}",
+      "transcript_pending_badge":   "文字起こし処理中"
+    },
+
+    "source_references_panel": {
+      "locked_note_in_review":         "ドキュメントはレビュー中で編集ロックされているため、参照の追加・削除はできません。",
+      "locked_note_pending_signature": "ドキュメントは署名待ちのため、参照の追加・削除はできません。",
+      "locked_note_signed":            "ドキュメントは署名済みのため、参照の追加・削除はできません。",
+      "locked_note_project_closed":    "プロジェクトは完了・読み取り専用のため、参照の追加・削除はできません。",
+
+      "file_not_found":                "保存されたファイルが見つかりませんでした。",
+      "something_went_wrong":          "問題が発生しました。もう一度お試しください。",
+
+      "back_to_references":            "← 参照一覧",
+      "source_document":               "ソース ドキュメント",
+      "cited_text_label":              "引用テキスト:",
+      "go_to_page":                    "ページへ移動",
+      "source_unavailable":            "このソース ドキュメントはプロジェクトに存在しなくなりました。",
+      "not_previewable":               "このファイル形式はここでは表示できません — PDF、画像、Word (.docx)、テキスト/CSV ファイルに対応しています。ダウンロードから開いてください。",
+
+      "references_locked":             "参照はロックされています",
+      "references_locked_with_section":"参照はロックされています · {{section}}",
+      "source_linked":                 "ソースはリンク済み",
+      "source_linked_with_section":    "ソースはリンク済み · {{section}}",
+      "text_already_linked":           "選択したテキストはすでにソース ドキュメントにリンクされています (下にハイライト表示)。別のソースにリンクするには、その参照を削除するか、別のテキストを選択してください。",
+      "clear_selection":               "選択をクリア",
+
+      "add_reference":                 "参照を追加",
+      "add_reference_with_section":    "参照を追加 · {{section}}",
+      "add_reference_hint":            "セクション内のテキストを選択し、その出典となるソースを選んでください。",
+
+      "no_text_selected":              "テキストが選択されていません",
+      "source_document_label":         "ソース ドキュメント",
+      "select_source_option":          "ソース ドキュメントを選択",
+      "no_sources_in_project":         "このプロジェクトにはソース ドキュメントがありません",
+      "page_label":                    "ページ",
+      "locator_label":                 "セクション / 表",
+      "optional_suffix":               "(任意)",
+      "locator_placeholder":           "例: §9.4 Table 3",
+      "adding":                        "追加中…",
+      "add_reference_button":          "参照を追加",
+      "audit_trail_hint":              "追加または削除した参照はすべてドキュメントの監査証跡に記録されます。",
+
+      "references_in_section":         "このセクションの参照",
+      "load_references_failed":        "参照を読み込めませんでした。",
+      "no_references_yet":             "このセクションにはまだ参照がありません。",
+      "source_no_longer_available":    "ソースは利用できなくなりました",
+      "page_short":                    "p. {{page}}",
+      "no_page_or_section":            "ページ・セクションの記載なし",
+      "unknown_user":                  "不明",
+
+      "remove_confirm_title":          "この参照を削除しますか?",
+      "reason_optional_placeholder":   "理由 (任意)",
+      "removing":                      "削除中…",
+
+      "view_source":                   "ソースを表示",
+      "more_in_other_sections_one":    "このドキュメントの他のセクションに {{count}} 件あります。",
+      "more_in_other_sections_other":  "このドキュメントの他のセクションに {{count}} 件あります。",
+
+      "project_source_documents":      "プロジェクトのソース ドキュメント"
+    },
+
+    "section_history_panel": {
+      "select_section_first":        "先にセクションを選択してください — 履歴はセクションごとです。",
+      "current_section":             "現在のセクション"
+    },
+
     "clinical_writing_home": {
       "title": "クリニカル ライティング",
       "documents_count_one":   "{{count}} 件のドキュメント",

@@ -6,6 +6,7 @@
 // accepts, previous reverts, section restores — and lets authored users
 // Revert to any point.
 
+import { useTranslation } from 'react-i18next'
 import { documentsApi } from '../api'
 import { EditHistoryPanel, type EditOrigin } from './EditHistoryPanel'
 
@@ -16,10 +17,11 @@ interface Props {
 }
 
 export function SectionHistoryPanel({ documentId, sectionId, sectionLabel }: Props) {
+  const { t } = useTranslation()
   if (!sectionId) {
     return (
       <EditHistoryPanel
-        emptyPrecondition="Select a section first — history is per-section."
+        emptyPrecondition={t('page.section_history_panel.select_section_first')}
         loader={() => Promise.resolve({ entries: [] })}
         revert={() => Promise.resolve()}
         queryKey={['section-history', documentId, 'none']}
@@ -31,7 +33,7 @@ export function SectionHistoryPanel({ documentId, sectionId, sectionLabel }: Pro
   return (
     <EditHistoryPanel
       subject="section"
-      header={sectionLabel ?? 'Current section'}
+      header={sectionLabel ?? t('page.section_history_panel.current_section')}
       queryKey={['section-history', documentId, sectionId]}
       invalidationKeys={[['document', documentId]]}
       loader={({ mine, origin }) =>

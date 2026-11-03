@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Comment, CommentSeverity } from '@platform/types'
 import { PLATFORM_USER_ROLE_LABEL, type PlatformUserRole } from '@platform/types'
 import { documentsApi, describeApiError } from '../api'
@@ -26,10 +27,10 @@ interface Props {
   onPosted?:        (comment: Comment) => void
 }
 
-const SEVERITIES: { key: CommentSeverity; label: string; on: { bg: string; fg: string; border: string } }[] = [
-  { key: 'major', label: 'Major', on: { bg: '#FEE2E2', fg: '#B91C1C', border: '#DC2626' } },
-  { key: 'minor', label: 'Minor', on: { bg: '#FFFBEB', fg: '#B45309', border: '#D97706' } },
-  { key: 'query', label: 'Query', on: { bg: '#EFF6FF', fg: '#1D4ED8', border: '#2563EB' } },
+const SEVERITIES: { key: CommentSeverity; labelKey: string; on: { bg: string; fg: string; border: string } }[] = [
+  { key: 'major', labelKey: 'page.comment_composer.severity_major', on: { bg: '#FEE2E2', fg: '#B91C1C', border: '#DC2626' } },
+  { key: 'minor', labelKey: 'page.comment_composer.severity_minor', on: { bg: '#FFFBEB', fg: '#B45309', border: '#D97706' } },
+  { key: 'query', labelKey: 'page.comment_composer.severity_query', on: { bg: '#EFF6FF', fg: '#1D4ED8', border: '#2563EB' } },
 ]
 
 export const COMMENT_MAX = 2000
@@ -50,6 +51,7 @@ export function sectionLabelFor(ref: string, sections: ComposerSection[]): { ref
 }
 
 export function CommentComposer({ documentId, sections, defaultSectionId, onClose, onPosted }: Props) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { data: me } = useCurrentUser()
   const initialSection = sections.find(s => s.id === defaultSectionId)?.id ?? sections[0]?.id ?? ''
@@ -102,25 +104,25 @@ export function CommentComposer({ documentId, sections, defaultSectionId, onClos
         <p className="text-[13px] font-bold" data-composer-author>{me?.name ?? '…'}</p>
         {roleLabel && <p className="font-mono text-[10px] tracking-wider text-slate-500">{roleLabel}</p>}
         <div className="flex-1" />
-        <p className="text-[11px] text-slate-500">Draft</p>
+        <p className="text-[11px] text-slate-500">{t('page.comment_composer.draft_label')}</p>
       </div>
 
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] font-semibold text-slate-700">Section tag (required)</span>
+        <span className="text-[11px] font-semibold text-slate-700">{t('page.comment_composer.section_tag_label')}</span>
         <select
           value={sectionId}
           onChange={e => { setSectionId(e.target.value); setPickedSection(true) }}
           className="h-8 rounded border border-slate-300 bg-white px-2 text-[12px]"
           data-composer-section
         >
-          {sections.length === 0 && <option value="">No sections available</option>}
+          {sections.length === 0 && <option value="">{t('page.comment_composer.no_sections_available')}</option>}
           {sections.map(s => <option key={s.id} value={s.id}>{sectionRefOf(s)} {s.title}</option>)}
         </select>
       </label>
 
       <div className="flex flex-col gap-1">
-        <span className="text-[11px] font-semibold text-slate-700">Severity (required)</span>
-        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label="Severity">
+        <span className="text-[11px] font-semibold text-slate-700">{t('page.comment_composer.severity_label')}</span>
+        <div className="flex flex-wrap gap-1.5" role="radiogroup" aria-label={t('page.comment_composer.severity_aria')}>
           {SEVERITIES.map(sv => {
             const on = severity === sv.key
             return (
@@ -135,20 +137,22 @@ export function CommentComposer({ documentId, sections, defaultSectionId, onClos
                 style={on
                   ? { backgroundColor: sv.on.bg, color: sv.on.fg, border: `1px solid ${sv.on.border}` }
                   : { backgroundColor: '#FFFFFF', color: '#475569', border: '1px solid #E2E8F0' }}
-              >{sv.label}</button>
+              >{t(sv.labelKey)}</button>
             )
           })}
         </div>
       </div>
 
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] font-semibold text-slate-700">Comment (required)</span>
+        <span className="text-[11px] font-semibold text-slate-700">{t('page.comment_composer.comment_label')}</span>
         <textarea
           rows={3}
           value={text}
           maxLength={COMMENT_MAX}
           onChange={e => setText(e.target.value)}
-          placeholder={section ? `Write a comment for ${sectionRefOf(section)}…` : 'Write a comment…'}
+          placeholder={section
+            ? t('page.comment_composer.comment_placeholder_for_section', { section: sectionRefOf(section) })
+            : t('page.comment_composer.comment_placeholder')}
           className="w-full resize-y rounded border border-slate-300 p-2 text-[13px] outline-none focus:border-blue-600"
           data-composer-text
           autoFocus
@@ -157,26 +161,26 @@ export function CommentComposer({ documentId, sections, defaultSectionId, onClos
 
       {touched && missing && (
         <p className="text-[11px] font-semibold" style={{ color: '#DC2626' }} role="alert" data-composer-missing={missing}>
-          {missing === 'severity' ? 'Choose a severity: Major, Minor or Query.'
-            : missing === 'section' ? 'Choose the section this comment is about.'
-            : 'Write the comment before posting.'}
+          {missing === 'severity' ? t('page.comment_composer.error_missing_severity')
+            : missing === 'section' ? t('page.comment_composer.error_missing_section')
+            : t('page.comment_composer.error_missing_text')}
         </p>
       )}
       {post.isError && (
         <p className="text-[11px] font-semibold" style={{ color: '#DC2626' }} role="alert">
-          Could not post comment: {describeApiError(post.error).message}
+          {t('page.comment_composer.post_failed', { reason: describeApiError(post.error).message })}
         </p>
       )}
 
       <div className="flex items-center justify-end gap-2">
-        <button type="button" onClick={onClose} disabled={post.isPending} className="text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">Cancel</button>
+        <button type="button" onClick={onClose} disabled={post.isPending} className="text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50">{t('button.cancel')}</button>
         <button
           type="button"
           onClick={submit}
           disabled={post.isPending}
           data-action="post-comment"
           className="rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-60"
-        >{post.isPending ? 'Posting…' : 'Post comment'}</button>
+        >{post.isPending ? t('page.comment_composer.posting') : t('page.comment_composer.post_comment')}</button>
       </div>
     </div>
   )

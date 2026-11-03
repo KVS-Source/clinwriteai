@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Section, VoiceNote } from '@platform/types'
 import { documentsApi } from '../api'
 import { ApiError } from '../api/client'
@@ -132,6 +133,7 @@ function formatMMSS(seconds: number): string {
 }
 
 export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const currentUserName = useAuthStore(s => s.user?.name ?? 'Unknown user')
 
@@ -168,7 +170,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
     () => sections.find(s => s.id === selectedSectionId) ?? null,
     [sections, selectedSectionId],
   )
-  const sectionRef = selectedSection ? sectionLabel(selectedSection) : 'Pick a section'
+  const sectionRef = selectedSection ? sectionLabel(selectedSection) : t('page.voice_note_panel.pick_section_placeholder')
 
   const recorderRef   = useRef<MediaRecorder | null>(null)
   const streamRef     = useRef<MediaStream | null>(null)
@@ -244,8 +246,8 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
       const msg = err instanceof ApiError
         ? (typeof err.body === 'object' && err.body && 'error' in err.body
             ? String((err.body as { error: unknown }).error)
-            : `Upload failed (HTTP ${err.status})`)
-        : 'Upload failed. Check your connection and try again.'
+            : t('page.voice_note_panel.upload_failed_http', { status: err.status }))
+        : t('page.voice_note_panel.upload_failed_network')
       setError(msg)
       setState('error')
     },
@@ -253,7 +255,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
 
   const startRecording = async () => {
     if (!canRecord) {
-      setError('Your browser does not support audio recording. Use Chrome, Edge, Firefox or Safari.')
+      setError(t('page.voice_note_panel.error_browser_unsupported'))
       setState('error')
       return
     }
@@ -273,11 +275,11 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
     } catch (err) {
       const name = (err as DOMException)?.name ?? ''
       if (name === 'NotAllowedError' || name === 'SecurityError') {
-        setError('Microphone access denied. Grant permission in your browser settings and try again.')
+        setError(t('page.voice_note_panel.error_mic_denied'))
       } else if (name === 'NotFoundError' || name === 'OverconstrainedError') {
-        setError('No microphone detected. Connect a mic and try again.')
+        setError(t('page.voice_note_panel.error_no_mic'))
       } else {
-        setError('Could not access microphone. Please try again.')
+        setError(t('page.voice_note_panel.error_mic_generic'))
       }
       setState('error')
       return
@@ -291,7 +293,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
       if (ev.data && ev.data.size > 0) chunksRef.current.push(ev.data)
     }
     recorder.onerror = () => {
-      setError('Recording failed. Please try again.')
+      setError(t('page.voice_note_panel.error_recording_failed'))
       setState('error')
       clearTimer()
       stopStream()
@@ -303,7 +305,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
       chunksRef.current = []
 
       if (audio.size === 0) {
-        setError('Recording produced no audio. Please try again.')
+        setError(t('page.voice_note_panel.error_no_audio'))
         setState('error')
         return
       }
@@ -366,8 +368,8 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
       audioElRef.current.onended = () => setPlayingNoteId(null)
     } catch (err) {
       const msg = err instanceof ApiError
-        ? `Playback failed (HTTP ${err.status})`
-        : 'Playback failed. Please try again.'
+        ? t('page.voice_note_panel.playback_failed_http', { status: err.status })
+        : t('page.voice_note_panel.playback_failed_generic')
       setInsertToast(msg)
     }
   }
@@ -387,16 +389,16 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
       })
     },
     onSuccess: () => {
-      setInsertToast(`Appended to ${selectedSection ? withSectionMark(selectedSection.number) : ''}`)
+      setInsertToast(t('page.voice_note_panel.appended_to_section', { section: selectedSection ? withSectionMark(selectedSection.number) : '' }))
       qc.invalidateQueries({ queryKey: ['document', documentId] })
     },
     onError: (err) => {
       if (err instanceof ApiError && err.status === 423) {
-        setInsertToast('Section is locked by another editor. Try again shortly.')
+        setInsertToast(t('page.voice_note_panel.insert_failed_locked'))
       } else if (err instanceof ApiError) {
-        setInsertToast(`Insert failed (HTTP ${err.status})`)
+        setInsertToast(t('page.voice_note_panel.insert_failed_http', { status: err.status }))
       } else {
-        setInsertToast('Insert failed. Please try again.')
+        setInsertToast(t('page.voice_note_panel.insert_failed_generic'))
       }
     },
   })
@@ -409,7 +411,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
   const copyText = () => {
     if (!lastNote?.transcript) return
     navigator.clipboard?.writeText(lastNote.transcript).catch(() => { /* ignore */ })
-    setInsertToast('Copied to clipboard')
+    setInsertToast(t('page.voice_note_panel.copied_to_clipboard'))
   }
 
   const isRecording      = state === 'recording'
@@ -421,12 +423,12 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
   const shortSectionRef = useMemo(() => sectionRef.split(' ')[0] || sectionRef, [sectionRef])
 
   const buttonLabel = (() => {
-    if (isRequestingMic) return 'Requesting microphone…'
-    if (isRecording)     return 'Tap to stop'
-    if (isUploading)     return 'Uploading…'
-    if (state === 'complete') return 'Tap to record again'
-    if (state === 'error')    return 'Tap to retry'
-    return 'Tap to record'
+    if (isRequestingMic) return t('page.voice_note_panel.btn_requesting_mic')
+    if (isRecording)     return t('page.voice_note_panel.btn_tap_to_stop')
+    if (isUploading)     return t('page.voice_note_panel.btn_uploading')
+    if (state === 'complete') return t('page.voice_note_panel.btn_tap_to_record_again')
+    if (state === 'error')    return t('page.voice_note_panel.btn_tap_to_retry')
+    return t('page.voice_note_panel.btn_tap_to_record')
   })()
 
   const handleMicButton = () => {
@@ -439,7 +441,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
 
       {/* ===== Record to section ===== */}
       <div className="flex flex-col gap-2.5">
-        <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Record to section</p>
+        <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">{t('page.voice_note_panel.record_to_section_header')}</p>
 
         <div className="relative">
           <button
@@ -452,7 +454,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
             disabled={sections.length === 0}
           >
             <span className="truncate text-xs font-semibold text-slate-900">{sectionRef}</span>
-            <span className="flex flex-none text-slate-500" aria-label="Change section">
+            <span className="flex flex-none text-slate-500" aria-label={t('page.voice_note_panel.change_section_aria')}>
               <EditPencilIcon />
             </span>
           </button>
@@ -503,7 +505,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
           </button>
           <p className="text-xs text-slate-500">{buttonLabel}</p>
           {!canRecord && (
-            <p className="text-[11px] text-rose-600">Audio recording unavailable in this browser.</p>
+            <p className="text-[11px] text-rose-600">{t('page.voice_note_panel.audio_unavailable')}</p>
           )}
         </div>
 
@@ -537,11 +539,14 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
         <>
           <div className="h-px" style={{ backgroundColor: '#E2E8F0' }} />
           <div className="flex flex-col gap-2.5">
-            <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Last recording</p>
+            <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">{t('page.voice_note_panel.last_recording_header')}</p>
             <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-white p-3.5">
               <div className="flex items-center justify-between gap-2 text-[11px] text-slate-500">
                 <span>
-                  Recorded {new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · {timerLabel}
+                  {t('page.voice_note_panel.recorded_at', {
+                    date: new Date().toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+                    time: timerLabel,
+                  })}
                 </span>
                 {previewUrl && (
                   <button
@@ -549,13 +554,13 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
                     onClick={playPreview}
                     className="rounded-md border border-slate-200 px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
                   >
-                    {playingNoteId === '__preview__' ? 'Stop' : 'Play'}
+                    {playingNoteId === '__preview__' ? t('page.voice_note_panel.stop') : t('page.voice_note_panel.play')}
                   </button>
                 )}
               </div>
 
               {transcriptPending ? (
-                <p className="text-[12px] italic text-slate-500">Transcription pending — will appear here when the worker completes.</p>
+                <p className="text-[12px] italic text-slate-500">{t('page.voice_note_panel.transcription_pending')}</p>
               ) : lastNote?.transcript ? (
                 <p className="text-[13px] leading-relaxed text-slate-900 whitespace-pre-wrap">{lastNote.transcript}</p>
               ) : null}
@@ -567,7 +572,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
                   disabled={!lastNote?.transcript || !selectedSection || insertMut.isPending}
                   className="flex-1 rounded-md bg-blue-600 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:bg-slate-300"
                 >
-                  {insertMut.isPending ? 'Inserting…' : `Insert into ${shortSectionRef}`}
+                  {insertMut.isPending ? t('page.voice_note_panel.inserting') : t('page.voice_note_panel.insert_into_section', { section: shortSectionRef })}
                 </button>
                 <button
                   type="button"
@@ -575,13 +580,13 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
                   disabled={!lastNote?.transcript}
                   className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 transition-colors hover:bg-slate-50 disabled:text-slate-400"
                 >
-                  Copy text
+                  {t('page.voice_note_panel.copy_text')}
                 </button>
               </div>
               {insertToast ? (
                 <p className="text-center text-[11px] font-semibold" style={{ color: '#15803D' }}>{insertToast}</p>
               ) : (
-                <p className="text-center text-[11px] italic text-slate-500">Inserting creates an audit trail entry</p>
+                <p className="text-center text-[11px] italic text-slate-500">{t('page.voice_note_panel.insert_audit_hint')}</p>
               )}
             </div>
           </div>
@@ -592,14 +597,14 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
       <div className="h-px" style={{ backgroundColor: '#E2E8F0' }} />
       <div className="flex flex-col gap-1.5">
         <div className="flex items-center justify-between">
-          <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Past recordings</p>
+          <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">{t('page.voice_note_panel.past_recordings_header')}</p>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={() => refetchNotes()}
               className="text-[10px] font-medium uppercase tracking-widest text-slate-500 hover:text-slate-700"
             >
-              Refresh
+              {t('page.voice_note_panel.refresh')}
             </button>
             <span
               className="rounded-full border px-[7px] py-px text-[11px] font-semibold text-slate-600"
@@ -612,7 +617,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
 
         {pastNotes.length === 0 ? (
           <p className="rounded-md border border-dashed border-slate-200 bg-white px-3 py-4 text-center text-[12px] text-slate-500">
-            No past recordings yet
+            {t('page.voice_note_panel.empty_past_recordings')}
           </p>
         ) : (
           pastNotes.map((note: VoiceNote) => (
@@ -624,11 +629,14 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
             >
               <span className="flex flex-none text-slate-400"><MicIcon size={12} /></span>
               <span className="flex-1 truncate text-xs text-slate-500">
-                Recording · {new Date(note.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · {formatMMSS(note.duration)}
-                {!note.transcript && <span className="ml-2 italic text-amber-600">transcript pending</span>}
+                {t('page.voice_note_panel.past_recording_label', {
+                  date: new Date(note.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }),
+                  duration: formatMMSS(note.duration),
+                })}
+                {!note.transcript && <span className="ml-2 italic text-amber-600">{t('page.voice_note_panel.transcript_pending_badge')}</span>}
               </span>
               <span className="text-[10px] font-medium uppercase tracking-widest text-slate-400">
-                {playingNoteId === note.id ? 'Stop' : 'Play'}
+                {playingNoteId === note.id ? t('page.voice_note_panel.stop') : t('page.voice_note_panel.play')}
               </span>
               <ChevronRightSmall />
             </button>

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PrismaClient } from '@prisma/client'
 import type { AuthenticatedUser } from '../../auth/rbac.js'
-import { visibleProjectIdsForUser } from './visibility.js'
+import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from './visibility.js'
 
 interface FakeRows {
   members?:    Array<{ userId: string; projectId: string; removedAt: Date | null }>
@@ -27,8 +27,10 @@ function fakePrisma(rows: FakeRows): PrismaClient {
           .map(r => ({ projectId: r.projectId })),
     },
     document: {
-      findMany: async ({ where }: { where: { raciRows: { some: { userId: string; removedAt: null } } } }) => {
-        const userId = where.raciRows.some.userId
+      // The helper ORs assignee / creator / active RACI; these fixtures only
+      // model RACI rows, so read the user from that branch.
+      findMany: async ({ where }: { where: { OR: Array<{ raciRows?: { some: { userId: string } } }> } }) => {
+        const userId = where.OR.find(c => c.raciRows)!.raciRows!.some.userId
         const seen = new Set<string>()
         const out: Array<{ projectId: string }> = []
         for (const r of rows.raciDocs ?? []) {
@@ -137,5 +139,32 @@ describe('visibleProjectIdsForUser', () => {
       user('contributor', 'u-1'),
     )
     expect(r).toEqual(new Set())
+  })
+})
+
+describe('documentVisibilityWhere / canSeeDocument', () => {
+  it('admins, auditors and PMs see every document', () => {
+    for (const role of ['tenant-admin', 'admin', 'auditor', 'pm'] as const) {
+      expect(documentVisibilityWhere(user(role))).toBeNull()
+    }
+  })
+
+  it('contributors see only documents they are assignee, creator or on the RACI of', () => {
+    expect(documentVisibilityWhere(user('contributor', 'ravi'))).toEqual({
+      OR: [
+        { assigneeId: 'ravi' },
+        { createdBy: 'ravi' },
+        { raciRows: { some: { userId: 'ravi', removedAt: null } } },
+      ],
+    })
+  })
+
+  it('canSeeDocument counts the document under the contributor scope', async () => {
+    const seen: unknown[] = []
+    const prisma = { document: { count: async (args: unknown) => { seen.push(args); return 0 } } } as unknown as PrismaClient
+    expect(await canSeeDocument(prisma, user('contributor', 'ravi'), 'DOC-1')).toBe(false)
+    expect(seen[0]).toMatchObject({ where: { id: 'DOC-1', OR: expect.any(Array) } })
+    expect(await canSeeDocument(prisma, user('tenant-admin'), 'DOC-1')).toBe(true)
+    expect(seen).toHaveLength(1)
   })
 })

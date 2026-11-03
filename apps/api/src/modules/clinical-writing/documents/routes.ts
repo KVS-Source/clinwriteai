@@ -20,7 +20,7 @@ import { createHash } from 'node:crypto'
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { visibleProjectIdsForUser } from '../../projects/visibility.js'
+import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
@@ -226,8 +226,10 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(404).send({ error: 'project_not_found' })
     }
 
+    // Contributors and guests only see the documents they work on.
+    const docScope = documentVisibilityWhere(request.user!)
     const rows = await app.prisma.document.findMany({
-      where: { projectId, deletedAt: null },
+      where: { projectId, deletedAt: null, ...(docScope ?? {}) },
       orderBy: { updatedAt: 'desc' },
       include: { currentVersion: { select: { versionNumber: true } } },
     })
@@ -443,6 +445,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await svc.getWithSections(documentId)
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    // 404, not 403, so documents outside the caller's work don't leak.
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
 
     // HIPAA minimum-necessary logging: tag every full-body document read
     // as PHI access. The list route (/projects/:id/documents) is NOT tagged

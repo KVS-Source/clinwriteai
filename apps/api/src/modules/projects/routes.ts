@@ -10,7 +10,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../auth/rbac.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../platform/taxonomy/validate.js'
-import { visibleProjectIdsForUser } from './visibility.js'
+import { documentVisibilityWhere, visibleProjectIdsForUser } from './visibility.js'
 import {
   canTransition,
   InvalidTransitionError,
@@ -107,12 +107,14 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       include: { teamMembers: true },
     })
     // One grouped count for all projects (live Module A documents) so the list
-    // can show a real document total per row.
+    // can show a real document total per row — counting only the documents
+    // this user can see (contributors: the ones they work on).
     const counts = await app.prisma.document.groupBy({
       by: ['projectId'],
       where: {
         deletedAt: null,
         ...(visible === 'all' ? {} : { projectId: { in: [...visible] } }),
+        ...(documentVisibilityWhere(request.user!) ?? {}),
       },
       _count: { _all: true },
     })

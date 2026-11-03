@@ -15,6 +15,7 @@ import { z } from 'zod'
 import PDFDocument from 'pdfkit'
 import { requireAuth } from '../../../auth/rbac.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
+import { documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 
 // Document audit panel paging. The default limit keeps older callers that send
 // no parameters (the Audit Review screen) getting the same size as before.
@@ -566,8 +567,14 @@ export const projectCommentsRoutes: FastifyPluginAsync = async (app) => {
     const { projectId } = request.params as { projectId: string }
     const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
     if (!project) return reply.code(404).send({ error: 'not_found' })
+    const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+    if (visible !== 'all' && !visible.has(projectId)) return reply.code(404).send({ error: 'not_found' })
 
-    const docs = await app.prisma.document.findMany({ where: { projectId, deletedAt: null }, select: { id: true } })
+    // Only comments on the documents this user can see (contributors: the ones they work on).
+    const docs = await app.prisma.document.findMany({
+      where: { projectId, deletedAt: null, ...(documentVisibilityWhere(request.user!) ?? {}) },
+      select: { id: true },
+    })
     if (docs.length === 0) return []
     const rows = await app.prisma.comment.findMany({
       where: { documentId: { in: docs.map(d => d.id) } },

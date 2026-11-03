@@ -7,6 +7,7 @@
 //     - ProjectMember row with removedAt null                      (new RBAC)
 //     - ProjectTeamMember row                                      (legacy)
 //     - DocumentRaci row with removedAt null on any Document in the project
+//       (or being that Document's assignee / creator)
 //
 // Why three sources: migration 47 added ProjectMember + DocumentRaci on top
 // of the existing ProjectTeamMember table. Both old and new rows co-exist
@@ -19,7 +20,7 @@
 // see projects that already appear via one of the three signals above
 // (because the guest-invite seed also writes a ProjectMember row).
 
-import type { PrismaClient } from '@prisma/client'
+import type { Prisma, PrismaClient } from '@prisma/client'
 import type { AuthenticatedUser } from '../../auth/rbac.js'
 
 const SEE_ALL_ROLES: ReadonlySet<string> = new Set([
@@ -52,7 +53,12 @@ export async function visibleProjectIdsForUser(
     prisma.document.findMany({
       where: {
         deletedAt: null,
-        raciRows: { some: { userId: user.id, removedAt: null } },
+        // Same "works on" test as documentVisibilityWhere below.
+        OR: [
+          { assigneeId: user.id },
+          { createdBy: user.id },
+          { raciRows: { some: { userId: user.id, removedAt: null } } },
+        ],
       },
       select: { projectId: true },
       distinct: ['projectId'],
@@ -64,4 +70,33 @@ export async function visibleProjectIdsForUser(
   for (const r of legacyTeam) ids.add(r.projectId)
   for (const r of raciDocs)   ids.add(r.projectId)
   return ids
+}
+
+// Document visibility — inside a visible project, which documents a user sees.
+//
+//   tenant-admin | admin | auditor (SEE_ALL_ROLES) and pm → every document
+//   everyone else → only documents they work on:
+//     - the document's assignee
+//     - an active DocumentRaci row (any letter)
+//     - the document's creator (so a writer who sets up a document for
+//       someone else doesn't lose it the moment it's created)
+const SEE_ALL_DOCUMENT_ROLES: ReadonlySet<string> = new Set([...SEE_ALL_ROLES, 'pm'])
+
+/** Prisma filter limiting documents to the ones `user` works on, or null when they see all. */
+export function documentVisibilityWhere(user: AuthenticatedUser): Prisma.DocumentWhereInput | null {
+  if (SEE_ALL_DOCUMENT_ROLES.has(user.role)) return null
+  return {
+    OR: [
+      { assigneeId: user.id },
+      { createdBy: user.id },
+      { raciRows: { some: { userId: user.id, removedAt: null } } },
+    ],
+  }
+}
+
+/** Whether `user` may open the document (existence is the caller's concern). */
+export async function canSeeDocument(prisma: PrismaClient, user: AuthenticatedUser, documentId: string): Promise<boolean> {
+  const scope = documentVisibilityWhere(user)
+  if (!scope) return true
+  return (await prisma.document.count({ where: { id: documentId, ...scope } })) > 0
 }

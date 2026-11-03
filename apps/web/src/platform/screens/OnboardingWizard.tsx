@@ -1,6 +1,7 @@
 import { useMemo, useState, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { RaciMatrix as RaciMatrixData, RACIRole, PlatformUserRole } from '@platform/types'
 import { PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -8,12 +9,19 @@ import { usePlatformStore, PLATFORM_DEMO_USERS } from '../store'
 
 type ModuleKey = 'A' | 'B' | 'C' | 'D' | 'E'
 
-const MODULE_META: Record<ModuleKey, { name: string; blurb: string; stages: number; colour: string; stageLabels: string[] }> = {
-  A: { name: 'Clinical Writing',      blurb: 'CSRs, IBs, SAPs and regulatory documents',              stages: 6, colour: '#2563EB', stageLabels: ['Draft', 'Review', 'CRM', 'Approval', 'Sign-off', 'Final'] },
-  B: { name: 'Scientific Writing',    blurb: 'Manuscripts, abstracts, posters and publications',      stages: 6, colour: '#0D9488', stageLabels: ['Concept', 'Draft', 'Author Review', 'Peer Review', 'Submission', 'Final'] },
-  C: { name: 'Medical Writing',       blurb: 'HCP decks, PILs, CME modules and disease dossiers',     stages: 6, colour: '#7C3AED', stageLabels: ['Brief', 'Draft', 'Pre-MLR', 'MLR', 'Format', 'Final'] },
-  D: { name: 'Regulatory Writing',    blurb: 'CTD/eCTD submissions and gateway filings',              stages: 6, colour: '#B0200D', stageLabels: ['Setup', 'CTD Auth', 'CMC', 'Super Review', 'Publish', 'Gateway'] },
-  E: { name: 'Ideation & Publishing', blurb: 'Content cards, KOL review and publishing calendar',     stages: 4, colour: '#0D9488', stageLabels: ['Uploaded', 'Under Review', 'Reviewed', 'Approved'] },
+interface ModuleMeta { nameKey: string; blurbKey: string; stages: number; colour: string; stageLabelKeys: string[] }
+
+const MODULE_META: Record<ModuleKey, ModuleMeta> = {
+  A: { nameKey: 'nav.clinical_writing',    blurbKey: 'page.onboarding_wizard.blurb_a', stages: 6, colour: '#2563EB',
+       stageLabelKeys: ['page.onboarding_wizard.stage_a_draft','page.onboarding_wizard.stage_a_review','page.onboarding_wizard.stage_a_crm','page.onboarding_wizard.stage_a_approval','page.onboarding_wizard.stage_a_signoff','page.onboarding_wizard.stage_a_final'] },
+  B: { nameKey: 'nav.scientific_writing',  blurbKey: 'page.onboarding_wizard.blurb_b', stages: 6, colour: '#0D9488',
+       stageLabelKeys: ['page.onboarding_wizard.stage_b_concept','page.onboarding_wizard.stage_b_draft','page.onboarding_wizard.stage_b_author_review','page.onboarding_wizard.stage_b_peer_review','page.onboarding_wizard.stage_b_submission','page.onboarding_wizard.stage_b_final'] },
+  C: { nameKey: 'nav.medical_writing',     blurbKey: 'page.onboarding_wizard.blurb_c', stages: 6, colour: '#7C3AED',
+       stageLabelKeys: ['page.onboarding_wizard.stage_c_brief','page.onboarding_wizard.stage_c_draft','page.onboarding_wizard.stage_c_pre_mlr','page.onboarding_wizard.stage_c_mlr','page.onboarding_wizard.stage_c_format','page.onboarding_wizard.stage_c_final'] },
+  D: { nameKey: 'nav.regulatory_writing',  blurbKey: 'page.onboarding_wizard.blurb_d', stages: 6, colour: '#B0200D',
+       stageLabelKeys: ['page.onboarding_wizard.stage_d_setup','page.onboarding_wizard.stage_d_ctd_auth','page.onboarding_wizard.stage_d_cmc','page.onboarding_wizard.stage_d_super_review','page.onboarding_wizard.stage_d_publish','page.onboarding_wizard.stage_d_gateway'] },
+  E: { nameKey: 'nav.ideation_publishing', blurbKey: 'page.onboarding_wizard.blurb_e', stages: 4, colour: '#0D9488',
+       stageLabelKeys: ['page.onboarding_wizard.stage_e_uploaded','page.onboarding_wizard.stage_e_under_review','page.onboarding_wizard.stage_e_reviewed','page.onboarding_wizard.stage_e_approved'] },
 }
 
 const RACI_COLOURS: Record<RACIRole, { bg: string; fg: string }> = {
@@ -23,11 +31,11 @@ const RACI_COLOURS: Record<RACIRole, { bg: string; fg: string }> = {
   I: { bg: '#F8FAFC', fg: '#94A3B8' },
 }
 
-const RACI_WORD: Record<RACIRole, string> = {
-  R: 'you do this',
-  A: 'you are accountable',
-  C: 'you are consulted',
-  I: 'you are informed',
+const RACI_WORD_KEYS: Record<RACIRole, string> = {
+  R: 'page.onboarding_wizard.raci_word_r',
+  A: 'page.onboarding_wizard.raci_word_a',
+  C: 'page.onboarding_wizard.raci_word_c',
+  I: 'page.onboarding_wizard.raci_word_i',
 }
 
 // Demo mapping: choose the current user based on module route param
@@ -38,6 +46,7 @@ function demoUserFor(module: ModuleKey) {
 }
 
 export function OnboardingWizard() {
+  const { t } = useTranslation()
   const { module } = useParams<{ module: string }>()
   const navigate   = useNavigate()
   const setCurrentUser = usePlatformStore(s => s.setCurrentUser)
@@ -119,7 +128,7 @@ export function OnboardingWizard() {
                   color:           isDone || isActive ? '#FFFFFF' : '#94A3B8',
                 }}
               >{isDone ? '✓' : (i + 1)}</span>
-              <span className="text-[11px] font-semibold" style={{ color: isActive ? meta.colour : '#94A3B8' }}>Step {i + 1}</span>
+              <span className="text-[11px] font-semibold" style={{ color: isActive ? meta.colour : '#94A3B8' }}>{t('page.onboarding_wizard.step_n', { n: i + 1 })}</span>
             </div>
           )
         })}
@@ -137,15 +146,15 @@ export function OnboardingWizard() {
             {/* STEP 1 — Welcome (rendered as completed reference when step 2+ active) */}
             {stepIdx === 0 && (
               <section data-step-body="welcome">
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest" style={{ color: meta.colour }}>Step 1 · Welcome</p>
-                <h2 className="mt-1 text-[20px] font-bold text-slate-900" data-module-name>Welcome to {meta.name}</h2>
-                <p className="mt-2 text-[13px] text-slate-700" data-module-blurb>{meta.blurb}</p>
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest" style={{ color: meta.colour }}>{t('page.onboarding_wizard.step_1_eyebrow')}</p>
+                <h2 className="mt-1 text-[20px] font-bold text-slate-900" data-module-name>{t('page.onboarding_wizard.welcome_to', { module: t(meta.nameKey) })}</h2>
+                <p className="mt-2 text-[13px] text-slate-700" data-module-blurb>{t(meta.blurbKey)}</p>
                 <div className="mt-4 flex items-center gap-2" data-stage-strip>
-                  {meta.stageLabels.map((label, i) => (
-                    <div key={label} className="flex items-center gap-2" data-stage-dot={i + 1}>
+                  {meta.stageLabelKeys.map((labelKey, i) => (
+                    <div key={labelKey} className="flex items-center gap-2" data-stage-dot={i + 1}>
                       <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: meta.colour }} />
-                      <span className="text-[11px] text-slate-700">{label}</span>
-                      {i < meta.stageLabels.length - 1 && <span className="text-slate-300">→</span>}
+                      <span className="text-[11px] text-slate-700">{t(labelKey)}</span>
+                      {i < meta.stageLabelKeys.length - 1 && <span className="text-slate-300">→</span>}
                     </div>
                   ))}
                 </div>
@@ -155,21 +164,21 @@ export function OnboardingWizard() {
             {/* STEP 2 — Your Role (active) */}
             {stepIdx === 1 && (
               <section data-step-body="your-role">
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest" style={{ color: meta.colour }}>Step 2 · Your role</p>
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest" style={{ color: meta.colour }}>{t('page.onboarding_wizard.step_2_eyebrow')}</p>
                 <h2 className="mt-1 text-[20px] font-bold text-slate-900">
-                  Your role in this module · <span data-role-heading>{PLATFORM_USER_ROLE_LABEL[currentRole]}</span>
+                  {t('page.onboarding_wizard.your_role_prefix')} <span data-role-heading>{PLATFORM_USER_ROLE_LABEL[currentRole]}</span>
                 </h2>
                 <p className="mt-2 text-[13px] text-slate-700">
-                  These assignments come from the project RACI matrix. They determine which actions you can take and which notifications you receive.
+                  {t('page.onboarding_wizard.your_role_body')}
                 </p>
 
                 <div className="mt-4 overflow-hidden rounded-lg border border-slate-200" data-raci-table>
                   <table className="w-full text-[13px]">
                     <thead style={{ backgroundColor: '#F8FAFC' }}>
                       <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                        <th className="px-4 py-2">Task</th>
-                        <th className="w-16 px-4 py-2 text-center">Mark</th>
-                        <th className="px-4 py-2">Meaning</th>
+                        <th className="px-4 py-2">{t('page.onboarding_wizard.col_task')}</th>
+                        <th className="w-16 px-4 py-2 text-center">{t('page.onboarding_wizard.col_mark')}</th>
+                        <th className="px-4 py-2">{t('page.onboarding_wizard.col_meaning')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -185,7 +194,7 @@ export function OnboardingWizard() {
                                 data-raci-mark={r.mark}
                               >{r.mark}</span>
                             </td>
-                            <td className="px-4 py-2 font-mono text-[12px] text-slate-600" data-raci-word>{RACI_WORD[r.mark]}</td>
+                            <td className="px-4 py-2 font-mono text-[12px] text-slate-600" data-raci-word>{t(RACI_WORD_KEYS[r.mark])}</td>
                           </tr>
                         )
                       })}
@@ -194,7 +203,7 @@ export function OnboardingWizard() {
                 </div>
 
                 <p className="mt-3 font-mono text-[11px] text-slate-500" data-raci-legend>
-                  R = you do this · A = you are accountable · C = you are consulted · I = you are informed
+                  {t('page.onboarding_wizard.raci_legend')}
                 </p>
               </section>
             )}
@@ -202,15 +211,15 @@ export function OnboardingWizard() {
             {/* Placeholder for steps 3–6 — same shell */}
             {stepIdx >= 2 && (
               <section data-step-body={`step-${stepIdx + 1}`}>
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest" style={{ color: meta.colour }}>Step {stepIdx + 1}</p>
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest" style={{ color: meta.colour }}>{t('page.onboarding_wizard.step_n', { n: stepIdx + 1 })}</p>
                 <h2 className="mt-1 text-[20px] font-bold text-slate-900">
-                  {stepIdx === 2 && 'Where things go next'}
-                  {stepIdx === 3 && 'Notifications you can expect'}
-                  {stepIdx === 4 && 'The audit trail'}
-                  {stepIdx === 5 && 'You are ready — start with your first project'}
+                  {stepIdx === 2 && t('page.onboarding_wizard.step_3_heading')}
+                  {stepIdx === 3 && t('page.onboarding_wizard.step_4_heading')}
+                  {stepIdx === 4 && t('page.onboarding_wizard.step_5_heading')}
+                  {stepIdx === 5 && t('page.onboarding_wizard.step_6_heading')}
                 </h2>
                 <p className="mt-2 text-[13px] text-slate-700">
-                  This step content will be filled in from module-specific copy. The wizard scaffold, per-module colour and navigation are already in place.
+                  {t('page.onboarding_wizard.placeholder_step_body')}
                 </p>
               </section>
             )}
@@ -224,9 +233,9 @@ export function OnboardingWizard() {
               disabled={stepIdx === 0}
               data-back-button
               className="text-[13px] font-semibold text-slate-500 hover:underline disabled:cursor-not-allowed disabled:opacity-40"
-            >← Back</button>
+            >{t('page.onboarding_wizard.back_button')}</button>
 
-            <p className="font-mono text-[11px] text-slate-500" data-step-count>Step {stepIdx + 1} of {totalSteps}</p>
+            <p className="font-mono text-[11px] text-slate-500" data-step-count>{t('page.onboarding_wizard.step_x_of_y', { x: stepIdx + 1, y: totalSteps })}</p>
 
             <button
               type="button"
@@ -235,13 +244,13 @@ export function OnboardingWizard() {
               data-next-label={isLast ? 'go-to-home' : 'next'}
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white"
               style={{ backgroundColor: meta.colour }}
-            >{isLast ? 'Go to Module Home →' : 'Next →'}</button>
+            >{isLast ? t('page.onboarding_wizard.go_to_module_home') : t('page.onboarding_wizard.next_button')}</button>
           </footer>
 
         </article>
 
         <p className="text-center text-[11px] text-slate-500" data-progress-note>
-          Your progress is saved. You can reopen this walkthrough from the help menu at any time.
+          {t('page.onboarding_wizard.progress_saved_note')}
         </p>
 
         {stepIdx > 0 && (
@@ -250,7 +259,7 @@ export function OnboardingWizard() {
             onClick={skipWizard}
             data-skip-wizard
             className="mx-auto text-[11px] font-semibold text-slate-400 hover:underline"
-          >Skip wizard</button>
+          >{t('page.onboarding_wizard.skip_wizard')}</button>
         )}
       </main>
     </div>

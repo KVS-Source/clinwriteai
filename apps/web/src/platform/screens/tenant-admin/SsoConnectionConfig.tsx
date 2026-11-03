@@ -7,6 +7,7 @@
 
 import { useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import {
   useCreateSsoConnection, useSsoConnections, useTenant, useTestSsoConnection,
   useUpdateSsoConnection, useDisableSsoConnection, type SsoConnection,
@@ -14,10 +15,11 @@ import {
 import { describeApiError } from '../../../api'
 
 function StatusChip({ status }: { status: SsoConnection['status'] }) {
+  const { t } = useTranslation()
   const palette = {
-    draft:    { bg: '#F1F5F9', fg: '#475569', border: '#CBD5E1', label: '○ Draft' },
-    verified: { bg: '#F0FDF4', fg: '#166534', border: '#BBF7D0', label: '✓ Verified' },
-    disabled: { bg: '#FFF5F5', fg: '#B91C1C', border: '#FECACA', label: '○ Disabled' },
+    draft:    { bg: '#F1F5F9', fg: '#475569', border: '#CBD5E1', label: `○ ${t('page.sso_connection_config.status_draft')}` },
+    verified: { bg: '#F0FDF4', fg: '#166534', border: '#BBF7D0', label: `✓ ${t('page.sso_connection_config.status_verified')}` },
+    disabled: { bg: '#FFF5F5', fg: '#B91C1C', border: '#FECACA', label: `○ ${t('page.sso_connection_config.status_disabled')}` },
   }[status]
   return (
     <span
@@ -28,6 +30,7 @@ function StatusChip({ status }: { status: SsoConnection['status'] }) {
 }
 
 export function SsoConnectionConfig() {
+  const { t } = useTranslation()
   const { tenantId } = useParams<{ tenantId: string }>()
   const { data: tenant } = useTenant(tenantId)
   const { data: conns = [], error } = useSsoConnections(tenantId)
@@ -58,7 +61,7 @@ export function SsoConnectionConfig() {
     setTestResult(null)
     try {
       const result = await test.mutateAsync(id)
-      setTestResult({ connectionId: id, ok: result.ok, message: result.message ?? (result.ok ? 'Verified' : (result.error ?? 'Failed')) })
+      setTestResult({ connectionId: id, ok: result.ok, message: result.message ?? (result.ok ? t('page.sso_connection_config.verified') : (result.error ?? t('page.sso_connection_config.failed'))) })
     } catch (e) {
       const d = describeApiError(e)
       setTestResult({ connectionId: id, ok: false, message: d.message })
@@ -69,27 +72,26 @@ export function SsoConnectionConfig() {
     <div className="bg-slate-50" data-screen="sso-config">
       <div className="flex flex-col gap-5" style={{ maxWidth: 1024, padding: '20px 32px 48px' }}>
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <Link to="/super-admin/tenants" className="hover:underline">Tenants</Link>
+          <Link to="/super-admin/tenants" className="hover:underline">{t('page.sso_connection_config.crumb_tenants')}</Link>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           {tenant && <Link to={`/super-admin/tenants/${tenant.id}`} className="hover:underline">{tenant.name}</Link>}
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">SSO</span>
+          <span className="font-semibold text-slate-900">{t('page.sso_connection_config.crumb_sso')}</span>
         </nav>
 
-        <h1 className="text-[22px] font-bold text-slate-900">SSO connections</h1>
+        <h1 className="text-[22px] font-bold text-slate-900">{t('page.sso_connection_config.title')}</h1>
         <p className="text-[12px] text-slate-500">
-          Per-tenant OIDC / SAML config. Secrets live in <code className="font-mono">/opt/platform/env/api.env.enc</code>; this
-          screen only tracks the WorkOS connection id + status so you can see verified / draft / disabled at a glance.
+          {t('page.sso_connection_config.subtitle_prefix')} <code className="font-mono">/opt/platform/env/api.env.enc</code>{t('page.sso_connection_config.subtitle_suffix')}
         </p>
 
         {error && <p className="rounded-md bg-red-50 p-3 text-[13px] text-red-800">{describeApiError(error).message}</p>}
         {actionError && <p className="rounded-md bg-red-50 p-3 text-[13px] text-red-800">{actionError}</p>}
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="text-[14px] font-bold text-slate-900">Add connection</h2>
+          <h2 className="text-[14px] font-bold text-slate-900">{t('page.sso_connection_config.add_connection_heading')}</h2>
           <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }}>
             <label className="flex flex-col gap-1 text-[12px] text-slate-700">
-              Type
+              {t('page.sso_connection_config.field_type')}
               <select
                 className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]"
                 value={newType}
@@ -100,7 +102,7 @@ export function SsoConnectionConfig() {
               </select>
             </label>
             <label className="flex flex-col gap-1 text-[12px] text-slate-700">
-              Callback URL
+              {t('page.sso_connection_config.field_callback_url')}
               <input
                 className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]"
                 value={newCallback}
@@ -109,7 +111,7 @@ export function SsoConnectionConfig() {
               />
             </label>
             <label className="flex flex-col gap-1 text-[12px] text-slate-700">
-              WorkOS connection id (optional)
+              {t('page.sso_connection_config.field_workos_id')}
               <input
                 className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px]"
                 value={newWorkosId}
@@ -126,16 +128,16 @@ export function SsoConnectionConfig() {
               className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
               data-action="create-sso"
             >
-              {create.isPending ? 'Creating…' : 'Add connection'}
+              {create.isPending ? t('page.sso_connection_config.creating') : t('page.sso_connection_config.add_connection')}
             </button>
           </div>
         </section>
 
         <section className="rounded-lg border border-slate-200 bg-white p-5">
-          <h2 className="text-[14px] font-bold text-slate-900">Existing connections</h2>
+          <h2 className="text-[14px] font-bold text-slate-900">{t('page.sso_connection_config.existing_connections_heading')}</h2>
           <div className="mt-3 flex flex-col gap-3">
             {conns.length === 0 && (
-              <p className="text-[12px] text-slate-500">No connections configured yet.</p>
+              <p className="text-[12px] text-slate-500">{t('page.sso_connection_config.no_connections')}</p>
             )}
             {conns.map(c => (
               <div key={c.id} className="rounded-md border border-slate-200 p-4" data-sso-row={c.id}>
@@ -145,8 +147,8 @@ export function SsoConnectionConfig() {
                       <StatusChip status={c.status} />
                       <span className="rounded px-1.5 py-0.5 text-[10px] font-mono" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{c.type.toUpperCase()}</span>
                     </div>
-                    <p className="mt-2 text-[12px] text-slate-700">Callback: <code className="font-mono text-[11px]">{c.callbackUrl}</code></p>
-                    <p className="mt-1 text-[12px] text-slate-700">WorkOS id: <code className="font-mono text-[11px]">{c.workosConnectionId ?? '— unset —'}</code></p>
+                    <p className="mt-2 text-[12px] text-slate-700">{t('page.sso_connection_config.callback_label')}: <code className="font-mono text-[11px]">{c.callbackUrl}</code></p>
+                    <p className="mt-1 text-[12px] text-slate-700">{t('page.sso_connection_config.workos_id_label')}: <code className="font-mono text-[11px]">{c.workosConnectionId ?? t('page.sso_connection_config.unset')}</code></p>
                   </div>
                   <div className="flex items-center gap-2">
                     <button
@@ -156,18 +158,18 @@ export function SsoConnectionConfig() {
                       className="rounded-md border border-slate-300 px-3 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
                       data-action="test-sso"
                     >
-                      {test.isPending ? 'Testing…' : 'Test connect'}
+                      {test.isPending ? t('page.sso_connection_config.testing') : t('page.sso_connection_config.test_connect')}
                     </button>
                     {c.status !== 'disabled' && (
                       <button
                         type="button"
                         onClick={() => {
-                          if (confirm('Disable this SSO connection? Users bound to it will fall back to the next connection or password login.')) {
+                          if (confirm(t('page.sso_connection_config.confirm_disable'))) {
                             disable.mutate(c.id)
                           }
                         }}
                         className="rounded-md border border-red-200 bg-red-50 px-3 py-1.5 text-[12px] text-red-700 hover:bg-red-100"
-                      >Disable</button>
+                      >{t('page.sso_connection_config.disable_button')}</button>
                     )}
                   </div>
                 </div>
@@ -181,7 +183,7 @@ export function SsoConnectionConfig() {
                 )}
                 <div className="mt-3 flex items-center gap-2">
                   <label className="flex items-center gap-1 text-[11px] text-slate-500">
-                    Update WorkOS id
+                    {t('page.sso_connection_config.update_workos_id')}
                     <input
                       className="rounded-md border border-slate-300 px-2 py-1 text-[12px]"
                       defaultValue={c.workosConnectionId ?? ''}

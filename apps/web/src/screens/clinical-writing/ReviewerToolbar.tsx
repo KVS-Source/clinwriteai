@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next'
 import { useDocumentStore } from '../../store'
 
 interface Props {
@@ -80,6 +81,7 @@ function Divider() {
 }
 
 export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCommentCount }: Props) {
+  const { t } = useTranslation()
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
@@ -96,12 +98,12 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
       <button
         type="button"
         onClick={onAddComment}
-        title="Add comment"
+        title={t('page.reviewer_toolbar.add_comment_tooltip')}
         className="flex h-7 flex-none items-center gap-1.5 rounded-md px-2.5 text-xs font-bold text-white transition-colors hover:bg-blue-700"
         style={{ backgroundColor: '#2563EB' }}
       >
         <CommentIcon />
-        Add comment
+        {t('page.reviewer_toolbar.add_comment_label')}
         <span
           className="rounded-[3px] px-1 py-0.5 font-mono text-[9px] font-medium"
           style={{ backgroundColor: 'rgba(255,255,255,0.22)', color: '#FFFFFF' }}
@@ -114,11 +116,11 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
       <button
         type="button"
         onClick={onFlagSection}
-        title="Flag section"
+        title={t('page.reviewer_toolbar.flag_section_tooltip')}
         className="flex h-7 flex-none items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
       >
         <FlagIcon />
-        Flag section
+        {t('page.reviewer_toolbar.flag_section_label')}
       </button>
 
       <Divider />
@@ -127,8 +129,8 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
       <button
         type="button"
         onClick={() => toggle('comments')}
-        title="Comments"
-        aria-label={openCommentCount ? `Comments (${openCommentCount} open)` : 'Comments'}
+        title={t('page.reviewer_toolbar.comments_tooltip')}
+        aria-label={openCommentCount ? t('page.reviewer_toolbar.comments_aria_count', { count: openCommentCount }) : t('page.reviewer_toolbar.comments_aria')}
         aria-pressed={activePanel === 'comments'}
         data-open-comments
         data-panel-trigger
@@ -140,7 +142,7 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
         }}
       >
         <CommentIcon />
-        Comments
+        {t('page.reviewer_toolbar.comments_label')}
         {!!openCommentCount && (
           <span className="rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700">{openCommentCount}</span>
         )}
@@ -148,7 +150,7 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
 
       {/* Checklist (view-only) */}
       <IconButton
-        title="View checklist"
+        title={t('page.reviewer_toolbar.view_checklist_tooltip')}
         active={activePanel === 'checklist'}
         onClick={() => toggle('checklist')}
       >
@@ -157,7 +159,7 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
 
       {/* Audit trail */}
       <IconButton
-        title="Audit trail"
+        title={t('page.reviewer_toolbar.audit_trail_tooltip')}
         active={activePanel === 'audit'}
         onClick={() => toggle('audit')}
       >
@@ -170,7 +172,7 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
       {/* Role label — right */}
       {roleLabel && (
         <span className="whitespace-nowrap font-mono text-[10px] font-medium tracking-wider text-slate-500">
-          Reviewing as: {roleLabel}
+          {t('page.reviewer_toolbar.reviewing_as', { role: roleLabel })}
         </span>
       )}
     </div>

@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { MyRaciRole } from './MyRaciRole'
@@ -77,6 +78,7 @@ type SectionDiff = {
 const sectionLabel = (number: string) => (number.startsWith('§') ? number : `§${number}`)
 
 export function DiffView() {
+  const { t } = useTranslation()
   const { projectId, documentId } = useParams()
   const navigate                  = useNavigate()
   const qc                        = useQueryClient()
@@ -134,12 +136,12 @@ export function DiffView() {
       for (const user of section.users) {
         if (user.status === 'ended' || seen.has(user.userId)) continue
         seen.add(user.userId)
-        const name = usersById.get(user.userId)?.name ?? 'Unknown'
+        const name = usersById.get(user.userId)?.name ?? t('page.presence_stack.unknown')
         out.push({ userId: user.userId, name, initials: initialsFromName(name), isCurrentUser: currentUser?.id === user.userId, color: avatarColor(user.userId) })
       }
     }
     return out
-  }, [presenceSnapshot, usersById, currentUser])
+  }, [presenceSnapshot, usersById, currentUser, t])
 
   useEffect(() => {
     if (project) setActiveProject(project)
@@ -167,8 +169,9 @@ export function DiffView() {
     () => olderVersions.find(v => v.versionNumber === diffVersions?.from) ?? olderVersions[0] ?? null,
     [olderVersions, diffVersions],
   )
-  const toVersion   = toRecord?.versionNumber ?? '—'
-  const fromVersion = fromRecord?.versionNumber ?? '—'
+  const emDash      = t('page.detail_panel_parts.em_dash')
+  const toVersion   = toRecord?.versionNumber ?? emDash
+  const fromVersion = fromRecord?.versionNumber ?? emDash
 
   const { data: fromSections, isLoading: fromLoading, isError: fromFailed } = useQuery({
     queryKey: ['version-sections', documentId, fromRecord?.id],
@@ -230,7 +233,7 @@ export function DiffView() {
 
   // The restore worker builds the new version on top of the current one.
   const currentVersionNumber = versions.find(v => v.isCurrent)?.versionNumber ?? versions[0]?.versionNumber ?? null
-  const nextVersionLabel = currentVersionNumber ? bumpVersion(currentVersionNumber) : 'a new version'
+  const nextVersionLabel = currentVersionNumber ? bumpVersion(currentVersionNumber) : t('page.diff_view.a_new_version')
 
   // Only sections that exist in the "from" version and differ can be restored from it.
   const restorable = (d: SectionDiff) => d.kind === 'changed' || d.kind === 'removed'
@@ -278,7 +281,7 @@ export function DiffView() {
   if (!document) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="font-mono text-sm text-slate-400">Loading document…</p>
+        <p className="font-mono text-sm text-slate-400">{t('page.diff_view.loading_document')}</p>
       </div>
     )
   }
@@ -310,7 +313,7 @@ export function DiffView() {
             <button
               type="button"
               onClick={handleExitDiff}
-              title="Exit diff view"
+              title={t('page.diff_view.exit_diff_tooltip')}
               data-version-chip-active
               className="flex flex-none items-center gap-2 rounded-md transition-colors hover:bg-blue-100"
               style={{ border: '1px solid #2563EB', backgroundColor: '#EFF6FF', padding: '5px 9px' }}
@@ -322,13 +325,13 @@ export function DiffView() {
             {/* Comparing label — fromVersion is a dropdown so the writer can
                 compare against any older version, not just the previous one. */}
             <span className="flex items-center gap-1 whitespace-nowrap font-mono text-[11px] font-medium text-slate-500">
-              Comparing
+              {t('page.diff_view.comparing_label')}
               <span className="relative" ref={fromMenuRef}>
                 <button
                   type="button"
                   onClick={() => setFromMenuOpen(v => !v)}
                   data-action="pick-from-version"
-                  title="Compare against a different version"
+                  title={t('page.diff_view.pick_from_version_tooltip')}
                   className="flex items-center gap-0.5 rounded border border-slate-300 bg-white px-1.5 py-0.5 font-mono text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
                 >
                   {fromVersion}
@@ -341,10 +344,10 @@ export function DiffView() {
                     data-version-picker
                   >
                     <p className="flex-none border-b border-slate-100 px-3 py-2 text-[10px] font-semibold uppercase tracking-wider text-slate-400">
-                      Compare {toVersion} with
+                      {t('page.diff_view.compare_with', { to: toVersion })}
                     </p>
                     {olderVersions.length === 0 && (
-                      <p className="px-3 py-2 text-[11px] italic text-slate-400">No older versions yet.</p>
+                      <p className="px-3 py-2 text-[11px] italic text-slate-400">{t('page.diff_view.no_older_versions')}</p>
                     )}
                     <div className="max-h-72 overflow-y-auto py-1">
                       {olderVersions.map(v => {
@@ -409,24 +412,24 @@ export function DiffView() {
 
             <span className="h-5 w-px" style={{ backgroundColor: '#E2E8F0' }} />
             <span className="flex-none text-xs text-slate-500">
-              {presenceStack.length === 0 ? 'Only you' : `${presenceStack.length} active`}
+              {presenceStack.length === 0 ? t('page.diff_view.only_you') : t('page.diff_view.active_count', { count: presenceStack.length })}
             </span>
 
             <button
               type="button"
               onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)}
-              title="DiffView is read-only — go back to Editor to make changes"
+              title={t('page.diff_view.back_to_editor_tooltip')}
               className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
             >
-              Back to Editor
+              {t('page.diff_view.back_to_editor')}
             </button>
             <button
               type="button"
               onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}?submit=1`)}
-              title="Opens the Submit-for-Review panel on the Editor"
+              title={t('page.diff_view.submit_for_review_tooltip')}
               className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
             >
-              Submit for review
+              {t('page.diff_view.submit_for_review')}
             </button>
           </div>
         </div>
@@ -446,20 +449,20 @@ export function DiffView() {
             style={{ backgroundColor: '#F8FAFC' }}
             data-diff-toolbar
           >
-            <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Diff view</p>
+            <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">{t('page.diff_view.diff_view_label')}</p>
             <span className="h-4 w-px bg-slate-200" />
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: '#16A34A' }} />
-              <span className="text-[11px] text-slate-500">Added</span>
+              <span className="text-[11px] text-slate-500">{t('page.diff_view.added_legend')}</span>
             </div>
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-2 rounded-full" style={{ backgroundColor: '#DC2626' }} />
-              <span className="text-[11px] text-slate-500">Removed</span>
+              <span className="text-[11px] text-slate-500">{t('page.diff_view.removed_legend')}</span>
             </div>
             <div className="flex-1" />
             {!comparing && fromRecord && (
               <span className="whitespace-nowrap font-mono text-[11px] text-slate-500" data-diff-summary>
-                {changedDiffs.length} section{changedDiffs.length === 1 ? '' : 's'} changed · +{wordsAdded} / −{wordsRemoved} words
+                {t('page.diff_view.diff_summary', { count: changedDiffs.length, added: wordsAdded, removed: wordsRemoved })}
               </span>
             )}
             <button
@@ -467,7 +470,7 @@ export function DiffView() {
               onClick={handleExitDiff}
               className="whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700 transition-colors"
             >
-              Exit diff view
+              {t('page.diff_view.exit_diff')}
             </button>
           </div>
 
@@ -476,14 +479,14 @@ export function DiffView() {
             <div className="flex max-w-[760px] flex-col">
               {!versionsLoading && !fromRecord && (
                 <p className="text-sm text-slate-500" data-diff-empty>
-                  {toRecord ? `${toVersion} is the only version of this document, so there is nothing to compare yet.` : 'This document has no saved versions yet.'}
+                  {toRecord ? t('page.diff_view.only_version_message', { version: toVersion }) : t('page.diff_view.no_saved_versions')}
                 </p>
               )}
-              {fromRecord && comparing && <p className="font-mono text-sm text-slate-400">Comparing {fromVersion} → {toVersion}…</p>}
-              {fromRecord && compareFailed && <p className="text-sm text-red-700">Could not load the versions to compare. Try again.</p>}
+              {fromRecord && comparing && <p className="font-mono text-sm text-slate-400">{t('page.diff_view.comparing_message', { from: fromVersion, to: toVersion })}</p>}
+              {fromRecord && compareFailed && <p className="text-sm text-red-700">{t('page.diff_view.compare_failed')}</p>}
 
               {fromRecord && !comparing && !compareFailed && changedDiffs.length === 0 && (
-                <p className="text-sm text-slate-500" data-diff-empty>No differences between {fromVersion} and {toVersion}.</p>
+                <p className="text-sm text-slate-500" data-diff-empty>{t('page.diff_view.no_differences', { from: fromVersion, to: toVersion })}</p>
               )}
 
               {!comparing && !compareFailed && changedDiffs.map((d, idx) => {
@@ -499,14 +502,14 @@ export function DiffView() {
                         className="flex-none rounded font-mono text-[9px] font-medium tracking-wide text-slate-500"
                         style={{ backgroundColor: '#F1F5F9', padding: '2px 6px' }}
                       >
-                        {d.kind === 'added' ? `new in ${toVersion}` : d.kind === 'removed' ? `removed in ${toVersion}` : `+${d.added} / −${d.removed} words`}
+                        {d.kind === 'added' ? t('page.diff_view.section_new_in', { version: toVersion }) : d.kind === 'removed' ? t('page.diff_view.section_removed_in', { version: toVersion }) : t('page.diff_view.section_word_change', { added: d.added, removed: d.removed })}
                       </span>
                       {canRestore && (
                         <>
                           <button
                             type="button"
                             onClick={() => toggleSectionForRestore(d.sectionId)}
-                            title={isSelected ? 'Deselect' : 'Select for restore'}
+                            title={isSelected ? t('page.diff_view.deselect') : t('page.diff_view.select_for_restore')}
                             data-restore-checkbox
                             data-checked={isSelected || undefined}
                             className="flex h-4 w-4 flex-none cursor-pointer items-center justify-center rounded"
@@ -528,13 +531,13 @@ export function DiffView() {
                             className="flex-none whitespace-nowrap text-xs font-semibold transition-colors"
                             style={{ color: isSelected ? '#15803D' : '#2563EB' }}
                           >
-                            {isSelected ? 'Selected for restore ✓' : `Restore ${sectionLabel(d.number)} from ${fromVersion} →`}
+                            {isSelected ? t('page.diff_view.selected_for_restore') : t('page.diff_view.restore_from', { section: sectionLabel(d.number), version: fromVersion })}
                           </button>
                         </>
                       )}
                     </div>
                     {d.ops.length === 0
-                      ? <p className="mt-3 text-sm italic text-slate-400">(empty)</p>
+                      ? <p className="mt-3 text-sm italic text-slate-400">{t('page.diff_view.empty_placeholder')}</p>
                       : <HtmlDiff fromHtml={d.fromHtml} toHtml={d.toHtml} />}
                   </div>
                 )
@@ -544,7 +547,7 @@ export function DiffView() {
               {!comparing && !compareFailed && unchangedDiffs.length > 0 && (
                 <div className="mt-7 flex flex-col gap-1" style={{ opacity: 0.5 }} data-diff-unchanged>
                   <p className="text-xs font-semibold text-slate-500">
-                    {unchangedDiffs.length} unchanged section{unchangedDiffs.length === 1 ? '' : 's'}
+                    {t('page.diff_view.unchanged_sections', { count: unchangedDiffs.length })}
                   </p>
                   {unchangedDiffs.map(d => (
                     <p key={d.sectionId} className="text-[13px] text-slate-500" data-diff-section={d.sectionId}>
@@ -561,9 +564,9 @@ export function DiffView() {
             className="flex h-10 flex-none items-center overflow-hidden truncate whitespace-nowrap border-t border-slate-200 px-5 text-xs text-slate-500"
             style={{ backgroundColor: '#F8FAFC' }}
           >
-            Diff: {fromVersion} → {toVersion}
-            {fromRecord && !comparing && ` · ${changedDiffs.length} section${changedDiffs.length === 1 ? '' : 's'} changed`}
-            {toRecord && <span title={fmtUtc(toRecord.createdAt)}>&nbsp;· {toVersion} created by {toAuthor} · {fmtLocal(toRecord.createdAt)}</span>}
+            {t('page.diff_view.provenance_prefix', { from: fromVersion, to: toVersion })}
+            {fromRecord && !comparing && t('page.diff_view.provenance_sections_changed', { count: changedDiffs.length })}
+            {toRecord && <span title={fmtUtc(toRecord.createdAt)}>&nbsp;{t('page.diff_view.provenance_version_created', { version: toVersion, author: toAuthor, time: fmtLocal(toRecord.createdAt) })}</span>}
           </div>
         </div>
 
@@ -575,13 +578,13 @@ export function DiffView() {
                 <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="#2563EB" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                   <path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" /><polyline points="2.5,2.5 2.5,5.5 5.5,5.5" />
                 </svg>
-                <h2 className="text-[14px] font-bold text-slate-900">Restore sections</h2>
+                <h2 className="text-[14px] font-bold text-slate-900">{t('page.diff_view.restore_sections_title')}</h2>
               </div>
               <button
                 type="button"
                 onClick={cancelRestore}
                 disabled={restoring}
-                aria-label="Close and clear the selection"
+                aria-label={t('page.diff_view.close_and_clear_selection')}
                 className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
               >
                 <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><line x1="3" y1="3" x2="9" y2="9" /><line x1="9" y1="3" x2="3" y2="9" /></svg>
@@ -591,7 +594,7 @@ export function DiffView() {
             <div className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-4">
               <div>
                 <p className="mb-2 text-[12px] font-semibold text-slate-700">
-                  {selectedHere.length} section{selectedHere.length === 1 ? '' : 's'} selected · from {fromVersion}
+                  {t('page.diff_view.selected_sections', { count: selectedHere.length, version: fromVersion })}
                 </p>
                 <ul className="flex flex-col gap-1.5" data-restore-list>
                   {selectedHere.map(id => {
@@ -603,15 +606,15 @@ export function DiffView() {
                             {sectionLabel(d?.number ?? id)} {d?.title ?? ''}
                           </p>
                           <p className="mt-0.5 font-mono text-[10px] text-slate-500">
-                            {d?.kind === 'removed' ? `removed in ${toVersion} — will be brought back` : `+${d?.added ?? 0} / −${d?.removed ?? 0} words will be undone`}
+                            {d?.kind === 'removed' ? t('page.diff_view.removed_will_be_restored', { version: toVersion }) : t('page.diff_view.words_will_be_undone', { added: d?.added ?? 0, removed: d?.removed ?? 0 })}
                           </p>
                         </div>
                         <button
                           type="button"
                           onClick={() => toggleSectionForRestore(id)}
                           disabled={restoring}
-                          aria-label={`Remove ${sectionLabel(d?.number ?? id)} from the restore`}
-                          title="Remove from the restore"
+                          aria-label={t('page.diff_view.remove_from_restore_aria', { section: sectionLabel(d?.number ?? id) })}
+                          title={t('page.diff_view.remove_from_restore_title')}
                           className="flex-none rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-50"
                         >
                           <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><line x1="3" y1="3" x2="9" y2="9" /><line x1="9" y1="3" x2="3" y2="9" /></svg>
@@ -624,13 +627,13 @@ export function DiffView() {
 
               <div className="flex flex-col gap-1.5">
                 <label htmlFor="restore-reason" className="text-[12px] font-semibold text-slate-700">
-                  Reason <span className="text-red-600" aria-hidden="true">*</span>
+                  {t('page.diff_view.reason_label')} <span className="text-red-600" aria-hidden="true">*</span>
                 </label>
                 <textarea
                   id="restore-reason"
                   value={reason}
                   onChange={e => setReason(e.target.value)}
-                  placeholder="Why are you restoring these sections?"
+                  placeholder={t('page.diff_view.reason_placeholder')}
                   rows={3}
                   required
                   aria-required="true"
@@ -641,17 +644,17 @@ export function DiffView() {
 
               {restoreMut.isError ? (
                 <p className="text-[12px] font-semibold text-red-700" data-restore-note>
-                  Could not start the restore: {(restoreMut.error as { body?: { message?: string; error?: string } } | null)?.body?.message ?? (restoreMut.error as { body?: { error?: string } } | null)?.body?.error ?? (restoreMut.error as Error | null)?.message ?? 'unknown error'}
+                  {t('page.diff_view.restore_error_prefix', { reason: (restoreMut.error as { body?: { message?: string; error?: string } } | null)?.body?.message ?? (restoreMut.error as { body?: { error?: string } } | null)?.body?.error ?? (restoreMut.error as Error | null)?.message ?? t('page.diff_view.restore_error_unknown') })}
                 </p>
               ) : restoreWait?.timedOut ? (
                 <p className="text-[12px] font-semibold text-amber-700" data-restore-note>
-                  The restore is queued, but {nextVersionLabel} hasn't been created yet — the background worker may not be running. It will appear in the version list once the worker processes it.
+                  {t('page.diff_view.restore_timed_out', { nextVersion: nextVersionLabel })}
                 </p>
               ) : (
                 <p className="text-[11px] leading-relaxed text-slate-500" data-restore-note>
                   {restoring
-                    ? `Restore queued — waiting for ${nextVersionLabel} to be created…`
-                    : `A new ${nextVersionLabel} will be created with these sections as they were in ${fromVersion}. ${fromVersion} and ${toVersion} remain permanently in version history.`}
+                    ? t('page.diff_view.restore_waiting', { nextVersion: nextVersionLabel })
+                    : t('page.diff_view.restore_summary', { nextVersion: nextVersionLabel, from: fromVersion, to: toVersion })}
                 </p>
               )}
             </div>
@@ -663,17 +666,17 @@ export function DiffView() {
                 disabled={restoring}
                 className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-100 transition-colors disabled:opacity-50"
               >
-                Cancel
+                {t('page.diff_view.cancel')}
               </button>
               <button
                 type="button"
                 onClick={() => restoreMut.mutate()}
                 disabled={!canSubmit}
-                title={!reason.trim() ? 'Enter a reason for the restore first' : undefined}
+                title={!reason.trim() ? t('page.diff_view.enter_reason_first') : undefined}
                 className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                 data-restore-submit
               >
-                {restoring ? `Creating ${nextVersionLabel}…` : `Create ${nextVersionLabel} →`}
+                {restoring ? t('page.diff_view.creating_version', { nextVersion: nextVersionLabel }) : t('page.diff_view.create_version_arrow', { nextVersion: nextVersionLabel })}
               </button>
             </div>
           </div>

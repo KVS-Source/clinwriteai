@@ -5,6 +5,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { keepPreviousData, useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import {
   documentsApi,
   type SourceDocSort,
@@ -18,15 +19,15 @@ import { SourceDetailPanel } from './SourceDetailPanel'
 const PAGE_SIZES = [10, 25, 50, 100] as const
 type SortKey = SourceDocSort
 
-const STATE_STYLE: Record<SourceDocState, { label: string; bg: string; fg: string; hint: string }> = {
-  saved:    { label: 'Saved',    bg: '#F0FDF4', fg: '#166534', hint: 'Saved to the project source library' },
-  rejected: { label: 'Rejected', bg: '#FEF2F2', fg: '#B91C1C', hint: 'Rejected' },
+const STATE_STYLE_KEY: Record<SourceDocState, { labelKey: string; bg: string; fg: string; hintKey: string }> = {
+  saved:    { labelKey: 'state_saved',    bg: '#F0FDF4', fg: '#166534', hintKey: 'state_saved_hint' },
+  rejected: { labelKey: 'state_rejected', bg: '#FEF2F2', fg: '#B91C1C', hintKey: 'state_rejected_hint' },
 }
 
-const SCAN_STYLE: Record<string, { label: string; fg: string }> = {
-  passed:  { label: 'Passed',  fg: '#166534' },
-  pending: { label: 'Pending', fg: '#B45309' },
-  failed:  { label: 'Failed',  fg: '#B91C1C' },
+const SCAN_STYLE_KEY: Record<string, { labelKey: string; fg: string }> = {
+  passed:  { labelKey: 'scan_passed',  fg: '#166534' },
+  pending: { labelKey: 'scan_pending', fg: '#B45309' },
+  failed:  { labelKey: 'scan_failed',  fg: '#B91C1C' },
 }
 
 function formatUploaded(iso: string): string {
@@ -60,6 +61,7 @@ interface Props {
 }
 
 export function SourceDocumentsTab({ projectId, onUpload }: Props) {
+  const { t } = useTranslation()
   const navigate = useNavigate()
   const [search, setSearch] = useState('')
   const [q, setQ] = useState('')                     // debounced value actually sent
@@ -94,15 +96,15 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
       const body = e instanceof ApiError ? (e.body as { error?: string; message?: string } | null) : null
       if (body?.error === 'file_missing') {
         setMissingIds(prev => new Set(prev).add(r.id))
-        setNotice(`"${r.fileName}" is listed here but its file is no longer in storage. Upload it again to restore it.`)
+        setNotice(t('page.source_documents_tab.download_file_missing', { fileName: r.fileName }))
       } else if (body?.error === 'storage_unavailable') {
-        setNotice(body.message ?? 'The file storage could not be reached. Please try again shortly.')
+        setNotice(body.message ?? t('page.source_documents_tab.download_storage_unavailable'))
       } else if (body?.error === 'quarantined') {
-        setNotice(body.message ?? `"${r.fileName}" failed the virus scan and cannot be downloaded.`)
+        setNotice(body.message ?? t('page.source_documents_tab.download_quarantined', { fileName: r.fileName }))
       } else if (e instanceof ApiError && (e.status === 401 || e.status === 403)) {
-        setNotice('You do not have permission to download this file.')
+        setNotice(t('page.source_documents_tab.download_forbidden'))
       } else {
-        setNotice(`Could not download "${r.fileName}". Please try again.`)
+        setNotice(t('page.source_documents_tab.download_generic', { fileName: r.fileName }))
       }
     } finally {
       setBusyId(null)
@@ -154,17 +156,17 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
     <div className="flex min-w-0 flex-1 flex-col gap-4" data-screen="source-documents">
       {/* Header — the file count is already on the tab label and the pager */}
       <div>
-        <h2 className="text-[18px] font-bold text-slate-900">Source documents</h2>
+        <h2 className="text-[18px] font-bold text-slate-900">{t('page.source_documents_tab.heading')}</h2>
         <p className="mt-1 max-w-[640px] text-[13px] text-slate-500">
-          Evidence for this project — protocols, SAPs, TLF outputs, lab exports and files from other systems.
-          <span className="text-slate-400"> Pick them under "Based on source documents" when you create a document.</span>
+          {t('page.source_documents_tab.description')}
+          <span className="text-slate-400">{t('page.source_documents_tab.description_extra')}</span>
         </p>
       </div>
 
       {notice && (
         <div className="flex items-start justify-between gap-3 rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-[13px] text-amber-900" role="alert" data-download-notice>
           <span>{notice}</span>
-          <button type="button" onClick={() => setNotice(null)} className="flex-none font-semibold underline" aria-label="Dismiss">Dismiss</button>
+          <button type="button" onClick={() => setNotice(null)} className="flex-none font-semibold underline" aria-label={t('page.source_documents_tab.dismiss_aria')}>{t('page.source_documents_tab.dismiss_text')}</button>
         </div>
       )}
 
@@ -174,13 +176,13 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
           <select
             value={state}
             onChange={e => { setState(e.currentTarget.value as SourceDocState | 'all'); setPage(1) }}
-            aria-label="Filter by state"
+            aria-label={t('page.source_documents_tab.filter_state_aria')}
             data-filter="state"
             className="h-9 rounded-md border border-slate-200 bg-white px-3 text-[13px] text-slate-900"
           >
-            <option value="all">All states</option>
-            <option value="saved">Saved</option>
-            <option value="rejected">Rejected</option>
+            <option value="all">{t('page.source_documents_tab.all_states')}</option>
+            <option value="saved">{t('page.source_documents_tab.state_saved')}</option>
+            <option value="rejected">{t('page.source_documents_tab.state_rejected')}</option>
           </select>
           <div className="flex min-w-[240px] max-w-[460px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-slate-50 px-3 py-2">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#94A3B8" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3.5 3.5" strokeLinecap="round" /></svg>
@@ -188,8 +190,8 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
               type="text"
               value={search}
               onChange={e => setSearch(e.currentTarget.value)}
-              placeholder="Search"
-              aria-label="Search source documents"
+              placeholder={t('page.source_documents_tab.search_placeholder')}
+              aria-label={t('page.source_documents_tab.search_aria')}
               data-filter="search"
               className="w-full border-none bg-transparent text-[13px] text-slate-900 outline-none placeholder:text-slate-400"
             />
@@ -197,7 +199,7 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
           <div className="flex-1" />
           {filtersDirty && (
             <button type="button" onClick={clearFilters} className="text-[12px] font-semibold text-slate-600 hover:text-slate-900" data-action="clear-filters">
-              ✕ Clear filters
+              {t('page.source_documents_tab.clear_filters')}
             </button>
           )}
         </div>
@@ -207,13 +209,13 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
           <table className="w-full min-w-[820px] text-[13px]" style={{ opacity: isFetching && !isLoading ? 0.7 : 1 }}>
             <thead style={{ backgroundColor: '#F8FAFC' }}>
               <tr className="border-b border-slate-200">
-                {th('Title', 'title')}
-                {th('Category', 'category')}
-                {th('State', 'state')}
-                {th('Scan', 'scan')}
-                {th('Used in', 'usedIn')}
-                {th('Uploaded', 'uploaded')}
-                {th('Quick actions', undefined, 'w-[1%] whitespace-nowrap text-right')}
+                {th(t('page.source_documents_tab.col_title'), 'title')}
+                {th(t('page.source_documents_tab.col_category'), 'category')}
+                {th(t('page.source_documents_tab.col_state'), 'state')}
+                {th(t('page.source_documents_tab.col_scan'), 'scan')}
+                {th(t('page.source_documents_tab.col_used_in'), 'usedIn')}
+                {th(t('page.source_documents_tab.col_uploaded'), 'uploaded')}
+                {th(t('page.source_documents_tab.col_quick_actions'), undefined, 'w-[1%] whitespace-nowrap text-right')}
               </tr>
             </thead>
             <tbody>
@@ -230,26 +232,26 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
                 />
               ))}
               {isLoading && (
-                <tr><td colSpan={7} className="px-5 py-10 text-center text-[13px] text-slate-400">Loading source documents…</td></tr>
+                <tr><td colSpan={7} className="px-5 py-10 text-center text-[13px] text-slate-400">{t('page.source_documents_tab.loading')}</td></tr>
               )}
               {isError && !isLoading && (
                 <tr><td colSpan={7} className="px-5 py-10 text-center text-[13px] text-red-700" role="alert">
-                  Could not load source documents.{' '}
-                  <button type="button" onClick={() => void refetch()} className="font-semibold underline">Retry</button>
+                  {t('page.source_documents_tab.load_failed_prefix')}{' '}
+                  <button type="button" onClick={() => void refetch()} className="font-semibold underline">{t('page.source_documents_tab.retry')}</button>
                 </td></tr>
               )}
               {!isLoading && !isError && items.length === 0 && (
                 <tr><td colSpan={7} className="px-5 py-12 text-center" data-empty>
                   {summary.files === 0 ? (
                     <>
-                      <p className="text-[14px] font-semibold text-slate-900">No source documents yet</p>
-                      <p className="mt-1 text-[13px] text-slate-500">Upload a protocol, SAP, listing or export and it will be kept here for the whole project.</p>
-                      <button type="button" onClick={onUpload} className="mt-3 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700">Upload source document</button>
+                      <p className="text-[14px] font-semibold text-slate-900">{t('page.source_documents_tab.empty_title')}</p>
+                      <p className="mt-1 text-[13px] text-slate-500">{t('page.source_documents_tab.empty_hint')}</p>
+                      <button type="button" onClick={onUpload} className="mt-3 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700">{t('page.source_documents_tab.upload_button')}</button>
                     </>
                   ) : (
                     <>
-                      <p className="text-[14px] font-semibold text-slate-900">No source documents match these filters</p>
-                      <button type="button" onClick={clearFilters} className="mt-2 text-[13px] font-semibold text-blue-600 hover:text-blue-700">Clear filters</button>
+                      <p className="text-[14px] font-semibold text-slate-900">{t('page.source_documents_tab.empty_filtered_title')}</p>
+                      <button type="button" onClick={clearFilters} className="mt-2 text-[13px] font-semibold text-blue-600 hover:text-blue-700">{t('page.source_documents_tab.clear_filters_link')}</button>
                     </>
                   )}
                 </td></tr>
@@ -263,17 +265,17 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
           <select
             value={pageSize}
             onChange={e => { setPageSize(Number(e.currentTarget.value)); setPage(1) }}
-            aria-label="Rows per page"
+            aria-label={t('page.source_documents_tab.rows_per_page_aria')}
             className="h-8 rounded-md border border-slate-200 bg-white px-2 text-[12px] text-slate-700"
           >
             {PAGE_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
           </select>
           <div className="flex items-center gap-3 text-[12px] text-slate-500">
-            <span data-pager-status>Page {Math.min(page, pageCount)} of {pageCount} · {total} {total === 1 ? 'file' : 'files'}</span>
+            <span data-pager-status>{t('page.source_documents_tab.pager_status', { count: total, page: Math.min(page, pageCount), pageCount, total })}</span>
             <button type="button" disabled={page <= 1} onClick={() => setPage(p => Math.max(1, p - 1))}
-              className="rounded-md border border-slate-200 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">Previous</button>
+              className="rounded-md border border-slate-200 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">{t('page.source_documents_tab.previous')}</button>
             <button type="button" disabled={page >= pageCount} onClick={() => setPage(p => p + 1)}
-              className="rounded-md border border-slate-200 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">Next</button>
+              className="rounded-md border border-slate-200 px-3 py-1.5 font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">{t('page.source_documents_tab.next')}</button>
           </div>
         </div>
       </div>
@@ -297,6 +299,7 @@ function RowMenu({ label, canDownload, downloadHint, busy, onDownload }: {
   busy: boolean
   onDownload: () => void
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
   const btn = useRef<HTMLButtonElement>(null)
@@ -347,14 +350,14 @@ function RowMenu({ label, canDownload, downloadHint, busy, onDownload }: {
       {text}
     </button>
   )
-  const soon = <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
+  const soon = <span className="ml-1 text-[9px] uppercase text-slate-400">{t('page.source_documents_tab.soon')}</span>
 
   return (
     <div className="relative">
       <button
         ref={btn}
         type="button"
-        aria-label={`More actions for ${label}`}
+        aria-label={t('page.source_documents_tab.more_actions_aria', { label })}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(o => !o)}
@@ -373,10 +376,10 @@ function RowMenu({ label, canDownload, downloadHint, busy, onDownload }: {
           className="fixed z-50 w-56 rounded-md border border-slate-200 bg-white py-1 text-left shadow-lg"
           style={{ top: pos?.top ?? -9999, right: pos?.right ?? 0, visibility: pos ? 'visible' : 'hidden' }}
         >
-          {item(busy ? 'Downloading…' : 'Download', { onClick: onDownload, disabled: !canDownload, title: downloadHint, action: 'download' })}
+          {item(busy ? t('page.source_documents_tab.downloading') : t('page.source_documents_tab.download'), { onClick: onDownload, disabled: !canDownload, title: downloadHint, action: 'download' })}
           <div className="my-1 border-t border-slate-100" />
-          {item(<>Archive {soon}</>, { disabled: true, title: 'Archive endpoint pending (Phase 2).' })}
-          {item(<>Delete {soon}</>, { disabled: true, danger: true, title: 'Delete endpoint pending (Phase 2); admin-only.' })}
+          {item(<>{t('page.source_documents_tab.archive')} {soon}</>, { disabled: true, title: t('page.source_documents_tab.archive_tooltip') })}
+          {item(<>{t('page.source_documents_tab.delete')} {soon}</>, { disabled: true, danger: true, title: t('page.source_documents_tab.delete_tooltip') })}
         </div>
       )}
     </div>
@@ -384,8 +387,11 @@ function RowMenu({ label, canDownload, downloadHint, busy, onDownload }: {
 }
 
 function Row({ r, busy, missing, selected, onSelect, onDownload, onOpenDoc }: { r: SourceDocument; busy: boolean; missing: boolean; selected: boolean; onSelect: () => void; onDownload: () => void; onOpenDoc: (documentId: string) => void }) {
-  const st = STATE_STYLE[r.state]
-  const scan = SCAN_STYLE[r.virusScanStatus] ?? { label: r.virusScanStatus, fg: '#475569' }
+  const { t } = useTranslation()
+  const stMeta = STATE_STYLE_KEY[r.state]
+  const scanMeta = SCAN_STYLE_KEY[r.virusScanStatus]
+  const scanLabel = scanMeta ? t(`page.source_documents_tab.${scanMeta.labelKey}`) : r.virusScanStatus
+  const scanColor = scanMeta?.fg ?? '#475569'
   const blocked = r.virusScanStatus === 'failed'
   const who = r.uploadedBy.name ?? r.uploadedBy.email ?? r.uploadedBy.id
   return (
@@ -403,20 +409,20 @@ function Row({ r, busy, missing, selected, onSelect, onDownload, onOpenDoc }: { 
       <td className="px-4 py-3 align-top">
         <span className="text-slate-700">{sourceCategoryLabel(r.category)}</span>
         {r.categorySource === 'detected' && (
-          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400" title="Guessed from the file name">auto</span>
+          <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400" title={t('page.source_documents_tab.auto_tooltip')}>{t('page.source_documents_tab.auto_badge')}</span>
         )}
       </td>
-      <td className="px-4 py-3 align-top"><Pill bg={st.bg} fg={st.fg} title={st.hint}>{st.label}</Pill></td>
-      <td className="px-4 py-3 align-top"><span className="text-[12px] font-semibold" style={{ color: scan.fg }}>{scan.label}</span></td>
+      <td className="px-4 py-3 align-top"><Pill bg={stMeta.bg} fg={stMeta.fg} title={t(`page.source_documents_tab.${stMeta.hintKey}`)}>{t(`page.source_documents_tab.${stMeta.labelKey}`)}</Pill></td>
+      <td className="px-4 py-3 align-top"><span className="text-[12px] font-semibold" style={{ color: scanColor }}>{scanLabel}</span></td>
       <td className="max-w-[220px] px-4 py-3 align-top" data-used-in>
-        {r.usedIn.length === 0 ? <span className="text-slate-400">—</span> : (
+        {r.usedIn.length === 0 ? <span className="text-slate-400">{t('page.source_documents_tab.em_dash')}</span> : (
           <div className="flex flex-col gap-0.5">
             {r.usedIn.slice(0, 2).map(d => (
               <button key={d.id} type="button" onClick={e => { e.stopPropagation(); onOpenDoc(d.id) }} className="truncate text-left text-[13px] font-semibold text-blue-600 hover:text-blue-700 hover:underline" title={d.title}>
                 {d.title}
               </button>
             ))}
-            {r.usedIn.length > 2 && <span className="text-[11px] text-slate-500">+{r.usedIn.length - 2} more</span>}
+            {r.usedIn.length > 2 && <span className="text-[11px] text-slate-500">{t('page.source_documents_tab.more_count', { count: r.usedIn.length - 2 })}</span>}
           </div>
         )}
       </td>
@@ -427,21 +433,21 @@ function Row({ r, busy, missing, selected, onSelect, onDownload, onOpenDoc }: { 
       {/* Quick actions — "Open" + "⋯" menu */}
       <td className="px-4 py-3 align-top">
         <div className="flex items-center justify-end gap-2" data-quick-actions onClick={e => e.stopPropagation()}>
-          {blocked && <span className="text-[11px] font-semibold text-red-700" title="Failed the virus scan">Blocked</span>}
-          {!blocked && missing && <span className="text-[11px] font-semibold text-amber-700" title="The stored file could not be found">File missing</span>}
+          {blocked && <span className="text-[11px] font-semibold text-red-700" title={t('page.source_documents_tab.blocked_tooltip')}>{t('page.source_documents_tab.blocked_label')}</span>}
+          {!blocked && missing && <span className="text-[11px] font-semibold text-amber-700" title={t('page.source_documents_tab.missing_tooltip')}>{t('page.source_documents_tab.missing_label')}</span>}
           <button
             type="button"
             onClick={onSelect}
-            title="Open the details panel for this source"
+            title={t('page.source_documents_tab.open_tooltip')}
             className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-900 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:text-slate-400 disabled:hover:bg-white"
             data-action="open-source-row"
           >
-            Open
+            {t('page.source_documents_tab.open_label')}
           </button>
           <RowMenu
             label={r.fileName}
             canDownload={!blocked && !missing && !busy}
-            downloadHint={blocked ? 'Failed the virus scan — cannot be downloaded.' : missing ? 'The stored file could not be found.' : undefined}
+            downloadHint={blocked ? t('page.source_documents_tab.download_blocked_tooltip') : missing ? t('page.source_documents_tab.download_missing_tooltip') : undefined}
             busy={busy}
             onDownload={onDownload}
           />

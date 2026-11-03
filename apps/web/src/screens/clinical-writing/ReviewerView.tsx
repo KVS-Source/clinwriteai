@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { CommentSeverity } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { MyRaciRole } from './MyRaciRole'
@@ -34,7 +36,7 @@ const NEUTRAL_AVATAR = { bg: '#DBEAFE', fg: '#1D4ED8' }
 // for review; null when none was set. The date is a calendar day stored as UTC
 // midnight, so it's shown in UTC (no off-by-one west of Greenwich) and counted
 // against today's local calendar day.
-function reviewDueLabel(reviewDueAt: string | null | undefined): string | null {
+function reviewDueLabel(reviewDueAt: string | null | undefined, t: TFunction): string | null {
   if (!reviewDueAt) return null
   const due = new Date(reviewDueAt)
   if (Number.isNaN(due.getTime())) return null
@@ -44,21 +46,20 @@ function reviewDueLabel(reviewDueAt: string | null | undefined): string | null {
     (Date.UTC(due.getUTCFullYear(), due.getUTCMonth(), due.getUTCDate()) - Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())) / 86_400_000,
   )
   const remaining =
-    days > 1   ? `${days} days remaining` :
-    days === 1 ? '1 day remaining' :
-    days === 0 ? 'due today' :
-    days === -1 ? '1 day overdue' :
-                 `${-days} days overdue`
-  return `Review due ${dateLabel} · ${remaining}`
+    days > 0  ? t('page.reviewer_view.review_due_days_remaining', { count: days }) :
+    days === 0 ? t('page.reviewer_view.review_due_today') :
+                 t('page.reviewer_view.review_due_days_overdue', { count: -days })
+  return t('page.reviewer_view.review_due_label', { date: dateLabel, remaining })
 }
 
-const PANEL_TITLES: Record<string, string> = {
-  comments:  'Comments',
-  checklist: 'Checklist',
-  audit:     'Audit Trail',
+const PANEL_TITLE_KEY: Record<string, string> = {
+  comments:  'panel_comments',
+  checklist: 'panel_checklist',
+  audit:     'panel_audit',
 }
 
 export function ReviewerView() {
+  const { t } = useTranslation()
   const { projectId, documentId } = useParams()
   const navigate                  = useNavigate()
   const qc                        = useQueryClient()
@@ -162,7 +163,7 @@ export function ReviewerView() {
   // Who is acting — the same identity the server records the comment under.
   const { data: me } = useCurrentUser()
   const reviewer = {
-    name:     me?.name ?? '…',
+    name:     me?.name ?? t('page.comments_dashboard.project_fallback'),
     initials: me?.initials ?? '',
     role:     me ? (PLATFORM_USER_ROLE_LABEL[me.role as PlatformUserRole] ?? me.role) : '',
   }
@@ -187,15 +188,17 @@ export function ReviewerView() {
   const hasSections       = (document?.sections.length ?? 0) > 0
   const activeRef         = activeSectionData ? withSectionMark(activeSectionData.number) : null
   // Footer provenance counts come from the API; without a section there is nothing to count.
-  const spanCount = (n: number, label: string) => `${n} ${label} span${n === 1 ? '' : 's'}`
   const provenanceText = activeSectionData
-    ? ` · ${spanCount(activeSectionData.aiSpanCount ?? 0, 'AI-drafted')} · ${spanCount(activeSectionData.humanSpanCount ?? 0, 'human-authored')}`
+    ? t('page.reviewer_view.provenance_suffix', {
+        aiSpans: t('page.reviewer_view.ai_span_count', { count: activeSectionData.aiSpanCount ?? 0 }),
+        humanSpans: t('page.reviewer_view.human_span_count', { count: activeSectionData.humanSpanCount ?? 0 }),
+      })
     : ''
   const alreadyApproved   = !!me && !!activeRef && commentList.some(
     c => c.verdict === 'approve' && c.reviewerId === me.id && c.sectionRef === activeRef,
   )
-  const verdictBlockedReason = !hasSections ? 'This document has no sections yet'
-                             : !activeSectionData ? 'Select a section to review'
+  const verdictBlockedReason = !hasSections ? t('page.reviewer_view.verdict_no_sections')
+                             : !activeSectionData ? t('page.reviewer_view.verdict_select_section')
                              : null
   // Returned for revision (by any reviewer) and not saved by the writer since:
   // it can't be approved until it comes back revised. The API enforces the same rule.
@@ -207,7 +210,7 @@ export function ReviewerView() {
   const awaitingRevision = !!lastReturn
     && !(activeSectionData?.lastEditedAt && new Date(activeSectionData.lastEditedAt) > new Date(lastReturn))
   const approveBlockedReason = verdictBlockedReason
-    ?? (awaitingRevision ? `${activeRef} was returned for revision — it can be approved once the writer has revised it` : null)
+    ?? (awaitingRevision ? t('page.reviewer_view.awaiting_revision_reason', { section: activeRef }) : null)
 
   // Read-only render of the active section's real content (same TipTap schema
   // as the editor, so only known formatting is rendered).
@@ -244,7 +247,7 @@ export function ReviewerView() {
   // picks up `reviewer_approve` / `reviewer_request_changes` /
   // `reviewer_block_approval` based on the verdict field.
   const sectionRefFor = (sid: string | null) => {
-    if (!sid) return '§?'
+    if (!sid) return t('page.reviewer_view.fallback_section_mark')
     const s = document?.sections.find(x => x.id === sid)
     return s ? withSectionMark(s.number) : `§${sid.replace('s', '').replace('_', '.')}`
   }
@@ -257,7 +260,7 @@ export function ReviewerView() {
       verdict:    'approve',
     }),
     onSuccess: () => {
-      setApproveNote(`Section approved: ${sectionRefFor(activeSection)}`)
+      setApproveNote(t('page.reviewer_view.section_approved_toast', { section: sectionRefFor(activeSection) }))
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
       qc.invalidateQueries({ queryKey: ['project-comments'] })
     },
@@ -271,7 +274,7 @@ export function ReviewerView() {
       verdict:    'request_changes',
     }),
     onSuccess: () => {
-      setApproveNote(`Section returned for revision: ${sectionRefFor(activeSection)}`)
+      setApproveNote(t('page.reviewer_view.section_returned_toast', { section: sectionRefFor(activeSection) }))
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
       qc.invalidateQueries({ queryKey: ['project-comments'] })
     },
@@ -309,10 +312,10 @@ export function ReviewerView() {
   }
 
   if (!document) {
-    return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">Loading document…</p></div>
+    return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">{t('page.reviewer_view.loading_document')}</p></div>
   }
 
-  const panelTitle = activePanel && activePanel in PANEL_TITLES ? PANEL_TITLES[activePanel] : ''
+  const panelTitle = activePanel && activePanel in PANEL_TITLE_KEY ? t(`page.reviewer_view.${PANEL_TITLE_KEY[activePanel]}`) : ''
   // The Audit Trail panel is laid out like the editor's: beside the content, with an icon in
   // its header and no expand button. Comments and Checklist stay as overlays.
   const splitPanel = activePanel === 'audit'
@@ -348,8 +351,8 @@ export function ReviewerView() {
 
           {/* Right cluster */}
           <div className="flex flex-none items-center gap-3.5">
-            {reviewDueLabel(document.reviewDueAt) && (
-              <p className="whitespace-nowrap text-xs text-slate-500" data-review-due>{reviewDueLabel(document.reviewDueAt)}</p>
+            {reviewDueLabel(document.reviewDueAt, t) && (
+              <p className="whitespace-nowrap text-xs text-slate-500" data-review-due>{reviewDueLabel(document.reviewDueAt, t)}</p>
             )}
 
             {/* Presence stack — live, same as the Editor (FR-A-053 / AC-A-037). */}
@@ -359,12 +362,12 @@ export function ReviewerView() {
               type="button"
               onClick={handleApproveSection}
               disabled={approveMut.isPending || !!approveBlockedReason || alreadyApproved}
-              title={approveBlockedReason ?? (alreadyApproved ? `You have already approved ${activeRef}` : undefined)}
+              title={approveBlockedReason ?? (alreadyApproved ? t('page.reviewer_view.already_approved', { section: activeRef }) : undefined)}
               data-action="approve-section"
               className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
               style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}
             >
-              {approveMut.isPending ? 'Approving…' : alreadyApproved ? '✓ Approved by you' : awaitingRevision ? 'Awaiting revision' : 'Approve section'}
+              {approveMut.isPending ? t('page.reviewer_view.approving') : alreadyApproved ? t('page.reviewer_view.approved_by_you') : awaitingRevision ? t('page.reviewer_view.awaiting_revision') : t('page.reviewer_view.approve_section')}
             </button>
             <button
               type="button"
@@ -375,7 +378,7 @@ export function ReviewerView() {
               className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
             >
-              {requestChangesMut.isPending ? 'Returning…' : 'Return for revision'}
+              {requestChangesMut.isPending ? t('page.reviewer_view.returning') : t('page.reviewer_view.return_for_revision')}
             </button>
             {/* Review → Comments Resolution Meeting (PRD stage 5). */}
             {(document.status === 'in-review' || document.status === 'crm-in-progress') && (
@@ -385,7 +388,7 @@ export function ReviewerView() {
                 data-action="open-crm"
                 className="whitespace-nowrap rounded-md border border-blue-200 bg-blue-50 px-3.5 py-2 text-[13px] font-semibold text-blue-700 hover:bg-blue-100"
               >
-                CRM meeting →
+                {t('page.reviewer_view.crm_meeting')}
               </button>
             )}
             {/* Review + CRM done → the owner starts the Part 11 chain (FR-A-066). */}
@@ -396,7 +399,7 @@ export function ReviewerView() {
                 data-action="initiate-signature-chain"
                 className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700"
               >
-                Start signature chain →
+                {t('page.reviewer_view.start_signature_chain')}
               </button>
             )}
           </div>
@@ -410,14 +413,14 @@ export function ReviewerView() {
           className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-blue-200 bg-blue-50 px-6 py-2 text-[13px] text-blue-900"
           data-notice="not-submitted"
         >
-          <span className="font-semibold">This document hasn't been submitted for review yet.</span>
-          <span>It is {statusMeta.label}. Submit it from the Editor to start the review.</span>
+          <span className="font-semibold">{t('page.reviewer_view.not_submitted_heading')}</span>
+          <span>{t('page.reviewer_view.not_submitted_body', { status: statusMeta.label })}</span>
           <button
             type="button"
             onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)}
             className="ml-auto font-semibold underline"
           >
-            Go to Editor →
+            {t('page.reviewer_view.go_to_editor')}
           </button>
         </div>
       )}
@@ -425,23 +428,23 @@ export function ReviewerView() {
       {/* Approve/Return inline notices */}
       {!hasSections && (
         <div className="flex-none border-b border-slate-200 px-6 py-2 text-[12px] text-slate-600" style={{ backgroundColor: '#F8FAFC' }} data-notice="no-sections">
-          This document has no sections yet, so sections can't be approved or returned. Comments can still be added.
+          {t('page.reviewer_view.no_sections_notice')}
         </div>
       )}
       {approveNote && (
         <div className="flex-none border-b border-slate-200 px-6 py-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>
           ✓ {approveNote}
-          <button onClick={() => setApproveNote(null)} className="ml-3 text-xs underline">Dismiss</button>
+          <button onClick={() => setApproveNote(null)} className="ml-3 text-xs underline">{t('page.reviewer_view.dismiss')}</button>
         </div>
       )}
       {approveMut.isError && (
         <div className="flex-none border-b border-red-200 px-6 py-2 text-[12px] text-red-700" style={{ backgroundColor: '#FEE2E2' }}>
-          Could not record approval: {(approveMut.error as { body?: { message?: string } } | null)?.body?.message ?? (approveMut.error as Error | null)?.message ?? 'see console for details.'}
+          {t('page.reviewer_view.approval_err_prefix', { reason: (approveMut.error as { body?: { message?: string } } | null)?.body?.message ?? (approveMut.error as Error | null)?.message ?? t('page.reviewer_view.approval_err_fallback') })}
         </div>
       )}
       {requestChangesMut.isError && (
         <div className="flex-none border-b border-red-200 px-6 py-2 text-[12px] text-red-700" style={{ backgroundColor: '#FEE2E2' }}>
-          Could not post return comment: {(requestChangesMut.error as { body?: { message?: string } } | null)?.body?.message ?? (requestChangesMut.error as Error | null)?.message ?? 'see console for details.'}
+          {t('page.reviewer_view.return_err_prefix', { reason: (requestChangesMut.error as { body?: { message?: string } } | null)?.body?.message ?? (requestChangesMut.error as Error | null)?.message ?? t('page.reviewer_view.approval_err_fallback') })}
         </div>
       )}
       {/* ============ Three-panel row ============ */}
@@ -450,8 +453,8 @@ export function ReviewerView() {
         <SectionNavigator
           sections={document.sections}
           loggedInUser={{ initials: reviewer.initials, colourKey: (reviewer.initials in AVATAR ? reviewer.initials : 'MW') as 'MW' }}
-          activeSectionBadge="IN REVIEW"
-          progressLabelSuffix="reviewed"
+          activeSectionBadge={t('page.reviewer_view.section_review_badge')}
+          progressLabelSuffix={t('page.reviewer_view.progress_label_suffix')}
         />
 
         {/* Editor pane */}
@@ -481,7 +484,7 @@ export function ReviewerView() {
                   </h2>
                   {sectionIsBlank ? (
                     <p className="mt-3 rounded-md border border-dashed border-slate-300 p-4 text-center text-[13px] text-slate-500" data-state="empty-section">
-                      This section has no content yet.
+                      {t('page.reviewer_view.section_empty')}
                     </p>
                   ) : (
                     <div className="mt-3 [&_.tiptap-editor]:min-h-0">
@@ -491,7 +494,7 @@ export function ReviewerView() {
                 </section>
               ) : (
                 <p className="rounded-md border border-dashed border-slate-300 p-4 text-center text-[13px] text-slate-500" data-state="no-sections">
-                  {hasSections ? 'Select a section from the list to review it.' : 'This document has no sections yet.'}
+                  {hasSections ? t('page.reviewer_view.select_section_to_review') : t('page.reviewer_view.no_sections_yet')}
                 </p>
               )}
 
@@ -507,14 +510,14 @@ export function ReviewerView() {
                   <p className="text-[13px] font-bold" data-comment-author>{reviewer.name}</p>
                   <p className="font-mono text-[10px] tracking-wider text-slate-500">{reviewer.role}</p>
                   <div className="flex-1" />
-                  <p className="text-[11px] text-slate-500">Draft</p>
+                  <p className="text-[11px] text-slate-500">{t('page.reviewer_view.draft_label')}</p>
                 </div>
                 <textarea
                   id="reviewer-comment-textarea"
                   rows={3}
                   value={commentText}
                   onChange={e => setCommentText(e.target.value)}
-                  placeholder={`Write a comment for ${commentRef}…`}
+                  placeholder={t('page.reviewer_view.comment_placeholder', { section: commentRef })}
                   className="w-full rounded border p-2.5 text-sm outline-none focus:border-blue-600 focus:shadow-focus"
                   style={{ borderColor: '#E2E8F0', resize: 'vertical' }}
                 />
@@ -522,44 +525,44 @@ export function ReviewerView() {
                     line of vertical space. flex-1 spacer between them pushes
                     Cancel / Post comment to the right edge. */}
                 <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] text-slate-500">Tag to:</span>
+                  <span className="text-[11px] text-slate-500">{t('page.reviewer_view.tag_to')}</span>
                   <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }} data-comment-tag>{commentRef}</span>
-                  <span className="ml-1.5 text-[11px] text-slate-500">Severity:</span>
-                  <SeverityButton value="major"  active={severity === 'major'}  onClick={() => setSeverity('major')}  label="Major"  bg="#FEE2E2" fg="#DC2626" />
-                  <SeverityButton value="minor"  active={severity === 'minor'}  onClick={() => setSeverity('minor')}  label="Minor"  bg="#FFFBEB" fg="#B45309" />
-                  <SeverityButton value="query"  active={severity === 'query'}  onClick={() => setSeverity('query')}  label="Query"  bg="#EFF6FF" fg="#2563EB" />
+                  <span className="ml-1.5 text-[11px] text-slate-500">{t('page.reviewer_view.severity_label')}</span>
+                  <SeverityButton value="major"  active={severity === 'major'}  onClick={() => setSeverity('major')}  label={t('page.reviewer_view.severity_major')}  bg="#FEE2E2" fg="#DC2626" />
+                  <SeverityButton value="minor"  active={severity === 'minor'}  onClick={() => setSeverity('minor')}  label={t('page.reviewer_view.severity_minor')}  bg="#FFFBEB" fg="#B45309" />
+                  <SeverityButton value="query"  active={severity === 'query'}  onClick={() => setSeverity('query')}  label={t('page.reviewer_view.severity_query')}  bg="#EFF6FF" fg="#2563EB" />
                   <div className="flex-1 min-w-[12px]" />
                   <button
                     type="button"
                     onClick={cancelComposer}
                     disabled={addCommentMut.isPending}
                     className="text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
-                  >Cancel</button>
+                  >{t('page.reviewer_view.cancel')}</button>
                   <button
                     type="button"
                     onClick={handlePostComment}
                     disabled={!commentText.trim() || addCommentMut.isPending}
                     className="rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
                   >
-                    {addCommentMut.isPending ? 'Posting…' : 'Post comment'}
+                    {addCommentMut.isPending ? t('page.reviewer_view.posting') : t('page.reviewer_view.post_comment')}
                   </button>
                 </div>
                 {addCommentMut.isError && (
                   <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
                     {(addCommentMut.error as { body?: { message?: string } } | null)?.body?.message
                       ?? (addCommentMut.error as Error | null)?.message
-                      ?? 'Could not post comment — see console for details.'}
+                      ?? t('page.reviewer_view.post_err_fallback')}
                   </div>
                 )}
                 {addCommentMut.isSuccess && !addCommentMut.isPending && (
-                  <p className="text-[11px] font-semibold text-green-700">Comment posted — see Comments panel.</p>
+                  <p className="text-[11px] font-semibold text-green-700">{t('page.reviewer_view.comment_posted_short')}</p>
                 )}
               </div>
               ) : (
                 <>
                 {addCommentMut.isSuccess && (
                   <p className="mt-4 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-[12px] font-semibold text-green-700" role="status" data-comment-posted>
-                    ✓ Comment posted — see the Comments panel.
+                    {t('page.reviewer_view.comment_posted_long')}
                   </p>
                 )}
                 <button
@@ -568,14 +571,14 @@ export function ReviewerView() {
                   className="mt-3 flex w-full items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3.5 py-3 text-left text-[13px] font-semibold text-slate-600 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
                   data-open-composer
                 >
-                  <span aria-hidden="true">＋</span> Add a comment{commentRef ? ` for ${commentRef}` : ''}
+                  {t('page.reviewer_view.add_comment_prompt', { suffix: commentRef ? t('page.reviewer_view.add_comment_prompt_section', { section: commentRef }) : '' })}
                 </button>
                 </>
               )}
 
               {flagged && (
                 <div className="mt-3 rounded border px-3 py-2 text-[12px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}>
-                  ⚑ Section flagged for follow-up
+                  {t('page.reviewer_view.flagged_banner')}
                 </div>
               )}
             </div>
@@ -583,7 +586,7 @@ export function ReviewerView() {
 
           {/* Provenance bar */}
           <div className="flex h-10 flex-none items-center overflow-hidden truncate whitespace-nowrap border-t border-slate-200 px-5 text-xs text-slate-500" style={{ backgroundColor: '#F8FAFC' }}>
-            Section {activeRef ?? '—'}<span data-provenance-counts>{provenanceText}</span> · Reviewing as {reviewer.name}{reviewer.role ? ` · ${reviewer.role}` : ''}
+            Section {activeRef ?? t('page.reviewer_view.dash')}<span data-provenance-counts>{provenanceText}</span> · {t('page.reviewer_toolbar.reviewing_as', { role: `${reviewer.name}${reviewer.role ? ` · ${reviewer.role}` : ''}` })}
           </div>
 
           </div>{/* /Content column */}
@@ -610,8 +613,8 @@ export function ReviewerView() {
               <div
                 role="separator"
                 aria-orientation="vertical"
-                aria-label="Resize panel"
-                title="Drag to resize · double-click to expand"
+                aria-label={t('page.reviewer_view.resize_panel_aria')}
+                title={t('page.reviewer_view.resize_panel_tooltip')}
                 onMouseDown={e => { e.preventDefault(); panel.startDrag() }}
                 onDoubleClick={panel.toggleExpanded}
                 className="absolute inset-y-0 -left-1 z-10 w-2 cursor-ew-resize transition-colors hover:bg-blue-300/60"
@@ -628,7 +631,7 @@ export function ReviewerView() {
                     </svg>
                   </span>
                 )}
-                <h3 className="text-sm font-bold text-slate-900">{panelTitle}{activePanel === 'comments' ? ` (${openCommentCount} open)` : ''}</h3>
+                <h3 className="text-sm font-bold text-slate-900">{activePanel === 'comments' ? t('page.reviewer_view.panel_comments_with_count', { count: openCommentCount }) : panelTitle}</h3>
                 <div className="flex-1" />
                 {/* Expand / shrink — not shown on the Audit Trail, same as the editor's panel
                     (drag the left edge or double-click it to resize instead). */}
@@ -636,8 +639,8 @@ export function ReviewerView() {
                   <button
                     type="button"
                     onClick={panel.toggleExpanded}
-                    aria-label={panel.expanded ? 'Shrink panel' : 'Expand panel'}
-                    title={panel.expanded ? 'Shrink panel' : 'Expand panel'}
+                    aria-label={panel.expanded ? t('page.reviewer_view.shrink_panel') : t('page.reviewer_view.expand_panel')}
+                    title={panel.expanded ? t('page.reviewer_view.shrink_panel') : t('page.reviewer_view.expand_panel')}
                     className="flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
                   >
                     {panel.expanded ? (
@@ -654,7 +657,7 @@ export function ReviewerView() {
                 <button
                   type="button"
                   onClick={() => setActivePanel(null)}
-                  aria-label="Close panel"
+                  aria-label={t('page.reviewer_view.close_panel')}
                   className="flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
                 >
                   ✕

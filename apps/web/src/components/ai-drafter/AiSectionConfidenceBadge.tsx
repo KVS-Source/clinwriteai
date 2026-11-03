@@ -8,24 +8,29 @@
 // Hover reveals the flag codes in the title attribute for now (full
 // drill-down lives in the AI Drafting Report panel — AI-3).
 
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
+
 interface Props {
   confidence: number | null
   flags:      string[]
 }
 
-const FLAG_LABEL: Record<string, string> = {
-  'completeness:too_short': 'Too short',
-  'ai:self_critique':       'Needs revision',
-  'ai:template_mismatch':   'Off-template',
-  'ai:coherence_issue':     'Coherence',
-  'ai:unsupported_claim':   'Unsupported claim',
+const FLAG_KEY: Record<string, string> = {
+  'completeness:too_short': 'flag_too_short',
+  'ai:self_critique':       'flag_needs_revision',
+  'ai:template_mismatch':   'flag_off_template',
+  'ai:coherence_issue':     'flag_coherence',
+  'ai:unsupported_claim':   'flag_unsupported_claim',
 }
 
-function friendlyFlag(code: string): string {
-  return FLAG_LABEL[code] ?? code
+function friendlyFlag(code: string, t: TFunction): string {
+  const key = FLAG_KEY[code]
+  return key ? t(`component.ai_section_confidence_badge.${key}`) : code
 }
 
 export function AiSectionConfidenceBadge({ confidence, flags }: Props) {
+  const { t } = useTranslation()
   // Never evaluated — render nothing (the section may just not be an
   // AI-drafted doc; a solid dot would misleadingly imply "flagged").
   if (confidence === null) return null
@@ -36,8 +41,8 @@ export function AiSectionConfidenceBadge({ confidence, flags }: Props) {
                        { bg: '#FFF1F2', fg: '#BE123C' }
 
   const title = flags.length === 0
-    ? `AI confidence ${confidence}% — no issues flagged`
-    : `AI confidence ${confidence}% — flags: ${flags.map(friendlyFlag).join(', ')}`
+    ? t('component.ai_section_confidence_badge.tooltip_clean', { pct: confidence })
+    : t('component.ai_section_confidence_badge.tooltip_flagged', { pct: confidence, flags: flags.map(f => friendlyFlag(f, t)).join(', ') })
 
   return (
     <span

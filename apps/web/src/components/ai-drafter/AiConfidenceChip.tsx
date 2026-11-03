@@ -2,6 +2,7 @@
 // title + status pill. Shows nothing when the document was never AI-
 // drafted (state is null) so non-AI docs don't carry visual noise.
 
+import { useTranslation } from 'react-i18next'
 import type { AiDraftSummary } from '../../hooks/useAiDraftStatus'
 import type { AiDraftState } from '../../api/ai-drafter'
 
@@ -22,29 +23,32 @@ const TONE_STYLE: Record<NonNullable<AiDraftSummary['tone']>, { bg: string; bord
 
 const IN_FLIGHT_STYLE = { bg: '#EFF6FF', border: '#DBEAFE', fg: '#1D4ED8', dot: '#2563EB' }
 
-const STATE_LABEL: Record<AiDraftState, string> = {
-  pending:    'AI draft queued',
-  drafting:   'AI drafting…',
-  validating: 'AI validating…',
-  complete:   'AI confidence',
-  failed:     'AI draft failed',
+const STATE_KEY: Record<AiDraftState, string> = {
+  pending:    'state_pending',
+  drafting:   'state_drafting',
+  validating: 'state_validating',
+  complete:   'state_complete',
+  failed:     'state_failed',
 }
 
 export function AiConfidenceChip({ state, summary, onClick }: Props) {
+  const { t } = useTranslation()
   // No AI draft ever ran for this doc → no chip at all.
   if (state === null) return null
 
   // Settled 'failed' is its own tone — not green/amber/rose confidence.
   if (state === 'failed') {
     const sty = { bg: '#FFF1F2', border: '#FECDD3', fg: '#BE123C', dot: '#E11D48' }
-    return <ChipShell style={sty} label="AI draft failed" sub="open report" testid="ai-chip-failed" onClick={onClick} />
+    return <ChipShell style={sty} label={t('component.ai_confidence_chip.state_failed')} sub={t('component.ai_confidence_chip.failed_sub')} testid="ai-chip-failed" onClick={onClick} />
   }
 
   // In-flight: show the live pass label.
   if (summary.inFlight) {
     const sty = IN_FLIGHT_STYLE
-    const label = STATE_LABEL[state]
-    const sub = summary.currentPass > 0 ? `pass ${summary.currentPass}` : `${summary.totalSections || 0} sections`
+    const label = t(`component.ai_confidence_chip.${STATE_KEY[state]}`)
+    const sub = summary.currentPass > 0
+      ? t('component.ai_confidence_chip.in_flight_pass_sub', { number: summary.currentPass })
+      : t('component.ai_confidence_chip.in_flight_sections_sub', { count: summary.totalSections || 0 })
     return <ChipShell style={sty} label={label} sub={sub} testid="ai-chip-inflight" spinning onClick={onClick} />
   }
 
@@ -52,12 +56,12 @@ export function AiConfidenceChip({ state, summary, onClick }: Props) {
   if (!summary.hasConfidence || !summary.tone) return null
   const sty = TONE_STYLE[summary.tone]
   const flaggedLabel = summary.flaggedSections === 0
-    ? 'all sections clean'
-    : `${summary.flaggedSections} section${summary.flaggedSections === 1 ? '' : 's'} flagged`
+    ? t('component.ai_confidence_chip.all_sections_clean')
+    : t('component.ai_confidence_chip.sections_flagged', { count: summary.flaggedSections })
   return (
     <ChipShell
       style={sty}
-      label={`${summary.confidence}% AI confidence`}
+      label={t('component.ai_confidence_chip.confidence_label', { pct: summary.confidence })}
       sub={flaggedLabel}
       testid="ai-chip-complete"
       onClick={onClick}
@@ -75,6 +79,7 @@ interface ChipShellProps {
 }
 
 function ChipShell({ style, label, sub, testid, spinning, onClick }: ChipShellProps) {
+  const { t } = useTranslation()
   const body = (
     <>
       {spinning ? (
@@ -100,7 +105,7 @@ function ChipShell({ style, label, sub, testid, spinning, onClick }: ChipShellPr
         className={`${shared} transition-colors hover:brightness-95`}
         style={styleObj}
         data-testid={testid}
-        title={`${label} · ${sub} — open AI Drafting Report`}
+        title={t('component.ai_confidence_chip.tooltip_with_report', { label, sub })}
       >
         {body}
       </button>
@@ -111,7 +116,7 @@ function ChipShell({ style, label, sub, testid, spinning, onClick }: ChipShellPr
       className={shared}
       style={styleObj}
       data-testid={testid}
-      title={`${label} · ${sub}`}
+      title={t('component.ai_confidence_chip.tooltip_plain', { label, sub })}
     >
       {body}
     </span>

@@ -10,6 +10,7 @@
 // deliberately plain so the parent panel can wrap or restyle it.
 
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import {
   assignableUsersApi,
   capabilityForLetter,
@@ -40,6 +41,7 @@ export interface UserPickerProps {
 }
 
 export function UserPicker({ projectId, letter, value, onChange, disabled, heldElsewhere, className }: UserPickerProps) {
+  const { t } = useTranslation()
   const [users, setUsers] = useState<AssignableUser[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [query, setQuery] = useState('')
@@ -58,10 +60,10 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
       })
       .catch((e: unknown) => {
         if (cancelled) return
-        setError(e instanceof Error ? e.message : 'Failed to load users')
+        setError(e instanceof Error ? e.message : t('component.user_picker.failed_to_load'))
       })
     return () => { cancelled = true }
-  }, [projectId])
+  }, [projectId, t])
 
   const filtered = useMemo(() => (users ? filterUsers(users, query) : []), [users, query])
   const searching = query.trim().length >= MIN_SEARCH_CHARS
@@ -82,9 +84,9 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
         type="search"
         value={query}
         onChange={e => setQuery(e.target.value)}
-        placeholder="Search users…"
+        placeholder={t('component.user_picker.search_placeholder')}
         className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
-        aria-label="Filter users"
+        aria-label={t('component.user_picker.filter_users_aria')}
         disabled={disabled}
       />
       {error && (
@@ -93,10 +95,10 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
       {searching && !error && (
       <div className="max-h-72 overflow-y-auto border border-slate-200 rounded-md divide-y divide-slate-100" data-user-results>
         {users === null && (
-          <div className="p-3 text-xs text-slate-500">Loading…</div>
+          <div className="p-3 text-xs text-slate-500">{t('component.user_picker.loading')}</div>
         )}
         {users && filtered.length === 0 && (
-          <div className="p-3 text-xs text-slate-500">No matches.</div>
+          <div className="p-3 text-xs text-slate-500">{t('component.user_picker.no_matches')}</div>
         )}
         {filtered.map(u => {
           const isSelected = selected.has(u.id)
@@ -106,7 +108,7 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
           return (
             <label
               key={u.id}
-              title={otherLetter ? `${u.name} already holds ${otherLetter} on this document — one letter per person.` : undefined}
+              title={otherLetter ? t('component.user_picker.held_elsewhere_tooltip', { name: u.name, letter: otherLetter }) : undefined}
               className={`flex items-center gap-3 px-3 py-2 text-sm cursor-pointer ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'} ${blocked ? 'opacity-60 cursor-not-allowed' : ''}`}
             >
               <input
@@ -126,15 +128,15 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
               {grants && (
                 <span
                   className="shrink-0 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700"
-                  title={`${u.name} doesn't have ${grants} yet — assigning grants it (recorded in the audit log).`}
+                  title={t('component.user_picker.grants_tooltip', { name: u.name, capability: grants })}
                   data-grants-capability
                 >
-                  Grants {grants}
+                  {t('component.user_picker.grants_label', { capability: grants })}
                 </span>
               )}
               {otherLetter && (
                 <span className="shrink-0 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500" data-held-elsewhere>
-                  Already {otherLetter}
+                  {t('component.user_picker.already_held', { letter: otherLetter })}
                 </span>
               )}
               {u.projectRole && (

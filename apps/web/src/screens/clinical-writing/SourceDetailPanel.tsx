@@ -2,6 +2,7 @@
 // documents written from it, and an Open button to view the file.
 
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { SlidePanel } from '../../components/ui'
 import type { SourceDocument } from '../../api/documents'
 import { sourceCategoryLabel } from '../../utils/sourceCategories'
@@ -9,11 +10,11 @@ import { downloadSourceFile, sourceErrorMessage } from '../../utils/openSource'
 import { SourceViewer } from '../../panels/SourceReferencesPanel'
 import { EyeIcon, MetaRow, MetaSection, fmtDateTime, fmtSize } from './detailPanelParts'
 
-const STATE: Record<SourceDocument['state'], { label: string; bg: string; fg: string }> = {
-  saved:    { label: 'Saved',    bg: '#F0FDF4', fg: '#166534' },
-  rejected: { label: 'Rejected', bg: '#FEF2F2', fg: '#B91C1C' },
+const STATE_KEY: Record<SourceDocument['state'], { labelKey: string; bg: string; fg: string }> = {
+  saved:    { labelKey: 'state_saved',    bg: '#F0FDF4', fg: '#166534' },
+  rejected: { labelKey: 'state_rejected', bg: '#FEF2F2', fg: '#B91C1C' },
 }
-const SCAN: Record<string, string> = { passed: 'Passed', pending: 'Pending', failed: 'Failed' }
+const SCAN_KEY: Record<string, string> = { passed: 'scan_passed', pending: 'scan_pending', failed: 'scan_failed' }
 
 interface Props {
   projectId: string
@@ -23,6 +24,7 @@ interface Props {
 }
 
 export function SourceDetailPanel({ projectId, source, onClose, onOpenDoc }: Props) {
+  const { t } = useTranslation()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // true = the file is shown inside the panel (PDF / image) instead of the metadata
@@ -44,8 +46,8 @@ export function SourceDetailPanel({ projectId, source, onClose, onOpenDoc }: Pro
   }
 
   const blocked = source?.virusScanStatus === 'failed'
-  const st = source ? STATE[source.state] : null
-  const ext = source?.fileName.includes('.') ? source.fileName.split('.').pop()!.toUpperCase() : '—'
+  const st = source ? STATE_KEY[source.state] : null
+  const ext = source?.fileName.includes('.') ? source.fileName.split('.').pop()!.toUpperCase() : t('page.detail_panel_parts.em_dash')
 
   return (
     <SlidePanel
@@ -63,7 +65,7 @@ export function SourceDetailPanel({ projectId, source, onClose, onOpenDoc }: Pro
             projectId={projectId}
             source={source}
             page={null}
-            backLabel="← Details"
+            backLabel={t('page.source_detail_panel.back_details')}
             onBack={() => setViewing(false)}
           />
         </div>
@@ -71,36 +73,36 @@ export function SourceDetailPanel({ projectId, source, onClose, onOpenDoc }: Pro
       {source && st && !viewing && (
         <div className="flex min-h-full flex-col" data-panel="source-detail">
           <div className="flex-1">
-            <MetaSection label="Source">
+            <MetaSection label={t('page.source_detail_panel.source')}>
               <span className="inline-flex items-center rounded-full px-3 py-1 font-mono text-[12px] font-semibold" style={{ backgroundColor: st.bg, color: st.fg }}>
-                {st.label}
+                {t(`page.source_detail_panel.${st.labelKey}`)}
               </span>
             </MetaSection>
 
-            <MetaSection label="File">
-              <MetaRow label="Name"><span className="font-mono text-[12px]">{source.fileName}</span></MetaRow>
-              <MetaRow label="Type">{ext}</MetaRow>
-              <MetaRow label="Size">{fmtSize(source.fileSizeBytes)}</MetaRow>
-              <MetaRow label="Virus scan">{SCAN[source.virusScanStatus] ?? source.virusScanStatus}</MetaRow>
+            <MetaSection label={t('page.source_detail_panel.file')}>
+              <MetaRow label={t('page.source_detail_panel.name')}><span className="font-mono text-[12px]">{source.fileName}</span></MetaRow>
+              <MetaRow label={t('page.source_detail_panel.type')}>{ext}</MetaRow>
+              <MetaRow label={t('page.source_detail_panel.size')}>{fmtSize(source.fileSizeBytes)}</MetaRow>
+              <MetaRow label={t('page.source_detail_panel.virus_scan')}>{SCAN_KEY[source.virusScanStatus] ? t(`page.source_detail_panel.${SCAN_KEY[source.virusScanStatus]}`) : source.virusScanStatus}</MetaRow>
             </MetaSection>
 
-            <MetaSection label="Details">
-              <MetaRow label="Category">
+            <MetaSection label={t('page.source_detail_panel.details')}>
+              <MetaRow label={t('page.source_detail_panel.category')}>
                 {sourceCategoryLabel(source.category)}
-                {source.categorySource === 'detected' && <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400" title="Guessed from the file name">auto</span>}
+                {source.categorySource === 'detected' && <span className="ml-1.5 text-[10px] font-semibold uppercase tracking-wider text-slate-400" title={t('page.source_detail_panel.auto_tooltip')}>{t('page.source_detail_panel.auto_badge')}</span>}
               </MetaRow>
-              <MetaRow label="Origin">{source.origin ?? '—'}</MetaRow>
-              <MetaRow label="Version">{source.version ?? '—'}</MetaRow>
+              <MetaRow label={t('page.source_detail_panel.origin')}>{source.origin ?? t('page.detail_panel_parts.em_dash')}</MetaRow>
+              <MetaRow label={t('page.source_detail_panel.version')}>{source.version ?? t('page.detail_panel_parts.em_dash')}</MetaRow>
             </MetaSection>
 
-            <MetaSection label="Chain of custody">
-              <MetaRow label="Uploaded at">{fmtDateTime(source.uploadedAt)}</MetaRow>
-              <MetaRow label="Uploaded by">{source.uploadedBy.name ?? source.uploadedBy.email ?? source.uploadedBy.id}</MetaRow>
+            <MetaSection label={t('page.source_detail_panel.chain_of_custody')}>
+              <MetaRow label={t('page.source_detail_panel.uploaded_at')}>{fmtDateTime(source.uploadedAt)}</MetaRow>
+              <MetaRow label={t('page.source_detail_panel.uploaded_by')}>{source.uploadedBy.name ?? source.uploadedBy.email ?? source.uploadedBy.id}</MetaRow>
             </MetaSection>
 
-            <MetaSection label="Used in">
+            <MetaSection label={t('page.source_detail_panel.used_in')}>
               {source.usedIn.length === 0 ? (
-                <p className="text-[13px] text-slate-400">Not used in any document yet.</p>
+                <p className="text-[13px] text-slate-400">{t('page.source_detail_panel.not_used')}</p>
               ) : (
                 <ul className="flex flex-col gap-1.5">
                   {source.usedIn.map(d => (
@@ -123,21 +125,21 @@ export function SourceDetailPanel({ projectId, source, onClose, onOpenDoc }: Pro
                 type="button"
                 onClick={() => void open()}
                 disabled={busy || blocked}
-                title={blocked ? 'Failed the virus scan — cannot be opened.' : source.previewable ? undefined : 'This file type cannot be previewed here — it will be downloaded.'}
+                title={blocked ? t('page.source_detail_panel.blocked_open_tooltip') : source.previewable ? undefined : t('page.source_detail_panel.non_previewable_tooltip')}
                 className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                 data-action="open-source"
               >
-                <EyeIcon /> Open
+                <EyeIcon /> {t('page.source_detail_panel.open')}
               </button>
               <button
                 type="button"
                 onClick={() => void download()}
                 disabled={busy || blocked}
-                title={blocked ? 'Failed the virus scan — cannot be downloaded.' : undefined}
+                title={blocked ? t('page.source_detail_panel.blocked_download_tooltip') : undefined}
                 className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 disabled:cursor-not-allowed disabled:text-slate-400"
                 data-action="download-source"
               >
-                {busy ? 'Downloading…' : 'Download'}
+                {busy ? t('page.source_detail_panel.downloading') : t('page.source_detail_panel.download')}
               </button>
             </div>
           </div>

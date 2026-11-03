@@ -3,6 +3,7 @@ import { cleanSectionRef } from '../../panels/CommentComposer'
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import type { Comment, CommentSeverity, Document, ResolutionType, TeamMember } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
@@ -37,23 +38,23 @@ const RACI_META_LOCAL: Record<string, { bg: string; fg: string; border?: string 
   I: { bg: '#F8FAFC', fg: '#94A3B8', border: '#E2E8F0' },
 }
 
-const SEVERITY_META: Record<CommentSeverity, { bg: string; fg: string; label: string; dotColour: string }> = {
-  major: { bg: '#FEE2E2', fg: '#DC2626', label: 'Major', dotColour: '#DC2626' },
-  minor: { bg: '#FFFBEB', fg: '#B45309', label: 'Minor', dotColour: '#D97706' },
-  query: { bg: '#EFF6FF', fg: '#2563EB', label: 'Query', dotColour: '#2563EB' },
+const SEVERITY_META_KEY: Record<CommentSeverity, { bg: string; fg: string; labelKey: string; dotColour: string }> = {
+  major: { bg: '#FEE2E2', fg: '#DC2626', labelKey: 'severity_major', dotColour: '#DC2626' },
+  minor: { bg: '#FFFBEB', fg: '#B45309', labelKey: 'severity_minor', dotColour: '#D97706' },
+  query: { bg: '#EFF6FF', fg: '#2563EB', labelKey: 'severity_query', dotColour: '#2563EB' },
 }
 const SEVERITY_RANK: Record<CommentSeverity, number> = { major: 0, minor: 1, query: 2 }
 
 type FilterKey = 'all' | 'open' | 'resolved' | 'major' | 'minor' | 'query'
 type SortKey = 'newest' | 'oldest' | 'severity'
 
-const FILTER_CHIPS: { key: FilterKey; label: string }[] = [
-  { key: 'all',      label: 'All' },
-  { key: 'open',     label: 'Open' },
-  { key: 'resolved', label: 'Resolved' },
-  { key: 'major',    label: 'Major' },
-  { key: 'minor',    label: 'Minor' },
-  { key: 'query',    label: 'Query' },
+const FILTER_CHIP_KEYS: { key: FilterKey; labelKey: string }[] = [
+  { key: 'all',      labelKey: 'filter_all' },
+  { key: 'open',     labelKey: 'filter_open' },
+  { key: 'resolved', labelKey: 'filter_resolved' },
+  { key: 'major',    labelKey: 'filter_major' },
+  { key: 'minor',    labelKey: 'filter_minor' },
+  { key: 'query',    labelKey: 'filter_query' },
 ]
 
 // --- Small helpers ---
@@ -96,15 +97,16 @@ function Avatar({ name, size = 24 }: { name: string; size?: number }) {
 }
 
 function RACIBadge({ role }: { role: 'R' | 'A' | 'C' | 'I' }) {
-  const m = RACI_META_LOCAL[role]
+  const { t } = useTranslation()
+  const meta = RACI_META_LOCAL[role]
   return (
     <span
       className="rounded font-mono text-[9px] font-bold"
-      title="Role on this project (RACI)"
+      title={t('page.comments_dashboard.raci_role_title')}
       style={{
-        backgroundColor: m.bg,
-        color: m.fg,
-        border: m.border ? `1px solid ${m.border}` : undefined,
+        backgroundColor: meta.bg,
+        color: meta.fg,
+        border: meta.border ? `1px solid ${meta.border}` : undefined,
         padding: '2px 6px',
       }}
     >
@@ -157,9 +159,11 @@ interface CardProps {
 }
 
 function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick, onResolveCancel, onResolveConfirm, onOpen, isPending, resolveError }: CardProps) {
+  const { t } = useTranslation()
   const isResolved  = comment.status === 'resolved'
   const isResolving = resolvingId === comment.id
-  const sev         = SEVERITY_META[comment.severity] ?? SEVERITY_META.minor
+  const sevMeta     = SEVERITY_META_KEY[comment.severity] ?? SEVERITY_META_KEY.minor
+  const sevLabel    = t(`page.comments_dashboard.${sevMeta.labelKey}`)
   const resolution  = parseResolutionNote(comment.resolutionNote)
 
   const cardStyle = isResolved
@@ -194,14 +198,14 @@ function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick,
             className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold"
             style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}
           >
-            Resolved ✓
+            {t('page.comments_dashboard.status_resolved_check')}
           </span>
         ) : (
           <span
             className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold"
             style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}
           >
-            Open
+            {t('page.comments_dashboard.status_open')}
           </span>
         )}
       </div>
@@ -214,7 +218,7 @@ function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick,
 
       {/* Comment text */}
       <p className="text-sm leading-relaxed text-slate-900">
-        {comment.text || <span className="italic text-slate-400">No comment text</span>}
+        {comment.text || <span className="italic text-slate-400">{t('page.comments_dashboard.no_comment_text')}</span>}
       </p>
 
       {/* Resolution note — only when resolved */}
@@ -224,8 +228,8 @@ function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick,
           style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}
           data-resolution
         >
-          {resolution.decision ?? 'Resolved'}
-          {resolverName ? ` by ${resolverName}` : ''}
+          {resolution.decision ?? t('page.comments_dashboard.resolved_generic')}
+          {resolverName ? t('page.comments_dashboard.resolved_by_suffix', { name: resolverName }) : ''}
           {comment.resolvedAt ? ` · ${fmtDate(comment.resolvedAt)}` : ''}
           {resolution.viaCrm ? ` · in CRM ${resolution.viaCrm}` : ''}
           {resolution.text ? ` · ${resolution.text}` : ''}
@@ -234,12 +238,12 @@ function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick,
 
       {/* Severity row */}
       <div className="flex items-center gap-2">
-        <span className="text-xs text-slate-500">Severity:</span>
+        <span className="text-xs text-slate-500">{t('page.comments_dashboard.severity_label')}</span>
         <span
           className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-          style={{ backgroundColor: sev.bg, color: sev.fg }}
+          style={{ backgroundColor: sevMeta.bg, color: sevMeta.fg }}
         >
-          {sev.label}
+          {sevLabel}
         </span>
       </div>
 
@@ -263,7 +267,7 @@ function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick,
               onClick={() => onResolveClick(comment.id)}
               className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 transition-colors"
             >
-              Resolve
+              {t('page.comments_dashboard.action_resolve')}
             </button>
           )}
           <div className="flex-1" />
@@ -273,7 +277,7 @@ function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick,
             className="whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700"
             data-action="open-in-document"
           >
-            {isResolved ? 'View in document →' : 'Open in document →'}
+            {isResolved ? t('page.comments_dashboard.view_in_document') : t('page.comments_dashboard.open_in_document')}
           </button>
         </div>
       )}
@@ -284,6 +288,7 @@ function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick,
 // --- Main screen ---
 
 export function CommentsDashboard() {
+  const { t } = useTranslation()
   const { projectId } = useParams()
   const navigate      = useNavigate()
   const qc            = useQueryClient()
@@ -348,8 +353,8 @@ export function CommentsDashboard() {
   })
   const resolveError = resolveMut.isError
     ? resolveMut.error instanceof ApiError && resolveMut.error.status === 403
-      ? "You don't have permission to resolve this comment."
-      : 'Could not resolve the comment. Please try again.'
+      ? t('page.comments_dashboard.resolve_err_forbidden')
+      : t('page.comments_dashboard.resolve_err_generic')
     : null
 
   // Dropdown options come from the loaded comments.
@@ -417,13 +422,16 @@ export function CommentsDashboard() {
   const openInDocument = (c: ProjectComment) =>
     navigate(`/projects/${projectId}/clinical-writing/documents/${c.documentId}/review?panel=comments`)
 
-  // CSV of the comments currently shown (respects the filters).
+  // CSV of the comments currently shown (respects the filters). CSV content is machine-oriented;
+  // the column headers stay as the stable English keys so downstream consumers (Excel templates,
+  // compliance tooling) don't break when the UI language changes.
   const exportCsv = () => {
     const header = ['Comment ID', 'Document', 'Section', 'Severity', 'Status', 'Reviewer', 'Comment', 'Created', 'Resolved by', 'Resolved at', 'Decision', 'Resolution note']
     const rows = filtered.map(c => {
       const r = parseResolutionNote(c.resolutionNote)
+      const sevKey = SEVERITY_META_KEY[c.severity]?.labelKey
       return [
-        c.id, c.documentTitle, c.sectionRef, SEVERITY_META[c.severity]?.label ?? c.severity, c.status,
+        c.id, c.documentTitle, c.sectionRef, sevKey ? t(`page.comments_dashboard.${sevKey}`) : c.severity, c.status,
         c.reviewerName, c.text, c.createdAt, resolverNameOf(c) ?? c.resolvedBy ?? '', c.resolvedAt ?? '',
         r.decision ?? '', r.text,
       ]
@@ -439,7 +447,7 @@ export function CommentsDashboard() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
-  const projectLabel = project?.shortTitle ?? '…'
+  const projectLabel = project?.shortTitle ?? t('page.comments_dashboard.project_fallback')
 
   return (
     <div className="flex h-full flex-col" data-screen="comments-dashboard">
@@ -449,9 +457,11 @@ export function CommentsDashboard() {
         {/* Breadcrumb moved to TopNav (Projects / Project / Clinical Writing / Comments). */}
         <div className="flex items-end justify-between gap-6">
           <div className="flex flex-col gap-1.5">
-            <h1 className="text-2xl font-bold tracking-tight">Comments</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t('page.comments_dashboard.title')}</h1>
             <p className="text-sm text-slate-500">
-              {projectLabel} · Clinical Writing · {isLoading ? '…' : `${openCount} open · ${resolvedCount} resolved`}
+              {isLoading
+                ? t('page.comments_dashboard.subtitle_loading', { project: projectLabel })
+                : t('page.comments_dashboard.subtitle_counts', { project: projectLabel, open: openCount, resolved: resolvedCount })}
             </p>
           </div>
           <div className="flex flex-none items-center gap-2.5">
@@ -459,18 +469,18 @@ export function CommentsDashboard() {
               type="button"
               onClick={exportCsv}
               disabled={isLoading || filtered.length === 0}
-              title="Download the comments currently shown as a CSV file"
+              title={t('page.comments_dashboard.export_tooltip')}
               className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 hover:bg-slate-50 transition-colors disabled:cursor-not-allowed disabled:opacity-50"
               data-action="export-comments"
             >
-              Export comments
+              {t('page.comments_dashboard.export_comments')}
             </button>
             <button
               type="button"
               onClick={startCrm}
               className="rounded-md bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors"
             >
-              Start CRM →
+              {t('page.comments_dashboard.start_crm')}
             </button>
           </div>
         </div>
@@ -478,7 +488,7 @@ export function CommentsDashboard() {
 
       {/* Filter bar */}
       <div className="flex flex-none flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-8 py-3">
-        {FILTER_CHIPS.map(chip => {
+        {FILTER_CHIP_KEYS.map(chip => {
           const active = filter === chip.key
           return (
             <button
@@ -492,27 +502,27 @@ export function CommentsDashboard() {
                 border: '1px solid #E2E8F0', backgroundColor: '#FFFFFF', color: '#475569',
               }}
             >
-              {chip.label}
+              {t(`page.comments_dashboard.${chip.labelKey}`)}
             </button>
           )
         })}
         <span className="h-5 w-px" style={{ backgroundColor: '#E2E8F0' }} />
-        <FilterSelect label="Filter by document" value={docFilter} onChange={setDocFilter}
-          options={[{ value: 'all', label: 'All documents' }, ...docOptions]} />
-        <FilterSelect label="Filter by reviewer" value={reviewerFilter} onChange={setReviewer}
-          options={[{ value: 'all', label: 'All reviewers' }, ...reviewerOptions.map(r => ({ value: r, label: r }))]} />
-        <FilterSelect label="Filter by section" value={sectionFilter} onChange={setSection}
-          options={[{ value: 'all', label: 'All sections' }, ...sectionOptions.map(s => ({ value: s, label: s }))]} />
+        <FilterSelect label={t('page.comments_dashboard.filter_by_document')} value={docFilter} onChange={setDocFilter}
+          options={[{ value: 'all', label: t('page.comments_dashboard.all_documents') }, ...docOptions]} />
+        <FilterSelect label={t('page.comments_dashboard.filter_by_reviewer')} value={reviewerFilter} onChange={setReviewer}
+          options={[{ value: 'all', label: t('page.comments_dashboard.all_reviewers') }, ...reviewerOptions.map(r => ({ value: r, label: r }))]} />
+        <FilterSelect label={t('page.comments_dashboard.filter_by_section')} value={sectionFilter} onChange={setSection}
+          options={[{ value: 'all', label: t('page.comments_dashboard.all_sections') }, ...sectionOptions.map(s => ({ value: s, label: s }))]} />
         <span className="h-5 w-px" style={{ backgroundColor: '#E2E8F0' }} />
-        <FilterSelect label="Sort comments" value={sort} onChange={v => setSort(v as SortKey)}
+        <FilterSelect label={t('page.comments_dashboard.sort_comments')} value={sort} onChange={v => setSort(v as SortKey)}
           options={[
-            { value: 'newest',   label: 'Newest first' },
-            { value: 'oldest',   label: 'Oldest first' },
-            { value: 'severity', label: 'Severity (Major first)' },
+            { value: 'newest',   label: t('page.comments_dashboard.sort_newest') },
+            { value: 'oldest',   label: t('page.comments_dashboard.sort_oldest') },
+            { value: 'severity', label: t('page.comments_dashboard.sort_severity') },
           ]} />
         {filtersDirty && (
           <button type="button" onClick={resetFilters} className="text-xs font-semibold text-blue-600 hover:text-blue-700">
-            Reset filters
+            {t('page.comments_dashboard.reset_filters')}
           </button>
         )}
       </div>
@@ -524,26 +534,26 @@ export function CommentsDashboard() {
         <div className="min-w-0 flex-1">
           {someFailed && (
             <p className="mb-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="alert">
-              Some documents' comments could not be loaded, so this list may be incomplete.
+              {t('page.comments_dashboard.some_failed')}
             </p>
           )}
           {isLoading && (
-            <p className="p-8 text-center font-mono text-xs text-slate-400">Loading comments…</p>
+            <p className="p-8 text-center font-mono text-xs text-slate-400">{t('page.comments_dashboard.loading_comments')}</p>
           )}
           {!isLoading && totalCount === 0 && (
             <div className="rounded-lg border border-dashed border-slate-300 bg-white px-8 py-12 text-center" data-empty-comments>
-              <p className="text-sm font-semibold text-slate-900">No review comments in this project yet</p>
-              <p className="mt-1 text-xs text-slate-500">Comments added in a document's Reviewer View appear here.</p>
+              <p className="text-sm font-semibold text-slate-900">{t('page.comments_dashboard.empty_project_title')}</p>
+              <p className="mt-1 text-xs text-slate-500">{t('page.comments_dashboard.empty_project_hint')}</p>
             </div>
           )}
           {!isLoading && totalCount > 0 && filtered.length === 0 && (
             <div className="rounded-lg border border-dashed border-slate-300 bg-white px-8 py-12 text-center">
-              <p className="text-sm font-semibold text-slate-900">No comments match these filters</p>
+              <p className="text-sm font-semibold text-slate-900">{t('page.comments_dashboard.empty_filtered_title')}</p>
               <button
                 onClick={resetFilters}
                 className="mt-2 text-xs font-semibold text-blue-600 hover:text-blue-700"
               >
-                Reset filters
+                {t('page.comments_dashboard.reset_filters')}
               </button>
             </div>
           )}
@@ -569,9 +579,9 @@ export function CommentsDashboard() {
 
           {/* Review progress */}
           <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-white p-4">
-            <p className="text-[13px] font-bold">Review progress</p>
+            <p className="text-[13px] font-bold">{t('page.comments_dashboard.review_progress')}</p>
             <div className="mt-0.5 flex items-baseline justify-between">
-              <p className="text-xs text-slate-900">{resolvedCount} of {totalCount} comments resolved</p>
+              <p className="text-xs text-slate-900">{t('page.comments_dashboard.resolved_count_of_total', { resolved: resolvedCount, total: totalCount })}</p>
               <p className="text-xs font-bold" style={{ color: '#2563EB' }}>{resolutionPct}%</p>
             </div>
             <div className="h-1.5 overflow-hidden rounded-[3px]" style={{ backgroundColor: '#E2E8F0' }}>
@@ -584,7 +594,7 @@ export function CommentsDashboard() {
                     <Avatar name={r.name} size={20} />
                     <p className="min-w-0 flex-1 truncate text-xs">{r.name}</p>
                     <p className="whitespace-nowrap text-[11px]" style={{ color: r.open ? '#B45309' : '#15803D' }}>
-                      {r.open ? `${r.open} open` : 'All resolved ✓'}
+                      {r.open ? t('page.comments_dashboard.reviewer_open_count', { count: r.open }) : t('page.comments_dashboard.all_resolved_check')}
                     </p>
                   </div>
                 ))}
@@ -594,24 +604,24 @@ export function CommentsDashboard() {
 
           {/* By severity + By reviewer */}
           <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-white p-4">
-            <p className="text-[13px] font-bold">By severity <span className="font-normal text-slate-400">(open)</span></p>
-            {(['major', 'minor', 'query'] as const).map(s => (
-              <div key={s} className="flex items-center gap-2">
-                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: SEVERITY_META[s].dotColour }} />
-                <p className="text-xs text-slate-500">{SEVERITY_META[s].label}</p>
+            <p className="text-[13px] font-bold">{t('page.comments_dashboard.by_severity')} <span className="font-normal text-slate-400">{t('page.comments_dashboard.by_severity_sub')}</span></p>
+            {(['major', 'minor', 'query'] as const).map(sev => (
+              <div key={sev} className="flex items-center gap-2">
+                <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: SEVERITY_META_KEY[sev].dotColour }} />
+                <p className="text-xs text-slate-500">{t(`page.comments_dashboard.${SEVERITY_META_KEY[sev].labelKey}`)}</p>
                 <div className="flex-1" />
-                <p className="text-[13px] font-bold">{openBySeverity[s]}</p>
+                <p className="text-[13px] font-bold">{openBySeverity[sev]}</p>
               </div>
             ))}
             <div className="flex items-center gap-2">
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#15803D' }} />
-              <p className="text-xs text-slate-500">Resolved</p>
+              <p className="text-xs text-slate-500">{t('page.comments_dashboard.resolved_bar')}</p>
               <div className="flex-1" />
               <p className="text-[13px] font-bold">{resolvedCount}</p>
             </div>
             <div className="h-px" style={{ backgroundColor: '#E2E8F0' }} />
-            <p className="text-[13px] font-bold">By reviewer</p>
-            {byReviewer.length === 0 && <p className="text-xs text-slate-400">No comments yet.</p>}
+            <p className="text-[13px] font-bold">{t('page.comments_dashboard.by_reviewer')}</p>
+            {byReviewer.length === 0 && <p className="text-xs text-slate-400">{t('page.comments_dashboard.no_comments_yet')}</p>}
             {byReviewer.map(r => (
               <div key={r.name} className="flex items-center justify-between text-xs text-slate-500">
                 <span className="min-w-0 truncate">{r.name}</span>
@@ -625,18 +635,18 @@ export function CommentsDashboard() {
             className="flex flex-col gap-2 rounded-lg bg-white p-4"
             style={{ border: '2px solid #2563EB' }}
           >
-            <p className="text-[13px] font-bold">Ready for CRM?</p>
+            <p className="text-[13px] font-bold">{t('page.comments_dashboard.ready_for_crm')}</p>
             <p className="text-xs leading-relaxed text-slate-500">
               {totalCount === 0
-                ? 'No review comments yet.'
-                : `${openCount} of ${totalCount} comments still open. Open comments get a recorded decision in the Comments Resolution Meeting.`}
+                ? t('page.comments_dashboard.ready_for_crm_none')
+                : t('page.comments_dashboard.ready_for_crm_body', { open: openCount, total: totalCount })}
             </p>
             <button
               type="button"
               onClick={startCrm}
               className="mt-0.5 w-full rounded-md bg-blue-600 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
             >
-              Start CRM →
+              {t('page.comments_dashboard.start_crm')}
             </button>
           </div>
         </div>

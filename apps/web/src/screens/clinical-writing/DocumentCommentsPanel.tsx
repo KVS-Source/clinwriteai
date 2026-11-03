@@ -5,15 +5,16 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Comment, CommentSeverity, Document } from '@platform/types'
 import { documentsApi } from '../../api'
 import { CommentComposer, cleanSectionRef, sectionLabelFor, sectionOfRef } from '../../panels/CommentComposer'
 import { CommentMeta } from '../../panels/CommentsPanel'
 
-const SEVERITY_BADGE: Record<CommentSeverity, { label: string; bg: string; fg: string }> = {
-  major: { label: 'Major', bg: '#FEE2E2', fg: '#DC2626' },
-  minor: { label: 'Minor', bg: '#FFFBEB', fg: '#B45309' },
-  query: { label: 'Query', bg: '#EFF6FF', fg: '#2563EB' },
+const SEVERITY_BADGE_KEY: Record<CommentSeverity, { labelKey: string; bg: string; fg: string }> = {
+  major: { labelKey: 'severity_major', bg: '#FEE2E2', fg: '#DC2626' },
+  minor: { labelKey: 'severity_minor', bg: '#FFFBEB', fg: '#B45309' },
+  query: { labelKey: 'severity_query', bg: '#EFF6FF', fg: '#2563EB' },
 }
 const SEVERITY_RANK: Record<CommentSeverity, number> = { major: 0, minor: 1, query: 2 }
 
@@ -46,6 +47,7 @@ interface Props {
 }
 
 export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRetry, onClose, onOpenDocument }: Props) {
+  const { t } = useTranslation()
   const panelRef = useRef<HTMLDivElement | null>(null)
   const closeTimer = useRef<number | null>(null)
   const [shown, setShown] = useState(false)
@@ -211,7 +213,9 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
 
   const filtersActive = search.trim() !== '' || severityFilter !== 'all'
   const chips: Array<[Filter, string, number]> = [
-    ['all', 'All', issues.length], ['open', 'Open', openN], ['resolved', 'Resolved', resolveN],
+    ['all', t('page.document_comments_panel.filter_all'), issues.length],
+    ['open', t('page.document_comments_panel.filter_open'), openN],
+    ['resolved', t('page.document_comments_panel.filter_resolved'), resolveN],
   ]
 
   return (
@@ -219,7 +223,7 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
       ref={panelRef}
       role="dialog"
       aria-modal="false"
-      aria-label={`Comments for ${doc.title}`}
+      aria-label={t('page.document_comments_panel.aria_dialog_label', { title: doc.title })}
       data-comments-panel
       className="fixed z-40 flex flex-col overflow-hidden rounded-lg border border-slate-200 bg-white shadow-xl"
       style={{
@@ -232,21 +236,21 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize panel"
+        aria-label={t('page.document_comments_panel.resize_panel')}
         onPointerDown={beginResize}
-        title="Drag to resize"
+        title={t('page.document_comments_panel.drag_to_resize')}
         className="absolute inset-y-0 left-0 z-10 w-1.5 cursor-ew-resize touch-none bg-transparent hover:bg-blue-200 active:bg-blue-400"
       />
 
       <div
         onPointerDown={beginMove}
-        title="Drag to move"
+        title={t('page.document_comments_panel.drag_to_move')}
         className="flex flex-none cursor-move touch-none select-none items-start justify-between gap-3 border-b border-slate-200 px-5 py-4"
       >
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-[16px] font-bold text-slate-900">{doc.title}</h2>
           <p className="mt-0.5 text-[12px] text-slate-500">
-            {isLoading ? 'Loading comments…' : `${openN} open · ${resolveN} resolved`}
+            {isLoading ? t('page.document_comments_panel.loading_comments') : t('page.document_comments_panel.counts_summary', { open: openN, resolved: resolveN })}
           </p>
         </div>
         <button
@@ -255,12 +259,12 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
           data-action="open-document"
           className="flex-none cursor-pointer rounded-md border border-slate-200 bg-white px-2.5 py-1 text-xs font-semibold text-slate-900 hover:bg-slate-100"
         >
-          Open document
+          {t('page.document_comments_panel.open_document')}
         </button>
         <button
           type="button"
           onClick={requestClose}
-          aria-label="Close comments"
+          aria-label={t('page.document_comments_panel.close_comments')}
           className="flex h-7 w-7 flex-none cursor-pointer items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -283,7 +287,7 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
                   filter === key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                 }`}
               >
-                {label} ({n})
+                {t('page.document_comments_panel.filter_label_with_count', { label, count: n })}
               </button>
             ))}
           </div>
@@ -295,7 +299,7 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
             data-action="add-comment"
             className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
           >
-            + Add comment
+            {t('page.document_comments_panel.add_comment')}
           </button>
         </div>
 
@@ -304,30 +308,30 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
             type="search"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search comments…"
-            aria-label="Search comments"
+            placeholder={t('page.document_comments_panel.search_placeholder')}
+            aria-label={t('page.document_comments_panel.search_aria')}
             className="h-8 min-w-[140px] flex-1 rounded-md border border-slate-200 bg-slate-50 px-2.5 text-[12px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-600"
           />
           <select
             value={severityFilter}
             onChange={e => setSeverityFilter(e.target.value as SeverityFilter)}
-            aria-label="Filter by severity"
+            aria-label={t('page.document_comments_panel.filter_by_severity')}
             className="h-8 rounded-md border border-slate-200 bg-slate-50 px-2 text-[12px] text-slate-900"
           >
-            <option value="all">All severities</option>
-            <option value="major">Major</option>
-            <option value="minor">Minor</option>
-            <option value="query">Query</option>
+            <option value="all">{t('page.document_comments_panel.all_severities')}</option>
+            <option value="major">{t('page.document_comments_panel.severity_major')}</option>
+            <option value="minor">{t('page.document_comments_panel.severity_minor')}</option>
+            <option value="query">{t('page.document_comments_panel.severity_query')}</option>
           </select>
           <select
             value={sort}
             onChange={e => setSort(e.target.value as SortKey)}
-            aria-label="Sort comments"
+            aria-label={t('page.document_comments_panel.sort_comments')}
             className="h-8 rounded-md border border-slate-200 bg-slate-50 px-2 text-[12px] text-slate-900"
           >
-            <option value="newest">Newest first</option>
-            <option value="oldest">Oldest first</option>
-            <option value="severity">Severity</option>
+            <option value="newest">{t('page.document_comments_panel.sort_newest')}</option>
+            <option value="oldest">{t('page.document_comments_panel.sort_oldest')}</option>
+            <option value="severity">{t('page.document_comments_panel.sort_severity')}</option>
           </select>
         </div>
       </div>
@@ -339,33 +343,33 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
             sections={sections}
             defaultSectionId={null}
             onClose={() => setComposing(false)}
-            onPosted={c => setPostedNote(`Comment ${c.id} posted.`)}
+            onPosted={c => setPostedNote(t('page.document_comments_panel.comment_posted', { id: c.id }))}
           />
         )}
-        {composing && fullDoc.isLoading && <p className="mb-3 text-[12px] text-slate-400">Loading sections…</p>}
+        {composing && fullDoc.isLoading && <p className="mb-3 text-[12px] text-slate-400">{t('page.document_comments_panel.loading_sections')}</p>}
         {postedNote && !composing && (
           <p className="mb-3 rounded-md bg-green-50 p-2 text-center text-[11px] font-semibold text-green-700" role="status" data-posted-note>{postedNote}</p>
         )}
 
-        {isLoading && <p className="text-[13px] text-slate-400">Loading comments…</p>}
+        {isLoading && <p className="text-[13px] text-slate-400">{t('page.document_comments_panel.loading_comments')}</p>}
 
         {!isLoading && isError && (
           <div className="flex flex-col items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-[13px] text-red-700">
-            <span>Comments could not be loaded.</span>
-            <button type="button" onClick={onRetry} className="font-semibold underline">Try again</button>
+            <span>{t('page.document_comments_panel.comments_not_loaded')}</span>
+            <button type="button" onClick={onRetry} className="font-semibold underline">{t('page.document_comments_panel.try_again')}</button>
           </div>
         )}
 
         {!isLoading && !isError && visible.length === 0 && (
           <div className="flex flex-col items-center gap-2 py-8 text-center text-[13px] text-slate-500" data-empty-comments>
             <p>
-              {issues.length === 0 ? 'No comments yet'
-                : filtersActive ? 'No comments match your search'
-                : `No ${filter} comments`}
+              {issues.length === 0 ? t('page.document_comments_panel.empty_no_comments')
+                : filtersActive ? t('page.document_comments_panel.empty_search_match')
+                : t('page.document_comments_panel.empty_filter_count', { filter })}
             </p>
             {filtersActive && (
               <button type="button" onClick={() => { setSearch(''); setSeverityFilter('all') }} className="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                Clear search and filters
+                {t('page.document_comments_panel.clear_search_and_filters')}
               </button>
             )}
           </div>
@@ -373,7 +377,8 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
 
         <div className="flex flex-col gap-2.5">
           {!isLoading && visible.map(c => {
-            const sev = SEVERITY_BADGE[c.severity] ?? SEVERITY_BADGE.minor
+            const sevMeta = SEVERITY_BADGE_KEY[c.severity] ?? SEVERITY_BADGE_KEY.minor
+            const sevLabel = t(`page.document_comments_panel.${sevMeta.labelKey}`)
             const resolved = c.status === 'resolved'
             return (
               <div key={c.id} className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-3" data-comment-card={c.id}>
@@ -381,22 +386,22 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
                   <button
                     type="button"
                     onClick={() => copyId(c.id)}
-                    title="Copy comment ID"
+                    title={t('page.document_comments_panel.copy_id_tooltip')}
                     data-copy-id={c.id}
                     className="font-mono text-[10px] text-slate-500 hover:text-blue-600"
                   >
-                    {copiedId === c.id ? 'Copied ✓' : c.id}
+                    {copiedId === c.id ? t('page.document_comments_panel.copied') : c.id}
                   </button>
                   {c.sectionRef && (
                     <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{cleanSectionRef(c.sectionRef)}</span>
                   )}
                   <div className="flex-1" />
-                  <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: sev.bg, color: sev.fg }}>{sev.label}</span>
+                  <span className="rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: sevMeta.bg, color: sevMeta.fg }}>{sevLabel}</span>
                   <span
                     className="rounded-full px-2 py-0.5 text-[11px] font-semibold"
                     style={resolved ? { backgroundColor: '#F0FDF4', color: '#15803D' } : { backgroundColor: '#FFFBEB', color: '#B45309' }}
                   >
-                    {resolved ? 'Resolved' : 'Open'}
+                    {resolved ? t('page.document_comments_panel.status_resolved') : t('page.document_comments_panel.status_open')}
                   </span>
                 </div>
                 <div className="flex w-full min-w-0 items-start gap-2">
@@ -404,7 +409,7 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
                     {c.reviewerInitials || initialsOf(c.reviewerName ?? '')}
                   </div>
                   <div className="min-w-0 break-words text-[13px] text-slate-900">
-                    {c.text || <span className="italic text-slate-400">No comment text</span>}
+                    {c.text || <span className="italic text-slate-400">{t('page.document_comments_panel.no_comment_text')}</span>}
                   </div>
                 </div>
                 <CommentMeta comment={c} section={sectionOfRef(c.sectionRef, sections)} />
@@ -412,7 +417,7 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
                 <div className="flex min-w-0 items-center border-t border-slate-100 pt-2">
                   {(() => {
                     const sec = sectionLabelFor(c.sectionRef, sections)
-                    const label = sec.ref ? `Open at ${sec.ref}${sec.title ? ` ${sec.title}` : ''}` : 'Open document'
+                    const label = sec.ref ? t('page.document_comments_panel.open_at_section', { section: `${sec.ref}${sec.title ? ` ${sec.title}` : ''}` }) : t('page.document_comments_panel.open_document_fallback')
                     return (
                       <button
                         type="button"

@@ -21,6 +21,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Editor } from '@tiptap/react'
 import { api, ApiError } from '../../api/client'
 import { documentsApi } from '../../api'
@@ -76,6 +77,7 @@ interface Props {
 }
 
 export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, onAccept }: Props) {
+  const { t } = useTranslation()
   const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState<{ html: string; model: string; recordId: string; instruction: string; scope: 'selection' | 'section'; from?: number; to?: number } | null>(null)
   // Source attachments — paperclip picker. When any sources are selected
@@ -258,16 +260,16 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
 
   const error = ask.isError
     ? ask.error instanceof ApiError
-      ? ask.error.status === 429 ? 'This tenant has reached its monthly AI budget. Ask an admin to raise the cap.'
-        : ask.error.status === 503 ? 'The AI service is temporarily unavailable. Try again shortly.'
-          : `The AI request failed (HTTP ${ask.error.status}). Try again.`
-      : 'The AI request failed. Try again.'
+      ? ask.error.status === 429 ? t('page.section_ai_prompt.err_quota')
+        : ask.error.status === 503 ? t('page.section_ai_prompt.err_unavailable')
+          : t('page.section_ai_prompt.err_http', { status: ask.error.status })
+      : t('page.section_ai_prompt.err_generic')
     : null
 
   const hasSelection = !!readSelection()
   const placeholder = hasSelection
-    ? 'Edit the highlighted selection — e.g. "convert kg to lbs"'
-    : 'Select text to edit a passage, or type to edit the entire section'
+    ? t('page.section_ai_prompt.placeholder_with_selection')
+    : t('page.section_ai_prompt.placeholder_default')
 
   return (
     <div data-section-ai-prompt>
@@ -275,24 +277,24 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
         <div className="mb-3 rounded-lg border border-blue-200 bg-blue-50/40" data-ai-edit-preview>
           <div className="flex items-center justify-between gap-2 border-b border-blue-100 px-4 py-2">
             <p className="min-w-0 truncate text-[11px] text-slate-600">
-              <span className="font-semibold text-blue-800">AI suggestion</span>
-              <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase ${result.scope === 'selection' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{result.scope}</span>
-              <span className="ml-2 text-slate-500">· {result.model} · "{result.instruction}"</span>
+              <span className="font-semibold text-blue-800">{t('page.section_ai_prompt.ai_suggestion_label')}</span>
+              <span className={`ml-2 rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase ${result.scope === 'selection' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>{result.scope === 'selection' ? t('page.section_ai_prompt.scope_selection_label') : t('page.section_ai_prompt.scope_section_label')}</span>
+              <span className="ml-2 text-slate-500">{t('page.section_ai_prompt.scope_meta', { model: result.model, instruction: result.instruction })}</span>
             </p>
-            <span className="flex-none rounded bg-blue-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-700">PREVIEW</span>
+            <span className="flex-none rounded bg-blue-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold text-blue-700">{t('page.section_ai_prompt.preview_badge')}</span>
           </div>
           {result.html
             ? <div className="max-h-80 overflow-y-auto px-4 py-3 text-[14px] leading-relaxed text-slate-800 [&_li]:ml-5 [&_ol]:list-decimal [&_p]:mb-2 [&_ul]:list-disc"
                 dangerouslySetInnerHTML={{ __html: result.html }} data-ai-edit-html />
-            : <p className="px-4 py-3 text-[13px] italic text-slate-500">The AI returned no content.</p>}
+            : <p className="px-4 py-3 text-[13px] italic text-slate-500">{t('page.section_ai_prompt.no_content_returned')}</p>}
           <div className="flex items-center justify-end gap-2 border-t border-blue-100 px-4 py-2">
             <button type="button" onClick={() => { setResult(null); inputRef.current?.focus() }} data-action="ai-edit-discard"
               className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-              Discard
+              {t('page.section_ai_prompt.discard')}
             </button>
             <button type="button" disabled={!result.html} onClick={applyAccept} data-action="ai-edit-accept"
               className="rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
-              {result.scope === 'selection' ? 'Replace selection' : 'Accept into editor'}
+              {result.scope === 'selection' ? t('page.section_ai_prompt.replace_selection') : t('page.section_ai_prompt.accept_into_editor')}
             </button>
           </div>
         </div>
@@ -301,14 +303,14 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
       {savedSel && (
         <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800" data-selection-badge>
           <span className="truncate">
-            <strong>Selected:</strong> "{savedSel.text.length > 60 ? `${savedSel.text.slice(0, 60)}…` : savedSel.text}"
+            <strong>{t('page.section_ai_prompt.selected_label')}</strong> "{savedSel.text.length > 60 ? `${savedSel.text.slice(0, 60)}…` : savedSel.text}"
           </span>
           <button
             type="button"
             onClick={() => setSavedSel(null)}
             className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
-            aria-label="Clear selection"
-          >Clear</button>
+            aria-label={t('page.section_ai_prompt.clear_selection')}
+          >{t('page.section_ai_prompt.clear')}</button>
         </div>
       )}
       {attachedSources.length > 0 && (
@@ -325,7 +327,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
                 type="button"
                 onClick={() => toggleSource(s.uploadId)}
                 className="ml-0.5 rounded text-blue-600 hover:bg-blue-100"
-                aria-label={`Remove ${s.fileName}`}
+                aria-label={t('page.section_ai_prompt.remove_attachment_aria', { name: s.fileName })}
               >×</button>
             </span>
           ))}
@@ -334,7 +336,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
               type="button"
               onClick={clearAttachments}
               className="ml-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
-            >Clear</button>
+            >{t('page.section_ai_prompt.clear')}</button>
           )}
         </div>
       )}
@@ -360,9 +362,9 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
           rows={1}
           maxLength={2000}
           disabled={ask.isPending}
-          placeholder={ask.isPending ? (hasSelection ? 'Editing the selection…' : 'Editing the section…') : placeholder}
-          aria-label="Ask AI to edit this section or selection"
-          title="Enter to send · Shift+Enter for new line"
+          placeholder={ask.isPending ? (hasSelection ? t('page.section_ai_prompt.placeholder_editing_selection') : t('page.section_ai_prompt.placeholder_editing_section')) : placeholder}
+          aria-label={t('page.section_ai_prompt.input_aria')}
+          title={t('page.section_ai_prompt.input_tooltip')}
           data-field="ai-edit-prompt"
           className="block max-h-40 min-h-[28px] flex-1 resize-none border-0 bg-transparent py-1 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
         />
@@ -374,12 +376,12 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
             type="button"
             onClick={() => setSourcePickerOpen(o => !o)}
             disabled={availableSources.length === 0 || ask.isPending}
-            aria-label="Attach a source document"
+            aria-label={t('page.section_ai_prompt.attach_source_aria')}
             aria-expanded={sourcePickerOpen}
             title={
               availableSources.length === 0
-                ? 'No source documents are linked to this document yet'
-                : `Attach a linked source document (${attachedSourceIds.length} of ${availableSources.length} selected)`
+                ? t('page.section_ai_prompt.no_sources_linked')
+                : t('page.section_ai_prompt.attach_source_tooltip', { attached: attachedSourceIds.length, available: availableSources.length })
             }
             className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg border transition-colors ${
               attachedSourceIds.length > 0
@@ -396,7 +398,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
               onMouseDown={e => e.stopPropagation()}
             >
               <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                Attach source documents
+                {t('page.section_ai_prompt.attach_source_header')}
               </p>
               <ul className="space-y-0.5">
                 {availableSources.map(s => {
@@ -428,7 +430,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
                   type="button"
                   onClick={() => setSourcePickerOpen(false)}
                   className="rounded px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
-                >Done</button>
+                >{t('page.section_ai_prompt.done')}</button>
               </div>
             </div>
           )}
@@ -436,8 +438,8 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
         <button
           type="button"
           onClick={() => setActivePanel(activePanel === 'ai-help' ? null : 'ai-help')}
-          aria-label="Show prompt suggestions"
-          title="Prompt suggestions"
+          aria-label={t('page.section_ai_prompt.show_prompt_suggestions_aria')}
+          title={t('page.section_ai_prompt.prompt_suggestions_tooltip')}
           data-ai-help-button
           className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg border transition-colors ${activePanel === 'ai-help' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-500 hover:bg-slate-50'}`}
         >
@@ -447,7 +449,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
             <circle cx="8" cy="11.6" r="0.4" fill="currentColor" />
           </svg>
         </button>
-        <button type="button" onClick={send} disabled={!prompt.trim() || ask.isPending} aria-label="Send to AI" title="Enter to send · Shift+Enter for new line" data-action="ai-edit-send"
+        <button type="button" onClick={send} disabled={!prompt.trim() || ask.isPending} aria-label={t('page.section_ai_prompt.send_to_ai_aria')} title={t('page.section_ai_prompt.send_tooltip')} data-action="ai-edit-send"
           className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
           {ask.isPending
             ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />

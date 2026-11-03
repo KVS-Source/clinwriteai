@@ -22,6 +22,7 @@ import { TableRow } from '@tiptap/extension-table-row'
 import { TableHeader } from '@tiptap/extension-table-header'
 import { TableCell } from '@tiptap/extension-table-cell'
 import { useEffect, useRef } from 'react'
+import i18n from '../../i18n'
 import type { CollabProvider } from './useCollabProvider'
 
 export { EditorContent }
@@ -55,7 +56,7 @@ export function defaultExtensions(opts: {
       linkOnPaste: true,
       HTMLAttributes: { rel: 'noopener noreferrer', class: 'text-blue-600 underline' },
     }),
-    Placeholder.configure({ placeholder: opts.placeholder ?? 'Start writing this section…' }),
+    Placeholder.configure({ placeholder: opts.placeholder ?? i18n.t('page.rich_text_editor.placeholder') }),
     // Table + its row/header/cell children — clinical AI output often
     // returns tables (signatory blocks, dose-escalation grids, AE
     // summaries). Without these the HTML goes in but TipTap's schema
@@ -75,7 +76,7 @@ export function defaultExtensions(opts: {
       CollaborationCaret.configure({
         provider: opts.collab.provider,
         user: {
-          name:  opts.user?.name  ?? 'Anonymous',
+          name:  opts.user?.name  ?? i18n.t('page.rich_text_editor.anonymous'),
           color: opts.user?.color?.fg ?? '#2563EB',
         },
       }),

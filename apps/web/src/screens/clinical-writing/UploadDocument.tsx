@@ -19,6 +19,7 @@ import { SOURCE_FILE_ACCEPT, SOURCE_FILE_ERROR, SOURCE_FILE_EXT_RE, SOURCE_FILE_
 import { SOURCE_CATEGORIES } from '../../utils/sourceCategories'
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { documentsApi } from '../../api'
 import { ApiError } from '../../api/client'
 
@@ -58,6 +59,7 @@ function confidenceColour(pct: number) {
 }
 
 export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChange }: Props) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const fileInputRef = useRef<HTMLInputElement | null>(null)
   const xhrRef = useRef<XMLHttpRequest | null>(null)
@@ -85,7 +87,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
       return
     }
     if (f.size > MAX_BYTES) {
-      setUploadErr(`File is too large (${(f.size / 1024 / 1024).toFixed(1)} MB). Maximum is 50 MB.`)
+      setUploadErr(t('page.upload_document.file_too_large', { sizeMB: (f.size / 1024 / 1024).toFixed(1) }))
       return
     }
     setUploadErr(null)
@@ -115,23 +117,23 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
           setOrigin('')
           setTouched(new Set())
         } catch {
-          setUploadErr('Unexpected response from upload endpoint.')
+          setUploadErr(t('page.upload_document.unexpected_response'))
           setFile(null)
         }
       } else {
         let msg: string
         try {
           const j = JSON.parse(xhr.responseText) as { error?: string; message?: string }
-          msg = j.message || j.error || `Upload failed (HTTP ${xhr.status})`
+          msg = j.message || j.error || t('page.upload_document.upload_failed_http', { status: xhr.status })
         } catch {
-          msg = `Upload failed (HTTP ${xhr.status})`
+          msg = t('page.upload_document.upload_failed_http', { status: xhr.status })
         }
         setUploadErr(msg)
         setFile(null)
       }
     })
     xhr.addEventListener('error', () => {
-      setUploadErr('Network error during upload.')
+      setUploadErr(t('page.upload_document.network_error'))
       setFile(null)
     })
 
@@ -160,10 +162,10 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
 
   const saveError = save.isError
     ? save.error instanceof ApiError
-      ? save.error.status === 503 ? 'Clinical Writing is not enabled on this deployment.'
-      : save.error.status === 403 ? 'You do not have permission to add source documents to this project.'
-      : `Could not save (HTTP ${save.error.status}).`
-      : 'Could not save — see console for details.'
+      ? save.error.status === 503 ? t('page.upload_document.save_err_disabled')
+      : save.error.status === 403 ? t('page.upload_document.save_err_forbidden')
+      : t('page.upload_document.save_err_http', { status: save.error.status })
+      : t('page.upload_document.save_err_generic')
     : null
 
   const canSave = !!upload && title.trim().length > 0 && !save.isPending
@@ -173,10 +175,9 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
     return (
       <div className="flex flex-col gap-4 p-5" data-form="upload-document">
         <section className="rounded-lg border border-slate-200 bg-slate-50 p-5">
-          <h3 className="text-[13px] font-semibold text-slate-900">Upload source document</h3>
+          <h3 className="text-[13px] font-semibold text-slate-900">{t('page.upload_document.heading')}</h3>
           <p className="mt-0.5 text-[12px] text-slate-500">
-            Add evidence to this project's source library — a protocol, SAP, TLF output, lab export, or a file from another system.
-            Documents are written from these later; uploading does not create a document.
+            {t('page.upload_document.intro')}
           </p>
         </section>
 
@@ -203,8 +204,8 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
         >
           <UploadIcon />
           <div className="text-center">
-            <p className="text-[14px] font-semibold text-slate-900">Drop a file here</p>
-            <p className="mt-1 text-[12px] text-slate-500">or click to browse — {SOURCE_FILE_HINT} · up to 50 MB</p>
+            <p className="text-[14px] font-semibold text-slate-900">{t('page.upload_document.drop_file')}</p>
+            <p className="mt-1 text-[12px] text-slate-500">{t('page.upload_document.or_click_to_browse', { hint: SOURCE_FILE_HINT })}</p>
           </div>
           <input
             ref={fileInputRef}
@@ -228,7 +229,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
         <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-3 -mx-5 -mb-5">
           <button type="button" onClick={onCancel}
             className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
-            Cancel
+            {t('page.upload_document.cancel')}
           </button>
         </div>
       </div>
@@ -246,7 +247,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
               <p className="text-[11px] text-slate-500">{(file.size / 1024 / 1024).toFixed(2)} MB</p>
             </div>
             <span className="rounded-full px-2 py-0.5 font-mono text-[11px] font-semibold text-blue-700" style={{ backgroundColor: '#EFF6FF' }}>
-              {progress < 100 ? 'Uploading…' : 'Classifying…'}
+              {progress < 100 ? t('page.upload_document.uploading') : t('page.upload_document.classifying')}
             </span>
           </div>
           <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
@@ -255,13 +256,13 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
               style={{ width: `${progress}%`, backgroundColor: '#2563EB' }}
             />
           </div>
-          <p className="mt-2 text-[11px] text-slate-500">{progress}% · do not close this panel</p>
+          <p className="mt-2 text-[11px] text-slate-500">{t('page.upload_document.progress_hint', { pct: progress })}</p>
         </section>
 
         <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-3 -mx-5 -mb-5">
           <button type="button" onClick={onCancel}
             className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
-            Cancel
+            {t('page.upload_document.cancel')}
           </button>
         </div>
       </div>
@@ -284,21 +285,21 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
     >
       {upload.classification.stub && (
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-800" role="status">
-          <strong>Suggestions are filename-based guesses.</strong> Review the category before saving.
+          <strong>{t('page.upload_document.stub_warning_bold')}</strong>{t('page.upload_document.stub_warning_body')}
         </div>
       )}
 
       <section className="rounded-lg border border-slate-200 bg-white p-4">
         <p className="truncate text-[13px] font-semibold text-slate-900">{upload.fileName}</p>
         <p className="text-[11px] text-slate-500">
-          {upload.fileSizeMB} MB · virus scan {upload.virusScanStatus}
+          {t('page.upload_document.file_meta', { sizeMB: upload.fileSizeMB, scan: upload.virusScanStatus })}
         </p>
       </section>
 
       <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
-        <h3 className="text-[13px] font-semibold text-slate-900">Source details</h3>
+        <h3 className="text-[13px] font-semibold text-slate-900">{t('page.upload_document.source_details')}</h3>
         <div className="mt-3 flex flex-col gap-3">
-          <FieldLabel label="Category *" conf={catConf} touched={touched.has('category')}>
+          <FieldLabel label={t('page.upload_document.category_label')} conf={catConf} touched={touched.has('category')}>
             <select
               value={category}
               onChange={e => { setCategory(e.currentTarget.value); markTouched('category') }}
@@ -311,7 +312,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
           </FieldLabel>
 
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Title *</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.upload_document.title_label')}</span>
             <input
               value={title}
               onChange={e => { setTitle(e.currentTarget.value); markTouched('title') }}
@@ -321,20 +322,20 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Origin / system</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.upload_document.origin_label')}</span>
             <input
               value={origin}
               onChange={e => { setOrigin(e.currentTarget.value); markTouched('origin') }}
-              placeholder="e.g. Sponsor, EDC, SAS output, CRO"
+              placeholder={t('page.upload_document.origin_placeholder')}
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
             />
           </label>
 
-          <FieldLabel label="Version" conf={versionConf} touched={touched.has('version')}>
+          <FieldLabel label={t('page.upload_document.version_label')} conf={versionConf} touched={touched.has('version')}>
             <input
               value={version}
               onChange={e => { setVersion(e.currentTarget.value); markTouched('version') }}
-              placeholder="v1.0 (optional)"
+              placeholder={t('page.upload_document.version_placeholder')}
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
             />
           </FieldLabel>
@@ -350,11 +351,11 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
       <div className="sticky bottom-0 flex items-center justify-end gap-2 border-t border-slate-200 bg-white px-5 py-3 -mx-5 -mb-5">
         <button type="button" onClick={onCancel}
           className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
-          Cancel upload
+          {t('page.upload_document.cancel_upload')}
         </button>
         <button type="submit" disabled={!canSave}
           className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
-          {save.isPending ? 'Saving…' : 'Save to library'}
+          {save.isPending ? t('page.upload_document.saving') : t('page.upload_document.save_to_library')}
         </button>
       </div>
     </form>
@@ -393,16 +394,17 @@ function ConfidenceBadge({ pct, label }: { pct: number; label?: string }) {
 }
 
 function AiChip({ touched }: { touched: boolean }) {
+  const { t } = useTranslation()
   if (touched) {
     return (
       <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>
-        edited
+        {t('page.upload_document.edited_chip')}
       </span>
     )
   }
   return (
     <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#2563EB' }}>
-      AI pick
+      {t('page.upload_document.ai_pick_chip')}
     </span>
   )
 }

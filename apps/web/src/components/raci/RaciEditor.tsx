@@ -17,6 +17,8 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { PlatformUser } from '@platform/types'
 import {
   raciApi,
@@ -42,12 +44,12 @@ export interface RaciEditorProps {
 
 const LETTER_ORDER: RaciLetter[] = ['R', 'A', 'C', 'Q', 'I']
 
-const LETTER_LABEL: Record<RaciLetter, string> = {
-  R: 'Responsible (authors)',
-  A: 'Accountable (approvers)',
-  C: 'Consulted (reviewers)',
-  Q: 'QC (release)',
-  I: 'Informed',
+const LETTER_LABEL_KEY: Record<RaciLetter, string> = {
+  R: 'letter_r',
+  A: 'letter_a',
+  C: 'letter_c',
+  Q: 'letter_q',
+  I: 'letter_i',
 }
 
 // Options the server accepts in signatureMeaning. Shown in a dropdown next to
@@ -61,12 +63,20 @@ const SIGNATURE_MEANINGS = [
 ] as const
 type SignatureMeaning = typeof SIGNATURE_MEANINGS[number]
 
+const SIGNATURE_MEANING_KEY: Record<SignatureMeaning, string> = {
+  'Author attestation':    'sig_author_attestation',
+  'Medical approval':      'sig_medical_approval',
+  'Regulatory approval':   'sig_regulatory_approval',
+  'Final signatory':       'sig_final_signatory',
+  'QC release':            'sig_qc_release',
+}
+
 // The server's own message when it sent one ("This person has already
 // completed their part…"), not a bare "API error 409".
-function errorText(e: unknown, fallback: string): string {
+function errorText(e: unknown, fallback: string, t: TFunction): string {
   if (e instanceof ApiError) {
     const body = e.body as { message?: string; error?: string } | null
-    return body?.message ?? body?.error ?? `${fallback} (HTTP ${e.status})`
+    return body?.message ?? body?.error ?? t('component.raci_editor.err_http_suffix', { fallback, status: e.status })
   }
   return e instanceof Error ? e.message : fallback
 }
@@ -80,6 +90,7 @@ const DEFAULT_SIG_MEANING: Record<RaciLetter, SignatureMeaning> = {
 }
 
 export function RaciEditor({ projectId, documentId, documentStatus, editable: editableProp, onChanged, className }: RaciEditorProps) {
+  const { t } = useTranslation()
   const [rows, setRows] = useState<DocumentRaciRow[] | null>(null)
   const [error, setError] = useState<string | null>(null)
   // A failed change is reported inside the letter section that was clicked —
@@ -114,9 +125,9 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
       const list = await raciApi.list(documentId)
       setRows(list)
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load RACI')
+      setError(e instanceof Error ? e.message : t('component.raci_editor.err_load_raci'))
     }
-  }, [documentId])
+  }, [documentId, t])
 
   useEffect(() => { void refresh() }, [refresh])
 
@@ -142,7 +153,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
       await refresh()
       onChanged?.()
     } catch (e: unknown) {
-      setLetterError({ letter, message: errorText(e, 'RACI update failed') })
+      setLetterError({ letter, message: errorText(e, t('component.raci_editor.err_raci_update'), t) })
       void refresh()
     } finally {
       setBusyLetter(null)
@@ -153,13 +164,13 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
     <div className={`flex flex-col gap-5 ${className ?? ''}`}>
       <header className="flex items-start justify-between gap-4">
         <div>
-          <h3 className="text-base font-semibold text-slate-900">RACI assignments</h3>
+          <h3 className="text-base font-semibold text-slate-900">{t('component.raci_editor.heading')}</h3>
           <p className="text-xs text-slate-500 mt-1">
             {editable
-              ? 'You own this document — pick who authors, approves, reviews, releases QC, and should be kept informed.'
+              ? t('component.raci_editor.sub_editable')
               : noPermission
-                ? 'Read-only — only an admin, a Responsible (R) on this document or its assignee can change assignments.'
-                : 'Read-only view of the current assignments.'}
+                ? t('component.raci_editor.sub_read_only_no_permission')
+                : t('component.raci_editor.sub_read_only')}
           </p>
         </div>
         <StatusStrip evaluation={transitionEval} showNextStatus />
@@ -172,7 +183,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
       )}
 
       {rows === null && !error && (
-        <div className="text-xs text-slate-500">Loading…</div>
+        <div className="text-xs text-slate-500">{t('component.raci_editor.loading')}</div>
       )}
 
       {rows && LETTER_ORDER.map(letter => {
@@ -183,10 +194,10 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
             <header className="flex items-center justify-between mb-3">
               <h4 className="text-sm font-semibold text-slate-800">
                 <span className="inline-block w-6 text-center text-xs font-mono bg-slate-100 border border-slate-200 rounded mr-2 py-0.5">{letter}</span>
-                {LETTER_LABEL[letter]}
+                {t(`component.raci_editor.${LETTER_LABEL_KEY[letter]}`)}
               </h4>
               <span className="text-[11px] text-slate-500">
-                {current.length} assigned
+                {t('component.raci_editor.assigned_count', { count: current.length })}
               </span>
             </header>
 
@@ -208,7 +219,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
                         onChange={() => void toggleSignatureRequired(row)}
                         disabled={!editable || busyLetter === letter}
                       />
-                      <span className="select-none">Requires e-signature</span>
+                      <span className="select-none">{t('component.raci_editor.requires_e_signature')}</span>
                     </label>
                     {row.signatureRequired && (
                       <select
@@ -217,8 +228,8 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
                         disabled={!editable || busyLetter === letter}
                         className="ml-auto text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white"
                       >
-                        {SIGNATURE_MEANINGS.map(m => (
-                          <option key={m} value={m}>{m}</option>
+                        {SIGNATURE_MEANINGS.map(meaning => (
+                          <option key={meaning} value={meaning}>{t(`component.raci_editor.${SIGNATURE_MEANING_KEY[meaning]}`)}</option>
                         ))}
                       </select>
                     )}
@@ -286,7 +297,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
       await refresh()
       onChanged?.()
     } catch (e: unknown) {
-      setLetterError({ letter: row.letter, message: errorText(e, 'Signature update failed') })
+      setLetterError({ letter: row.letter, message: errorText(e, t('component.raci_editor.err_signature_update'), t) })
       void refresh()   // show the server's current state, not a stale row
     } finally {
       setBusyLetter(null)

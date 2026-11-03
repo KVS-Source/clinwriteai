@@ -9,6 +9,8 @@
 // Shows nothing when the chain isn't in flight.
 
 import { useEffect, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { AiDraftSummary } from '../../hooks/useAiDraftStatus'
 import type { AiDraftState } from '../../api/ai-drafter'
 
@@ -17,15 +19,16 @@ interface Props {
   summary: AiDraftSummary
 }
 
-const STATE_HEADLINE: Record<AiDraftState, string> = {
-  pending:    'AI draft queued',
-  drafting:   'Drafting document',
-  validating: 'Validating',
-  complete:   'AI draft complete',
-  failed:     'AI draft failed',
+const STATE_HEADLINE_KEY: Record<AiDraftState, string> = {
+  pending:    'headline_pending',
+  drafting:   'headline_drafting',
+  validating: 'headline_validating',
+  complete:   'headline_complete',
+  failed:     'headline_failed',
 }
 
 export function AiDraftingProgressToast({ state, summary }: Props) {
+  const { t } = useTranslation()
   const [dismissed, setDismissed] = useState(false)
 
   // Reset the dismiss flag the moment the chain re-enters an in-flight
@@ -41,8 +44,8 @@ export function AiDraftingProgressToast({ state, summary }: Props) {
   if (!summary.inFlight) return null
   if (dismissed) return null
 
-  const headline = STATE_HEADLINE[state]
-  const line = buildStatusLine(state, summary)
+  const headline = t(`component.ai_drafting_progress_toast.${STATE_HEADLINE_KEY[state]}`)
+  const line = buildStatusLine(state, summary, t)
 
   return (
     <div
@@ -81,7 +84,7 @@ export function AiDraftingProgressToast({ state, summary }: Props) {
       <button
         type="button"
         onClick={() => setDismissed(true)}
-        aria-label="Dismiss"
+        aria-label={t('component.ai_drafting_progress_toast.dismiss')}
         className="flex h-5 w-5 flex-none items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
       >
         <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -93,19 +96,21 @@ export function AiDraftingProgressToast({ state, summary }: Props) {
   )
 }
 
-function buildStatusLine(state: AiDraftState, summary: AiDraftSummary): string {
-  if (state === 'pending') return 'Waiting for the worker to pick up the job…'
+function buildStatusLine(state: AiDraftState, summary: AiDraftSummary, t: TFunction): string {
+  if (state === 'pending') return t('component.ai_drafting_progress_toast.line_pending')
   if (state === 'drafting') {
     return summary.totalSections > 0
-      ? `Writing ${summary.totalSections} sections from your sources`
-      : 'Writing sections from your sources'
+      ? t('component.ai_drafting_progress_toast.line_drafting_count', { count: summary.totalSections })
+      : t('component.ai_drafting_progress_toast.line_drafting_no_count')
   }
   if (state === 'validating') {
-    const pass = summary.currentPass > 0 ? `Pass ${summary.currentPass} of 5` : 'Running checks'
+    const pass = summary.currentPass > 0
+      ? t('component.ai_drafting_progress_toast.line_validating_pass', { current: summary.currentPass })
+      : t('component.ai_drafting_progress_toast.line_validating_pass_running')
     const flagged = summary.flaggedSections === 0
-      ? 'all sections clean so far'
-      : `${summary.flaggedSections} flagged`
-    return `${pass} · ${flagged}`
+      ? t('component.ai_drafting_progress_toast.line_validating_all_clean')
+      : t('component.ai_drafting_progress_toast.line_validating_flagged', { count: summary.flaggedSections })
+    return t('component.ai_drafting_progress_toast.line_validating_combined', { pass, flagged })
   }
   return ''
 }

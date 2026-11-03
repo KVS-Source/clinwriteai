@@ -4,15 +4,16 @@
 
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { raciApi, type DocumentRaciRow, type RaciLetter } from '../../api/raci'
 import { useCurrentUser } from '../../hooks/useCurrentUser'
 
-const ROLE: Record<RaciLetter, { label: string; bg: string; fg: string }> = {
-  R: { label: 'Responsible (Author)',   bg: '#DBEAFE', fg: '#1D4ED8' },
-  A: { label: 'Accountable (Approver)', bg: '#F5F3FF', fg: '#7C3AED' },
-  C: { label: 'Consulted (Reviewer)',   bg: '#FEF3C7', fg: '#B45309' },
-  Q: { label: 'QC (Release)',           bg: '#D1FAE5', fg: '#065F46' },
-  I: { label: 'Informed',               bg: '#F1F5F9', fg: '#475569' },
+const ROLE_KEY: Record<RaciLetter, { key: string; bg: string; fg: string }> = {
+  R: { key: 'role_r', bg: '#DBEAFE', fg: '#1D4ED8' },
+  A: { key: 'role_a', bg: '#F5F3FF', fg: '#7C3AED' },
+  C: { key: 'role_c', bg: '#FEF3C7', fg: '#B45309' },
+  Q: { key: 'role_q', bg: '#D1FAE5', fg: '#065F46' },
+  I: { key: 'role_i', bg: '#F1F5F9', fg: '#475569' },
 }
 const ORDER: RaciLetter[] = ['R', 'A', 'C', 'Q', 'I']
 
@@ -20,6 +21,7 @@ export const documentRaciKey = (documentId: string) => ['document-raci', documen
 
 // `userId` defaults to the signed-in session's user (/auth/me), so any screen can drop it in.
 export function MyRaciRole({ documentId, userId: userIdProp }: { documentId: string; userId?: string | null }) {
+  const { t } = useTranslation()
   const { data: me } = useCurrentUser()
   const userId = userIdProp ?? me?.id
   const { data: rows = [] } = useQuery<DocumentRaciRow[]>({
@@ -46,18 +48,22 @@ export function MyRaciRole({ documentId, userId: userIdProp }: { documentId: str
 
   return (
     <div className="flex flex-none items-center gap-1.5" data-my-raci-role>
-      {mine.map(m => (
-        <span
-          key={m.letter}
-          title={m.wholeDoc
-            ? `Your RACI role on this document: ${ROLE[m.letter].label}`
-            : `Your RACI role on ${m.sections} section${m.sections === 1 ? '' : 's'} of this document: ${ROLE[m.letter].label}`}
-          className="rounded-full px-2.5 py-1 text-[11px] font-semibold"
-          style={{ backgroundColor: ROLE[m.letter].bg, color: ROLE[m.letter].fg }}
-        >
-          {ROLE[m.letter].label}{m.wholeDoc ? '' : ' · section'}
-        </span>
-      ))}
+      {mine.map(roleEntry => {
+        const roleMeta = ROLE_KEY[roleEntry.letter]
+        const roleLabel = t(`page.my_raci_role.${roleMeta.key}`)
+        return (
+          <span
+            key={roleEntry.letter}
+            title={roleEntry.wholeDoc
+              ? t('page.my_raci_role.whole_doc_tooltip', { role: roleLabel })
+              : t('page.my_raci_role.sections_tooltip', { count: roleEntry.sections, role: roleLabel })}
+            className="rounded-full px-2.5 py-1 text-[11px] font-semibold"
+            style={{ backgroundColor: roleMeta.bg, color: roleMeta.fg }}
+          >
+            {roleLabel}{roleEntry.wholeDoc ? '' : t('page.my_raci_role.section_suffix')}
+          </span>
+        )
+      })}
     </div>
   )
 }

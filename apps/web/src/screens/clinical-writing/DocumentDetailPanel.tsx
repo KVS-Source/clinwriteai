@@ -3,6 +3,7 @@
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Document } from '@platform/types'
 import { SlidePanel, StatusPill } from '../../components/ui'
 import { documentsApi, type DocumentSourceLink } from '../../api/documents'
@@ -28,6 +29,7 @@ interface Props {
 }
 
 export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, assigneeName, onClose, onOpen, onOpenRaci }: Props) {
+  const { t } = useTranslation()
   const [viewError, setViewError] = useState<string | null>(null)
   const [downloading, setDownloading] = useState<string | null>(null)
   // The source shown inside the panel (PDF / image) instead of the document's details
@@ -72,21 +74,21 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
           blockingCount?: number
         } | null
         if (err.status === 422 && body?.error === 'terminal') {
-          setStageError('This document is already at Final Output.')
+          setStageError(t('page.document_detail_panel.err_terminal'))
           return
         }
         // Phase 2 checklist gate — Gate B. Enumerate blockers so the writer
         // knows what to tick before trying again.
         if (err.status === 409 && body?.error === 'checklist_blocked' && Array.isArray(body.blocking)) {
           const bullets = body.blocking.slice(0, 4).map(b => `• ${b.text} (${b.framework})`).join('\n')
-          const extra = (body.blockingCount ?? body.blocking.length) > 4 ? `\n…and ${(body.blockingCount ?? body.blocking.length) - 4} more` : ''
-          setStageError(`${body.blockingCount ?? body.blocking.length} mandatory checklist item(s) must be completed or waived first:\n${bullets}${extra}`)
+          const extra = (body.blockingCount ?? body.blocking.length) > 4 ? t('page.document_detail_panel.err_checklist_more', { count: (body.blockingCount ?? body.blocking.length) - 4 }) : ''
+          setStageError(t('page.document_detail_panel.err_checklist_blocked', { count: body.blockingCount ?? body.blocking.length, bullets }) + extra)
           return
         }
-        setStageError(body?.message ?? `Could not advance the stage (HTTP ${err.status}).`)
+        setStageError(body?.message ?? t('page.document_detail_panel.err_advance_http', { status: err.status }))
         return
       }
-      setStageError('Could not advance the stage. Please try again.')
+      setStageError(t('page.document_detail_panel.err_advance_generic'))
     },
   })
 
@@ -118,7 +120,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
             projectId={projectId}
             source={{ id: viewing.uploadId, fileName: viewing.fileName, contentType: viewing.contentType, previewable: viewing.previewable }}
             page={null}
-            backLabel="← Document"
+            backLabel={t('page.document_detail_panel.back_document')}
             onBack={() => setViewing(null)}
           />
         </div>
@@ -126,29 +128,29 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
       {doc && !viewing && (
         <div className="flex min-h-full flex-col" data-panel="document-detail">
           <div className="flex-1">
-            <MetaSection label="Status">
+            <MetaSection label={t('page.document_detail_panel.status')}>
               <StatusPill status={doc.status} />
             </MetaSection>
 
-            <MetaSection label="Document">
-              <MetaRow label="Type">{typeLabel}</MetaRow>
-              <MetaRow label="Stage">{stageLabel}</MetaRow>
-              <MetaRow label="Version">{doc.version}</MetaRow>
-              <MetaRow label="Therapeutic area">{doc.therapeuticArea || '—'}</MetaRow>
-              <MetaRow label="Assigned to">{assigneeName}</MetaRow>
+            <MetaSection label={t('page.document_detail_panel.document')}>
+              <MetaRow label={t('page.document_detail_panel.type_label')}>{typeLabel}</MetaRow>
+              <MetaRow label={t('page.document_detail_panel.stage_label')}>{stageLabel}</MetaRow>
+              <MetaRow label={t('page.document_detail_panel.version_label')}>{doc.version}</MetaRow>
+              <MetaRow label={t('page.document_detail_panel.therapeutic_area')}>{doc.therapeuticArea || t('page.detail_panel_parts.em_dash')}</MetaRow>
+              <MetaRow label={t('page.document_detail_panel.assigned_to')}>{assigneeName}</MetaRow>
             </MetaSection>
 
-            <MetaSection label="Dates">
-              <MetaRow label="Created">{fmtDate(doc.createdAt)}</MetaRow>
-              <MetaRow label="Last updated">{fmtDate(doc.updatedAt)}</MetaRow>
-              <MetaRow label="Target date">{fmtDate(doc.targetCompletionDate)}</MetaRow>
+            <MetaSection label={t('page.document_detail_panel.dates')}>
+              <MetaRow label={t('page.document_detail_panel.created')}>{fmtDate(doc.createdAt)}</MetaRow>
+              <MetaRow label={t('page.document_detail_panel.last_updated')}>{fmtDate(doc.updatedAt)}</MetaRow>
+              <MetaRow label={t('page.document_detail_panel.target_date')}>{fmtDate(doc.targetCompletionDate)}</MetaRow>
             </MetaSection>
 
-            <MetaSection label={`Source documents${sources.data ? ` (${items.length})` : ''}`}>
-              {sources.isLoading && <p className="text-[13px] text-slate-400">Loading…</p>}
-              {sources.isError && <p className="text-[13px] text-red-700" role="alert">Could not load the linked source documents.</p>}
+            <MetaSection label={sources.data ? t('page.document_detail_panel.source_documents_with_count', { count: items.length }) : t('page.document_detail_panel.source_documents')}>
+              {sources.isLoading && <p className="text-[13px] text-slate-400">{t('page.document_detail_panel.loading')}</p>}
+              {sources.isError && <p className="text-[13px] text-red-700" role="alert">{t('page.document_detail_panel.sources_load_failed')}</p>}
               {sources.data && items.length === 0 && (
-                <p className="text-[13px] text-slate-400" data-empty-sources>No source documents linked.</p>
+                <p className="text-[13px] text-slate-400" data-empty-sources>{t('page.document_detail_panel.no_sources_linked')}</p>
               )}
               <ul className="flex flex-col gap-2.5">
                 {items.map(s => (
@@ -165,19 +167,19 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                         onClick={() => void view(s)}
                         disabled={downloading === s.uploadId}
                         className="flex-none rounded-md border border-slate-200 px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:text-slate-400"
-                        title={s.previewable ? 'View the source file' : 'This file type cannot be previewed — it will be downloaded.'}
+                        title={s.previewable ? t('page.document_detail_panel.view_source_tooltip') : t('page.document_detail_panel.download_source_tooltip')}
                       >
-                        {downloading === s.uploadId ? '…' : s.previewable ? 'View' : 'Download'}
+                        {downloading === s.uploadId ? '…' : s.previewable ? t('page.document_detail_panel.action_view') : t('page.document_detail_panel.action_download')}
                       </button>
                     </div>
                     <div className="mt-2">
-                      <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400">Cited in sections</p>
+                      <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400">{t('page.document_detail_panel.cited_in_sections')}</p>
                       {s.sections.length === 0 ? (
-                        <p className="text-[12px] text-slate-400">Not cited in any section yet.</p>
+                        <p className="text-[12px] text-slate-400">{t('page.document_detail_panel.not_cited_yet')}</p>
                       ) : (
                         <div className="flex flex-wrap gap-1.5">
                           {s.sections.map(sec => (
-                            <span key={sec.sectionId} className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] text-slate-700" title={`${sec.references} reference${sec.references === 1 ? '' : 's'}`}>
+                            <span key={sec.sectionId} className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[11px] text-slate-700" title={t('page.document_detail_panel.section_tooltip', { count: sec.references })}>
                               {sec.number ? `${sec.number.startsWith('§') ? sec.number : `§${sec.number}`} ` : ''}{sec.title}
                             </span>
                           ))}
@@ -205,7 +207,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                   className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50"
                   data-action="open-document"
                 >
-                  <EyeIcon /> Open
+                  <EyeIcon /> {t('page.document_detail_panel.action_open')}
                 </button>
                 {/* R-only RACI shortcut per the role shift (docs/roles-and-permissions.md §5a).
                     Opens the RACI matrix in a focused drawer owned by the parent screen —
@@ -217,9 +219,9 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                     onClick={() => onOpenRaci(doc.id)}
                     className="inline-flex items-center gap-2 rounded-md border border-slate-300 bg-white px-3 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
                     data-action="open-raci"
-                    title="Open RACI assignments for this document"
+                    title={t('page.document_detail_panel.raci_tooltip')}
                   >
-                    RACI
+                    {t('page.document_detail_panel.raci_action')}
                   </button>
                 )}
               </div>
@@ -230,14 +232,14 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                   disabled={advance.isPending}
                   className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
                   data-action="advance-stage"
-                  title={`Move this document from ${stage.data.currentLabel} to ${stage.data.nextLabel}`}
+                  title={t('page.document_detail_panel.advance_tooltip', { currentLabel: stage.data.currentLabel, nextLabel: stage.data.nextLabel })}
                 >
-                  {advance.isPending ? 'Advancing…' : `Advance to ${stage.data.nextLabel} →`}
+                  {advance.isPending ? t('page.document_detail_panel.advancing') : t('page.document_detail_panel.advance_to', { nextLabel: stage.data.nextLabel })}
                 </button>
               )}
               {stage.data?.terminal && (
                 <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400" data-stage-terminal>
-                  Final Output
+                  {t('page.document_detail_panel.final_output')}
                 </span>
               )}
             </div>

@@ -12,6 +12,7 @@
 // returned by the API (/documents/:id/raci/:raciId/complete response,
 // or the pm-dashboard raciProgress column).
 
+import { useTranslation } from 'react-i18next'
 import type { RaciTransitionEvaluation } from '../../api/raci'
 
 export interface StatusStripProps {
@@ -21,12 +22,12 @@ export interface StatusStripProps {
   className?: string
 }
 
-const LETTER_LABEL: Record<string, string> = {
-  R: 'authors',
-  A: 'approvers',
-  C: 'reviewers',
-  I: 'informed',
-  Q: 'QC',
+const LETTER_LABEL_KEY: Record<string, string> = {
+  R: 'letter_r_label',
+  A: 'letter_a_label',
+  C: 'letter_c_label',
+  I: 'letter_i_label',
+  Q: 'letter_q_label',
 }
 
 function colourFor(ev: RaciTransitionEvaluation): 'emerald' | 'amber' | 'rose' | 'slate' {
@@ -44,42 +45,44 @@ const COLOUR_CLASSES: Record<'emerald' | 'amber' | 'rose' | 'slate', string> = {
 }
 
 export function StatusStrip({ evaluation, showNextStatus = false, className }: StatusStripProps) {
+  const { t } = useTranslation()
   if (!evaluation) {
     return (
       <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-md border text-xs font-medium ${COLOUR_CLASSES.slate} ${className ?? ''}`}>
-        No RACI evaluation yet
+        {t('component.status_strip.no_evaluation')}
       </span>
     )
   }
 
   const colour = colourFor(evaluation)
   const letter = evaluation.gatingLetter
-  const label = letter ? LETTER_LABEL[letter] ?? letter : ''
+  const labelKey = letter ? LETTER_LABEL_KEY[letter] : null
+  const label = labelKey ? t(`component.status_strip.${labelKey}`) : letter ?? ''
 
   // Terminal case: no gating letter means the doc is 'signed' (or similar).
   if (!letter) {
     return (
       <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-md border text-xs font-medium ${COLOUR_CLASSES.slate} ${className ?? ''}`}>
-        Complete — no gating cohort
+        {t('component.status_strip.terminal')}
       </span>
     )
   }
 
-  const bodyLeft = `${evaluation.cohortDone} of ${evaluation.cohortTotal} ${label} done`
+  const bodyLeft = t('component.status_strip.cohort_body', { done: evaluation.cohortDone, total: evaluation.cohortTotal, label })
   const rejectedSuffix = evaluation.rejectedRows > 0
-    ? ` — ${evaluation.rejectedRows} rejected`
+    ? t('component.status_strip.rejected_suffix', { count: evaluation.rejectedRows })
     : ''
 
   return (
     <span
       className={`inline-flex items-center gap-2 px-3 py-1 rounded-md border text-xs font-medium ${COLOUR_CLASSES[colour]} ${className ?? ''}`}
-      aria-label={`Cohort progress: ${bodyLeft}${rejectedSuffix}`}
+      aria-label={t('component.status_strip.aria_progress', { body: bodyLeft, suffix: rejectedSuffix })}
     >
       <span className="font-semibold uppercase tracking-wider">{letter}</span>
       <span>{bodyLeft}{rejectedSuffix}</span>
       {showNextStatus && evaluation.nextStatus && (
         <span className="text-[11px] opacity-75 border-l pl-2 ml-1 border-current">
-          next: {humanStatus(evaluation.nextStatus)}
+          {t('component.status_strip.next_label', { status: humanStatus(evaluation.nextStatus) })}
         </span>
       )}
     </span>

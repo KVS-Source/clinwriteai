@@ -12,6 +12,7 @@
 //
 // Deliberately a single <span> so it slots into any inline layout.
 
+import { useTranslation } from 'react-i18next'
 import type { AutosaveStatus } from '../../hooks/useAutosave'
 import type { LockMode, LockHolder } from '../../hooks/useSectionLock'
 
@@ -37,6 +38,7 @@ export interface SectionAutosaveStatusProps {
 }
 
 export function SectionAutosaveStatus({ lockMode, holder, holderName, status, lastSavedAt, readOnlyReason }: SectionAutosaveStatusProps) {
+  const { t } = useTranslation()
   if (readOnlyReason) {
     return (
       <span className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800" data-document-read-only>
@@ -44,7 +46,7 @@ export function SectionAutosaveStatus({ lockMode, holder, holderName, status, la
           <rect x="2" y="4.4" width="6" height="4" rx="0.8" />
           <path d="M3.4 4.4 V3 a1.6 1.6 0 0 1 3.2 0 V4.4" />
         </svg>
-        Read-only — {readOnlyReason}
+        {t('page.section_autosave_status.read_only_prefix', { reason: readOnlyReason })}
       </span>
     )
   }
@@ -53,13 +55,13 @@ export function SectionAutosaveStatus({ lockMode, holder, holderName, status, la
     return (
       <span
         className="inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
-        title={`Lease expires in ${fmtExpiresIn(holder.expiresInSeconds)} unless renewed`}
+        title={t('page.section_autosave_status.lease_expires', { time: fmtExpiresIn(holder.expiresInSeconds) })}
       >
         <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
           <rect x="2" y="4.4" width="6" height="4" rx="0.8" />
           <path d="M3.4 4.4 V3 a1.6 1.6 0 0 1 3.2 0 V4.4" />
         </svg>
-        Read-only — {name} is editing
+        {t('page.section_autosave_status.foreign_read_only_prefix', { name })}
       </span>
     )
   }
@@ -70,7 +72,7 @@ export function SectionAutosaveStatus({ lockMode, holder, holderName, status, la
   let icon: React.ReactNode = null
 
   if (status === 'saving') {
-    label = 'Saving…'
+    label = t('page.section_autosave_status.saving')
     tone = 'neutral'
     icon = (
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4" className="animate-spin">
@@ -78,7 +80,7 @@ export function SectionAutosaveStatus({ lockMode, holder, holderName, status, la
       </svg>
     )
   } else if (status === 'error') {
-    label = 'Save failed — retrying on next change'
+    label = t('page.section_autosave_status.save_failed')
     tone = 'err'
     icon = (
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.4">
@@ -88,7 +90,7 @@ export function SectionAutosaveStatus({ lockMode, holder, holderName, status, la
       </svg>
     )
   } else if (status === 'dirty') {
-    label = 'Editing — autosaves on pause'
+    label = t('page.section_autosave_status.editing_dirty')
     tone = 'muted'
     icon = (
       <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
@@ -96,7 +98,7 @@ export function SectionAutosaveStatus({ lockMode, holder, holderName, status, la
       </svg>
     )
   } else if (status === 'saved' && lastSavedAt) {
-    label = `Saved ${fmtClock(lastSavedAt)}`
+    label = t('page.section_autosave_status.saved_at', { time: fmtClock(lastSavedAt) })
     tone = 'ok'
     icon = (
       <svg width="10" height="10" viewBox="0 0 10 10" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
@@ -104,7 +106,7 @@ export function SectionAutosaveStatus({ lockMode, holder, holderName, status, la
       </svg>
     )
   } else {
-    label = lockMode === 'owned' ? 'Ready — autosaves when you type' : 'Open — click to edit'
+    label = lockMode === 'owned' ? t('page.section_autosave_status.ready_owned') : t('page.section_autosave_status.ready_unowned')
     tone = 'muted'
   }
 

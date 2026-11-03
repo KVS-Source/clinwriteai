@@ -5,6 +5,7 @@
 
 import { useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { PlatformUser } from '@platform/types'
 import { usePresenceSnapshot } from '../../hooks/usePresence'
 import { platformApi } from '../../platform/api/platformApi'
@@ -43,6 +44,7 @@ export function PresenceStack({ documentId, currentUserId, currentUserName }: {
   /** Fallback for the viewer's own avatar — non-admins can't read /admin/users. */
   currentUserName?: string | null
 }) {
+  const { t } = useTranslation()
   const { data: presenceSnapshot } = usePresenceSnapshot(documentId, { pollMs: 15_000 })
 
   // Resolve user id → PlatformUser so avatars can show initials + full
@@ -74,14 +76,14 @@ export function PresenceStack({ documentId, currentUserId, currentUserName }: {
         const name = u.userName ?? usersById.get(u.userId)?.name ?? (u.userId === currentUserId ? currentUserName : null)
         return {
           userId: u.userId,
-          name: name ?? 'Unknown',
+          name: name ?? t('page.presence_stack.unknown'),
           initials: initialsFromName(name),
           isCurrentUser: currentUserId === u.userId,
           color: avatarColor(u.userId),
           status: u.status,
         }
       })
-  }, [presenceSnapshot, usersById, currentUserId, currentUserName])
+  }, [presenceSnapshot, usersById, currentUserId, currentUserName, t])
 
   return (
     <>
@@ -89,7 +91,7 @@ export function PresenceStack({ documentId, currentUserId, currentUserName }: {
         {stack.slice(0, 5).map((p, i) => (
           <div
             key={p.userId}
-            title={`${p.name}${p.isCurrentUser ? ' (you)' : ''} · ${p.status}`}
+            title={t('page.presence_stack.tooltip', { name: p.name, suffix: p.isCurrentUser ? t('page.presence_stack.you_suffix') : '', status: p.status })}
             className="flex h-6 w-6 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold"
             style={{
               backgroundColor: p.color.bg,
@@ -107,7 +109,7 @@ export function PresenceStack({ documentId, currentUserId, currentUserName }: {
         ))}
         {stack.length > 5 && (
           <div
-            title={`+${stack.length - 5} more`}
+            title={t('page.presence_stack.more_tooltip', { count: stack.length - 5 })}
             className="flex h-6 w-6 flex-none items-center justify-center rounded-full bg-slate-200 font-mono text-[10px] font-bold text-slate-600"
             style={{ boxShadow: '0 0 0 2px #FFFFFF', marginLeft: -6 }}
           >
@@ -118,7 +120,7 @@ export function PresenceStack({ documentId, currentUserId, currentUserName }: {
 
       <span className="h-5 w-px" style={{ backgroundColor: '#E2E8F0' }} />
       <span className="flex-none text-xs text-slate-500">
-        {stack.length === 0 ? 'Only you' : `${stack.length} active`}
+        {stack.length === 0 ? t('page.presence_stack.only_you') : t('page.presence_stack.active_count', { count: stack.length })}
       </span>
     </>
   )

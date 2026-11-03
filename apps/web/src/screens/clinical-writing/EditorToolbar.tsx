@@ -1,5 +1,6 @@
 import type { PanelMode } from '@platform/types'
 import { useEditorState } from '@tiptap/react'
+import { useTranslation } from 'react-i18next'
 import { useDocumentStore } from '../../store'
 import { ReferenceDropdown } from '../../components/ui'
 
@@ -128,6 +129,7 @@ interface EditorToolbarProps {
 }
 
 export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarProps = {}) {
+  const { t } = useTranslation()
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
@@ -170,14 +172,14 @@ export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarPro
     >
 
       {/* Formatting cluster — wired to TipTap commands (Phase 2.1) */}
-      <IconButton title="Bold (⌘B)"      active={isActive('bold')}      disabled={formatDisabled} onClick={runCmd(c => c.toggleBold())}><BoldIcon /></IconButton>
-      <IconButton title="Italic (⌘I)"    active={isActive('italic')}    disabled={formatDisabled} onClick={runCmd(c => c.toggleItalic())}><ItalicIcon /></IconButton>
-      <IconButton title="Underline (⌘U)" active={isActive('underline')} disabled={formatDisabled} onClick={runCmd(c => c.toggleUnderline())}><UnderlineIcon /></IconButton>
+      <IconButton title={t('page.editor_toolbar.bold_tooltip')}      active={isActive('bold')}      disabled={formatDisabled} onClick={runCmd(c => c.toggleBold())}><BoldIcon /></IconButton>
+      <IconButton title={t('page.editor_toolbar.italic_tooltip')}    active={isActive('italic')}    disabled={formatDisabled} onClick={runCmd(c => c.toggleItalic())}><ItalicIcon /></IconButton>
+      <IconButton title={t('page.editor_toolbar.underline_tooltip')} active={isActive('underline')} disabled={formatDisabled} onClick={runCmd(c => c.toggleUnderline())}><UnderlineIcon /></IconButton>
 
       <Divider />
 
       <select
-        title="Heading level"
+        title={t('page.editor_toolbar.heading_level_tooltip')}
         disabled={formatDisabled}
         value={currentHeadingLevel ?? 'p'}
         onChange={e => {
@@ -190,20 +192,20 @@ export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarPro
         className="h-7 flex-none rounded-md border px-2 text-xs font-semibold transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-50"
         style={{ borderColor: '#E2E8F0', backgroundColor: '#FFFFFF', color: '#475569' }}
       >
-        <option value="p">Paragraph</option>
-        <option value="2">Heading 2</option>
-        <option value="3">Heading 3</option>
-        <option value="4">Heading 4</option>
+        <option value="p">{t('page.editor_toolbar.paragraph')}</option>
+        <option value="2">{t('page.editor_toolbar.heading_2')}</option>
+        <option value="3">{t('page.editor_toolbar.heading_3')}</option>
+        <option value="4">{t('page.editor_toolbar.heading_4')}</option>
       </select>
 
       <Divider />
 
-      <IconButton title="Bulleted list" active={isActive('bulletList')}  disabled={formatDisabled} onClick={runCmd(c => c.toggleBulletList())}><BulletListIcon /></IconButton>
-      <IconButton title="Numbered list" active={isActive('orderedList')} disabled={formatDisabled} onClick={runCmd(c => c.toggleOrderedList())}><NumberListIcon /></IconButton>
+      <IconButton title={t('page.editor_toolbar.bulleted_list_tooltip')} active={isActive('bulletList')}  disabled={formatDisabled} onClick={runCmd(c => c.toggleBulletList())}><BulletListIcon /></IconButton>
+      <IconButton title={t('page.editor_toolbar.numbered_list_tooltip')} active={isActive('orderedList')} disabled={formatDisabled} onClick={runCmd(c => c.toggleOrderedList())}><NumberListIcon /></IconButton>
 
       <Divider />
 
-      <IconButton title="Blockquote" active={isActive('blockquote')} disabled={formatDisabled} onClick={runCmd(c => c.toggleBlockquote())}><TableIcon /></IconButton>
+      <IconButton title={t('page.editor_toolbar.blockquote_tooltip')} active={isActive('blockquote')} disabled={formatDisabled} onClick={runCmd(c => c.toggleBlockquote())}><TableIcon /></IconButton>
 
       <Divider />
 
@@ -212,9 +214,9 @@ export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarPro
       <Divider />
 
       {/* Panel triggers */}
-      <IconButton title="Voice note"      active={activePanel === 'voice'}     panelTrigger onClick={() => toggle('voice')}><VoiceIcon /></IconButton>
-      <IconButton title="Checklist" active={activePanel === 'checklist'} panelTrigger onClick={() => toggle('checklist')}><ChecklistIcon /></IconButton>
-      <IconButton title="Audit trail"     active={activePanel === 'audit'}     panelTrigger onClick={() => toggle('audit')}><AuditIcon /></IconButton>
+      <IconButton title={t('page.editor_toolbar.voice_note_tooltip')} active={activePanel === 'voice'}     panelTrigger onClick={() => toggle('voice')}><VoiceIcon /></IconButton>
+      <IconButton title={t('page.editor_toolbar.checklist_tooltip')} active={activePanel === 'checklist'} panelTrigger onClick={() => toggle('checklist')}><ChecklistIcon /></IconButton>
+      <IconButton title={t('page.editor_toolbar.audit_trail_tooltip')} active={activePanel === 'audit'}     panelTrigger onClick={() => toggle('audit')}><AuditIcon /></IconButton>
 
       {/* Spacer */}
       <div className="flex-1" />
@@ -223,7 +225,7 @@ export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarPro
           outside-click handler leaves it to toggle the panel itself. */}
       <button
         type="button"
-        title="Comments"
+        title={t('page.editor_toolbar.comments_tooltip')}
         aria-pressed={activePanel === 'comments'}
         onClick={() => toggle('comments')}
         data-panel-trigger
@@ -236,7 +238,7 @@ export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarPro
         <svg width="13" height="13" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" aria-hidden="true">
           <path d="M2 2.5h10v7H7.2L4.4 12V9.5H2z" />
         </svg>
-        Comments
+        {t('page.editor_toolbar.comments_label')}
       </button>
 
       {/* "Edit section" button removed in the autosave rollout — sections are
@@ -247,7 +249,7 @@ export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarPro
       {/* AI Chat — accent button (label matches the panel header). */}
       <button
         type="button"
-        title="Open AI Chat (⌘J)"
+        title={t('page.editor_toolbar.ai_chat_tooltip')}
         onClick={() => toggle('ai')}
         data-panel-trigger
         className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-bold transition-colors"
@@ -258,7 +260,7 @@ export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarPro
         }}
       >
         <SparkleIcon />
-        AI Chat
+        {t('page.editor_toolbar.ai_chat_label')}
         <span className="rounded-[3px] px-1 py-0.5 font-mono text-[9px] font-medium" style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
           ⌘J
         </span>
@@ -276,9 +278,9 @@ export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarPro
           cursor:          'not-allowed',
         }}
       >
-        Insert citation
+        {t('page.editor_toolbar.insert_citation')}
         <span className="rounded-[3px] px-1 py-0.5 font-mono text-[9px] font-medium tracking-wider" style={{ backgroundColor: '#F1F5F9', color: '#94A3B8' }}>
-          SOON
+          {t('page.editor_toolbar.soon_badge')}
         </span>
       </button>
     </div>

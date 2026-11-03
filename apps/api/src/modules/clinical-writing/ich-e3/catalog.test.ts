@@ -88,6 +88,81 @@ describe('buildIchE3Report', () => {
     })
   })
 
+  describe('progress (status-icon tooltip)', () => {
+    const words = (n: number) => `<p>${Array.from({ length: n }, () => 'word').join(' ')}</p>`
+    const numbered = (sectionId: string, sectionNumber: string, contentHtml: string, ichStatus = 'in_progress') =>
+      ({ ...sec(sectionId, contentHtml, ichStatus), sectionNumber })
+
+    it('scores 4 checks for a section without subsections — word count is not one of them', () => {
+      const r = buildIchE3Report({ sections: [sec('s7', words(5))], waivers: [] })
+      expect(row(r, '§7')?.progress).toMatchObject({ wordCount: 5, minWords: 20, placeholders: 0, markedComplete: false, checksDone: 3, checksTotal: 4 })
+      expect(row(r, '§7')?.progress.subsections).toBeUndefined()
+      expect(row(r, '§7')?.progress.checks.map(c => c.key)).toEqual(['has_content', 'no_placeholders', 'no_open_comments', 'marked_complete'])
+    })
+
+    it('passes every check for a short, marked-complete section (e.g. a title page)', () => {
+      const r = buildIchE3Report({ sections: [sec('s1', words(4), 'complete')], waivers: [] })
+      expect(row(r, '§1')?.progress).toMatchObject({ checksDone: 4, checksTotal: 4 })
+    })
+
+    it('leaves the placeholder check out for an empty or missing section', () => {
+      const r = buildIchE3Report({ sections: [sec('s8', '<p></p>')], waivers: [] })
+      expect(row(r, '§8')?.progress).toMatchObject({ wordCount: 0, checksDone: 1, checksTotal: 3 })   // only "no open comments"
+      expect(row(r, '§9')?.progress).toMatchObject({ checksDone: 1, checksTotal: 3 })
+      expect(row(r, '§9')?.progress.checks.map(c => c.key)).not.toContain('no_placeholders')
+    })
+
+    it.each([
+      ['<p>Results [TBD] pending</p>', 1],
+      ['<p>HR [XX] (95% CI [X]–[XX])</p>', 3],
+      ['<p>See [INSERT Table 14.2.1] and [ref]</p>', 2],
+      ['<ol><li>[STUB_claude-opus-4-7] Would respond to a prompt of length 207.71</li></ol>', 1],
+      ['<p>[ PLACEHOLDER ] and [TBC]</p>', 2],
+      ['<p>Reported in [1] and Table 14.2.1 [Section 9.4]</p>', 0],
+    ])('counts placeholders in %s', (html, count) => {
+      const r = buildIchE3Report({ sections: [sec('s7', html)], waivers: [] })
+      expect(row(r, '§7')?.progress.placeholders).toBe(count)
+      expect(row(r, '§7')?.progress.checks.find(c => c.key === 'no_placeholders')?.passed).toBe(count === 0)
+    })
+
+    it('counts subsections across the whole section, even though status reads only the first row', () => {
+      const r = buildIchE3Report({
+        sections: [numbered('s11', '§11', words(30), 'complete'), numbered('s11_1', '§11.1', words(30), 'complete'), numbered('s11_4', '§11.4', words(3))],
+        waivers: [],
+      })
+      expect(row(r, '§11')?.status).toBe('complete')
+      expect(row(r, '§11')?.progress).toMatchObject({ subsections: { total: 2, completed: 1 }, checksTotal: 5, checksDone: 4 })
+      expect(row(r, '§1')?.progress.subsections).toBeUndefined()   // s11* rows are not §1 subsections
+    })
+
+    it('does not count an approve verdict as an open comment', () => {
+      const r = buildIchE3Report({
+        sections: [numbered('s7', '§7', words(30))],
+        waivers: [],
+        openComments: [{ sectionRef: '§7', verdict: 'approve' }, { sectionRef: '§7', verdict: 'request_changes' }, { sectionRef: '§7', verdict: null }],
+      })
+      expect(row(r, '§7')?.progress.openComments).toBe(2)
+    })
+
+    it('counts open comments and source references on the section and its subsections', () => {
+      const r = buildIchE3Report({
+        sections: [numbered('s11', '§11', words(30)), numbered('s11_4', '§11.4', words(30))],
+        waivers: [],
+        openComments: [{ sectionRef: '§11.4' }, { sectionRef: '§ 11' }, { sectionRef: '§1' }],
+        sourceReferences: [{ sectionId: 's11_4' }, { sectionId: 's2' }],
+      })
+      expect(row(r, '§11')?.progress).toMatchObject({ openComments: 2, sourceReferences: 1 })
+      expect(row(r, '§11')?.progress.checks.find(c => c.key === 'no_open_comments')?.passed).toBe(false)
+    })
+
+    it('does not change status or the completion percent', () => {
+      const r = buildIchE3Report({ sections: [numbered('s7', '§7', words(3), 'complete')], waivers: [], openComments: [{ sectionRef: '§7' }] })
+      expect(row(r, '§7')?.progress).toMatchObject({ openComments: 1, checksDone: 3, checksTotal: 4 })
+      expect(row(r, '§7')?.status).toBe('complete')
+      expect(r.completeCount).toBe(1)
+    })
+  })
+
   describe('§16.4 (conditional, US only)', () => {
     it('is hidden when the document has no §16.4 section and no waiver', () => {
       expect(row(buildIchE3Report({ sections: [], waivers: [] }), '§16.4')).toBeUndefined()

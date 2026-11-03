@@ -27,7 +27,7 @@ export type PanelMode =
   | null
 
 export type SignatureStatus = 'signed' | 'awaiting' | 'queued'
-export type SignatureMeaning = 'authored' | 'reviewed' | 'approved'
+export type SignatureMeaning = 'authored' | 'reviewed' | 'approved' | 'acknowledged'
 export type CommentSeverity = 'major' | 'minor' | 'query'
 export type CommentStatus = 'open' | 'resolved'
 export type ChecklistItemStatus = 'pending' | 'in-progress' | 'complete' | 'waived' | 'removed'

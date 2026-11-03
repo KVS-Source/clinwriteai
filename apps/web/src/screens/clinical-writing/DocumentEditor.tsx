@@ -233,6 +233,8 @@ export function DocumentEditor() {
       // both so the version chip + the sections tree stay accurate.
       qc.invalidateQueries({ queryKey: ['document', documentId] })
       qc.invalidateQueries({ queryKey: ['versions', documentId] })
+      // A save changes the section's words and status — keep the ICH E3 checklist current.
+      qc.invalidateQueries({ queryKey: ['ich-e3', documentId] })
       return result
     }, [documentId, activeSectionData, qc]),
   })

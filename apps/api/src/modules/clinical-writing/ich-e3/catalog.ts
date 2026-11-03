@@ -59,10 +59,84 @@ export function hasSectionContent(contentHtml: string | null | undefined): boole
   return html !== '' && html !== '<p></p>'
 }
 
+/** The section's visible text, tags stripped. */
+function sectionText(contentHtml: string | null | undefined): string {
+  return (contentHtml ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').trim()
+}
+
 /** Whitespace-separated word count of the section's visible text. */
 export function sectionWordCount(contentHtml: string | null | undefined): number {
-  const text = (contentHtml ?? '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ').trim()
+  const text = sectionText(contentHtml)
   return text === '' ? 0 : text.split(/\s+/).length
+}
+
+// Bracketed drafting markers a finished section must not contain: [TBD],
+// [TBC], [X] / [XX], [PLACEHOLDER], [REF], [INSERT …] and the AI drafter's
+// [STUB_…] text. Case-insensitive.
+const PLACEHOLDER_PATTERN = /\[\s*(?:TBD|TBC|X+|PLACEHOLDER|REF|INSERT\b[^\]]*|STUB_[^\]]*)\s*\]/gi
+
+/** Number of placeholder markers left in the section's visible text. */
+export function sectionPlaceholderCount(contentHtml: string | null | undefined): number {
+  return sectionText(contentHtml).match(PLACEHOLDER_PATTERN)?.length ?? 0
+}
+
+/** Below this many words a section gets a "check it's finished" hint. */
+export const ICH_MIN_SECTION_WORDS = 20
+
+/** '§11.4' / '11.4' / '§ 11.4' → '11.4', so comment sectionRefs match section numbers. */
+export function normalizeSectionRef(ref: string): string {
+  return ref.replace(/^(§\s*)+/, '').trim().toLowerCase()
+}
+
+// --- Section progress (the status-icon tooltip) ---
+//
+// Each row also carries a breakdown of how far along the section is: a fixed
+// list of checks, scored "n of m done". It's informational only — status and
+// the completion percent above don't read it. The checks live in this one
+// list so the set can change in one place; a check that returns null doesn't
+// apply to the section (e.g. no subsections) and is left out of the total.
+//
+// The set follows the usual medical-writing "section done" steps: written,
+// no drafting placeholders left, all subsections done, review comments
+// resolved, author sign-off. Word count is deliberately not scored — short
+// sections (title page, ToC) can be complete.
+
+export type IchProgressCheckKey =
+  | 'has_content'
+  | 'no_placeholders'
+  | 'subsections_complete'
+  | 'no_open_comments'
+  | 'marked_complete'
+
+interface ProgressFacts {
+  hasContent:     boolean
+  placeholders:   number
+  markedComplete: boolean
+  subsections?:   { total: number; completed: number }
+  openComments:   number
+}
+
+export const ICH_PROGRESS_CHECKS: ReadonlyArray<{ key: IchProgressCheckKey; evaluate: (f: ProgressFacts) => boolean | null }> = [
+  { key: 'has_content',          evaluate: f => f.hasContent },
+  { key: 'no_placeholders',      evaluate: f => f.hasContent ? f.placeholders === 0 : null },
+  { key: 'subsections_complete', evaluate: f => f.subsections ? f.subsections.completed === f.subsections.total : null },
+  { key: 'no_open_comments',     evaluate: f => f.openComments === 0 },
+  { key: 'marked_complete',      evaluate: f => f.markedComplete },
+]
+
+export interface IchSectionProgress {
+  wordCount:        number
+  minWords:         number                                  // the short-section hint threshold (not scored)
+  placeholders:     number
+  markedComplete:   boolean
+  subsections?:     { total: number; completed: number }   // only when the section has subsections
+  openComments:     number                                  // open comments needing action (approvals excluded)
+  sourceReferences: number                                  // info only, not scored
+  lastEditedAt:     string | null                           // ISO
+  lastEditedByName: string | null
+  checks:           Array<{ key: IchProgressCheckKey; passed: boolean }>
+  checksDone:       number
+  checksTotal:      number
 }
 
 /**
@@ -103,6 +177,7 @@ export interface IchSectionReport {
   // Conditional (US-only) rows only: whether the project's submission
   // countries make the section required. Absent when the countries are unknown.
   requirement?: 'required' | 'not-required'
+  progress:    IchSectionProgress
   waiver?: {
     waivedBy:     string
     waivedByName: string | null
@@ -141,8 +216,14 @@ export function buildIchE3Report(args: {
   applicable?:    boolean
   documentTitle?: string
   submissionCountries?: ReadonlyArray<string>
-  sections:  ReadonlyArray<{ sectionId: string; contentHtml: string | null; ichStatus: string }>
+  sections:  ReadonlyArray<{
+    sectionId: string; contentHtml: string | null; ichStatus: string
+    sectionNumber?: string; lastEditedAt?: Date | null; lastEditedByName?: string | null
+  }>
   waivers:   ReadonlyArray<{ sectionCode: string; waivedBy: string; waivedByName?: string | null; waivedAt: Date; reason: string; versionAtWaiver: string }>
+  // Feed the per-section progress only; omitted = none.
+  openComments?:     ReadonlyArray<{ sectionRef: string; verdict?: string | null }>
+  sourceReferences?: ReadonlyArray<{ sectionId: string }>
 }): IchE3Report {
   const applicable    = args.applicable ?? true
   const documentTitle = args.documentTitle ?? ''
@@ -155,6 +236,46 @@ export function buildIchE3Report(args: {
   }
 
   const waiverByCode = new Map(args.waivers.map(w => [w.sectionCode, w]))
+  // An 'approve' verdict is stored as an open comment but needs no action.
+  const openComments     = (args.openComments ?? []).filter(c => c.verdict !== 'approve').map(c => normalizeSectionRef(c.sectionRef))
+  const sourceReferences = args.sourceReferences ?? []
+
+  // Progress for one catalog section, over its row and all its subsection rows
+  // (§11 covers s11, s11_4, …). `section` is the row the status is judged on.
+  const progressFor = (catalogSectionId: string, section: typeof args.sections[number] | null): IchSectionProgress => {
+    const group = args.sections.filter(s => s.sectionId === catalogSectionId || s.sectionId.startsWith(`${catalogSectionId}_`))
+    const subRows = group.filter(s => s.sectionId !== catalogSectionId)
+    const subsections = subRows.length > 0
+      ? { total: subRows.length, completed: subRows.filter(s => s.ichStatus === 'complete' && hasSectionContent(s.contentHtml)).length }
+      : undefined
+    const numbers = new Set(group.flatMap(s => s.sectionNumber ? [normalizeSectionRef(s.sectionNumber)] : []))
+    const ids     = new Set(group.map(s => s.sectionId))
+    const facts: ProgressFacts = {
+      hasContent:     hasSectionContent(section?.contentHtml),
+      placeholders:   sectionPlaceholderCount(section?.contentHtml),
+      markedComplete: section?.ichStatus === 'complete',
+      subsections,
+      openComments:   openComments.filter(ref => numbers.has(ref)).length,
+    }
+    const checks = ICH_PROGRESS_CHECKS.flatMap(c => {
+      const passed = c.evaluate(facts)
+      return passed === null ? [] : [{ key: c.key, passed }]
+    })
+    return {
+      wordCount:        sectionWordCount(section?.contentHtml),
+      minWords:         ICH_MIN_SECTION_WORDS,
+      placeholders:     facts.placeholders,
+      markedComplete:   facts.markedComplete,
+      ...(subsections && { subsections }),
+      openComments:     facts.openComments,
+      sourceReferences: sourceReferences.filter(r => ids.has(r.sectionId)).length,
+      lastEditedAt:     section?.lastEditedAt?.toISOString() ?? null,
+      lastEditedByName: section?.lastEditedByName ?? null,
+      checks,
+      checksDone:       checks.filter(c => c.passed).length,
+      checksTotal:      checks.length,
+    }
+  }
 
   const reports: IchSectionReport[] = []
   for (const def of ICH_E3_SECTIONS) {
@@ -174,6 +295,7 @@ export function buildIchE3Report(args: {
       hasContent: hasSectionContent(section?.contentHtml),
       wordCount:  sectionWordCount(section?.contentHtml),
       ...(requirement && { requirement }),
+      progress:   progressFor(def.sectionId, section),
     }
     if (waiver) {
       reports.push({

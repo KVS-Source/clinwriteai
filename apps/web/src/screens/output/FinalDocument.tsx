@@ -9,6 +9,7 @@ import { SectionNavigator } from '../clinical-writing/SectionNavigator'
 import { EditorContent, useRichTextEditor } from '../clinical-writing/RichTextEditor'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
+import { useSignatureAccess } from './useSignatureAccess'
 
 // Avatar palette — matches design-system Pattern 7
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
@@ -19,7 +20,7 @@ const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
 }
 
 // What each signature means, as shown in the chain banner.
-const MEANING_VERB: Record<string, string> = { authored: 'Authored', reviewed: 'Reviewed', approved: 'Approved' }
+const MEANING_VERB: Record<string, string> = { authored: 'Authored', reviewed: 'Reviewed', approved: 'Approved', acknowledged: 'Acknowledged' }
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 
@@ -86,6 +87,8 @@ const RULE_OUTCOME: Record<string, { label: string; colour: string }> = {
 
 export function FinalDocument() {
   const { projectId, documentId } = useParams()
+  // Who may see the Final Document (the e-signature action table): not an admin, a guest, or QC on its own.
+  const access = useSignatureAccess(documentId)
   const [auditOpen, setAuditOpen] = useState(false)
   const [toast, setToast]         = useState<string | null>(null)
   const setActiveProject          = useProjectStore(s => s.setActiveProject)
@@ -256,6 +259,15 @@ export function FinalDocument() {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="font-mono text-sm text-slate-400">Loading document…</p>
+      </div>
+    )
+  }
+
+  if (access.ready && !access.canViewFinal) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-1" data-final-access-denied>
+        <p className="font-mono text-sm text-slate-600">You don't have access to this document's Final Document view.</p>
+        <p className="max-w-md text-center text-xs text-slate-500">It is available to the people named on the document (except QC), project managers and auditors.</p>
       </div>
     )
   }

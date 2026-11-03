@@ -45,6 +45,7 @@ async function buildApp(opts: AppOpts) {
 
   const app = Fastify()
   app.decorate('prisma', {
+    signatureChain: { findFirst: vi.fn(async () => null) },   // no signature chain in progress
     document: { findUnique: documentFindUnique },
     user: { findUnique: userFindUnique },
     documentRaci: {
@@ -78,12 +79,21 @@ const validBody = {
 }
 
 describe('POST /documents/:id/raci — write gate (§5a)', () => {
-  it('tenant-admin is allowed', async () => {
+  it('tenant-admin is refused — admins never edit RACI', async () => {
     const { app, raciCreate } = await buildApp({ actor: USER_ADMIN })
     current = app
     const res = await app.inject({ method: 'POST', url: `/documents/${DOC_ID}/raci`, payload: validBody as never })
-    expect(res.statusCode).toBe(201)
-    expect(raciCreate).toHaveBeenCalledOnce()
+    expect(res.statusCode).toBe(403)
+    expect(raciCreate).not.toHaveBeenCalled()
+  })
+
+  it('a PM is refused even as an existing R — PMs never edit RACI', async () => {
+    const pm: AuthenticatedUser = { ...USER_LEAD_R, id: 'u-pm', role: 'pm' }
+    const { app, raciCreate } = await buildApp({ actor: pm, existingR: { id: 'raci-pm', userId: pm.id } })
+    current = app
+    const res = await app.inject({ method: 'POST', url: `/documents/${DOC_ID}/raci`, payload: validBody as never })
+    expect(res.statusCode).toBe(403)
+    expect(raciCreate).not.toHaveBeenCalled()
   })
 
   it('an existing R on the doc is allowed', async () => {

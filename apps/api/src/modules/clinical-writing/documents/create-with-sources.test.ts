@@ -18,7 +18,7 @@ const UPLOADS = [
   upload('foreign', { projectId: 'proj-2' }),
 ]
 
-async function build() {
+async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string[] = ['proj-1']) {
   const links: Array<Record<string, unknown>> = []
   const documentsCreated: unknown[] = []
   const audit = vi.fn(async () => undefined)
@@ -46,6 +46,10 @@ async function build() {
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1', therapeuticArea: 'Oncology', submissionCountries: [] })) },
+    // Project visibility for the PM creator: a member of proj-1.
+    projectMember:     { findMany: vi.fn(async () => memberOf.map(projectId => ({ projectId }))) },
+    projectTeamMember: { findMany: vi.fn(async () => []) },
+    document:          { findMany: vi.fn(async () => []) },
     documentUpload: {
       findMany: vi.fn(async ({ where }: { where: { id: { in: string[] }; projectId: string } }) =>
         UPLOADS.filter(u => where.id.in.includes(u.id) && u.projectId === where.projectId)),
@@ -69,7 +73,7 @@ async function build() {
   app.decorate('audit', { append: audit } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    const user: AuthenticatedUser = { id: 'writer-1', email: 'w@x.io', role: 'clinical-writer', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'pm-1', email: 'pm@x.io', role: 'pm', modules: ['A'], tenantId: null, ...userOver }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
   })
   await app.register(documentsProjectScopedRoutes, { prefix: '/projects' })
@@ -88,8 +92,8 @@ describe('POST /projects/:id/documents — sourceUploadIds', () => {
     const res = await post({ sourceUploadIds: ['ok1', 'ok2'] })
     expect(res.statusCode).toBe(201)
     expect(links).toEqual([
-      { documentId: 'DOC-NEW', uploadId: 'ok1', linkedBy: 'writer-1' },
-      { documentId: 'DOC-NEW', uploadId: 'ok2', linkedBy: 'writer-1' },
+      { documentId: 'DOC-NEW', uploadId: 'ok1', linkedBy: 'pm-1' },
+      { documentId: 'DOC-NEW', uploadId: 'ok2', linkedBy: 'pm-1' },
     ])
     expect(audit).toHaveBeenCalledWith(expect.objectContaining({
       action: 'document_created',
@@ -122,5 +126,21 @@ describe('POST /projects/:id/documents — sourceUploadIds', () => {
     expect(res.json()).toMatchObject({ error: 'source_unusable', uploadId: id })
     expect(documentsCreated).toHaveLength(0)
     expect(links).toEqual([])
+  })
+})
+
+describe('POST /projects/:id/documents — PM-only', () => {
+  it.each(['contributor', 'tenant-admin', 'auditor'] as const)('refuses %s with 403 and creates nothing', async (role) => {
+    const { post, documentsCreated } = await build({ role })
+    const res = await post({})
+    expect(res.statusCode).toBe(403)
+    expect(documentsCreated).toHaveLength(0)
+  })
+
+  it("404s a PM creating in a project they can't see", async () => {
+    const { post, documentsCreated } = await build({}, ['proj-other'])
+    const res = await post({})
+    expect(res.statusCode).toBe(404)
+    expect(documentsCreated).toHaveLength(0)
   })
 })

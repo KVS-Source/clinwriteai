@@ -281,14 +281,18 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
-  // Create a new document for a project.
-  app.post('/:projectId/documents', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+  // Create a new document for a project. PM-only (also covers Duplicate,
+  // which goes through the same wizard + route), and only in a project the
+  // PM can see — same gate shape as POST /projects.
+  app.post('/:projectId/documents', { preHandler: requireAuth({ roles: ['pm'], modules: ['A'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
+    const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+    if (visible !== 'all' && !visible.has(projectId)) return reply.code(404).send({ error: 'project_not_found' })
 
     // The project's therapeuticArea is copied in and immutable per FR-A-002.
     // Inheriting it is always allowed; anything else must be an active TA.

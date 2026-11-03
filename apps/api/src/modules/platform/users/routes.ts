@@ -122,7 +122,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       where: {
         id: { not: target.id },
         status: 'active',
-        role: { in: ['admin'] },
+        role: { in: [...ADMIN_ROLES] },
         // Platform admins (tenantId null) are cross-tenant, so they count
         // for every tenant; tenant admins only count for their own.
         OR: target.tenantId ? [{ tenantId: target.tenantId }, { tenantId: null }] : [{ tenantId: null }],

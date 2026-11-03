@@ -5,7 +5,8 @@ import { visitModule } from '../helpers/auth'
 //  • MSW on  — the mock chain has the signed-in user's step awaiting, so the
 //    test signs it and checks the chain advances (progress + row state).
 //  • Live API — no chain may exist yet, so it checks the screen offers the
-//    initiate panel (or explains why the chain can't start yet).
+//    initiate panel (or explains why the chain can't start yet, or why this user has no access:
+//    admins, guests and people with no letter on the document are refused the signature record).
 test('Module A — e-signature: sign the awaiting step or offer chain initiation', async ({ page }) => {
   await visitModule(page, 'clinical-writing/documents/DOC-001/sign')
   await expect(page.locator('[data-screen="e-signature"]')).toBeVisible({ timeout: 15_000 })
@@ -24,7 +25,7 @@ test('Module A — e-signature: sign the awaiting step or offer chain initiation
     await expect(page.locator('[data-sign-error]')).toHaveCount(0)
   } else {
     await expect(
-      page.locator('[data-initiate-chain], [data-initiate-blocked], [data-signer-id]').first(),
+      page.locator('[data-initiate-chain], [data-initiate-blocked], [data-start-forbidden], [data-signature-access-denied], [data-signer-id]').first(),
     ).toBeVisible({ timeout: 10_000 })
   }
 })

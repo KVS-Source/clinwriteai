@@ -10,7 +10,7 @@ type Row = Record<string, any>
 
 function fakePrisma() {
   const documents: Row[] = [{
-    id: 'DOC-1', projectId: 'PROJ-1', status: 'pending_signature', watermarked: true, signedAt: null,
+    id: 'DOC-1', projectId: 'PROJ-1', assigneeId: 'u-owner', status: 'pending_signature', watermarked: true, signedAt: null,
     currentVersion: { label: 'Draft', versionNumber: 'v0.2', sections: [{ sectionId: 's1', contentHtml: '<p>a</p>' }] },
   }]
   // Team Approvers (RACI='A') — the chain-init handler reads these to
@@ -22,6 +22,18 @@ function fakePrisma() {
     { projectId: 'PROJ-1', userId: 'u-author',   name: 'Author Name',   role: 'Lead Writer',       raci: 'R' },
     { projectId: 'PROJ-1', userId: 'u-reviewer', name: 'Reviewer Name', role: 'Medical Reviewer',  raci: 'A' },
   ]
+  // The document's RACI. Everyone active on it as R, C, A or I must sign (the "named signers").
+  // u-author is the Author, u-reviewer the Approver. u-owner is only the assignee (no RACI row).
+  const raciRows: Row[] = [
+    { id: 'raci-1', documentId: 'DOC-1', userId: 'u-author',   letter: 'R', removedAt: null },
+    { id: 'raci-2', documentId: 'DOC-1', userId: 'u-reviewer', letter: 'A', removedAt: null },
+  ]
+  const userRows: Row[] = [
+    { id: 'u-author', name: 'Ann Author' }, { id: 'u-reviewer', name: 'Rob Reviewer' },
+    { id: 'u-cons', name: 'Cora Consulted' }, { id: 'u-info', name: 'Ian Informed' }, { id: 'u-qc', name: 'Quinn QC' },
+  ]
+  // Project membership, used to decide which projects a PM can see.
+  const projectMembers: Row[] = [{ projectId: 'PROJ-1', userId: 'u-pm', removedAt: null }]
   const chains: Row[] = []
   const records: Row[] = []
   const versions: Row[] = [{ id: 'ver-2', documentId: 'DOC-1', versionNumber: 'v0.2', isCurrent: true }]
@@ -39,6 +51,13 @@ function fakePrisma() {
         const hit = documents.filter(d => matches(d, where)); hit.forEach(d => Object.assign(d, data)); return { count: hit.length }
       },
       update: async ({ where, data }: Row) => Object.assign(documents.find(d => d.id === where.id)!, data),
+      findMany: async () => [],   // "documents I work on" lookup used by the project-visibility rule
+    },
+    projectMember: {
+      findMany: async ({ where }: Row) => projectMembers.filter(m => matches(m, where)),
+    },
+    user: {
+      findMany: async ({ where }: Row) => userRows.filter(u => matches(u, where)),
     },
     // Version snapshot on the final signature (the document becomes v1.0).
     documentVersion: {
@@ -74,23 +93,31 @@ function fakePrisma() {
     projectTeamMember: {
       findMany: async ({ where }: Row) => projectTeamMembers.filter(m => matches(m, where)),
     },
-    // Document RACI — who may cancel a chain (the R / assignee, besides the initiator and admins).
+    // Document RACI — who may start / cancel / read, and who must sign.
     documentRaci: {
-      findMany: async () => [],   // no document-level Approvers in the default fixture
-      findFirst: async ({ where }: Row) => (where.userId === 'u-owner' && where.letter === 'R' ? { id: 'raci-1' } : null),
+      findMany: async ({ where }: Row) => raciRows.filter(r => matches(r, where)),
+      findFirst: async ({ where }: Row) => raciRows.find(r => matches(r, where)) ?? null,
     },
     $queryRawUnsafe: async () => [],
     $executeRawUnsafe: async () => 0,
     $transaction: async (fn: (tx: Row) => unknown) => fn(prisma),
   }
-  return { prisma, documents, chains, records, versions }
+  return { prisma, documents, chains, records, versions, raciRows, projectMembers, projectTeamMembers }
 }
 
 const USERS = {
   author:   { id: 'u-author',   email: 'a@x.test', role: 'clinical-writer', modules: ['A'], tenantId: null },
   reviewer: { id: 'u-reviewer', email: 'r@x.test', role: 'reviewer',        modules: ['A'], tenantId: null },
   admin:    { id: 'u-admin',    email: 'd@x.test', role: 'admin',           modules: ['A'], tenantId: null },
-  owner:    { id: 'u-owner',    email: 'o@x.test', role: 'clinical-writer', modules: ['A'], tenantId: null },
+  owner:    { id: 'u-owner',    email: 'o@x.test', role: 'clinical-writer', modules: ['A'], tenantId: null },   // the assignee
+  pm:       { id: 'u-pm',       email: 'p@x.test', role: 'pm',              modules: ['A'], tenantId: null },
+  otherPm:  { id: 'u-pm2',      email: 'p2@x.test', role: 'pm',             modules: ['A'], tenantId: null },
+  auditor:  { id: 'u-auditor',  email: 'au@x.test', role: 'auditor',        modules: ['A'], tenantId: null },
+  guest:    { id: 'u-guest',    email: 'g@x.test', role: 'guest',           modules: ['A'], tenantId: null },
+  cons:     { id: 'u-cons',     email: 'c@x.test', role: 'contributor',     modules: ['A'], tenantId: null },
+  info:     { id: 'u-info',     email: 'i@x.test', role: 'contributor',     modules: ['A'], tenantId: null },
+  qc:       { id: 'u-qc',       email: 'q@x.test', role: 'contributor',     modules: ['A'], tenantId: null },
+  outsider: { id: 'u-out',      email: 'x@x.test', role: 'contributor',     modules: ['A'], tenantId: null },   // no letter on the document
 }
 
 async function build() {
@@ -299,17 +326,34 @@ describe('signature chain routes', () => {
     expect(t.notices.map(n => n.recipientId).sort()).toEqual(['u-author', 'u-reviewer'])
   })
 
-  it('only the owner, the person who started the chain, or an admin can cancel it', async () => {
+  it('only the Author (R) or the person who started the chain can cancel it — not an admin, a PM or another signer', async () => {
+    t.as(USERS.reviewer)                                         // the Approver (A) starts the chain
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
-    t.as(USERS.reviewer)                                         // a signer, but not the owner
-    const denied = await t.app.inject({ method: 'POST', url: `/signature-chains/${chain.id}/cancel`, payload: { cancelReason: 'Not mine to cancel' } })
-    expect(denied.statusCode).toBe(403)
-    expect(denied.json().error).toBe('cancel_forbidden')
+    t.db.raciRows.push({ id: 'raci-9', documentId: 'DOC-1', userId: 'u-cons', letter: 'C', removedAt: null })
+    for (const who of [USERS.cons, USERS.admin, USERS.pm, USERS.auditor]) {
+      t.as(who)
+      const denied = await t.app.inject({ method: 'POST', url: `/signature-chains/${chain.id}/cancel`, payload: { cancelReason: 'Not mine to cancel' } })
+      expect(denied.statusCode, who.role).toBe(403)
+      expect(denied.json().error).toBe('cancel_forbidden')
+    }
     expect(t.db.chains[0].status).toBe('in_progress')
-    t.as(USERS.owner)                                            // the document's R
+    t.as(USERS.author)                                           // the Author (R) can, though they did not start it
     const ok = await t.app.inject({ method: 'POST', url: `/signature-chains/${chain.id}/cancel`, payload: { cancelReason: 'Signer list changed' } })
     expect(ok.statusCode).toBe(200)
     expect(t.db.chains[0].status).toBe('cancelled')
+  })
+
+  it('the person who started the chain can cancel it, and so can the original assignee', async () => {
+    t.as(USERS.reviewer)                                         // Approver starts, then cancels their own chain
+    const first = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
+    const own = await t.app.inject({ method: 'POST', url: `/signature-chains/${first.id}/cancel`, payload: { cancelReason: 'Started by mistake' } })
+    expect(own.statusCode).toBe(200)
+    t.db.documents[0].status = 'pending_signature'               // back to Pending signature
+    t.as(USERS.author)
+    const second = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
+    t.as(USERS.owner)                                            // assignee, no RACI row, role clinical-writer
+    const viaAssignee = await t.app.inject({ method: 'POST', url: `/signature-chains/${second.id}/cancel`, payload: { cancelReason: 'Assignee cancels' } })
+    expect(viaAssignee.statusCode).toBe(200)
   })
 
   it('cancel requires a reason and returns the document to in_authoring', async () => {
@@ -320,5 +364,155 @@ describe('signature chain routes', () => {
     expect(res.statusCode).toBe(200)
     expect(t.db.chains[0].status).toBe('cancelled')
     expect(t.db.documents[0].status).toBe('in_authoring')
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The e-signature action table: who starts a chain, who must be on it, who reads the record.
+// ---------------------------------------------------------------------------
+
+describe('signature chain — who may start it', () => {
+  let t: Awaited<ReturnType<typeof build>>
+  beforeEach(async () => {
+    t = await build()
+    t.db.raciRows.push(
+      { id: 'raci-c', documentId: 'DOC-1', userId: 'u-cons', letter: 'C', removedAt: null },
+      { id: 'raci-q', documentId: 'DOC-1', userId: 'u-qc',   letter: 'Q', removedAt: null },
+      { id: 'raci-i', documentId: 'DOC-1', userId: 'u-info', letter: 'I', removedAt: null },
+    )
+  })
+  const startAs = async (who: Row, payload: Row = twoSigners) => { t.as(who); return t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload }) }
+  const all4 = {
+    chainType: 'sequential',
+    signers: [
+      ...twoSigners.signers,
+      { signerId: 'u-cons', signerName: 'Cora Consulted', signerRole: 'Reviewer', meaning: 'reviewed' },
+      { signerId: 'u-info', signerName: 'Ian Informed',   signerRole: 'Informed', meaning: 'acknowledged' },
+    ],
+  }
+
+  it('lets the Author (R), the Approver (A) and the original assignee start a chain', async () => {
+    expect((await startAs(USERS.author, all4)).statusCode).toBe(201)
+    for (const who of [USERS.reviewer, USERS.owner]) {
+      t.db.chains.length = 0; t.db.records.length = 0
+      expect((await startAs(who, all4)).statusCode, who.role).toBe(201)
+    }
+  })
+
+  it('refuses everyone else: admin, PM, auditor, guest, Reviewer (C), QC (Q), Informed (I), and a user with no letter', async () => {
+    for (const who of [USERS.admin, USERS.pm, USERS.auditor, USERS.guest, USERS.cons, USERS.qc, USERS.info, USERS.outsider]) {
+      const res = await startAs(who, all4)
+      expect(res.statusCode, who.id).toBe(403)
+      expect(res.json().error, who.id).toBe('start_forbidden')
+    }
+    expect(t.db.chains).toHaveLength(0)
+  })
+
+  it('does not count a removed Author or Approver row', async () => {
+    t.db.raciRows.push({ id: 'raci-x', documentId: 'DOC-1', userId: 'u-out', letter: 'R', removedAt: new Date() })
+    expect((await startAs(USERS.outsider, all4)).statusCode).toBe(403)
+  })
+
+  it('requires everyone named as Author, Reviewer, Approver or Informed to be on the chain', async () => {
+    const res = await startAs(USERS.author, twoSigners)                       // leaves out Reviewer + Informed
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('missing_signers')
+    expect(res.json().missingSigners.map((m: Row) => m.name).sort()).toEqual(['Cora Consulted', 'Ian Informed'])
+    expect(t.db.chains).toHaveLength(0)
+  })
+
+  it('requires each named person to sign with the meaning of their role', async () => {
+    const wrong = { ...all4, signers: all4.signers.map(sg => sg.signerId === 'u-cons' ? { ...sg, meaning: 'approved' } : sg) }
+    const res = await startAs(USERS.author, wrong)
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('missing_signers')
+  })
+
+  it('refuses a chain that leaves out a named Approver, with the Approver error', async () => {
+    const noApprover = { ...all4, signers: all4.signers.filter(sg => sg.signerId !== 'u-reviewer') }
+    const res = await startAs(USERS.author, noApprover)
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('missing_approvers')
+    expect(res.json().missingApprovers.map((m: Row) => m.name)).toEqual(['Reviewer Name'])
+  })
+
+  it('does not require QC (Q), and ignores rows that were removed', async () => {
+    t.db.raciRows.push({ id: 'raci-gone', documentId: 'DOC-1', userId: 'u-gone', letter: 'A', removedAt: new Date() })
+    t.db.raciRows.find(r => r.id === 'raci-c')!.removedAt = new Date()        // Reviewer removed
+    t.db.raciRows.find(r => r.id === 'raci-i')!.removedAt = new Date()        // Informed removed
+    expect((await startAs(USERS.author, twoSigners)).statusCode).toBe(201)    // only Author + Approver remain; Q is not a signer
+  })
+
+  it('refuses a chain when the document has no Approver at all', async () => {
+    t.db.raciRows.find(r => r.id === 'raci-2')!.removedAt = new Date()        // the document-RACI Approver
+    t.db.projectTeamMembers.length = 0                                        // and no project-team Approver
+    const res = await startAs(USERS.author, all4)
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('no_approvers_configured')
+  })
+
+  it('lets the starter add extra signers on top of the named people', async () => {
+    const extra = { ...all4, signers: [...all4.signers, { signerId: 'u-extra', signerName: 'Eve Extra', signerRole: 'Reviewer', meaning: 'reviewed' }] }
+    const res = await startAs(USERS.author, extra)
+    expect(res.statusCode).toBe(201)
+    expect(res.json().records).toHaveLength(5)
+  })
+
+  it('shows a person with two letters once without breaking the check (dual roles are out of scope)', async () => {
+    t.db.raciRows.push({ id: 'raci-dual', documentId: 'DOC-1', userId: 'u-author', letter: 'C', removedAt: null })
+    expect((await startAs(USERS.author, all4)).statusCode).toBe(201)
+  })
+
+  it('records the Informed signature with the "acknowledged" meaning, and the Informed person can sign it', async () => {
+    const chain = (await startAs(USERS.author, { ...all4, chainType: 'parallel' })).json()
+    const rec = chain.records.find((r: Row) => r.signerId === 'u-info')
+    expect(rec.meaning).toBe('acknowledged')
+    t.as(USERS.info)
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${rec.id}/sign`, payload: signAs('Ian Informed') })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ status: 'signed', meaning: 'acknowledged' })
+  })
+})
+
+describe('signature chain — who may read the record', () => {
+  let t: Awaited<ReturnType<typeof build>>
+  let chainId: string
+  beforeEach(async () => {
+    t = await build()
+    t.db.raciRows.push(
+      { id: 'raci-c', documentId: 'DOC-1', userId: 'u-cons', letter: 'C', removedAt: null },
+      { id: 'raci-q', documentId: 'DOC-1', userId: 'u-qc',   letter: 'Q', removedAt: null },
+      { id: 'raci-i', documentId: 'DOC-1', userId: 'u-info', letter: 'I', removedAt: null },
+    )
+    t.as(USERS.author)
+    const all4 = { chainType: 'sequential', signers: [
+      ...twoSigners.signers,
+      { signerId: 'u-cons', signerName: 'Cora Consulted', signerRole: 'Reviewer', meaning: 'reviewed' },
+      { signerId: 'u-info', signerName: 'Ian Informed', signerRole: 'Informed', meaning: 'acknowledged' },
+    ] }
+    chainId = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: all4 })).json().id
+  })
+  const list = async (who: Row) => { t.as(who); return t.app.inject({ method: 'GET', url: '/documents/DOC-1/signature-chains' }) }
+  const one  = async (who: Row) => { t.as(who); return t.app.inject({ method: 'GET', url: `/signature-chains/${chainId}` }) }
+
+  it('lets anyone with a letter on the document (R, A, C, Q, I), a PM on the project, and an auditor read it', async () => {
+    for (const who of [USERS.author, USERS.reviewer, USERS.cons, USERS.qc, USERS.info, USERS.pm, USERS.auditor, USERS.owner]) {
+      expect((await list(who)).statusCode, 'list ' + who.id).toBe(200)
+      expect((await one(who)).statusCode, 'one ' + who.id).toBe(200)
+    }
+  })
+
+  it('refuses a tenant admin, a guest, a PM outside the project, and a user with no letter', async () => {
+    for (const who of [USERS.admin, USERS.guest, USERS.otherPm, USERS.outsider]) {
+      const l = await list(who)
+      expect(l.statusCode, 'list ' + who.id).toBe(403)
+      expect(l.json().error).toBe('signature_access_forbidden')
+      expect((await one(who)).statusCode, 'one ' + who.id).toBe(403)
+    }
+  })
+
+  it('does not count a removed assignment as access', async () => {
+    t.db.raciRows.find(r => r.id === 'raci-q')!.removedAt = new Date()
+    expect((await list(USERS.qc)).statusCode).toBe(403)
   })
 })

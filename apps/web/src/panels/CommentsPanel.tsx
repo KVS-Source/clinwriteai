@@ -287,6 +287,7 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
       qc.invalidateQueries({ queryKey: ['project-comments'] })
       qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
+      qc.invalidateQueries({ queryKey: ['ich-e3', documentId] })   // open-comment count per section
     },
     onError: (err) => {
       // Someone else resolved it first: refresh so the card drops out of the open list.

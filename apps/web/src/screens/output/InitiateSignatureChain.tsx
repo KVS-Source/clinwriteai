@@ -2,6 +2,10 @@
 // Shown on the E-Signature screen when no active chain exists. The API only
 // accepts this once CRM is complete (document status pending_signature) and
 // rejects a second active chain; both cases are explained inline.
+//
+// The chain is built from the document's RACI: everyone named as Author (R), Reviewer (C), Approver (A)
+// or Informed (I) is pre-filled as a locked row, signing with the meaning of their role. Only the
+// document's Author or Approver may start a chain. The starter may add extra signers on top.
 
 import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
@@ -9,34 +13,53 @@ import { projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { raciApi } from '../../api/raci'
 import { platformApi } from '../../platform/api/platformApi'
-import { useCurrentUser, useInitiateSignatureChain } from '../../hooks'
+import { useInitiateSignatureChain } from '../../hooks'
+import { useSignatureAccess } from './useSignatureAccess'
 
-type Meaning = 'authored' | 'reviewed' | 'approved'
+type Meaning = 'authored' | 'reviewed' | 'approved' | 'acknowledged'
 type Candidate = { id: string; name: string; role: string }
-// `locked` rows represent mandated team Approvers (RACI='A') — the user
-// cannot remove them, change their signer, or change their meaning. They
-// may be reordered.
-// `source` says where a locked Approver came from, so the tooltips can point to the right place.
-type ApproverSource = 'project' | 'document' | 'both'
-type SignerRow = { signerId: string; meaning: Meaning; locked?: boolean; source?: ApproverSource }
+// `locked` rows are the people named on the document. The starter cannot remove them or change their
+// signer or meaning; they may be reordered.
+// `source` says where a locked person was named, so the tooltips can point to the right place.
+type NamedSource = 'project' | 'document' | 'both'
+type SignerRow = { signerId: string; meaning: Meaning; locked?: boolean; source?: NamedSource }
 
-const MEANING_ROLE: Record<Meaning, string> = { authored: 'Author', reviewed: 'Reviewer', approved: 'Approver' }
+const MEANING_ROLE: Record<Meaning, string> = { authored: 'Author', reviewed: 'Reviewer', approved: 'Approver', acknowledged: 'Informed' }
 
-// Tooltip for a locked row's signer / lock button, by where the Approver is assigned.
-const LOCK_HELP: Record<ApproverSource, { signer: string; lock: string }> = {
-  project:  { signer: "Required Approver — assigned on the project team. Change it under the project's team settings.",
-              lock:   'Required Approver — remove them as Approver on the project team to drop this signature.' },
-  document: { signer: "Required Approver — assigned in this document's RACI. Change it in the document's RACI.",
-              lock:   "Required Approver — remove them as Approver in this document's RACI to drop this signature." },
-  both:     { signer: "Required Approver — assigned both in this document's RACI and on the project team.",
-              lock:   "Required Approver — remove them as Approver in both the document's RACI and the project team to drop this signature." },
+// RACI letter -> the meaning that person signs with. Q (QC) never signs.
+const LETTER_MEANING: Record<string, Meaning> = { R: 'authored', C: 'reviewed', A: 'approved', I: 'acknowledged' }
+
+// Default order of the chain's rows. TEMPORARY until the SME decides the order: Author, Reviewer,
+// Approver, then Informed. Change it here.
+const SIGNER_ORDER: Meaning[] = ['authored', 'reviewed', 'approved', 'acknowledged']
+
+// Tooltips for a locked row's signer box / lock button, by where the person is named.
+function lockHelp(meaning: Meaning, source: NamedSource): { signer: string; lock: string } {
+  const role = MEANING_ROLE[meaning]
+  if (source === 'project') {
+    return {
+      signer: `Required ${role} — assigned on the project team. Change it under the project's team settings.`,
+      lock:   `Required ${role} — remove them as ${role} on the project team to drop this signature.`,
+    }
+  }
+  if (source === 'both') {
+    return {
+      signer: `Required ${role} — assigned both in this document's RACI and on the project team.`,
+      lock:   `Required ${role} — remove them as ${role} in both the document's RACI and the project team to drop this signature.`,
+    }
+  }
+  return {
+    signer: `Required ${role} — assigned in this document's RACI. Change it in the document's RACI.`,
+    lock:   `Required ${role} — remove them as ${role} in this document's RACI to drop this signature.`,
+  }
 }
-const SOURCE_TAG: Record<ApproverSource, string> = { project: 'Project team', document: 'Document RACI', both: 'Document RACI + project team' }
+const SOURCE_TAG: Record<NamedSource, string> = { project: 'Project team', document: 'Document RACI', both: 'Document RACI + project team' }
 
 const MEANINGS: { value: Meaning; label: string }[] = [
-  { value: 'authored', label: 'Will sign as: Author' },
-  { value: 'reviewed', label: 'Will sign as: Reviewer' },
-  { value: 'approved', label: 'Will sign as: Approver' },
+  { value: 'authored',     label: 'Will sign as: Author' },
+  { value: 'reviewed',     label: 'Will sign as: Reviewer' },
+  { value: 'approved',     label: 'Will sign as: Approver' },
+  { value: 'acknowledged', label: 'Will sign as: Informed' },
 ]
 
 function errorText(err: unknown): string {
@@ -46,13 +69,19 @@ function errorText(err: unknown): string {
       message?: string
       issues?: Array<{ message: string }>
       missingApprovers?: Array<{ userId: string; name: string }>
+      missingSigners?: Array<{ userId: string; name: string }>
     } | null
     if (body?.error === 'wrong_status') return 'The chain can only be started once the Comments Resolution Meeting is complete (status: Pending signature).'
     if (body?.error === 'chain_already_active') return 'A signature chain is already active for this document.'
-    if (body?.error === 'no_approvers_configured') return 'This project has no team members with RACI=\'A\'. Assign at least one Approver on the project team before starting the signature chain.'
+    if (body?.error === 'start_forbidden') return "Only the document's Author (R) or Approver (A) can start the signature chain."
+    if (body?.error === 'no_approvers_configured') return "This document has no Approver (RACI='A'). Assign one in the document's RACI before starting the signature chain."
     if (body?.error === 'missing_approvers') {
       const names = body.missingApprovers?.map(a => a.name).join(', ') ?? ''
-      return `Every Approver on the project team must sign. Missing: ${names || 'see team roster'}.`
+      return `Every Approver on this document must sign. Missing: ${names || 'see the document RACI'}.`
+    }
+    if (body?.error === 'missing_signers') {
+      const names = body.missingSigners?.map(a => a.name).join(', ') ?? ''
+      return `Everyone named on this document must sign. Missing: ${names || 'see the document RACI'}.`
     }
     if (body?.issues?.[0]?.message) return body.issues[0].message
     if (body?.message) return body.message
@@ -77,71 +106,75 @@ interface Props {
 }
 
 export function InitiateSignatureChain({ documentId, projectId, documentStatus }: Props) {
-  const { data: me } = useCurrentUser()
   const initiate = useInitiateSignatureChain(documentId)
+  const access = useSignatureAccess(documentId)
 
   // Signers must be real accounts — the API only lets the record's signerId
   // sign. Prefer the user directory; fall back to the project team.
   const users = useQuery({ queryKey: ['platform-users'], queryFn: () => platformApi.listUsers(), retry: false })
-  const project = useQuery({ queryKey: ['project', projectId], queryFn: () => projectsApi.get(projectId), enabled: !!projectId })
+  const project = useQuery({ queryKey: ['project', projectId], queryFn: () => projectsApi.get(projectId), enabled: !!projectId, retry: false })
 
-  // Approvers assigned on this document's own RACI (the Document RACI drawer) count too.
+  // The document's own RACI. The list also carries removed rows, so keep only the active ones.
   const docRaci = useQuery({ queryKey: ['document-raci', documentId], queryFn: () => raciApi.list(documentId), retry: false })
+  const raciRows = useMemo(() => (docRaci.data ?? []).filter(r => !r.removedAt), [docRaci.data])
 
+  // Everyone who can be picked. The names of people named in the RACI always come from the RACI
+  // response itself (it carries the name), so non-admins — who can't read the admin user list — see names.
   const candidates: Candidate[] = useMemo(() => {
     const active = (users.data ?? []).filter(u => u.status === 'active').map(u => ({ id: u.id, name: u.name, role: u.role }))
-    if (active.length) return active.sort((a, b) => a.name.localeCompare(b.name))
-    return (project.data?.team ?? []).map(t => ({ id: t.userId, name: t.name, role: t.role }))
-  }, [users.data, project.data])
+    const base = active.length ? active : (project.data?.team ?? []).map(t => ({ id: t.userId, name: t.name, role: t.role }))
+    const map = new Map(base.map(c => [c.id, c]))
+    for (const r of raciRows) {
+      if (!map.has(r.userId)) map.set(r.userId, { id: r.userId, name: r.userName ?? r.userId, role: MEANING_ROLE[LETTER_MEANING[r.letter] ?? 'reviewed'] })
+    }
+    return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
+  }, [users.data, project.data, raciRows])
 
   const [chainType, setChainType] = useState<'sequential' | 'parallel'>('sequential')
   const [rows, setRows] = useState<SignerRow[]>([])
 
-  // Mandated signers — every team member with RACI='A' (Approver) must be
-  // in the chain with meaning='approved' or the API rejects init with
-  // `missing_approvers`. We seed these rows locked, so the user can
-  // reorder but not drop them.
-  const approverSigners: SignerRow[] = useMemo(() => {
-    const fromProject  = new Set<string>()
-    const fromDocument = new Set<string>()
-    for (const t of project.data?.team ?? []) if (t.raci === 'A') fromProject.add(t.userId)
-    for (const r of docRaci.data ?? []) if (r.letter === 'A') fromDocument.add(r.userId)
-    return [...new Set([...fromProject, ...fromDocument])].map(signerId => ({
-      signerId,
-      meaning: 'approved' as Meaning,
-      locked: true,
-      source: (fromProject.has(signerId) && fromDocument.has(signerId) ? 'both' : fromDocument.has(signerId) ? 'document' : 'project') as ApproverSource,
-    }))
-  }, [project.data, docRaci.data])
+  // The named signers — everyone who must be on the chain, each with the meaning of their role. A person
+  // named twice shows once (dual roles are out of scope). Approvers on the project team count too.
+  // The API refuses a chain that leaves any of them out (`missing_approvers` / `missing_signers`).
+  const namedSigners: SignerRow[] = useMemo(() => {
+    const byId = new Map<string, { meaning: Meaning; fromDocument: boolean; fromProject: boolean }>()
+    const add = (userId: string, meaning: Meaning, doc: boolean) => {
+      const cur = byId.get(userId)
+      if (!cur) { byId.set(userId, { meaning, fromDocument: doc, fromProject: !doc }); return }
+      if (doc) cur.fromDocument = true; else cur.fromProject = true
+      if (SIGNER_ORDER.indexOf(meaning) < SIGNER_ORDER.indexOf(cur.meaning) && doc) cur.meaning = meaning
+    }
+    for (const r of raciRows) { const m = LETTER_MEANING[r.letter]; if (m) add(r.userId, m, true) }
+    for (const t of project.data?.team ?? []) if (t.raci === 'A') add(t.userId, 'approved', false)
+    return [...byId.entries()]
+      .map(([signerId, v]) => ({
+        signerId, meaning: v.meaning, locked: true,
+        source: (v.fromDocument && v.fromProject ? 'both' : v.fromDocument ? 'document' : 'project') as NamedSource,
+      }))
+      .sort((a, b) => SIGNER_ORDER.indexOf(a.meaning) - SIGNER_ORDER.indexOf(b.meaning))
+  }, [raciRows, project.data])
 
-  // Seed the row list once project data has loaded: all Approvers (locked)
-  // plus a convenience "me as author" row that the user can edit/remove.
-  // Re-runs if the team changes (e.g. an Approver added mid-session).
+  const settled = (q: { isSuccess: boolean; isError: boolean }) => q.isSuccess || q.isError
+  const namedLoaded = settled(project) && settled(docRaci)
+
+  // Seed the row list once the RACI has loaded: all named people (locked) first. Anything the starter
+  // added (unlocked rows) is kept. Re-runs if the RACI changes while the form is open.
   useEffect(() => {
-    if (!project.data || (!docRaci.data && !docRaci.isError)) return
+    if (!namedLoaded) return
     setRows(prev => {
-      // Keep any user-added rows (non-locked, not already an Approver).
-      const approverIds = new Set(approverSigners.map(a => a.signerId))
-      const userAdded = prev.filter(r => !r.locked && !approverIds.has(r.signerId))
-      if (userAdded.length === 0 && me && !approverIds.has(me.id)) {
-        userAdded.push({ signerId: me.id, meaning: 'authored' })
-      }
-      return [...approverSigners, ...userAdded]
+      const namedIds = new Set(namedSigners.map(n => n.signerId))
+      return [...namedSigners, ...prev.filter(r => !r.locked && !namedIds.has(r.signerId))]
     })
-  }, [project.data, docRaci.data, docRaci.isError, approverSigners, me])
+  }, [namedLoaded, namedSigners])
 
-  const effectiveRows = rows.length
-    ? rows
-    : approverSigners.length > 0
-      ? approverSigners
-      : (me ? [{ signerId: me.id, meaning: 'authored' as Meaning }] : [{ signerId: '', meaning: 'authored' as Meaning }])
+  const effectiveRows = rows.length ? rows : namedSigners
 
   const update = (next: SignerRow[]) => setRows(next)
   const setRow = (i: number, patch: Partial<SignerRow>) => {
     const row = effectiveRows[i]
     if (!row) return
-    // Locked rows (team Approvers) can only be reordered — guard here so a
-    // stray UI click doesn't silently drop a required signature.
+    // Locked rows can only be reordered — guard here so a stray UI click doesn't silently drop a
+    // required signature.
     if (row.locked && (patch.signerId !== undefined || patch.meaning !== undefined)) return
     update(effectiveRows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   }
@@ -161,11 +194,12 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   const pending = documentStatus === 'pending-signature'
   const duplicate = new Set(effectiveRows.map(r => r.signerId)).size !== effectiveRows.length
   const incomplete = effectiveRows.some(r => !r.signerId)
-  const hasAllApprovers = approverSigners.length > 0 &&
-    approverSigners.every(a => effectiveRows.some(r => r.signerId === a.signerId && r.meaning === 'approved'))
-  const approversLoaded = project.data !== undefined && (docRaci.data !== undefined || docRaci.isError)
-  const noApprovers = approversLoaded && approverSigners.length === 0
-  const canSubmit = pending && !duplicate && !incomplete && !noApprovers && hasAllApprovers && !initiate.isPending
+  const hasAllNamed = namedSigners.every(n =>
+    effectiveRows.some(r => r.signerId === n.signerId && r.meaning === n.meaning))
+  const approverCount = namedSigners.filter(n => n.meaning === 'approved').length
+  const noApprovers = namedLoaded && approverCount === 0
+  const canSubmit = pending && access.canStartChain && !duplicate && !incomplete && !noApprovers
+    && hasAllNamed && !initiate.isPending
 
   const submit = () => {
     const byId = new Map(candidates.map(c => [c.id, c]))
@@ -189,6 +223,19 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
     )
   }
 
+  // Don't show the form (or a refusal) until we know who this user is on the document.
+  if (!access.ready) return null
+
+  // Only the document's Author (R) or Approver (A) starts a chain.
+  if (!access.canStartChain) {
+    return (
+      <div className="flex flex-col items-center gap-2 text-center" data-start-forbidden>
+        <p className="font-mono text-sm text-slate-500">No signature chain has been initiated for this document.</p>
+        <p className="max-w-md text-xs text-slate-500">Only the document's Author (R) or Approver (A) can start the signature chain.</p>
+      </div>
+    )
+  }
+
   return (
     <div className="flex w-full max-w-[860px] flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5 text-left" data-initiate-chain>
       <div>
@@ -207,12 +254,12 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
         ))}
       </div>
 
-      {/* Required-Approvers notice — the chain cannot start without every
-          team member with RACI='A' present as an 'approved' signer. */}
-      {approversLoaded && !noApprovers && (
+      {/* Required-signers notice — the chain cannot start without everyone named on the document
+          (Author, Reviewer, Approver, Informed) present with the meaning of their role. */}
+      {namedLoaded && !noApprovers && (
         <p className="rounded-md border border-blue-200 bg-blue-50 p-2 text-[12px] text-blue-800" data-approvers-notice>
-          <strong>Required ({approverSigners.length}):</strong> every team Approver (RACI='A') is pre-filled below as an
-          <em> Approver</em> and can't be removed. Nobody has signed yet — each person signs after the chain starts. You may reorder them, and add Authors or Reviewers alongside.
+          <strong>Required ({namedSigners.length}):</strong> everyone named on this document as Author, Reviewer, Approver or Informed is
+          pre-filled below and can't be removed. Nobody has signed yet — each person signs after the chain starts. You may reorder them, and add extra signers alongside.
         </p>
       )}
       {noApprovers && (
@@ -222,51 +269,54 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
       )}
 
       <div className="flex flex-col gap-2">
-        {effectiveRows.map((r, i) => (
-          <div
-            key={i}
-            className="flex items-center gap-2"
-            data-signer-row={i}
-            data-locked={r.locked ? 'true' : 'false'}
-          >
-            <span className="w-6 flex-none text-center font-mono text-[12px] font-bold text-slate-500">{i + 1}</span>
-            <select
-              value={r.signerId}
-              onChange={e => setRow(i, { signerId: e.currentTarget.value })}
-              disabled={r.locked}
-              className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
-              data-signer-select
-              title={r.locked && r.source ? LOCK_HELP[r.source].signer : undefined}
+        {effectiveRows.map((r, i) => {
+          const help = r.locked && r.source ? lockHelp(r.meaning, r.source) : null
+          return (
+            <div
+              key={i}
+              className="flex items-center gap-2"
+              data-signer-row={i}
+              data-locked={r.locked ? 'true' : 'false'}
             >
-              <option value="" disabled>Select signer…</option>
-              {candidates.map(c => <option key={c.id} value={c.id}>{c.name} · {c.role}</option>)}
-            </select>
-            {r.locked && r.source && (
-              <span className="hidden flex-none whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 sm:inline" data-approver-source={r.source}>{SOURCE_TAG[r.source]}</span>
-            )}
-            <select
-              value={r.meaning}
-              onChange={e => setRow(i, { meaning: e.currentTarget.value as Meaning })}
-              disabled={r.locked}
-              className="h-9 w-52 flex-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
-              data-meaning-select
-            >
-              {MEANINGS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
-            </select>
-            <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move up">↑</button>
-            <button type="button" onClick={() => move(i, 1)} disabled={i === effectiveRows.length - 1} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move down">↓</button>
-            <button
-              type="button"
-              onClick={() => removeRow(i)}
-              disabled={r.locked || effectiveRows.length === 1}
-              className="h-9 w-8 rounded-md border border-slate-200 text-slate-500 hover:text-red-700 disabled:opacity-30"
-              aria-label="Remove signer"
-              title={r.locked && r.source ? LOCK_HELP[r.source].lock : undefined}
-            >
-              {r.locked ? '🔒' : '✕'}
-            </button>
-          </div>
-        ))}
+              <span className="w-6 flex-none text-center font-mono text-[12px] font-bold text-slate-500">{i + 1}</span>
+              <select
+                value={r.signerId}
+                onChange={e => setRow(i, { signerId: e.currentTarget.value })}
+                disabled={r.locked}
+                className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
+                data-signer-select
+                title={help?.signer}
+              >
+                <option value="" disabled>Select signer…</option>
+                {candidates.map(c => <option key={c.id} value={c.id}>{c.name} · {c.role}</option>)}
+              </select>
+              {r.locked && r.source && (
+                <span className="hidden flex-none whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 sm:inline" data-approver-source={r.source}>{SOURCE_TAG[r.source]}</span>
+              )}
+              <select
+                value={r.meaning}
+                onChange={e => setRow(i, { meaning: e.currentTarget.value as Meaning })}
+                disabled={r.locked}
+                className="h-9 w-52 flex-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
+                data-meaning-select
+              >
+                {MEANINGS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move up">↑</button>
+              <button type="button" onClick={() => move(i, 1)} disabled={i === effectiveRows.length - 1} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move down">↓</button>
+              <button
+                type="button"
+                onClick={() => removeRow(i)}
+                disabled={r.locked || effectiveRows.length === 1}
+                className="h-9 w-8 rounded-md border border-slate-200 text-slate-500 hover:text-red-700 disabled:opacity-30"
+                aria-label="Remove signer"
+                title={help?.lock}
+              >
+                {r.locked ? '🔒' : '✕'}
+              </button>
+            </div>
+          )
+        })}
         <button
           type="button"
           onClick={() => update([...effectiveRows, { signerId: '', meaning: 'reviewed' }])}

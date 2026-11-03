@@ -14,6 +14,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import PDFDocument from 'pdfkit'
 import { requireAuth } from '../../../auth/rbac.js'
+import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 
@@ -385,6 +386,11 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    // Anyone with a RACI letter on the document, a PM who can see the project, or an auditor.
+    // Never a tenant admin or a guest.
+    if (!(await actorCanReadDocumentRecord(app.prisma, request.user!, doc))) {
+      return reply.code(403).send({ error: 'audit_access_forbidden', message: "You don't have access to this document's audit trail." })
+    }
 
     const parsedPage = auditPageQuery.safeParse(request.query)
     if (!parsedPage.success) return reply.code(400).send({ error: 'validation', issues: parsedPage.error.issues })
@@ -422,8 +428,12 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
   // as PDF"). Each export is itself appended to the audit chain.
   app.get('/:documentId/audit/export', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
-    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, title: true } })
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, title: true, projectId: true, assigneeId: true } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    // Exporting is for a PM or an auditor (reading is open to anyone who may read the trail).
+    if (!(await actorCanExportDocumentAudit(app.prisma, request.user!, doc))) {
+      return reply.code(403).send({ error: 'audit_export_forbidden', message: 'Only a project manager or an auditor can export the audit trail.' })
+    }
 
     const entries = await loadAuditEntries(documentId)
     const header = ['id', 'timestamp', 'actor', 'actorId', 'action', 'eventType', 'detail', 'details', 'ipAddress', 'prevHash', 'rowHash']
@@ -443,8 +453,12 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/:documentId/audit/pdf', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
-    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, title: true } })
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, title: true, projectId: true, assigneeId: true } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    // Exporting is for a PM or an auditor (reading is open to anyone who may read the trail).
+    if (!(await actorCanExportDocumentAudit(app.prisma, request.user!, doc))) {
+      return reply.code(403).send({ error: 'audit_export_forbidden', message: 'Only a project manager or an auditor can export the audit trail.' })
+    }
 
     const entries = await loadAuditEntries(documentId)
     const pdf = await renderAuditPdf(doc.title, documentId, entries)

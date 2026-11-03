@@ -1,5 +1,6 @@
 import { useRef, useState, type ReactNode } from 'react'
 import { NavLink, useNavigate, useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { MonoLabel } from '../ui'
 import { usePlatformStore } from '../../platform/store'
 import { MODULE_LABELS, MODULE_SLUG_TO_KEY, isModuleEnabled, type ModuleSlug } from '../../config/modules'
@@ -25,33 +26,35 @@ const MODULE_MONOGRAMS: Record<string, string> = {
 }
 
 // Platform section nav — items land as their sPM screens are built (PM00 §4).
-// Each entry is {label, href, roles} — filtered client-side against currentUser.role.
-interface PlatformNavItem { label: string; href: string; roles: readonly ('admin')[]; icon: ReactNode }
+// Each entry is {labelKey, href, roles} — filtered client-side against currentUser.role.
+// `labelKey` is resolved via `t(…)` in the component so switching languages
+// updates every nav row in one go.
+interface PlatformNavItem { labelKey: string; href: string; roles: readonly ('admin')[]; icon: ReactNode }
 const PLATFORM_NAV: PlatformNavItem[] = [
-  { label: 'Admin Panel',      href: '/admin',       roles: ['admin'] as const, icon: <GearIcon /> },
-  { label: 'User Management',  href: '/admin/users', roles: ['admin'] as const, icon: <UsersIcon /> },
-  { label: 'Audit Trail',      href: '/admin/audit', roles: ['admin'] as const, icon: <ClipboardIcon /> },
-  { label: 'TA Tags',          href: '/admin/taxonomy', roles: ['admin'] as const, icon: <TagIcon /> },
-  { label: 'RACI Matrix',      href: '/admin/raci',  roles: ['admin'] as const, icon: <MatrixIcon /> },
-  { label: 'Checklist Templates', href: '/admin/checklist-templates', roles: ['admin'] as const, icon: <ClipboardIcon /> },
-  { label: 'Notifications',    href: '/notifications', roles: ['admin'] as const, icon: <BellIcon /> },
-  { label: 'Master Library',   href: '/library',    roles: ['admin'] as const, icon: <BookIcon /> },
-  { label: 'Best Practices',   href: '/library/best-practices', roles: ['admin'] as const, icon: <StarIcon /> },
-  { label: 'Services',         href: '/services',   roles: ['admin'] as const, icon: <LayersIcon /> },
-  { label: 'Subscription',     href: '/admin/subscription', roles: ['admin'] as const, icon: <CardIcon /> },
-  { label: 'Reports',          href: '/reports',    roles: ['admin'] as const, icon: <ChartIcon /> },
+  { labelKey: 'component.sidebar.platform_admin_panel',          href: '/admin',                     roles: ['admin'] as const, icon: <GearIcon /> },
+  { labelKey: 'component.sidebar.platform_user_management',      href: '/admin/users',               roles: ['admin'] as const, icon: <UsersIcon /> },
+  { labelKey: 'component.sidebar.platform_audit_trail',          href: '/admin/audit',               roles: ['admin'] as const, icon: <ClipboardIcon /> },
+  { labelKey: 'component.sidebar.platform_ta_tags',              href: '/admin/taxonomy',            roles: ['admin'] as const, icon: <TagIcon /> },
+  { labelKey: 'component.sidebar.platform_raci_matrix',          href: '/admin/raci',                roles: ['admin'] as const, icon: <MatrixIcon /> },
+  { labelKey: 'component.sidebar.platform_checklist_templates',  href: '/admin/checklist-templates', roles: ['admin'] as const, icon: <ClipboardIcon /> },
+  { labelKey: 'component.sidebar.platform_notifications',        href: '/notifications',             roles: ['admin'] as const, icon: <BellIcon /> },
+  { labelKey: 'component.sidebar.platform_master_library',       href: '/library',                   roles: ['admin'] as const, icon: <BookIcon /> },
+  { labelKey: 'component.sidebar.platform_best_practices',       href: '/library/best-practices',    roles: ['admin'] as const, icon: <StarIcon /> },
+  { labelKey: 'component.sidebar.platform_services',             href: '/services',                  roles: ['admin'] as const, icon: <LayersIcon /> },
+  { labelKey: 'component.sidebar.platform_subscription',         href: '/admin/subscription',        roles: ['admin'] as const, icon: <CardIcon /> },
+  { labelKey: 'component.sidebar.platform_reports',              href: '/reports',                   roles: ['admin'] as const, icon: <ChartIcon /> },
 ]
 // Read access to the library is open to every signed-in user (PRD sPM08), so
 // users without the Platform section get these two links on their own.
-const LIBRARY_NAV: { label: string; href: string; icon: ReactNode }[] = [
-  { label: 'Master Library', href: '/library', icon: <BookIcon /> },
-  { label: 'Best Practices', href: '/library/best-practices', icon: <StarIcon /> },
+const LIBRARY_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
+  { labelKey: 'component.sidebar.platform_master_library',  href: '/library',                icon: <BookIcon /> },
+  { labelKey: 'component.sidebar.platform_best_practices',  href: '/library/best-practices', icon: <StarIcon /> },
 ]
 const SUPER_ADMIN_NAV: PlatformNavItem[] = [
-  { label: 'Platform Panel',      href: '/super-admin',            roles: ['admin'] as const, icon: <ShieldCheckIcon /> },
-  { label: 'Tenants',             href: '/super-admin/tenants',    roles: ['admin'] as const, icon: <BuildingIcon /> },
-  { label: 'Framework Registry',  href: '/super-admin/frameworks', roles: ['admin'] as const, icon: <LayersIcon /> },
-  { label: 'Rate Card',           href: '/super-admin/rate-card',  roles: ['admin'] as const, icon: <ReceiptIcon /> },
+  { labelKey: 'component.sidebar.super_admin_panel',       href: '/super-admin',            roles: ['admin'] as const, icon: <ShieldCheckIcon /> },
+  { labelKey: 'component.sidebar.super_admin_tenants',     href: '/super-admin/tenants',    roles: ['admin'] as const, icon: <BuildingIcon /> },
+  { labelKey: 'component.sidebar.super_admin_frameworks',  href: '/super-admin/frameworks', roles: ['admin'] as const, icon: <LayersIcon /> },
+  { labelKey: 'component.sidebar.super_admin_rate_card',   href: '/super-admin/rate-card',  roles: ['admin'] as const, icon: <ReceiptIcon /> },
 ]
 
 // NavLink matches by path prefix, so "/admin" would stay highlighted on
@@ -179,6 +182,7 @@ const MODULE_NAV: Record<string, NavKey[]> = {
 }
 
 export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, onToggle }: Props) {
+  const { t }         = useTranslation()
   const { projectId } = useParams()
   const navigate = useNavigate()
   const currentUser = usePlatformStore(s => s.currentUser)
@@ -213,16 +217,16 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
   const hasCurrentModuleAccess = canSeeModule(activeModule)
 
   const allNavItems: Record<NavKey, NavItem> = {
-    home:      { label: 'Home',          href: `/projects/${projectId}/${activeModule}`,               icon: <HomeIcon />   },
-    portfolio: { label: 'Portfolio',     href: `/projects/${projectId}/${activeModule}/portfolio`,     icon: <GridIcon />   },
-    comments:  { label: 'Comments',      href: `/projects/${projectId}/${activeModule}/comments`,      icon: <ChatIcon />   },
-    audit:     { label: 'Audit & QA',    href: `/projects/${projectId}/${activeModule}/audit-review`,  icon: <ShieldIcon /> },
-    crm:       { label: 'CRM',           href: `/projects/${projectId}/${activeModule}/crm`,           icon: <FolderIcon /> },
-    kol:          { label: 'KOL Sessions',   href: `/projects/${projectId}/${activeModule}/kol-session`,   icon: <ChatIcon />   },
-    claims:       { label: 'Claims Matrix',  href: `/projects/${projectId}/${activeModule}/claims-matrix`, icon: <ShieldIcon /> },
-    intelligence: { label: 'Intelligence',   href: `/projects/${projectId}/${activeModule}/intelligence`,  icon: <ShieldIcon /> },
-    calendar:     { label: 'Calendar',       href: `/projects/${projectId}/${activeModule}/calendar`,      icon: <GridIcon />   },
-    publishing:   { label: 'Publishing',     href: `/projects/${projectId}/${activeModule}/publishing`,    icon: <FolderIcon /> },
+    home:         { label: t('nav.home'),                               href: `/projects/${projectId}/${activeModule}`,               icon: <HomeIcon />   },
+    portfolio:    { label: t('component.sidebar.nav_portfolio'),        href: `/projects/${projectId}/${activeModule}/portfolio`,     icon: <GridIcon />   },
+    comments:     { label: t('component.sidebar.nav_comments'),         href: `/projects/${projectId}/${activeModule}/comments`,      icon: <ChatIcon />   },
+    audit:        { label: t('component.sidebar.nav_audit_qa'),         href: `/projects/${projectId}/${activeModule}/audit-review`,  icon: <ShieldIcon /> },
+    crm:          { label: t('component.sidebar.nav_crm'),              href: `/projects/${projectId}/${activeModule}/crm`,           icon: <FolderIcon /> },
+    kol:          { label: t('component.sidebar.nav_kol_sessions'),     href: `/projects/${projectId}/${activeModule}/kol-session`,   icon: <ChatIcon />   },
+    claims:       { label: t('component.sidebar.nav_claims_matrix'),    href: `/projects/${projectId}/${activeModule}/claims-matrix`, icon: <ShieldIcon /> },
+    intelligence: { label: t('component.sidebar.nav_intelligence'),     href: `/projects/${projectId}/${activeModule}/intelligence`,  icon: <ShieldIcon /> },
+    calendar:     { label: t('component.sidebar.nav_calendar'),         href: `/projects/${projectId}/${activeModule}/calendar`,      icon: <GridIcon />   },
+    publishing:   { label: t('component.sidebar.nav_publishing'),       href: `/projects/${projectId}/${activeModule}/publishing`,    icon: <FolderIcon /> },
   }
 
   const moduleNavItems: NavItem[] = projectId
@@ -233,10 +237,10 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
   const toggleRow = onToggle && (
     <div className={`flex-none border-b border-slate-700 ${collapsed ? 'flex w-full justify-center py-2' : 'px-3 py-2'}`}>
       {collapsed ? (
-        <RailTip label="Open navigation panel" hint="All modules">
+        <RailTip label={t('component.sidebar.toggle_open')} hint={t('component.sidebar.toggle_open_hint')}>
           <button
             type="button" onClick={onToggle} data-sidebar-toggle
-            aria-label="Open navigation panel" aria-expanded={false}
+            aria-label={t('component.sidebar.toggle_open')} aria-expanded={false}
             className={`${RAIL_BTN} text-slate-400 hover:bg-slate-800 hover:text-white`}
           >
             <ChevronsLeftIcon flip />
@@ -245,11 +249,11 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
       ) : (
         <button
           type="button" onClick={onToggle} data-sidebar-toggle
-          aria-label="Collapse navigation panel" aria-expanded
+          aria-label={t('component.sidebar.toggle_collapse')} aria-expanded
           className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-sm text-slate-400 transition-colors hover:bg-slate-800 hover:text-slate-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-sky-400"
         >
           <ChevronsLeftIcon />
-          <span>Collapse panel</span>
+          <span>{t('component.sidebar.toggle_collapse')}</span>
         </button>
       )}
     </div>
@@ -262,7 +266,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
         className="sidebar-scroll flex w-16 flex-none flex-col items-center overflow-y-auto border-r border-slate-700/60 transition-[width] duration-200"
         style={{ backgroundColor: '#1E293B' }}
         data-collapsed
-        aria-label="Navigation (collapsed)"
+        aria-label={t('component.sidebar.aria_navigation_collapsed')}
       >
         <div className="flex h-14 w-full flex-none items-center justify-center border-b border-slate-700">
           <RailTip label="ClinWrite.AI">
@@ -272,8 +276,8 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
         {toggleRow}
 
         <div className="flex w-full flex-col items-center gap-1 px-3 pt-3" data-sidebar-section="primary">
-          <RailLink to="/home" label="My Workspace" icon={<HomeIcon />} accent="#64748B" />
-          <RailLink to="/projects" label="All Projects" icon={<GridIcon />} accent="#64748B" />
+          <RailLink to="/home" label={t('component.sidebar.nav_my_workspace')} icon={<HomeIcon />} accent="#64748B" />
+          <RailLink to="/projects" label={t('component.sidebar.nav_all_projects')} icon={<GridIcon />} accent="#64748B" />
         </div>
 
         {projectId && hasCurrentModuleAccess && (
@@ -297,14 +301,20 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
                 const moduleKey = MODULE_SLUG_TO_KEY[key as ModuleSlug]
                 const enabled = !!moduleKey && isModuleEnabled(moduleKey)
                 const available = canSeeModule(key)
-                const hint = !enabled ? 'Not enabled on this deployment' : !available ? 'Not in your access — ask your admin' : isActive ? 'Current module' : 'Switch module'
+                const hint = !enabled
+                  ? t('component.sidebar.module_hint_off')
+                  : !available
+                    ? t('component.sidebar.module_hint_no_access')
+                    : isActive
+                      ? t('component.sidebar.module_hint_current')
+                      : t('component.sidebar.module_hint_switch')
                 return (
                   <RailTip key={key} label={label} hint={hint}>
                     <button
                       type="button"
                       onClick={() => available && navigate(`/projects/${projectId}/${key}`)}
                       disabled={!available}
-                      aria-label={`${label}${isActive ? ' (current module)' : ''}`}
+                      aria-label={`${label}${isActive ? t('component.sidebar.module_aria_current_suffix') : ''}`}
                       aria-current={isActive ? 'true' : undefined}
                       data-module-switch={key}
                       data-module-available={available}
@@ -327,9 +337,9 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
         {showPlatform && (
           <>
             <RailDivider />
-            <nav className="flex w-full flex-col items-center gap-1 px-3" data-sidebar-section="platform" aria-label="Platform">
+            <nav className="flex w-full flex-col items-center gap-1 px-3" data-sidebar-section="platform" aria-label={t('component.sidebar.aria_platform')}>
               {platformItems.map(item => (
-                <RailLink key={item.href} to={item.href} end={needsExactMatch(item.href)} label={item.label} icon={item.icon} accent={MODULE_COLOURS['platform']!} data={{ 'data-platform-link': item.href }} />
+                <RailLink key={item.href} to={item.href} end={needsExactMatch(item.href)} label={t(item.labelKey)} icon={item.icon} accent={MODULE_COLOURS['platform']!} data={{ 'data-platform-link': item.href }} />
               ))}
             </nav>
           </>
@@ -337,9 +347,9 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
         {libraryItems.length > 0 && (
           <>
             <RailDivider />
-            <nav className="flex w-full flex-col items-center gap-1 px-3" data-sidebar-section="library" aria-label="Library">
+            <nav className="flex w-full flex-col items-center gap-1 px-3" data-sidebar-section="library" aria-label={t('component.sidebar.aria_library')}>
               {libraryItems.map(item => (
-                <RailLink key={item.href} to={item.href} end label={item.label} icon={item.icon} accent={MODULE_COLOURS['platform']!} data={{ 'data-platform-link': item.href }} />
+                <RailLink key={item.href} to={item.href} end label={t(item.labelKey)} icon={item.icon} accent={MODULE_COLOURS['platform']!} data={{ 'data-platform-link': item.href }} />
               ))}
             </nav>
           </>
@@ -347,9 +357,9 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
         {showSuperAdmin && (
           <>
             <RailDivider />
-            <nav className="flex w-full flex-col items-center gap-1 px-3" data-sidebar-section="super-admin" aria-label="Super admin">
+            <nav className="flex w-full flex-col items-center gap-1 px-3" data-sidebar-section="super-admin" aria-label={t('component.sidebar.aria_super_admin')}>
               {superAdminItems.map(item => (
-                <RailLink key={item.href} to={item.href} end={needsExactMatch(item.href)} label={item.label} icon={item.icon} accent={MODULE_COLOURS['platform']!} data={{ 'data-super-admin-link': item.href }} />
+                <RailLink key={item.href} to={item.href} end={needsExactMatch(item.href)} label={t(item.labelKey)} icon={item.icon} accent={MODULE_COLOURS['platform']!} data={{ 'data-super-admin-link': item.href }} />
               ))}
             </nav>
           </>
@@ -394,7 +404,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
           data-nav="my-workspace"
         >
           <HomeIcon />
-          <span>My Workspace</span>
+          <span>{t('component.sidebar.nav_my_workspace')}</span>
         </NavLink>
       </div>
 
@@ -411,7 +421,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
           }
         >
           <GridIcon />
-          <span>All Projects</span>
+          <span>{t('component.sidebar.nav_all_projects')}</span>
         </NavLink>
       </div>
 
@@ -464,7 +474,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
       {projectId && (
         <div className="mt-4 border-t border-slate-700 px-3 pt-3" data-sidebar-section="module-switch">
           <div className="mb-2 px-2.5">
-            <MonoLabel className="text-slate-500">Switch module</MonoLabel>
+            <MonoLabel className="text-slate-500">{t('component.sidebar.section_switch_module')}</MonoLabel>
           </div>
           <div className="flex flex-col gap-0.5">
             {Object.entries(MODULE_LABELS).map(([key, label]) => {
@@ -473,7 +483,11 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
               const moduleKey = MODULE_SLUG_TO_KEY[key as ModuleSlug]
               const enabled = !!moduleKey && isModuleEnabled(moduleKey)
               const available = canSeeModule(key)
-              const why = !enabled ? 'Not enabled on this deployment' : !available ? 'Not included in your access — ask your admin' : undefined
+              const why = !enabled
+                ? t('component.sidebar.module_hint_off')
+                : !available
+                  ? t('component.sidebar.module_hint_no_access_long')
+                  : undefined
               return (
                 <button
                   key={key}
@@ -491,7 +505,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
                 >
                   <div className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: colour, opacity: available ? 1 : 0.35 }} />
                   <span className="flex-1">{label}</span>
-                  {!available && <span className="font-mono text-[9px] uppercase tracking-wider text-slate-600">{!enabled ? 'Off' : 'No access'}</span>}
+                  {!available && <span className="font-mono text-[9px] uppercase tracking-wider text-slate-600">{!enabled ? t('component.sidebar.module_badge_off') : t('component.sidebar.module_badge_no_access')}</span>}
                 </button>
               )
             })}
@@ -503,7 +517,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
       {showPlatform && (
         <div className="mt-4 px-3" data-sidebar-section="platform">
           <div className="mb-2 px-2.5">
-            <MonoLabel className="text-slate-500">Platform</MonoLabel>
+            <MonoLabel className="text-slate-500">{t('component.sidebar.section_platform')}</MonoLabel>
           </div>
           <nav className="flex flex-col gap-0.5">
             {platformItems.map(item => (
@@ -526,7 +540,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
                     <span style={{ color: isActive ? MODULE_COLOURS['platform'] : undefined }} className="flex-none">
                       {item.icon}
                     </span>
-                    <span>{item.label}</span>
+                    <span>{t(item.labelKey)}</span>
                   </>
                 )}
               </NavLink>
@@ -539,7 +553,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
       {libraryItems.length > 0 && (
         <div className="mt-4 px-3" data-sidebar-section="library">
           <div className="mb-2 px-2.5">
-            <MonoLabel className="text-slate-500">Library</MonoLabel>
+            <MonoLabel className="text-slate-500">{t('component.sidebar.section_library')}</MonoLabel>
           </div>
           <nav className="flex flex-col gap-0.5">
             {libraryItems.map(item => (
@@ -558,7 +572,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
                 }
               >
                 <span className="flex-none">{item.icon}</span>
-                <span>{item.label}</span>
+                <span>{t(item.labelKey)}</span>
               </NavLink>
             ))}
           </nav>
@@ -569,7 +583,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
       {showSuperAdmin && (
         <div className="mt-4 px-3" data-sidebar-section="super-admin">
           <div className="mb-2 px-2.5">
-            <MonoLabel className="text-slate-500">Super Admin</MonoLabel>
+            <MonoLabel className="text-slate-500">{t('component.sidebar.section_super_admin')}</MonoLabel>
           </div>
           <nav className="flex flex-col gap-0.5">
             {superAdminItems.map(item => (
@@ -588,7 +602,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
                 }
               >
                 <span className="flex-none">{item.icon}</span>
-                <span>{item.label}</span>
+                <span>{t(item.labelKey)}</span>
               </NavLink>
             ))}
           </nav>

@@ -16,25 +16,25 @@ import { useTranslation } from 'react-i18next'
 import { useAppLanguage } from '../../i18n/useAppLanguage'
 import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS } from '../../i18n'
 
-// Module slug → label for the breadcrumb crumb between the project and the
-// document. Kept inline since this is the only consumer of the mapping;
+// Module slug → i18n key for the breadcrumb crumb between the project and
+// the document. Kept inline since this is the only consumer of the mapping;
 // adding a module here needs no other code change.
-const MODULE_LABEL: Record<string, string> = {
-  'clinical-writing':    'Clinical Writing',
-  'scientific-writing':  'Scientific Writing',
-  'medical-writing':     'Medical Writing',
-  'regulatory-writing':  'Regulatory Writing',
-  'ideation-publishing': 'Ideation & Publishing',
+const MODULE_LABEL_KEYS: Record<string, string> = {
+  'clinical-writing':    'component.top_nav.module_clinical_writing',
+  'scientific-writing':  'component.top_nav.module_scientific_writing',
+  'medical-writing':     'component.top_nav.module_medical_writing',
+  'regulatory-writing':  'component.top_nav.module_regulatory_writing',
+  'ideation-publishing': 'component.top_nav.module_ideation_publishing',
 }
 
-// Within-module leaf slugs (e.g. /clinical-writing/comments) → human label.
+// Within-module leaf slugs (e.g. /clinical-writing/comments) → i18n key.
 // Only slugs that appear here get a leaf crumb; anything else falls through
 // without a trailing crumb (the module landing page is enough context).
-const LEAF_LABEL: Record<string, string> = {
-  'comments':     'Comments',
-  'portfolio':    'Portfolio',
-  'audit-review': 'Audit Review',
-  'crm':          'CRM',
+const LEAF_LABEL_KEYS: Record<string, string> = {
+  'comments':     'component.top_nav.leaf_comments',
+  'portfolio':    'component.top_nav.leaf_portfolio',
+  'audit-review': 'component.top_nav.leaf_audit_review',
+  'crm':          'component.top_nav.leaf_crm',
 }
 
 function BellIcon() {
@@ -78,11 +78,11 @@ function groupPersonas(users: PlatformUser[]) {
   const moduleUsers   = users.filter(u => !ADMIN_ROLES.has(u.role) && u.role !== 'pm' && u.status === 'active')
   const invited       = users.filter(u => u.status === 'invited')
   return [
-    { label: 'Platform Admin (GenBioCa)', users: platformAdmin },
-    { label: 'Client Admin',              users: tenantAdmin },
-    { label: 'Project Managers',          users: pms },
-    { label: 'Module users',              users: moduleUsers },
-    { label: 'Invited (not activated)',   users: invited },
+    { labelKey: 'component.top_nav.persona_group_platform_admin',   users: platformAdmin },
+    { labelKey: 'component.top_nav.persona_group_client_admin',     users: tenantAdmin },
+    { labelKey: 'component.top_nav.persona_group_project_managers', users: pms },
+    { labelKey: 'component.top_nav.persona_group_module_users',     users: moduleUsers },
+    { labelKey: 'component.top_nav.persona_group_invited',          users: invited },
   ].filter(g => g.users.length > 0)
 }
 
@@ -146,14 +146,14 @@ export function TopNav() {
   const projectRouteMatch = /^\/projects\/([^/]+)(?:\/([^/]+)(?:\/(.+))?)?/.exec(pathname)
   const inProjectRoute = !!projectRouteMatch
   const moduleSlug     = projectRouteMatch?.[2] ?? null
-  const moduleLabel    = moduleSlug ? MODULE_LABEL[moduleSlug] ?? null : null
+  const moduleLabel    = moduleSlug && MODULE_LABEL_KEYS[moduleSlug] ? t(MODULE_LABEL_KEYS[moduleSlug]!) : null
   const trailing       = projectRouteMatch?.[3] ?? ''      // whatever follows /module/
   const docMatch       = /^documents\/([^/]+)/.exec(trailing)
   const leafSlug       = !docMatch && trailing ? trailing.split('/')[0]! : null
-  const leafLabel      = leafSlug ? LEAF_LABEL[leafSlug] ?? null : null
+  const leafLabel      = leafSlug && LEAF_LABEL_KEYS[leafSlug] ? t(LEAF_LABEL_KEYS[leafSlug]!) : null
 
   const crumbs: Array<{ label: string; href: string | null }> = [
-    { label: 'Projects', href: '/projects' },
+    { label: t('component.top_nav.crumb_projects'), href: '/projects' },
     inProjectRoute && project ? { label: project.shortTitle, href: `/projects/${project.id}` } : null,
     inProjectRoute && moduleLabel && project
       ? { label: moduleLabel, href: `/projects/${project.id}/${moduleSlug}` }
@@ -260,7 +260,7 @@ export function TopNav() {
         <button
           className="relative flex h-8 w-8 items-center justify-center rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white transition-colors"
           onClick={() => navigate('/notifications')}
-          title="Notifications"
+          title={t('component.top_nav.notifications_title')}
         >
           <BellIcon />
           <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-blue-600" />
@@ -362,37 +362,37 @@ export function TopNav() {
                   data-action="log-out"
                 >
                   <LogOutIcon />
-                  {loggingOut ? 'Logging out…' : 'Log out'}
+                  {loggingOut ? t('component.top_nav.logging_out') : t('component.top_nav.log_out')}
                 </button>
               </div>
 
               <div className="flex-none px-3 py-2" style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Switch persona (demo)</p>
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('component.top_nav.switch_persona_header')}</p>
                 <p className="mt-0.5 text-[11px] text-slate-500">
-                  Role guards are enforced: each persona only reaches the pages its role allows. Switching persona changes this browser's demo context (RACI, notifications, menus); it does not change your real sign-in.
+                  {t('component.top_nav.switch_persona_body')}
                 </p>
               </div>
 
               <div className="min-h-0 flex-1 overflow-y-auto">
                 {usersPending && (
-                  <p className="px-3 py-6 text-center text-[12px] italic text-slate-500">Loading users…</p>
+                  <p className="px-3 py-6 text-center text-[12px] italic text-slate-500">{t('component.top_nav.users_loading')}</p>
                 )}
                 {usersError && !forbidden && (
                   <p className="px-3 py-4 text-center text-[12px] text-rose-600">
-                    Failed to load users. Check the API connection.
+                    {t('component.top_nav.users_load_failed')}
                   </p>
                 )}
                 {forbidden && (
                   <p className="px-3 pt-2 pb-1 text-center text-[11px] italic text-slate-500">
-                    Showing demo personas (API user list is admin-only).
+                    {t('component.top_nav.users_demo_fallback')}
                   </p>
                 )}
                 {!usersPending && !usersError && groups.length === 0 && (
-                  <p className="px-3 py-6 text-center text-[12px] italic text-slate-500">No users found.</p>
+                  <p className="px-3 py-6 text-center text-[12px] italic text-slate-500">{t('component.top_nav.users_none')}</p>
                 )}
                 {groups.map(group => (
-                  <div key={group.label}>
-                    <p className="px-3 pt-3 pb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{group.label}</p>
+                  <div key={group.labelKey}>
+                    <p className="px-3 pt-3 pb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t(group.labelKey)}</p>
                     {group.users.map(u => {
                       const isCurrent = u.id === currentUser.id
                       const roleLabel = PLATFORM_USER_ROLE_LABEL[u.role] ?? u.role
@@ -414,7 +414,7 @@ export function TopNav() {
                           <div className="min-w-0 flex-1">
                             <p className="truncate text-[13px] font-semibold text-slate-900">
                               {u.name}
-                              {isCurrent && <span className="ml-1.5 font-mono text-[10px] font-normal text-blue-700">✓ active</span>}
+                              {isCurrent && <span className="ml-1.5 font-mono text-[10px] font-normal text-blue-700">{t('component.top_nav.persona_active_marker')}</span>}
                             </p>
                             <p className="truncate font-mono text-[10px] text-slate-500">
                               {roleLabel}{u.modules.length > 0 && ` · ${u.modules.map(k => MODULE_KEY_TO_LABEL[k as ModuleKey] ?? k).join(', ')}`}
@@ -434,10 +434,10 @@ export function TopNav() {
                     onClick={() => { clearPersonaOverride(); window.location.reload() }}
                     className="mb-1.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
                     data-action="use-real-signin"
-                  >Use my real sign-in</button>
+                  >{t('component.top_nav.use_real_signin')}</button>
                 )}
                 <p className="font-mono text-[10px] text-slate-500">
-                  Selection persists in localStorage · reload happens on switch
+                  {t('component.top_nav.selection_persists_hint')}
                 </p>
               </div>
             </div>

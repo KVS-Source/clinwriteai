@@ -1,5 +1,6 @@
 import { Outlet, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { SubNav, type SubNavTab } from '../ui/SubNav'
 import { documentsApi } from '../../api/documents'
 
@@ -34,6 +35,7 @@ function tabDisablesFor(status: string | undefined): {
 }
 
 export function DocumentLayout() {
+  const { t } = useTranslation()
   const { projectId, documentId } = useParams()
   const base = `/projects/${projectId}/clinical-writing/documents/${documentId}`
 
@@ -50,24 +52,24 @@ export function DocumentLayout() {
   const d = tabDisablesFor(status)
 
   const lockReason =
-    status === 'signed' ? 'The document is signed and read-only.'
-    : status === 'pending-signature' ? 'The document is awaiting signature — editing is disabled until the signatory finishes.'
+    status === 'signed' ? t('component.document_layout.lock_signed')
+    : status === 'pending-signature' ? t('component.document_layout.lock_pending_signature')
     : undefined
 
   const tabs: SubNavTab[] = [
-    { to: base,             label: 'Editor',         end: true, disabled: d.editor, title: d.editor ? lockReason : undefined },
-    { to: `${base}/diff`,   label: 'Version Diff',               disabled: d.diff,   title: d.diff   ? lockReason : undefined },
-    { to: `${base}/review`, label: 'Reviewer View',              disabled: d.review, title: d.review ? lockReason : undefined },
-    { to: `${base}/crm`,    label: 'CRM' },
-    { to: `${base}/sign`,   label: 'E-Signature',                disabled: d.sign },
-    { to: `${base}/final`,  label: 'Final Document' },
+    { to: base,             label: t('component.document_layout.tab_editor'),         end: true, disabled: d.editor, title: d.editor ? lockReason : undefined },
+    { to: `${base}/diff`,   label: t('component.document_layout.tab_version_diff'),              disabled: d.diff,   title: d.diff   ? lockReason : undefined },
+    { to: `${base}/review`, label: t('component.document_layout.tab_reviewer_view'),             disabled: d.review, title: d.review ? lockReason : undefined },
+    { to: `${base}/crm`,    label: t('component.document_layout.tab_crm') },
+    { to: `${base}/sign`,   label: t('component.document_layout.tab_e_signature'),               disabled: d.sign },
+    { to: `${base}/final`,  label: t('component.document_layout.tab_final_document') },
   ]
 
   // The signed-in user's RACI role chip lives in each tab's own title row
   // (MyRaciRole), next to the document's status.
   return (
     <div className="flex h-full flex-col">
-      <SubNav tabs={tabs} label="Document navigation" />
+      <SubNav tabs={tabs} label={t('component.document_layout.nav_label')} />
       <div className="flex-1 overflow-auto">
         <Outlet />
       </div>

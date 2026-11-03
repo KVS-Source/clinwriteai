@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Navigate, useLocation } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useSession } from '../../platform/store'
 import { AUTH_BYPASS } from '../../config/auth'
 
@@ -11,11 +12,12 @@ import { AUTH_BYPASS } from '../../config/auth'
 // reload keeps you signed in: no session → /sign-in (with return_to), a
 // temporary password → /set-password before anything else.
 export function AuthGuard({ children }: { children: ReactNode }) {
+  const { t }    = useTranslation()
   const location = useLocation()
   // Wait for /auth/me so role-gated pages never flash for the wrong user.
   const session = useSession()
   if (!session.ready) {
-    return <div className="flex h-screen items-center justify-center bg-slate-50 text-[13px] text-slate-500" data-session-loading>Loading your workspace…</div>
+    return <div className="flex h-screen items-center justify-center bg-slate-50 text-[13px] text-slate-500" data-session-loading>{t('component.auth_guard.loading_workspace')}</div>
   }
   if (!AUTH_BYPASS) {
     if (session.status !== 'signed-in') {

@@ -4,6 +4,8 @@
 // re-checks on every password-set call, this only gives live feedback.
 
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import i18nInstance from '../../i18n'
 import { ApiError } from '../../api/client'
 
 export function AuthCard({ title, subtitle, screen, children }: {
@@ -12,6 +14,7 @@ export function AuthCard({ title, subtitle, screen, children }: {
   screen: string
   children: ReactNode
 }) {
+  const { t } = useTranslation()
   return (
     <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4" data-screen={screen}>
       <div
@@ -25,7 +28,7 @@ export function AuthCard({ title, subtitle, screen, children }: {
           </div>
           <div>
             <p className="text-lg font-bold leading-tight text-slate-900">ClinWrite.AI</p>
-            <p className="text-xs leading-tight text-slate-400">AI-Native Authoring for Life Sciences</p>
+            <p className="text-xs leading-tight text-slate-400">{t('page.auth_card.brand_tagline')}</p>
           </div>
         </div>
 
@@ -39,7 +42,7 @@ export function AuthCard({ title, subtitle, screen, children }: {
         {children}
 
         <p className="mt-6 text-center font-mono text-[11px] text-slate-400">
-          Protected by 21 CFR Part 11 compliant authentication
+          {t('page.auth_card.footer_part11')}
         </p>
       </div>
     </div>
@@ -96,24 +99,25 @@ export function AuthSubmit({ loading, label, loadingLabel, disabled }: { loading
 
 // --- Password policy (mirror of the server's validatePasswordPolicy) ---
 
-const PASSWORD_RULES: Array<{ label: string; ok: (pw: string) => boolean }> = [
-  { label: 'At least 12 characters',  ok: pw => pw.length >= 12 },
-  { label: 'An uppercase letter',     ok: pw => /[A-Z]/.test(pw) },
-  { label: 'A lowercase letter',      ok: pw => /[a-z]/.test(pw) },
-  { label: 'A number',                ok: pw => /[0-9]/.test(pw) },
-  { label: 'A symbol (e.g. ! @ # -)', ok: pw => /[^A-Za-z0-9]/.test(pw) },
+const PASSWORD_RULES: Array<{ key: string; ok: (pw: string) => boolean }> = [
+  { key: 'rule_min_length', ok: pw => pw.length >= 12 },
+  { key: 'rule_uppercase',  ok: pw => /[A-Z]/.test(pw) },
+  { key: 'rule_lowercase',  ok: pw => /[a-z]/.test(pw) },
+  { key: 'rule_number',     ok: pw => /[0-9]/.test(pw) },
+  { key: 'rule_symbol',     ok: pw => /[^A-Za-z0-9]/.test(pw) },
 ]
 
 export const passwordMeetsPolicy = (pw: string) => pw.length <= 128 && PASSWORD_RULES.every(r => r.ok(pw))
 
 export function PasswordRules({ password }: { password: string }) {
+  const { t } = useTranslation()
   return (
     <ul className="-mt-1 flex flex-col gap-0.5 text-[12px]" data-password-rules>
       {PASSWORD_RULES.map(rule => {
         const ok = rule.ok(password)
         return (
-          <li key={rule.label} className={ok ? 'text-green-700' : 'text-slate-500'} data-rule-ok={ok || undefined}>
-            <span aria-hidden className="mr-1.5 inline-block w-3">{ok ? '✓' : '·'}</span>{rule.label}
+          <li key={rule.key} className={ok ? 'text-green-700' : 'text-slate-500'} data-rule-ok={ok || undefined}>
+            <span aria-hidden className="mr-1.5 inline-block w-3">{ok ? '✓' : '·'}</span>{t(`page.auth_card.${rule.key}`)}
           </li>
         )
       })}
@@ -121,15 +125,30 @@ export function PasswordRules({ password }: { password: string }) {
   )
 }
 
-/** The message to show for a failed auth call — the server's own words when it sent some. */
+/** The message to show for a failed auth call — the server's own words when it sent some.
+ *
+ *  Note: this is a plain function, not a hook, so it can be called from
+ *  catch blocks. It uses i18next's imperative `t` for the fallback copy.
+ */
 export function authErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     const body = err.body as { message?: string; issues?: Array<{ message: string }> } | null
     if (body?.issues?.length) return body.issues.map(i => i.message).join(' ')
     if (body?.message) return body.message
-    if (err.status === 429) return 'Too many attempts. Wait a minute and try again.'
+    if (err.status === 429) return i18nFallback('page.auth_card.err_too_many_attempts', 'Too many attempts. Wait a minute and try again.')
   } else {
-    return 'Could not reach the server. Check your connection and try again.'
+    return i18nFallback('page.auth_card.err_network', 'Could not reach the server. Check your connection and try again.')
   }
   return fallback
+}
+
+// Minimal direct i18next lookup for messages produced outside a React
+// component. The English string stays as a safe fallback if i18n hasn't
+// initialised yet (e.g. a very early error).
+function i18nFallback(key: string, en: string): string {
+  try {
+    const v = i18nInstance.t(key)
+    if (typeof v === 'string' && v && v !== key) return v
+  } catch { /* fall through */ }
+  return en
 }

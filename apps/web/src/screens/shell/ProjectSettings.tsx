@@ -12,17 +12,18 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { PlatformUser, RACIRole, TeamMember } from '@platform/types'
 import { projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { usePlatformStore } from '../../platform/store'
 import { ApiError } from '../../api/client'
 
-const RACI_LABEL: Record<RACIRole, string> = {
-  R: 'Responsible',
-  A: 'Accountable',
-  C: 'Consulted',
-  I: 'Informed',
+const RACI_LABEL_KEYS: Record<RACIRole, string> = {
+  R: 'page.project_settings.raci_label_responsible',
+  A: 'page.project_settings.raci_label_accountable',
+  C: 'page.project_settings.raci_label_consulted',
+  I: 'page.project_settings.raci_label_informed',
 }
 
 const RACI_COLOUR: Record<RACIRole, { bg: string; fg: string }> = {
@@ -32,12 +33,12 @@ const RACI_COLOUR: Record<RACIRole, { bg: string; fg: string }> = {
   I: { bg: '#F1F5F9', fg: '#475569' },
 }
 
-const STATUS_LABEL: Record<string, string> = {
-  initiated: 'Initiated',
-  ongoing:   'Ongoing',
-  'on-hold': 'On hold',
-  're-open': 'Re-opened',
-  closed:    'Closed',
+const STATUS_LABEL_KEYS: Record<string, string> = {
+  initiated: 'page.project_settings.status_initiated',
+  ongoing:   'page.project_settings.status_ongoing',
+  'on-hold': 'page.project_settings.status_on_hold',
+  're-open': 'page.project_settings.status_re_open',
+  closed:    'page.project_settings.status_closed',
 }
 
 function initialsOf(name: string): string {
@@ -51,6 +52,7 @@ function fmtDate(iso: string | null | undefined): string {
 }
 
 export function ProjectSettings() {
+  const { t } = useTranslation()
   const { projectId } = useParams()
   const navigate = useNavigate()
   const qc = useQueryClient()
@@ -82,14 +84,14 @@ export function ProjectSettings() {
       const body = err.body as { message?: string } | null
       return body?.message ?? `HTTP ${err.status}`
     }
-    return err instanceof Error ? err.message : 'Request failed'
+    return err instanceof Error ? err.message : t('page.project_settings.err_request_failed')
   }
 
   const addMut = useMutation({
     mutationFn: (body: Parameters<typeof projectsApi.addTeamMember>[1]) =>
       projectsApi.addTeamMember(projectId!, body),
     onSuccess: () => { setOpError(null); setAddOpen(false); invalidate() },
-    onError:   (err) => setOpError(`Could not add member: ${extractErr(err)}`),
+    onError:   (err) => setOpError(t('page.project_settings.err_add_member', { detail: extractErr(err) })),
   })
   const patchMut = useMutation({
     mutationFn: (args: { userId: string } & Parameters<typeof projectsApi.updateTeamMember>[2]) => {
@@ -97,19 +99,19 @@ export function ProjectSettings() {
       return projectsApi.updateTeamMember(projectId!, userId, body)
     },
     onSuccess: () => { setOpError(null); invalidate() },
-    onError:   (err) => setOpError(`Could not update member: ${extractErr(err)}`),
+    onError:   (err) => setOpError(t('page.project_settings.err_update_member', { detail: extractErr(err) })),
   })
   const removeMut = useMutation({
     mutationFn: (userId: string) => projectsApi.removeTeamMember(projectId!, userId),
     onSuccess:  () => { setOpError(null); invalidate() },
-    onError:    (err) => setOpError(`Could not remove member: ${extractErr(err)}`),
+    onError:    (err) => setOpError(t('page.project_settings.err_remove_member', { detail: extractErr(err) })),
   })
 
   if (isLoading) {
-    return <div className="p-8 text-sm text-slate-500">Loading project settings…</div>
+    return <div className="p-8 text-sm text-slate-500">{t('page.project_settings.loading')}</div>
   }
   if (isError || !project) {
-    return <div className="p-8 text-sm text-red-700" role="alert">Could not load the project.</div>
+    return <div className="p-8 text-sm text-red-700" role="alert">{t('page.project_settings.load_failed')}</div>
   }
   if (!isAuthor) return null
 
@@ -119,14 +121,14 @@ export function ProjectSettings() {
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500" aria-label="Breadcrumb">
           <button onClick={() => navigate('/projects')} className="hover:text-slate-900 transition-colors">
-            All Projects
+            {t('page.project_settings.crumb_all_projects')}
           </button>
           <span className="text-slate-300">›</span>
           <button onClick={() => navigate(`/projects/${projectId}`)} className="hover:text-slate-900 transition-colors">
             {project.shortTitle}
           </button>
           <span className="text-slate-300">›</span>
-          <span className="font-semibold text-slate-900">Settings</span>
+          <span className="font-semibold text-slate-900">{t('page.project_settings.crumb_settings')}</span>
         </nav>
 
         {opError && (
@@ -138,23 +140,23 @@ export function ProjectSettings() {
         {/* Metadata — read-only in v2 */}
         <section className="rounded-lg border border-slate-200 bg-white" data-section="metadata">
           <h2 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
-            Project metadata
-            <span className="ml-2 text-[11px] font-normal text-slate-500">read-only — edit lands in v3</span>
+            {t('page.project_settings.metadata_title')}
+            <span className="ml-2 text-[11px] font-normal text-slate-500">{t('page.project_settings.metadata_read_only')}</span>
           </h2>
           <dl className="grid grid-cols-2 gap-x-6 gap-y-3 px-4 py-4 text-[13px]">
-            <MetaRow label="Short title"           value={project.shortTitle} />
-            <MetaRow label="Full name"             value={project.name} />
-            <MetaRow label="Client"                value={project.client || '—'} />
-            <MetaRow label="Status"                value={STATUS_LABEL[project.status] ?? project.status} />
-            <MetaRow label="Phase"                 value={project.phase} />
-            <MetaRow label="Therapeutic area"      value={project.therapeuticArea} />
-            <MetaRow label="Indication"            value={project.indication ?? '—'} />
-            <MetaRow label="Start date"            value={fmtDate(project.startDate)} />
-            <MetaRow label="Data cutoff"           value={fmtDate(project.dataCutoff)} />
-            <MetaRow label="Reference trial"       value={project.referenceTrial ?? '—'} />
-            <MetaRow label="Modules enabled"
+            <MetaRow label={t('page.project_settings.field_short_title')}       value={project.shortTitle} />
+            <MetaRow label={t('page.project_settings.field_full_name')}         value={project.name} />
+            <MetaRow label={t('page.project_settings.field_client')}            value={project.client || '—'} />
+            <MetaRow label={t('page.project_settings.field_status')}            value={STATUS_LABEL_KEYS[project.status] ? t(STATUS_LABEL_KEYS[project.status]!) : project.status} />
+            <MetaRow label={t('page.project_settings.field_phase')}             value={project.phase} />
+            <MetaRow label={t('page.project_settings.field_therapeutic_area')}  value={project.therapeuticArea} />
+            <MetaRow label={t('page.project_settings.field_indication')}        value={project.indication ?? '—'} />
+            <MetaRow label={t('page.project_settings.field_start_date')}        value={fmtDate(project.startDate)} />
+            <MetaRow label={t('page.project_settings.field_data_cutoff')}       value={fmtDate(project.dataCutoff)} />
+            <MetaRow label={t('page.project_settings.field_reference_trial')}   value={project.referenceTrial ?? '—'} />
+            <MetaRow label={t('page.project_settings.field_modules')}
                      value={project.activeModules.length > 0 ? project.activeModules.join(', ') : '—'} />
-            <MetaRow label="Submission countries"
+            <MetaRow label={t('page.project_settings.field_countries')}
                      value={project.submissionCountries.length > 0 ? project.submissionCountries.join(', ') : '—'} />
           </dl>
         </section>
@@ -162,18 +164,18 @@ export function ProjectSettings() {
         {/* Team — editable in v2 */}
         <section className="rounded-lg border border-slate-200 bg-white" data-section="team">
           <h2 className="flex items-baseline justify-between border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
-            <span>Team · {project.team.length} member{project.team.length === 1 ? '' : 's'}</span>
+            <span>{t('page.project_settings.team_header', { count: project.team.length })}</span>
             <button
               type="button"
               onClick={() => { setAddOpen(true); setOpError(null) }}
               className="rounded-md bg-blue-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-blue-700"
               data-action="add-member"
             >
-              + Add team member
+              {t('page.project_settings.add_team_member')}
             </button>
           </h2>
           {project.team.length === 0 ? (
-            <p className="px-4 py-4 text-[13px] text-slate-500">No team members yet.</p>
+            <p className="px-4 py-4 text-[13px] text-slate-500">{t('page.project_settings.team_empty')}</p>
           ) : (
             <div className="divide-y divide-slate-100">
               {project.team.map(member => (
@@ -184,7 +186,7 @@ export function ProjectSettings() {
                   busy={patchMut.isPending || removeMut.isPending}
                   onPatch={(patch) => patchMut.mutate({ userId: member.userId, ...patch })}
                   onRemove={() => {
-                    if (!window.confirm(`Remove ${member.name} from the team?`)) return
+                    if (!window.confirm(t('page.project_settings.confirm_remove', { name: member.name }))) return
                     removeMut.mutate(member.userId)
                   }}
                 />
@@ -226,6 +228,7 @@ function TeamRow({ member, isSelf, busy, onPatch, onRemove }: {
   onPatch: (patch: Partial<{ role: string; raci: RACIRole }>) => void
   onRemove: () => void
 }) {
+  const { t } = useTranslation()
   const [role, setRole] = useState(member.role)
   const [raci, setRaci] = useState<RACIRole>(member.raci)
   const roleDirty = role !== member.role
@@ -244,7 +247,7 @@ function TeamRow({ member, isSelf, busy, onPatch, onRemove }: {
       <div className="min-w-0 flex-1">
         <p className="truncate text-[13px] font-semibold text-slate-900">
           {member.name}
-          {isSelf && <span className="ml-1 text-[10px] font-normal text-slate-500">(you)</span>}
+          {isSelf && <span className="ml-1 text-[10px] font-normal text-slate-500">{t('page.project_settings.you_label')}</span>}
         </p>
         <input
           type="text"
@@ -253,7 +256,7 @@ function TeamRow({ member, isSelf, busy, onPatch, onRemove }: {
           disabled={busy}
           className="mt-0.5 w-full border-b border-transparent bg-transparent text-[12px] text-slate-500 hover:border-slate-200 focus:border-blue-600 focus:text-slate-900 focus:outline-none"
           data-field="role"
-          placeholder="Role on project"
+          placeholder={t('page.project_settings.role_placeholder')}
         />
       </div>
       <select
@@ -262,7 +265,7 @@ function TeamRow({ member, isSelf, busy, onPatch, onRemove }: {
         disabled={busy}
         className="flex-none rounded-full border px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide"
         style={{ backgroundColor: colour.bg, color: colour.fg, borderColor: colour.bg }}
-        title={RACI_LABEL[raci]}
+        title={t(RACI_LABEL_KEYS[raci])}
         data-field="raci"
       >
         {(['R', 'A', 'C', 'I'] as const).map(l => (
@@ -280,7 +283,7 @@ function TeamRow({ member, isSelf, busy, onPatch, onRemove }: {
           className="rounded border border-blue-300 bg-blue-50 px-2 py-0.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
           data-action="save-member"
         >
-          Save
+          {t('page.project_settings.save')}
         </button>
       )}
       <button
@@ -290,7 +293,7 @@ function TeamRow({ member, isSelf, busy, onPatch, onRemove }: {
         className="rounded border border-red-200 bg-white px-2 py-0.5 text-[11px] font-semibold text-red-700 hover:bg-red-50 disabled:text-slate-300"
         data-action="remove-member"
       >
-        Remove
+        {t('page.project_settings.remove')}
       </button>
     </div>
   )
@@ -312,6 +315,7 @@ function AddMemberModal({ projectId, existingUserIds, onCancel, onSave, submitti
   submitting: boolean
   error: string | null
 }) {
+  const { t } = useTranslation()
   void projectId
   const [userId, setUserId] = useState<string>('')
   const [role, setRole]     = useState<string>('')
@@ -359,17 +363,17 @@ function AddMemberModal({ projectId, existingUserIds, onCancel, onSave, submitti
     >
       <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl" onClick={e => e.stopPropagation()}>
         <h3 id="add-member-title" className="text-base font-semibold text-slate-900">
-          Add team member
+          {t('page.project_settings.add_modal_title')}
         </h3>
         <p className="mt-1 text-[12px] text-slate-500">
-          Pick a user, their role on this project, and a RACI letter. The user must already exist in the tenant directory.
+          {t('page.project_settings.add_modal_body')}
         </p>
 
         <div className="mt-4 flex flex-col gap-3">
           <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">User</span>
-            {usersQ.isLoading && <p className="mt-1 text-[12px] text-slate-400">Loading users…</p>}
-            {usersQ.isError && <p className="mt-1 text-[12px] text-red-700">Could not load the user directory.</p>}
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.project_settings.user_label')}</span>
+            {usersQ.isLoading && <p className="mt-1 text-[12px] text-slate-400">{t('page.project_settings.users_loading')}</p>}
+            {usersQ.isError && <p className="mt-1 text-[12px] text-red-700">{t('page.project_settings.users_load_failed')}</p>}
             {usersQ.data && (
               <select
                 value={userId}
@@ -377,38 +381,38 @@ function AddMemberModal({ projectId, existingUserIds, onCancel, onSave, submitti
                 className="mt-1 h-9 w-full rounded border border-slate-200 bg-white px-2 text-[13px] outline-none focus:border-blue-600"
                 data-field="user"
               >
-                <option value="">— Select a user —</option>
+                <option value="">{t('page.project_settings.user_select_placeholder')}</option>
                 {candidates.map(u => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.email})</option>
+                  <option key={u.id} value={u.id}>{t('page.project_settings.user_option', { name: u.name, email: u.email })}</option>
                 ))}
               </select>
             )}
           </label>
 
           <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Role on project</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.project_settings.role_label')}</span>
             <input
               type="text"
               value={role}
               onChange={e => setRole(e.target.value)}
-              placeholder="e.g. Lead Clinical Writer / Medical Reviewer"
+              placeholder={t('page.project_settings.role_add_placeholder')}
               className="mt-1 h-9 w-full rounded border border-slate-200 bg-white px-2 text-[13px] outline-none focus:border-blue-600"
               data-field="role"
             />
           </label>
 
           <label className="block">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">RACI letter</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.project_settings.raci_label')}</span>
             <select
               value={raci}
               onChange={e => setRaci(e.target.value as RACIRole)}
               className="mt-1 h-9 w-full rounded border border-slate-200 bg-white px-2 text-[13px] outline-none focus:border-blue-600"
               data-field="raci"
             >
-              <option value="R">R — Responsible (Author)</option>
-              <option value="A">A — Accountable</option>
-              <option value="C">C — Consulted</option>
-              <option value="I">I — Informed</option>
+              <option value="R">{t('page.project_settings.raci_option_r')}</option>
+              <option value="A">{t('page.project_settings.raci_option_a')}</option>
+              <option value="C">{t('page.project_settings.raci_option_c')}</option>
+              <option value="I">{t('page.project_settings.raci_option_i')}</option>
             </select>
           </label>
         </div>
@@ -426,7 +430,7 @@ function AddMemberModal({ projectId, existingUserIds, onCancel, onSave, submitti
             disabled={submitting}
             className="rounded border border-slate-200 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
           >
-            Cancel
+            {t('page.project_settings.cancel')}
           </button>
           <button
             type="button"
@@ -435,7 +439,7 @@ function AddMemberModal({ projectId, existingUserIds, onCancel, onSave, submitti
             className="rounded bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
             data-action="confirm-add-member"
           >
-            {submitting ? 'Adding…' : 'Add member'}
+            {submitting ? t('page.project_settings.adding') : t('page.project_settings.add_member')}
           </button>
         </div>
       </div>

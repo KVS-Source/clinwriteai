@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useAuthStore } from '../../store'
 
 function CheckIcon() {
@@ -45,6 +46,7 @@ function Checkbox({ id, checked, onChange, label }: CheckboxProps) {
 }
 
 export function TCGate() {
+  const { t }    = useTranslation()
   const navigate = useNavigate()
   const acceptTC = useAuthStore(s => s.acceptTC)
 
@@ -75,10 +77,10 @@ export function TCGate() {
         {/* Header */}
         <div>
           <h1 className="text-xl font-bold text-slate-900">
-            Terms of Service &amp; Data Processing Agreement
+            {t('page.tc_gate.title')}
           </h1>
           <p className="mt-1.5 font-mono text-[11px] text-slate-500">
-            Review and accept before accessing the platform
+            {t('page.tc_gate.subtitle')}
           </p>
         </div>
 
@@ -94,37 +96,28 @@ export function TCGate() {
 
             <div>
               <p className="mb-1.5 text-sm font-bold text-slate-900">
-                1. Platform Use &amp; GxP Compliance
+                {t('page.tc_gate.section1_title')}
               </p>
               <p>
-                This platform is validated for use in GxP-regulated environments.
-                All authoring, review, and approval activities are subject to 21 CFR Part 11
-                electronic records and signature requirements. Users are responsible for
-                maintaining the integrity of records created within this platform.
+                {t('page.tc_gate.section1_body')}
               </p>
             </div>
 
             <div>
               <p className="mb-1.5 text-sm font-bold text-slate-900">
-                2. Data Processing &amp; Confidentiality
+                {t('page.tc_gate.section2_title')}
               </p>
               <p>
-                All clinical study data, documents, and personally identifiable
-                information processed within this platform are subject to your organisation&rsquo;s
-                data processing agreement. Unauthorised disclosure of clinical data constitutes
-                a breach of applicable data protection regulations including GDPR (EU) 2016/679.
+                {t('page.tc_gate.section2_body')}
               </p>
             </div>
 
             <div>
               <p className="mb-1.5 text-sm font-bold text-slate-900">
-                3. Audit Trail &amp; Electronic Signatures
+                {t('page.tc_gate.section3_title')}
               </p>
               <p>
-                Your actions within this platform are logged in a tamper-evident audit
-                trail. Electronic signatures applied through this platform carry legal weight
-                equivalent to handwritten signatures under 21 CFR Part 11. You are solely
-                responsible for all actions performed under your credentials.
+                {t('page.tc_gate.section3_body')}
               </p>
             </div>
 
@@ -137,13 +130,13 @@ export function TCGate() {
             id="tc-box1"
             checked={box1}
             onChange={setBox1}
-            label="I have read and accept the Terms of Service and Data Processing Agreement"
+            label={t('page.tc_gate.accept_terms_label')}
           />
           <Checkbox
             id="tc-box2"
             checked={box2}
             onChange={setBox2}
-            label="I understand that my actions are logged in a tamper-evident audit trail and that electronic signatures carry legal weight under 21 CFR Part 11"
+            label={t('page.tc_gate.accept_audit_label')}
           />
         </div>
 
@@ -161,7 +154,7 @@ export function TCGate() {
           onMouseEnter={e => { if (bothChecked) (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#1D4ED8' }}
           onMouseLeave={e => { if (bothChecked) (e.currentTarget as HTMLButtonElement).style.backgroundColor = '#2563EB' }}
         >
-          Continue to platform
+          {t('page.tc_gate.continue_to_platform')}
         </button>
 
       </div>

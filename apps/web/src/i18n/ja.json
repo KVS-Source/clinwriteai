@@ -5,6 +5,7 @@
     "en": "English",
     "ja": "日本語"
   },
+
   "button": {
     "save": "保存",
     "cancel": "キャンセル",
@@ -31,6 +32,7 @@
     "retry": "再試行",
     "continue": "続行"
   },
+
   "status": {
     "loading": "読み込み中…",
     "empty": "結果はありません。",
@@ -42,6 +44,7 @@
     "active": "アクティブ",
     "inactive": "非アクティブ"
   },
+
   "toast": {
     "success_title": "成功",
     "error_title": "エラー",
@@ -53,6 +56,7 @@
     "deleted": "削除しました。",
     "something_went_wrong": "問題が発生しました。もう一度お試しください。"
   },
+
   "nav": {
     "home": "ホーム",
     "projects": "プロジェクト",
@@ -65,6 +69,7 @@
     "settings": "設定",
     "admin": "管理"
   },
+
   "header": {
     "notifications_label": "通知",
     "user_menu_label": "アカウント メニュー",
@@ -73,6 +78,7 @@
     "change_password": "パスワード変更",
     "language": "言語"
   },
+
   "page": {
     "sign_in": {
       "title": "アカウントにサインイン",
@@ -87,6 +93,144 @@
       "reset_notice": "パスワードが更新されました。新しいパスワードでサインインしてください。",
       "first_time_heading": "初めてサインインしますか?",
       "first_time_body": "管理者から配布された仮パスワードを使用してください。次の画面でご自身のパスワードを設定していただきます。仮パスワードをお持ちでない場合は、<firstLoginLink>メールでパスワードを設定</firstLoginLink>してください。"
+    },
+
+    "section_navigator": {
+      "header": "セクション",
+      "filter_count": "{{total}} 件中 {{visible}} 件",
+      "search_placeholder": "セクションを検索…",
+      "clear_search": "検索をクリア",
+      "no_matches": "「{{query}}」に一致するセクションはありません。",
+      "locked_by": "{{owner}} がロック中",
+      "another_user": "他のユーザー",
+      "progress_complete": "{{total}} 件中 {{complete}} 件のセクション · {{pct}}%",
+      "progress_reviewed": "{{total}} 件中 {{complete}} 件のセクションをレビュー済み · {{pct}}%"
+    },
+
+    "new_document": {
+      "step_label_1": "ドキュメント種別",
+      "step_label_2": "ソース ドキュメント",
+      "step_label_3": "詳細",
+      "step_label_4": "AI ドラフト",
+
+      "step1_title": "どのドキュメントを作成しますか?",
+      "step1_hint":  "選択した種別により、セクション テンプレートとフレームワーク チェックが決まります。",
+      "document_type_label":   "ドキュメント種別 *",
+      "typical_sources_label": "典型的なソース:",
+
+      "step2_title": "このドキュメントの元となるソースを選択",
+      "step2_hint":  "必須 — ライターと AI ドラフターがエビデンスとして使用します。",
+      "step2_showing_uploaded_prefix": "選択したソースを表示しています —",
+      "step2_showing_uploaded_suffix": "をオンにすると他のソースも選択できます。",
+      "step2_filtered_prefix": "次の種別で絞り込み:",
+      "step2_filtered_suffix": "({{type}} 用)",
+      "upload_source":          "ソースをアップロード",
+      "upload_from_existing":   "既存から選択",
+      "upload_existing_title":  "このプロジェクトのライブラリにある既存のソース ドキュメントから選択します",
+      "show_all_categories":    "すべてのカテゴリーを表示",
+      "no_sources_library":     "このプロジェクトのライブラリにはまだソース ドキュメントがありません。",
+      "no_sources_match_category": "このドキュメント種別に推奨されるカテゴリーに一致するソースはありません。",
+      "select_one_source_hint":   "続行するには、少なくとも 1 つのソースを選択してください。",
+      "selected_count_one":       "{{count}} 件選択済み",
+      "selected_count_other":     "{{count}} 件選択済み",
+      "out_of_scope_count_one":   "推奨カテゴリー外 {{count}} 件",
+      "out_of_scope_count_other": "推奨カテゴリー外 {{count}} 件",
+
+      "step3_title":   "ドキュメントの詳細",
+      "step3_summary": "{{type}} を {{count}} 件のソースで作成します。",
+      "step3_best_practices_one":   "{{count}} 件のベスト プラクティスが適用されます",
+      "step3_best_practices_other": "{{count}} 件のベスト プラクティスが適用されます",
+      "step3_review_due_suffix":    " (1 件はレビュー期限です)",
+      "title_label":                "タイトル *",
+      "title_placeholder_with_project": "{{project}} CSR v1.0 — 主要解析",
+      "title_placeholder_fallback":     "例: CSR v1.0 — 主要解析",
+      "ta_label":            "治療領域 *",
+      "ta_inherited_badge":  "継承",
+      "ta_loading":          "読み込み中…",
+      "ta_hint":             "プロジェクトから設定されています。ドキュメント作成後は管理者のみ変更できます。",
+      "assignee_label":       "担当ライター *",
+      "assignee_placeholder": "担当者を選択してください…",
+      "assignee_hint":        "担当者は RACI マトリクスの R (実行責任者) として自動的に追加されます。",
+      "target_date_label":    "目標完了日",
+      "description_label":    "説明",
+
+      "step4_title": "すべてのセクションを AI でドラフトしますか?",
+      "step4_hint":  "AI ドラフターが {{count}} 件のソースを読み取り、各セクションの初稿を作成します。エディターで編集・承認・再生成ができます。",
+      "ai_on_title":        "AI でドラフト",
+      "recommended_badge":  "推奨",
+      "ai_on_description":  "「作成」をクリックした瞬間にワーカーがバックグラウンド ジョブをキューに入れます。ドキュメントはすぐに「作成中」状態で開き、2〜6 分でセクションが埋まります。タブを閉じても構いません — 完了時に通知が届きます。",
+      "ai_on_note":         "現時点ではセクションごとに決定論的なプレースホルダー内容を使用しています — 実際の LLM への切り替えは ANTHROPIC_API_KEY のプロビジョニング待ちです (音声メモの文字起こしと同じパターン)。",
+      "ai_off_title":       "空白で作成",
+      "ai_off_description": "各セクションを自分で作成します。ドキュメントはセクション スケルトンのみで開きます — AI は使用しません。",
+      "ai_disabled_no_sources": "ソース ドキュメントが添付されていないため、AI ドラフトは無効です。ステップ 2 に戻って追加するか、「空白で作成」を選択してください。",
+
+      "ai_instructions_label":    "AI ドラフターへの指示",
+      "ai_instructions_optional": "(任意)",
+      "ai_instructions_remaining_one":   "残り {{count}} 文字",
+      "ai_instructions_remaining_other": "残り {{count}} 文字",
+      "ai_instructions_help":        "AI にドラフトの書き方を指示します — 言語、トーン、構成など。この指示は、AI がドラフトする全セクション (初稿および以降の再生成) に適用されます。レビュアーには表示されません。",
+      "ai_instructions_placeholder": "例: 日本語で作成してください。短い段落で書き、必要に応じて投与量の表を含めてください。",
+      "examples_label":              "例:",
+      "ai_instructions_example_draft_japanese":  "日本語で作成",
+      "ai_instructions_example_plain_english":   "平易な英語、専門用語なし",
+      "ai_instructions_example_include_tables":  "必要に応じて表を含める",
+      "ai_instructions_example_mhra_style":      "MHRA ハウス スタイルに従う",
+
+      "creating":              "作成中…",
+      "create_with_ai":        "作成して AI でドラフト",
+      "create_blank_button":   "ドキュメントを作成",
+
+      "best_practices_header": "ベスト プラクティス",
+      "best_practices_empty":  "{{docType}} に適用されるベスト プラクティス項目はありません。プラットフォーム管理者は <libraryPath>ライブラリ → ベスト プラクティス</libraryPath> から項目を公開できます。",
+      "best_practices_for":    "{{docType}} のベスト プラクティス",
+      "best_practices_review_due_count_one":   "{{count}} 件のレビュー期限",
+      "best_practices_review_due_count_other": "{{count}} 件のレビュー期限",
+      "best_practices_review_due_badge": "レビュー期限"
+    },
+
+    "all_projects": {
+      "title": "プロジェクト",
+      "new_project": "新規プロジェクト",
+      "new_project_panel_title": "新規プロジェクト",
+      "new_project_panel_subtitle": "新しい試験とその後続成果物を作成します",
+
+      "search_placeholder": "プロジェクトを検索…",
+      "clear_search": "検索をクリア",
+      "filter_by_ta": "治療領域でフィルター",
+      "all_tas": "すべての治療領域",
+
+      "filter_all":       "すべて",
+      "filter_ongoing":   "進行中",
+      "filter_initiated": "開始済み",
+      "filter_on_hold":   "保留中",
+
+      "status_ongoing":   "進行中",
+      "status_initiated": "開始済み",
+      "status_re_open":   "再開",
+      "status_on_hold":   "保留中",
+      "status_closed":    "完了",
+
+      "status_summary_item_one":   "{{label}} {{count}} 件",
+      "status_summary_item_other": "{{label}} {{count}} 件",
+      "status_summary_total_one":  "合計 {{count}} 件",
+      "status_summary_total_other": "合計 {{count}} 件",
+
+      "col_project":   "プロジェクト",
+      "col_ta":        "治療領域",
+      "col_phase":     "フェーズ",
+      "col_start":     "開始日",
+      "col_countries": "対象国",
+      "col_documents": "ドキュメント",
+      "col_status":    "ステータス",
+
+      "phase_prefix":   "フェーズ {{phase}}",
+
+      "document_count_one":   "{{count}} 件のドキュメント",
+      "document_count_other": "{{count}} 件のドキュメント",
+
+      "loading":     "プロジェクトを読み込み中…",
+      "empty_title": "該当するプロジェクトがありません",
+      "empty_hint":  "検索条件やフィルターを調整してください"
     }
   }
 }

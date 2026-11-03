@@ -93,6 +93,144 @@
       "reset_notice": "Your password has been updated. Sign in with your new password.",
       "first_time_heading": "First time signing in?",
       "first_time_body": "Use the temporary password your administrator gave you — you'll choose your own password next. No temporary password? <firstLoginLink>Set your password by email</firstLoginLink>."
+    },
+
+    "section_navigator": {
+      "header": "Sections",
+      "filter_count": "{{visible}} of {{total}}",
+      "search_placeholder": "Search sections…",
+      "clear_search": "Clear search",
+      "no_matches": "No sections match \"{{query}}\".",
+      "locked_by": "Locked by {{owner}}",
+      "another_user": "another user",
+      "progress_complete": "{{complete}} of {{total}} sections · {{pct}}%",
+      "progress_reviewed": "{{complete}} of {{total}} sections reviewed · {{pct}}%"
+    },
+
+    "new_document": {
+      "step_label_1": "Document type",
+      "step_label_2": "Source documents",
+      "step_label_3": "Details",
+      "step_label_4": "AI drafting",
+
+      "step1_title": "What are you writing?",
+      "step1_hint":  "The type determines the section template + framework checks applied.",
+      "document_type_label":   "Document type *",
+      "typical_sources_label": "Typical sources:",
+
+      "step2_title": "Pick the sources this document is written from",
+      "step2_hint":  "Mandatory — the writer (and later, the AI drafter) uses these as evidence.",
+      "step2_showing_uploaded_prefix": "Showing the sources you selected — tick",
+      "step2_showing_uploaded_suffix": "to pick others.",
+      "step2_filtered_prefix": "Filtered to",
+      "step2_filtered_suffix": "for {{type}}.",
+      "upload_source":          "Upload source",
+      "upload_from_existing":   "Upload from existing",
+      "upload_existing_title":  "Pick from the source documents already in this project's library",
+      "show_all_categories":    "Show all categories",
+      "no_sources_library":     "This project's library has no source documents yet.",
+      "no_sources_match_category": "No sources match the recommended categories for this document type.",
+      "select_one_source_hint":   "Select at least one source to continue.",
+      "selected_count_one":       "{{count}} selected",
+      "selected_count_other":     "{{count}} selected",
+      "out_of_scope_count_one":   "{{count}} outside recommended categories",
+      "out_of_scope_count_other": "{{count}} outside recommended categories",
+
+      "step3_title":   "Document details",
+      "step3_summary": "You picked {{type}} with {{count}} source(s).",
+      "step3_best_practices_one":   "{{count}} best practice will apply",
+      "step3_best_practices_other": "{{count}} best practices will apply",
+      "step3_review_due_suffix":    " (one is marked Review due)",
+      "title_label":                "Title *",
+      "title_placeholder_with_project": "{{project}} CSR v1.0 — Primary Analysis",
+      "title_placeholder_fallback":     "e.g. CSR v1.0 — Primary Analysis",
+      "ta_label":            "Therapeutic area *",
+      "ta_inherited_badge":  "INHERITED",
+      "ta_loading":          "Loading…",
+      "ta_hint":             "Set by the project. Only an Admin can change it after the document is created.",
+      "assignee_label":       "Assigned writer *",
+      "assignee_placeholder": "Select an assignee…",
+      "assignee_hint":        "The assignee is auto-added as the Responsible (R) on the RACI matrix.",
+      "target_date_label":    "Target completion date",
+      "description_label":    "Description",
+
+      "step4_title": "Draft every section with AI?",
+      "step4_hint":  "The AI drafter reads your {{count}} source(s) and fills in each section as a first-pass draft. You can then edit, accept, or regenerate per section in the editor.",
+      "ai_on_title":        "Draft with AI",
+      "recommended_badge":  "recommended",
+      "ai_on_description":  "The worker queues a background job the moment you click Create. The document opens immediately in \"Authoring\"; sections fill in over 2–6 minutes. You can close this tab — a notification lands when drafting completes.",
+      "ai_on_note":         "Current build uses deterministic placeholder content per section — real LLM swap is pending ANTHROPIC_API_KEY provisioning (same pattern as voice-note transcription).",
+      "ai_off_title":       "Create blank",
+      "ai_off_description": "I'll draft every section myself. The document opens with the section skeleton only — no AI involvement.",
+      "ai_disabled_no_sources": "AI drafting is disabled because you haven't attached any source documents. Go back to step 2 to add one, or continue with \"Create blank\".",
+
+      "ai_instructions_label":    "Instructions for the AI drafter",
+      "ai_instructions_optional": "(optional)",
+      "ai_instructions_remaining_one":   "{{count}} left",
+      "ai_instructions_remaining_other": "{{count}} left",
+      "ai_instructions_help":        "Tell the AI how you want the draft written — language, tone, structure. These instructions apply to every section the AI drafts (initial draft and any later regenerate). Not shown to reviewers.",
+      "ai_instructions_placeholder": "e.g. Draft in Japanese. Use short paragraphs. Include a dosing table where helpful.",
+      "examples_label":              "Examples:",
+      "ai_instructions_example_draft_japanese":  "Draft in Japanese",
+      "ai_instructions_example_plain_english":   "Plain English, no jargon",
+      "ai_instructions_example_include_tables":  "Include tables where helpful",
+      "ai_instructions_example_mhra_style":      "Follow MHRA house style",
+
+      "creating":              "Creating…",
+      "create_with_ai":        "Create & draft with AI",
+      "create_blank_button":   "Create document",
+
+      "best_practices_header": "Best practices",
+      "best_practices_empty":  "No best-practice items apply to {{docType}}. Platform admins can publish items via <libraryPath>Library → Best Practices</libraryPath>.",
+      "best_practices_for":    "Best practices for {{docType}}",
+      "best_practices_review_due_count_one":   "{{count}} review due",
+      "best_practices_review_due_count_other": "{{count}} review due",
+      "best_practices_review_due_badge": "Review due"
+    },
+
+    "all_projects": {
+      "title": "Projects",
+      "new_project": "New Project",
+      "new_project_panel_title": "New project",
+      "new_project_panel_subtitle": "Create a new study + its downstream deliverables",
+
+      "search_placeholder": "Search projects…",
+      "clear_search": "Clear search",
+      "filter_by_ta": "Filter by TA",
+      "all_tas": "All TAs",
+
+      "filter_all":       "All",
+      "filter_ongoing":   "Ongoing",
+      "filter_initiated": "Initiated",
+      "filter_on_hold":   "On Hold",
+
+      "status_ongoing":   "ongoing",
+      "status_initiated": "initiated",
+      "status_re_open":   "re-open",
+      "status_on_hold":   "on hold",
+      "status_closed":    "closed",
+
+      "status_summary_item_one":   "{{count}} {{label}}",
+      "status_summary_item_other": "{{count}} {{label}}",
+      "status_summary_total_one":  "{{count}} total",
+      "status_summary_total_other": "{{count}} total",
+
+      "col_project":   "Project",
+      "col_ta":        "TA",
+      "col_phase":     "Phase",
+      "col_start":     "Start date",
+      "col_countries": "Countries",
+      "col_documents": "Documents",
+      "col_status":    "Status",
+
+      "phase_prefix":   "Phase {{phase}}",
+
+      "document_count_one":   "{{count}} document",
+      "document_count_other": "{{count}} documents",
+
+      "loading":     "Loading projects…",
+      "empty_title": "No projects found",
+      "empty_hint":  "Try adjusting your search or filters"
     }
   }
 }

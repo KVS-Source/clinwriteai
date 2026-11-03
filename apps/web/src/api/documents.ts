@@ -571,6 +571,22 @@ export const documentsApi = {
         hasContent?:  boolean
         wordCount?:   number
         requirement?: 'required' | 'not-required'
+        // Breakdown behind the status-icon tooltip — informational, the
+        // status above doesn't depend on it.
+        progress?: {
+          wordCount:        number
+          minWords:         number
+          placeholders:     number
+          markedComplete:   boolean
+          subsections?:     { total: number; completed: number }
+          openComments:     number
+          sourceReferences: number
+          lastEditedAt:     string | null
+          lastEditedByName: string | null
+          checks:           Array<{ key: 'has_content' | 'no_placeholders' | 'subsections_complete' | 'no_open_comments' | 'marked_complete'; passed: boolean }>
+          checksDone:       number
+          checksTotal:      number
+        }
         waiver?: {
           waivedBy:     string
           waivedByName: string | null

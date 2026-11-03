@@ -78,6 +78,7 @@ export function CommentComposer({ documentId, sections, defaultSectionId, onClos
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
       qc.invalidateQueries({ queryKey: ['project-comments'] })
       qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
+      qc.invalidateQueries({ queryKey: ['ich-e3', documentId] })   // open-comment count per section
       onPosted?.(created)
       onClose()
     },

@@ -8,7 +8,8 @@
 // to jump to. ICH E3 governs full CSRs only — other document types get a
 // short "not applicable" note instead of the list.
 
-import { useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -20,6 +21,7 @@ type IchStatus = 'complete' | 'in_progress' | 'not_started' | 'waived' | 'warnin
 
 type IchE3Report = Awaited<ReturnType<typeof documentsApi.getICHE3>>
 type IchSection = IchE3Report['sections'][number]
+type IchProgress = NonNullable<IchSection['progress']>
 
 function errorMessage(err: unknown, fallback: string, t: TFunction): string {
   if (err instanceof ApiError) {
@@ -45,11 +47,16 @@ function CompleteIcon() {
   )
 }
 
-function InProgressIcon() {
+// The arc's length follows the share of progress checks done; without
+// progress data it falls back to the fixed three-quarter arc.
+const ARC_LENGTH = 2 * Math.PI * 6
+
+function InProgressIcon({ fraction }: { fraction?: number }) {
+  const drawn = fraction === undefined ? 28 : Math.min(Math.max(fraction, 0.15), 0.9) * ARC_LENGTH
   return (
     <div className="flex h-4 w-4 flex-none items-center justify-center" data-status-icon="in-progress">
       <svg width="12" height="12" viewBox="0 0 18 18" fill="none">
-        <circle cx="9" cy="9" r="6" fill="none" stroke="#2563EB" strokeWidth="2" strokeDasharray="28 10" transform="rotate(-90 9 9)" />
+        <circle cx="9" cy="9" r="6" fill="none" stroke="#2563EB" strokeWidth="2" strokeDasharray={`${drawn} ${ARC_LENGTH - drawn}`} transform="rotate(-90 9 9)" />
       </svg>
     </div>
   )
@@ -90,12 +97,166 @@ function WarningIcon() {
   )
 }
 
-function StatusIcon({ status }: { status: IchStatus }) {
+function StatusIcon({ status, progress }: { status: IchStatus; progress?: IchProgress }) {
   if (status === 'complete')    return <CompleteIcon />
-  if (status === 'in_progress') return <InProgressIcon />
+  if (status === 'in_progress') return <InProgressIcon fraction={progress && progress.checksTotal > 0 ? progress.checksDone / progress.checksTotal : undefined} />
   if (status === 'waived')      return <WaivedIcon />
   if (status === 'warning')     return <WarningIcon />
   return <NotStartedIcon />
+}
+
+// --- Status tooltip (hover / keyboard focus on the icon) ---
+//
+// Shows the section's progress breakdown from the report's `progress` field.
+// Rendered into <body> with fixed positioning so the panel's scroll region
+// and edges can't clip it; flips above the icon near the bottom of the screen.
+
+const TIP_WIDTH = 264
+const TIP_GAP   = 6
+const TIP_EDGE  = 8
+
+const shortDate = (iso: string) =>
+  new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+
+function checkLabel(key: IchProgress['checks'][number]['key'], p: IchProgress, t: TFunction): string {
+  switch (key) {
+    case 'has_content':          return t('page.ich_validator_panel.tip_check_has_content')
+    case 'no_placeholders':      return t('page.ich_validator_panel.tip_check_no_placeholders', { count: p.placeholders })
+    case 'subsections_complete': return t('page.ich_validator_panel.tip_check_subsections_complete', { completed: p.subsections?.completed ?? 0, total: p.subsections?.total ?? 0 })
+    case 'no_open_comments':     return t('page.ich_validator_panel.tip_check_no_open_comments', { count: p.openComments })
+    case 'marked_complete':      return t('page.ich_validator_panel.tip_check_marked_complete')
+  }
+}
+
+function SectionProgressTip({ id, anchor, section, stateLabel }: {
+  id:         string
+  anchor:     DOMRect
+  section:    IchSection
+  stateLabel: string
+}) {
+  const { t } = useTranslation()
+  const box = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null)
+  const p = section.progress
+
+  useLayoutEffect(() => {
+    const height = box.current?.offsetHeight ?? 0
+    const left = Math.min(Math.max(TIP_EDGE, anchor.left - TIP_EDGE), window.innerWidth - TIP_WIDTH - TIP_EDGE)
+    const below = anchor.bottom + TIP_GAP
+    const top = below + height > window.innerHeight - TIP_EDGE ? Math.max(TIP_EDGE, anchor.top - TIP_GAP - height) : below
+    setPos({ top, left })
+  }, [anchor])
+
+  return createPortal(
+    <div
+      id={id}
+      ref={box}
+      role="tooltip"
+      data-ich-tip={section.code}
+      className="pointer-events-none fixed z-[60] rounded-md bg-slate-950 px-3 py-2.5 text-[11px] leading-snug text-slate-200 shadow-lg ring-1 ring-slate-700"
+      style={{ width: TIP_WIDTH, top: pos?.top ?? -9999, left: pos?.left ?? -9999, visibility: pos ? 'visible' : 'hidden' }}
+    >
+      <p className="text-[12px] font-semibold text-white">{section.code} {section.title}</p>
+      <p className="mt-0.5 font-semibold text-slate-400" data-ich-tip-state>{stateLabel}</p>
+
+      {!section.inDocument && <p className="mt-2">{t('page.ich_validator_panel.tip_not_in_document')}</p>}
+
+      {section.status === 'waived' && section.waiver && (
+        <div className="mt-2" data-ich-tip-waiver>
+          <p>{t('page.ich_validator_panel.tip_waived_by', {
+            name: section.waiver.waivedByName ?? t('page.ich_validator_panel.unknown_user'),
+            date: shortDate(section.waiver.waivedAt),
+          })}</p>
+          <p className="mt-0.5 text-slate-300">{t('page.ich_validator_panel.tip_waiver_reason', { reason: section.waiver.reason })}</p>
+        </div>
+      )}
+
+      {section.status !== 'waived' && section.inDocument && p && (
+        <>
+          <p className="mt-2 font-semibold text-white" data-ich-tip-score={`${p.checksDone}/${p.checksTotal}`}>
+            {t('page.ich_validator_panel.tip_checks_done', { done: p.checksDone, total: p.checksTotal })}
+          </p>
+          <div className="mt-1 h-1 overflow-hidden rounded-full bg-slate-700">
+            <div className="h-full rounded-full bg-blue-500" style={{ width: `${p.checksTotal > 0 ? (p.checksDone / p.checksTotal) * 100 : 0}%` }} />
+          </div>
+          <ul className="mt-2 flex flex-col gap-0.5">
+            {p.checks.map(c => (
+              <li key={c.key} className="flex items-baseline justify-between gap-2" data-ich-tip-check={c.key} data-passed={c.passed}>
+                <span>{checkLabel(c.key, p, t)}</span>
+                <span className="font-bold" style={{ color: c.passed ? '#4ADE80' : '#F87171' }} aria-hidden="true">{c.passed ? '✓' : '✗'}</span>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-1.5 text-[10px] text-slate-500">{t('page.ich_validator_panel.tip_checks_note')}</p>
+        </>
+      )}
+
+      {section.inDocument && p && (
+        <div className="mt-2 border-t border-slate-800 pt-1.5 text-slate-400">
+          <p data-ich-tip-refs={p.sourceReferences}>{t('page.ich_validator_panel.tip_source_references', { count: p.sourceReferences })}</p>
+          <p>
+            {p.lastEditedAt
+              ? (p.lastEditedByName
+                  ? t('page.ich_validator_panel.tip_last_edited', { date: shortDate(p.lastEditedAt), name: p.lastEditedByName })
+                  : t('page.ich_validator_panel.tip_last_edited_no_name', { date: shortDate(p.lastEditedAt) }))
+              // The API keeps the editor only on rows changed in the current version.
+              : t(section.hasContent ? 'page.ich_validator_panel.tip_last_edit_unknown' : 'page.ich_validator_panel.tip_never_edited')}
+          </p>
+        </div>
+      )}
+    </div>,
+    document.body,
+  )
+}
+
+// Only one tooltip at a time: showing one dismisses whichever was open (e.g. a
+// focused icon while hovering another) — same rule as the sidebar's RailTip.
+let dismissActiveTip: (() => void) | null = null
+
+// The status icon, focusable, with its progress tooltip.
+function StatusWithTip({ section }: { section: IchSection }) {
+  const { t } = useTranslation()
+  const tipId = useId()
+  const ref = useRef<HTMLSpanElement>(null)
+  const [anchor, setAnchor] = useState<DOMRect | null>(null)
+  const hide = () => { setAnchor(null); if (dismissActiveTip === hide) dismissActiveTip = null }
+  const show = () => {
+    const r = ref.current?.getBoundingClientRect()
+    if (!r) return
+    if (dismissActiveTip && dismissActiveTip !== hide) dismissActiveTip()
+    dismissActiveTip = hide
+    setAnchor(r)
+  }
+
+  // Keep the tooltip on the icon when the list scrolls (keyboard focus
+  // scrolls the row into view, so closing on scroll would hide it at once).
+  const open = anchor !== null
+  useEffect(() => {
+    if (!open) return
+    window.addEventListener('scroll', show, true)
+    return () => window.removeEventListener('scroll', show, true)
+  }, [open])
+
+  const stateLabel = t(`page.ich_validator_panel.tip_state_${section.status}`)
+  const p = section.progress
+  return (
+    <span
+      ref={ref}
+      tabIndex={0}
+      className="mt-0.5 flex flex-none cursor-help rounded-full outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-1"
+      aria-label={t('page.ich_validator_panel.tip_aria', { title: `${section.code} ${section.title}`, state: stateLabel, done: p?.checksDone ?? 0, total: p?.checksTotal ?? 0 })}
+      aria-describedby={anchor ? tipId : undefined}
+      data-ich-status-trigger={section.code}
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+      onKeyDown={e => { if (e.key === 'Escape') hide() }}
+    >
+      <StatusIcon status={section.status} progress={p} />
+      {anchor && <SectionProgressTip id={tipId} anchor={anchor} section={section} stateLabel={stateLabel} />}
+    </span>
+  )
 }
 
 // --- Waive form (inline, under its row) ---
@@ -203,6 +364,7 @@ function ClearWaiverConfirm({ code, onCancel, onConfirm, submitting, error }: {
 // --- Row ---
 
 // A section with fewer words than this gets a "check it's finished" hint.
+// The API sends its own value as progress.minWords; this is the fallback.
 const SHORT_SECTION_WORDS = 20
 
 interface RowProps {
@@ -243,7 +405,7 @@ function ICHRow(p: RowProps) {
       data-active={p.isActive || undefined}
     >
       <div className="flex items-start gap-2.5">
-        <span className="mt-0.5 flex flex-none"><StatusIcon status={section.status} /></span>
+        <StatusWithTip section={section} />
         <span
           className="min-w-0 flex-1 break-words text-[13px] leading-snug"
           style={{ color: isNotStarted ? '#64748B' : '#1E293B' }}
@@ -333,7 +495,7 @@ function ICHRow(p: RowProps) {
       )}
 
       {!isWaived && (section.status === 'complete' || section.status === 'in_progress')
-        && (section.wordCount ?? 0) > 0 && (section.wordCount ?? 0) < SHORT_SECTION_WORDS && (
+        && (section.wordCount ?? 0) > 0 && (section.wordCount ?? 0) < (section.progress?.minWords ?? SHORT_SECTION_WORDS) && (
         <p className="mt-1 ml-6 text-[11px] text-slate-500" data-ich-short-section>
           {t('page.ich_validator_panel.short_section', { count: section.wordCount })}
         </p>

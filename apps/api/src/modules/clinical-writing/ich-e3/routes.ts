@@ -59,17 +59,31 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
       where: { id: documentId },
       include: {
         currentVersion: {
-          include: { sections: { select: { sectionId: true, contentHtml: true, ichStatus: true } } },
+          include: { sections: { select: {
+            sectionId: true, sectionNumber: true, contentHtml: true, ichStatus: true, lastEditedBy: true, lastEditedAt: true,
+          } } },
         },
       },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
 
-    const waivers = await app.prisma.ichSectionWaiver.findMany({
-      where: { documentId },
-      select: { sectionCode: true, waivedBy: true, waivedAt: true, reason: true, versionAtWaiver: true },
-    })
-    const names = await fetchUserNames(waivers.map(w => w.waivedBy))
+    const sections = doc.currentVersion?.sections ?? []
+    const [waivers, openComments, references, removals] = await Promise.all([
+      app.prisma.ichSectionWaiver.findMany({
+        where: { documentId },
+        select: { sectionCode: true, waivedBy: true, waivedAt: true, reason: true, versionAtWaiver: true },
+      }),
+      // Per-section progress (the status-icon tooltip): open comments and
+      // live source-reference links, one query each for the whole document.
+      app.prisma.comment.findMany({ where: { documentId, status: 'open' }, select: { sectionRef: true, verdict: true } }),
+      app.prisma.sourceReference.findMany({ where: { documentId }, select: { id: true, sectionId: true } }),
+      app.prisma.sourceReferenceRemoval.findMany({ where: { documentId }, select: { referenceId: true } }),
+    ])
+    const removedIds = new Set(removals.map(r => r.referenceId))
+    const names = await fetchUserNames([
+      ...waivers.map(w => w.waivedBy),
+      ...sections.flatMap(s => s.lastEditedBy ? [s.lastEditedBy] : []),
+    ])
     const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { submissionCountries: true } })
 
     const applicable = isIchE3Applicable(doc.type)
@@ -77,8 +91,10 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
       applicable,
       documentTitle: doc.title,
       submissionCountries: project?.submissionCountries,
-      sections:      doc.currentVersion?.sections ?? [],
+      sections:      sections.map(s => ({ ...s, lastEditedByName: s.lastEditedBy ? names.get(s.lastEditedBy) ?? null : null })),
       waivers:       waivers.map(w => ({ ...w, waivedByName: names.get(w.waivedBy) ?? null })),
+      openComments,
+      sourceReferences: references.filter(r => !removedIds.has(r.id)),
     })
     return { ...report, canWaive: applicable && hasRole(request.user!, WAIVE_ROLES) }
   })

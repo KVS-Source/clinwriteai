@@ -9,6 +9,8 @@
 // short "not applicable" note instead of the list.
 
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { documentsApi } from '../api'
 import { useDocumentStore, useAuthStore } from '../store'
@@ -19,12 +21,12 @@ type IchStatus = 'complete' | 'in_progress' | 'not_started' | 'waived' | 'warnin
 type IchE3Report = Awaited<ReturnType<typeof documentsApi.getICHE3>>
 type IchSection = IchE3Report['sections'][number]
 
-function errorMessage(err: unknown, fallback: string): string {
+function errorMessage(err: unknown, fallback: string, t: TFunction): string {
   if (err instanceof ApiError) {
     const body = err.body as { message?: string } | null
-    return body?.message ?? `${fallback} (HTTP ${err.status})`
+    return body?.message ?? t('page.ich_validator_panel.err_with_http', { fallback, status: err.status })
   }
-  return `${fallback} Please try again.`
+  return t('page.ich_validator_panel.err_please_retry', { fallback })
 }
 
 // --- Status glyphs ---
@@ -105,6 +107,7 @@ function WaiveForm({ code, onCancel, onConfirm, submitting, error }: {
   submitting: boolean
   error: string | null
 }) {
+  const { t } = useTranslation()
   const [reason, setReason] = useState('')
   return (
     <div
@@ -114,12 +117,12 @@ function WaiveForm({ code, onCancel, onConfirm, submitting, error }: {
       data-section-code={code}
     >
       <p className="text-[12px] font-semibold" style={{ color: '#B45309' }}>
-        Waive {code} — reason required (≥ 10 chars, Part 11 trail)
+        {t('page.ich_validator_panel.waive_form_title', { code })}
       </p>
       <textarea
         value={reason}
         onChange={e => setReason(e.target.value)}
-        placeholder="Explain why this section is being waived on this document…"
+        placeholder={t('page.ich_validator_panel.waive_reason_placeholder')}
         rows={3}
         className="rounded border border-slate-200 bg-white px-2 py-1.5 text-[12px] outline-none focus:border-blue-600"
         autoFocus
@@ -134,7 +137,7 @@ function WaiveForm({ code, onCancel, onConfirm, submitting, error }: {
           disabled={submitting}
           className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
         >
-          Cancel
+          {t('button.cancel')}
         </button>
         <button
           type="button"
@@ -144,7 +147,7 @@ function WaiveForm({ code, onCancel, onConfirm, submitting, error }: {
           style={{ backgroundColor: '#B45309' }}
           data-action="confirm-waive"
         >
-          {submitting ? 'Waiving…' : 'Confirm waive'}
+          {submitting ? t('page.ich_validator_panel.waiving') : t('page.ich_validator_panel.confirm_waive')}
         </button>
       </div>
     </div>
@@ -160,6 +163,7 @@ function ClearWaiverConfirm({ code, onCancel, onConfirm, submitting, error }: {
   submitting: boolean
   error: string | null
 }) {
+  const { t } = useTranslation()
   return (
     <div
       className="mt-2 ml-6 flex flex-col gap-2 rounded-lg p-3"
@@ -168,7 +172,7 @@ function ClearWaiverConfirm({ code, onCancel, onConfirm, submitting, error }: {
       data-section-code={code}
     >
       <p className="text-[12px] text-slate-700">
-        Remove the waiver for <span className="font-semibold">{code}</span>? This will be recorded in the audit trail.
+        {t('page.ich_validator_panel.clear_waiver_prompt_prefix')}<span className="font-semibold">{code}</span>{t('page.ich_validator_panel.clear_waiver_prompt_suffix')}
       </p>
       {error && (
         <p className="text-[11px] font-semibold text-red-700" role="alert">{error}</p>
@@ -180,7 +184,7 @@ function ClearWaiverConfirm({ code, onCancel, onConfirm, submitting, error }: {
           disabled={submitting}
           className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
         >
-          Cancel
+          {t('button.cancel')}
         </button>
         <button
           type="button"
@@ -189,7 +193,7 @@ function ClearWaiverConfirm({ code, onCancel, onConfirm, submitting, error }: {
           className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           data-action="confirm-clear-waiver"
         >
-          {submitting ? 'Removing…' : 'Remove waiver'}
+          {submitting ? t('page.ich_validator_panel.removing') : t('page.ich_validator_panel.remove_waiver')}
         </button>
       </div>
     </div>
@@ -218,6 +222,7 @@ interface RowProps {
 }
 
 function ICHRow(p: RowProps) {
+  const { t } = useTranslation()
   const { section }   = p
   const isWaived      = section.status === 'waived'
   const isWarning     = section.status === 'warning'
@@ -251,18 +256,18 @@ function ICHRow(p: RowProps) {
           <span
             className="flex-none whitespace-nowrap rounded px-1.5 py-px text-[10px] font-semibold text-slate-500"
             style={section.requirement === 'required' ? { backgroundColor: '#FEF3C7', color: '#92400E' } : { backgroundColor: '#F1F5F9' }}
-            title="Required for US submissions only — not counted toward completion"
+            title={t('page.ich_validator_panel.us_only_tooltip')}
             data-ich-requirement={section.requirement ?? 'unknown'}
           >
-            {section.requirement === 'required' ? 'Required · US submission'
-              : section.requirement === 'not-required' ? 'Not required · no US country'
-              : 'US only'}
+            {section.requirement === 'required' ? t('page.ich_validator_panel.required_us')
+              : section.requirement === 'not-required' ? t('page.ich_validator_panel.not_required_no_us')
+              : t('page.ich_validator_panel.us_only')}
           </span>
         )}
 
         {isWaived && (
           <span className="flex-none whitespace-nowrap text-[11px] font-semibold" style={{ color: '#B45309' }}>
-            Waived
+            {t('page.ich_validator_panel.waived_badge')}
           </span>
         )}
 
@@ -270,9 +275,9 @@ function ICHRow(p: RowProps) {
           <span
             className="flex-none whitespace-nowrap text-[11px] font-semibold"
             style={{ color: '#B45309' }}
-            title="Marked complete, but the section is now empty"
+            title={t('page.ich_validator_panel.needs_attention_tooltip')}
           >
-            Needs attention
+            {t('page.ich_validator_panel.needs_attention')}
           </span>
         )}
 
@@ -283,15 +288,15 @@ function ICHRow(p: RowProps) {
             className="flex-none whitespace-nowrap text-[11px] font-semibold text-blue-600 hover:text-blue-700"
             data-open-in-editor={section.sectionId}
           >
-            Open →
+            {t('page.ich_validator_panel.open_arrow')}
           </button>
         ) : (
           <span
             className="flex-none whitespace-nowrap text-[11px] text-slate-400"
-            title="This document has no section for this ICH E3 heading"
+            title={t('page.ich_validator_panel.not_in_document_tooltip')}
             data-not-in-document
           >
-            Not in document
+            {t('page.ich_validator_panel.not_in_document')}
           </span>
         )}
 
@@ -304,7 +309,7 @@ function ICHRow(p: RowProps) {
             style={{ color: '#B45309' }}
             data-action="waive"
           >
-            Waive
+            {t('page.ich_validator_panel.waive_action')}
           </button>
         )}
 
@@ -316,21 +321,21 @@ function ICHRow(p: RowProps) {
             className="flex-none whitespace-nowrap text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50"
             data-action="clear-waiver"
           >
-            Un-waive
+            {t('page.ich_validator_panel.unwaive_action')}
           </button>
         )}
       </div>
 
       {isWaived && section.hasContent && (
         <p className="mt-1 ml-6 text-[11px] font-semibold" style={{ color: '#B45309' }} data-ich-waived-has-content>
-          Waived, but this section now has content — review the waiver.
+          {t('page.ich_validator_panel.waived_has_content')}
         </p>
       )}
 
       {!isWaived && (section.status === 'complete' || section.status === 'in_progress')
         && (section.wordCount ?? 0) > 0 && (section.wordCount ?? 0) < SHORT_SECTION_WORDS && (
         <p className="mt-1 ml-6 text-[11px] text-slate-500" data-ich-short-section>
-          Only {section.wordCount} {section.wordCount === 1 ? 'word' : 'words'} — check this section is really finished.
+          {t('page.ich_validator_panel.short_section', { count: section.wordCount })}
         </p>
       )}
 
@@ -341,7 +346,7 @@ function ICHRow(p: RowProps) {
             onClick={() => setShowReason(v => !v)}
             className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
           >
-            {showReason ? 'Hide waiver reason' : 'View waiver reason →'}
+            {showReason ? t('page.ich_validator_panel.hide_waiver_reason') : t('page.ich_validator_panel.view_waiver_reason')}
           </button>
           {showReason && (
             <div
@@ -350,7 +355,7 @@ function ICHRow(p: RowProps) {
             >
               <p className="font-semibold">{section.waiver.reason}</p>
               <p className="mt-0.5 text-[10px]">
-                {section.waiver.waivedByName ?? 'Unknown user'} · {new Date(section.waiver.waivedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · at {section.waiver.versionAtWaiver}
+                {section.waiver.waivedByName ?? t('page.ich_validator_panel.unknown_user')} · {new Date(section.waiver.waivedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })} · {t('page.ich_validator_panel.at_version', { version: section.waiver.versionAtWaiver })}
               </p>
             </div>
           )}
@@ -385,6 +390,7 @@ interface Props {
 }
 
 export function ICHValidatorPanel({ documentId }: Props) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const activeSection    = useDocumentStore(s => s.activeSection)
   const setActiveSection = useDocumentStore(s => s.setActiveSection)
@@ -408,13 +414,13 @@ export function ICHValidatorPanel({ documentId }: Props) {
     mutationFn: (args: { code: string; reason: string }) =>
       documentsApi.waiveICHE3Section(documentId, args.code, args.reason),
     onSuccess: () => { closeAction(); invalidate() },
-    onError:   (err: unknown) => setActionError(errorMessage(err, 'Could not waive the section.')),
+    onError:   (err: unknown) => setActionError(errorMessage(err, t('page.ich_validator_panel.err_could_not_waive'), t)),
   })
 
   const clearMut = useMutation({
     mutationFn: (code: string) => documentsApi.unwaiveICHE3Section(documentId, code),
     onSuccess:  () => { closeAction(); invalidate() },
-    onError:    (err: unknown) => setActionError(errorMessage(err, 'Could not remove the waiver.')),
+    onError:    (err: unknown) => setActionError(errorMessage(err, t('page.ich_validator_panel.err_could_not_clear'), t)),
   })
 
   const applicable        = data?.applicable ?? true
@@ -447,10 +453,20 @@ export function ICHValidatorPanel({ documentId }: Props) {
   const handleExportCsv = () => {
     const cell = (v: string | number) => `"${String(v).replace(/"/g, '""')}"`
     const rows = [
-      ['Section', 'Title', 'Status', 'In document', 'Words', 'US only', 'Waived by', 'Waived at (UTC)', 'Waiver reason'],
+      [
+        t('page.ich_validator_panel.csv_col_section'),
+        t('page.ich_validator_panel.csv_col_title'),
+        t('page.ich_validator_panel.csv_col_status'),
+        t('page.ich_validator_panel.csv_col_in_document'),
+        t('page.ich_validator_panel.csv_col_words'),
+        t('page.ich_validator_panel.csv_col_us_only'),
+        t('page.ich_validator_panel.csv_col_waived_by'),
+        t('page.ich_validator_panel.csv_col_waived_at'),
+        t('page.ich_validator_panel.csv_col_waiver_reason'),
+      ],
       ...sections.map(s => [
-        s.code, s.title, s.status.replace('_', ' '), s.inDocument ? 'yes' : 'no', s.wordCount ?? '',
-        s.conditional ? 'yes' : 'no', s.waiver?.waivedByName ?? '', s.waiver?.waivedAt ?? '', s.waiver?.reason ?? '',
+        s.code, s.title, s.status.replace('_', ' '), s.inDocument ? t('page.ich_validator_panel.yes') : t('page.ich_validator_panel.no'), s.wordCount ?? '',
+        s.conditional ? t('page.ich_validator_panel.yes') : t('page.ich_validator_panel.no'), s.waiver?.waivedByName ?? '', s.waiver?.waivedAt ?? '', s.waiver?.reason ?? '',
       ]),
     ]
     const blob = new Blob(['\uFEFF' + rows.map(r => r.map(cell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' })
@@ -468,17 +484,17 @@ export function ICHValidatorPanel({ documentId }: Props) {
     // here later without touching the panel.
     const title = data?.documentTitle || `Document ${documentId}`
     const lines: string[] = [
-      'ICH E3 Compliance Report',
-      `Document:     ${title}`,
-      `Generated by: ${currentUser?.name ?? 'Unknown user'}`,
-      `Generated at: ${new Date().toISOString().replace('T', ' ').slice(0, 19)} UTC`,
-      `Completion:   ${completionPercent}% — ${completeCount} complete, ${waivedCount} waived, of ${totalSections} mandatory sections`,
+      t('page.ich_validator_panel.report_title'),
+      t('page.ich_validator_panel.report_document', { title }),
+      t('page.ich_validator_panel.report_generated_by', { name: currentUser?.name ?? t('page.ich_validator_panel.unknown_user') }),
+      t('page.ich_validator_panel.report_generated_at', { time: new Date().toISOString().replace('T', ' ').slice(0, 19) }),
+      t('page.ich_validator_panel.report_completion', { pct: completionPercent, complete: completeCount, waived: waivedCount, total: totalSections }),
       '',
       ...sections.map(s => {
         const status = s.status.toUpperCase().replace('_', ' ')
-        const tag    = s.conditional ? ' [US only]' : ''
-        const where  = s.inDocument ? '' : ' (not in document)'
-        const waiver = s.waiver ? `  — waived by ${s.waiver.waivedByName ?? 'unknown user'} (${s.waiver.reason})` : ''
+        const tag    = s.conditional ? ' ' + t('page.ich_validator_panel.report_tag_us_only') : ''
+        const where  = s.inDocument ? '' : ' ' + t('page.ich_validator_panel.report_tag_not_in_doc')
+        const waiver = s.waiver ? '  — ' + t('page.ich_validator_panel.report_waived_by', { name: s.waiver.waivedByName ?? t('page.ich_validator_panel.unknown_user_lc'), reason: s.waiver.reason }) : ''
         return `${s.code.padEnd(7)} ${status.padEnd(13)} ${s.title}${tag}${where}${waiver}`
       }),
     ]
@@ -496,9 +512,9 @@ export function ICHValidatorPanel({ documentId }: Props) {
     return (
       <div className="flex h-full flex-col" data-panel-body="ich-e3">
         <div className="px-4 py-6" data-ich-not-applicable>
-          <p className="text-[13px] font-semibold text-slate-900">ICH E3 doesn’t apply to this document</p>
+          <p className="text-[13px] font-semibold text-slate-900">{t('page.ich_validator_panel.not_applicable_title')}</p>
           <p className="mt-1 text-[12px] text-slate-500">
-            The ICH E3 validator checks full Clinical Study Reports only.
+            {t('page.ich_validator_panel.not_applicable_body')}
           </p>
         </div>
       </div>
@@ -512,7 +528,9 @@ export function ICHValidatorPanel({ documentId }: Props) {
       <div className="flex-none border-b border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }} data-ich-completion>
         <div className="flex items-baseline justify-between">
           <p className="text-xs font-bold text-slate-900">
-            {completeCount} complete{waivedCount > 0 && ` · ${waivedCount} waived`} of {totalSections}
+            {waivedCount > 0
+              ? t('page.ich_validator_panel.completion_with_waived', { complete: completeCount, waived: waivedCount, total: totalSections })
+              : t('page.ich_validator_panel.completion', { complete: completeCount, total: totalSections })}
           </p>
           <p className="text-xs font-bold" style={{ color: '#2563EB' }}>{completionPercent}%</p>
         </div>
@@ -522,8 +540,12 @@ export function ICHValidatorPanel({ documentId }: Props) {
       </div>
 
       {/* Filter */}
-      <div className="flex flex-none gap-1.5 border-b border-slate-200 px-4 py-2" role="group" aria-label="Filter sections" data-ich-filter>
-        {([['all', 'All'], ['incomplete', 'Incomplete'], ['waived', 'Waived']] as const).map(([key, label]) => (
+      <div className="flex flex-none gap-1.5 border-b border-slate-200 px-4 py-2" role="group" aria-label={t('page.ich_validator_panel.filter_aria')} data-ich-filter>
+        {([
+          ['all', t('page.ich_validator_panel.filter_all')],
+          ['incomplete', t('page.ich_validator_panel.filter_incomplete')],
+          ['waived', t('page.ich_validator_panel.filter_waived')],
+        ] as const).map(([key, label]) => (
           <button
             key={key}
             type="button"
@@ -545,16 +567,16 @@ export function ICHValidatorPanel({ documentId }: Props) {
       {/* Scroll region */}
       <div className="flex-1 overflow-y-auto">
         {isLoading && (
-          <p className="px-4 py-6 text-[12px] text-slate-400">Loading ICH E3 report…</p>
+          <p className="px-4 py-6 text-[12px] text-slate-400">{t('page.ich_validator_panel.loading_report')}</p>
         )}
         {isError && (
           <p className="px-4 py-6 text-[12px] text-red-700" role="alert">
-            Could not load the ICH E3 report.
+            {t('page.ich_validator_panel.load_failed')}
           </p>
         )}
         {!isLoading && !isError && sections.length === 0 && (
           <p className="px-4 py-6 text-[12px] text-slate-500" data-ich-empty>
-            No ICH E3 sections found for this document.
+            {t('page.ich_validator_panel.empty_sections')}
           </p>
         )}
 
@@ -562,13 +584,13 @@ export function ICHValidatorPanel({ documentId }: Props) {
           <>
             <div className="px-4 pb-1.5 pt-3">
               <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-                ICH E3 mandatory sections
+                {t('page.ich_validator_panel.mandatory_sections_header')}
               </p>
             </div>
 
             {visibleSections.length === 0 && (
               <p className="px-4 py-6 text-center text-[12px] text-slate-500" data-ich-filter-empty>
-                {filter === 'waived' ? 'No waived sections.' : 'Every section is complete or waived.'}
+                {filter === 'waived' ? t('page.ich_validator_panel.filter_empty_waived') : t('page.ich_validator_panel.filter_empty_other')}
               </p>
             )}
 
@@ -598,7 +620,7 @@ export function ICHValidatorPanel({ documentId }: Props) {
       <div className="flex-none border-t border-slate-200 px-4 py-3">
         {waivedCount > 0 && (
           <p className="mb-2 text-[11px] text-slate-500" data-ich-compliance-note>
-            Waivers are disclosed in the Compliance Summary on the Final Document.
+            {t('page.ich_validator_panel.compliance_disclosure_note')}
           </p>
         )}
         <div className="flex gap-2">
@@ -609,7 +631,7 @@ export function ICHValidatorPanel({ documentId }: Props) {
             data-ich-export
             className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:text-slate-400"
           >
-            Export report (.txt)
+            {t('page.ich_validator_panel.export_report_txt')}
           </button>
           <button
             type="button"
@@ -618,7 +640,7 @@ export function ICHValidatorPanel({ documentId }: Props) {
             data-ich-export-csv
             className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:text-slate-400"
           >
-            Export CSV
+            {t('page.ich_validator_panel.export_csv')}
           </button>
         </div>
       </div>

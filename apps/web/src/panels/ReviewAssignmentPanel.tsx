@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { RACI_META, STATUS_META, type Document, type DocumentStatus, type RACIRole, type TeamMember } from '@platform/types'
 import { fromSQLEnum } from '../utils/enumConvert'
@@ -8,26 +10,27 @@ import { useDocumentStore } from '../store'
 
 // Plain-language reason for a failed submit — never the server's internal wording
 // (e.g. "Invalid document transition: crm_in_progress → in_review").
-function submitErrorMessage(err: unknown, currentStatus: string): string {
-  if (!(err instanceof ApiError)) return 'Could not reach the server. Check your connection and try again.'
+function submitErrorMessage(err: unknown, currentStatus: string, t: TFunction): string {
+  if (!(err instanceof ApiError)) return t('page.review_assignment_panel.err_network')
   // Checklist gate (Phase 2) — the API returns 409 with error='checklist_blocked'
   // and a `blocking` list. Enumerate the blockers so the writer knows what to tick.
   if (err.status === 409) {
     const body = err.body as { error?: string; blocking?: Array<{ text: string; framework: string }>; blockingCount?: number } | null
     if (body?.error === 'checklist_blocked' && Array.isArray(body.blocking)) {
       const bullets = body.blocking.slice(0, 4).map(b => `• ${b.text} (${b.framework})`).join('\n')
-      const extra = (body.blockingCount ?? body.blocking.length) > 4 ? `\n…and ${(body.blockingCount ?? body.blocking.length) - 4} more` : ''
-      return `${body.blockingCount ?? body.blocking.length} mandatory checklist item(s) must be completed or waived before submitting:\n${bullets}${extra}`
+      const totalCount = body.blockingCount ?? body.blocking.length
+      const extra = totalCount > 4 ? '\n' + t('page.review_assignment_panel.err_checklist_more', { count: totalCount - 4 }) : ''
+      return t('page.review_assignment_panel.err_checklist_blocked', { count: totalCount, bullets }) + extra
     }
   }
   switch (err.status) {
-    case 400: return 'Check the review due date and the reviewers, then try again.'
-    case 401: return 'Your session has expired. Sign in again to continue.'
-    case 403: return "You don't have permission to submit this document for review."
-    case 404: return 'This document no longer exists. Refresh the page.'
+    case 400: return t('page.review_assignment_panel.err_400')
+    case 401: return t('page.review_assignment_panel.err_401')
+    case 403: return t('page.review_assignment_panel.err_403')
+    case 404: return t('page.review_assignment_panel.err_404')
     case 409:
-    case 422: return `This document is "${currentStatus}", so it can't be sent for review right now. Documents are submitted for review from In Authoring — finish or cancel the current step first.`
-    default:  return 'Something went wrong on our side. Please try again.'
+    case 422: return t('page.review_assignment_panel.err_409', { status: currentStatus })
+    default:  return t('page.review_assignment_panel.err_default')
   }
 }
 
@@ -37,11 +40,11 @@ interface Props {
   onClose:    () => void
 }
 
-const RACI_DESCRIPTION: Record<RACIRole, string> = {
-  R: 'Authors and owns the document',
-  A: 'Approves and manages sign-off',
-  C: 'Reviews assigned sections',
-  I: 'Informed of review completion',
+const RACI_DESCRIPTION_KEYS: Record<RACIRole, string> = {
+  R: 'page.review_assignment_panel.raci_r',
+  A: 'page.review_assignment_panel.raci_a',
+  C: 'page.review_assignment_panel.raci_c',
+  I: 'page.review_assignment_panel.raci_i',
 }
 
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
@@ -110,6 +113,7 @@ function ReviewerRow({
   canRemove: boolean
   onRemove: () => void
 }) {
+  const { t } = useTranslation()
   return (
     // Two lines so the person's name is never squeezed by the role text in a narrow panel:
     // who (avatar + name) on top, their role and what it means underneath.
@@ -121,15 +125,15 @@ function ReviewerRow({
           <p className="min-w-0 truncate text-[13px] font-semibold text-slate-900">{member.name}</p>
         </div>
         <p className="text-[11px] leading-snug text-slate-500">
-          <span className="font-semibold text-slate-600">{member.role}</span> · {RACI_DESCRIPTION[member.raci]}
+          <span className="font-semibold text-slate-600">{member.role}</span> · {t(RACI_DESCRIPTION_KEYS[member.raci])}
         </p>
       </div>
       {canRemove ? (
         <button
           type="button"
           onClick={onRemove}
-          aria-label={`Remove ${member.name}`}
-          title="Remove reviewer"
+          aria-label={t('page.review_assignment_panel.remove_member_aria', { name: member.name })}
+          title={t('page.review_assignment_panel.remove_reviewer_title')}
           className="mt-0.5 flex h-[22px] w-[22px] flex-none items-center justify-center rounded text-slate-400 transition-colors hover:bg-slate-100 hover:text-slate-600"
         >
           ✕
@@ -144,6 +148,7 @@ function ReviewerRow({
 // --- Main panel ---
 
 export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props) {
+  const { t } = useTranslation()
   const qc          = useQueryClient()
   const setActiveDocument = useDocumentStore(s => s.setActiveDocument)
 
@@ -196,7 +201,7 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
 
   const handleSubmit = () => {
     if (!dueDate) {
-      setDateError('Due date is required')
+      setDateError(t('page.review_assignment_panel.err_due_date_required'))
       return
     }
     setDateError(null)
@@ -218,7 +223,7 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
   }
 
   if (!document) {
-    return <div className="p-4 text-sm text-slate-500">Loading document…</div>
+    return <div className="p-4 text-sm text-slate-500">{t('page.review_assignment_panel.loading_document')}</div>
   }
 
   // The document's real current status (the "from" side of the transition).
@@ -227,7 +232,7 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
   // Notification preview: due date formatted DD MMM YYYY
   const dueDateLabel = dueDate
     ? new Date(dueDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-    : 'not set'
+    : t('page.review_assignment_panel.due_not_set')
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden">
@@ -254,12 +259,12 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
             className="rounded-full px-2.5 py-1 text-xs font-semibold"
             style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}
           >
-            In Review
+            {t('page.review_assignment_panel.status_in_review')}
           </span>
         </div>
         <div className="flex items-center gap-2.5">
           <label htmlFor="review-due" className="flex-none text-xs text-slate-500">
-            Review due <span className="text-red-600" aria-hidden="true">*</span>
+            {t('page.review_assignment_panel.review_due_label')} <span className="text-red-600" aria-hidden="true">*</span>
           </label>
           <input
             id="review-due"
@@ -279,18 +284,18 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
 
       {/* ===== Review type selector ===== */}
       <div className="flex flex-col gap-2 border-b border-slate-200 px-4 py-3">
-        <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Review type</p>
+        <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">{t('page.review_assignment_panel.review_type_label')}</p>
         <div className="flex flex-wrap gap-2">
           <ReviewTypeCard
             active={reviewType === 'parallel'}
-            title="Parallel review"
-            subtitle="All reviewers receive simultaneously"
+            title={t('page.review_assignment_panel.parallel_title')}
+            subtitle={t('page.review_assignment_panel.parallel_subtitle')}
             onClick={() => setReviewType('parallel')}
           />
           <ReviewTypeCard
             active={reviewType === 'sequential'}
-            title="Sequential review"
-            subtitle="Reviewers notified in order"
+            title={t('page.review_assignment_panel.sequential_title')}
+            subtitle={t('page.review_assignment_panel.sequential_subtitle')}
             onClick={() => setReviewType('sequential')}
           />
         </div>
@@ -299,8 +304,8 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
       {/* ===== Reviewers list ===== */}
       <div>
         <div className="flex items-baseline justify-between px-4 pt-3 pb-1.5">
-          <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Assign reviewers</p>
-          <p className="text-[11px] text-slate-500">{nonOwnerReviewers.length} reviewer{nonOwnerReviewers.length === 1 ? '' : 's'} + author</p>
+          <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">{t('page.review_assignment_panel.assign_reviewers')}</p>
+          <p className="text-[11px] text-slate-500">{t('page.review_assignment_panel.reviewer_count_plus_author', { count: nonOwnerReviewers.length })}</p>
         </div>
         {reviewers.map(member => (
           <ReviewerRow
@@ -321,13 +326,13 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
             data-add-reviewer
           >
             {availableToAdd.length === 0
-              ? 'Everyone on the team is already assigned'
-              : adding ? 'Cancel' : '＋ Add reviewer'}
+              ? t('page.review_assignment_panel.all_assigned')
+              : adding ? t('button.cancel') : t('page.review_assignment_panel.add_reviewer_button')}
           </button>
           {adding && availableToAdd.length > 0 && (
             <ul
               className="mt-2 max-h-56 overflow-y-auto rounded-md border border-slate-200 bg-white"
-              aria-label="Team members you can add as reviewers"
+              aria-label={t('page.review_assignment_panel.add_reviewer_list_aria')}
               data-add-reviewer-list
             >
               {availableToAdd.map(m => (
@@ -344,10 +349,10 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
                         <span className="min-w-0 truncate text-[13px] font-semibold text-slate-900">{m.name}</span>
                       </span>
                       <span className="text-[11px] leading-snug text-slate-500">
-                        <span className="font-semibold text-slate-600">{m.role}</span> · {RACI_DESCRIPTION[m.raci]}
+                        <span className="font-semibold text-slate-600">{m.role}</span> · {t(RACI_DESCRIPTION_KEYS[m.raci])}
                       </span>
                     </span>
-                    <span className="mt-0.5 flex-none text-[11px] font-semibold text-blue-600">Add</span>
+                    <span className="mt-0.5 flex-none text-[11px] font-semibold text-blue-600">{t('button.add')}</span>
                   </button>
                 </li>
               ))}
@@ -364,14 +369,14 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
           aria-expanded={showPreview}
           className="flex w-full items-center justify-between text-left"
         >
-          <span className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">Notification preview</span>
+          <span className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">{t('page.review_assignment_panel.notification_preview_label')}</span>
           <span aria-hidden="true" className="text-[10px] text-slate-400">{showPreview ? '▾' : '▸'}</span>
         </button>
         {showPreview && (
         <div className="mt-1.5 flex flex-col gap-1.5 rounded-md border border-slate-200 bg-white px-3 py-2.5">
-          <p className="text-[12px] font-bold text-slate-900">Review requested: {document.title}</p>
+          <p className="text-[12px] font-bold text-slate-900">{t('page.review_assignment_panel.preview_review_requested', { title: document.title })}</p>
           <p className="text-[11px] leading-[1.5] text-slate-500">
-            {owner?.name ?? 'The author'} has submitted the above document for your review. Due: {dueDateLabel}.
+            {t('page.review_assignment_panel.preview_body', { author: owner?.name ?? t('page.review_assignment_panel.the_author'), due: dueDateLabel })}
           </p>
           <div className="flex items-center gap-2">
             <div className="flex items-center">
@@ -385,7 +390,7 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
                 </div>
               ))}
             </div>
-            <p className="text-[11px] text-slate-500">{nonOwnerReviewers.length} reviewer{nonOwnerReviewers.length === 1 ? '' : 's'}</p>
+            <p className="text-[11px] text-slate-500">{t('page.review_assignment_panel.reviewer_count', { count: nonOwnerReviewers.length })}</p>
           </div>
         </div>
         )}
@@ -397,7 +402,7 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
       <div className="flex flex-none flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3">
         {submitMut.isError && (
           <div className="whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
-            {submitErrorMessage(submitMut.error, statusMeta.label)}
+            {submitErrorMessage(submitMut.error, statusMeta.label, t)}
           </div>
         )}
         <div className="flex gap-2">
@@ -407,22 +412,22 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
             disabled={submitMut.isPending}
             className="flex-1 rounded-md border border-slate-200 bg-white py-2.5 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors disabled:opacity-50"
           >
-            Save as draft
+            {t('page.review_assignment_panel.save_as_draft')}
           </button>
           <button
             type="button"
             onClick={handleSubmit}
             disabled={submitMut.isPending || !dueDate}
-            title={!dueDate ? 'Set a review-due date first' : undefined}
+            title={!dueDate ? t('page.review_assignment_panel.pick_due_first_title') : undefined}
             className="flex-1 rounded-md bg-blue-600 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:bg-slate-300 disabled:hover:bg-slate-300"
           >
-            {submitMut.isPending ? 'Submitting…' : 'Submit for review →'}
+            {submitMut.isPending ? t('page.review_assignment_panel.submitting') : t('page.review_assignment_panel.submit_for_review')}
           </button>
         </div>
         <p className="text-center text-[11px] italic leading-[1.5] text-slate-500">
           {!dueDate
-            ? 'Pick a review-due date above to enable the Submit button.'
-            : 'Submitting will lock the document for authoring and notify all reviewers.'}
+            ? t('page.review_assignment_panel.footer_pick_due')
+            : t('page.review_assignment_panel.footer_submit_hint')}
         </p>
       </div>
     </div>

@@ -4,6 +4,7 @@
 // pairing. Opens from an edit-history affordance on the atomised-content
 // surface (added by the Module E UI when it chooses to adopt it).
 
+import { useTranslation } from 'react-i18next'
 import { ideationPublishingApi } from '../modules/ideation-publishing/api/ideationPublishing'
 import { EditHistoryPanel, type EditOrigin } from './EditHistoryPanel'
 
@@ -15,10 +16,11 @@ interface Props {
 }
 
 export function AtomisedHistoryPanel({ cardId, channel, label }: Props) {
+  const { t } = useTranslation()
   return (
     <EditHistoryPanel
-      subject="channel adaptation"
-      header={label ?? `${channel} adaptation`}
+      subject={t('page.atomised_history_panel.subject')}
+      header={label ?? t('page.atomised_history_panel.header_default', { channel })}
       queryKey={['atomised-history', cardId, channel]}
       invalidationKeys={[['atomised', cardId]]}
       loader={({ mine, origin }) =>

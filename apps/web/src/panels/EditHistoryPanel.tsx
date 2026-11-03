@@ -19,6 +19,8 @@
 //   - Confirmation modal counts intervening edits by actor
 
 import { useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useAuthStore } from '../store'
 import { ApiError } from '../api/client'
@@ -78,9 +80,10 @@ export interface Props<R extends HistoryResponse = HistoryResponse> {
 }
 
 export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(props: Props<R>) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const currentUserId = useAuthStore(s => s.user?.id ?? null)
-  const subject = props.subject ?? 'item'
+  const subject = props.subject ?? t('page.edit_history_panel.subject_item_default')
 
   const [scope, setScope]   = useState<'mine' | 'all'>('mine')
   const [origin, setOrigin] = useState<OriginFilter>('all')
@@ -102,7 +105,7 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
       const data = await props.fetchDiff(entryId)
       setExpandedData(data)
     } catch (err) {
-      setExpandError(err instanceof ApiError ? `Could not load diff (HTTP ${err.status})` : 'Could not load diff.')
+      setExpandError(err instanceof ApiError ? t('page.edit_history_panel.diff_failed_http', { status: err.status }) : t('page.edit_history_panel.diff_failed'))
     } finally {
       setExpandLoading(false)
     }
@@ -147,14 +150,14 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
   if (historyQ.isLoading) {
     return (
       <div className="flex-1 overflow-y-auto p-4">
-        <p className="text-[13px] text-slate-500">Loading history…</p>
+        <p className="text-[13px] text-slate-500">{t('page.edit_history_panel.loading_history')}</p>
       </div>
     )
   }
   if (historyQ.isError) {
     return (
       <div className="flex-1 overflow-y-auto p-4">
-        <p className="text-[13px] text-rose-600">Failed to load history.</p>
+        <p className="text-[13px] text-rose-600">{t('page.edit_history_panel.load_failed')}</p>
       </div>
     )
   }
@@ -172,8 +175,7 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
         </p>
       )}
       <p className="mt-1 text-[13px] text-slate-700">
-        Every change on this {subject} — manual edits, AI accepts, reverts, restores — newest first.
-        Revert restores the {subject} to the state captured before that edit.
+        {t('page.edit_history_panel.description', { subject })}
       </p>
 
       {/* Scope toggle: My ↔ All */}
@@ -183,12 +185,12 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
           onClick={() => setScope('mine')}
           disabled={!currentUserId}
           className={`flex-1 rounded px-3 py-1 text-[12px] font-semibold transition-colors ${scope === 'mine' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-        >My changes</button>
+        >{t('page.edit_history_panel.scope_mine')}</button>
         <button
           type="button"
           onClick={() => setScope('all')}
           className={`flex-1 rounded px-3 py-1 text-[12px] font-semibold transition-colors ${scope === 'all' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-        >All on this {subject}</button>
+        >{t('page.edit_history_panel.scope_all', { subject })}</button>
       </div>
 
       {/* Session vs raw-row toggle (sPM-autosave). Only shown when the
@@ -202,14 +204,14 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
             type="button"
             onClick={() => setView('sessions')}
             className={`flex-1 rounded px-3 py-1 text-[11px] font-semibold transition-colors ${view === 'sessions' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            title="One row per writing session (autosaves within 10 minutes collapse)"
-          >Grouped by session</button>
+            title={t('page.edit_history_panel.view_sessions_tooltip')}
+          >{t('page.edit_history_panel.view_sessions')}</button>
           <button
             type="button"
             onClick={() => setView('rows')}
             className={`flex-1 rounded px-3 py-1 text-[11px] font-semibold transition-colors ${view === 'rows' ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}
-            title="Every individual save (noisy, use for audit drilldown)"
-          >Every save</button>
+            title={t('page.edit_history_panel.view_rows_tooltip')}
+          >{t('page.edit_history_panel.view_rows')}</button>
         </div>
       )}
 
@@ -221,13 +223,13 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
             type="button"
             onClick={() => setOrigin(k)}
             className={`rounded-full px-2.5 py-1 text-[11px] font-semibold transition-colors ${origin === k ? 'bg-slate-800 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}
-          >{ORIGIN_CHIP_LABEL[k]}</button>
+          >{t(ORIGIN_CHIP_LABEL_KEYS[k])}</button>
         ))}
       </div>
 
       {entries.length === 0 && (
         <p className="mt-6 rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-[12px] text-slate-500">
-          {scope === 'mine' ? `No changes by you yet on this ${subject}.` : `No history on this ${subject} yet.`}
+          {scope === 'mine' ? t('page.edit_history_panel.empty_mine', { subject }) : t('page.edit_history_panel.empty_all', { subject })}
         </p>
       )}
 
@@ -236,9 +238,9 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
           <li key={e.id} className={`rounded-md border p-3 ${e.origin === 'undo' ? 'border-slate-200 bg-slate-50' : 'border-slate-300 bg-white'}`}>
             <div className="flex items-center justify-between">
               <span className={`inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${originBadgeClass(e.origin)}`}>
-                {originLabel(e.origin)}
+                {originLabel(e.origin, t)}
                 {(e.sessionEntryCount ?? 1) > 1 && (
-                  <> · {e.sessionEntryCount} saves</>
+                  <> · {t('page.edit_history_panel.saves_count', { count: e.sessionEntryCount })}</>
                 )}
               </span>
               <time
@@ -255,12 +257,12 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
 
             {e.origin === 'ai' && e.promptText && (
               <p className="mt-2 text-[12px] text-slate-700">
-                <span className="font-mono text-[10px] uppercase tracking-wider text-slate-500">Prompt · </span>
+                <span className="font-mono text-[10px] uppercase tracking-wider text-slate-500">{t('page.edit_history_panel.prompt_prefix')}</span>
                 {e.promptText}
               </p>
             )}
             {e.origin === 'undo' && (
-              <p className="mt-2 text-[12px] italic text-slate-500">Reverted an earlier change on this {subject}.</p>
+              <p className="mt-2 text-[12px] italic text-slate-500">{t('page.edit_history_panel.reverted_earlier', { subject })}</p>
             )}
 
             {/* sPM-autosave inline preview — before/after excerpts so the
@@ -271,13 +273,13 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
               <div className="mt-2 flex flex-col gap-1 text-[12px] leading-snug" data-history-excerpt>
                 {e.beforeExcerpt && (
                   <div className="flex items-start gap-1.5">
-                    <span className="mt-[1px] shrink-0 font-mono text-[9px] uppercase tracking-wider text-rose-600">Was</span>
+                    <span className="mt-[1px] shrink-0 font-mono text-[9px] uppercase tracking-wider text-rose-600">{t('page.edit_history_panel.was_label')}</span>
                     <span className="text-slate-500 line-through decoration-rose-400/60">{e.beforeExcerpt}</span>
                   </div>
                 )}
                 {e.afterExcerpt && (
                   <div className="flex items-start gap-1.5">
-                    <span className="mt-[1px] shrink-0 font-mono text-[9px] uppercase tracking-wider text-emerald-700">Now</span>
+                    <span className="mt-[1px] shrink-0 font-mono text-[9px] uppercase tracking-wider text-emerald-700">{t('page.edit_history_panel.now_label')}</span>
                     <span className="text-slate-800">{e.afterExcerpt}</span>
                   </div>
                 )}
@@ -289,18 +291,18 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
                 first save on a section (nothing to compare to). */}
             {expandedId === e.id && (
               <div className="mt-3 rounded-md border border-slate-200 bg-slate-50 p-3" data-history-diff>
-                {expandLoading && <p className="text-[11px] text-slate-500">Loading change…</p>}
+                {expandLoading && <p className="text-[11px] text-slate-500">{t('page.edit_history_panel.loading_change')}</p>}
                 {expandError && <p className="text-[11px] text-rose-600">{expandError}</p>}
                 {expandedData && (
                   <div className="flex flex-col gap-3">
                     <div>
-                      <p className="font-mono text-[9px] uppercase tracking-wider text-rose-600">Was</p>
+                      <p className="font-mono text-[9px] uppercase tracking-wider text-rose-600">{t('page.edit_history_panel.was_label')}</p>
                       {expandedData.beforeHtml
                         ? <div className="mt-1 rounded border border-rose-200 bg-rose-50/50 p-2 text-[12px] text-slate-700 [&_*]:text-slate-700" dangerouslySetInnerHTML={{ __html: expandedData.beforeHtml }} />
-                        : <p className="mt-1 text-[11px] italic text-slate-500">(First save on this {subject} — no prior content.)</p>}
+                        : <p className="mt-1 text-[11px] italic text-slate-500">{t('page.edit_history_panel.first_save_no_prior', { subject })}</p>}
                     </div>
                     <div>
-                      <p className="font-mono text-[9px] uppercase tracking-wider text-emerald-700">Now</p>
+                      <p className="font-mono text-[9px] uppercase tracking-wider text-emerald-700">{t('page.edit_history_panel.now_label')}</p>
                       <div className="mt-1 rounded border border-emerald-200 bg-emerald-50/40 p-2 text-[12px] text-slate-800 [&_*]:text-slate-800" dangerouslySetInnerHTML={{ __html: expandedData.afterHtml }} />
                     </div>
                   </div>
@@ -309,7 +311,7 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
             )}
 
             <div className="mt-2 flex items-center justify-between text-[11px] text-slate-500">
-              <span>By {e.actorName}{e.aiModel ? <> · {e.aiModel}</> : null}</span>
+              <span>{t('page.edit_history_panel.by_actor', { actor: e.actorName })}{e.aiModel ? <> · {e.aiModel}</> : null}</span>
               <div className="flex items-center gap-2">
                 {props.fetchDiff && (e.beforeExcerpt || e.afterExcerpt) && (
                   <button
@@ -318,7 +320,7 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
                     className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
                     data-action="toggle-diff"
                   >
-                    {expandedId === e.id ? 'Hide change' : 'Show change'}
+                    {expandedId === e.id ? t('page.edit_history_panel.hide_change') : t('page.edit_history_panel.show_change')}
                   </button>
                 )}
                 {e.canRevert && (
@@ -333,7 +335,7 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
                       interveningByActor: e.interveningByActor,
                     })}
                     className="rounded-md border border-slate-300 bg-white px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                  >Revert to this point</button>
+                  >{t('page.edit_history_panel.revert_to_point')}</button>
                 )}
               </div>
             </div>
@@ -344,10 +346,10 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
       {revert.isError && (
         <p className="mt-3 text-[12px] text-rose-600">
           {revert.error instanceof ApiError && revert.error.status === 409
-            ? `This entry can no longer be reverted — the ${subject} has moved on.`
+            ? t('page.edit_history_panel.revert_err_409', { subject })
             : revert.error instanceof ApiError && revert.error.status === 422
-            ? 'No snapshot stored for this entry — revert unavailable.'
-            : 'Revert failed. See console.'}
+            ? t('page.edit_history_panel.revert_err_422')
+            : t('page.edit_history_panel.revert_err_generic')}
         </p>
       )}
 
@@ -358,17 +360,17 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
           onClick={() => setPending(null)}
         >
-          <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl" onClick={e => e.stopPropagation()}>
-            <p className="text-[14px] font-semibold text-slate-900">Revert this change?</p>
+          <div className="w-full max-w-sm rounded-lg bg-white p-5 shadow-xl" onClick={ev => ev.stopPropagation()}>
+            <p className="text-[14px] font-semibold text-slate-900">{t('page.edit_history_panel.revert_confirm_title')}</p>
             <p className="mt-2 text-[12px] text-slate-600">
-              The {subject} will be restored to the state before{' '}
-              <strong>{pending.actorName}</strong>'s {originLabel(pending.origin).toLowerCase()}{' '}
-              on {new Date(pending.createdAt).toLocaleString()}.
+              {t('page.edit_history_panel.revert_confirm_body_prefix', { subject })}{' '}
+              <strong>{pending.actorName}</strong>{t('page.edit_history_panel.revert_confirm_body_middle', { action: originLabel(pending.origin, t).toLowerCase() })}{' '}
+              {t('page.edit_history_panel.revert_confirm_body_suffix', { time: new Date(pending.createdAt).toLocaleString() })}
             </p>
             {pending.interveningCount > 0 && (
               <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 p-2.5 text-[12px] text-amber-800">
                 <p className="font-semibold">
-                  This will discard {pending.interveningCount} later edit{pending.interveningCount === 1 ? '' : 's'}:
+                  {t('page.edit_history_panel.discard_later_edits', { count: pending.interveningCount })}
                 </p>
                 <ul className="mt-1 list-disc pl-5">
                   {pending.interveningByActor.map(a => (
@@ -382,13 +384,13 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
                 type="button"
                 onClick={() => setPending(null)}
                 className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
-              >Cancel</button>
+              >{t('button.cancel')}</button>
               <button
                 type="button"
                 onClick={() => revert.mutate(pending.editHistoryId)}
                 disabled={revert.isPending}
                 className="rounded-md bg-rose-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-rose-700 disabled:bg-slate-300"
-              >{revert.isPending ? 'Reverting…' : 'Revert'}</button>
+              >{revert.isPending ? t('page.edit_history_panel.reverting') : t('page.edit_history_panel.revert_button')}</button>
             </div>
           </div>
         </div>
@@ -399,20 +401,20 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
 
 // --- helpers ----------------------------------------------------------------
 
-const ORIGIN_CHIP_LABEL: Record<OriginFilter, string> = {
-  all:    'All',
-  ai:     'AI only',
-  manual: 'Manual',
-  undo:   'Undos',
-  restore: 'Restore',
+const ORIGIN_CHIP_LABEL_KEYS: Record<OriginFilter, string> = {
+  all:     'page.edit_history_panel.chip_all',
+  ai:      'page.edit_history_panel.chip_ai',
+  manual:  'page.edit_history_panel.chip_manual',
+  undo:    'page.edit_history_panel.chip_undo',
+  restore: 'page.edit_history_panel.chip_restore',
 }
 
-function originLabel(o: string): string {
+function originLabel(o: string, t: TFunction): string {
   switch (o) {
-    case 'ai':      return 'AI'
-    case 'manual':  return 'Manual'
-    case 'undo':    return 'Revert'
-    case 'restore': return 'Restore'
+    case 'ai':      return t('page.edit_history_panel.origin_ai')
+    case 'manual':  return t('page.edit_history_panel.origin_manual')
+    case 'undo':    return t('page.edit_history_panel.origin_undo')
+    case 'restore': return t('page.edit_history_panel.origin_restore')
     default:        return o
   }
 }

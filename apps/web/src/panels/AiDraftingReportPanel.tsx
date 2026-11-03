@@ -21,15 +21,16 @@
 // All numbers are server-driven (polled via useAiDraftStatus) so this
 // panel refreshes alongside the chip + toast with no extra round-trips.
 
+import { useTranslation } from 'react-i18next'
 import type { AiDraftStatusResponse, AiDraftState } from '../api/ai-drafter'
 import { useDocumentStore } from '../store'
 
-const STATE_LABEL: Record<AiDraftState, string> = {
-  pending:    'Queued',
-  drafting:   'Drafting',
-  validating: 'Validating',
-  complete:   'Complete',
-  failed:     'Failed',
+const STATE_LABEL_KEYS: Record<AiDraftState, string> = {
+  pending:    'page.ai_drafting_report_panel.state_queued',
+  drafting:   'page.ai_drafting_report_panel.state_drafting',
+  validating: 'page.ai_drafting_report_panel.state_validating',
+  complete:   'page.ai_drafting_report_panel.state_complete',
+  failed:     'page.ai_drafting_report_panel.state_failed',
 }
 
 const STATE_TONE: Record<AiDraftState, { bg: string; fg: string }> = {
@@ -40,12 +41,12 @@ const STATE_TONE: Record<AiDraftState, { bg: string; fg: string }> = {
   failed:     { bg: '#FFF1F2', fg: '#BE123C' },
 }
 
-const FLAG_LABEL: Record<string, string> = {
-  'completeness:too_short': 'Too short',
-  'ai:self_critique':       'Needs revision',
-  'ai:template_mismatch':   'Off-template',
-  'ai:coherence_issue':     'Coherence',
-  'ai:unsupported_claim':   'Unsupported claim',
+const FLAG_LABEL_KEYS: Record<string, string> = {
+  'completeness:too_short': 'page.ai_drafting_report_panel.flag_too_short',
+  'ai:self_critique':       'page.ai_drafting_report_panel.flag_needs_revision',
+  'ai:template_mismatch':   'page.ai_drafting_report_panel.flag_off_template',
+  'ai:coherence_issue':     'page.ai_drafting_report_panel.flag_coherence',
+  'ai:unsupported_claim':   'page.ai_drafting_report_panel.flag_unsupported_claim',
 }
 
 interface Props {
@@ -54,12 +55,13 @@ interface Props {
 }
 
 export function AiDraftingReportPanel({ status, loading }: Props) {
+  const { t } = useTranslation()
   const activeSection = useDocumentStore(s => s.activeSection)
 
   if (loading && !status) {
     return (
       <div className="flex-1 overflow-y-auto px-5 py-4 text-[12px] text-slate-500">
-        Loading AI drafting report…
+        {t('page.ai_drafting_report_panel.loading')}
       </div>
     )
   }
@@ -67,11 +69,9 @@ export function AiDraftingReportPanel({ status, loading }: Props) {
   if (!status || status.state === null) {
     return (
       <div className="flex-1 overflow-y-auto px-5 py-6">
-        <h3 className="text-[13px] font-semibold text-slate-900">No AI drafting activity</h3>
+        <h3 className="text-[13px] font-semibold text-slate-900">{t('page.ai_drafting_report_panel.no_activity_title')}</h3>
         <p className="mt-2 text-[12px] leading-relaxed text-slate-500">
-          This document wasn't drafted with AI. Create a new document from the
-          "Draft with AI" opt-in in the New Document wizard to see the drafter
-          + validator pipeline run.
+          {t('page.ai_drafting_report_panel.no_activity_body')}
         </p>
       </div>
     )
@@ -99,26 +99,26 @@ export function AiDraftingReportPanel({ status, loading }: Props) {
             style={{ backgroundColor: tone.bg, color: tone.fg }}
             data-testid="ai-report-state"
           >
-            {STATE_LABEL[status.state]}
+            {t(STATE_LABEL_KEYS[status.state])}
           </span>
           <span
             className="rounded px-2 py-0.5 text-[11px] font-semibold"
             style={{ backgroundColor: confidenceTone.bg, color: confidenceTone.fg }}
             data-testid="ai-report-confidence"
           >
-            {confidenceLabel} overall
+            {t('page.ai_drafting_report_panel.confidence_overall', { label: confidenceLabel })}
           </span>
         </div>
         <div className="mt-2 flex items-baseline justify-between text-[11px] text-slate-500">
           <span>
-            {status.sections.length} section{status.sections.length === 1 ? '' : 's'} evaluated
+            {t('page.ai_drafting_report_panel.sections_evaluated', { count: status.sections.length })}
             {flaggedCount > 0 && (
-              <> · <span style={{ color: '#BE123C' }}>{flaggedCount} flagged</span></>
+              <> · <span style={{ color: '#BE123C' }}>{t('page.ai_drafting_report_panel.flagged_count', { count: flaggedCount })}</span></>
             )}
           </span>
           {status.lastPassAt && (
             <span className="font-mono">
-              Last pass {new Date(status.lastPassAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })}
+              {t('page.ai_drafting_report_panel.last_pass', { time: new Date(status.lastPassAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' }) })}
             </span>
           )}
         </div>
@@ -127,22 +127,22 @@ export function AiDraftingReportPanel({ status, loading }: Props) {
       {/* Iteration log */}
       <section className="border-b border-slate-200 px-5 py-4" data-testid="ai-report-passes">
         <h3 className="text-[12px] font-semibold uppercase tracking-wider text-slate-500">
-          Validation passes
+          {t('page.ai_drafting_report_panel.validation_passes_header')}
         </h3>
         {status.passes.length === 0 ? (
           <p className="mt-2 text-[12px] italic text-slate-400">
-            No validation passes recorded yet.
+            {t('page.ai_drafting_report_panel.no_passes_yet')}
           </p>
         ) : (
           <div className="mt-2 overflow-hidden rounded-md border border-slate-200">
             <table className="w-full text-[12px]">
               <thead>
                 <tr className="border-b border-slate-200 bg-slate-50 text-left text-slate-500">
-                  <th className="px-2.5 py-2 font-medium">Pass</th>
-                  <th className="px-2.5 py-2 font-medium">Started</th>
-                  <th className="px-2.5 py-2 font-medium">Duration</th>
-                  <th className="px-2.5 py-2 font-medium">Flagged</th>
-                  <th className="px-2.5 py-2 font-medium">Confidence</th>
+                  <th className="px-2.5 py-2 font-medium">{t('page.ai_drafting_report_panel.col_pass')}</th>
+                  <th className="px-2.5 py-2 font-medium">{t('page.ai_drafting_report_panel.col_started')}</th>
+                  <th className="px-2.5 py-2 font-medium">{t('page.ai_drafting_report_panel.col_duration')}</th>
+                  <th className="px-2.5 py-2 font-medium">{t('page.ai_drafting_report_panel.col_flagged')}</th>
+                  <th className="px-2.5 py-2 font-medium">{t('page.ai_drafting_report_panel.col_confidence')}</th>
                 </tr>
               </thead>
               <tbody>
@@ -157,11 +157,11 @@ export function AiDraftingReportPanel({ status, loading }: Props) {
                         {started.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
                       </td>
                       <td className="px-2.5 py-2 font-mono text-slate-500">
-                        {durationS === null ? '— running —' : `${durationS}s`}
+                        {durationS === null ? t('page.ai_drafting_report_panel.duration_running') : t('page.ai_drafting_report_panel.duration_seconds', { seconds: durationS })}
                       </td>
                       <td className="px-2.5 py-2 text-slate-700">
                         {p.sectionsFlagged === 0
-                          ? <span className="text-emerald-700">none</span>
+                          ? <span className="text-emerald-700">{t('page.ai_drafting_report_panel.flagged_none')}</span>
                           : <span style={{ color: '#BE123C' }}>{p.sectionsFlagged}</span>}
                       </td>
                       <td className="px-2.5 py-2">
@@ -174,7 +174,7 @@ export function AiDraftingReportPanel({ status, loading }: Props) {
             </table>
             {status.passes[0]?.modelUsed && (
               <div className="border-t border-slate-100 bg-slate-50 px-2.5 py-1.5 font-mono text-[10px] text-slate-500">
-                model · {status.passes.find(p => p.modelUsed)?.modelUsed ?? 'unknown'}
+                {t('page.ai_drafting_report_panel.model_label', { model: status.passes.find(p => p.modelUsed)?.modelUsed ?? t('page.ai_drafting_report_panel.model_unknown') })}
               </div>
             )}
           </div>
@@ -184,7 +184,7 @@ export function AiDraftingReportPanel({ status, loading }: Props) {
       {/* Per-section drill */}
       <section className="px-5 py-4" data-testid="ai-report-sections">
         <h3 className="text-[12px] font-semibold uppercase tracking-wider text-slate-500">
-          Per-section confidence
+          {t('page.ai_drafting_report_panel.per_section_header')}
         </h3>
         <div className="mt-2 flex flex-col gap-1.5">
           {status.sections.map(s => {
@@ -214,15 +214,18 @@ export function AiDraftingReportPanel({ status, loading }: Props) {
                   </div>
                   {s.flags.length > 0 && (
                     <div className="mt-1 flex flex-wrap gap-1">
-                      {s.flags.map((f, i) => (
-                        <span
-                          key={`${f}-${i}`}
-                          className="rounded-full border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700"
-                          title={f}
-                        >
-                          {FLAG_LABEL[f] ?? f}
-                        </span>
-                      ))}
+                      {s.flags.map((f, i) => {
+                        const key = FLAG_LABEL_KEYS[f]
+                        return (
+                          <span
+                            key={`${f}-${i}`}
+                            className="rounded-full border border-rose-200 bg-rose-50 px-1.5 py-0.5 text-[10px] font-medium text-rose-700"
+                            title={f}
+                          >
+                            {key ? t(key) : f}
+                          </span>
+                        )
+                      })}
                     </div>
                   )}
                 </div>
@@ -231,7 +234,7 @@ export function AiDraftingReportPanel({ status, loading }: Props) {
           })}
           {status.sections.length === 0 && (
             <p className="text-[12px] italic text-slate-400">
-              No section data yet. The first validation pass populates this list.
+              {t('page.ai_drafting_report_panel.no_section_data')}
             </p>
           )}
         </div>

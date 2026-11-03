@@ -1,4 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query'
 import type { AuditEntry } from '@platform/types'
 import { documentsApi } from '../api'
@@ -43,27 +45,56 @@ const FILTER_MAP: Record<FilterKey, EventType[] | 'all'> = {
   signatures: ['document-signed'],
 }
 
-const FILTER_CHIPS: { key: FilterKey; label: string }[] = [
-  { key: 'all',        label: 'All' },
-  { key: 'edits',      label: 'Edits' },
-  { key: 'ai',         label: 'AI' },
-  { key: 'comments',   label: 'Comments' },
-  { key: 'signatures', label: 'Signatures' },
+const FILTER_CHIP_KEYS: { key: FilterKey; labelKey: string }[] = [
+  { key: 'all',        labelKey: 'page.audit_trail_panel.filter_all' },
+  { key: 'edits',      labelKey: 'page.audit_trail_panel.filter_edits' },
+  { key: 'ai',         labelKey: 'page.audit_trail_panel.filter_ai' },
+  { key: 'comments',   labelKey: 'page.audit_trail_panel.filter_comments' },
+  { key: 'signatures', labelKey: 'page.audit_trail_panel.filter_signatures' },
 ]
 
-// Event badge palette
-const EVENT_BADGE: Record<EventType, { bg: string; fg: string; label: string }> = {
-  'content-edited':      { bg: '#EFF6FF', fg: '#2563EB', label: 'CONTENT EDITED' },
-  'ai-draft':            { bg: '#F5F3FF', fg: '#7C3AED', label: 'AI DRAFT' },
-  'comment-added':       { bg: '#FFFBEB', fg: '#B45309', label: 'COMMENT ADDED' },
-  'comment-resolved':    { bg: '#F0FDF4', fg: '#15803D', label: 'COMMENT RESOLVED' },
-  'checklist-waived':    { bg: '#FFFBEB', fg: '#B45309', label: 'CHECKLIST WAIVED' },
-  'checklist-completed': { bg: '#F0FDF4', fg: '#15803D', label: 'CHECKLIST COMPLETED' },
-  'document-signed':     { bg: '#F0FDF4', fg: '#15803D', label: 'DOCUMENT SIGNED' },
-  'version-restore':     { bg: '#EFF6FF', fg: '#2563EB', label: 'VERSION RESTORED' },
-  'voice-note-added':    { bg: '#F5F3FF', fg: '#7C3AED', label: 'VOICE NOTE' },
-  'qa-review-completed': { bg: '#F0FDF4', fg: '#15803D', label: 'QA REVIEW' },
-  'ai-requested':        { bg: '#F5F3FF', fg: '#7C3AED', label: 'AI REQUESTED' },
+// Event badge palette. Translate the display label via AUDIT_ACTION_LABEL_KEYS;
+// the raw enum identifier stays as the event type key.
+const EVENT_BADGE_PALETTE: Record<EventType, { bg: string; fg: string }> = {
+  'content-edited':      { bg: '#EFF6FF', fg: '#2563EB' },
+  'ai-draft':            { bg: '#F5F3FF', fg: '#7C3AED' },
+  'comment-added':       { bg: '#FFFBEB', fg: '#B45309' },
+  'comment-resolved':    { bg: '#F0FDF4', fg: '#15803D' },
+  'checklist-waived':    { bg: '#FFFBEB', fg: '#B45309' },
+  'checklist-completed': { bg: '#F0FDF4', fg: '#15803D' },
+  'document-signed':     { bg: '#F0FDF4', fg: '#15803D' },
+  'version-restore':     { bg: '#EFF6FF', fg: '#2563EB' },
+  'voice-note-added':    { bg: '#F5F3FF', fg: '#7C3AED' },
+  'qa-review-completed': { bg: '#F0FDF4', fg: '#15803D' },
+  'ai-requested':        { bg: '#F5F3FF', fg: '#7C3AED' },
+}
+
+const AUDIT_ACTION_LABEL_KEYS: Record<EventType, string> = {
+  'content-edited':      'page.audit_trail_panel.badge_content_edited',
+  'ai-draft':            'page.audit_trail_panel.badge_ai_draft',
+  'comment-added':       'page.audit_trail_panel.badge_comment_added',
+  'comment-resolved':    'page.audit_trail_panel.badge_comment_resolved',
+  'checklist-waived':    'page.audit_trail_panel.badge_checklist_waived',
+  'checklist-completed': 'page.audit_trail_panel.badge_checklist_completed',
+  'document-signed':     'page.audit_trail_panel.badge_document_signed',
+  'version-restore':     'page.audit_trail_panel.badge_version_restored',
+  'voice-note-added':    'page.audit_trail_panel.badge_voice_note',
+  'qa-review-completed': 'page.audit_trail_panel.badge_qa_review',
+  'ai-requested':        'page.audit_trail_panel.badge_ai_requested',
+}
+
+const ACTION_PHRASE_KEYS: Record<EventType, string> = {
+  'content-edited':      'page.audit_trail_panel.phrase_content_edited',
+  'ai-draft':            'page.audit_trail_panel.phrase_ai_draft',
+  'comment-added':       'page.audit_trail_panel.phrase_comment_added',
+  'comment-resolved':    'page.audit_trail_panel.phrase_comment_resolved',
+  'checklist-waived':    'page.audit_trail_panel.phrase_checklist_waived',
+  'checklist-completed': 'page.audit_trail_panel.phrase_checklist_completed',
+  'document-signed':     'page.audit_trail_panel.phrase_document_signed',
+  'version-restore':     'page.audit_trail_panel.phrase_version_restored',
+  'voice-note-added':    'page.audit_trail_panel.phrase_voice_note_added',
+  'qa-review-completed': 'page.audit_trail_panel.phrase_qa_review',
+  'ai-requested':        'page.audit_trail_panel.phrase_ai_requested',
 }
 
 // Actor avatar colours (matches design-system Pattern 7)
@@ -116,23 +147,10 @@ function Avatar({ initials, colourKey, isAI }: { initials: string; colourKey: st
 }
 
 // Derive verb phrase for row 2 from eventType — action label from fixture is a full sentence, verb is nicer
-function actionPhrase(eventType: EventType): string {
-  switch (eventType) {
-    case 'content-edited':      return 'edited content'
-    case 'ai-draft':            return 'generated draft'
-    case 'comment-added':       return 'added comment'
-    case 'comment-resolved':    return 'resolved comment'
-    case 'checklist-waived':    return 'waived item'
-    case 'checklist-completed': return 'completed item'
-    case 'document-signed':     return 'signed document'
-    case 'version-restore':     return 'restored version'
-    case 'voice-note-added':    return 'added voice note'
-    case 'qa-review-completed': return 'completed QA review'
-    case 'ai-requested':        return 'asked the AI'
-  }
+function actionPhrase(eventType: EventType, t: TFunction): string {
+  const key = ACTION_PHRASE_KEYS[eventType]
+  return key ? t(key) : eventType
 }
-
-const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`
 
 // Same marks as the Version Diff screen (DiffView): struck-through red for removed
 // words, green for added ones.
@@ -159,27 +177,32 @@ function renderRuns(ops: DiffOp[], show: 'del' | 'ins' | 'both'): ReactNode[] {
 // What a section edit changed: only the changed words, in place, with a few words
 // of surrounding text to show where. The full before/after stays available.
 function ChangeBlock({ before, after }: { before: string; after: string }) {
+  const { t } = useTranslation()
   const [showFull, setShowFull] = useState(false)
   const diff = useMemo(() => wordDiff(before, after), [before, after])
 
   const summary = [
-    diff.added   ? `+${plural(diff.added, 'word')} added` : '',
-    diff.removed ? `−${plural(diff.removed, 'word')} removed` : '',
+    diff.added   ? t('page.audit_trail_panel.words_added', { count: diff.added }) : '',
+    diff.removed ? t('page.audit_trail_panel.words_removed', { count: diff.removed }) : '',
   ].filter(Boolean).join(' · ')
 
   return (
     <div className="mt-1 flex flex-col gap-1.5 text-[12px] leading-[1.55]" data-audit-change>
       <p className="font-mono text-[10px] text-slate-500" data-change-summary>
         {diff.hunks.length === 0
-          ? 'No wording change (formatting or spacing only)'
-          : `${summary} · ${plural(diff.hunks.length, 'place')}`}
+          ? t('page.audit_trail_panel.no_wording_change')
+          : `${summary} · ${t('page.audit_trail_panel.places_count', { count: diff.hunks.length })}`}
       </p>
 
       {/* Each change inline in its sentence: removed words struck through, added words in green. */}
       {diff.hunks.map((h, i) => (
         <div key={i} className="rounded border border-slate-200 bg-white px-2.5 py-1.5" data-change-hunk={i + 1}>
           <span className="block font-mono text-[9px] font-semibold uppercase tracking-wider text-slate-400">
-            {h.atStart && h.atEnd ? 'whole text' : h.atStart ? 'at start' : h.atEnd ? 'at end' : `change ${i + 1}`}
+            {h.atStart && h.atEnd
+              ? t('page.audit_trail_panel.hunk_whole_text')
+              : h.atStart ? t('page.audit_trail_panel.hunk_at_start')
+              : h.atEnd ? t('page.audit_trail_panel.hunk_at_end')
+              : t('page.audit_trail_panel.hunk_change_n', { n: i + 1 })}
           </span>
           <p className="text-[12.5px] leading-[1.7] text-slate-700">
             {h.before.length > 0 && <span className="text-slate-500">…{h.before.join(' ')} </span>}
@@ -190,21 +213,21 @@ function ChangeBlock({ before, after }: { before: string; after: string }) {
       ))}
 
       <button type="button" onClick={() => setShowFull(s => !s)} className="self-start text-[11px] font-semibold text-blue-600 hover:text-blue-700">
-        {showFull ? 'Hide full before / after' : 'Show full before / after'}
+        {showFull ? t('page.audit_trail_panel.hide_full_before_after') : t('page.audit_trail_panel.show_full_before_after')}
       </button>
       {/* Full text, highlighting only what changed: removed words in Before, added words in After. */}
       {showFull && (
         <div className="flex flex-col gap-1.5" data-change-full>
           <div className="rounded border border-slate-200 border-l-2 border-l-red-400 bg-white px-2.5 py-1.5">
-            <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-red-700">Before</span>
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-red-700">{t('page.audit_trail_panel.before_label')}</span>
             <p className="text-[12px] leading-[1.7] text-slate-700" data-full="before">
-              {before ? renderRuns(diff.ops, 'del') : <span className="italic text-slate-400">(empty)</span>}
+              {before ? renderRuns(diff.ops, 'del') : <span className="italic text-slate-400">{t('page.audit_trail_panel.empty_marker')}</span>}
             </p>
           </div>
           <div className="rounded border border-slate-200 border-l-2 border-l-green-500 bg-white px-2.5 py-1.5">
-            <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-green-700">After</span>
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-green-700">{t('page.audit_trail_panel.after_label')}</span>
             <p className="text-[12px] leading-[1.7] text-slate-700" data-full="after">
-              {after ? renderRuns(diff.ops, 'ins') : <span className="italic text-slate-400">(empty)</span>}
+              {after ? renderRuns(diff.ops, 'ins') : <span className="italic text-slate-400">{t('page.audit_trail_panel.empty_marker')}</span>}
             </p>
           </div>
         </div>
@@ -214,6 +237,7 @@ function ChangeBlock({ before, after }: { before: string; after: string }) {
 }
 
 export function AuditTrailPanel({ documentId, section = null }: Props) {
+  const { t } = useTranslation()
   const [filter, setFilter] = useState<FilterKey>('all')
   // Scoped to the selected section by default; picking another section re-scopes to it.
   const [wholeDocument, setWholeDocument] = useState(false)
@@ -290,7 +314,7 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
       a.remove()
       URL.revokeObjectURL(url)
     } catch (err) {
-      setDownloadError(`Couldn't download the audit trail (${err instanceof Error ? err.message : 'network error'}). Please try again.`)
+      setDownloadError(t('page.audit_trail_panel.download_failed', { detail: err instanceof Error ? err.message : t('page.audit_trail_panel.network_error') }))
     } finally {
       setDownloading(null)
     }
@@ -312,8 +336,8 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
                 <button
                   type="button"
                   onClick={() => setWholeDocument(true)}
-                  aria-label="Show the whole document's audit trail"
-                  title="Show the whole document"
+                  aria-label={t('page.audit_trail_panel.show_whole_aria')}
+                  title={t('page.audit_trail_panel.show_whole_title')}
                   className="flex h-4 w-4 flex-none items-center justify-center rounded-full hover:bg-blue-100"
                 >
                   <svg width="8" height="8" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden><path d="M3 3l6 6M9 3l-6 6" /></svg>
@@ -321,16 +345,16 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
               </span>
             ) : (
               <>
-                <span className="text-[11px] font-semibold text-slate-700">Whole document</span>
+                <span className="text-[11px] font-semibold text-slate-700">{t('page.audit_trail_panel.whole_document')}</span>
                 <button type="button" onClick={() => setWholeDocument(false)} className="text-[11px] font-semibold text-blue-600 hover:text-blue-700">
-                  Only {section.number.startsWith('§') ? '' : '§'}{section.number} →
+                  {t('page.audit_trail_panel.only_section', { number: `${section.number.startsWith('§') ? '' : '§'}${section.number}` })}
                 </button>
               </>
             )}
           </div>
         )}
         <div className="flex flex-wrap gap-1.5">
-          {FILTER_CHIPS.map(chip => {
+          {FILTER_CHIP_KEYS.map(chip => {
             const active = filter === chip.key
             return (
               <button
@@ -348,7 +372,7 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
                   color: '#475569',
                 }}
               >
-                {chip.label}
+                {t(chip.labelKey)}
               </button>
             )
           })}
@@ -358,31 +382,34 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
           from={range.from} to={range.to} tz={tz} invalid={rangeInvalid}
           onChange={setRange} onTzChange={changeTz}
         />
-        {rangeInvalid && <p className="text-[11px] text-red-700">The range's "From" is after its "To".</p>}
+        {rangeInvalid && <p className="text-[11px] text-red-700">{t('page.audit_trail_panel.range_invalid')}</p>}
       </div>
 
       {/* Scroll list */}
       <div className="flex-1 overflow-y-auto">
         {isLoading && (
-          <div className="p-8 text-center font-mono text-xs text-slate-400">Loading audit trail…</div>
+          <div className="p-8 text-center font-mono text-xs text-slate-400">{t('page.audit_trail_panel.loading')}</div>
         )}
 
         {!isLoading && filtered.length === 0 && (
           <div className="p-8 text-center">
             <p className="text-sm font-semibold text-slate-900">
-              {scopeSection
-                ? `No events for this section${rangeActive ? ' in this date range' : ''}`
-                : rangeActive && entries.length === 0 ? 'No events in this date range'
-                : 'No matching events'}{hasNextPage ? ' in the entries loaded so far' : ''}
+              {(() => {
+                const base = scopeSection
+                  ? (rangeActive ? t('page.audit_trail_panel.empty_section_in_range') : t('page.audit_trail_panel.empty_section'))
+                  : rangeActive && entries.length === 0 ? t('page.audit_trail_panel.empty_in_range')
+                  : t('page.audit_trail_panel.empty_matching')
+                return hasNextPage ? `${base} ${t('page.audit_trail_panel.in_entries_loaded')}` : base
+              })()}
             </p>
             {rangeActive && (
               <button type="button" onClick={() => setRange({ from: '', to: '' })} className="mt-1 mr-3 text-xs font-semibold text-blue-600 hover:text-blue-700" data-action="show-all-time">
-                Show all time
+                {t('page.audit_trail_panel.show_all_time')}
               </button>
             )}
             {scopeSection && (
               <button type="button" onClick={() => setWholeDocument(true)} className="mt-1 mr-3 text-xs font-semibold text-blue-600 hover:text-blue-700">
-                Show whole document
+                {t('page.audit_trail_panel.show_whole_document')}
               </button>
             )}
             {hasNextPage && filter !== 'all' && (
@@ -392,14 +419,14 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
                 disabled={isFetchingNextPage}
                 className="mt-1 mr-3 text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-60"
                 data-action="load-more-audit"
-              >{isFetchingNextPage ? 'Loading…' : 'Load older entries'}</button>
+              >{isFetchingNextPage ? t('page.audit_trail_panel.loading_short') : t('page.audit_trail_panel.load_older')}</button>
             )}
             <button
               type="button"
               onClick={() => setFilter('all')}
               className="mt-1 text-xs font-semibold text-blue-600 hover:text-blue-700"
             >
-              Reset filter
+              {t('page.audit_trail_panel.reset_filter')}
             </button>
           </div>
         )}
@@ -409,7 +436,9 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
           // (status changes, uploads, CRM…) — fall back to a neutral badge
           // labelled from the raw action instead of crashing the editor.
           const rawAction = (entry.action ?? '').replace(/[._]/g, ' ').trim()
-          const badge = EVENT_BADGE[entry.eventType] ?? { bg: '#F1F5F9', fg: '#475569', label: (rawAction || 'EVENT').toUpperCase() }
+          const palette = EVENT_BADGE_PALETTE[entry.eventType] ?? { bg: '#F1F5F9', fg: '#475569' }
+          const labelKey = AUDIT_ACTION_LABEL_KEYS[entry.eventType]
+          const badgeLabel = labelKey ? t(labelKey) : (rawAction || t('page.audit_trail_panel.badge_event_fallback')).toUpperCase()
           const isAI  = entry.actorColourKey === 'AI'
           return (
             <div
@@ -420,12 +449,12 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
             >
               {/* Row 1: timestamp + badge */}
               <div className="flex items-center justify-between gap-2.5">
-                <p className="font-mono text-[10px] text-slate-500" title={`UTC: ${formatTimestampUtc(entry.timestamp)}`}>{formatTimestamp(entry.timestamp)}</p>
+                <p className="font-mono text-[10px] text-slate-500" title={t('page.audit_trail_panel.utc_tooltip', { time: formatTimestampUtc(entry.timestamp) })}>{formatTimestamp(entry.timestamp)}</p>
                 <span
                   className="whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wider"
-                  style={{ backgroundColor: badge.bg, color: badge.fg }}
+                  style={{ backgroundColor: palette.bg, color: palette.fg }}
                 >
-                  {badge.label}
+                  {badgeLabel}
                 </span>
               </div>
 
@@ -434,7 +463,7 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
                 <Avatar initials={entry.actorInitials} colourKey={entry.actorColourKey} isAI={isAI} />
                 <p className="min-w-0 truncate text-[13px]">
                   <span className="font-bold text-slate-900">{entry.actor}</span>{' '}
-                  <span className="text-slate-500">{actionPhrase(entry.eventType) ?? rawAction}</span>
+                  <span className="text-slate-500">{actionPhrase(entry.eventType, t) || rawAction}</span>
                 </p>
               </div>
 
@@ -455,8 +484,12 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
           <div className="flex items-center justify-between gap-3 px-4 py-3">
             <p className="text-xs text-slate-500">
               {filter === 'all'
-                ? `Showing ${entries.length} of ${total} entries${scopeSection ? ' for this section' : ''}`
-                : `${filtered.length} match in the ${entries.length} loaded (${total} entries${scopeSection ? ' for this section' : ''} in total)`}
+                ? (scopeSection
+                    ? t('page.audit_trail_panel.showing_of_total_section', { shown: entries.length, total })
+                    : t('page.audit_trail_panel.showing_of_total', { shown: entries.length, total }))
+                : (scopeSection
+                    ? t('page.audit_trail_panel.filtered_in_loaded_section', { match: filtered.length, loaded: entries.length, total })
+                    : t('page.audit_trail_panel.filtered_in_loaded', { match: filtered.length, loaded: entries.length, total }))}
             </p>
             <button
               type="button"
@@ -464,22 +497,30 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
               disabled={isFetchingNextPage}
               className="flex-none text-xs font-semibold text-blue-600 hover:text-blue-700 disabled:cursor-wait disabled:opacity-60"
               data-action="load-more-audit"
-            >{isFetchingNextPage ? 'Loading…' : 'Load more →'}</button>
+            >{isFetchingNextPage ? t('page.audit_trail_panel.loading_short') : t('page.audit_trail_panel.load_more')}</button>
           </div>
         )}
         {!isLoading && !hasNextPage && filter !== 'all' && filtered.length > 0 && total > filtered.length && (
           <div className="flex items-center justify-between px-4 py-3">
-            <p className="text-xs text-slate-500">Showing {filtered.length} of {total} entries (filtered)</p>
+            <p className="text-xs text-slate-500">{t('page.audit_trail_panel.showing_filtered', { shown: filtered.length, total })}</p>
             <button
               type="button"
               onClick={() => setFilter('all')}
               className="text-xs font-semibold text-blue-600 hover:text-blue-700"
               data-action="show-all-audit"
-            >Show all {total} →</button>
+            >{t('page.audit_trail_panel.show_all_total', { total })}</button>
           </div>
         )}
         {!isLoading && !hasNextPage && (filter === 'all' || total <= filtered.length) && filtered.length > 0 && (
-          <p className="px-4 py-3 text-xs text-slate-500">Showing all {filtered.length} entries{scopeSection ? ' for this section' : ''}{rangeActive ? ' in this date range' : ''}</p>
+          <p className="px-4 py-3 text-xs text-slate-500">
+            {scopeSection && rangeActive
+              ? t('page.audit_trail_panel.showing_all_section_range', { count: filtered.length })
+              : scopeSection
+                ? t('page.audit_trail_panel.showing_all_section', { count: filtered.length })
+                : rangeActive
+                  ? t('page.audit_trail_panel.showing_all_range', { count: filtered.length })
+                  : t('page.audit_trail_panel.showing_all', { count: filtered.length })}
+          </p>
         )}
       </div>
 
@@ -498,7 +539,7 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
           className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 transition-colors disabled:cursor-wait disabled:opacity-60"
           data-action="export-audit-csv"
         >
-          {downloading === 'csv' ? 'Exporting…' : 'Export audit trail'}
+          {downloading === 'csv' ? t('page.audit_trail_panel.exporting') : t('page.audit_trail_panel.export_audit_trail')}
         </button>
         <button
           type="button"
@@ -507,7 +548,7 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
           className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 transition-colors disabled:cursor-wait disabled:opacity-60"
           data-action="export-audit-pdf"
         >
-          {downloading === 'pdf' ? 'Preparing PDF…' : 'Download as PDF'}
+          {downloading === 'pdf' ? t('page.audit_trail_panel.preparing_pdf') : t('page.audit_trail_panel.download_as_pdf')}
         </button>
       </div>
     </div>

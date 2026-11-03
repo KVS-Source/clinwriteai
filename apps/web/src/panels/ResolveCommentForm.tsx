@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { ResolutionType } from '@platform/types'
 
 // Inline "resolve a comment" form (PRD AC-A-055 / API contract: resolution
@@ -12,18 +13,27 @@ interface ResolveFormProps {
   error?:    string | null
 }
 
-const OPTIONS: { type: ResolutionType; label: string; hint: string }[] = [
-  { type: 'accept',                   label: 'Accept',         hint: 'Implement as requested' },
-  { type: 'accept-with-modification', label: 'Accept w/ mod',  hint: 'Implement with changes' },
-  { type: 'reject',                   label: 'Reject',         hint: 'Do not implement' },
+const OPTION_KEYS: { type: ResolutionType; labelKey: string; hintKey: string }[] = [
+  { type: 'accept',                   labelKey: 'page.resolve_comment_form.option_accept_label',          hintKey: 'page.resolve_comment_form.option_accept_hint' },
+  { type: 'accept-with-modification', labelKey: 'page.resolve_comment_form.option_accept_mod_label',      hintKey: 'page.resolve_comment_form.option_accept_mod_hint' },
+  { type: 'reject',                   labelKey: 'page.resolve_comment_form.option_reject_label',          hintKey: 'page.resolve_comment_form.option_reject_hint' },
 ]
 
 export const RESOLVE_NOTE_MAX = 500
 
+// Internal English labels for the resolution-note parser. These are
+// identifiers used in audit entries (not user-facing chrome), so they
+// stay in English. Use RESOLUTION_LABEL_KEYS for display.
 export const RESOLUTION_LABEL: Record<string, string> = {
   accept:                   'Accepted',
   accept_with_modification: 'Accepted with modification',
   reject:                   'Rejected',
+}
+
+export const RESOLUTION_LABEL_KEYS: Record<string, string> = {
+  accept:                   'page.resolve_comment_form.resolution_accepted',
+  accept_with_modification: 'page.resolve_comment_form.resolution_accepted_with_modification',
+  reject:                   'page.resolve_comment_form.resolution_rejected',
 }
 
 // Resolution notes are stored with a tag in front: "[accept] text" when resolved directly, or
@@ -38,6 +48,7 @@ export function parseResolutionNote(note: string | null | undefined): { text: st
 }
 
 export function ResolveForm({ onCancel, onConfirm, isPending, error }: ResolveFormProps) {
+  const { t } = useTranslation()
   const [type, setType] = useState<ResolutionType>('accept')
   const [note, setNote] = useState('')
   const [err,  setErr]  = useState<string | null>(null)
@@ -45,7 +56,7 @@ export function ResolveForm({ onCancel, onConfirm, isPending, error }: ResolveFo
   const submit = () => {
     // Enter in the note field bypasses the disabled button; don't send a second request.
     if (isPending) return
-    if (!note.trim()) { setErr('Resolution note is required'); return }
+    if (!note.trim()) { setErr(t('page.resolve_comment_form.note_required')); return }
     onConfirm(type, note.trim())
   }
 
@@ -55,15 +66,15 @@ export function ResolveForm({ onCancel, onConfirm, isPending, error }: ResolveFo
       style={{ borderColor: '#BFDBFE', backgroundColor: '#EFF6FF' }}
       data-resolve-form
     >
-      <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Resolution type">
-        <span className="text-[11px] font-semibold text-slate-700">Type:</span>
-        {OPTIONS.map(o => (
+      <div className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={t('page.resolve_comment_form.resolution_type_aria')}>
+        <span className="text-[11px] font-semibold text-slate-700">{t('page.resolve_comment_form.type_label')}</span>
+        {OPTION_KEYS.map(o => (
           <button
             key={o.type}
             type="button"
             role="radio"
             aria-checked={type === o.type}
-            title={o.hint}
+            title={t(o.hintKey)}
             onClick={() => setType(o.type)}
             className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-colors"
             style={type === o.type ? {
@@ -72,19 +83,19 @@ export function ResolveForm({ onCancel, onConfirm, isPending, error }: ResolveFo
               backgroundColor: '#FFFFFF', color: '#475569', border: '1px solid #E2E8F0',
             }}
           >
-            {o.label}
+            {t(o.labelKey)}
           </button>
         ))}
       </div>
       <label>
-        <span className="text-[11px] font-semibold text-slate-700">Resolution note (required)</span>
+        <span className="text-[11px] font-semibold text-slate-700">{t('page.resolve_comment_form.note_label')}</span>
         <input
           type="text"
           value={note}
           maxLength={RESOLVE_NOTE_MAX}
           onChange={e => { setNote(e.target.value); if (err) setErr(null) }}
           onKeyDown={e => { if (e.key === 'Enter') submit() }}
-          placeholder="Describe how this comment was resolved"
+          placeholder={t('page.resolve_comment_form.note_placeholder')}
           className="mt-1 h-8 w-full rounded border px-2 text-[12px] outline-none focus:border-blue-600 focus:shadow-focus"
           style={{ borderColor: '#E2E8F0' }}
           autoFocus
@@ -98,7 +109,7 @@ export function ResolveForm({ onCancel, onConfirm, isPending, error }: ResolveFo
           disabled={isPending}
           className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         >
-          Cancel
+          {t('button.cancel')}
         </button>
         <button
           type="button"
@@ -107,7 +118,7 @@ export function ResolveForm({ onCancel, onConfirm, isPending, error }: ResolveFo
           data-action="confirm-resolve"
           className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
         >
-          {isPending ? 'Resolving…' : 'Confirm resolve'}
+          {isPending ? t('page.resolve_comment_form.resolving') : t('page.resolve_comment_form.confirm_resolve')}
         </button>
       </div>
     </div>

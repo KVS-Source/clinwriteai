@@ -21,6 +21,7 @@
 //     chip said to attach. Thread persists for VIEWING only.
 
 import { useEffect, useRef, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Editor } from '@tiptap/react'
 import { api, ApiError } from '../api/client'
@@ -121,6 +122,7 @@ export function classifyScope(prompt: string): 'section' | 'document' {
 }
 
 export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcceptSuggestion, canEditSection = true, cannotEditReason }: Props) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const [prompt, setPrompt] = useState('')
   // Explicit source attachments (paperclip in composer). When present,
@@ -302,7 +304,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   if (!sectionId) {
     return (
       <div className="flex-1 overflow-y-auto p-4">
-        <p className="text-[13px] text-slate-500">Select a section first — the chat is per-section.</p>
+        <p className="text-[13px] text-slate-500">{t('page.ai_chat_panel.select_section_first')}</p>
       </div>
     )
   }
@@ -310,10 +312,10 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   const messages = chatQ.data?.messages ?? []
   const errorText = send.isError
     ? send.error instanceof ApiError
-      ? send.error.status === 429 ? 'This tenant has reached its monthly AI budget. Ask an admin to raise the cap.'
-        : send.error.status === 503 ? 'The AI service is temporarily unavailable. Try again shortly.'
-          : `AI call failed (HTTP ${send.error.status}).`
-      : 'AI call failed.'
+      ? send.error.status === 429 ? t('page.ai_chat_panel.err_quota')
+        : send.error.status === 503 ? t('page.ai_chat_panel.err_unavailable')
+          : t('page.ai_chat_panel.err_http', { status: send.error.status })
+      : t('page.ai_chat_panel.err_generic')
     : null
 
   return (
@@ -321,11 +323,10 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
       {/* Header */}
       <div className="flex-none border-b border-slate-200 px-4 py-3">
         <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-          {sectionLabel ?? 'Current section'}
+          {sectionLabel ?? t('page.ai_chat_panel.current_section')}
         </p>
         <p className="mt-0.5 text-[11px] text-slate-500">
-          Your conversation on this section — private to you. The team-wide
-          Section History panel shows what actually landed in the document.
+          {t('page.ai_chat_panel.header_subtitle')}
         </p>
       </div>
 
@@ -333,7 +334,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
       <div className="flex-1 overflow-y-auto px-4 py-3" data-chat-thread>
         {messages.length === 0 && !send.isPending && (
           <p className="mt-6 rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-[12px] text-slate-500">
-            No conversation yet. Type a prompt below to get started.
+            {t('page.ai_chat_panel.empty_thread')}
           </p>
         )}
         <ul className="flex flex-col gap-3">
@@ -353,7 +354,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
               >
                 {m.role === 'user' && m.scope === 'document' && (
                   <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider opacity-80">
-                    Scope: Document
+                    {t('page.ai_chat_panel.scope_document')}
                   </p>
                 )}
                 {/* Suggest responses come back as HTML (intent='edit'). Render
@@ -372,24 +373,24 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                   <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 text-[10px] text-slate-500">
                     <span>
                       {m.aiModel ?? 'ai'}
-                      {m.appliedToSection ? ' · ✓ Applied' : ''}
+                      {m.appliedToSection ? ' · ' + t('page.ai_chat_panel.applied_marker') : ''}
                     </span>
                     {m.kind === 'suggest' && !m.appliedToSection && (
                       <div className="flex items-center gap-2">
                         {!canEditSection && (
                           <span className="text-[10px] italic text-amber-700" title={cannotEditReason}>
-                            {cannotEditReason ?? 'Section is read-only'}
+                            {cannotEditReason ?? t('page.ai_chat_panel.section_read_only')}
                           </span>
                         )}
                         <button
                           type="button"
                           onClick={() => accept.mutate({ messageId: m.id, html: sanitizeAiHtml(m.content), model: m.aiModel ?? 'ai' })}
                           disabled={accept.isPending || !canEditSection}
-                          title={!canEditSection ? (cannotEditReason ?? 'Section is read-only') : undefined}
+                          title={!canEditSection ? (cannotEditReason ?? t('page.ai_chat_panel.section_read_only')) : undefined}
                           className="rounded-md bg-emerald-600 px-2 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                           data-action="accept-into-section"
                         >
-                          {accept.isPending ? 'Applying…' : 'Accept into section'}
+                          {accept.isPending ? t('page.ai_chat_panel.applying') : t('page.ai_chat_panel.accept_into_section')}
                         </button>
                       </div>
                     )}
@@ -397,13 +398,13 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                       <p className="w-full text-[10px] text-rose-600" role="alert">
                         {accept.error instanceof ApiError
                           ? accept.error.status === 423
-                            ? 'Another writer is editing this section — your acceptance didn\'t land. Try again when their edit finishes.'
+                            ? t('page.ai_chat_panel.err_accept_locked')
                             : accept.error.status === 403
-                              ? 'You can only Accept messages from your own conversation thread.'
+                              ? t('page.ai_chat_panel.err_accept_403')
                               : accept.error.status === 404
-                                ? 'This chat message is no longer available — refresh the panel.'
-                                : `Accept failed (HTTP ${accept.error.status}).`
-                          : 'Accept failed — check your connection and try again.'}
+                                ? t('page.ai_chat_panel.err_accept_404')
+                                : t('page.ai_chat_panel.err_accept_http', { status: accept.error.status })
+                          : t('page.ai_chat_panel.err_accept_network')}
                       </p>
                     )}
                   </div>
@@ -414,7 +415,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
           {send.isPending && (
             <li className="flex justify-start">
               <div className="rounded-lg border border-slate-200 bg-white px-3 py-2 text-[12px] text-slate-500">
-                Thinking…
+                {t('page.ai_chat_panel.thinking')}
               </div>
             </li>
           )}
@@ -430,14 +431,14 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
         {savedSel && (
           <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-800" data-selection-badge>
             <span className="truncate">
-              <strong>Selected:</strong> "{savedSel.text.length > 60 ? `${savedSel.text.slice(0, 60)}…` : savedSel.text}"
+              <strong>{t('page.ai_chat_panel.selected_label')}</strong> "{savedSel.text.length > 60 ? `${savedSel.text.slice(0, 60)}…` : savedSel.text}"
             </span>
             <button
               type="button"
               onClick={() => setSavedSel(null)}
               className="rounded px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 hover:bg-amber-100"
-              aria-label="Clear selection"
-            >Clear</button>
+              aria-label={t('page.ai_chat_panel.clear_selection_aria')}
+            >{t('button.clear')}</button>
           </div>
         )}
         {/* Attached source chips. Each chip is removable; "Clear" drops all. */}
@@ -455,7 +456,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                   type="button"
                   onClick={() => toggleSource(s.uploadId)}
                   className="ml-0.5 rounded text-blue-600 hover:bg-blue-100"
-                  aria-label={`Remove ${s.fileName}`}
+                  aria-label={t('page.ai_chat_panel.remove_attachment_aria', { name: s.fileName })}
                 >×</button>
               </span>
             ))}
@@ -464,7 +465,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                 type="button"
                 onClick={clearAttachments}
                 className="ml-1 rounded px-1.5 py-0.5 text-[10px] font-semibold text-slate-600 hover:bg-slate-100"
-              >Clear</button>
+              >{t('button.clear')}</button>
             )}
           </div>
         )}
@@ -485,8 +486,8 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
             rows={1}
             maxLength={2000}
             disabled={send.isPending}
-            placeholder="Ask about this section, or request a rewrite…"
-            aria-label="Ask the AI"
+            placeholder={t('page.ai_chat_panel.input_placeholder')}
+            aria-label={t('page.ai_chat_panel.input_aria')}
             className="block max-h-40 min-h-[36px] w-full resize-none rounded-t-xl border-0 bg-transparent px-3 pt-2 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
           />
           <div className="flex items-center justify-between gap-2 px-2 pb-2">
@@ -499,12 +500,12 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                 type="button"
                 onClick={() => setSourcePickerOpen(o => !o)}
                 disabled={availableSources.length === 0 || send.isPending}
-                aria-label="Attach a source document"
+                aria-label={t('page.ai_chat_panel.attach_source_aria')}
                 aria-expanded={sourcePickerOpen}
                 title={
                   availableSources.length === 0
-                    ? 'No source documents are linked to this document yet'
-                    : `Attach a linked source document (${attachedSourceIds.length} of ${availableSources.length} selected)`
+                    ? t('page.ai_chat_panel.no_sources_linked')
+                    : t('page.ai_chat_panel.attach_source_tooltip', { attached: attachedSourceIds.length, available: availableSources.length })
                 }
                 className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg border transition-colors ${
                   attachedSourceIds.length > 0
@@ -521,7 +522,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                   onMouseDown={e => e.stopPropagation()}
                 >
                   <p className="mb-1 px-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">
-                    Attach source documents
+                    {t('page.ai_chat_panel.attach_source_header')}
                   </p>
                   <ul className="space-y-0.5">
                     {availableSources.map(s => {
@@ -553,7 +554,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                       type="button"
                       onClick={() => setSourcePickerOpen(false)}
                       className="rounded px-2 py-1 text-[11px] font-semibold text-slate-600 hover:bg-slate-100"
-                    >Done</button>
+                    >{t('page.ai_chat_panel.done')}</button>
                   </div>
                 </div>
               )}
@@ -562,8 +563,8 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
             <button
               type="button"
               onClick={() => setActivePanel(activePanel === 'ai-help' ? null : 'ai-help')}
-              aria-label="Show prompt suggestions"
-              title="Prompt suggestions"
+              aria-label={t('page.ai_chat_panel.show_prompts_aria')}
+              title={t('page.ai_chat_panel.prompt_suggestions_title')}
               data-ai-help-button
               className={`flex h-7 w-7 flex-none items-center justify-center rounded-lg border transition-colors ${activePanel === 'ai-help' ? 'border-blue-400 bg-blue-50 text-blue-700' : 'border-slate-300 bg-white text-slate-500 hover:bg-slate-50'}`}
             >
@@ -573,7 +574,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
               type="button"
               onClick={handleSend}
               disabled={!prompt.trim() || send.isPending}
-              aria-label="Send to AI"
+              aria-label={t('page.ai_chat_panel.send_to_ai_aria')}
               className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:bg-slate-300"
             >
               {send.isPending

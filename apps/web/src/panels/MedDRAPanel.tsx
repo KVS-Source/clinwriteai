@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import type { MedDRATerm } from '@platform/types'
 import { meddraApi } from '../api'
@@ -51,6 +52,7 @@ interface ResultCardProps {
 }
 
 function ResultCard({ term, isSelected, usedInDoc, sectionLabel, onSelect, onCopy, onInsert }: ResultCardProps) {
+  const { t } = useTranslation()
   return (
     <div
       className="mx-4 my-2 flex cursor-pointer flex-col gap-1.5 rounded-lg p-3 transition-colors"
@@ -75,13 +77,13 @@ function ResultCard({ term, isSelected, usedInDoc, sectionLabel, onSelect, onCop
       </div>
 
       <p className="font-mono text-[11px] font-medium text-slate-500">
-        MedDRA {MEDDRA_VERSION} · Code: {term.code}
+        {t('page.meddra_panel.code_line', { version: MEDDRA_VERSION, code: term.code })}
       </p>
       <p className="text-[11px] leading-relaxed text-slate-500">{term.soc}</p>
 
       {usedInDoc && (
         <p className="text-[11px] font-semibold" style={{ color: '#15803D' }} data-used-in-document>
-          ✓ Used in document
+          {t('page.meddra_panel.used_in_document')}
         </p>
       )}
 
@@ -93,7 +95,7 @@ function ResultCard({ term, isSelected, usedInDoc, sectionLabel, onSelect, onCop
             className="rounded-md border border-slate-200 bg-white px-2.5 py-1.5 text-[11px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
             data-meddra-copy
           >
-            Copy PT
+            {t('page.meddra_panel.copy_pt')}
           </button>
           <button
             type="button"
@@ -101,7 +103,7 @@ function ResultCard({ term, isSelected, usedInDoc, sectionLabel, onSelect, onCop
             className="rounded-md bg-blue-600 px-2.5 py-1.5 text-[11px] font-semibold text-white hover:bg-blue-700 transition-colors"
             data-meddra-insert
           >
-            Insert into {sectionLabel}
+            {t('page.meddra_panel.insert_into', { section: sectionLabel })}
           </button>
         </div>
       )}
@@ -114,6 +116,7 @@ interface Props {
 }
 
 export function MedDRAPanel({ documentId }: Props) {
+  const { t } = useTranslation()
   const activeSection = useDocumentStore(s => s.activeSection)
 
   const [query, setQuery]                 = useState(DEFAULT_QUERY)
@@ -146,7 +149,7 @@ export function MedDRAPanel({ documentId }: Props) {
     if (navigator.clipboard?.writeText) {
       navigator.clipboard.writeText(text).catch(() => { /* ignore */ })
     }
-    setToast(`Copied ${text} to clipboard`)
+    setToast(t('page.meddra_panel.toast_copied', { text }))
   }
 
   const handleInsert = (term: MedDRATerm) => {
@@ -155,7 +158,7 @@ export function MedDRAPanel({ documentId }: Props) {
       next.add(term.code)
       return next
     })
-    setToast(`Inserted ${term.pt} into ${sectionLabel}`)
+    setToast(t('page.meddra_panel.toast_inserted', { pt: term.pt, section: sectionLabel }))
     console.log('[meddra] insert', { documentId, code: term.code, pt: term.pt, section: sectionLabel })
   }
 
@@ -178,7 +181,7 @@ export function MedDRAPanel({ documentId }: Props) {
             type="text"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="Search MedDRA terms..."
+            placeholder={t('page.meddra_panel.search_placeholder')}
             data-meddra-search-input
             className="w-full rounded-md border border-slate-200 bg-white text-[13px] text-slate-900 outline-none focus:border-blue-600 focus:shadow-focus"
             style={{ padding: '10px 32px 10px 34px' }}
@@ -188,7 +191,7 @@ export function MedDRAPanel({ documentId }: Props) {
               type="button"
               onClick={clearSearch}
               className="absolute right-3 text-xs text-slate-500 hover:text-slate-700"
-              aria-label="Clear search"
+              aria-label={t('page.meddra_panel.clear_search_aria')}
               data-meddra-clear
             >
               ×
@@ -199,10 +202,10 @@ export function MedDRAPanel({ documentId }: Props) {
         {/* Version meta */}
         <div className="mt-1.5 flex items-baseline justify-between gap-2">
           <p className="text-[11px] text-slate-500">
-            MedDRA {MEDDRA_VERSION} · {TOTAL_TERMS} terms
+            {t('page.meddra_panel.version_terms', { version: MEDDRA_VERSION, total: TOTAL_TERMS })}
           </p>
           <button className="whitespace-nowrap text-[11px] font-semibold text-blue-600 hover:text-blue-700">
-            Update to v27.1
+            {t('page.meddra_panel.update_version', { version: 'v27.1' })}
           </button>
         </div>
       </div>
@@ -213,15 +216,15 @@ export function MedDRAPanel({ documentId }: Props) {
         {/* Results header + list */}
         {!canSearch ? (
           <div className="px-4 py-6 text-center text-[12px] text-slate-500" data-meddra-hint>
-            Enter at least {MIN_QUERY_LENGTH} characters to search MedDRA {MEDDRA_VERSION}.
+            {t('page.meddra_panel.search_hint', { count: MIN_QUERY_LENGTH, version: MEDDRA_VERSION })}
           </div>
         ) : (
           <>
             <div className="flex items-baseline justify-between gap-2 px-4 pb-1.5 pt-3">
               <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-                Results for &lsquo;{trimmed}&rsquo;
+                {t('page.meddra_panel.results_for', { query: trimmed })}
               </p>
-              <p className="whitespace-nowrap text-[11px] text-slate-500">{results.length} matches</p>
+              <p className="whitespace-nowrap text-[11px] text-slate-500">{t('page.meddra_panel.matches_count', { count: results.length })}</p>
             </div>
 
             {results.map(term => {
@@ -245,7 +248,7 @@ export function MedDRAPanel({ documentId }: Props) {
         {/* Recently used */}
         <div className="px-4 pb-1.5 pt-3">
           <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-            Recently used in this document
+            {t('page.meddra_panel.recently_used_header')}
           </p>
         </div>
         {RECENTLY_USED.map(term => (
@@ -262,7 +265,7 @@ export function MedDRAPanel({ documentId }: Props) {
               {term.pt}
             </p>
             <p className="flex-none font-mono text-[10px] font-medium text-slate-500">
-              PT · {term.code}
+              {t('page.meddra_panel.pt_code', { code: term.code })}
             </p>
             <div className="flex-1" />
             {term.sections?.[0] && (
@@ -281,10 +284,10 @@ export function MedDRAPanel({ documentId }: Props) {
       <div className="flex-none border-t border-slate-200 px-4 py-3">
         <div className="flex flex-col gap-1">
           <p className="text-[11px] text-slate-500">
-            MedDRA subscription: Active · Expires {SUBSCRIPTION_EXPIRY}
+            {t('page.meddra_panel.subscription_active', { expiry: SUBSCRIPTION_EXPIRY })}
           </p>
           <button className="self-start text-xs font-semibold text-blue-600 hover:text-blue-700">
-            View full hierarchy →
+            {t('page.meddra_panel.view_hierarchy')}
           </button>
         </div>
         {/* Mock data amber indicator — Phase 1 warning */}
@@ -295,7 +298,7 @@ export function MedDRAPanel({ documentId }: Props) {
         >
           <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ backgroundColor: '#D97706' }} />
           <p className="text-[11px] font-semibold" style={{ color: '#B45309' }}>
-            MedDRA {MEDDRA_VERSION} · Mock data — not for production use
+            {t('page.meddra_panel.mock_data', { version: MEDDRA_VERSION })}
           </p>
         </div>
       </div>

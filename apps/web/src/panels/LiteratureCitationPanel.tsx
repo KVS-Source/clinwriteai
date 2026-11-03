@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import type { Citation } from '@platform/types'
 import { publicationsApi } from '../api'
@@ -37,6 +38,7 @@ interface Props {
 }
 
 export function LiteratureCitationPanel({ publicationId, api }: Props) {
+  const { t } = useTranslation()
   const setActivePanel  = usePublicationStore(s => s.setActivePanel)
   const qc              = useQueryClient()
   const currentUserName = useAuthStore(s => s.user?.name ?? 'unknown')
@@ -79,7 +81,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
     onSuccess: (_data, variables) => {
       setJustInsertedId(variables.id)
       qc.invalidateQueries({ queryKey: ['citations', publicationId] })
-      setToast(`Citation inserted as ${variables.shortRef} in Vancouver style. Reference list updated.`)
+      setToast(t('page.literature_citation_panel.toast_citation_inserted', { shortRef: variables.shortRef }))
       window.setTimeout(() => setJustInsertedId(null), 2400)
     },
   })
@@ -88,7 +90,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
     mutationFn: (citationId: string) => publicationsApi.removeCitation(publicationId, citationId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['citations', publicationId] })
-      setToast('Citation removed. Vancouver labels renumbered.')
+      setToast(t('page.literature_citation_panel.toast_citation_removed'))
     },
   })
 
@@ -138,17 +140,17 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
 
   const handleRemoveCitation = (citation: Citation) => {
     if (citation.isSourceDocument) {
-      setToast('Source-document citations cannot be removed. Detach it in the source panel instead.')
+      setToast(t('page.literature_citation_panel.toast_source_cannot_remove'))
       return
     }
     removeMut.mutate(citation.id)
   }
 
   const resultLine = tooShort
-    ? 'Type at least three characters to search.'
+    ? t('page.literature_citation_panel.type_min_chars')
     : canSearch
-      ? `${results.length} result${results.length === 1 ? '' : 's'} · fetched ${formatClock(pubmedResp?.fetchedAt)}`
-      : 'Enter a query to search PubMed.'
+      ? t('page.literature_citation_panel.result_line_count', { count: results.length, time: formatClock(pubmedResp?.fetchedAt) })
+      : t('page.literature_citation_panel.enter_query')
 
   const handleReset = () => {
     setQuery('')
@@ -169,12 +171,12 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
             <rect x="1.2" y="2" width="5" height="10" rx="1" />
             <rect x="7.8" y="2" width="5" height="10" rx="1" />
           </svg>
-          <p className="min-w-0 flex-1 text-sm font-semibold">Literature search</p>
+          <p className="min-w-0 flex-1 text-sm font-semibold">{t('page.literature_citation_panel.title')}</p>
           <button
             type="button"
             onClick={api.widen}
             data-lit-widen
-            title="Widen panel"
+            title={t('page.literature_citation_panel.widen_panel')}
             className="flex items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100"
             style={{ width: 24, height: 24 }}
           >
@@ -188,7 +190,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
             type="button"
             onClick={api.narrow}
             data-lit-narrow
-            title="Narrow panel"
+            title={t('page.literature_citation_panel.narrow_panel')}
             className="flex items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100"
             style={{ width: 24, height: 24 }}
           >
@@ -218,7 +220,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
           }}
           data-lit-badge
         >
-          PubMed · NCBI
+          {t('page.literature_citation_panel.pubmed_badge')}
         </span>
       </div>
 
@@ -240,7 +242,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
               type="text"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search PubMed…"
+              placeholder={t('page.literature_citation_panel.search_placeholder')}
               data-lit-search-input
               className="min-w-0 flex-1 border-none bg-transparent text-xs outline-none"
             />
@@ -251,7 +253,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
             className="flex-none rounded-md text-xs font-semibold text-white transition-colors"
             style={{ height: 34, padding: '0 12px', backgroundColor: '#0D9488' }}
           >
-            Search
+            {t('button.search')}
           </button>
         </div>
         <p className="font-mono text-[10px] font-medium" style={{ color: '#64748B' }} data-lit-result-line>
@@ -270,7 +272,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
             style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: 6, padding: 16, color: '#64748B' }}
             data-lit-short
           >
-            Type at least three characters to search PubMed. Results are retrieved live and each citation records its PMID.
+            {t('page.literature_citation_panel.too_short_hint')}
           </div>
         )}
 
@@ -305,7 +307,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
                   }}
                   data-lit-top-badge
                 >
-                  Most relevant
+                  {t('page.literature_citation_panel.most_relevant')}
                 </span>
               )}
               <p className="text-[13px] font-semibold leading-relaxed" style={{ color: isInserted ? '#64748B' : '#1E293B' }}>
@@ -324,7 +326,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
                   className="inline-flex items-center gap-1 rounded-full text-[11px] font-semibold"
                   style={{ padding: '3px 8px', backgroundColor: '#F0FDF4', color: '#15803D' }}
                 >
-                  PubMed ✓
+                  {t('page.literature_citation_panel.pubmed_check')}
                 </span>
               </div>
 
@@ -340,7 +342,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
                   }}
                   data-lit-just-inserted
                 >
-                  ✓ Inserted as {insertedLabel} — Vancouver format
+                  {t('page.literature_citation_panel.inserted_as_vancouver', { label: insertedLabel })}
                 </div>
               )}
 
@@ -353,7 +355,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
                     className="rounded-md bg-white text-xs font-semibold transition-colors hover:bg-teal-50"
                     style={{ padding: '6px 11px', border: '1px solid #0D9488', color: '#0F766E' }}
                   >
-                    Insert citation
+                    {t('page.literature_citation_panel.insert_citation')}
                   </button>
                 )}
                 {isInserted && (
@@ -362,7 +364,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
                       className="inline-flex items-center gap-1.5 rounded-full text-[11px] font-semibold"
                       style={{ padding: '4px 9px', backgroundColor: '#F0FDF4', color: '#15803D' }}
                     >
-                      ✓ Already in manuscript
+                      {t('page.literature_citation_panel.already_in_manuscript')}
                     </span>
                     <button
                       type="button"
@@ -370,7 +372,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
                       data-lit-remove={record.id}
                       className="text-xs font-semibold text-slate-500 transition-colors hover:text-slate-900"
                     >
-                      Remove
+                      {t('button.remove')}
                     </button>
                   </>
                 )}
@@ -380,7 +382,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
                   data-lit-abstract-toggle={record.id}
                   className="text-xs text-slate-500 transition-colors hover:text-slate-900"
                 >
-                  {abstractOpen ? 'Hide abstract' : 'View abstract'}
+                  {abstractOpen ? t('page.literature_citation_panel.hide_abstract') : t('page.literature_citation_panel.view_abstract')}
                 </button>
               </div>
 
@@ -403,9 +405,9 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
             style={{ border: '1px solid #E2E8F0', padding: '20px 16px' }}
             data-lit-no-results
           >
-            <p className="text-[13px] font-semibold">No PubMed records match this query</p>
+            <p className="text-[13px] font-semibold">{t('page.literature_citation_panel.no_results_title')}</p>
             <p className="text-xs leading-relaxed" style={{ color: '#94A3B8' }}>
-              Broaden the terms, or cite a project source document instead.
+              {t('page.literature_citation_panel.no_results_hint')}
             </p>
             <button
               type="button"
@@ -413,7 +415,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
               className="text-xs font-semibold"
               style={{ color: '#0F766E' }}
             >
-              Reset search
+              {t('page.literature_citation_panel.reset_search')}
             </button>
           </div>
         )}
@@ -427,7 +429,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
             className="flex items-center gap-2 text-left"
           >
             <span className="min-w-0 flex-1 font-mono text-[11px] font-medium uppercase tracking-widest" style={{ color: '#64748B' }}>
-              In this manuscript ({insertedCount})
+              {t('page.literature_citation_panel.in_this_manuscript', { count: insertedCount })}
             </span>
             <svg
               width="10"
@@ -457,7 +459,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
                       <div className="flex flex-wrap items-center gap-1.5">
                         <span className="font-mono text-[10px] font-medium" style={{ color: '#94A3B8' }}>{citation.locus}</span>
                         {citation.isSourceDocument && (
-                          <SourceChip label="Clinical Writing" dotColor="#0D9488" size="sm" />
+                          <SourceChip label={t('nav.clinical_writing')} dotColor="#0D9488" size="sm" />
                         )}
                       </div>
                     </div>
@@ -467,7 +469,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
                       data-manuscript-remove={citation.id}
                       className="flex-none text-[11px] font-semibold text-slate-500 transition-colors hover:text-slate-900"
                     >
-                      Remove
+                      {t('button.remove')}
                     </button>
                   </div>
                 )
@@ -475,7 +477,7 @@ export function LiteratureCitationPanel({ publicationId, api }: Props) {
             </div>
           )}
           <p className="text-[11px] leading-relaxed" style={{ color: '#94A3B8' }}>
-            Every inserted citation records its PMID or source document version to the audit trail.
+            {t('page.literature_citation_panel.audit_hint')}
           </p>
         </div>
       </div>

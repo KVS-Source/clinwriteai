@@ -6,6 +6,7 @@
 // version + validator from the API.
 
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import { useQuery } from '@tanstack/react-query'
 import { documentsApi } from '../api/documents'
 
@@ -22,10 +23,10 @@ type TlfItem = TlfResponse['items'][number]
 
 type Filter = 'all' | 'T' | 'L' | 'F'
 
-const TYPE_LABEL: Record<'T' | 'L' | 'F', string> = {
-  T: 'Table',
-  L: 'Listing',
-  F: 'Figure',
+const TYPE_LABEL_KEYS: Record<'T' | 'L' | 'F', string> = {
+  T: 'page.tlf_panel.type_table',
+  L: 'page.tlf_panel.type_listing',
+  F: 'page.tlf_panel.type_figure',
 }
 
 const TYPE_COLOUR: Record<'T' | 'L' | 'F', { bg: string; fg: string }> = {
@@ -48,6 +49,7 @@ function citesActive(item: TlfItem, activeSectionId: string | null | undefined):
 }
 
 export function TlfPanel({ documentId, activeSectionId, activeSectionLabel }: Props) {
+  const { t } = useTranslation()
   const [filter, setFilter] = useState<Filter>('all')
 
   const q = useQuery({
@@ -88,14 +90,18 @@ export function TlfPanel({ documentId, activeSectionId, activeSectionLabel }: Pr
       {/* Header + filter chips */}
       <div className="flex-none border-b border-slate-200 bg-white px-4 py-3">
         <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-          TLF Cross-Reference
+          {t('page.tlf_panel.title')}
         </p>
         <p className="mt-1 text-[11px] text-slate-500">
-          Tables, Listings and Figures from the project's current package.
-          Items citing {activeSectionLabel ?? 'the active section'} float to the top.
+          {t('page.tlf_panel.subtitle', { section: activeSectionLabel ?? t('page.tlf_panel.active_section_fallback') })}
         </p>
         <div className="mt-2 flex gap-1.5">
-          {([['all', 'All', counts.all], ['T', 'Tables', counts.T], ['L', 'Listings', counts.L], ['F', 'Figures', counts.F]] as const).map(([key, label, n]) => (
+          {([
+            ['all', t('page.tlf_panel.filter_all'), counts.all],
+            ['T',   t('page.tlf_panel.filter_tables'), counts.T],
+            ['L',   t('page.tlf_panel.filter_listings'), counts.L],
+            ['F',   t('page.tlf_panel.filter_figures'), counts.F],
+          ] as const).map(([key, label, n]) => (
             <button
               key={key}
               type="button"
@@ -112,28 +118,28 @@ export function TlfPanel({ documentId, activeSectionId, activeSectionLabel }: Pr
       {/* Body */}
       <div className="flex-1 overflow-y-auto">
         {q.isLoading && (
-          <p className="px-4 py-6 text-[12px] text-slate-400">Loading TLF package…</p>
+          <p className="px-4 py-6 text-[12px] text-slate-400">{t('page.tlf_panel.loading')}</p>
         )}
         {q.isError && isNoPackage(q.error) && (
           <div className="px-4 py-6 text-[12px] text-slate-500" data-empty="no-package">
-            <p className="font-semibold text-slate-700">This project has no current TLF package.</p>
-            <p className="mt-1">Ask an Admin to upload or validate one before cross-referencing.</p>
+            <p className="font-semibold text-slate-700">{t('page.tlf_panel.no_package_title')}</p>
+            <p className="mt-1">{t('page.tlf_panel.no_package_hint')}</p>
           </div>
         )}
         {q.isError && !isNoPackage(q.error) && (
-          <p className="px-4 py-6 text-[12px] text-red-700" role="alert">Could not load the TLF package.</p>
+          <p className="px-4 py-6 text-[12px] text-red-700" role="alert">{t('page.tlf_panel.load_failed')}</p>
         )}
         {q.data && q.data.items.length === 0 && (
-          <p className="px-4 py-6 text-[12px] text-slate-500">The current package has no items yet.</p>
+          <p className="px-4 py-6 text-[12px] text-slate-500">{t('page.tlf_panel.empty_items')}</p>
         )}
         {q.data && q.data.items.length > 0 && filtered.length === 0 && (
-          <p className="px-4 py-6 text-[12px] text-slate-500">No items of this type.</p>
+          <p className="px-4 py-6 text-[12px] text-slate-500">{t('page.tlf_panel.empty_filter')}</p>
         )}
 
         {citing.length > 0 && (
           <section data-section="citing-active">
             <p className="px-4 pt-4 pb-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-blue-700">
-              Cites this section ({citing.length})
+              {t('page.tlf_panel.cites_section_header', { count: citing.length })}
             </p>
             {citing.map(it => <TlfItemRow key={it.id} item={it} highlight />)}
           </section>
@@ -142,7 +148,7 @@ export function TlfPanel({ documentId, activeSectionId, activeSectionLabel }: Pr
           <section data-section="other">
             {citing.length > 0 && (
               <p className="px-4 pt-4 pb-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                All other items
+                {t('page.tlf_panel.all_other_items')}
               </p>
             )}
             {others.map(it => <TlfItemRow key={it.id} item={it} />)}
@@ -154,9 +160,9 @@ export function TlfPanel({ documentId, activeSectionId, activeSectionLabel }: Pr
       {q.data && (
         <div className="flex-none border-t border-slate-200 bg-slate-50 px-4 py-2.5 text-[11px] text-slate-500" data-tlf-footer>
           <p>
-            <span className="font-semibold text-slate-700">Package</span> v{q.data.package.version}
+            <span className="font-semibold text-slate-700">{t('page.tlf_panel.package')}</span> v{q.data.package.version}
             <span className="mx-1.5">·</span>
-            Validated by {q.data.package.validatedBy}
+            {t('page.tlf_panel.validated_by', { name: q.data.package.validatedBy })}
             <span className="mx-1.5">·</span>
             {new Date(q.data.package.validatedDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
           </p>
@@ -167,6 +173,7 @@ export function TlfPanel({ documentId, activeSectionId, activeSectionLabel }: Pr
 }
 
 function TlfItemRow({ item, highlight }: { item: TlfItem; highlight?: boolean }) {
+  const { t } = useTranslation()
   const colour = TYPE_COLOUR[item.type]
   return (
     <div
@@ -177,7 +184,7 @@ function TlfItemRow({ item, highlight }: { item: TlfItem; highlight?: boolean })
       <span
         className="mt-0.5 inline-flex min-w-[22px] flex-none items-center justify-center rounded px-1.5 py-px font-mono text-[10px] font-bold"
         style={{ backgroundColor: colour.bg, color: colour.fg }}
-        title={TYPE_LABEL[item.type]}
+        title={t(TYPE_LABEL_KEYS[item.type])}
       >
         {item.type}
       </span>
@@ -186,9 +193,9 @@ function TlfItemRow({ item, highlight }: { item: TlfItem; highlight?: boolean })
         <p className="truncate text-[12px] text-slate-700" title={item.title}>{item.title}</p>
         {item.linkedSections.length > 0 && (
           <p className="mt-0.5 text-[11px] text-slate-500">
-            Cited in {item.linkedSections.map(normaliseSectionRef).join(', ')}
+            {t('page.tlf_panel.cited_in', { refs: item.linkedSections.map(normaliseSectionRef).join(', ') })}
             {item.referenceCount > item.linkedSections.length && (
-              <span className="ml-1 text-slate-400"> · {item.referenceCount} total references</span>
+              <span className="ml-1 text-slate-400"> · {t('page.tlf_panel.total_references', { count: item.referenceCount })}</span>
             )}
           </p>
         )}

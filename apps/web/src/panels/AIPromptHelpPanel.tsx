@@ -11,6 +11,7 @@
 // the panel infrastructure.
 
 import { useEffect, useRef } from 'react'
+import { useTranslation } from 'react-i18next'
 import { suggestedPromptsFor } from '../data/aiPromptLibrary'
 import { pickPrompt } from '../screens/clinical-writing/SectionAIPrompt'
 import { useDocumentStore } from '../store'
@@ -21,6 +22,7 @@ interface Props {
 }
 
 export function AIPromptHelpPanel({ documentType }: Props) {
+  const { t } = useTranslation()
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
   const panelRef = useRef<HTMLDivElement>(null)
 
@@ -46,12 +48,12 @@ export function AIPromptHelpPanel({ documentType }: Props) {
   return (
     <div ref={panelRef} className="flex-1 overflow-y-auto p-4" data-panel="ai-help">
       <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-        Prompt library
+        {t('page.ai_prompt_help_panel.title')}
       </p>
       <p className="mt-1 text-[13px] text-slate-700">
-        Click a suggestion to fill the prompt box. Prompts tagged
-        <span className="mx-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700">selection</span>
-        expect you to highlight text in the editor first.
+        {t('page.ai_prompt_help_panel.intro_prefix')}
+        <span className="mx-1 rounded-full bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-amber-700">{t('page.ai_prompt_help_panel.selection_tag')}</span>
+        {t('page.ai_prompt_help_panel.intro_suffix')}
       </p>
 
       {groups.map(group => (
@@ -70,7 +72,7 @@ export function AIPromptHelpPanel({ documentType }: Props) {
                   <span className="flex items-center gap-2">
                     <span className="text-[13px] font-semibold text-slate-900">{p.label}</span>
                     <span className={`rounded-full px-1.5 py-0.5 text-[10px] font-semibold uppercase ${p.scope === 'selection' ? 'bg-amber-50 text-amber-700' : 'bg-slate-100 text-slate-600'}`}>
-                      {p.scope}
+                      {p.scope === 'selection' ? t('page.ai_prompt_help_panel.scope_selection') : t('page.ai_prompt_help_panel.scope_section')}
                     </span>
                   </span>
                   <span className="text-[11px] text-slate-500">{p.prompt}</span>

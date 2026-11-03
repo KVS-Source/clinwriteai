@@ -237,6 +237,34 @@ The same event fires if an admin **self-removes** a RACI row (e.g., to escape a 
 
 ---
 
+### 4.3 E-signature action table
+
+Who may do what with a document's e-signature chain. The API enforces every row (`signatures/access.ts`);
+the screens hide what would be refused.
+
+| Action | Admin | PM | R (Author) | C (Reviewer) | Q (QC) | A (Approver) | I (Informed) | Auditor | Guest |
+|---|---|---|---|---|---|---|---|---|---|
+| Start a signature chain | — | — | ✓ | — | — | ✓ | — | — | — |
+| Sign | — | — | ✓ (if named) | ✓ (if named) | — | ✓ (required) | ✓ (if named) | — | — |
+| Cancel the chain | — | — | ✓ | — | — | ✓ (if they started it) | — | — | — |
+| View the signature record | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Final Document — view / download PDF | — | ✓ | ✓ | ✓ | — (pending SME) | ✓ | ✓ | ✓ | — |
+| Document audit trail — view | — | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | — |
+| Document audit trail — export | — | ✓ | — | — | — | — | — | ✓ | — |
+| Tenant audit trail viewer (Admin) | ✓ | — | — | — | — | — | — | — | — |
+
+- **Who signs.** Everyone named on the document as R (meaning *authored*), C (*reviewed*), A (*approved*) or
+  I (*acknowledged*) is a required signer, pre-filled and locked when the chain is started. The project team's
+  Approvers count as Approvers. A chain that leaves a named person out is refused. The starter may add extra
+  signers. Q (QC), Admin, PM, Auditor and Guest never sign by role. At least one Approver is mandatory.
+- **Order.** Sequential or parallel, chosen by the starter. Default row order (temporary, until the SME decides):
+  Author, Reviewer, Approver, Informed.
+- **A fixed chain.** While a chain is in progress the document's RACI can't be assigned, reassigned or have its
+  signature settings changed (a person may still remove their own assignment). Cancel the chain first.
+- **Dual roles** (one person holding two letters, e.g. a PM who is also an Author) are out of scope: admins and
+  PMs are never treated as Authors for these rules, and a person named twice appears once.
+- "If they started it": an Approver who started the chain may cancel it. The Author (R) may always cancel.
+
 ## 5. PM functions to build
 
 The PM role is new. These are the capabilities we're adding (not minor):

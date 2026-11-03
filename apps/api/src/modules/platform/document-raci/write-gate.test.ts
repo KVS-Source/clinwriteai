@@ -45,6 +45,7 @@ async function buildApp(opts: AppOpts) {
 
   const app = Fastify()
   app.decorate('prisma', {
+    signatureChain: { findFirst: vi.fn(async () => null) },   // no signature chain in progress
     document: { findUnique: documentFindUnique },
     user: { findUnique: userFindUnique },
     documentRaci: {

@@ -13,6 +13,7 @@ async function build(row: Row | null, actorRole: AuthenticatedUser['role'] = 'co
   const updates: Row[] = []
   const app = Fastify()
   app.decorate('prisma', {
+    signatureChain: { findFirst: vi.fn(async () => null) },   // no signature chain in progress
     document:     { findUnique: vi.fn(async () => ({ id: 'DOC-1', assigneeId: actorIsAssignee ? 'actor' : 'someone-else' })) },
     documentRaci: {
       findUnique: vi.fn(async () => row),

@@ -16,6 +16,7 @@ async function build(assignee: { capabilities: string[]; role: string }) {
   const append = vi.fn(async (_e: { action: string; details: Record<string, unknown> }) => undefined)
   const app = Fastify()
   app.decorate('prisma', {
+    signatureChain: { findFirst: vi.fn(async () => null) },   // no signature chain in progress
     document: { findUnique: vi.fn(async () => ({ id: 'DOC-1', assigneeId: 'lead' })) },
     user: { findUnique: vi.fn(async () => ({ id: 'user-b', ...assignee })), update: userUpdate },
     documentRaci: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []), create },

@@ -10,7 +10,18 @@ import { commentsRoutes } from './routes.js'
 
 const DOC = 'DOC-1'
 
-async function buildApp(opts: { events: number; reviewsAt?: number[] }) {
+interface AppOpts {
+  events: number
+  reviewsAt?: number[]
+  /** The caller's platform role. Default: a reviewer (a contributor holding a letter on the document). */
+  role?: string
+  /** Whether the caller holds a RACI letter on the document. Default: yes. */
+  hasLetter?: boolean
+  /** Whether the caller is a member of the document's project (what lets a PM see it). */
+  projectMember?: boolean
+}
+
+async function buildApp(opts: AppOpts) {
   const audit = new InMemoryAuditRepository('test-audit-secret-32-bytes-long-for-vitest')
   for (let i = 1; i <= opts.events; i++) {
     await audit.append({
@@ -28,13 +39,19 @@ async function buildApp(opts: { events: number; reviewsAt?: number[] }) {
 
   const app = Fastify()
   app.decorate('prisma', {
-    document: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, title: 'ICF', createdAt: new Date('2026-09-01T00:00:00Z') })) },
+    document: {
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, title: 'ICF', projectId: 'PROJ-1', assigneeId: null, createdAt: new Date('2026-09-01T00:00:00Z') })),
+      findMany: vi.fn(async () => []),   // "documents I work on" lookup of the project-visibility rule
+    },
+    documentRaci: { findFirst: vi.fn(async () => (opts.hasLetter === false ? null : { id: 'raci-1' })) },
+    projectMember: { findMany: vi.fn(async () => (opts.projectMember ? [{ projectId: 'PROJ-1' }] : [])) },
+    projectTeamMember: { findMany: vi.fn(async () => []) },
     user: { findMany: vi.fn(async () => [{ id: 'user-a', name: 'Alex' }]), findUnique: vi.fn(async () => null) },
   } as never)
   app.decorate('audit', audit as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (request) => {
-    const user: AuthenticatedUser = { id: 'user-rev', email: 'r@clinwrite.ai', role: 'reviewer', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'user-rev', email: 'r@clinwrite.ai', role: (opts.role ?? 'reviewer') as AuthenticatedUser['role'], modules: ['A'], tenantId: null }
     ;(request as unknown as { user: AuthenticatedUser }).user = user
   })
   await app.register(commentsRoutes, { prefix: '/documents' })
@@ -159,7 +176,7 @@ describe('GET /documents/:id/audit — date range', () => {
   })
 
   it('does not narrow the export (a compliance export always covers the whole trail)', async () => {
-    const app = await buildApp({ events: 30 })
+    const app = await buildApp({ events: 30, role: 'auditor' })
     const res = await app.inject({ method: 'GET', url: `/documents/${DOC}/audit/export?from=${at(10)}&to=${at(12)}` })
     expect(res.body.trim().split('\r\n')).toHaveLength(1 + 30)
   })
@@ -210,7 +227,8 @@ describe('GET /documents/:id/audit — "AI suggestion requested" entries', () =>
     })
     const app = Fastify()
     app.decorate('prisma', {
-      document: { findUnique: vi.fn(async () => ({ id: DOC, title: 'ICF', createdAt: new Date() })) },
+      document: { findUnique: vi.fn(async () => ({ id: DOC, title: 'ICF', projectId: 'PROJ-1', assigneeId: null, createdAt: new Date() })) },
+      documentRaci: { findFirst: vi.fn(async () => ({ id: 'raci-1' })) },   // the caller holds a letter on the document
       user: { findMany: vi.fn(async () => [{ id: 'user-a', name: 'Alex' }]), findUnique: vi.fn(async () => null) },
     } as never)
     app.decorate('audit', audit as never)
@@ -238,7 +256,7 @@ describe('GET /documents/:id/audit — "AI suggestion requested" entries', () =>
 
 describe('GET /documents/:id/audit/export', () => {
   it('includes every entry, oldest first, including ones past the first 500', async () => {
-    const app = await buildApp({ events: 620 })
+    const app = await buildApp({ events: 620, role: 'auditor' })
     const res = await app.inject({ method: 'GET', url: `/documents/${DOC}/audit/export` })
     expect(res.statusCode).toBe(200)
     const lines = res.body.trim().split('\r\n')
@@ -266,5 +284,59 @@ describe('GET /documents/:id/qa-review', () => {
     const app = await buildApp({ events: 10 })
     const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/qa-review` })).json()
     expect(body.lastReviewedAt).toBeNull()
+  })
+})
+
+// ---------------------------------------------------------------------------
+// The e-signature action table, row "Document audit trail": view for anyone with a letter on the
+// document, a PM on the project or an auditor; export only for a PM or an auditor; never a tenant
+// admin or a guest.
+// ---------------------------------------------------------------------------
+
+describe('document audit trail — who may view and export', () => {
+  const view   = (app: Awaited<ReturnType<typeof buildApp>>) => app.inject({ method: 'GET', url: `/documents/${DOC}/audit` })
+  const csv    = (app: Awaited<ReturnType<typeof buildApp>>) => app.inject({ method: 'GET', url: `/documents/${DOC}/audit/export` })
+  const pdf    = (app: Awaited<ReturnType<typeof buildApp>>) => app.inject({ method: 'GET', url: `/documents/${DOC}/audit/pdf` })
+
+  it('lets anyone holding a letter on the document view it, but not export it', async () => {
+    const app = await buildApp({ events: 3, role: 'contributor', hasLetter: true })
+    expect((await view(app)).statusCode).toBe(200)
+    const denied = await csv(app)
+    expect(denied.statusCode).toBe(403)
+    expect(denied.json().error).toBe('audit_export_forbidden')
+    expect((await pdf(app)).statusCode).toBe(403)
+  })
+
+  it('lets an auditor view and export it', async () => {
+    const app = await buildApp({ events: 3, role: 'auditor', hasLetter: false })
+    expect((await view(app)).statusCode).toBe(200)
+    expect((await csv(app)).statusCode).toBe(200)
+    const res = await pdf(app)
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toContain('application/pdf')
+  })
+
+  it('lets a PM on the project view and export it, and refuses a PM outside the project', async () => {
+    const inProject = await buildApp({ events: 3, role: 'pm', hasLetter: false, projectMember: true })
+    expect((await view(inProject)).statusCode).toBe(200)
+    expect((await csv(inProject)).statusCode).toBe(200)
+    const outside = await buildApp({ events: 3, role: 'pm', hasLetter: false, projectMember: false })
+    expect((await view(outside)).statusCode).toBe(403)
+    expect((await csv(outside)).statusCode).toBe(403)
+  })
+
+  it('refuses a tenant admin and a guest, even for viewing', async () => {
+    for (const role of ['tenant-admin', 'admin', 'guest']) {
+      const app = await buildApp({ events: 3, role, hasLetter: false })
+      const res = await view(app)
+      expect(res.statusCode, role).toBe(403)
+      expect(res.json().error).toBe('audit_access_forbidden')
+      expect((await csv(app)).statusCode, role).toBe(403)
+    }
+  })
+
+  it('refuses a contributor with no letter on the document', async () => {
+    const app = await buildApp({ events: 3, role: 'contributor', hasLetter: false })
+    expect((await view(app)).statusCode).toBe(403)
   })
 })

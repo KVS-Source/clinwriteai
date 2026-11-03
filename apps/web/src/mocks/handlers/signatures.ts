@@ -10,7 +10,7 @@ const BASE = import.meta.env.VITE_API_URL ?? '/api'
 // Chains live in memory per document; the fixture seeds a demo chain on first
 // read. The mock /auth/me user is Marcus Webb (user-MW), whose step is awaiting.
 
-type Meaning = 'authored' | 'reviewed' | 'approved'
+type Meaning = 'authored' | 'reviewed' | 'approved' | 'acknowledged'
 type MockRecord = {
   id: string; chainId: string; signerId: string; signerName: string; signerRole: string
   step: number; meaning: Meaning; status: 'queued' | 'awaiting' | 'signed'; scopeSections: string[]

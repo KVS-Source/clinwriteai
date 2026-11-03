@@ -14,6 +14,7 @@ async function build(removedRows: Row[]) {
   const update = vi.fn(async (args: { where: { id: string }; data: Row }) => ({ id: args.where.id, ...args.data }))
   const app = Fastify()
   app.decorate('prisma', {
+    signatureChain: { findFirst: vi.fn(async () => null) },   // no signature chain in progress
     document: { findUnique: vi.fn(async () => ({ id: 'DOC-1', assigneeId: 'lead' })) },
     user:     { findUnique: vi.fn(async () => ({ id: 'user-b', capabilities: ['can-review'], role: 'contributor' })) },
     documentRaci: {

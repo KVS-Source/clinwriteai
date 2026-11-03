@@ -36,7 +36,7 @@ import { DocumentService, hashSections } from '../documents/service.js'
 import type { PrismaClient } from '@prisma/client'
 import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
-import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
+import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain, requiredSigners } from './access.js'
 
 const initiateSchema = z.object({
   chainType: z.enum(['sequential', 'parallel']).default('sequential'),
@@ -44,7 +44,7 @@ const initiateSchema = z.object({
     signerId: z.string().min(1),
     signerName: z.string().min(1),
     signerRole: z.string().min(1),
-    meaning: z.enum(['authored', 'reviewed', 'approved']),
+    meaning: z.enum(['authored', 'reviewed', 'approved', 'acknowledged']),
     scopeSections: z.array(z.string()).default([]),
   })).min(1, 'At least one signer required'),
 })
@@ -136,6 +136,13 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    // Only the document's Author (R) or Approver (A) starts a chain — never an admin, PM, auditor or guest.
+    if (!(await actorCanStartChain(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({
+        error:   'start_forbidden',
+        message: "Only the document's Author (R) or Approver (A) can start the signature chain.",
+      })
+    }
     if (doc.status !== 'pending_signature') {
       return reply.code(422).send({
         error: 'wrong_status',
@@ -158,44 +165,33 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send(blockedBody('signature', gate))
     }
 
-    // All team Approvers (RACI='A') must sign with meaning='approved'
-    // before the Final Document unlocks. Enforced here so bypassing the
-    // UI (direct POST) can't skip approvals. Writers can still be added
-    // for meaning='authored' and reviewers for meaning='reviewed'; those
-    // are additive, not substitutes.
-    const teamApprovers = await app.prisma.projectTeamMember.findMany({
-      where: { projectId: doc.projectId, raci: 'A' },
-      select: { userId: true, name: true },
-    })
-    // Approvers assigned on the document's own RACI count as well.
-    const docApprovers = await app.prisma.documentRaci.findMany({
-      where: { documentId, letter: 'A' },
-      select: { userId: true },
-    })
-    const docApproverUsers = docApprovers.length === 0 ? [] : await app.prisma.user.findMany({
-      where: { id: { in: docApprovers.map(r => r.userId) } },
-      select: { id: true, name: true },
-    })
-    const approverById = new Map(teamApprovers.map(t => [t.userId, t]))
-    for (const u of docApproverUsers) if (!approverById.has(u.id)) approverById.set(u.id, { userId: u.id, name: u.name })
-    const approverTeam = [...approverById.values()]
-    if (approverTeam.length === 0) {
+    // Everyone named on the document — Author (R), Reviewer (C), Approver (A), Informed (I), plus the
+    // project team's Approvers — must be on the chain, signing with the meaning of their role. Enforced
+    // here so bypassing the screen (a direct POST) can't leave a named person out. The starter may add
+    // extra signers on top; those are additive.
+    const required = await requiredSigners(app.prisma, doc)
+    if (!required.some(r => r.meanings.has('approved'))) {
       return reply.code(422).send({
         error: 'no_approvers_configured',
-        message: 'This project has no team members with RACI=\'A\'. Assign at least one Approver on the project team before starting the signature chain.',
+        message: "This document has no Approver (RACI='A'). Assign one in the document's RACI before starting the signature chain.",
       })
     }
-    const approvedSignerIds = new Set(
-      parsed.data.signers
-        .filter(s => s.meaning === 'approved')
-        .map(s => s.signerId),
-    )
-    const missingApprovers = approverTeam.filter(t => !approvedSignerIds.has(t.userId))
+    const missing = required.filter(r =>
+      !parsed.data.signers.some(s => s.signerId === r.userId && r.meanings.has(s.meaning)))
+    const missingApprovers = missing.filter(r => r.meanings.has('approved'))
     if (missingApprovers.length > 0) {
+      const total = required.filter(r => r.meanings.has('approved')).length
       return reply.code(422).send({
         error: 'missing_approvers',
-        message: `Every Approver on this project's team must sign the chain. Missing ${missingApprovers.length} of ${approverTeam.length}: ${missingApprovers.map(m => m.name).join(', ')}.`,
+        message: `Every Approver on this document must sign the chain. Missing ${missingApprovers.length} of ${total}: ${missingApprovers.map(m => m.name).join(', ')}.`,
         missingApprovers: missingApprovers.map(m => ({ userId: m.userId, name: m.name })),
+      })
+    }
+    if (missing.length > 0) {
+      return reply.code(422).send({
+        error: 'missing_signers',
+        message: `Everyone named on this document must sign the chain. Missing: ${missing.map(m => m.name).join(', ')}.`,
+        missingSigners: missing.map(m => ({ userId: m.userId, name: m.name })),
       })
     }
 
@@ -257,6 +253,9 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanReadDocumentRecord(app.prisma, request.user!, doc))) {
+      return reply.code(403).send({ error: 'signature_access_forbidden', message: "You don't have access to this document's signature records." })
+    }
     const chains = await app.prisma.signatureChain.findMany({
       where: { documentId },
       orderBy: { initiatedAt: 'desc' },
@@ -310,6 +309,10 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       include: { records: { orderBy: { step: 'asc' } } },
     })
     if (!chain) return reply.code(404).send({ error: 'not_found' })
+    const chainDoc = await app.prisma.document.findUnique({ where: { id: chain.documentId } })
+    if (!chainDoc || !(await actorCanReadDocumentRecord(app.prisma, request.user!, chainDoc))) {
+      return reply.code(403).send({ error: 'signature_access_forbidden', message: "You don't have access to this document's signature records." })
+    }
     return { ...chain, records: chain.records.map(r => ({ ...r, credentialHash: undefined })) }
   })
 
@@ -508,14 +511,12 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     if (chain.status === 'complete' || chain.status === 'cancelled') {
       return reply.code(409).send({ error: 'chain_closed' })
     }
-    // Only the document owner cancels (AC-A-045): the person who started the
-    // chain, the document's R / assignee, or an admin.
-    const isOwner = chain.initiatedBy === request.user!.id
-      || await actorCanEditDocumentRaci(app.prisma, request.user!, chain.documentId)
-    if (!isOwner) {
+    // Only the document's Author (R) or the person who started the chain cancels (AC-A-045).
+    // Admins and PMs no longer can.
+    if (!(await actorCanCancelChain(app.prisma, request.user!, chain))) {
       return reply.code(403).send({
         error:   'cancel_forbidden',
-        message: "Only the document's owner (its Responsible author), the person who started the chain, or an admin can cancel it.",
+        message: "Only the document's Author (R) or the person who started the chain can cancel it.",
       })
     }
 

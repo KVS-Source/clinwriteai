@@ -63,6 +63,20 @@ type RaciAuditSnapshot = {
 }
 
 export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
+  // While a signature chain is in progress the chain is fixed (who signs, and as what). Changing the
+  // RACI underneath it would leave the chain out of step with the RACI, so assigning, removing others
+  // and changing signature settings wait until the chain is cancelled or complete. A person can still
+  // remove their own assignment.
+  const activeChainBlocks = async (documentId: string) =>
+    (await app.prisma.signatureChain.findFirst({
+      where: { documentId, status: { in: ['initiated', 'in_progress'] } },
+      select: { id: true },
+    })) !== null
+  const CHAIN_ACTIVE = {
+    error: 'signature_chain_active',
+    message: "A signature chain is in progress for this document, so its RACI can't be changed. Cancel the chain first.",
+  }
+
   app.get('/:documentId/raci', { preHandler: requireAuth() }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const document = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true } })
@@ -107,6 +121,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
         message: 'Only an author (R) on this document can assign RACI. Ask the lead writer.',
       })
     }
+    if (await activeChainBlocks(documentId)) return reply.code(409).send(CHAIN_ACTIVE)
     const sectionId = parsed.data.sectionId ?? null
     const approvalOrder = parsed.data.approvalOrder ?? null
     // Default signature_required: true for A (per §3.2), false otherwise.
@@ -289,6 +304,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
         message: 'Only an author (R) on this document can remove other users\' RACI assignments.',
       })
     }
+    if (!isSelfRow && (await activeChainBlocks(documentId))) return reply.code(409).send(CHAIN_ACTIVE)
     const removed = await app.prisma.documentRaci.update({
       where: { id: raciId },
       data: { removedAt: new Date() },
@@ -366,6 +382,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
         message: 'Only an author (R) on this document can change RACI assignments.',
       })
     }
+    if (await activeChainBlocks(documentId)) return reply.code(409).send(CHAIN_ACTIVE)
 
     const updated = await app.prisma.documentRaci.update({
       where: { id: raciId },

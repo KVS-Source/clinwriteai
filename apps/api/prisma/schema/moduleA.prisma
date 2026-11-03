@@ -751,7 +751,7 @@ model SignatureRecord {
   signerName        String                                           // denormalised
   signerRole        String                                           // denormalised
   step              Int
-  meaning           String                                           // authored | reviewed | approved
+  meaning           String                                           // authored | reviewed | approved | acknowledged
   status            String    @default("queued")                     // queued | awaiting | signed
   scopeSections     String[]  @default([])                           // empty = whole doc
   documentHash      String?                                          // sha256 bound at sign time (§11.70)

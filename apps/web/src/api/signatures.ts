@@ -10,7 +10,7 @@ export interface SignatureRecord {
   signerName: string
   signerRole: string
   step: number
-  meaning: 'authored' | 'reviewed' | 'approved'
+  meaning: 'authored' | 'reviewed' | 'approved' | 'acknowledged'
   status: 'queued' | 'awaiting' | 'signed'
   scopeSections: string[]
   documentHash: string | null
@@ -44,7 +44,7 @@ export interface InitiateChainBody {
     signerId: string
     signerName: string
     signerRole: string
-    meaning: 'authored' | 'reviewed' | 'approved'
+    meaning: 'authored' | 'reviewed' | 'approved' | 'acknowledged'
     scopeSections?: string[]
   }>
 }

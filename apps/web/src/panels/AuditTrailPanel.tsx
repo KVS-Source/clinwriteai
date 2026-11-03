@@ -4,7 +4,8 @@ import type { TFunction } from 'i18next'
 import { keepPreviousData, useInfiniteQuery } from '@tanstack/react-query'
 import type { AuditEntry } from '@platform/types'
 import { documentsApi } from '../api'
-import { apiConfig } from '../api/client'
+import { ApiError, apiConfig } from '../api/client'
+import { useSignatureAccess } from '../screens/output/useSignatureAccess'
 import { DateTimeRangeFilter, defaultRange, rangeToIso, toInputValue, type TimeZoneMode } from '../components/ui/DateTimeRangeFilter'
 import { wordDiff, type DiffOp } from './wordDiff'
 
@@ -260,7 +261,9 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
 
   // The trail is loaded a page at a time, newest first; "Load more" fetches the next page.
   // A From that is after the To isn't sent — the list keeps showing the last valid range.
-  const { data, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
+  // Exporting is for a PM or an auditor (the e-signature action table); everyone else with access only reads.
+  const { canExportAudit } = useSignatureAccess(documentId)
+  const { data, error, isLoading, hasNextPage, fetchNextPage, isFetchingNextPage } = useInfiniteQuery({
     // Section scope is applied by the API, so the total and "Load more" count only that section.
     queryKey: ['audit', documentId, 'pages', fromIso ?? null, toIso ?? null, scopeSection?.id ?? null],
     queryFn:  ({ pageParam }) => documentsApi.getAuditTrail(documentId, {
@@ -391,7 +394,13 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
           <div className="p-8 text-center font-mono text-xs text-slate-400">{t('page.audit_trail_panel.loading')}</div>
         )}
 
-        {!isLoading && filtered.length === 0 && (
+        {error instanceof ApiError && error.status === 403 && (
+          <div className="p-8 text-center" data-audit-access-denied>
+            <p className="text-sm font-semibold text-slate-900">{t('page.audit_trail_panel.no_access', { defaultValue: "You don't have access to this document's audit trail." })}</p>
+          </div>
+        )}
+
+        {!isLoading && !(error instanceof ApiError && error.status === 403) && filtered.length === 0 && (
           <div className="p-8 text-center">
             <p className="text-sm font-semibold text-slate-900">
               {(() => {
@@ -528,6 +537,7 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
       {downloadError && (
         <p className="flex-none border-t border-red-200 bg-red-50 px-4 py-2 text-[11px] text-red-800" data-download-error>{downloadError}</p>
       )}
+      {canExportAudit && (
       <div
         className="flex flex-none gap-2 border-t border-slate-200 px-4 py-3"
         style={{ backgroundColor: '#F8FAFC' }}
@@ -551,6 +561,7 @@ export function AuditTrailPanel({ documentId, section = null }: Props) {
           {downloading === 'pdf' ? t('page.audit_trail_panel.preparing_pdf') : t('page.audit_trail_panel.download_as_pdf')}
         </button>
       </div>
+      )}
     </div>
   )
 }

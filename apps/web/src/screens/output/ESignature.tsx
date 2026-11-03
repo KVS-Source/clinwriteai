@@ -18,6 +18,7 @@ import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import { useCancelSignatureChain, useCurrentUser, useSignatureChains, useSignRecord } from '../../hooks'
 import { useDocumentStore } from '../../store'
 import { InitiateSignatureChain } from './InitiateSignatureChain'
+import { useSignatureAccess } from './useSignatureAccess'
 
 // Signer avatar palette (matches Pattern 7). A signer's colour comes from their initials, so it is stable.
 const AVATAR_PALETTE: Array<{ bg: string; fg: string }> = [
@@ -40,6 +41,7 @@ const MEANING_TEXT: Record<ChainRecord['meaning'], string> = {
   authored: 'I have authored this document',
   reviewed: 'I have reviewed this document',
   approved: 'I approve this document for submission',
+  acknowledged: 'I have read and acknowledge this document',
 }
 
 const initialsOf = (name: string) =>
@@ -306,6 +308,7 @@ export function ESignature() {
     enabled:  !!documentId,
   })
   const { data: chains = [], isLoading, isError, error } = useSignatureChains(documentId!)
+  const access = useSignatureAccess(documentId)
 
   // Push the loaded document into the store so TopNav's enriched breadcrumb
   // picks up the title on the E-Signature tab the same way it does on the
@@ -437,6 +440,15 @@ export function ESignature() {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">Loading signature chain…</p></div>
   }
   if (isError) {
+    // 403: the API refuses the signature record to a user the e-signature table gives no access.
+    if (error instanceof ApiError && error.status === 403) {
+      return (
+        <div className="flex h-full flex-col items-center justify-center gap-1" data-screen="e-signature" data-signature-access-denied>
+          <p className="font-mono text-sm text-slate-600">You don't have access to this document's signature records.</p>
+          <p className="max-w-md text-center text-xs text-slate-500">Signature records are visible to the people named on the document, project managers and auditors.</p>
+        </div>
+      )
+    }
     const msg = (error as Error | null)?.message ?? 'Could not load signature chain.'
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-red-600">{msg}</p></div>
   }
@@ -495,7 +507,7 @@ export function ESignature() {
             {documentId && <MyRaciRole documentId={documentId} />}
             <span className="flex-none font-mono text-[11px] text-slate-500">{document?.version ?? ''}</span>
           </div>
-          {chainActive && (
+          {chainActive && access.canCancelChain(chain) && (
             <button
               type="button"
               onClick={() => setCancelOpen(v => !v)}
@@ -507,7 +519,7 @@ export function ESignature() {
             </button>
           )}
         </div>
-        {cancelOpen && chainActive && (
+        {cancelOpen && chainActive && access.canCancelChain(chain) && (
           <div className="mb-3 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3" data-cancel-form>
             <p className="text-[12px] text-amber-900">
               Cancelling stops this chain and returns the document to In Authoring. Signatures already recorded stay in the audit trail, but a new chain is needed and everyone signs again. A reason is required for the audit trail.
@@ -530,7 +542,7 @@ export function ESignature() {
             {cancelMut.isError && (
               <p className="text-[12px] text-red-800" data-cancel-error>
                 {cancelMut.error instanceof ApiError && (cancelMut.error.body as { error?: string; message?: string } | null)?.error === 'cancel_forbidden'
-                  ? (cancelMut.error.body as { message?: string }).message ?? 'Only the document owner can cancel the signature chain.'
+                  ? (cancelMut.error.body as { message?: string }).message ?? "Only the document's Author (R) or the person who started the chain can cancel it."
                   : 'Could not cancel the chain. Please try again.'}
               </p>
             )}

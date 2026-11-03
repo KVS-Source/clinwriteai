@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Subscription, RateCard, PlatformConfig } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -20,9 +21,10 @@ function formatUSD(amount: number, decimals = 0): string {
 }
 
 function InvoiceStatus({ status }: { status: string }) {
-  const meta = status === 'paid'    ? { bg: '#F0FDF4', fg: '#166534', label: '✓ Paid' }
-             : status === 'pending' ? { bg: '#FFFBEB', fg: '#B45309', label: '○ Pending' }
-             : status === 'failed'  ? { bg: '#FEF2F2', fg: '#B0200D', label: '⊘ Failed' }
+  const { t } = useTranslation()
+  const meta = status === 'paid'    ? { bg: '#F0FDF4', fg: '#166534', label: `✓ ${t('page.subscription_payment.status_paid')}` }
+             : status === 'pending' ? { bg: '#FFFBEB', fg: '#B45309', label: `○ ${t('page.subscription_payment.status_pending')}` }
+             : status === 'failed'  ? { bg: '#FEF2F2', fg: '#B0200D', label: `⊘ ${t('page.subscription_payment.status_failed')}` }
              :                        { bg: '#F1F5F9', fg: '#475569', label: status }
   return (
     <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"

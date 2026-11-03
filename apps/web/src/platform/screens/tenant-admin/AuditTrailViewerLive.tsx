@@ -11,6 +11,7 @@
 
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react'
 import { useSearchParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { SlidePanel } from '../../../components/ui/SlidePanel'
 import { DateTimeRangeFilter, defaultRange, rangeToIso, toInputValue, type TimeZoneMode } from '../../../components/ui/DateTimeRangeFilter'
 import { SortIcon } from '../../../components/ui/SortIcon'
@@ -131,16 +132,16 @@ function ActionBadge({ action }: { action: string }) {
 
 // Event categories: each is a group of related actions, matched on the Action
 // column with a "contains" match (e.g. "user." covers user.suspend, user.invite…).
-const QUICK_FILTERS: { label: string; action: string }[] = [
-  { label: 'PHI access', action: 'phi' },
-  { label: 'Sign-in', action: 'auth' },
-  { label: 'Users', action: 'user.' },
-  { label: 'Signatures', action: 'signature' },
-  { label: 'Documents', action: 'document' },
-  { label: 'HTTP writes', action: 'http.' },
-  { label: 'Audit access', action: 'audit.' },
-  { label: 'Document viewing', action: 'document_presence' },
-  { label: 'Security probes', action: 'security.' },
+const QUICK_FILTERS: { labelKey: string; action: string }[] = [
+  { labelKey: 'page.audit_trail_viewer_live.cat_phi_access',       action: 'phi' },
+  { labelKey: 'page.audit_trail_viewer_live.cat_sign_in',          action: 'auth' },
+  { labelKey: 'page.audit_trail_viewer_live.cat_users',            action: 'user.' },
+  { labelKey: 'page.audit_trail_viewer_live.cat_signatures',       action: 'signature' },
+  { labelKey: 'page.audit_trail_viewer_live.cat_documents',        action: 'document' },
+  { labelKey: 'page.audit_trail_viewer_live.cat_http_writes',      action: 'http.' },
+  { labelKey: 'page.audit_trail_viewer_live.cat_audit_access',     action: 'audit.' },
+  { labelKey: 'page.audit_trail_viewer_live.cat_document_viewing', action: 'document_presence' },
+  { labelKey: 'page.audit_trail_viewer_live.cat_security_probes',  action: 'security.' },
 ]
 
 // Dropdown options from the server's distinct values, plus the current value
@@ -151,21 +152,23 @@ function withCurrent(values: string[] | undefined, current: string): string[] {
   return current && !list.includes(current) ? [current, ...list] : list
 }
 
-const SORT_COLUMNS: { key: AuditSortKey; label: string }[] = [
-  { key: 'id',        label: 'ID' },
-  { key: 'timestamp', label: 'When' },
-  { key: 'action',    label: 'Action' },
-  { key: 'entity',    label: 'Entity' },
-  { key: 'actor',     label: 'Actor' },
+const SORT_COLUMNS: { key: AuditSortKey; labelKey: string }[] = [
+  { key: 'id',        labelKey: 'page.audit_trail_viewer_live.sort_id' },
+  { key: 'timestamp', labelKey: 'page.audit_trail_viewer_live.sort_when' },
+  { key: 'action',    labelKey: 'page.audit_trail_viewer_live.sort_action' },
+  { key: 'entity',    labelKey: 'page.audit_trail_viewer_live.sort_entity' },
+  { key: 'actor',     labelKey: 'page.audit_trail_viewer_live.sort_actor' },
 ]
 
 function SortHeader({ col, sortBy, order, onSort }: {
-  col: { key: AuditSortKey; label: string }
+  col: { key: AuditSortKey; labelKey: string }
   sortBy: AuditSortKey
   order: 'asc' | 'desc'
   onSort: (key: AuditSortKey) => void
 }) {
+  const { t } = useTranslation()
   const active = sortBy === col.key
+  const label = t(col.labelKey)
   return (
     <th className="px-4 py-2" aria-sort={active ? (order === 'asc' ? 'ascending' : 'descending') : 'none'}>
       <button
@@ -173,9 +176,9 @@ function SortHeader({ col, sortBy, order, onSort }: {
         onClick={() => onSort(col.key)}
         className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-widest hover:text-slate-800"
         data-sort-column={col.key}
-        title={`Sort by ${col.label.toLowerCase()}`}
+        title={t('page.audit_trail_viewer_live.sort_by', { label: label.toLowerCase() })}
       >
-        {col.label}
+        {label}
         <SortIcon state={active ? order : null} />
       </button>
     </th>
@@ -183,11 +186,12 @@ function SortHeader({ col, sortBy, order, onSort }: {
 }
 
 function ActorCell({ entry }: { entry: AuditEntry }) {
+  const { t } = useTranslation()
   const role = entry.actorRole
     ? (
       <p
         className="text-[10px] uppercase tracking-wide text-slate-500"
-        title={entry.actorRoleRecorded ? 'Role recorded at the time of the event' : "User's current role (not recorded on this older entry)"}
+        title={entry.actorRoleRecorded ? t('page.audit_trail_viewer_live.role_recorded_tooltip') : t('page.audit_trail_viewer_live.role_current_tooltip')}
       >{entry.actorRole}{entry.actorRoleRecorded ? '' : ' *'}</p>
     )
     : null
@@ -203,7 +207,7 @@ function ActorCell({ entry }: { entry: AuditEntry }) {
     )
   }
   if (entry.actorId === 'anonymous') {
-    return <p className="text-[11px] italic text-slate-500" title="anonymous">System / unauthenticated</p>
+    return <p className="text-[11px] italic text-slate-500" title="anonymous">{t('page.audit_trail_viewer_live.system_unauth')}</p>
   }
   return <p className="font-mono text-[11px] text-slate-500">{entry.actorId}</p>
 }
@@ -215,21 +219,22 @@ function detailValue(v: unknown): string {
 }
 
 function DetailPanel({ entry, tz }: { entry: AuditEntry; tz: TimeZoneMode }) {
+  const { t } = useTranslation()
   const [showRaw, setShowRaw] = useState(false)
   const pairs = Object.entries(entry.details ?? {})
   const when = formatWhen(entry.timestamp, tz)
   // FR-A-061 fields, always shown so a missing value reads as "not recorded".
   const identity: [string, string][] = [
-    ['When', when.secondary ? `${when.primary} (${when.secondary})` : when.primary],
-    ['Action', entry.action],
-    ['Entity type', entry.entityType],
-    ['Entity id', entry.entityId],
-    ['Actor', entry.actorName ? `${entry.actorName}${entry.actorEmail ? ` <${entry.actorEmail}>` : ''}` : (entry.actorEmail ?? entry.actorId)],
-    ['IP address', entry.ipAddress ?? '—'],
-    ['Actor role', entry.actorRole ? `${entry.actorRole}${entry.actorRoleRecorded ? '' : ' (current role — not recorded on this entry)'}` : 'not recorded'],
-    ['Session id', entry.sessionId ?? 'not recorded'],
-    ['Old value', entry.oldValue === null || entry.oldValue === undefined ? '—' : detailValue(entry.oldValue)],
-    ['New value', entry.newValue === null || entry.newValue === undefined ? '—' : detailValue(entry.newValue)],
+    [t('page.audit_trail_viewer_live.field_when'),        when.secondary ? `${when.primary} (${when.secondary})` : when.primary],
+    [t('page.audit_trail_viewer_live.field_action'),      entry.action],
+    [t('page.audit_trail_viewer_live.field_entity_type'), entry.entityType],
+    [t('page.audit_trail_viewer_live.field_entity_id'),   entry.entityId],
+    [t('page.audit_trail_viewer_live.field_actor'),       entry.actorName ? `${entry.actorName}${entry.actorEmail ? ` <${entry.actorEmail}>` : ''}` : (entry.actorEmail ?? entry.actorId)],
+    [t('page.audit_trail_viewer_live.field_ip_address'),  entry.ipAddress ?? '—'],
+    [t('page.audit_trail_viewer_live.field_actor_role'),  entry.actorRole ? `${entry.actorRole}${entry.actorRoleRecorded ? '' : ` ${t('page.audit_trail_viewer_live.actor_role_current_suffix')}`}` : t('page.audit_trail_viewer_live.not_recorded')],
+    [t('page.audit_trail_viewer_live.field_session_id'),  entry.sessionId ?? t('page.audit_trail_viewer_live.not_recorded')],
+    [t('page.audit_trail_viewer_live.field_old_value'),   entry.oldValue === null || entry.oldValue === undefined ? '—' : detailValue(entry.oldValue)],
+    [t('page.audit_trail_viewer_live.field_new_value'),   entry.newValue === null || entry.newValue === undefined ? '—' : detailValue(entry.newValue)],
   ]
   return (
     <div className="flex flex-col gap-3 rounded-md bg-slate-50 p-3 text-[11px] text-slate-700">
@@ -259,15 +264,15 @@ function DetailPanel({ entry, tz }: { entry: AuditEntry; tz: TimeZoneMode }) {
           </tbody>
         </table>
       ) : (
-        <p className="text-slate-500">No details recorded.</p>
+        <p className="text-slate-500">{t('page.audit_trail_viewer_live.no_details_recorded')}</p>
       )}
       <div className="rounded-md border border-slate-200 bg-white p-3" data-section="chain-context">
-        <p className="mb-2 text-[12px] font-bold text-slate-800">Chain context (Part 11)</p>
+        <p className="mb-2 text-[12px] font-bold text-slate-800">{t('page.audit_trail_viewer_live.chain_context_heading')}</p>
         <dl className="flex flex-col gap-2">
           {([
-            ['Entry hash', entry.rowHash],
-            ['Prev hash', entry.prevHash],
-            ['Actor id', entry.actorId],
+            [t('page.audit_trail_viewer_live.field_entry_hash'), entry.rowHash],
+            [t('page.audit_trail_viewer_live.field_prev_hash'),  entry.prevHash],
+            [t('page.audit_trail_viewer_live.field_actor_id'),   entry.actorId],
           ] as const).map(([k, v]) => (
             <div key={k}>
               <dt className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">{k}</dt>
@@ -278,7 +283,7 @@ function DetailPanel({ entry, tz }: { entry: AuditEntry; tz: TimeZoneMode }) {
       </div>
       <div>
         <button type="button" onClick={() => setShowRaw(v => !v)} className="text-[10px] font-semibold text-slate-600 hover:underline">
-          {showRaw ? 'Hide' : 'View'} raw JSON
+          {showRaw ? t('page.audit_trail_viewer_live.hide_raw_json') : t('page.audit_trail_viewer_live.view_raw_json')}
         </button>
         {showRaw && (
           <pre className="mt-2 max-w-3xl overflow-auto rounded-md bg-white p-2 text-[10px]">
@@ -293,7 +298,9 @@ function DetailPanel({ entry, tz }: { entry: AuditEntry; tz: TimeZoneMode }) {
 function AuditRow({ entry, tz, selected, onSelect }: {
   entry: AuditEntry; tz: TimeZoneMode; selected: boolean; onSelect: (e: AuditEntry) => void
 }) {
+  const { t } = useTranslation()
   const when = formatWhen(entry.timestamp, tz)
+  const timeTooltipPrefix = tz === 'utc' ? t('page.audit_trail_viewer_live.tooltip_local_time') : t('page.audit_trail_viewer_live.tooltip_utc')
   return (
     <>
       <tr
@@ -302,12 +309,12 @@ function AuditRow({ entry, tz, selected, onSelect }: {
         data-panel-trigger
         tabIndex={0}
         aria-selected={selected}
-        title="Click to view details"
+        title={t('page.audit_trail_viewer_live.click_to_view_details')}
         onClick={() => onSelect(entry)}
         onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onSelect(entry) } }}
       >
         <td className="px-4 py-3 font-mono text-[11px] text-slate-500 align-top">{entry.id}</td>
-        <td className="px-4 py-3 font-mono text-[11px] text-slate-700 align-top" title={`${tz === 'utc' ? 'Local time' : 'UTC'}: ${when.secondary}`}>{when.primary}</td>
+        <td className="px-4 py-3 font-mono text-[11px] text-slate-700 align-top" title={`${timeTooltipPrefix}: ${when.secondary}`}>{when.primary}</td>
         <td className="px-4 py-3 align-top"><ActionBadge action={entry.action} /></td>
         <td className="px-4 py-3 text-slate-700 align-top">
           <p className="font-semibold">{entry.entityType}</p>
@@ -335,6 +342,7 @@ function VerifyMenu({ busy, filtersReady, pageHasRows, onVerify }: {
   busy: boolean; filtersReady: boolean; pageHasRows: boolean
   onVerify: (scope: VerifyScope, custom?: { fromId: string; toId: string }) => void
 }) {
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [fromId, setFromId] = useState('')
   const [toId, setToId] = useState('')
@@ -366,33 +374,33 @@ function VerifyMenu({ busy, filtersReady, pageHasRows, onVerify }: {
         className="flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] text-slate-700 hover:bg-slate-50 disabled:opacity-50"
         data-action="verify-chain"
       >
-        {busy ? 'Verifying…' : 'Verify chain'}
+        {busy ? t('page.audit_trail_viewer_live.verifying') : t('page.audit_trail_viewer_live.verify_chain')}
         <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden><path d="M3 4.5l3 3 3-3" /></svg>
       </button>
 
       {open && (
         <div role="menu" className="absolute right-0 z-20 mt-1 w-[300px] rounded-lg border border-slate-200 bg-white p-1.5 shadow-xl">
           <button type="button" role="menuitem" className={item} onClick={() => pick('all')} data-verify-scope="all">
-            <span className="text-[12px] font-semibold text-slate-900">Whole chain</span>
-            <span className="text-[11px] text-slate-500">Every entry, first to latest.</span>
+            <span className="text-[12px] font-semibold text-slate-900">{t('page.audit_trail_viewer_live.scope_whole_chain')}</span>
+            <span className="text-[11px] text-slate-500">{t('page.audit_trail_viewer_live.scope_whole_chain_hint')}</span>
           </button>
           <button type="button" role="menuitem" className={item} disabled={!filtersReady} onClick={() => pick('filters')} data-verify-scope="filters"
-            title={filtersReady ? undefined : 'The filters are still updating'}>
-            <span className="text-[12px] font-semibold text-slate-900">Entries matching the filters</span>
-            <span className="text-[11px] text-slate-500">From the first to the last matching entry (date range, search…).</span>
+            title={filtersReady ? undefined : t('page.audit_trail_viewer_live.filters_updating')}>
+            <span className="text-[12px] font-semibold text-slate-900">{t('page.audit_trail_viewer_live.scope_filters')}</span>
+            <span className="text-[11px] text-slate-500">{t('page.audit_trail_viewer_live.scope_filters_hint')}</span>
           </button>
           <button type="button" role="menuitem" className={item} disabled={!pageHasRows} onClick={() => pick('page')} data-verify-scope="page">
-            <span className="text-[12px] font-semibold text-slate-900">Entries on this page</span>
-            <span className="text-[11px] text-slate-500">The rows currently shown in the table.</span>
+            <span className="text-[12px] font-semibold text-slate-900">{t('page.audit_trail_viewer_live.scope_page')}</span>
+            <span className="text-[11px] text-slate-500">{t('page.audit_trail_viewer_live.scope_page_hint')}</span>
           </button>
 
           <div className="mt-1 border-t border-slate-200 px-3 pb-2 pt-2.5" data-verify-scope="custom">
-            <p className="text-[12px] font-semibold text-slate-900">Custom ID range</p>
+            <p className="text-[12px] font-semibold text-slate-900">{t('page.audit_trail_viewer_live.scope_custom_range')}</p>
             <div className="mt-1.5 flex items-center gap-1.5">
-              <input className={`${inputClass} w-full min-w-0`} inputMode="numeric" placeholder="From id" aria-label="From id"
+              <input className={`${inputClass} w-full min-w-0`} inputMode="numeric" placeholder={t('page.audit_trail_viewer_live.from_id_placeholder')} aria-label={t('page.audit_trail_viewer_live.from_id_placeholder')}
                 value={fromId} onChange={e => setFromId(e.target.value)} />
               <span className="text-[11px] text-slate-400">–</span>
-              <input className={`${inputClass} w-full min-w-0`} inputMode="numeric" placeholder="To id" aria-label="To id"
+              <input className={`${inputClass} w-full min-w-0`} inputMode="numeric" placeholder={t('page.audit_trail_viewer_live.to_id_placeholder')} aria-label={t('page.audit_trail_viewer_live.to_id_placeholder')}
                 value={toId} onChange={e => setToId(e.target.value)} />
               <button type="button" disabled={!customReady}
                 onClick={() => {
@@ -401,10 +409,10 @@ function VerifyMenu({ busy, filtersReady, pageHasRows, onVerify }: {
                   setFromId('')
                   setToId('')
                 }}
-                className="flex-none rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40">Verify</button>
+                className="flex-none rounded-md bg-slate-800 px-2.5 py-1.5 text-[11px] font-semibold text-white disabled:opacity-40">{t('page.audit_trail_viewer_live.verify_action')}</button>
             </div>
             <p className="mt-1 text-[10px] text-slate-500">
-              {idsInvalid ? <span className="text-red-700">Ids must be whole numbers.</span> : 'Leave one side empty for "from the start" / "to the latest".'}
+              {idsInvalid ? <span className="text-red-700">{t('page.audit_trail_viewer_live.err_ids_not_whole')}</span> : t('page.audit_trail_viewer_live.custom_range_hint')}
             </p>
           </div>
         </div>
@@ -414,6 +422,7 @@ function VerifyMenu({ busy, filtersReady, pageHasRows, onVerify }: {
 }
 
 export function AuditTrailViewerLive() {
+  const { t } = useTranslation()
   const [searchParams, setSearchParams] = useSearchParams()
   const initialFilters = useMemo(() => filtersFromUrl(searchParams), [searchParams])
 
@@ -459,7 +468,7 @@ export function AuditTrailViewerLive() {
   const [heldBack, setHeldBack] = useState(false)
 
   const verify = useAuditVerify()
-  const [verifyScopeLabel, setVerifyScopeLabel] = useState('Whole chain')
+  const [verifyScopeLabel, setVerifyScopeLabel] = useState<string>(() => t('page.audit_trail_viewer_live.scope_whole_chain'))
   const [verifyNote, setVerifyNote] = useState<string | null>(null)
   const [lookingUp, setLookingUp] = useState(false)
 
@@ -565,14 +574,14 @@ export function AuditTrailViewerLive() {
   function runVerify(scope: VerifyScope, custom?: { fromId: string; toId: string }) {
     setVerifyNote(null)
     if (scope === 'all') {
-      setVerifyScopeLabel('Whole chain')
+      setVerifyScopeLabel(t('page.audit_trail_viewer_live.scope_whole_chain'))
       verify.mutate({})
     } else if (scope === 'page') {
       const ids = (data?.rows ?? []).map(r => BigInt(r.id))
-      if (ids.length === 0) { setVerifyNote('There are no entries on this page to verify.'); return }
+      if (ids.length === 0) { setVerifyNote(t('page.audit_trail_viewer_live.no_entries_on_page')); return }
       const min = ids.reduce((a, b) => (b < a ? b : a))
       const max = ids.reduce((a, b) => (b > a ? b : a))
-      setVerifyScopeLabel('Entries on this page')
+      setVerifyScopeLabel(t('page.audit_trail_viewer_live.scope_page'))
       verify.mutate({ fromId: String(min), toId: String(max) })
     } else if (scope === 'filters') {
       // The first and last matching entry bound the chain segment to check.
@@ -583,13 +592,13 @@ export function AuditTrailViewerLive() {
       ]).then(([first, last]) => {
         const fromId = first.rows[0]?.id
         const toId = last.rows[0]?.id
-        if (!fromId || !toId) { setVerifyNote('No entries match the current filters — nothing to verify.'); return }
-        setVerifyScopeLabel('Entries matching the filters')
+        if (!fromId || !toId) { setVerifyNote(t('page.audit_trail_viewer_live.no_entries_match_filters')); return }
+        setVerifyScopeLabel(t('page.audit_trail_viewer_live.scope_filters'))
         verify.mutate({ fromId, toId })
-      }).catch(e => setVerifyNote(`Couldn't look up the filtered range: ${describeApiError(e).message}`))
+      }).catch(e => setVerifyNote(t('page.audit_trail_viewer_live.err_filter_lookup', { message: describeApiError(e).message })))
         .finally(() => setLookingUp(false))
     } else if (custom) {
-      setVerifyScopeLabel('Custom ID range')
+      setVerifyScopeLabel(t('page.audit_trail_viewer_live.scope_custom_range'))
       verify.mutate({ fromId: custom.fromId || undefined, toId: custom.toId || undefined })
     }
   }
@@ -619,9 +628,9 @@ export function AuditTrailViewerLive() {
     <div className="bg-slate-50" data-screen="audit-trail-viewer-live">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Admin</span>
+          <span>{t('page.audit_trail_viewer_live.crumb_admin')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">Audit Trail</span>
+          <span className="font-semibold text-slate-900">{t('page.audit_trail_viewer_live.crumb_audit_trail')}</span>
         </nav>
 
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -633,10 +642,7 @@ export function AuditTrailViewerLive() {
                 <rect x="3" y="7" width="10" height="7" rx="1.5" />
                 <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />
               </svg>
-              <span>
-                Immutable, hash-chained record written at the time of each action — entries can't be edited,
-                deleted or reordered (21 CFR Part 11). Filter and export it as compliance evidence.
-              </span>
+              <span>{t('page.audit_trail_viewer_live.immutability_notice')}</span>
             </p>
           </div>
           <div className="flex flex-col items-end gap-1">
@@ -651,22 +657,22 @@ export function AuditTrailViewerLive() {
                 <button
                   type="button"
                   disabled
-                  title={dateRangeInvalid ? 'Fix the date range first' : 'The filters are still updating'}
+                  title={dateRangeInvalid ? t('page.audit_trail_viewer_live.fix_date_range_first') : t('page.audit_trail_viewer_live.filters_updating')}
                   className="cursor-not-allowed rounded-md bg-slate-400 px-3 py-1.5 text-[12px] font-semibold text-white"
                   data-action="export-csv"
-                >Export CSV</button>
+                >{t('page.audit_trail_viewer_live.export_csv')}</button>
               ) : (
                 <a
                   href={auditExportUrl(baseQuery)}
                   className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-slate-700"
                   data-action="export-csv"
-                >Export CSV</a>
+                >{t('page.audit_trail_viewer_live.export_csv')}</a>
               )}
             </div>
             <p className="text-[10px] text-slate-500">
               {dirty
-                ? (dateRangeInvalid ? 'Fix the date range to export.' : 'Updating filters…')
-                : `Exports up to ${AUDIT_EXPORT_ROW_CAP.toLocaleString()} rows, in table order.`}
+                ? (dateRangeInvalid ? t('page.audit_trail_viewer_live.fix_date_range_to_export') : t('page.audit_trail_viewer_live.updating_filters'))
+                : t('page.audit_trail_viewer_live.exports_up_to_rows', { count: AUDIT_EXPORT_ROW_CAP.toLocaleString() })}
             </p>
           </div>
         </div>
@@ -682,36 +688,38 @@ export function AuditTrailViewerLive() {
             <p>
               <span className="font-semibold">{verifyScopeLabel}: </span>
               {verify.data.intact
-                ? '✓ Chain intact'
-                : `✗ Chain break detected first at id ${verify.data.firstBreakAt}`}
+                ? t('page.audit_trail_viewer_live.chain_intact')
+                : t('page.audit_trail_viewer_live.chain_break_at', { id: verify.data.firstBreakAt })}
               {(verify.data.checkedRange.from || verify.data.checkedRange.to) &&
-                ` (ids ${verify.data.checkedRange.from ?? 'start'}–${verify.data.checkedRange.to ?? 'latest'})`}
-              {` · verified ${formatWhen(verify.data.verifiedAt, tz).primary}`}
+                ` ${t('page.audit_trail_viewer_live.ids_range', {
+                  from: verify.data.checkedRange.from ?? t('page.audit_trail_viewer_live.ids_start'),
+                  to: verify.data.checkedRange.to ?? t('page.audit_trail_viewer_live.ids_latest'),
+                })}`}
+              {` · ${t('page.audit_trail_viewer_live.verified_at', { time: formatWhen(verify.data.verifiedAt, tz).primary })}`}
               {verify.data.exceptions.length > 0 && (
                 <span
                   className="ml-2 inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-semibold text-amber-800"
-                  title={verify.data.exceptions.map(e => `Entry #${e.id}: ${e.summary ?? e.reason}`).join('\n')}
+                  title={verify.data.exceptions.map(e => t('page.audit_trail_viewer_live.exception_title', { id: e.id, summary: e.summary ?? e.reason })).join('\n')}
                   data-known-exceptions={verify.data.exceptions.length}
                 >
-                  Known exceptions ({verify.data.exceptions.length})
+                  {t('page.audit_trail_viewer_live.known_exceptions_count', { count: verify.data.exceptions.length })}
                 </span>
               )}
             </p>
             {verify.data.exceptions.length > 0 && (
               <div className="mt-2 space-y-2 text-[12px] text-amber-900">
                 <p className="font-semibold">
-                  Known exceptions: {verify.data.exceptions.length === 1 ? 'one entry' : `${verify.data.exceptions.length} entries`} in
-                  this range could not be re-checked because of a past, fixed software defect. They are listed so nothing is hidden.
+                  {t('page.audit_trail_viewer_live.known_exceptions_body', { count: verify.data.exceptions.length })}
                 </p>
                 <ul className="space-y-2">
                   {verify.data.exceptions.map(e => (
                     <li key={e.id}>
-                      <span className="font-semibold">Entry #{e.id}</span> — {e.summary ?? e.reason}
+                      <span className="font-semibold">{t('page.audit_trail_viewer_live.entry_hash_prefix', { id: e.id })}</span> — {e.summary ?? e.reason}
                       <details className="mt-1 text-[11px] text-slate-600">
-                        <summary className="cursor-pointer select-none">Technical details (for support and auditors)</summary>
+                        <summary className="cursor-pointer select-none">{t('page.audit_trail_viewer_live.technical_details')}</summary>
                         <p className="mt-1">{e.reason}</p>
                         <p className="mt-1">
-                          Fixed in <span className="font-mono">{e.fixedInCommit}</span> · Incident record: <span className="font-mono">{e.incidentDoc}</span>
+                          {t('page.audit_trail_viewer_live.fixed_in')} <span className="font-mono">{e.fixedInCommit}</span> · {t('page.audit_trail_viewer_live.incident_record')} <span className="font-mono">{e.incidentDoc}</span>
                         </p>
                       </details>
                     </li>
@@ -723,7 +731,7 @@ export function AuditTrailViewerLive() {
         )}
         {verify.error && (
           <p className="rounded-md bg-red-50 p-3 text-[13px] text-red-800" data-verify-result="error">
-            Verify failed: {describeApiError(verify.error).message}
+            {t('page.audit_trail_viewer_live.verify_failed_prefix')} {describeApiError(verify.error).message}
           </p>
         )}
 
@@ -745,13 +753,13 @@ export function AuditTrailViewerLive() {
                 data-entity-chip={scopedEntityId}
               >
                 {scopedProject.data
-                  ? <><span className="font-semibold">Project: {scopedProject.data.name}</span><span className="font-mono text-[10px] text-slate-500">{scopedEntityId}</span></>
-                  : <><span className="font-semibold">{scopedProjectId ? 'Project:' : 'Entity:'}</span><span className="font-mono text-[11px]">{scopedEntityId}</span></>}
+                  ? <><span className="font-semibold">{t('page.audit_trail_viewer_live.project_chip', { name: scopedProject.data.name })}</span><span className="font-mono text-[10px] text-slate-500">{scopedEntityId}</span></>
+                  : <><span className="font-semibold">{scopedProjectId ? t('page.audit_trail_viewer_live.project_label') : t('page.audit_trail_viewer_live.entity_label')}</span><span className="font-mono text-[11px]">{scopedEntityId}</span></>}
                 <button
                   type="button"
                   onClick={clearEntityScope}
-                  aria-label="Remove entity filter"
-                  title="Show the whole audit trail"
+                  aria-label={t('page.audit_trail_viewer_live.remove_entity_filter')}
+                  title={t('page.audit_trail_viewer_live.show_whole_trail')}
                   className="flex h-5 w-5 items-center justify-center rounded-full text-slate-500 hover:bg-slate-200 hover:text-slate-900"
                 >
                   <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden><path d="M3 3l6 6M9 3l-6 6" /></svg>
@@ -759,8 +767,10 @@ export function AuditTrailViewerLive() {
               </span>
               <span className="text-[11px] text-slate-500">
                 {scopedProjectId
-                  ? "Showing everything in this project — the project record, its documents and its uploads."
-                  : `Showing entries recorded against this ${scopedProject.data ? 'project' : 'entity'} only.`}
+                  ? t('page.audit_trail_viewer_live.showing_project_scope')
+                  : scopedProject.data
+                    ? t('page.audit_trail_viewer_live.showing_entries_project')
+                    : t('page.audit_trail_viewer_live.showing_entries_entity')}
               </span>
             </div>
           )}
@@ -771,44 +781,44 @@ export function AuditTrailViewerLive() {
             <div className="relative min-w-[200px] flex-1 basis-[220px]">
               <input
                 type="search"
-                aria-label="Search"
+                aria-label={t('button.search')}
                 aria-describedby="audit-search-hint"
                 className={`${inputClass} w-full`}
-                placeholder="Search actor, action, entity…"
+                placeholder={t('page.audit_trail_viewer_live.search_placeholder')}
                 value={draft.search}
                 onChange={e => setDraft({ ...draft, search: e.target.value })}
                 data-field="search"
               />
               {draft.search.trim().length > 0 && draft.search.trim().length < SEARCH_MIN_CHARS && (
                 <span id="audit-search-hint" className="pointer-events-none absolute right-8 top-1/2 -translate-y-1/2 text-[10px] text-slate-400">
-                  {SEARCH_MIN_CHARS - draft.search.trim().length} more…
+                  {t('page.audit_trail_viewer_live.search_more_chars', { count: SEARCH_MIN_CHARS - draft.search.trim().length })}
                 </span>
               )}
             </div>
             <select
-              aria-label="Event category"
+              aria-label={t('page.audit_trail_viewer_live.aria_event_category')}
               className={`${inputClass} w-44 ${selectTone(applied.action.trim() === '' || !QUICK_FILTERS.some(f => f.action === applied.action.trim()))}`}
               value={QUICK_FILTERS.some(f => f.action === applied.action.trim()) ? applied.action.trim() : ''}
               onChange={e => quickFilter(e.target.value)}
               data-field="quick-filter"
             >
-              <option value="">Select event category…</option>
-              {QUICK_FILTERS.map(f => <option key={f.action} value={f.action}>{f.label}</option>)}
+              <option value="">{t('page.audit_trail_viewer_live.select_event_category')}</option>
+              {QUICK_FILTERS.map(f => <option key={f.action} value={f.action}>{t(f.labelKey)}</option>)}
             </select>
             {/* No Actor box: the Search field already matches actor name, email and id.
                 `actor` stays in the filter state for ?actor= deep links. */}
-            <select aria-label="Action" className={`${inputClass} w-36 ${selectTone(draft.action === '')}`} value={draft.action} data-field="action"
+            <select aria-label={t('page.audit_trail_viewer_live.aria_action')} className={`${inputClass} w-36 ${selectTone(draft.action === '')}`} value={draft.action} data-field="action"
               onChange={e => setDraft({ ...draft, action: e.target.value })}>
-              <option value="">All actions</option>
+              <option value="">{t('page.audit_trail_viewer_live.all_actions')}</option>
               {withCurrent(facets.data?.actions, draft.action).map(a => (
-                <option key={a} value={a}>{facets.data?.actions.includes(a) ? a : `${a} (group)`}</option>
+                <option key={a} value={a}>{facets.data?.actions.includes(a) ? a : t('page.audit_trail_viewer_live.action_group_suffix', { action: a })}</option>
               ))}
             </select>
-            <select aria-label="Entity type" className={`${inputClass} w-36 ${selectTone(draft.entityType === '')}`} value={draft.entityType} data-field="entity-type"
+            <select aria-label={t('page.audit_trail_viewer_live.aria_entity_type')} className={`${inputClass} w-36 ${selectTone(draft.entityType === '')}`} value={draft.entityType} data-field="entity-type"
               onChange={e => setDraft({ ...draft, entityType: e.target.value })}>
-              <option value="">All entity types</option>
-              {withCurrent(facets.data?.entityTypes, draft.entityType).map(t => (
-                <option key={t} value={t}>{t}</option>
+              <option value="">{t('page.audit_trail_viewer_live.all_entity_types')}</option>
+              {withCurrent(facets.data?.entityTypes, draft.entityType).map(ety => (
+                <option key={ety} value={ety}>{ety}</option>
               ))}
             </select>
             <DateTimeRangeFilter from={draft.from} to={draft.to} tz={tz} invalid={dateRangeInvalid}
@@ -817,8 +827,8 @@ export function AuditTrailViewerLive() {
               type="button"
               onClick={resetFilter}
               disabled={!filtersActive}
-              title={filtersActive ? 'Reset filters to default' : 'Filters are at their defaults'}
-              aria-label="Reset filters"
+              title={filtersActive ? t('page.audit_trail_viewer_live.reset_filters_default') : t('page.audit_trail_viewer_live.filters_at_defaults')}
+              aria-label={t('page.audit_trail_viewer_live.reset_filters_aria')}
               className="flex h-[30px] w-[30px] flex-none items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white"
               data-action="reset-filters"
             >
@@ -829,12 +839,12 @@ export function AuditTrailViewerLive() {
             </button>
           </div>
           {dateRangeInvalid && (
-            <p className="mt-3 text-[11px] text-red-700">The range's "From" is after its "To".</p>
+            <p className="mt-3 text-[11px] text-red-700">{t('page.audit_trail_viewer_live.range_from_after_to')}</p>
           )}
         </form>
 
         {/* Results */}
-        {isLoading && <p className="text-[13px] text-slate-500">Loading…</p>}
+        {isLoading && <p className="text-[13px] text-slate-500">{t('status.loading')}</p>}
         {error && <p className="rounded-md bg-red-50 p-3 text-[13px] text-red-800">{describeApiError(error).message}</p>}
 
         {canFollow && heldBack && newCount > 0 && (
@@ -844,7 +854,9 @@ export function AuditTrailViewerLive() {
             className="rounded-md border border-blue-200 bg-blue-50 px-3 py-2 text-left text-[12px] font-semibold text-blue-800 hover:bg-blue-100"
             data-action="show-new-entries"
           >
-            {newCount}{newer.data?.capped ? '+' : ''} new {newCount === 1 && !newer.data?.capped ? 'entry' : 'entries'} — click to show
+            {newer.data?.capped
+              ? t('page.audit_trail_viewer_live.new_entries_capped', { count: newCount })
+              : t('page.audit_trail_viewer_live.new_entries', { count: newCount })}
           </button>
         )}
 
@@ -853,15 +865,15 @@ export function AuditTrailViewerLive() {
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 bg-slate-50 px-4 py-2 text-[12px] text-slate-600">
               <span>
                 {data.rows.length > 0
-                  ? `Showing ${firstRow.toLocaleString()}–${lastRow.toLocaleString()} of ${totalLabel}`
-                  : `0 of ${totalLabel}`}
+                  ? t('page.audit_trail_viewer_live.showing_range_of_total', { first: firstRow.toLocaleString(), last: lastRow.toLocaleString(), total: totalLabel })
+                  : t('page.audit_trail_viewer_live.zero_of_total', { total: totalLabel })}
                 {exportOverCap && !dirty && (
                   <span className="ml-2 text-amber-700">
-                    · more than {AUDIT_EXPORT_ROW_CAP.toLocaleString()} matches; narrow the filters to export everything
+                    · {t('page.audit_trail_viewer_live.more_than_cap', { count: AUDIT_EXPORT_ROW_CAP.toLocaleString() })}
                   </span>
                 )}
               </span>
-              <span className="text-[11px] text-slate-500">Page {pageIndex + 1}</span>
+              <span className="text-[11px] text-slate-500">{t('page.audit_trail_viewer_live.page_number', { page: pageIndex + 1 })}</span>
             </div>
             <table className="w-full text-[13px]">
               <thead style={{ backgroundColor: '#F8FAFC' }}>
@@ -876,7 +888,7 @@ export function AuditTrailViewerLive() {
                   <AuditRow key={row.id} entry={row} tz={tz} selected={selectedEntry?.id === row.id} onSelect={setSelectedEntry} />
                 ))}
                 {data.rows.length === 0 && (
-                  <tr><td colSpan={5}className="px-4 py-6 text-center text-[12px] text-slate-500">No audit entries match your filters.</td></tr>
+                  <tr><td colSpan={5}className="px-4 py-6 text-center text-[12px] text-slate-500">{t('page.audit_trail_viewer_live.no_entries_match')}</td></tr>
                 )}
               </tbody>
             </table>
@@ -887,14 +899,14 @@ export function AuditTrailViewerLive() {
                   onClick={() => setCursors(c => c.slice(0, -1))}
                   disabled={pageIndex === 0 || isFetching}
                   className="rounded-md border border-slate-300 px-3 py-1 text-[11px] font-semibold text-slate-700 disabled:opacity-40"
-                >← Previous</button>
-                <span>Page {pageIndex + 1}</span>
+                >{t('page.audit_trail_viewer_live.previous_page')}</button>
+                <span>{t('page.audit_trail_viewer_live.page_number', { page: pageIndex + 1 })}</span>
                 <button
                   type="button"
                   onClick={() => data.nextCursor && setCursors(c => [...c, data.nextCursor ?? undefined])}
                   disabled={!data.hasMore || isFetching}
                   className="rounded-md bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white disabled:opacity-40"
-                >Next →</button>
+                >{t('page.audit_trail_viewer_live.next_page')}</button>
               </div>
             )}
           </div>
@@ -905,7 +917,7 @@ export function AuditTrailViewerLive() {
       <SlidePanel
         open={selectedEntry !== null}
         onClose={() => setSelectedEntry(null)}
-        title={selectedEntry ? `Audit entry #${selectedEntry.id}` : 'Audit entry'}
+        title={selectedEntry ? t('page.audit_trail_viewer_live.audit_entry_hash', { id: selectedEntry.id }) : t('page.audit_trail_viewer_live.audit_entry')}
         subtitle={selectedEntry?.action}
         storageKey="clinwrite.auditPanelWidth"
         defaultWidth={520}

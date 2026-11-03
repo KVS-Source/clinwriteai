@@ -12,6 +12,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { describeApiError } from '../../../api'
 import { api } from '../../../api/client'
 
@@ -32,14 +33,14 @@ interface AdminUser {
 }
 
 // "Last active" cell: relative for the last week, a date after that.
-function formatLastActive(iso: string): string {
+function formatLastActive(iso: string, t: (k: string, o?: Record<string, unknown>) => string): string {
   const mins = Math.floor((Date.now() - new Date(iso).getTime()) / 60_000)
-  if (mins < 1)  return 'Just now'
-  if (mins < 60) return `${mins} min ago`
+  if (mins < 1)  return t('page.user_management_live.last_active_just_now')
+  if (mins < 60) return t('page.user_management_live.last_active_mins', { count: mins })
   const hours = Math.floor(mins / 60)
-  if (hours < 24) return `${hours} h ago`
+  if (hours < 24) return t('page.user_management_live.last_active_hours', { count: hours })
   const days = Math.floor(hours / 24)
-  if (days < 7) return `${days} d ago`
+  if (days < 7) return t('page.user_management_live.last_active_days', { count: days })
   return new Date(iso).toLocaleDateString()
 }
 
@@ -59,12 +60,12 @@ interface InviteLink {
 // the API for existing users whose rows haven't been rewritten, but
 // new invites should always use the canonical names — hence the
 // dropdown is filtered down to the five.
-const ROLE_OPTIONS: { value: string; label: string; description: string }[] = [
-  { value: 'tenant-admin', label: 'Tenant Admin', description: 'Full admin for this tenant — manages users, projects, settings.' },
-  { value: 'pm',           label: 'Project Manager', description: 'Creates and oversees projects, assigns RACI roles, monitors delivery.' },
-  { value: 'contributor',  label: 'Contributor', description: 'Writes, reviews, approves or releases QC on documents (based on capabilities).' },
-  { value: 'auditor',      label: 'Auditor', description: 'Read-only compliance access across every project in the tenant.' },
-  { value: 'guest',        label: 'Guest', description: 'Scoped access to a specific document or project via a magic link (no interactive login).' },
+const ROLE_OPTIONS: { value: string; labelKey: string; descriptionKey: string }[] = [
+  { value: 'tenant-admin', labelKey: 'page.user_management_live.role_label_tenant_admin', descriptionKey: 'page.user_management_live.role_desc_tenant_admin' },
+  { value: 'pm',           labelKey: 'page.user_management_live.role_label_pm',           descriptionKey: 'page.user_management_live.role_desc_pm' },
+  { value: 'contributor',  labelKey: 'page.user_management_live.role_label_contributor',  descriptionKey: 'page.user_management_live.role_desc_contributor' },
+  { value: 'auditor',      labelKey: 'page.user_management_live.role_label_auditor',      descriptionKey: 'page.user_management_live.role_desc_auditor' },
+  { value: 'guest',        labelKey: 'page.user_management_live.role_label_guest',        descriptionKey: 'page.user_management_live.role_desc_guest' },
 ]
 
 const usersApi = {
@@ -78,11 +79,12 @@ const usersApi = {
 }
 
 function StatusChip({ status }: { status: UserStatus }) {
+  const { t } = useTranslation()
   const palette: Record<UserStatus, { bg: string; fg: string; border: string; label: string }> = {
-    active:        { bg: '#F0FDF4', fg: '#166534', border: '#BBF7D0', label: '✓ Active' },
-    invited:       { bg: '#EFF6FF', fg: '#1D4ED8', border: '#BFDBFE', label: '📧 Invited' },
-    suspended:     { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', label: '⚠ Suspended' },
-    deprovisioned: { bg: '#F1F5F9', fg: '#475569', border: '#CBD5E1', label: '○ Deprovisioned' },
+    active:        { bg: '#F0FDF4', fg: '#166534', border: '#BBF7D0', label: `✓ ${t('page.user_management_live.status_active')}` },
+    invited:       { bg: '#EFF6FF', fg: '#1D4ED8', border: '#BFDBFE', label: `📧 ${t('page.user_management_live.status_invited')}` },
+    suspended:     { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', label: `⚠ ${t('page.user_management_live.status_suspended')}` },
+    deprovisioned: { bg: '#F1F5F9', fg: '#475569', border: '#CBD5E1', label: `○ ${t('page.user_management_live.status_deprovisioned')}` },
   }
   const p = palette[status]
   return (
@@ -94,6 +96,7 @@ function StatusChip({ status }: { status: UserStatus }) {
 }
 
 function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => void }) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const [email, setEmail] = useState('')
   const [name,  setName]  = useState('')
@@ -114,35 +117,36 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
     onError: (e) => setErr(describeApiError(e).message),
   })
 
+  const activeRoleDesc = ROLE_OPTIONS.find(r => r.value === role)?.descriptionKey
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4" data-section="invite-user">
-      <h3 className="text-[13px] font-bold text-slate-900">Invite user</h3>
+      <h3 className="text-[13px] font-bold text-slate-900">{t('page.user_management_live.invite_user_heading')}</h3>
       {/* Labelled fields, name first: with placeholders only, a filled form gave no hint which
           box was which and names typed into the email box came back as "Invalid email". */}
       <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
         <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
-          Display name
-          <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder="e.g. Amelia Jones" value={name} onChange={e => { setName(e.target.value); setErr(null) }} data-input="name" />
+          {t('page.user_management_live.field_display_name')}
+          <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder={t('page.user_management_live.display_name_placeholder')} value={name} onChange={e => { setName(e.target.value); setErr(null) }} data-input="name" />
         </label>
         <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
-          Email
-          <input type="email" className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder="name@example.com" value={email} onChange={e => { setEmail(e.target.value); setErr(null) }} data-input="email" />
+          {t('page.user_management_live.field_email')}
+          <input type="email" className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder={t('page.user_management_live.email_placeholder')} value={email} onChange={e => { setEmail(e.target.value); setErr(null) }} data-input="email" />
         </label>
         <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
-          Role
+          {t('page.user_management_live.field_role')}
           <select
             className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900"
             value={role}
             onChange={e => setRole(e.target.value)}
-            title={ROLE_OPTIONS.find(r => r.value === role)?.description}
+            title={activeRoleDesc ? t(activeRoleDesc) : undefined}
             data-input="role"
           >
-            {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value} title={r.description}>{r.label}</option>)}
+            {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value} title={t(r.descriptionKey)}>{t(r.labelKey)}</option>)}
           </select>
         </label>
         <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
-          Tenant id (optional)
-          <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder="Leave blank for your tenant" value={tenantId} onChange={e => setTenantId(e.target.value)} data-input="tenantId" />
+          {t('page.user_management_live.field_tenant_id')}
+          <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder={t('page.user_management_live.tenant_id_placeholder')} value={tenantId} onChange={e => setTenantId(e.target.value)} data-input="tenantId" />
         </label>
       </div>
       {err && <p className="mt-2 rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-error>{err}</p>}
@@ -153,8 +157,8 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
             const clean = email.replace(/[\s​-‍﻿]/g, '')
             if (!/^[^@]+@[^@]+\.[^@]+$/.test(clean)) {
               setErr(name.includes('@')
-                ? 'The email address is in the Display name box — swap the two fields.'
-                : `"${email.trim()}" is not a valid email address (expected name@example.com).`)
+                ? t('page.user_management_live.err_swap_fields')
+                : t('page.user_management_live.err_invalid_email', { email: email.trim() }))
               return
             }
             invite.mutate()
@@ -163,7 +167,7 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
           className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
           data-action="invite"
         >
-          {invite.isPending ? 'Inviting…' : 'Send invite'}
+          {invite.isPending ? t('page.user_management_live.inviting') : t('page.user_management_live.send_invite')}
         </button>
       </div>
     </div>
@@ -171,6 +175,7 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
 }
 
 export function UserManagementLive() {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const { data: users = [], isLoading, error } = useQuery<AdminUser[]>({
     queryKey: ['admin-users'],
@@ -218,16 +223,16 @@ export function UserManagementLive() {
     <div className="bg-slate-50" data-screen="user-management-live">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Admin</span>
+          <span>{t('page.user_management_live.crumb_admin')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">User Management</span>
+          <span className="font-semibold text-slate-900">{t('page.user_management_live.crumb_user_management')}</span>
         </nav>
 
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900">User management</h1>
+            <h1 className="text-[22px] font-bold text-slate-900">{t('page.user_management_live.title')}</h1>
             <p className="mt-1 text-[12px] text-slate-500">
-              {isLoading ? 'Loading…' : `${users.length} user${users.length === 1 ? '' : 's'}`}
+              {isLoading ? t('status.loading') : t('page.user_management_live.user_count', { count: users.length })}
             </p>
           </div>
           <button
@@ -235,7 +240,7 @@ export function UserManagementLive() {
             onClick={() => setShowInvite(v => !v)}
             className="h-9 rounded-md bg-slate-800 px-3 text-[13px] font-semibold text-white hover:bg-slate-700"
             data-action="toggle-invite"
-          >{showInvite ? 'Hide invite form' : '+ Invite user'}</button>
+          >{showInvite ? t('page.user_management_live.hide_invite_form') : t('page.user_management_live.invite_user_button')}</button>
         </div>
 
         {error && <p className="rounded-md bg-red-50 p-3 text-[13px] text-red-800">{describeApiError(error).message}</p>}
@@ -249,11 +254,11 @@ export function UserManagementLive() {
           <div ref={noticeRef} className="rounded-md border border-blue-200 bg-blue-50 p-3 text-[12px] text-blue-900" data-section="invite-link">
             <p className="font-semibold">
               {inviteLink.kind === 'resent'
-                ? `Invitation resent successfully to ${inviteLink.email}.`
-                : 'Invitation Sent!'}
+                ? t('page.user_management_live.invite_resent_notice', { email: inviteLink.email })
+                : t('page.user_management_live.invite_sent_notice')}
             </p>
             <div className="mt-2 flex gap-3">
-              <button type="button" className="underline" data-action="dismiss-invite-link" onClick={() => setInviteLink(null)}>Dismiss</button>
+              <button type="button" className="underline" data-action="dismiss-invite-link" onClick={() => setInviteLink(null)}>{t('page.user_management_live.dismiss')}</button>
             </div>
           </div>
         )}
@@ -262,12 +267,12 @@ export function UserManagementLive() {
           <table className="w-full text-[13px]">
             <thead style={{ backgroundColor: '#F8FAFC' }}>
               <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                <th className="px-4 py-2">User</th>
-                <th className="px-4 py-2">Role</th>
-                <th className="px-4 py-2">Tenant</th>
-                <th className="px-4 py-2">Status</th>
-                <th className="px-4 py-2">Last active</th>
-                <th className="px-4 py-2 text-right">Actions</th>
+                <th className="px-4 py-2">{t('page.user_management_live.col_user')}</th>
+                <th className="px-4 py-2">{t('page.user_management_live.col_role')}</th>
+                <th className="px-4 py-2">{t('page.user_management_live.col_tenant')}</th>
+                <th className="px-4 py-2">{t('page.user_management_live.col_status')}</th>
+                <th className="px-4 py-2">{t('page.user_management_live.col_last_active')}</th>
+                <th className="px-4 py-2 text-right">{t('page.user_management_live.col_actions')}</th>
               </tr>
             </thead>
             <tbody>
@@ -282,16 +287,16 @@ export function UserManagementLive() {
                   <td className="px-4 py-3"><StatusChip status={u.status} /></td>
                   <td className="px-4 py-3 text-[12px] text-slate-600" data-last-active>
                     {u.lastActiveAt
-                      ? <span title={new Date(u.lastActiveAt).toLocaleString()}>{formatLastActive(u.lastActiveAt)}</span>
-                      : <span className="text-slate-400">Never</span>}
+                      ? <span title={new Date(u.lastActiveAt).toLocaleString()}>{formatLastActive(u.lastActiveAt, t)}</span>
+                      : <span className="text-slate-400">{t('page.user_management_live.never_active')}</span>}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <div className="inline-flex items-center gap-2">
                       {u.status === 'invited' && resendState?.id === u.id && resendState.phase === 'done' && (
-                        <span className="text-[11px] font-semibold text-green-700" data-resend-done>Resent ✓</span>
+                        <span className="text-[11px] font-semibold text-green-700" data-resend-done>{t('page.user_management_live.resent_marker')}</span>
                       )}
                       {u.status === 'invited' && resendState?.id === u.id && resendState.phase === 'failed' && (
-                        <span className="text-[11px] font-semibold text-red-700" title={resendState.message} data-resend-failed>Resend failed</span>
+                        <span className="text-[11px] font-semibold text-red-700" title={resendState.message} data-resend-failed>{t('page.user_management_live.resend_failed')}</span>
                       )}
                       {u.status === 'invited' && (
                         <button
@@ -300,32 +305,32 @@ export function UserManagementLive() {
                           disabled={resendState?.id === u.id && resendState.phase === 'sending'}
                           className="text-[11px] text-slate-700 hover:underline disabled:cursor-wait disabled:opacity-60"
                           data-action="resend-invite"
-                        >{resendState?.id === u.id && resendState.phase === 'sending' ? 'Sending…' : 'Resend'}</button>
+                        >{resendState?.id === u.id && resendState.phase === 'sending' ? t('page.user_management_live.sending') : t('page.user_management_live.resend')}</button>
                       )}
                       {u.status === 'active' && (
-                        <button type="button" onClick={() => wrap(usersApi.suspend(u.id))} className="text-[11px] text-amber-700 hover:underline" data-action="suspend">Suspend</button>
+                        <button type="button" onClick={() => wrap(usersApi.suspend(u.id))} className="text-[11px] text-amber-700 hover:underline" data-action="suspend">{t('page.user_management_live.suspend')}</button>
                       )}
                       {u.status === 'suspended' && (
-                        <button type="button" onClick={() => wrap(usersApi.reactivate(u.id))} className="text-[11px] text-green-700 hover:underline" data-action="reactivate">Reactivate</button>
+                        <button type="button" onClick={() => wrap(usersApi.reactivate(u.id))} className="text-[11px] text-green-700 hover:underline" data-action="reactivate">{t('page.user_management_live.reactivate')}</button>
                       )}
                       {u.status !== 'deprovisioned' && (
                         <button
                           type="button"
                           onClick={() => {
-                            if (confirm(`Deprovision ${u.email}? User cannot be re-activated — invite as a new user instead.`)) {
+                            if (confirm(t('page.user_management_live.confirm_deprovision', { email: u.email }))) {
                               wrap(usersApi.deprovision(u.id))
                             }
                           }}
                           className="text-[11px] text-red-700 hover:underline"
                           data-action="deprovision"
-                        >Deprovision</button>
+                        >{t('page.user_management_live.deprovision')}</button>
                       )}
                     </div>
                   </td>
                 </tr>
               ))}
               {users.length === 0 && !isLoading && (
-                <tr><td colSpan={5} className="px-4 py-6 text-center text-[12px] text-slate-500">No users yet.</td></tr>
+                <tr><td colSpan={5} className="px-4 py-6 text-center text-[12px] text-slate-500">{t('page.user_management_live.no_users')}</td></tr>
               )}
             </tbody>
           </table>

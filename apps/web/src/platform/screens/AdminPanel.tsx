@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { AiConnectionTestResult, AiEngineSaveBody, PlatformConfig, Subscription } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -10,14 +11,14 @@ type TabKey =
   | 'ai-engine' | 'voice' | 'ectd' | 'payment-gateways'
   | 'document-templates' | 'subscription' | 'external-apis'
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'ai-engine',          label: 'AI Engine' },
-  { key: 'voice',              label: 'Voice Transcription' },
-  { key: 'ectd',               label: 'eCTD Configuration' },
-  { key: 'payment-gateways',   label: 'Payment Gateways' },
-  { key: 'document-templates', label: 'Document Templates' },
-  { key: 'subscription',       label: 'Subscription' },
-  { key: 'external-apis',      label: 'External APIs' },
+const TABS: { key: TabKey; labelKey: string }[] = [
+  { key: 'ai-engine',          labelKey: 'page.admin_panel.tab_ai_engine' },
+  { key: 'voice',              labelKey: 'page.admin_panel.tab_voice' },
+  { key: 'ectd',               labelKey: 'page.admin_panel.tab_ectd' },
+  { key: 'payment-gateways',   labelKey: 'page.admin_panel.tab_payment_gateways' },
+  { key: 'document-templates', labelKey: 'page.admin_panel.tab_document_templates' },
+  { key: 'subscription',       labelKey: 'page.admin_panel.tab_subscription' },
+  { key: 'external-apis',      labelKey: 'page.admin_panel.tab_external_apis' },
 ]
 
 // Friendly names for known model ids (matched by prefix, so dated ids like
@@ -85,6 +86,7 @@ const sameDraft = (a: AiDraft, b: AiDraft) =>
   a.default === b.default && a.fallback === b.fallback && a.perModuleOverrideEnabled === b.perModuleOverrideEnabled
 
 function AIEngineTab({ config, draft, onDraft }: { config: PlatformConfig; draft: AiDraft; onDraft: (d: AiDraft) => void }) {
+  const { t } = useTranslation()
   const saved = draftOf(config)
   const engines = config.aiEngine.availableEngines
 
@@ -104,12 +106,12 @@ function AIEngineTab({ config, draft, onDraft }: { config: PlatformConfig; draft
   return (
     <div className="flex flex-col gap-5" data-tab-panel="ai-engine">
       <SectionHeader
-        eyebrow="AI Engine"
-        title="Default engine and per-module overrides"
-        subtitle="Configure the default AI engine, per-module overrides, and the fallback route."
+        eyebrow={t('page.admin_panel.tab_ai_engine')}
+        title={t('page.admin_panel.ai_section_title')}
+        subtitle={t('page.admin_panel.ai_section_subtitle')}
       />
 
-      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }} data-engine-grid role="radiogroup" aria-label="Default AI engine">
+      <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))' }} data-engine-grid role="radiogroup" aria-label={t('page.admin_panel.aria_default_ai_engine')}>
         {engines.map(e => {
           const isDefault = e.id === draft.default
           const changed = isDefault && draft.default !== saved.default
@@ -136,12 +138,12 @@ function AIEngineTab({ config, draft, onDraft }: { config: PlatformConfig; draft
                   <p className="mt-0.5 font-mono text-[10px] text-slate-500">{e.provider} · <code>{e.id}</code></p>
                 </div>
                 {isDefault
-                  ? <StatusChip status="ok"  label="✓ Active" />
-                  : <StatusChip status="off" label="○ Available" />}
+                  ? <StatusChip status="ok"  label={`✓ ${t('page.admin_panel.chip_active')}`} />
+                  : <StatusChip status="off" label={`○ ${t('page.admin_panel.chip_available')}`} />}
               </div>
               {isDefault && (
                 <p className="mt-2 text-[11px]" style={{ color: PLATFORM_ACCENT.primary }}>
-                  Default across all modules{changed ? ' · not saved yet' : ''}
+                  {t('page.admin_panel.default_across_modules')}{changed ? t('page.admin_panel.not_saved_yet_suffix') : ''}
                 </p>
               )}
             </button>
@@ -150,7 +152,7 @@ function AIEngineTab({ config, draft, onDraft }: { config: PlatformConfig; draft
       </div>
 
       <label className="block rounded-lg border border-slate-200 bg-white p-4" data-fallback-row>
-        <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Fallback engine</span>
+        <span className="block font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.fallback_engine')}</span>
         <select
           value={draft.fallback}
           onChange={e => onDraft({ ...draft, fallback: e.target.value })}
@@ -159,7 +161,7 @@ function AIEngineTab({ config, draft, onDraft }: { config: PlatformConfig; draft
         >
           {fallbackOptions.map(o => <option key={o.id} value={o.id}>{o.label}</option>)}
         </select>
-        <span className="mt-1 block text-[12px] text-slate-600">Used when the default engine returns an error or exceeds the response-time budget.</span>
+        <span className="mt-1 block text-[12px] text-slate-600">{t('page.admin_panel.fallback_hint')}</span>
       </label>
 
       <label className="flex items-start gap-3 rounded-lg border border-slate-200 bg-white p-4" data-override-toggle>
@@ -171,8 +173,8 @@ function AIEngineTab({ config, draft, onDraft }: { config: PlatformConfig; draft
           style={{ accentColor: PLATFORM_ACCENT.primary }}
         />
         <div>
-          <p className="text-[13px] font-semibold text-slate-900">Allow per-module AI engine override</p>
-          <p className="mt-0.5 text-[12px] text-slate-600">Every override is written to the audit trail.</p>
+          <p className="text-[13px] font-semibold text-slate-900">{t('page.admin_panel.override_toggle_label')}</p>
+          <p className="mt-0.5 text-[12px] text-slate-600">{t('page.admin_panel.override_toggle_hint')}</p>
         </div>
       </label>
 
@@ -190,25 +192,26 @@ type ConnectionView =
   | { kind: 'not-configured'; message: string }
   | { kind: 'never-tested' }
 
-function initialView(config: PlatformConfig): ConnectionView {
+function initialView(config: PlatformConfig, t: (k: string) => string): ConnectionView {
   const e = config.aiEngine
   if (e.lastTestedStatus === 'connected')      return { kind: 'connected', model: e.default, latency: e.lastTestedLatencyMs, at: e.lastTested }
-  if (e.lastTestedStatus === 'failed')         return { kind: 'failed', model: e.default, message: 'The last test failed. Run it again to see why.', at: e.lastTested }
-  if (e.lastTestedStatus === 'not-configured') return { kind: 'not-configured', message: 'No AI provider key is configured on the server (ANTHROPIC_API_KEY).' }
+  if (e.lastTestedStatus === 'failed')         return { kind: 'failed', model: e.default, message: t('page.admin_panel.last_test_failed'), at: e.lastTested }
+  if (e.lastTestedStatus === 'not-configured') return { kind: 'not-configured', message: t('page.admin_panel.no_ai_key_env') }
   return { kind: 'never-tested' }
 }
 
-function viewFromResult(r: AiConnectionTestResult): ConnectionView {
+function viewFromResult(r: AiConnectionTestResult, t: (k: string) => string): ConnectionView {
   if (r.status === 'connected')      return { kind: 'connected', model: r.model, latency: r.latency, at: r.testedAt }
-  if (r.status === 'not-configured') return { kind: 'not-configured', message: r.message ?? 'No AI provider key is configured.' }
-  return { kind: 'failed', model: r.model, message: r.message ?? 'Connection failed.', at: r.testedAt }
+  if (r.status === 'not-configured') return { kind: 'not-configured', message: r.message ?? t('page.admin_panel.no_ai_key_short') }
+  return { kind: 'failed', model: r.model, message: r.message ?? t('page.admin_panel.connection_failed_generic'), at: r.testedAt }
 }
 
 function ConnectionTest({ config }: { config: PlatformConfig }) {
-  const [view, setView] = useState<ConnectionView>(() => initialView(config))
+  const { t } = useTranslation()
+  const [view, setView] = useState<ConnectionView>(() => initialView(config, t))
   const test = useMutation({
     mutationFn: () => platformApi.testAiConnection(),
-    onSuccess:  (result) => setView(viewFromResult(result)),
+    onSuccess:  (result) => setView(viewFromResult(result, t)),
     onError:    (err)    => setView({ kind: 'failed', model: config.aiEngine.default, message: describeApiError(err).message, at: new Date().toISOString() }),
   })
 
@@ -220,17 +223,19 @@ function ConnectionTest({ config }: { config: PlatformConfig }) {
     :                                { fg: '#475569', bg: PLATFORM_ACCENT.bgTint, border: PLATFORM_ACCENT.borderMedium }
 
   const headline =
-    test.isPending                   ? `Testing ${config.aiEngine.default}…`
-    : view.kind === 'connected'      ? `✓ Connected · ${view.model}${view.latency !== null ? ` · latency ${view.latency}ms` : ''}`
-    : view.kind === 'failed'         ? `✗ Connection failed · ${view.model}`
-    : view.kind === 'not-configured' ? '⚠ AI engine not configured'
-    :                                  'Not tested yet'
+    test.isPending                   ? t('page.admin_panel.testing_engine', { engine: config.aiEngine.default })
+    : view.kind === 'connected'      ? (view.latency !== null
+                                        ? t('page.admin_panel.conn_connected_with_latency', { model: view.model, latency: view.latency })
+                                        : t('page.admin_panel.conn_connected', { model: view.model }))
+    : view.kind === 'failed'         ? t('page.admin_panel.conn_failed_headline', { model: view.model })
+    : view.kind === 'not-configured' ? t('page.admin_panel.conn_not_configured')
+    :                                  t('page.admin_panel.conn_not_tested_yet')
   const detail =
-    test.isPending                   ? 'Sending a short test prompt (up to 5 seconds).'
-    : view.kind === 'connected'      ? (view.at ? `Last tested ${formatUTC(view.at)}` : '')
-    : view.kind === 'failed'         ? `${view.message}${view.at ? ` · tested ${formatUTC(view.at)}` : ''}`
+    test.isPending                   ? t('page.admin_panel.sending_test_prompt')
+    : view.kind === 'connected'      ? (view.at ? t('page.admin_panel.last_tested_at', { time: formatUTC(view.at) }) : '')
+    : view.kind === 'failed'         ? `${view.message}${view.at ? ` · ${t('page.admin_panel.tested_at', { time: formatUTC(view.at) })}` : ''}`
     : view.kind === 'not-configured' ? view.message
-    :                                  'Click Test connection to send a short test prompt to the default engine.'
+    :                                  t('page.admin_panel.click_test_hint')
 
   return (
     <div
@@ -252,19 +257,20 @@ function ConnectionTest({ config }: { config: PlatformConfig }) {
           disabled={test.isPending}
           className="h-9 rounded-md px-3 text-[13px] font-semibold text-white disabled:cursor-wait disabled:opacity-60"
           style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-        >{test.isPending ? 'Testing…' : 'Test connection'}</button>
+        >{test.isPending ? t('page.admin_panel.testing') : t('page.admin_panel.test_connection')}</button>
       </div>
     </div>
   )
 }
 
 function VoiceTab({ config, onChange }: { config: PlatformConfig; onChange: () => void }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col gap-5" data-tab-panel="voice">
       <SectionHeader
-        eyebrow="Voice Transcription"
-        title="Voice notes provider and GDPR posture"
-        subtitle="Voice notes are transcribed inline in the document editor (Modules A, B, C, D)."
+        eyebrow={t('page.admin_panel.tab_voice')}
+        title={t('page.admin_panel.voice_section_title')}
+        subtitle={t('page.admin_panel.voice_section_subtitle')}
       />
 
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }} data-voice-grid>
@@ -284,8 +290,8 @@ function VoiceTab({ config, onChange }: { config: PlatformConfig; onChange: () =
               <p className="text-[14px] font-semibold text-slate-900">{e.label}</p>
               <div className="mt-2">
                 {active
-                  ? <StatusChip status="ok"  label="✓ Active" />
-                  : <StatusChip status="off" label="○ Available" />}
+                  ? <StatusChip status="ok"  label={`✓ ${t('page.admin_panel.chip_active')}`} />
+                  : <StatusChip status="off" label={`○ ${t('page.admin_panel.chip_available')}`} />}
               </div>
             </div>
           )
@@ -293,10 +299,10 @@ function VoiceTab({ config, onChange }: { config: PlatformConfig; onChange: () =
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-4" data-gdpr>
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">GDPR posture</p>
+        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.gdpr_posture')}</p>
         <div className="mt-2 grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
           <div>
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Jurisdiction</p>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.jurisdiction')}</p>
             <select
               onChange={onChange}
               defaultValue={config.voiceTranscription.gdprJurisdiction}
@@ -311,10 +317,10 @@ function VoiceTab({ config, onChange }: { config: PlatformConfig; onChange: () =
             </select>
           </div>
           <div>
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Audio retention</p>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.audio_retention')}</p>
             <p className="mt-2 text-[13px] font-semibold text-slate-900" data-audio-retention>
               {config.voiceTranscription.audioRetentionPolicy === 'delete-immediately'
-                ? 'Delete immediately after transcription'
+                ? t('page.admin_panel.audio_delete_immediately')
                 : config.voiceTranscription.audioRetentionPolicy}
             </p>
           </div>
@@ -324,7 +330,7 @@ function VoiceTab({ config, onChange }: { config: PlatformConfig; onChange: () =
           style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
           data-gdpr-note
         >
-          Audio files are deleted from storage immediately after transcription. Transcript text is stored in the selected jurisdiction. Deletion is logged to the audit trail.
+          {t('page.admin_panel.audio_gdpr_note')}
         </p>
       </div>
     </div>
@@ -332,12 +338,13 @@ function VoiceTab({ config, onChange }: { config: PlatformConfig; onChange: () =
 }
 
 function EctdTab({ config }: { config: PlatformConfig }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col gap-5" data-tab-panel="ectd">
       <SectionHeader
-        eyebrow="eCTD Configuration"
-        title="Regulatory publishing engine and validation tool"
-        subtitle="Applies to Regulatory Writing submissions."
+        eyebrow={t('page.admin_panel.tab_ectd')}
+        title={t('page.admin_panel.ectd_section_title')}
+        subtitle={t('page.admin_panel.ectd_section_subtitle')}
       />
 
       <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }} data-ectd-versions>
@@ -348,9 +355,9 @@ function EctdTab({ config }: { config: PlatformConfig }) {
         >
           <div className="flex items-center justify-between">
             <p className="text-[14px] font-bold text-slate-900">eCTD {config.ectd.defaultVersion}</p>
-            <StatusChip status="ok" label="✓ Default" />
+            <StatusChip status="ok" label={`✓ ${t('page.admin_panel.chip_default')}`} />
           </div>
-          <p className="mt-1 font-mono text-[10px] text-slate-500">ICH M2 profile</p>
+          <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.admin_panel.ich_m2_profile')}</p>
         </div>
         <div
           className="rounded-lg bg-white p-4"
@@ -359,20 +366,20 @@ function EctdTab({ config }: { config: PlatformConfig }) {
         >
           <div className="flex items-center justify-between">
             <p className="text-[14px] font-bold text-slate-900">eCTD v4.0</p>
-            <StatusChip status="off" label="○ Available" />
+            <StatusChip status="off" label={`○ ${t('page.admin_panel.chip_available')}`} />
           </div>
-          <p className="mt-1 font-mono text-[10px] text-slate-500">Next-generation format · FDA + EMA</p>
+          <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.admin_panel.next_gen_format')}</p>
         </div>
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-4" data-ectd-validator>
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Validation tool</p>
+        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.validation_tool')}</p>
         <div className="mt-1 flex flex-wrap items-center justify-between gap-2">
           <p className="text-[14px] font-semibold text-slate-900">{config.ectd.validationTool}</p>
-          <StatusChip status="ok" label="✓ Configured" />
+          <StatusChip status="ok" label={`✓ ${t('page.admin_panel.chip_configured')}`} />
         </div>
         <p className="mt-1 font-mono text-[11px] text-slate-500">
-          API credentials on file · last validated {formatDay(config.ectd.validationCredentialsLastValidated)}
+          {t('page.admin_panel.api_credentials_on_file', { date: formatDay(config.ectd.validationCredentialsLastValidated) })}
         </p>
       </div>
     </div>
@@ -380,22 +387,23 @@ function EctdTab({ config }: { config: PlatformConfig }) {
 }
 
 function PaymentGatewaysTab({ config, onChange }: { config: PlatformConfig; onChange: () => void }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col gap-5" data-tab-panel="payment-gateways">
       <SectionHeader
-        eyebrow="Payment Gateways"
-        title={`${config.paymentGateways.length} gateways`}
-        subtitle="Multiple gateways may be active simultaneously. Clients see every active gateway at checkout."
+        eyebrow={t('page.admin_panel.tab_payment_gateways')}
+        title={t('page.admin_panel.gateways_count', { count: config.paymentGateways.length })}
+        subtitle={t('page.admin_panel.gateways_subtitle')}
       />
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-gateways-table>
         <table className="w-full text-[13px]">
           <thead style={{ backgroundColor: '#F8FAFC' }}>
             <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-              <th className="px-4 py-2">Gateway</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2">Last tested</th>
-              <th className="px-4 py-2 text-right">Actions</th>
+              <th className="px-4 py-2">{t('page.admin_panel.col_gateway')}</th>
+              <th className="px-4 py-2">{t('page.admin_panel.col_status')}</th>
+              <th className="px-4 py-2">{t('page.admin_panel.col_last_tested')}</th>
+              <th className="px-4 py-2 text-right">{t('page.admin_panel.col_actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -404,8 +412,8 @@ function PaymentGatewaysTab({ config, onChange }: { config: PlatformConfig; onCh
                 <td className="px-4 py-3 font-semibold text-slate-900">{g.label}</td>
                 <td className="px-4 py-3">
                   {g.status === 'active'
-                    ? <StatusChip status="ok"  label="✓ Active" />
-                    : <StatusChip status="off" label="○ Inactive" />}
+                    ? <StatusChip status="ok"  label={`✓ ${t('page.admin_panel.chip_active')}`} />
+                    : <StatusChip status="off" label={`○ ${t('page.admin_panel.chip_inactive')}`} />}
                 </td>
                 <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{g.lastTested ?? '—'}</td>
                 <td className="px-4 py-3 text-right">
@@ -415,7 +423,7 @@ function PaymentGatewaysTab({ config, onChange }: { config: PlatformConfig; onCh
                     className="text-[12px] font-semibold hover:underline"
                     style={{ color: PLATFORM_ACCENT.primary }}
                     data-gateway-action={g.status === 'active' ? 'edit' : 'activate'}
-                  >{g.status === 'active' ? 'Edit / Deactivate' : 'Activate'}</button>
+                  >{g.status === 'active' ? t('page.admin_panel.edit_deactivate') : t('page.admin_panel.activate')}</button>
                 </td>
               </tr>
             ))}
@@ -424,7 +432,7 @@ function PaymentGatewaysTab({ config, onChange }: { config: PlatformConfig; onCh
       </div>
 
       <div className="rounded-lg border border-slate-200 bg-white p-4" data-webhook-row>
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Stripe webhook URL</p>
+        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.stripe_webhook_url')}</p>
         <div className="mt-1 flex flex-wrap items-center gap-2">
           <code className="flex-1 rounded-md bg-slate-100 px-3 py-2 font-mono text-[12px] text-slate-800">
             https://api.clinwrite.ai/webhooks/stripe
@@ -432,7 +440,7 @@ function PaymentGatewaysTab({ config, onChange }: { config: PlatformConfig; onCh
           <button
             type="button"
             className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
-          >Copy</button>
+          >{t('page.admin_panel.copy_button')}</button>
         </div>
       </div>
     </div>
@@ -440,34 +448,35 @@ function PaymentGatewaysTab({ config, onChange }: { config: PlatformConfig; onCh
 }
 
 function DocumentTemplatesTab() {
+  const { t } = useTranslation()
   const templates = [
-    { id: 'tmpl-genbioca-v2', name: 'GenBioCa Corporate v2.1', module: 'Slide deck',         meta: 'uploaded 02 Sept 2026', status: 'applied' as const, action: 'Replace' },
-    { id: 'tmpl-ich-e3',      name: 'ICH E3 CSR shell',        module: 'Clinical Writing',   meta: 'platform default',      status: 'default' as const, action: 'Override' },
-    { id: 'tmpl-ectd-cover',  name: 'eCTD cover letter',       module: 'Regulatory Writing', meta: 'system-generated',      status: 'default' as const, action: 'Override' },
+    { id: 'tmpl-genbioca-v2', name: 'GenBioCa Corporate v2.1', moduleKey: 'page.admin_panel.tmpl_module_slide_deck',     metaKey: 'page.admin_panel.tmpl_meta_uploaded_date', status: 'applied' as const, actionKey: 'page.admin_panel.tmpl_action_replace' },
+    { id: 'tmpl-ich-e3',      name: 'ICH E3 CSR shell',        moduleKey: 'nav.clinical_writing',                        metaKey: 'page.admin_panel.tmpl_meta_platform_default', status: 'default' as const, actionKey: 'page.admin_panel.tmpl_action_override' },
+    { id: 'tmpl-ectd-cover',  name: 'eCTD cover letter',       moduleKey: 'nav.regulatory_writing',                      metaKey: 'page.admin_panel.tmpl_meta_system_generated', status: 'default' as const, actionKey: 'page.admin_panel.tmpl_action_override' },
   ]
   return (
     <div className="flex flex-col gap-5" data-tab-panel="document-templates">
       <SectionHeader
-        eyebrow="Document Templates"
-        title="Client and platform templates"
-        subtitle="Client templates apply automatically to matching document types. Platform defaults are used when no client override exists."
+        eyebrow={t('page.admin_panel.tab_document_templates')}
+        title={t('page.admin_panel.templates_section_title')}
+        subtitle={t('page.admin_panel.templates_section_subtitle')}
       />
 
       <div className="flex flex-col gap-3" data-templates-list>
-        {templates.map(t => (
-          <div key={t.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4" data-template-row={t.id}>
+        {templates.map(tpl => (
+          <div key={tpl.id} className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-slate-200 bg-white p-4" data-template-row={tpl.id}>
             <div>
-              <p className="text-[14px] font-semibold text-slate-900">{t.name}</p>
-              <p className="mt-0.5 font-mono text-[11px] text-slate-500">{t.module} · {t.meta}</p>
+              <p className="text-[14px] font-semibold text-slate-900">{tpl.name}</p>
+              <p className="mt-0.5 font-mono text-[11px] text-slate-500">{t(tpl.moduleKey)} · {t(tpl.metaKey)}</p>
             </div>
             <div className="flex items-center gap-2">
-              {t.status === 'applied'
-                ? <StatusChip status="ok"  label="✓ Applied" />
-                : <StatusChip status="off" label="Platform default" />}
+              {tpl.status === 'applied'
+                ? <StatusChip status="ok"  label={`✓ ${t('page.admin_panel.chip_applied')}`} />
+                : <StatusChip status="off" label={t('page.admin_panel.chip_platform_default')} />}
               <button
                 type="button"
                 className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
-              >{t.action}</button>
+              >{t(tpl.actionKey)}</button>
             </div>
           </div>
         ))}
@@ -477,40 +486,41 @@ function DocumentTemplatesTab() {
 }
 
 function SubscriptionTab({ config, subscription }: { config: PlatformConfig; subscription: Subscription | null }) {
+  const { t } = useTranslation()
   const currency  = config.currency
   const seats     = config.seats
   const running   = subscription?.currentMonthRunningTotal ?? subscription?.currentPeriod?.tokensConsumed ?? 0
   return (
     <div className="flex flex-col gap-5" data-tab-panel="subscription">
       <SectionHeader
-        eyebrow="Subscription"
-        title={`${config.plan} plan · ${config.clientName}`}
-        subtitle={`Contracted ${formatTokens(config.contractedTokensPerMonth)} tokens per month · Renews ${formatDay(config.renewalDate)}`}
+        eyebrow={t('page.admin_panel.tab_subscription')}
+        title={t('page.admin_panel.plan_section_title', { plan: config.plan, client: config.clientName })}
+        subtitle={t('page.admin_panel.plan_section_subtitle', { tokens: formatTokens(config.contractedTokensPerMonth), date: formatDay(config.renewalDate) })}
       />
 
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }} data-subscription-stats>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Plan</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_plan')}</p>
           <p className="mt-1 text-[18px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-plan-value>{config.plan}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Seats</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_seats')}</p>
           <p className="mt-1 text-[18px] font-bold text-slate-900" data-seats-value>
             {seats ? `${seats.used}/${seats.total}` : '—'}
           </p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Tokens this month</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_tokens_this_month')}</p>
           <p className="mt-1 text-[18px] font-bold text-slate-900" data-tokens-value>
             {formatTokens(running)}
           </p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Renews</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_renews')}</p>
           <p className="mt-1 text-[18px] font-bold text-slate-900">{formatDay(config.renewalDate)}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Currency</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_currency')}</p>
           <p className="mt-1 text-[18px] font-bold text-slate-900" data-currency-value>{currency}</p>
         </div>
       </div>
@@ -520,7 +530,7 @@ function SubscriptionTab({ config, subscription }: { config: PlatformConfig; sub
         style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
         data-immutability-note
       >
-        Invoices are immutable once issued. Plan changes take effect at the next renewal date and cannot be backdated.
+        {t('page.admin_panel.invoices_immutable_note')}
       </p>
     </div>
   )
@@ -538,6 +548,7 @@ export interface ApiCredentialsDraft {
 }
 
 function ExternalApisTab({ config, onChange: _onChange }: { config: PlatformConfig; onChange: () => void }) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
   const [editing, setEditing] = useState<string | null>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
@@ -590,19 +601,19 @@ function ExternalApisTab({ config, onChange: _onChange }: { config: PlatformConf
   return (
     <div className="flex flex-col gap-5" data-tab-panel="external-apis">
       <SectionHeader
-        eyebrow="External APIs"
-        title="Regulatory, publishing and messaging integrations"
-        subtitle={`22 configured · Showing ${config.externalApis.length} of 22 connectors`}
+        eyebrow={t('page.admin_panel.tab_external_apis')}
+        title={t('page.admin_panel.external_apis_section_title')}
+        subtitle={t('page.admin_panel.external_apis_section_subtitle', { count: config.externalApis.length })}
       />
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-apis-table>
         <table className="w-full text-[13px]">
           <thead style={{ backgroundColor: '#F8FAFC' }}>
             <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-              <th className="px-4 py-2">Connector</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2">Last checked</th>
-              <th className="px-4 py-2 text-right">Actions</th>
+              <th className="px-4 py-2">{t('page.admin_panel.col_connector')}</th>
+              <th className="px-4 py-2">{t('page.admin_panel.col_status')}</th>
+              <th className="px-4 py-2">{t('page.admin_panel.col_last_checked')}</th>
+              <th className="px-4 py-2 text-right">{t('page.admin_panel.col_actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -620,9 +631,9 @@ function ExternalApisTab({ config, onChange: _onChange }: { config: PlatformConf
                     {a.note && <p className="mt-0.5 font-mono text-[10px] text-slate-500">{a.note}</p>}
                   </td>
                   <td className="px-4 py-3">
-                    {chipStatus === 'connected'      && <StatusChip status="ok"   label="✓ Connected" />}
-                    {chipStatus === 'not-configured' && <StatusChip status="warn" label="⚠ Not configured" />}
-                    {chipStatus === 'inactive'       && <StatusChip status="off"  label="○ Inactive" />}
+                    {chipStatus === 'connected'      && <StatusChip status="ok"   label={`✓ ${t('page.admin_panel.chip_connected')}`} />}
+                    {chipStatus === 'not-configured' && <StatusChip status="warn" label={`⚠ ${t('page.admin_panel.chip_not_configured')}`} />}
+                    {chipStatus === 'inactive'       && <StatusChip status="off"  label={`○ ${t('page.admin_panel.chip_inactive')}`} />}
                   </td>
                   <td className="px-4 py-3 font-mono text-[11px] text-slate-500">
                     {a.lastTested ? formatDay(a.lastTested) : '—'}
@@ -634,7 +645,7 @@ function ExternalApisTab({ config, onChange: _onChange }: { config: PlatformConf
                       className="text-[12px] font-semibold hover:underline"
                       style={{ color: PLATFORM_ACCENT.primary }}
                       data-api-action={chipStatus === 'connected' ? 'edit' : 'configure'}
-                    >{chipStatus === 'connected' ? 'Edit credentials' : 'Configure'}</button>
+                    >{chipStatus === 'connected' ? t('page.admin_panel.edit_credentials') : t('page.admin_panel.configure')}</button>
                   </td>
                 </tr>
               )
@@ -681,6 +692,7 @@ function ApiCredentialsModal({
   onCancel:  () => void
   onSave:    (next: ApiCredentialsDraft) => void
 }) {
+  const { t } = useTranslation()
   const [apiKey,   setApiKey]   = useState(initial.apiKey   ?? '')
   const [baseUrl,  setBaseUrl]  = useState(initial.baseUrl  ?? '')
   const [username, setUsername] = useState(initial.username ?? '')
@@ -710,7 +722,7 @@ function ApiCredentialsModal({
         <div className="flex items-start justify-between border-b border-slate-200 px-5 py-3">
           <div>
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-              Configure
+              {t('page.admin_panel.configure')}
             </p>
             <h3 id={`cfg-${connector.id}-title`} className="text-[16px] font-bold text-slate-900">
               {connector.label}
@@ -721,7 +733,7 @@ function ApiCredentialsModal({
             type="button"
             onClick={onCancel}
             className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-            aria-label="Close"
+            aria-label={t('button.close')}
           >
             ✕
           </button>
@@ -729,13 +741,13 @@ function ApiCredentialsModal({
 
         <div className="flex flex-col gap-3 px-5 py-4">
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">API key</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.admin_panel.api_key_label')}</span>
             <div className="flex gap-2">
               <input
                 type={reveal ? 'text' : 'password'}
                 value={apiKey}
                 onChange={e => setApiKey(e.currentTarget.value)}
-                placeholder={existingApiKeyMasked ? `current: ${existingApiKeyMasked} (type to replace)` : "paste the connector's API key"}
+                placeholder={existingApiKeyMasked ? t('page.admin_panel.api_key_current_placeholder', { masked: existingApiKeyMasked }) : t('page.admin_panel.api_key_paste_placeholder')}
                 className="h-9 flex-1 rounded-md border border-slate-300 px-3 font-mono text-[12px]"
                 data-input="apiKey"
               />
@@ -744,25 +756,25 @@ function ApiCredentialsModal({
                 onClick={() => setReveal(v => !v)}
                 className="rounded-md border border-slate-300 bg-white px-3 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
               >
-                {reveal ? 'Hide' : 'Show'}
+                {reveal ? t('page.admin_panel.hide_key') : t('page.admin_panel.show_key')}
               </button>
             </div>
             {existingApiKeyMasked && !apiKey && (
               <span className="text-[11px] text-slate-500">
-                A key is already stored. Leave blank to keep it; type a new one to replace.
+                {t('page.admin_panel.key_already_stored_hint')}
               </span>
             )}
           </label>
 
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              Username <span className="font-normal text-slate-400">(SFTP / basic-auth connectors)</span>
+              {t('page.admin_panel.username_label')} <span className="font-normal text-slate-400">{t('page.admin_panel.username_hint')}</span>
             </span>
             <input
               type="text"
               value={username}
               onChange={e => setUsername(e.currentTarget.value)}
-              placeholder="optional"
+              placeholder={t('page.admin_panel.optional_placeholder')}
               className="h-9 rounded-md border border-slate-300 px-3 text-[13px]"
               data-input="username"
             />
@@ -770,7 +782,7 @@ function ApiCredentialsModal({
 
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-              Base URL <span className="font-normal text-slate-400">(override default endpoint)</span>
+              {t('page.admin_panel.base_url_label')} <span className="font-normal text-slate-400">{t('page.admin_panel.base_url_hint')}</span>
             </span>
             <input
               type="url"
@@ -783,20 +795,19 @@ function ApiCredentialsModal({
           </label>
 
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Notes</span>
+            <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.admin_panel.notes_label')}</span>
             <textarea
               value={notes}
               onChange={e => setNotes(e.currentTarget.value)}
               rows={2}
-              placeholder="rate-limit tier, contact owner, renewal date, …"
+              placeholder={t('page.admin_panel.notes_placeholder')}
               className="rounded-md border border-slate-300 px-3 py-2 text-[12px]"
               data-input="notes"
             />
           </label>
 
           <p className="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-            Credentials are stored server-side and masked in subsequent reads. The raw key never
-            leaves the server except for the worker that uses it.
+            {t('page.admin_panel.credentials_stored_note')}
           </p>
           {error && (
             <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700" role="alert">
@@ -811,7 +822,7 @@ function ApiCredentialsModal({
             onClick={onCancel}
             disabled={saving}
             className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
-          >Cancel</button>
+          >{t('button.cancel')}</button>
           <button
             type="button"
             onClick={() => onSave({
@@ -822,7 +833,7 @@ function ApiCredentialsModal({
             })}
             disabled={!canSave || saving}
             className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-          >{saving ? 'Saving…' : 'Save credentials'}</button>
+          >{saving ? t('page.admin_panel.saving') : t('page.admin_panel.save_credentials')}</button>
         </div>
       </div>
     </div>
@@ -832,6 +843,7 @@ function ApiCredentialsModal({
 // -------------- Screen shell --------------
 
 export function AdminPanel() {
+  const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
   const setConfig   = usePlatformStore(s => s.setConfig)
 
@@ -861,7 +873,7 @@ export function AdminPanel() {
     onSuccess: async () => {
       await qc.invalidateQueries({ queryKey: ['platform-config'] })
       setAiDraft(null)
-      setSaveNote('AI engine settings saved. All AI calls now use the selected engine.')
+      setSaveNote(t('page.admin_panel.ai_settings_saved_note'))
     },
   })
 
@@ -872,7 +884,8 @@ export function AdminPanel() {
     setOtherUnsaved(false)
   }
 
-  const activeTabLabel = useMemo(() => TABS.find(t => t.key === activeTab)?.label ?? '', [activeTab])
+  const activeTabLabelKey = useMemo(() => TABS.find(tab => tab.key === activeTab)?.labelKey ?? '', [activeTab])
+  const activeTabLabel = activeTabLabelKey ? t(activeTabLabelKey) : ''
 
   return (
     <div className="bg-slate-50" data-screen="admin-panel">
@@ -880,9 +893,9 @@ export function AdminPanel() {
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Platform</span>
+          <span>{t('page.admin_panel.crumb_platform')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">Admin Panel</span>
+          <span className="font-semibold text-slate-900">{t('page.admin_panel.title')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <span>{activeTabLabel}</span>
         </nav>
@@ -890,9 +903,9 @@ export function AdminPanel() {
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Admin Panel</h1>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.admin_panel.title')}</h1>
             <p className="mt-1 font-mono text-xs" style={{ color: '#64748B' }} data-current-user>
-              {currentUser.name} · Admin · {config?.clientName ?? '—'}
+              {t('page.admin_panel.user_admin_client', { name: currentUser.name, client: config?.clientName ?? '—' })}
             </p>
           </div>
           <div className="flex items-center gap-3">
@@ -903,7 +916,7 @@ export function AdminPanel() {
                 data-unsaved-indicator
               >
                 <span className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: '#D97706' }} />
-                Unsaved changes
+                {t('page.admin_panel.unsaved_changes')}
               </span>
             )}
             <button
@@ -913,14 +926,14 @@ export function AdminPanel() {
               data-save-changes
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >{saveAi.isPending ? 'Saving…' : 'Save changes'}</button>
+            >{saveAi.isPending ? t('page.admin_panel.saving') : t('page.admin_panel.save_changes')}</button>
           </div>
         </div>
 
         {saveNote && <p className="rounded-md bg-green-50 p-2.5 text-[13px] font-semibold text-green-800" role="status" data-save-note>{saveNote}</p>}
         {saveAi.isError && (
           <p className="rounded-md bg-red-50 p-2.5 text-[13px] font-semibold text-red-800" role="alert" data-save-error>
-            Couldn't save the AI engine settings: {describeApiError(saveAi.error).message}
+            {t('page.admin_panel.err_save_ai_settings', { message: describeApiError(saveAi.error).message })}
           </p>
         )}
 
@@ -933,32 +946,32 @@ export function AdminPanel() {
             data-settings-nav
             data-tab-count={TABS.length}
           >
-            {TABS.map(t => {
-              const isActive = t.key === activeTab
+            {TABS.map(tab => {
+              const isActive = tab.key === activeTab
               return (
                 <button
-                  key={t.key}
+                  key={tab.key}
                   type="button"
-                  onClick={() => setActiveTab(t.key)}
-                  data-settings-tab={t.key}
+                  onClick={() => setActiveTab(tab.key)}
+                  data-settings-tab={tab.key}
                   data-active={isActive || undefined}
                   className="rounded-md px-3 py-2 text-left text-[13px] font-semibold transition-colors"
                   style={{
                     backgroundColor: isActive ? PLATFORM_ACCENT.primary : 'transparent',
                     color:           isActive ? '#FFFFFF' : '#334155',
                   }}
-                >{t.label}</button>
+                >{t(tab.labelKey)}</button>
               )
             })}
           </aside>
 
           {/* Right content panel */}
           <section className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5" data-settings-content>
-            {!config && !configFailed && <p className="text-[13px] text-slate-500">Loading configuration…</p>}
+            {!config && !configFailed && <p className="text-[13px] text-slate-500">{t('page.admin_panel.loading_configuration')}</p>}
             {!config && configFailed && (
               <div className="rounded-md bg-red-50 p-3 text-[13px] text-red-800" data-config-error>
-                Couldn't load the platform configuration.{' '}
-                <button type="button" onClick={() => { void refetchConfig() }} className="font-semibold underline">Try again</button>
+                {t('page.admin_panel.err_load_config')}{' '}
+                <button type="button" onClick={() => { void refetchConfig() }} className="font-semibold underline">{t('page.admin_panel.try_again')}</button>
               </div>
             )}
             {config && aiDraftEffective && activeTab === 'ai-engine' && <AIEngineTab config={config} draft={aiDraftEffective} onDraft={d => { setSaveNote(null); setAiDraft(d) }} />}

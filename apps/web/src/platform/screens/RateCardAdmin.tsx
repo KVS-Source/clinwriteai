@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { RateCard } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -23,14 +24,16 @@ function formatMoney(amount: number, currency: string): string {
 }
 
 function StatusChip({ status }: { status: 'active' | 'archived' | 'draft' }) {
+  const { t } = useTranslation()
   if (status === 'active')
-    return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary, border: `1px solid ${PLATFORM_ACCENT.borderMedium}` }} data-status-chip="active">✓ Active</span>
+    return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary, border: `1px solid ${PLATFORM_ACCENT.borderMedium}` }} data-status-chip="active">{t('page.rate_card_admin.chip_active')}</span>
   if (status === 'archived')
-    return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: '#F1F5F9', color: '#475569', border: '1px solid #CBD5E1' }} data-status-chip="archived">🔒 Archived</span>
-  return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: '#FFFBEB', color: '#B45309', border: '1px solid #FDE68A' }} data-status-chip="draft">○ Draft</span>
+    return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: '#F1F5F9', color: '#475569', border: '1px solid #CBD5E1' }} data-status-chip="archived">{t('page.rate_card_admin.chip_archived')}</span>
+  return <span className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium" style={{ backgroundColor: '#FFFBEB', color: '#B45309', border: '1px solid #FDE68A' }} data-status-chip="draft">{t('page.rate_card_admin.chip_draft')}</span>
 }
 
 export function RateCardAdmin() {
+  const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
 
   const { data: ratecards = [] } = useQuery<RateCard[]>({
@@ -46,7 +49,7 @@ export function RateCardAdmin() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [effFrom, setEffFrom] = useState('')
 
-  const backdatingError = effFrom && new Date(effFrom) < TODAY ? 'Effective date cannot be in the past. Please select a current or future date.' : ''
+  const backdatingError = effFrom && new Date(effFrom) < TODAY ? t('page.rate_card_admin.backdating_error') : ''
 
   const hasExpiry = !!active?.validUntil
   const daysToExpiry = active && hasExpiry ? daysBetween(TODAY, new Date(active.validUntil)) : 0
@@ -57,15 +60,15 @@ export function RateCardAdmin() {
       <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Super Admin</span>
+          <span>{t('page.rate_card_admin.crumb_super_admin')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">Rate Card</span>
+          <span className="font-semibold text-slate-900">{t('page.rate_card_admin.crumb_rate_card')}</span>
         </nav>
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Rate Card Admin</h1>
-            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{currentUser.name} · Super Admin</p>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.rate_card_admin.title')}</h1>
+            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{t('page.rate_card_admin.user_byline', { name: currentUser.name })}</p>
           </div>
         </div>
 
@@ -74,10 +77,10 @@ export function RateCardAdmin() {
           {/* LEFT — version history */}
           <aside className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-4" data-version-history>
             <div className="flex items-center justify-between">
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Rate card versions</p>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.rate_card_admin.versions_eyebrow')}</p>
               <button type="button" onClick={() => setDrawerOpen(true)} data-new-ratecard
                 className="text-[11px] font-semibold hover:underline"
-                style={{ color: PLATFORM_ACCENT.primary }}>+ New rate card →</button>
+                style={{ color: PLATFORM_ACCENT.primary }}>{t('page.rate_card_admin.new_rate_card')}</button>
             </div>
             <div className="flex flex-col divide-y divide-slate-200">
               {ratecards.map(v => {
@@ -104,7 +107,7 @@ export function RateCardAdmin() {
               })}
             </div>
             <p className="mt-2 rounded-md p-2 text-[11px]" style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }} data-backdating-note>
-              Archived rate cards are read-only. Rate cards cannot be backdated.
+              {t('page.rate_card_admin.backdating_note')}
             </p>
           </aside>
 
@@ -113,36 +116,36 @@ export function RateCardAdmin() {
             <section className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5" data-rate-card-detail data-active-version={active.version}>
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <div>
-                  <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Rate card detail</p>
+                  <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.rate_card_admin.detail_eyebrow')}</p>
                   <p className="mt-1 text-[16px] font-bold text-slate-900" data-heading>
-                    Rate Card {active.version} · {active.currency} · exclusive of sales tax
+                    {t('page.rate_card_admin.detail_heading', { version: active.version, currency: active.currency })}
                   </p>
                   <p className="mt-1 font-mono text-[11px] text-slate-500" data-validity>
-                    Effective {formatDay(active.effectiveFrom)} · Valid until {formatDay(active.validUntil)}
+                    {t('page.rate_card_admin.validity_line', { from: formatDay(active.effectiveFrom), until: formatDay(active.validUntil) })}
                   </p>
                 </div>
                 {active.status === 'active'
-                  ? <button type="button" data-edit-ratecard className="h-9 rounded-md border px-3 text-[13px] font-semibold" style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}>Edit rate card →</button>
-                  : <button type="button" disabled data-edit-ratecard-locked className="h-9 rounded-md border border-slate-300 bg-slate-50 px-3 text-[13px] font-semibold text-slate-500 opacity-60">🔒 Locked</button>}
+                  ? <button type="button" data-edit-ratecard className="h-9 rounded-md border px-3 text-[13px] font-semibold" style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}>{t('page.rate_card_admin.edit_rate_card')}</button>
+                  : <button type="button" disabled data-edit-ratecard-locked className="h-9 rounded-md border border-slate-300 bg-slate-50 px-3 text-[13px] font-semibold text-slate-500 opacity-60">{t('page.rate_card_admin.locked')}</button>}
               </div>
 
               {active.status === 'active' && hasExpiry && !isExpired && (
                 <div className="rounded-lg border p-3" style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }} data-expiry-warning>
                   <p className="text-[12px] font-semibold" style={{ color: '#B45309' }}>
-                    ⚠ Expires in {daysToExpiry} days · Super Admin receives a reminder 7 days before expiry. <strong>An expired rate card blocks new purchases until a successor is published.</strong>
+                    {t('page.rate_card_admin.expiry_warning_prefix', { days: daysToExpiry })} <strong>{t('page.rate_card_admin.expiry_warning_block')}</strong>
                   </p>
                 </div>
               )}
 
               {active.status === 'archived' && (
                 <div className="rounded-lg border p-3" style={{ backgroundColor: '#F1F5F9', borderColor: '#CBD5E1' }} data-archived-note>
-                  <p className="text-[12px] font-semibold text-slate-700">🔒 Archived — read-only · This version governed transactions in its effective window. Its rates remain citable on historical invoices and cannot be edited.</p>
+                  <p className="text-[12px] font-semibold text-slate-700">{t('page.rate_card_admin.archived_note')}</p>
                 </div>
               )}
 
               {active.isDisruptionRateCard && (
                 <p className="rounded-md p-3 text-[12px]" style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }} data-disruption-note>
-                  This is the AURORA Disruption Rate Card (PRD §10.2) — the platform default. Super Admin may replace it with a custom rate card. The Disruption Rate Card represents market disruption pricing versus standard consultancy rates.
+                  {t('page.rate_card_admin.disruption_note')}
                 </p>
               )}
 
@@ -150,10 +153,10 @@ export function RateCardAdmin() {
                 <table className="w-full text-[13px]">
                   <thead style={{ backgroundColor: '#F8FAFC' }}>
                     <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                      <th className="px-4 py-2">Module</th>
-                      <th className="px-4 py-2">Service</th>
-                      <th className="px-4 py-2">Unit</th>
-                      <th className="px-4 py-2 text-right">Rate ({active.currency})</th>
+                      <th className="px-4 py-2">{t('page.rate_card_admin.col_module')}</th>
+                      <th className="px-4 py-2">{t('page.rate_card_admin.col_service')}</th>
+                      <th className="px-4 py-2">{t('page.rate_card_admin.col_unit')}</th>
+                      <th className="px-4 py-2 text-right">{t('page.rate_card_admin.col_rate', { currency: active.currency })}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -168,7 +171,7 @@ export function RateCardAdmin() {
                   </tbody>
                 </table>
                 <p className="border-t border-slate-200 p-2 font-mono text-[11px] text-slate-500" data-rate-count>
-                  {active.rates.length} rate lines · {active.currency} · exclusive of sales tax
+                  {t('page.rate_card_admin.rate_count', { count: active.rates.length, currency: active.currency })}
                 </p>
               </div>
             </section>
@@ -179,11 +182,11 @@ export function RateCardAdmin() {
         {drawerOpen && (
           <div className="rounded-lg border border-slate-200 bg-white p-5" data-new-drawer>
             <div className="flex items-center justify-between">
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">New rate card</p>
-              <button type="button" onClick={() => setDrawerOpen(false)} className="text-[12px] font-semibold text-slate-500 hover:underline">Close</button>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.rate_card_admin.new_drawer_eyebrow')}</p>
+              <button type="button" onClick={() => setDrawerOpen(false)} className="text-[12px] font-semibold text-slate-500 hover:underline">{t('button.close')}</button>
             </div>
             <label className="mt-3 flex flex-col gap-1">
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Effective from (must be today or later)</span>
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.rate_card_admin.effective_from_label')}</span>
               <input type="date" value={effFrom} onChange={(e) => setEffFrom(e.currentTarget.value)}
                 data-new-effective
                 className="h-9 w-fit rounded-md border border-slate-300 px-3 text-[13px]" />

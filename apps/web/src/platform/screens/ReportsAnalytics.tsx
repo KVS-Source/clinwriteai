@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { ReportDefinition, ModuleHealthScore, Subscription } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -18,6 +19,7 @@ function formatDay(iso: string): string {
 }
 
 export function ReportsAnalytics() {
+  const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
 
   const { data: reports = [] }  = useQuery<ReportDefinition[]>({  queryKey: ['reports'],          queryFn: () => platformApi.listReports() })
@@ -32,8 +34,8 @@ export function ReportsAnalytics() {
   const [generateResult, setGenerateResult] = useState<string | null>(null)
 
   const navItems = useMemo(
-    () => [{ id: 'dashboard', label: 'Dashboard' }, ...reports.map(r => ({ id: r.type, label: r.label }))],
-    [reports],
+    () => [{ id: 'dashboard', label: t('page.reports_analytics.nav_dashboard') }, ...reports.map(r => ({ id: r.type, label: r.label }))],
+    [reports, t],
   )
 
   const dateSpanDays = useMemo(() => {
@@ -42,9 +44,11 @@ export function ReportsAnalytics() {
   }, [dateFrom, dateTo])
 
   const isLargeDataset = dateSpanDays > 30
-  const generateLabel  = isLargeDataset ? 'Queue report →' : `Generate ${format.toUpperCase()}`
+  const generateLabel  = isLargeDataset
+    ? t('page.reports_analytics.queue_report')
+    : t('page.reports_analytics.generate_format', { format: format.toUpperCase() })
 
-  const heading = navItems.find(n => n.id === activeNav)?.label ?? 'Dashboard'
+  const heading = navItems.find(n => n.id === activeNav)?.label ?? t('page.reports_analytics.nav_dashboard')
 
   const effectiveMultiple = sub
     ? (sub.marketValueSavings.total / sub.currentPeriod.estimatedSpend).toFixed(1) + '×'
@@ -59,7 +63,7 @@ export function ReportsAnalytics() {
       // The API returns a path relative to its base URL.
       setGenerateResult(res.downloadUrl.startsWith('http') ? res.downloadUrl : `${apiConfig.baseUrl}${res.downloadUrl}`)
     } catch {
-      setGenerateError('Could not generate the report. Please try again.')
+      setGenerateError(t('page.reports_analytics.generate_error'))
     }
   }
 
@@ -68,17 +72,17 @@ export function ReportsAnalytics() {
       <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Platform</span>
+          <span>{t('page.reports_analytics.crumb_platform')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">Reports</span>
+          <span className="font-semibold text-slate-900">{t('page.reports_analytics.crumb_reports')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <span data-heading>{heading}</span>
         </nav>
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Reports &amp; Analytics</h1>
-            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{currentUser.name} · Admin</p>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.reports_analytics.title')}</h1>
+            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{t('page.reports_analytics.user_byline', { name: currentUser.name })}</p>
           </div>
         </div>
 
@@ -106,23 +110,23 @@ export function ReportsAnalytics() {
           <section className="flex flex-col gap-5">
 
             <p className="font-mono text-[11px] text-slate-500" data-date-range-label>
-              {formatDay(dateFrom)} → {formatDay(dateTo)} · GenBioCa Sciences
+              {t('page.reports_analytics.date_range_label', { from: formatDay(dateFrom), to: formatDay(dateTo) })}
             </p>
 
             {/* Discipline health */}
             <div className="rounded-lg border border-slate-200 bg-white p-5" data-health-scores>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Discipline health</p>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.discipline_health')}</p>
               <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }}>
                 {scores.map(s => (
                   <div key={s.module} className="rounded-md border border-slate-200 p-3" data-health-card={s.module}>
                     <div className="flex items-center justify-between">
                       <p className="text-[13px] font-semibold text-slate-900">{s.label}</p>
-                      {s.overdueDocuments > 0 && <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }} data-overdue-flag>{s.overdueDocuments} overdue</span>}
+                      {s.overdueDocuments > 0 && <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }} data-overdue-flag>{t('page.reports_analytics.overdue_count', { count: s.overdueDocuments })}</span>}
                     </div>
                     <p className="mt-1 text-[24px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-health-score>{s.healthScore}</p>
-                    <p className="font-mono text-[10px] text-slate-500">Health score</p>
+                    <p className="font-mono text-[10px] text-slate-500">{t('page.reports_analytics.health_score_label')}</p>
                     <p className="mt-2 font-mono text-[11px] text-slate-500">
-                      Completion {s.completionRate}% · Review pass {s.reviewPassRate}% · Avg {s.avgStageDays}d/stage
+                      {t('page.reports_analytics.health_stats', { completion: s.completionRate, pass: s.reviewPassRate, days: s.avgStageDays })}
                     </p>
                   </div>
                 ))}
@@ -132,44 +136,52 @@ export function ReportsAnalytics() {
             {/* Cost + productivity panel */}
             {sub && (
               <div className="rounded-lg border border-slate-200 bg-white p-5" data-cost-panel>
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Cost and productivity</p>
-                <p className="mt-1 text-[12px] text-slate-600">Measured against the rate card in force for the reporting period.</p>
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.cost_productivity')}</p>
+                <p className="mt-1 text-[12px] text-slate-600">{t('page.reports_analytics.cost_productivity_hint')}</p>
 
                 <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
                   <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Tokens consumed</p>
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.tokens_consumed')}</p>
                     <p className="mt-1 text-[20px] font-bold text-slate-900" data-tokens>{sub.currentPeriod.tokensConsumed.toLocaleString()}</p>
                   </div>
                   <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Platform cost</p>
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.platform_cost')}</p>
                     <p className="mt-1 text-[20px] font-bold text-slate-900" data-cost>{formatUSD(sub.currentPeriod.estimatedSpend)}</p>
                   </div>
                   <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Market value saving</p>
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.market_value_saving')}</p>
                     <p className="mt-1 text-[20px] font-bold text-slate-900" data-saving>{formatUSD(sub.marketValueSavings.total)}</p>
                   </div>
                   <div>
-                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Effective multiple</p>
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.effective_multiple')}</p>
                     <p className="mt-1 text-[20px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-effective-multiple>{effectiveMultiple}</p>
                   </div>
                 </div>
 
                 <p className="mt-3 font-mono text-[11px] text-slate-500" data-rate-attribution>
-                  Rate card {sub.marketValueSavings.rateCardVersion} · {sub.marketValueSavings.rateCardSetBy} · effective {formatDay(sub.marketValueSavings.rateCardEffectiveDate)}
+                  {t('page.reports_analytics.rate_attribution', {
+                    version: sub.marketValueSavings.rateCardVersion,
+                    setBy:   sub.marketValueSavings.rateCardSetBy,
+                    date:    formatDay(sub.marketValueSavings.rateCardEffectiveDate),
+                  })}
                 </p>
                 <p className="mt-1 rounded-md p-2 text-[12px]" style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }} data-savings-footnote>
-                  Market value savings are calculated using Rate Card {sub.marketValueSavings.rateCardVersion} ({sub.marketValueSavings.rateCardSetBy} · {formatDay(sub.marketValueSavings.rateCardEffectiveDate)}) against standard consultancy hourly rates for equivalent output.
+                  {t('page.reports_analytics.savings_footnote', {
+                    version: sub.marketValueSavings.rateCardVersion,
+                    setBy:   sub.marketValueSavings.rateCardSetBy,
+                    date:    formatDay(sub.marketValueSavings.rateCardEffectiveDate),
+                  })}
                 </p>
               </div>
             )}
 
             {/* Generate report panel */}
             <div className="rounded-lg border border-slate-200 bg-white p-5" data-generate-panel>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Generate report</p>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.generate_report')}</p>
 
               <div className="mt-3 grid gap-3" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
                 <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Report type</span>
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.report_type')}</span>
                   <select value={reportType} onChange={(e) => setReportType(e.currentTarget.value)}
                     data-report-type
                     className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
@@ -177,13 +189,13 @@ export function ReportsAnalytics() {
                   </select>
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">From</span>
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.from_label')}</span>
                   <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.currentTarget.value)}
                     data-report-from
                     className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">To</span>
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.to_label')}</span>
                   <input type="date" value={dateTo} onChange={(e) => setDateTo(e.currentTarget.value)}
                     data-report-to
                     className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
@@ -191,7 +203,7 @@ export function ReportsAnalytics() {
               </div>
 
               <div className="mt-3 flex items-center gap-3" data-format-select>
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Format</span>
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.format_label')}</span>
                 {(['pdf','csv'] as const).map(f => (
                   <label key={f} className="flex items-center gap-1 text-[12px] text-slate-700">
                     <input type="radio" name="fmt" checked={format === f} onChange={() => setFormat(f)}
@@ -210,14 +222,14 @@ export function ReportsAnalytics() {
 
               {isLargeDataset && (
                 <p className="mt-2 rounded-md p-2 text-[12px]" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }} data-email-delivery-note>
-                  For datasets over 30 days the report is emailed to <strong>{DEMO_ADMIN_EMAIL}</strong> on completion, as a secure link that expires after 24 hours.
+                  {t('page.reports_analytics.email_delivery_prefix')} <strong>{DEMO_ADMIN_EMAIL}</strong>{t('page.reports_analytics.email_delivery_suffix')}
                 </p>
               )}
 
               {generateResult && (
                 <p className="mt-2 rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-generate-result>
-                  ✓ Report ready ·{' '}
-                  <a href={generateResult} className="font-semibold underline" data-generate-download>Download {format.toUpperCase()}</a>
+                  {t('page.reports_analytics.result_prefix')}{' '}
+                  <a href={generateResult} className="font-semibold underline" data-generate-download>{t('page.reports_analytics.download_format', { format: format.toUpperCase() })}</a>
                 </p>
               )}
               {generateError && (

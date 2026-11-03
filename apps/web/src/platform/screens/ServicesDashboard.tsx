@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Subscription } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi, type RateCardVersionSummary } from '../api/platformApi'
@@ -20,9 +21,10 @@ function formatUSD(amount: number): string {
 }
 
 function StatusChip({ status }: { status: 'healthy' | 'monitor' | 'over' }) {
-  const meta = status === 'healthy'  ? { bg: '#F0FDF4', fg: '#166534', label: '✓ Healthy' }
-             : status === 'monitor'  ? { bg: '#FFFBEB', fg: '#B45309', label: '⚠ Monitor' }
-             :                         { bg: '#FEF2F2', fg: '#B0200D', label: '⊘ Over' }
+  const { t } = useTranslation()
+  const meta = status === 'healthy'  ? { bg: '#F0FDF4', fg: '#166534', label: t('page.services_dashboard.chip_healthy') }
+             : status === 'monitor'  ? { bg: '#FFFBEB', fg: '#B45309', label: t('page.services_dashboard.chip_monitor') }
+             :                         { bg: '#FEF2F2', fg: '#B0200D', label: t('page.services_dashboard.chip_over') }
   return (
     <span
       className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium"
@@ -55,6 +57,8 @@ function csvCell(v: string | number): string {
 }
 
 function buildServicesCsv(sub: Subscription, today: Date): string {
+  // CSV content is machine data, not UI chrome — keep headers in English for
+  // interop with downstream tools. Only the alert "Note" line is prose.
   const p = sub.currentPeriod
   const rows: (string | number)[][] = [
     ['ClinWrite.AI services consumption'],
@@ -96,6 +100,7 @@ function downloadFile(filename: string, content: string, type: string) {
 }
 
 export function ServicesDashboard() {
+  const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
   const navigate = useNavigate()
   const today = useMemo(() => startOfTodayUTC(), [])
@@ -129,19 +134,19 @@ export function ServicesDashboard() {
     return (
       <div className="p-8" data-screen="services-dashboard">
         <div className="mx-auto max-w-xl rounded-md border p-4 text-[13px]" style={{ backgroundColor: '#FEF2F2', borderColor: '#FCA5A5', color: '#7F1D1D' }} data-load-error>
-          <p className="font-semibold">Couldn't load services data</p>
+          <p className="font-semibold">{t('page.services_dashboard.load_error_title')}</p>
           <p className="mt-1">{describeApiError(error).message}</p>
           <button
             type="button"
             onClick={() => void refetch()}
             disabled={isFetching}
             className="mt-3 rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-          >{isFetching ? 'Retrying…' : 'Retry'}</button>
+          >{isFetching ? t('page.services_dashboard.retrying') : t('page.services_dashboard.retry')}</button>
         </div>
       </div>
     )
   }
-  if (!sub) return <div className="p-8 text-center text-sm text-slate-500" data-screen="services-dashboard">Loading…</div>
+  if (!sub) return <div className="p-8 text-center text-sm text-slate-500" data-screen="services-dashboard">{t('status.loading')}</div>
 
   const period = sub.currentPeriod
   const remainingPct = Math.round((period.tokensRemaining / sub.contractedTokensPerMonth) * 100)
@@ -165,71 +170,71 @@ export function ServicesDashboard() {
       <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Platform</span>
+          <span>{t('page.services_dashboard.crumb_platform')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">Services</span>
+          <span className="font-semibold text-slate-900">{t('page.services_dashboard.crumb_services')}</span>
         </nav>
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Services · September 2026</h1>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.services_dashboard.title')}</h1>
             <p className="mt-1 text-[13px] text-slate-600" data-header-blurb>
-              Token consumption and cost for GenBioCa Sciences. Renewal date: {formatDay(sub.renewalDate)}.
+              {t('page.services_dashboard.header_blurb', { date: formatDay(sub.renewalDate) })}
             </p>
-            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{currentUser.name} · Admin</p>
+            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{t('page.services_dashboard.user_byline', { name: currentUser.name })}</p>
           </div>
           <div className="flex items-center gap-2">
             <button type="button" onClick={handleExportCsv}
               data-export-csv
               className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
-            >Export CSV</button>
+            >{t('page.services_dashboard.export_csv')}</button>
             <button type="button" onClick={handleTopUp} disabled={rateCardExpired}
               data-top-up
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >Top up tokens →</button>
+            >{t('page.services_dashboard.top_up_tokens')}</button>
           </div>
         </div>
 
         {rateCardExpired && (
           <p className="rounded-md p-3 text-[12px]" style={{ backgroundColor: '#FEF2F2', color: '#7F1D1D', border: '1px solid #FCA5A5' }} data-rate-card-expired>
-            A new rate card must be published before purchases can resume.
+            {t('page.services_dashboard.rate_card_expired')}
           </p>
         )}
 
         {/* 5 stat cards */}
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }} data-stat-cards>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="tokens-consumed">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Tokens consumed</p>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_tokens_consumed')}</p>
             <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{period.tokensConsumed.toLocaleString()}</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">September to date</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.september_to_date')}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="remaining-balance">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Remaining balance</p>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_remaining_balance')}</p>
             <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{remainingPct}%</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">{period.tokensRemaining.toLocaleString()} tokens</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.tokens_count', { count: period.tokensRemaining })}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="estimated-spend">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Estimated spend</p>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_estimated_spend')}</p>
             <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{formatUSD(period.estimatedSpend)}</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">September to date</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.september_to_date')}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="contracted">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Contracted amount</p>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_contracted')}</p>
             <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{formatUSD(sub.monthlyFee)}</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">Per month</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.per_month')}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="renewal">
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Renewal</p>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_renewal')}</p>
             <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{formatDay(sub.renewalDate)}</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">{renewalDays} days from today</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.days_from_today', { count: renewalDays })}</p>
           </div>
         </div>
 
         {/* Burn rate alert */}
         {alert?.active && (
           <div className="rounded-lg border p-4" style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }} data-monitor-panel>
-            <p className="text-[13px] font-semibold" style={{ color: '#B45309' }} data-monitor-label>⚠ Two disciplines are above their expected burn rate</p>
+            <p className="text-[13px] font-semibold" style={{ color: '#B45309' }} data-monitor-label>{t('page.services_dashboard.monitor_label')}</p>
             <p className="mt-2 text-[12px] text-slate-700" data-monitor-message>{alert.message}</p>
           </div>
         )}
@@ -239,12 +244,12 @@ export function ServicesDashboard() {
           <table className="w-full text-[13px]">
             <thead style={{ backgroundColor: '#F8FAFC' }}>
               <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                <th className="px-4 py-2">Discipline</th>
-                <th className="px-4 py-2 text-right">Tokens consumed</th>
-                <th className="px-4 py-2 text-right">Cost</th>
-                <th className="px-4 py-2 text-right">% of total</th>
-                <th className="px-4 py-2">Burn rate</th>
-                <th className="px-4 py-2">Status</th>
+                <th className="px-4 py-2">{t('page.services_dashboard.col_discipline')}</th>
+                <th className="px-4 py-2 text-right">{t('page.services_dashboard.col_tokens_consumed')}</th>
+                <th className="px-4 py-2 text-right">{t('page.services_dashboard.col_cost')}</th>
+                <th className="px-4 py-2 text-right">{t('page.services_dashboard.col_pct_total')}</th>
+                <th className="px-4 py-2">{t('page.services_dashboard.col_burn_rate')}</th>
+                <th className="px-4 py-2">{t('page.services_dashboard.col_status')}</th>
               </tr>
             </thead>
             <tbody>
@@ -259,7 +264,7 @@ export function ServicesDashboard() {
                 </tr>
               ))}
               <tr className="border-t border-slate-200 font-semibold" style={{ backgroundColor: '#F8FAFC' }} data-breakdown-total>
-                <td className="px-4 py-3">Total</td>
+                <td className="px-4 py-3">{t('page.services_dashboard.total')}</td>
                 <td className="px-4 py-3 text-right font-mono">{period.tokensConsumed.toLocaleString()}</td>
                 <td className="px-4 py-3 text-right font-mono">{formatUSD(period.estimatedSpend)}</td>
                 <td className="px-4 py-3 text-right font-mono">100%</td>
@@ -268,11 +273,11 @@ export function ServicesDashboard() {
               </tr>
             </tbody>
           </table>
-          <p className="border-t border-slate-200 p-3 font-mono text-[11px] text-slate-500" data-burn-note>Burn rate is measured against the same period last month.</p>
+          <p className="border-t border-slate-200 p-3 font-mono text-[11px] text-slate-500" data-burn-note>{t('page.services_dashboard.burn_note')}</p>
         </section>
 
         {exportResult && (
-          <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-export-result>✓ Downloaded {exportResult}</p>
+          <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-export-result>{t('page.services_dashboard.export_result', { filename: exportResult })}</p>
         )}
 
         <p
@@ -280,7 +285,7 @@ export function ServicesDashboard() {
           style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
           data-settlement-note
         >
-          Consumption figures are recalculated hourly and settle at 00:00 UTC on the renewal date. Settled periods cannot be adjusted.
+          {t('page.services_dashboard.settlement_note')}
         </p>
 
         {/* ── Usage analytics ────────────────────────────────────────────────
@@ -292,15 +297,20 @@ export function ServicesDashboard() {
         {analytics && (
           <section className="flex flex-col gap-3" data-section="usage-analytics">
             <div className="flex items-baseline justify-between">
-              <h2 className="text-sm font-semibold text-slate-900">Usage analytics</h2>
+              <h2 className="text-sm font-semibold text-slate-900">{t('page.services_dashboard.usage_analytics')}</h2>
               <p className="font-mono text-[11px] text-slate-500">
-                {analytics.totals.calls.toLocaleString()} calls · {analytics.totals.tokens.toLocaleString()} tokens · ${analytics.totals.costUsd.toFixed(2)} over the last {analytics.windowDays} days
+                {t('page.services_dashboard.usage_summary', {
+                  calls:  analytics.totals.calls.toLocaleString(),
+                  tokens: analytics.totals.tokens.toLocaleString(),
+                  cost:   analytics.totals.costUsd.toFixed(2),
+                  days:   analytics.windowDays,
+                })}
               </p>
             </div>
 
             {analytics.totals.calls === 0 ? (
               <div className="rounded-lg border border-slate-200 bg-white p-6 text-center text-[13px] text-slate-500" data-empty="no-ai-activity">
-                No AI gateway activity in the last {analytics.windowDays} days.
+                {t('page.services_dashboard.no_ai_activity', { days: analytics.windowDays })}
               </div>
             ) : (
               <>
@@ -308,11 +318,13 @@ export function ServicesDashboard() {
                 <div className="rounded-lg border border-slate-200 bg-white p-4" data-chart="daily-tokens">
                   <div className="flex items-baseline justify-between">
                     <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                      Tokens per day · last {analytics.windowDays} days
+                      {t('page.services_dashboard.tokens_per_day', { days: analytics.windowDays })}
                     </p>
                     <p className="font-mono text-[11px] text-slate-500">
-                      avg {Math.round(analytics.dailyTokens.reduce((a, r) => a + r.tokens, 0) / Math.max(1, analytics.dailyTokens.length)).toLocaleString()}/day
-                      · peak {Math.max(0, ...analytics.dailyTokens.map(r => r.tokens)).toLocaleString()}
+                      {t('page.services_dashboard.avg_peak', {
+                        avg:  Math.round(analytics.dailyTokens.reduce((a, r) => a + r.tokens, 0) / Math.max(1, analytics.dailyTokens.length)).toLocaleString(),
+                        peak: Math.max(0, ...analytics.dailyTokens.map(r => r.tokens)).toLocaleString(),
+                      })}
                     </p>
                   </div>
                   <DailyBars values={analytics.dailyTokens.map(r => r.tokens)} />
@@ -321,13 +333,13 @@ export function ServicesDashboard() {
                 {/* Two-column: Prompt intents + Model mix */}
                 <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
                   <RankCard
-                    title="Prompt intents · share of calls"
+                    title={t('page.services_dashboard.prompt_intents_title')}
                     rows={analytics.promptIntents}
                     valueFormat={(n) => `${n}%`}
                     dataAttr="prompt-intents"
                   />
                   <RankCard
-                    title="Model mix · share of tokens"
+                    title={t('page.services_dashboard.model_mix_title')}
                     rows={analytics.modelMix}
                     valueFormat={(n) => `${n}%`}
                     dataAttr="model-mix"
@@ -337,16 +349,16 @@ export function ServicesDashboard() {
                 {/* Two-column: Top prompts + Top users */}
                 <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))' }}>
                   <TopList
-                    title={`Most-fired prompts · last ${analytics.windowDays} days`}
+                    title={t('page.services_dashboard.most_fired_prompts', { days: analytics.windowDays })}
                     rows={analytics.topPrompts}
                     dataAttr="top-prompts"
-                    emptyLabel="No prompt text recorded in this window."
+                    emptyLabel={t('page.services_dashboard.empty_prompts')}
                   />
                   <TopList
-                    title={`Top users by cost · last ${analytics.windowDays} days`}
+                    title={t('page.services_dashboard.top_users_by_cost', { days: analytics.windowDays })}
                     rows={analytics.topUsers}
                     dataAttr="top-users"
-                    emptyLabel="No user activity in this window."
+                    emptyLabel={t('page.services_dashboard.empty_users')}
                   />
                 </div>
 
@@ -354,10 +366,10 @@ export function ServicesDashboard() {
                 <div className="rounded-lg border border-slate-200 bg-white p-4" data-chart="hourly-heatmap">
                   <div className="flex items-baseline justify-between">
                     <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                      Hour-of-day distribution · UTC
+                      {t('page.services_dashboard.hourly_title')}
                     </p>
                     <p className="font-mono text-[11px] text-slate-500">
-                      busiest hour {analytics.hourlyPeakLabel}
+                      {t('page.services_dashboard.busiest_hour', { hour: analytics.hourlyPeakLabel })}
                     </p>
                   </div>
                   <HourlyHeatmap values={analytics.hourlyDistribution} />
@@ -376,11 +388,12 @@ export function ServicesDashboard() {
 // -----------------------------------------------------------------------------
 
 function DailyBars({ values }: { values: number[] }) {
+  const { t } = useTranslation()
   const max = Math.max(...values, 1)
   const barW = 100 / values.length
   const gap = 0.35
   return (
-    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="mt-2 h-24 w-full" aria-label="Daily token consumption bar chart">
+    <svg viewBox="0 0 100 40" preserveAspectRatio="none" className="mt-2 h-24 w-full" aria-label={t('page.services_dashboard.daily_bars_aria')}>
       {values.map((v, i) => {
         const h = (v / max) * 36
         return (
@@ -394,7 +407,7 @@ function DailyBars({ values }: { values: number[] }) {
             fill={PLATFORM_ACCENT.primary}
             opacity={0.85}
           >
-            <title>{`Day ${i + 1}: ${v.toLocaleString()} tokens`}</title>
+            <title>{t('page.services_dashboard.day_bar_tooltip', { day: i + 1, tokens: v.toLocaleString() })}</title>
           </rect>
         )
       })}
@@ -442,11 +455,12 @@ function TopList({ title, rows, dataAttr, emptyLabel }: {
   dataAttr: string
   emptyLabel?: string
 }) {
+  const { t } = useTranslation()
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4" data-top-list={dataAttr}>
       <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{title}</p>
       {rows.length === 0 ? (
-        <p className="mt-2 text-[12px] text-slate-500" data-top-empty>{emptyLabel ?? 'No data.'}</p>
+        <p className="mt-2 text-[12px] text-slate-500" data-top-empty>{emptyLabel ?? t('page.services_dashboard.no_data')}</p>
       ) : (
         <ol className="mt-2 flex flex-col gap-2">
           {rows.map((r, i) => (
@@ -470,6 +484,7 @@ function TopList({ title, rows, dataAttr, emptyLabel }: {
 }
 
 function HourlyHeatmap({ values }: { values: number[] }) {
+  const { t } = useTranslation()
   // 24 cells; opacity ∝ value / 100 so busy hours darken toward PLATFORM_ACCENT.
   return (
     <div className="mt-2" data-chart-grid="hourly">
@@ -482,7 +497,7 @@ function HourlyHeatmap({ values }: { values: number[] }) {
               backgroundColor: PLATFORM_ACCENT.primary,
               opacity: 0.15 + (v / 100) * 0.85,
             }}
-            title={`${String(h).padStart(2, '0')}:00 UTC · ${v}% of peak`}
+            title={t('page.services_dashboard.hour_tooltip', { hour: String(h).padStart(2, '0'), pct: v })}
           />
         ))}
       </div>

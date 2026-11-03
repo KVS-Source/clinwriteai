@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Subscription, RateCard, PlatformConfig } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -20,9 +21,10 @@ function formatUSD(amount: number, decimals = 0): string {
 }
 
 function InvoiceStatus({ status }: { status: string }) {
-  const meta = status === 'paid'    ? { bg: '#F0FDF4', fg: '#166534', label: '✓ Paid' }
-             : status === 'pending' ? { bg: '#FFFBEB', fg: '#B45309', label: '○ Pending' }
-             : status === 'failed'  ? { bg: '#FEF2F2', fg: '#B0200D', label: '⊘ Failed' }
+  const { t } = useTranslation()
+  const meta = status === 'paid'    ? { bg: '#F0FDF4', fg: '#166534', label: `✓ ${t('page.subscription_payment.status_paid')}` }
+             : status === 'pending' ? { bg: '#FFFBEB', fg: '#B45309', label: `○ ${t('page.subscription_payment.status_pending')}` }
+             : status === 'failed'  ? { bg: '#FEF2F2', fg: '#B0200D', label: `⊘ ${t('page.subscription_payment.status_failed')}` }
              :                        { bg: '#F1F5F9', fg: '#475569', label: status }
   return (
     <span className="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-medium"
@@ -33,6 +35,7 @@ function InvoiceStatus({ status }: { status: string }) {
 }
 
 export function SubscriptionPayment() {
+  const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
   const [searchParams] = useSearchParams()
   const prefill = Number(searchParams.get('prefill') ?? '0')
@@ -52,7 +55,9 @@ export function SubscriptionPayment() {
   }, [prefill])
   const [stepIdx, setStepIdx] = useState(initialStep)
   const qty = STEPS[stepIdx]
-  const qtyLabel = qty >= 1_000_000 ? `${qty / 1_000_000}M tokens` : `${qty / 1000}K tokens`
+  const qtyLabel = qty >= 1_000_000
+    ? t('page.subscription_payment.qty_millions', { count: qty / 1_000_000 })
+    : t('page.subscription_payment.qty_thousands', { count: qty / 1000 })
 
   const baseRate = activeCard?.rates.find(r => r.serviceType === 'AI Tokens (base)')?.rate ?? 0.005
   const priceValue = (qty / 1000) * baseRate
@@ -72,7 +77,7 @@ export function SubscriptionPayment() {
   const dec = () => setStepIdx(Math.max(0, stepIdx - 1))
   const inc = () => setStepIdx(Math.min(STEPS.length - 1, stepIdx + 1))
 
-  if (!sub) return <div className="p-8 text-center text-sm text-slate-500" data-screen="subscription-payment">Loading…</div>
+  if (!sub) return <div className="p-8 text-center text-sm text-slate-500" data-screen="subscription-payment">{t('status.loading')}</div>
 
   const usedPct = Math.round((sub.currentPeriod.tokensConsumed / sub.contractedTokensPerMonth) * 100)
 
@@ -81,15 +86,15 @@ export function SubscriptionPayment() {
       <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Platform</span>
+          <span>{t('page.subscription_payment.crumb_platform')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">Subscription</span>
+          <span className="font-semibold text-slate-900">{t('page.subscription_payment.crumb_subscription')}</span>
         </nav>
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Subscription &amp; Payment</h1>
-            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{currentUser.name} · Admin</p>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.subscription_payment.title')}</h1>
+            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{t('page.subscription_payment.user_admin_byline', { name: currentUser.name })}</p>
           </div>
         </div>
 
@@ -98,9 +103,11 @@ export function SubscriptionPayment() {
           {/* LEFT — current plan */}
           <section className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5" data-current-plan>
             <div>
-              <p className="text-[13px] text-slate-600" data-scope-blurb>Plan, allowance and billing for GenBioCa Sciences.</p>
+              <p className="text-[13px] text-slate-600" data-scope-blurb>{t('page.subscription_payment.plan_blurb')}</p>
               <p className="mt-2 text-[16px] font-bold text-slate-900" data-plan-name>
-                <strong>{sub.planName}</strong> · GenBioCa Sciences · renews {formatDay(sub.renewalDate)} · <span style={{ color: '#166534' }}>✓ Active</span>
+                <strong>{sub.planName}</strong>
+                {' · '}{t('page.subscription_payment.plan_meta_renews', { date: formatDay(sub.renewalDate) })}
+                {' · '}<span style={{ color: '#166534' }}>{t('page.subscription_payment.plan_active_marker')}</span>
               </p>
             </div>
 
@@ -108,15 +115,15 @@ export function SubscriptionPayment() {
               <table className="w-full text-[13px]">
                 <thead style={{ backgroundColor: '#F8FAFC' }}>
                   <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                    <th className="px-4 py-2">Scope</th>
-                    <th className="px-4 py-2 text-right">Included</th>
-                    <th className="px-4 py-2 text-right">Used (Sept)</th>
-                    <th className="px-4 py-2 text-right">Remaining</th>
+                    <th className="px-4 py-2">{t('page.subscription_payment.col_scope')}</th>
+                    <th className="px-4 py-2 text-right">{t('page.subscription_payment.col_included')}</th>
+                    <th className="px-4 py-2 text-right">{t('page.subscription_payment.col_used')}</th>
+                    <th className="px-4 py-2 text-right">{t('page.subscription_payment.col_remaining')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr className="border-t border-slate-200" data-scope-row="all">
-                    <td className="px-4 py-3 font-semibold text-slate-900">All disciplines</td>
+                    <td className="px-4 py-3 font-semibold text-slate-900">{t('page.subscription_payment.scope_all')}</td>
                     <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-included>{sub.contractedTokensPerMonth.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-used>{sub.currentPeriod.tokensConsumed.toLocaleString()}</td>
                     <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-remaining>{sub.currentPeriod.tokensRemaining.toLocaleString()}</td>
@@ -124,29 +131,34 @@ export function SubscriptionPayment() {
                 </tbody>
               </table>
               <p className="border-t border-slate-200 p-2 font-mono text-[11px] text-slate-500" data-usage-note>
-                {usedPct}% of the monthly allowance used · 22 days remaining
+                {t('page.subscription_payment.usage_note', { pct: usedPct, days: 22 })}
               </p>
             </div>
 
             <div className="rounded-lg border border-slate-200 p-4" data-next-invoice>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Next invoice</p>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.next_invoice_eyebrow')}</p>
               <p className="mt-1 text-[15px] font-semibold text-slate-900">
-                {formatUSD(sub.monthlyFee)} · {formatDay(sub.renewalDate)} · Auto-charge to {sub.paymentMethod.brand} ···· {sub.paymentMethod.last4}
+                {t('page.subscription_payment.next_invoice_line', {
+                  amount: formatUSD(sub.monthlyFee),
+                  date: formatDay(sub.renewalDate),
+                  brand: sub.paymentMethod.brand,
+                  last4: sub.paymentMethod.last4,
+                })}
               </p>
-              <button type="button" className="mt-2 text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-update-payment>Update payment method →</button>
+              <button type="button" className="mt-2 text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-update-payment>{t('page.subscription_payment.update_payment_method')}</button>
             </div>
 
             <div data-invoice-history>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Invoice history</p>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.invoice_history_eyebrow')}</p>
               <div className="mt-2 overflow-hidden rounded-lg border border-slate-200">
                 <table className="w-full text-[13px]">
                   <thead style={{ backgroundColor: '#F8FAFC' }}>
                     <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                      <th className="px-4 py-2">Date</th>
-                      <th className="px-4 py-2">Services</th>
-                      <th className="px-4 py-2 text-right">Amount</th>
-                      <th className="px-4 py-2">Status</th>
-                      <th className="px-4 py-2 text-right">Download</th>
+                      <th className="px-4 py-2">{t('page.subscription_payment.col_date')}</th>
+                      <th className="px-4 py-2">{t('page.subscription_payment.col_services')}</th>
+                      <th className="px-4 py-2 text-right">{t('page.subscription_payment.col_amount')}</th>
+                      <th className="px-4 py-2">{t('page.subscription_payment.col_status')}</th>
+                      <th className="px-4 py-2 text-right">{t('page.subscription_payment.col_download')}</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -157,7 +169,7 @@ export function SubscriptionPayment() {
                         <td className="px-4 py-3 text-right font-mono text-slate-800">{formatUSD(inv.amount)}</td>
                         <td className="px-4 py-3"><InvoiceStatus status={inv.status} /></td>
                         <td className="px-4 py-3 text-right">
-                          <a href={inv.pdfUrl} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-download-pdf={inv.id}>Download PDF</a>
+                          <a href={inv.pdfUrl} className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-download-pdf={inv.id}>{t('page.subscription_payment.download_pdf')}</a>
                         </td>
                       </tr>
                     ))}
@@ -167,46 +179,48 @@ export function SubscriptionPayment() {
             </div>
 
             <p className="rounded-md p-3 text-[12px]" style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }} data-invoice-immutability>
-              Invoices are immutable once issued. Corrections are made by credit note, never by amending the original.
+              {t('page.subscription_payment.invoice_immutability')}
             </p>
           </section>
 
           {/* RIGHT — top-up */}
           <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5" data-topup-panel>
-            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Purchase additional tokens</p>
-            <p className="text-[12px] text-slate-600">Top-up tokens are added immediately and do not expire at renewal.</p>
+            <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.topup_eyebrow')}</p>
+            <p className="text-[12px] text-slate-600">{t('page.subscription_payment.topup_blurb')}</p>
 
             <label className="flex flex-col gap-1">
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Service</span>
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.service_label')}</span>
               <select data-service-select className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
-                <option>All disciplines (combined)</option>
+                <option>{t('page.subscription_payment.service_option_all')}</option>
               </select>
             </label>
 
             <div>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Quantity</p>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.quantity_label')}</p>
               <div className="mt-1 flex items-center gap-3" data-qty-stepper>
                 <button type="button" onClick={dec} disabled={stepIdx === 0} data-qty-dec
+                  aria-label={t('page.subscription_payment.decrement_quantity')}
                   className="h-9 w-9 rounded-md border border-slate-300 bg-white text-[16px] font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">−</button>
                 <span className="min-w-[120px] text-center text-[14px] font-semibold text-slate-900" data-qty-label>{qtyLabel}</span>
                 <button type="button" onClick={inc} disabled={stepIdx === STEPS.length - 1} data-qty-inc
+                  aria-label={t('page.subscription_payment.increment_quantity')}
                   className="h-9 w-9 rounded-md border border-slate-300 bg-white text-[16px] font-semibold text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">+</button>
               </div>
             </div>
 
             <div className="rounded-md border border-slate-200 p-3" data-price>
-              <p className="text-[13px] font-semibold text-slate-900">Price: <span data-price-value>{formatUSD(priceValue, priceValue < 100 ? 2 : 0)}</span></p>
+              <p className="text-[13px] font-semibold text-slate-900">{t('page.subscription_payment.price_label')} <span data-price-value>{formatUSD(priceValue, priceValue < 100 ? 2 : 0)}</span></p>
               <p className="mt-1 font-mono text-[11px] text-slate-500" data-rate-source>
-                Rate card {activeCard?.version ?? '—'} · ${baseRate.toFixed(3)} per 1K tokens
+                {t('page.subscription_payment.rate_source', { version: activeCard?.version ?? '—', rate: baseRate.toFixed(3) })}
               </p>
             </div>
 
             <div data-gateway-select>
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Payment gateway</p>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.payment_gateway_label')}</p>
               <div className="mt-1 flex flex-col gap-1">
                 {gateways.length === 0 && (
                   <p className="text-[12px] text-slate-500" data-no-gateway>
-                    No payment gateway is connected yet. Your request will be recorded and payment collected once one is set up.
+                    {t('page.subscription_payment.no_gateway')}
                   </p>
                 )}
                 {gateways.map(g => (
@@ -221,7 +235,7 @@ export function SubscriptionPayment() {
 
             {isExpired && (
               <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#FEF2F2', color: '#7F1D1D' }} data-rate-card-expired>
-                A new rate card must be published before purchases can resume.
+                {t('page.subscription_payment.rate_card_expired')}
               </p>
             )}
 
@@ -231,21 +245,21 @@ export function SubscriptionPayment() {
               data-proceed-payment
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >{topUp.isPending ? 'Submitting…' : 'Proceed to payment →'}</button>
+            >{topUp.isPending ? t('page.subscription_payment.submitting') : t('page.subscription_payment.proceed_to_payment')}</button>
 
             {topUp.isSuccess && (
               <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-topup-success>
-                ✓ Top-up request submitted ({qtyLabel}, ${priceValue.toFixed(2)}) · Ref {topUp.data.requestId}. Payment will be collected once the payment gateway is connected — nothing has been charged.
+                {t('page.subscription_payment.topup_success', { qty: qtyLabel, amount: priceValue.toFixed(2), ref: topUp.data.requestId })}
               </p>
             )}
             {topUp.isError && (
               <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-topup-error>
-                Could not submit the top-up request. Please try again.
+                {t('page.subscription_payment.topup_error')}
               </p>
             )}
 
             <p className="font-mono text-[11px] text-slate-500" data-no-card-storage-note>
-              Payment is processed securely via the selected gateway. No card details are stored on this platform.
+              {t('page.subscription_payment.no_card_storage_note')}
             </p>
           </aside>
         </div>

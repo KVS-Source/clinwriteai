@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type {
   PlatformAnalytics, PlatformConfig, AuditTrailEntry,
 } from '@platform/types'
@@ -13,12 +14,14 @@ import { NewTenantDialog } from './tenant-admin/TenantDirectory'
 
 type TabKey = 'clients' | 'analytics' | 'ai-engines' | 'feature-flags'
 
-const TABS: { key: TabKey; label: string }[] = [
-  { key: 'clients',       label: 'Clients' },
-  { key: 'analytics',     label: 'Platform Analytics' },
-  { key: 'ai-engines',    label: 'AI Engines' },
-  { key: 'feature-flags', label: 'Feature Flags' },
-]
+const TAB_LABEL_KEYS: Record<TabKey, string> = {
+  'clients':       'page.super_admin_panel.tab_clients',
+  'analytics':     'page.super_admin_panel.tab_analytics',
+  'ai-engines':    'page.super_admin_panel.tab_ai_engines',
+  'feature-flags': 'page.super_admin_panel.tab_feature_flags',
+}
+
+const TABS: TabKey[] = ['clients', 'analytics', 'ai-engines', 'feature-flags']
 
 const ENGINE_DISPLAY: Record<string, string> = {
   'claude-sonnet-4-6': 'Claude Sonnet 4.6',
@@ -81,20 +84,21 @@ function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: s
 // A client is a tenant (GET/POST /admin/tenants). Plan, admin contact and
 // revenue aren't on the tenant record yet, so those columns show "—".
 function ClientsTab() {
+  const { t } = useTranslation()
   const { data: tenants = [], isLoading, error } = useTenants()
   const [newOpen, setNewOpen] = useState(false)
   const counts = {
-    active:    tenants.filter(t => t.status === 'active').length,
-    suspended: tenants.filter(t => t.status === 'suspended').length,
-    archived:  tenants.filter(t => t.status === 'archived').length,
+    active:    tenants.filter(ten => ten.status === 'active').length,
+    suspended: tenants.filter(ten => ten.status === 'suspended').length,
+    archived:  tenants.filter(ten => ten.status === 'archived').length,
   }
   return (
     <div className="flex flex-col gap-5" data-tab-panel="clients">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <SectionHeader
-          eyebrow="Client Management"
-          title={`${counts.active} active clients · ${counts.suspended} suspended · ${counts.archived} archived`}
-          subtitle="GenBioCa-internal view. Super Admin governs every client organisation; Admin governs a single client account."
+          eyebrow={t('page.super_admin_panel.clients_eyebrow')}
+          title={t('page.super_admin_panel.clients_title', counts)}
+          subtitle={t('page.super_admin_panel.clients_subtitle')}
         />
         <button
           type="button"
@@ -102,7 +106,7 @@ function ClientsTab() {
           onClick={() => setNewOpen(true)}
           className="h-9 rounded-md px-3 text-[13px] font-semibold text-white"
           style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-        >+ New client →</button>
+        >{t('page.super_admin_panel.new_client')}</button>
       </div>
       {newOpen && <NewTenantDialog noun="client" onClose={() => setNewOpen(false)} />}
 
@@ -110,24 +114,24 @@ function ClientsTab() {
         <table className="w-full text-[13px]">
           <thead style={{ backgroundColor: '#F8FAFC' }}>
             <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-              <th className="px-4 py-2">Client</th>
-              <th className="px-4 py-2">Plan</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2">Admin contact</th>
-              <th className="px-4 py-2">Created</th>
-              <th className="px-4 py-2 text-right">Revenue to date</th>
-              <th className="px-4 py-2 text-right">Actions</th>
+              <th className="px-4 py-2">{t('page.super_admin_panel.col_client')}</th>
+              <th className="px-4 py-2">{t('page.super_admin_panel.col_plan')}</th>
+              <th className="px-4 py-2">{t('page.super_admin_panel.col_status')}</th>
+              <th className="px-4 py-2">{t('page.super_admin_panel.col_admin_contact')}</th>
+              <th className="px-4 py-2">{t('page.super_admin_panel.col_created')}</th>
+              <th className="px-4 py-2 text-right">{t('page.super_admin_panel.col_revenue')}</th>
+              <th className="px-4 py-2 text-right">{t('page.super_admin_panel.col_actions')}</th>
             </tr>
           </thead>
           <tbody>
             {isLoading && (
-              <tr><td colSpan={7} className="px-4 py-6 text-center text-[13px] text-slate-500">Loading clients…</td></tr>
+              <tr><td colSpan={7} className="px-4 py-6 text-center text-[13px] text-slate-500">{t('page.super_admin_panel.loading_clients')}</td></tr>
             )}
             {error && (
-              <tr><td colSpan={7} className="px-4 py-6 text-center text-[13px] text-red-700" role="alert">Couldn't load clients — {describeApiError(error).message}</td></tr>
+              <tr><td colSpan={7} className="px-4 py-6 text-center text-[13px] text-red-700" role="alert">{t('page.super_admin_panel.load_clients_error', { message: describeApiError(error).message })}</td></tr>
             )}
             {!isLoading && !error && tenants.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-6 text-center text-[13px] text-slate-500">No clients yet. Click <strong>+ New client</strong> to add one.</td></tr>
+              <tr><td colSpan={7} className="px-4 py-6 text-center text-[13px] text-slate-500">{t('page.super_admin_panel.empty_prefix')} <strong>{t('page.super_admin_panel.new_client')}</strong> {t('page.super_admin_panel.empty_suffix')}</td></tr>
             )}
             {tenants.map(c => (
               <tr key={c.id} className="border-t border-slate-200" data-client-row={c.id} data-client-status={c.status}>
@@ -137,9 +141,9 @@ function ClientsTab() {
                 </td>
                 <td className="px-4 py-3 text-slate-400">—</td>
                 <td className="px-4 py-3">
-                  {c.status === 'active'    && <StatusChip status="ok"   label="✓ Active"    />}
-                  {c.status === 'suspended' && <StatusChip status="warn" label="⚠ Suspended" />}
-                  {c.status === 'archived'  && <StatusChip status="off"  label="○ Archived"  />}
+                  {c.status === 'active'    && <StatusChip status="ok"   label={t('page.super_admin_panel.chip_active')}    />}
+                  {c.status === 'suspended' && <StatusChip status="warn" label={t('page.super_admin_panel.chip_suspended')} />}
+                  {c.status === 'archived'  && <StatusChip status="off"  label={t('page.super_admin_panel.chip_archived')}  />}
                 </td>
                 <td className="px-4 py-3 text-slate-400">—</td>
                 <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{formatDay(c.createdAt)}</td>
@@ -150,7 +154,7 @@ function ClientsTab() {
                     className="text-[12px] font-semibold hover:underline"
                     style={{ color: c.status === 'archived' ? '#64748B' : PLATFORM_ACCENT.primary }}
                     data-client-action={c.status === 'active' ? 'view-suspend' : c.status === 'suspended' ? 'reactivate' : 'view-readonly'}
-                  >{c.status === 'active' ? 'View / Suspend' : c.status === 'suspended' ? 'View / Reactivate' : 'View (read-only)'}</Link>
+                  >{c.status === 'active' ? t('page.super_admin_panel.action_view_suspend') : c.status === 'suspended' ? t('page.super_admin_panel.action_view_reactivate') : t('page.super_admin_panel.action_view_readonly')}</Link>
                 </td>
               </tr>
             ))}
@@ -163,53 +167,54 @@ function ClientsTab() {
         style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
         data-suspension-note
       >
-        Suspension and reactivation are recorded against the client with the acting Super Admin named. A churned client account becomes read-only and cannot be deleted.
+        {t('page.super_admin_panel.suspension_note')}
       </p>
     </div>
   )
 }
 
 function AnalyticsTab({ analytics }: { analytics: PlatformAnalytics }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col gap-5" data-tab-panel="analytics">
-      <SectionHeader eyebrow="Platform Analytics" title="Cross-client platform health" subtitle="Rolling 30-day counts. Revenue is platform-level (GBP)." />
+      <SectionHeader eyebrow={t('page.super_admin_panel.analytics_eyebrow')} title={t('page.super_admin_panel.analytics_title')} subtitle={t('page.super_admin_panel.analytics_subtitle')} />
 
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }} data-stats-grid>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Total active users</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_total_active_users')}</p>
           <p className="mt-1 text-[24px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-stat="totalActiveUsers">{analytics.totalActiveUsers}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Active projects</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_active_projects')}</p>
           <p className="mt-1 text-[24px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-stat="activeProjects">{analytics.activeProjects}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Documents created</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_documents_created')}</p>
           <p className="mt-1 text-[24px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-stat="documentsCreated">{analytics.documentsCreatedRolling30.toLocaleString('en-GB')}</p>
-          <p className="mt-1 font-mono text-[10px] text-slate-500">rolling 30 days</p>
+          <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.super_admin_panel.rolling_30')}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">AI tokens</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_ai_tokens')}</p>
           <p className="mt-1 text-[24px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-stat="aiTokens">{formatCompactNumber(analytics.aiTokensRolling30)}</p>
-          <p className="mt-1 font-mono text-[10px] text-slate-500">rolling 30 days</p>
+          <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.super_admin_panel.rolling_30')}</p>
         </div>
       </div>
 
       <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }} data-revenue-strip>
         <div>
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">MRR</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_mrr')}</p>
           <p className="mt-1 text-[18px] font-bold text-slate-900" data-revenue="mrr">{formatGBP(analytics.mrrGBP)}</p>
         </div>
         <div>
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">ARR</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_arr')}</p>
           <p className="mt-1 text-[18px] font-bold text-slate-900" data-revenue="arr">{formatGBP(analytics.arrGBP)}</p>
         </div>
         <div>
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Churn this quarter</p>
-          <p className="mt-1 text-[18px] font-bold text-slate-900" data-revenue="churn">{analytics.churnThisQuarter} client{analytics.churnThisQuarter === 1 ? '' : 's'}</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_churn')}</p>
+          <p className="mt-1 text-[18px] font-bold text-slate-900" data-revenue="churn">{t('page.super_admin_panel.churn_clients', { count: analytics.churnThisQuarter })}</p>
         </div>
         <div>
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Avg tokens / client / month</p>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_avg_tokens')}</p>
           <p className="mt-1 text-[18px] font-bold text-slate-900" data-revenue="avg-tokens">{formatCompactNumber(analytics.avgTokensPerClientMonth)}</p>
         </div>
       </div>
@@ -218,18 +223,19 @@ function AnalyticsTab({ analytics }: { analytics: PlatformAnalytics }) {
 }
 
 function AIEnginesTab({ config }: { config: PlatformConfig }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col gap-5" data-tab-panel="ai-engines">
-      <SectionHeader eyebrow="AI Engines" title="Cross-client engine registry" subtitle="Removing an engine here removes it from every client's Admin panel. Sessions already run keep their recorded engine." />
+      <SectionHeader eyebrow={t('page.super_admin_panel.engines_eyebrow')} title={t('page.super_admin_panel.engines_title')} subtitle={t('page.super_admin_panel.engines_subtitle')} />
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-engines-table>
         <table className="w-full text-[13px]">
           <thead style={{ backgroundColor: '#F8FAFC' }}>
             <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-              <th className="px-4 py-2">Engine</th>
-              <th className="px-4 py-2">Provider</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2 text-right">Actions</th>
+              <th className="px-4 py-2">{t('page.super_admin_panel.col_engine')}</th>
+              <th className="px-4 py-2">{t('page.super_admin_panel.col_provider')}</th>
+              <th className="px-4 py-2">{t('page.super_admin_panel.col_status')}</th>
+              <th className="px-4 py-2 text-right">{t('page.super_admin_panel.col_actions')}</th>
             </tr>
           </thead>
           <tbody>
@@ -244,15 +250,15 @@ function AIEnginesTab({ config }: { config: PlatformConfig }) {
                   <td className="px-4 py-3 text-slate-700">{e.provider}</td>
                   <td className="px-4 py-3">
                     {isDefault
-                      ? <StatusChip status="ok"   label="✓ Active" />
-                      : <StatusChip status="off"  label="○ Available" />}
+                      ? <StatusChip status="ok"   label={t('page.super_admin_panel.engine_active')} />
+                      : <StatusChip status="off"  label={t('page.super_admin_panel.engine_available')} />}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <button
                       type="button"
                       data-engine-action="remove"
                       className="text-[12px] font-semibold text-slate-500 hover:text-red-700"
-                    >Remove</button>
+                    >{t('page.super_admin_panel.remove')}</button>
                   </td>
                 </tr>
               )
@@ -265,17 +271,18 @@ function AIEnginesTab({ config }: { config: PlatformConfig }) {
 }
 
 function FeatureFlagsTab({ config, onToggle }: { config: PlatformConfig; onToggle: (id: string, next: boolean) => void }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col gap-5" data-tab-panel="feature-flags">
-      <SectionHeader eyebrow="Feature Flags" title={`${config.featureFlags.length} flags`} subtitle="Flags apply platform-wide and take effect on the next page load for every client." />
+      <SectionHeader eyebrow={t('page.super_admin_panel.flags_eyebrow')} title={t('page.super_admin_panel.flags_title', { count: config.featureFlags.length })} subtitle={t('page.super_admin_panel.flags_subtitle')} />
 
       <div className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-flags-table>
         <table className="w-full text-[13px]">
           <thead style={{ backgroundColor: '#F8FAFC' }}>
             <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-              <th className="px-4 py-2">Feature</th>
-              <th className="px-4 py-2">Status</th>
-              <th className="px-4 py-2 text-right">Toggle</th>
+              <th className="px-4 py-2">{t('page.super_admin_panel.col_feature')}</th>
+              <th className="px-4 py-2">{t('page.super_admin_panel.col_status')}</th>
+              <th className="px-4 py-2 text-right">{t('page.super_admin_panel.col_toggle')}</th>
             </tr>
           </thead>
           <tbody>
@@ -286,9 +293,9 @@ function FeatureFlagsTab({ config, onToggle }: { config: PlatformConfig; onToggl
                 <tr key={f.id} className="border-t border-slate-200" data-flag-row={f.id} data-flag-status={f.status}>
                   <td className="px-4 py-3 font-semibold text-slate-900">{f.label}</td>
                   <td className="px-4 py-3">
-                    {isEnabled && <StatusChip status="ok"   label="✓ Enabled" />}
-                    {isBeta    && <StatusChip status="warn" label="○ Beta" />}
-                    {f.status === 'disabled' && <StatusChip status="off"  label="○ Disabled" />}
+                    {isEnabled && <StatusChip status="ok"   label={t('page.super_admin_panel.flag_enabled')} />}
+                    {isBeta    && <StatusChip status="warn" label={t('page.super_admin_panel.flag_beta')} />}
+                    {f.status === 'disabled' && <StatusChip status="off"  label={t('page.super_admin_panel.flag_disabled')} />}
                   </td>
                   <td className="px-4 py-3 text-right">
                     <label className="inline-flex cursor-pointer items-center gap-2">
@@ -313,25 +320,26 @@ function FeatureFlagsTab({ config, onToggle }: { config: PlatformConfig; onToggl
 }
 
 function PlatformAuditLog({ entries }: { entries: AuditTrailEntry[] }) {
+  const { t } = useTranslation()
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5" data-platform-audit-log>
       <SectionHeader
-        eyebrow="Platform Audit Log"
-        title={`${entries.length} recent Super Admin events`}
-        subtitle="Cross-client actions performed by GenBioCa Super Admin."
+        eyebrow={t('page.super_admin_panel.audit_eyebrow')}
+        title={t('page.super_admin_panel.audit_title', { count: entries.length })}
+        subtitle={t('page.super_admin_panel.audit_subtitle')}
       />
 
       <div className="flex flex-col gap-2" data-audit-entries>
-        {entries.map(e => (
-          <div key={e.id} className="flex flex-wrap items-start justify-between gap-2 rounded-md border border-slate-200 p-3 text-[12px]" data-audit-entry={e.id}>
+        {entries.map(ev => (
+          <div key={ev.id} className="flex flex-wrap items-start justify-between gap-2 rounded-md border border-slate-200 p-3 text-[12px]" data-audit-entry={ev.id}>
             <div className="min-w-0 flex-1">
-              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{e.action} · {e.entityType}</p>
-              <p className="mt-1 text-[13px] font-semibold text-slate-900">{e.entityLabel}</p>
-              <p className="mt-1 text-slate-700">{e.details}</p>
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{ev.action} · {ev.entityType}</p>
+              <p className="mt-1 text-[13px] font-semibold text-slate-900">{ev.entityLabel}</p>
+              <p className="mt-1 text-slate-700">{ev.details}</p>
             </div>
             <div className="text-right font-mono text-[10px] text-slate-500">
-              <p>{e.userName}</p>
-              <p>{formatDateTime(e.timestamp)}</p>
+              <p>{ev.userName}</p>
+              <p>{formatDateTime(ev.timestamp)}</p>
             </div>
           </div>
         ))}
@@ -342,7 +350,7 @@ function PlatformAuditLog({ entries }: { entries: AuditTrailEntry[] }) {
         style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
         data-immutability-note
       >
-        Audit records are immutable and cannot be edited, backdated or removed.
+        {t('page.super_admin_panel.audit_immutability')}
       </p>
     </section>
   )
@@ -351,6 +359,7 @@ function PlatformAuditLog({ entries }: { entries: AuditTrailEntry[] }) {
 // -------------- Screen shell --------------
 
 export function SuperAdminPanel() {
+  const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
   const [activeTab, setActiveTab] = useState<TabKey>('clients')
 
@@ -364,7 +373,7 @@ export function SuperAdminPanel() {
   )
 
   const onFlagToggle = () => { /* PATCH would go here in production */ }
-  const activeTabLabel = TABS.find(t => t.key === activeTab)?.label ?? ''
+  const activeTabLabel = t(TAB_LABEL_KEYS[activeTab])
 
   return (
     <div className="bg-slate-50" data-screen="super-admin-panel">
@@ -372,9 +381,9 @@ export function SuperAdminPanel() {
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Super Admin</span>
+          <span>{t('page.super_admin_panel.crumb_super_admin')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">Super Admin Panel</span>
+          <span className="font-semibold text-slate-900">{t('page.super_admin_panel.crumb_panel')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <span>{activeTabLabel}</span>
         </nav>
@@ -382,9 +391,9 @@ export function SuperAdminPanel() {
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Super Admin Panel</h1>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.super_admin_panel.title')}</h1>
             <p className="mt-1 font-mono text-xs" style={{ color: '#64748B' }} data-current-user>
-              {currentUser.name} · Super Admin · GenBioCa (internal)
+              {t('page.super_admin_panel.user_byline', { name: currentUser.name })}
             </p>
           </div>
         </div>
@@ -393,21 +402,21 @@ export function SuperAdminPanel() {
         <div className="grid gap-4" style={{ gridTemplateColumns: '240px 1fr' }}>
 
           <aside className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-2" data-settings-nav data-tab-count={TABS.length}>
-            {TABS.map(t => {
-              const isActive = t.key === activeTab
+            {TABS.map(ty => {
+              const isActive = ty === activeTab
               return (
                 <button
-                  key={t.key}
+                  key={ty}
                   type="button"
-                  onClick={() => setActiveTab(t.key)}
-                  data-settings-tab={t.key}
+                  onClick={() => setActiveTab(ty)}
+                  data-settings-tab={ty}
                   data-active={isActive || undefined}
                   className="rounded-md px-3 py-2 text-left text-[13px] font-semibold transition-colors"
                   style={{
                     backgroundColor: isActive ? PLATFORM_ACCENT.primary : 'transparent',
                     color:           isActive ? '#FFFFFF' : '#334155',
                   }}
-                >{t.label}</button>
+                >{t(TAB_LABEL_KEYS[ty])}</button>
               )
             })}
           </aside>

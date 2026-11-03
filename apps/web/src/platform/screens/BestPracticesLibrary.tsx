@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { BestPractice, ModuleKey } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -8,24 +9,24 @@ import { isPlatformAdmin } from '../../config/roles'
 
 type TabKey = 'all' | 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
 
-const TAB_META: { key: TabKey; label: string }[] = [
-  { key: 'all',      label: 'All' },
-  { key: 'A',        label: 'Clinical Writing' },
-  { key: 'B',        label: 'Scientific Writing' },
-  { key: 'C',        label: 'Medical Writing' },
-  { key: 'D',        label: 'Regulatory Writing' },
-  { key: 'E',        label: 'Ideation & Publishing' },
-  { key: 'platform', label: 'Platform-Wide' },
+const TAB_META: { key: TabKey; labelKey: string }[] = [
+  { key: 'all',      labelKey: 'page.best_practices_library.tab_all' },
+  { key: 'A',        labelKey: 'page.best_practices_library.tab_a' },
+  { key: 'B',        labelKey: 'page.best_practices_library.tab_b' },
+  { key: 'C',        labelKey: 'page.best_practices_library.tab_c' },
+  { key: 'D',        labelKey: 'page.best_practices_library.tab_d' },
+  { key: 'E',        labelKey: 'page.best_practices_library.tab_e' },
+  { key: 'platform', labelKey: 'page.best_practices_library.tab_platform' },
 ]
 
-const MODULE_LABEL: Record<TabKey, string> = {
-  all:      'All disciplines',
-  A:        'Clinical Writing',
-  B:        'Scientific Writing',
-  C:        'Medical Writing',
-  D:        'Regulatory Writing',
-  E:        'Ideation & Publishing',
-  platform: 'Platform',
+const MODULE_LABEL_KEYS: Record<TabKey, string> = {
+  all:      'page.best_practices_library.module_all',
+  A:        'page.best_practices_library.module_a',
+  B:        'page.best_practices_library.module_b',
+  C:        'page.best_practices_library.module_c',
+  D:        'page.best_practices_library.module_d',
+  E:        'page.best_practices_library.module_e',
+  platform: 'page.best_practices_library.module_platform',
 }
 
 // [Module]-[Category]-[Version]-[Date] naming convention (FR-PM-016).
@@ -49,6 +50,7 @@ function formatDay(iso: string | null | undefined): string {
 }
 
 export function BestPracticesLibrary() {
+  const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
   const canAuthor   = isPlatformAdmin(currentUser)
   const qc = useQueryClient()
@@ -105,7 +107,7 @@ export function BestPracticesLibrary() {
       } as Partial<BestPractice>)
     } catch {
       // Keep the drawer open and the form filled in so nothing typed is lost.
-      setPublishError('Could not publish this best practice. Your entries are kept — please try again.')
+      setPublishError(t('page.best_practices_library.publish_error'))
       return
     } finally {
       setPublishing(false)
@@ -116,26 +118,26 @@ export function BestPracticesLibrary() {
   }
 
   const heading = tab === 'all'
-    ? `All best practices · ${filtered.length} items`
+    ? t('page.best_practices_library.heading_all', { count: filtered.length })
     : tab === 'platform'
-      ? `Platform-wide best practices · ${filtered.length} items`
-      : `${MODULE_LABEL[tab]} best practices · ${filtered.length} items`
+      ? t('page.best_practices_library.heading_platform', { count: filtered.length })
+      : t('page.best_practices_library.heading_module', { module: t(MODULE_LABEL_KEYS[tab]), count: filtered.length })
 
   return (
     <div className="bg-slate-50" data-screen="best-practices-library">
       <div className="flex flex-col gap-4 px-4 pb-12 pt-5 sm:px-8" style={{ maxWidth: 1440 }}>
 
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>Platform</span>
+          <span>{t('page.best_practices_library.crumb_platform')}</span>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">Best Practices Library</span>
+          <span className="font-semibold text-slate-900">{t('page.best_practices_library.crumb_best_practices')}</span>
         </nav>
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Best Practices Library</h1>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.best_practices_library.title')}</h1>
             <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>
-              {currentUser.name} · {canAuthor ? 'Super Admin' : 'Read-only'}
+              {t('page.best_practices_library.user_byline', { name: currentUser.name, role: canAuthor ? t('page.best_practices_library.role_super_admin') : t('page.best_practices_library.role_read_only') })}
             </p>
           </div>
           {canAuthor && (
@@ -144,7 +146,7 @@ export function BestPracticesLibrary() {
               data-new-bp
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >+ New best practice →</button>
+            >{t('page.best_practices_library.new_bp')}</button>
           )}
         </div>
 
@@ -154,28 +156,28 @@ export function BestPracticesLibrary() {
           style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
           data-naming-convention
         >
-          Best practice items must follow the naming convention <code>[Module]-[Category]-[Version]-[Date]</code> — for example <code>Module-D-CTD-Authoring-v1.2-2026-01</code>
+          {t('page.best_practices_library.naming_convention_prefix')} <code>[Module]-[Category]-[Version]-[Date]</code> {t('page.best_practices_library.naming_convention_example_prefix')} <code>Module-D-CTD-Authoring-v1.2-2026-01</code>
         </p>
 
         {/* Tabs */}
-        <div className="flex flex-wrap items-center gap-1 border-b border-slate-200" role="tablist" aria-label="Best practices by discipline" data-module-tabs>
-          {TAB_META.map(t => {
-            const active = tab === t.key
+        <div className="flex flex-wrap items-center gap-1 border-b border-slate-200" role="tablist" aria-label={t('page.best_practices_library.tablist_label')} data-module-tabs>
+          {TAB_META.map(ty => {
+            const active = tab === ty.key
             return (
               <button
-                key={t.key} type="button" role="tab" aria-selected={active} onClick={() => setTab(t.key)}
-                data-tab={t.key} data-active={active || undefined}
+                key={ty.key} type="button" role="tab" aria-selected={active} onClick={() => setTab(ty.key)}
+                data-tab={ty.key} data-active={active || undefined}
                 className="flex items-center gap-2 px-3 py-2 text-[13px] font-semibold"
                 style={{
                   color: active ? PLATFORM_ACCENT.primary : '#64748B',
                   borderBottom: active ? `2px solid ${PLATFORM_ACCENT.primary}` : '2px solid transparent',
                 }}
               >
-                {t.label}
+                {t(ty.labelKey)}
                 <span className="inline-flex h-5 items-center rounded-full px-1.5 text-[10px] font-mono font-semibold"
                   style={{ backgroundColor: active ? PLATFORM_ACCENT.primary : '#F1F5F9', color: active ? '#FFFFFF' : '#475569' }}
-                  data-tab-count={t.key}
-                >{counts[t.key]}<span className="sr-only"> {counts[t.key] === 1 ? 'item' : 'items'}</span></span>
+                  data-tab-count={ty.key}
+                >{counts[ty.key]}<span className="sr-only"> {counts[ty.key] === 1 ? t('page.best_practices_library.item_singular') : t('page.best_practices_library.item_plural')}</span></span>
               </button>
             )
           })}
@@ -186,24 +188,24 @@ export function BestPracticesLibrary() {
             className="inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
             style={{ backgroundColor: '#FFFBEB', color: '#B45309', border: '1px solid #FDE68A' }}
             data-review-due-chip
-          >⚠ {reviewDueCount} item{reviewDueCount === 1 ? '' : 's'} due for quarterly review</p>
+          >{t('page.best_practices_library.review_due_count', { count: reviewDueCount })}</p>
         )}
 
         <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500" data-heading>{heading}</p>
 
         <div className={`grid gap-4 ${drawerOpen ? 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]' : 'grid-cols-1'}`}>
 
-          <section className="flex min-w-0 flex-col gap-3" role="tabpanel" aria-label={MODULE_LABEL[tab]} data-bp-cards>
-            {isLoading && <p className="text-[13px] text-slate-500" data-state="loading">Loading best practices…</p>}
+          <section className="flex min-w-0 flex-col gap-3" role="tabpanel" aria-label={t(MODULE_LABEL_KEYS[tab])} data-bp-cards>
+            {isLoading && <p className="text-[13px] text-slate-500" data-state="loading">{t('page.best_practices_library.loading')}</p>}
             {isError && (
               <p className="rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-800" role="alert" data-state="error">
-                Couldn't load best practices.{' '}
-                <button type="button" onClick={() => refetch()} className="font-semibold underline">Retry</button>
+                {t('page.best_practices_library.load_error')}{' '}
+                <button type="button" onClick={() => refetch()} className="font-semibold underline">{t('page.best_practices_library.retry')}</button>
               </p>
             )}
             {!isLoading && !isError && filtered.length === 0 && (
               <p className="text-[13px] text-slate-500" data-state="empty">
-                {tab === 'all' ? 'No best practices yet.' : `No best practices in ${MODULE_LABEL[tab]} yet.`}
+                {tab === 'all' ? t('page.best_practices_library.empty_all') : t('page.best_practices_library.empty_module', { module: t(MODULE_LABEL_KEYS[tab]) })}
               </p>
             )}
             {filtered.map(bp => {
@@ -230,22 +232,24 @@ export function BestPracticesLibrary() {
                         className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
                         style={{ backgroundColor: '#FFFBEB', color: '#B45309', border: '1px solid #FDE68A' }}
                         data-review-due-badge
-                      >⚠ Review due</span>
+                      >{t('page.best_practices_library.review_due_badge')}</span>
                     )}
                   </div>
-                  <p className="mt-2 font-mono text-[11px] text-slate-500">Effective {formatDay(bp.effectiveFrom)} → {bp.validUntil ? `Valid until ${formatDay(bp.validUntil)}` : 'No end date'}</p>
+                  <p className="mt-2 font-mono text-[11px] text-slate-500">
+                    {t('page.best_practices_library.effective_prefix', { date: formatDay(bp.effectiveFrom) })} → {bp.validUntil ? t('page.best_practices_library.valid_until', { date: formatDay(bp.validUntil) }) : t('page.best_practices_library.no_end_date')}
+                  </p>
                   <p className="mt-3 text-[13px] text-slate-700 [overflow-wrap:anywhere]">{bp.guidance}</p>
                   {(bp.applicableDocTypes?.length ?? 0) > 0 && (
                     <p className="mt-3 font-mono text-[11px] text-slate-500">
-                      Applicable doc types: {bp.applicableDocTypes.join(', ')}
+                      {t('page.best_practices_library.applicable_doc_types')} {bp.applicableDocTypes.join(', ')}
                     </p>
                   )}
                   {(bp.frameworkRefs?.length ?? 0) > 0 && (
                     <p className="mt-1 font-mono text-[11px] text-slate-500">
-                      Framework references: {bp.frameworkRefs.join(', ')}
+                      {t('page.best_practices_library.framework_references')} {bp.frameworkRefs.join(', ')}
                     </p>
                   )}
-                  <p className="mt-1 font-mono text-[11px] text-slate-500">Last updated {formatDay(bp.updatedAt)}</p>
+                  <p className="mt-1 font-mono text-[11px] text-slate-500">{t('page.best_practices_library.last_updated', { date: formatDay(bp.updatedAt) })}</p>
                   {reviewDue && bp.reviewDueNote && (
                     <p className="mt-2 text-[12px] text-slate-600" data-review-due-note>{bp.reviewDueNote}</p>
                   )}
@@ -255,49 +259,49 @@ export function BestPracticesLibrary() {
           </section>
 
           {drawerOpen && canAuthor && (
-            <aside aria-label="New best practice" className="flex min-w-0 flex-col gap-3 self-start rounded-lg border border-slate-200 bg-white p-4 sm:p-5" data-new-bp-drawer>
+            <aside aria-label={t('page.best_practices_library.drawer_aria')} className="flex min-w-0 flex-col gap-3 self-start rounded-lg border border-slate-200 bg-white p-4 sm:p-5" data-new-bp-drawer>
               <div className="flex items-start justify-between">
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">New best practice</p>
-                <button type="button" onClick={() => setDrawerOpen(false)} aria-label="Close new best practice form"
-                  className="h-7 rounded-md border border-slate-300 bg-white px-2.5 text-[12px] font-semibold text-slate-600 hover:bg-slate-50">Close ✕</button>
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.drawer_eyebrow')}</p>
+                <button type="button" onClick={() => setDrawerOpen(false)} aria-label={t('page.best_practices_library.close_drawer_aria')}
+                  className="h-7 rounded-md border border-slate-300 bg-white px-2.5 text-[12px] font-semibold text-slate-600 hover:bg-slate-50">{t('page.best_practices_library.close_button')}</button>
               </div>
 
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Name (follows convention)</span>
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_name')}</span>
                 <input type="text" value={name} onChange={(e) => setName(e.currentTarget.value)}
                   placeholder="Module-D-Category-v1.0-2026-09"
                   data-input-name
                   className={`h-9 ${FIELD_CLS}`} />
                 {name && !nameValid && (
                   <p className="text-[11px] font-semibold text-red-700" role="alert" data-name-invalid>
-                    Best Practice items must follow the naming convention: [Module]-[Category]-[Version]-[Date]. Example: Module-D-CTD-Authoring-v1.2-2026-01.
+                    {t('page.best_practices_library.name_invalid')}
                   </p>
                 )}
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Discipline</span>
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_discipline')}</span>
                 <select value={module_} onChange={(e) => setModule(e.currentTarget.value as ModuleKey)}
                   data-input-module
                   className={`h-9 ${FIELD_CLS}`}>
-                  {(['A','B','C','D','E','platform'] as ModuleKey[]).map(m => <option key={m} value={m}>{MODULE_LABEL[m as TabKey]}</option>)}
+                  {(['A','B','C','D','E','platform'] as ModuleKey[]).map(m => <option key={m} value={m}>{t(MODULE_LABEL_KEYS[m as TabKey])}</option>)}
                 </select>
                 {nameValid && !moduleMatches && (
                   <p className="text-[11px] font-semibold text-red-700" role="alert" data-module-mismatch>
-                    The name starts with {name.startsWith('Platform') ? 'Platform' : name.slice(0, 8)}, but the discipline is {MODULE_LABEL[module_ as TabKey]}. Change one so they match.
+                    {t('page.best_practices_library.module_mismatch', { prefix: name.startsWith('Platform') ? 'Platform' : name.slice(0, 8), discipline: t(MODULE_LABEL_KEYS[module_ as TabKey]) })}
                   </p>
                 )}
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Category</span>
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_category')}</span>
                 <input type="text" value={category} onChange={(e) => setCategory(e.currentTarget.value)}
                   data-input-category
                   className={`h-9 ${FIELD_CLS}`} />
               </label>
 
               <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Guidance</span>
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_guidance')}</span>
                 <textarea rows={4} value={guidance} onChange={(e) => setGuidance(e.currentTarget.value)}
                   data-input-guidance
                   className={`resize-y py-2 ${FIELD_CLS}`} />
@@ -305,13 +309,13 @@ export function BestPracticesLibrary() {
 
               <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
                 <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Effective from</span>
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_effective_from')}</span>
                   <input type="date" value={effFrom} onChange={(e) => setEffFrom(e.currentTarget.value)}
                     data-input-effective
                     className={`h-9 ${FIELD_CLS}`} />
                 </label>
                 <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Valid until</span>
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_valid_until')}</span>
                   <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.currentTarget.value)}
                     min={effFrom || undefined}
                     data-input-valid-until
@@ -320,7 +324,7 @@ export function BestPracticesLibrary() {
               </div>
               {!datesInOrder && (
                 <p className="text-[11px] font-semibold text-red-700" role="alert" data-dates-invalid>
-                  "Valid until" can't be earlier than "Effective from".
+                  {t('page.best_practices_library.dates_invalid')}
                 </p>
               )}
 
@@ -329,14 +333,14 @@ export function BestPracticesLibrary() {
                 data-publish-bp
                 className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                 style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-              >{publishing ? 'Publishing…' : 'Publish best practice →'}</button>
+              >{publishing ? t('page.best_practices_library.publishing') : t('page.best_practices_library.publish')}</button>
 
               {publishError && (
                 <p className="text-[11px] font-semibold text-red-700" role="alert" data-publish-error>{publishError}</p>
               )}
 
               <p className="font-mono text-[11px] text-slate-500" data-publish-note>
-                Published items are visible to every client account immediately. Superseding an item preserves the previous version in the audit trail.
+                {t('page.best_practices_library.publish_note')}
               </p>
             </aside>
           )}

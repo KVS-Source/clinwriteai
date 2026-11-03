@@ -2037,7 +2037,7 @@
       "err_load_raci": "RACI の読み込みに失敗しました",
       "heading": "RACI 割り当て",
       "sub_editable": "あなたがこのドキュメントのオーナーです — 作成、承認、レビュー、QC リリース、情報共有の各担当者を選んでください。",
-      "sub_read_only_no_permission": "読み取り専用 — 管理者、このドキュメントの Responsible (R)、または担当者のみが割り当てを変更できます。",
+      "sub_read_only_no_permission": "読み取り専用 — 割り当てを変更できるのはこのドキュメントの作成者 (Responsible, R) のみです。管理者とプロジェクトマネージャーは RACI を閲覧できますが、編集はできません。",
       "sub_read_only": "現在の割り当ての読み取り専用ビュー。",
       "loading": "読み込み中…",
       "assigned_count": "{{count}} 名割り当て済み",

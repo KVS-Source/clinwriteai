@@ -14,7 +14,7 @@ async function build(removedRows: Row[]) {
   const update = vi.fn(async (args: { where: { id: string }; data: Row }) => ({ id: args.where.id, ...args.data }))
   const app = Fastify()
   app.decorate('prisma', {
-    document: { findUnique: vi.fn(async () => ({ id: 'DOC-1', assigneeId: 'someone-else' })) },
+    document: { findUnique: vi.fn(async () => ({ id: 'DOC-1', assigneeId: 'lead' })) },
     user:     { findUnique: vi.fn(async () => ({ id: 'user-b', capabilities: ['can-review'], role: 'contributor' })) },
     documentRaci: {
       findFirst: vi.fn(async () => null),
@@ -27,7 +27,7 @@ async function build(removedRows: Row[]) {
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    const user: AuthenticatedUser = { id: 'admin', email: 'a@x.io', role: 'tenant-admin', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'lead', email: 'l@x.io', role: 'contributor', modules: ['A'], tenantId: null }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
   })
   await app.register(documentRaciRoutes, { prefix: '/documents' })
@@ -55,6 +55,6 @@ describe('POST …/raci re-assign', () => {
     expect(create).not.toHaveBeenCalled()
     const call = update.mock.calls[0]![0]
     expect(call.where.id).toBe('raci-old')
-    expect(call.data).toMatchObject({ removedAt: null, reviewedAt: null, submittedAt: null, approvedAt: null, assignedBy: 'admin' })
+    expect(call.data).toMatchObject({ removedAt: null, reviewedAt: null, submittedAt: null, approvedAt: null, assignedBy: 'lead' })
   })
 })

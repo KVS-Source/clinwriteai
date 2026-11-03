@@ -2037,7 +2037,7 @@
       "err_load_raci": "Failed to load RACI",
       "heading": "RACI assignments",
       "sub_editable": "You own this document — pick who authors, approves, reviews, releases QC, and should be kept informed.",
-      "sub_read_only_no_permission": "Read-only — only an admin, a Responsible (R) on this document or its assignee can change assignments.",
+      "sub_read_only_no_permission": "Read-only — only the document's authors (Responsible, R) can change assignments. Admins and project managers can view but not edit RACI.",
       "sub_read_only": "Read-only view of the current assignments.",
       "loading": "Loading…",
       "assigned_count": "{{count}} assigned",

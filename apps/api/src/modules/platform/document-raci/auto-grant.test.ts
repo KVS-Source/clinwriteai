@@ -16,14 +16,14 @@ async function build(assignee: { capabilities: string[]; role: string }) {
   const append = vi.fn(async (_e: { action: string; details: Record<string, unknown> }) => undefined)
   const app = Fastify()
   app.decorate('prisma', {
-    document: { findUnique: vi.fn(async () => ({ id: 'DOC-1', assigneeId: 'someone-else' })) },
+    document: { findUnique: vi.fn(async () => ({ id: 'DOC-1', assigneeId: 'lead' })) },
     user: { findUnique: vi.fn(async () => ({ id: 'user-b', ...assignee })), update: userUpdate },
     documentRaci: { findFirst: vi.fn(async () => null), findMany: vi.fn(async () => []), create },
   } as never)
   app.decorate('audit', { append } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    const user: AuthenticatedUser = { id: 'admin', email: 'a@x.io', role: 'tenant-admin', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'lead', email: 'l@x.io', role: 'contributor', modules: ['A'], tenantId: null }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
   })
   await app.register(documentRaciRoutes, { prefix: '/documents' })

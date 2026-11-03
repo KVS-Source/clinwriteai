@@ -268,6 +268,20 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
       mustChangePassword: profile?.mustChangePassword ?? false,
     }
   })
+
+  // Demo "Switch persona" list. /admin/users is admin-only, so a contributor
+  // persona used to fall back to a hardcoded fixture with different names.
+  // This lists the same users the platform admin sees, to any persona, but
+  // only while AUTH_BYPASS_EMAIL is set (dev/demo — already "no real auth").
+  // Elsewhere the route answers 404. Display fields only.
+  app.get('/auth/demo-personas', { preHandler: requireAuth() }, async (_request, reply) => {
+    if (!(process.env.AUTH_BYPASS_EMAIL ?? '').trim()) return reply.code(404).send({ error: 'not_found' })
+    const users = await app.prisma.user.findMany({
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, name: true, email: true, role: true, modules: true, status: true, lastActiveAt: true, tenantId: true },
+    })
+    return users.map(({ lastActiveAt, ...u }) => ({ ...u, lastActive: lastActiveAt?.toISOString() ?? null }))
+  })
 }
 
 function resolveRedirectUri(request: { protocol: string; hostname: string; headers: Record<string, unknown> }): string {

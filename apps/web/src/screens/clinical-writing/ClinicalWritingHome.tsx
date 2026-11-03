@@ -134,6 +134,8 @@ export function ClinicalWritingHome() {
   const navigate         = useNavigate()
   const currentUser      = usePlatformStore(s => s.currentUser)
   const isAdminViewer    = ADMIN_ROLES.has(currentUser.role)
+  // New Document + Duplicate are PM-only (POST /projects/:id/documents requires role='pm').
+  const isPm             = currentUser.role === 'pm'
   const setActiveProject = useProjectStore(s => s.setActiveProject)
 
   // Tab, filters and search live in the URL (?tab=sources&stage=…&status=…&type=…&q=…), so Back
@@ -387,13 +389,15 @@ export function ClinicalWritingHome() {
               ].filter(Boolean).join(' · ')}
             </p>
             <div className="flex gap-2.5 pt-1">
-              <button
-                type="button"
-                onClick={() => setNewDocOpen({ duplicateSourceId: null })}
-                className="rounded-md bg-blue-600 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-blue-700"
-              >
-                + {t('page.clinical_writing_home.new_document')}
-              </button>
+              {isPm && (
+                <button
+                  type="button"
+                  onClick={() => setNewDocOpen({ duplicateSourceId: null })}
+                  className="rounded-md bg-blue-600 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-blue-700"
+                >
+                  + {t('page.clinical_writing_home.new_document')}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => setUploadOpen(true)}
@@ -639,7 +643,7 @@ export function ClinicalWritingHome() {
                     <DocumentRowMenu
                       doc={doc}
                       onOpen={() => handleDocClick(doc)}
-                      onDuplicate={() => setNewDocOpen({ duplicateSourceId: doc.id })}
+                      onDuplicate={isPm ? () => setNewDocOpen({ duplicateSourceId: doc.id }) : undefined}
                       onAuditTrail={() => setAuditDoc({ id: doc.id, title: doc.title })}
                       onRaci={() => setRaciDoc(doc)}
                     />
@@ -924,8 +928,8 @@ function SearchIcon() {
   )
 }
 
-// RACI is offered from the row menu only while the document is being worked on.
-const RACI_MENU_STATUSES: ReadonlySet<string> = new Set(['in-authoring', 'in-review', 'crm-in-progress'])
+// RACI is offered from the row menu until the document reaches signature (not started → CRM).
+const RACI_MENU_STATUSES: ReadonlySet<string> = new Set(['not-started', 'in-authoring', 'in-review', 'crm-in-progress'])
 
 // Document row "⋯" menu — Arc A5. Recommended default action set per
 // docs/decisions/module-a-defaults.md §1. Items marked (soon) are
@@ -933,7 +937,7 @@ const RACI_MENU_STATUSES: ReadonlySet<string> = new Set(['in-authoring', 'in-rev
 function DocumentRowMenu(props: {
   doc: Document
   onOpen: () => void
-  onDuplicate: () => void
+  onDuplicate?: () => void
   onAuditTrail: () => void
   onRaci: () => void
 }) {
@@ -1008,7 +1012,9 @@ function DocumentRowMenu(props: {
           onClick={e => e.stopPropagation()}
         >
           <MenuItem onClick={() => { setOpen(false); onOpen() }}>{t('page.clinical_writing_home.menu_open')}</MenuItem>
-          <MenuItem onClick={() => { setOpen(false); onDuplicate() }}>{t('page.clinical_writing_home.menu_duplicate')}</MenuItem>
+          {onDuplicate && (
+            <MenuItem onClick={() => { setOpen(false); onDuplicate() }}>{t('page.clinical_writing_home.menu_duplicate')}</MenuItem>
+          )}
           <MenuItem onClick={() => { setOpen(false); onAuditTrail() }}>{t('page.clinical_writing_home.menu_audit_trail')}</MenuItem>
           {RACI_MENU_STATUSES.has(doc.status) && (
             <MenuItem onClick={() => { setOpen(false); onRaci() }}>{t('page.clinical_writing_home.menu_raci')}</MenuItem>

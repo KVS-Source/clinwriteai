@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { DocumentStatus, PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
@@ -40,37 +41,42 @@ import { AIChatPanel }            from '../../panels/AIChatPanel'
 import { SectionHistoryPanel }    from '../../panels/SectionHistoryPanel'
 import { AIPromptHelpPanel }      from '../../panels/AIPromptHelpPanel'
 import { TlfPanel }               from '../../panels/TlfPanel'
+import { AiDraftingReportPanel }  from '../../panels/AiDraftingReportPanel'
 
-// Panel titles for the right panel header
-const PANEL_TITLES: Record<NonNullable<PanelMode>, string> = {
-  'ai':                'AI Chat',
-  'ai-help':           'Prompt library',
-  'history':           'Section History',
-  'traceability':      'Source References',
-  'voice':             'Voice Note',
-  'checklist':         'Checklist',
-  'audit':             'Audit Trail',
-  'comments':          'Comments',
-  'review-assignment': 'Submit for Review',
-  'crm-resolution':    'CRM Resolution',
-  'ich-e3':            'Checklist',
-  'meddra':            'MedDRA Lookup',
-  'tlf':               'TLF Cross-Reference',
-  'raci':              'RACI Assignments',
+// Panel title translation keys (page.document_editor.panel_title_*). Resolved
+// at render time via t() so language changes don't need a re-mount.
+const PANEL_TITLE_KEYS: Record<NonNullable<PanelMode>, string> = {
+  'ai':                'panel_title_ai',
+  'ai-help':           'panel_title_ai_help',
+  'history':           'panel_title_history',
+  'traceability':      'panel_title_traceability',
+  'voice':             'panel_title_voice',
+  'checklist':         'panel_title_checklist',
+  'audit':             'panel_title_audit',
+  'comments':          'panel_title_comments',
+  'review-assignment': 'panel_title_review_assignment',
+  'crm-resolution':    'panel_title_crm_resolution',
+  'ich-e3':            'panel_title_ich_e3',
+  'meddra':            'panel_title_meddra',
+  'tlf':               'panel_title_tlf',
+  'raci':              'panel_title_raci',
+  'ai-drafting-report': 'panel_title_ai_drafting_report',
 }
 
-// Statuses where the document is locked for authoring — mirrors the API's
-// AUTHORING_LOCKED_STATUSES (apps/api/src/modules/clinical-writing/document-status.ts).
-// Not started, In authoring and CRM in progress stay editable; a closed project
-// locks every document whatever its status.
-const AUTHORING_LOCK: Partial<Record<DocumentStatus, { short: string; note: string }>> = {
-  'in-review':         { short: 'in review',          note: 'The document is locked for authoring while reviewers respond.' },
-  'pending-signature': { short: 'awaiting signature', note: 'The document is locked for authoring while it is being signed. If a signer sends it back, it returns to authoring as a new version.' },
-  'signed':            { short: 'signed',             note: 'The signed version is final and can’t be changed.' },
+// Keys to the authoring-lock copy (short label + explanatory note). Mirrors
+// the API's AUTHORING_LOCKED_STATUSES
+// (apps/api/src/modules/clinical-writing/document-status.ts). Not started,
+// In authoring and CRM in progress stay editable; a closed project locks
+// every document whatever its status. Translated at render time via t().
+const AUTHORING_LOCK_KEYS: Partial<Record<DocumentStatus, { shortKey: string; noteKey: string }>> = {
+  'in-review':         { shortKey: 'lock_short_in_review',          noteKey: 'lock_note_in_review' },
+  'pending-signature': { shortKey: 'lock_short_pending_signature',  noteKey: 'lock_note_pending_signature' },
+  'signed':            { shortKey: 'lock_short_signed',             noteKey: 'lock_note_signed' },
 }
-const PROJECT_CLOSED_LOCK = { short: 'project closed', note: 'The project is closed, so its documents are read-only.' }
+const PROJECT_CLOSED_LOCK_KEYS = { shortKey: 'lock_short_project_closed', noteKey: 'lock_note_project_closed' }
 
 export function DocumentEditor() {
+  const { t } = useTranslation()
   const { projectId, documentId } = useParams()
   const navigate                  = useNavigate()
   const setActiveProject          = useProjectStore(s => s.setActiveProject)
@@ -178,9 +184,20 @@ export function DocumentEditor() {
   // heartbeats every 30s, releases on unmount / section switch. Editor
   // becomes editable only when we own the live lock.
   // The whole document locked for authoring — no section lock is taken then.
-  const authoringLock = project?.status === 'closed'
-    ? PROJECT_CLOSED_LOCK
-    : document ? AUTHORING_LOCK[document.status] ?? null : null
+  const authoringLockKey: DocumentStatus | 'project-closed' | null = project?.status === 'closed'
+    ? 'project-closed'
+    : document && AUTHORING_LOCK_KEYS[document.status] ? document.status : null
+  const authoringLock = (() => {
+    if (!authoringLockKey) return null
+    const keys = authoringLockKey === 'project-closed'
+      ? PROJECT_CLOSED_LOCK_KEYS
+      : AUTHORING_LOCK_KEYS[authoringLockKey as DocumentStatus]
+    if (!keys) return null
+    return {
+      short: t(`page.document_editor.${keys.shortKey}`),
+      note:  t(`page.document_editor.${keys.noteKey}`),
+    }
+  })()
   const sectionLock = useSectionLock(documentId, authoringLock ? undefined : activeSectionData?.id)
   const isLockedByUs      = sectionLock.mode === 'owned'
   const isLockedByOther   = sectionLock.mode === 'foreign'
@@ -236,7 +253,7 @@ export function DocumentEditor() {
     },
     onError: (err: unknown) => {
       const body = err instanceof ApiError ? err.body as { message?: string } | null : null
-      setSectionStatusError(body?.message ?? 'Could not update the section status. Please try again.')
+      setSectionStatusError(body?.message ?? t('page.document_editor.section_status_error'))
     },
   })
   const sectionIsComplete = activeSectionData?.status === 'complete'
@@ -313,7 +330,7 @@ export function DocumentEditor() {
       setDraftContent(html)
       autosave.markDirty()
     },
-    placeholder: canEditSection ? 'Start writing this section…' : 'Read-only',
+    placeholder: canEditSection ? t('page.document_editor.editor_placeholder') : t('page.document_editor.editor_placeholder_read_only'),
     collab,
     user: collabUser,
   })
@@ -610,7 +627,7 @@ export function DocumentEditor() {
   if (!document) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="font-mono text-sm text-slate-400">Loading document…</p>
+        <p className="font-mono text-sm text-slate-400">{t('page.document_editor.loading_document')}</p>
       </div>
     )
   }
@@ -635,12 +652,16 @@ export function DocumentEditor() {
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-base font-bold tracking-tight text-slate-900">{document.title}</h1>
             <span className="flex-none"><StatusPill status={document.status} size="sm" /></span>
-            <AiConfidenceChip state={aiState} summary={aiDraft.summary} />
+            <AiConfidenceChip
+              state={aiState}
+              summary={aiDraft.summary}
+              onClick={() => setActivePanel('ai-drafting-report')}
+            />
             <div ref={versionMenuRef} className="relative flex-none" data-version-dropdown>
               <button
                 type="button"
                 onClick={() => setVersionMenuOpen(v => !v)}
-                title="Switch revision / compare"
+                title={t('page.document_editor.switch_revision_tooltip')}
                 aria-haspopup="menu"
                 aria-expanded={versionMenuOpen}
                 className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 transition-colors hover:bg-slate-50"
@@ -671,7 +692,7 @@ export function DocumentEditor() {
                       onClick={() => setCreateVersionFormOpen(true)}
                       className="mb-1 rounded border-b border-slate-100 px-3 py-2 text-left text-[12px] font-semibold text-emerald-700 hover:bg-emerald-50"
                       data-version-create
-                    >+ Create new version</button>
+                    >{t('page.document_editor.create_new_version')}</button>
                   )}
                   {createVersionFormOpen && (
                     <form
@@ -680,33 +701,33 @@ export function DocumentEditor() {
                       data-version-create-form
                     >
                       <label className="flex flex-col gap-1">
-                        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Label</span>
+                        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.document_editor.label_field')}</span>
                         <select
                           value={newVersionLabel}
                           onChange={e => setNewVersionLabel(e.currentTarget.value as 'Draft' | 'For Review' | 'Final')}
                           className="rounded-md border border-slate-300 px-2 py-1 text-[12px]"
                           disabled={createVersion.isPending}
                         >
-                          <option value="Draft">Draft</option>
-                          <option value="For Review">For Review</option>
-                          <option value="Final">Final</option>
+                          <option value="Draft">{t('page.document_editor.version_label_draft')}</option>
+                          <option value="For Review">{t('page.document_editor.version_label_for_review')}</option>
+                          <option value="Final">{t('page.document_editor.version_label_final')}</option>
                         </select>
                       </label>
                       <label className="flex flex-col gap-1">
-                        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Note (optional)</span>
+                        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.document_editor.note_optional_field')}</span>
                         <textarea
                           value={newVersionNote}
                           onChange={e => setNewVersionNote(e.currentTarget.value)}
                           rows={2}
                           maxLength={500}
-                          placeholder="e.g. Pre-review checkpoint before Dr Chen's bounce"
+                          placeholder={t('page.document_editor.version_note_placeholder')}
                           className="rounded-md border border-slate-300 p-2 text-[12px]"
                           disabled={createVersion.isPending}
                         />
                       </label>
                       {createVersion.isError && (
                         <p className="text-[11px] text-rose-600" role="alert">
-                          Could not create version — please try again.
+                          {t('page.document_editor.create_version_error')}
                         </p>
                       )}
                       <div className="flex items-center justify-end gap-2">
@@ -715,19 +736,19 @@ export function DocumentEditor() {
                           onClick={() => { setCreateVersionFormOpen(false); setNewVersionNote('') }}
                           disabled={createVersion.isPending}
                           className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-                        >Cancel</button>
+                        >{t('button.cancel')}</button>
                         <button
                           type="submit"
                           disabled={createVersion.isPending}
                           className="rounded-md bg-emerald-600 px-2.5 py-1 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:bg-slate-300"
-                        >{createVersion.isPending ? 'Creating…' : 'Create'}</button>
+                        >{createVersion.isPending ? t('page.document_editor.creating') : t('page.document_editor.create')}</button>
                       </div>
                     </form>
                   )}
 
-                  <p className="px-3 pb-1 pt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400">Versions</p>
+                  <p className="px-3 pb-1 pt-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400">{t('page.document_editor.versions_heading')}</p>
                   {versions.length === 0 && (
-                    <p className="px-3 py-2 text-[12px] text-slate-500">Only the current version exists.</p>
+                    <p className="px-3 py-2 text-[12px] text-slate-500">{t('page.document_editor.only_current_version')}</p>
                   )}
                   {versions.map(v => (
                     <button
@@ -736,7 +757,9 @@ export function DocumentEditor() {
                       role="menuitem"
                       disabled={v.isCurrent}
                       onClick={() => compareWith(v.versionNumber)}
-                      title={v.isCurrent ? 'This is the version you are editing' : `Compare ${v.versionNumber} with ${currentVersion}`}
+                      title={v.isCurrent
+                        ? t('page.document_editor.version_current_tooltip')
+                        : t('page.document_editor.version_compare_tooltip', { from: v.versionNumber, to: currentVersion })}
                       className="flex items-center justify-between gap-3 rounded px-3 py-2 text-left transition-colors hover:bg-slate-50 disabled:cursor-default disabled:hover:bg-transparent"
                       data-version-option={v.versionNumber}
                     >
@@ -745,8 +768,8 @@ export function DocumentEditor() {
                         <span className="text-[11px] text-slate-400">{new Date(v.createdAt).toLocaleString()}</span>
                       </span>
                       {v.isCurrent
-                        ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">Current</span>
-                        : <span className="text-[11px] font-semibold text-blue-600">Compare →</span>}
+                        ? <span className="rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">{t('page.document_editor.version_current_badge')}</span>
+                        : <span className="text-[11px] font-semibold text-blue-600">{t('page.document_editor.version_compare_action')}</span>}
                     </button>
                   ))}
                   {versions.length > 1 && (
@@ -756,7 +779,7 @@ export function DocumentEditor() {
                       onClick={openCompareVersions}
                       className="mt-1 rounded border-t border-slate-100 px-3 py-2 text-left text-[12px] font-semibold text-blue-700 hover:bg-slate-50"
                       data-version-compare-previous
-                    >Compare with previous version ({previousVersion} → {currentVersion})</button>
+                    >{t('page.document_editor.compare_with_previous', { previous: previousVersion, current: currentVersion })}</button>
                   )}
                 </div>
               )}
@@ -766,13 +789,13 @@ export function DocumentEditor() {
 
           {/* Right: autosave + presence + Save + Submit */}
           <div className="flex flex-none items-center gap-3.5">
-            <div className="flex items-center gap-1.5 text-xs text-slate-500" title="Time of the last document body refresh. Click Sync to pull every side panel at once.">
+            <div className="flex items-center gap-1.5 text-xs text-slate-500" title={t('page.document_editor.sync_status_tooltip')}>
               <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: isRefetching ? '#F59E0B' : '#16A34A' }} />
               {isRefetching
-                ? 'Syncing…'
+                ? t('page.document_editor.syncing')
                 : dataUpdatedAt
-                  ? `Synced ${new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}`
-                  : 'Not synced'}
+                  ? t('page.document_editor.synced_at', { time: new Date(dataUpdatedAt).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' }) })
+                  : t('page.document_editor.not_synced')}
             </div>
 
             {/* Presence stack — real-time via /documents/:id/presence +
@@ -813,21 +836,21 @@ export function DocumentEditor() {
                 }
               }}
               disabled={isRefetching}
-              title="Pull the latest from the server across every panel on this document (body, comments, references, history, stage, signatures, checklist, presence, AI)."
+              title={t('page.document_editor.sync_button_tooltip')}
               className="rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors disabled:cursor-wait disabled:opacity-60"
               data-action="sync-document"
             >
-              {isRefetching ? 'Syncing…' : 'Sync'}
+              {isRefetching ? t('page.document_editor.syncing') : t('page.document_editor.sync')}
             </button>
             {document.status === 'in-review' ? (
               <button
                 type="button"
                 disabled
-                title="This document has been submitted and is with the reviewers"
+                title={t('page.document_editor.submitted_button_tooltip')}
                 className="cursor-not-allowed rounded-md border border-amber-200 bg-amber-50 px-3.5 py-2 text-[13px] font-semibold text-amber-800"
                 data-submitted
               >
-                Submitted for review ✓
+                {t('page.document_editor.submitted_for_review_button')}
               </button>
             ) : (
               <button
@@ -835,7 +858,7 @@ export function DocumentEditor() {
                 onClick={handleSubmitForReview}
                 className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
               >
-                Submit for review
+                {t('page.document_editor.submit_for_review')}
               </button>
             )}
           </div>
@@ -843,34 +866,34 @@ export function DocumentEditor() {
       </div>
 
       {/* Awaiting signature / signed / project closed: locked for authoring. */}
-      {authoringLock && authoringLock !== AUTHORING_LOCK['in-review'] && (
+      {authoringLock && authoringLockKey !== 'in-review' && (
         <div
           role="status"
           className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-200 bg-amber-50 px-6 py-2 text-[13px] text-amber-900"
           data-authoring-locked-banner
         >
           <span aria-hidden="true" className="font-bold">🔒</span>
-          <span className="font-semibold">Read-only — {authoringLock.short}.</span>
+          <span className="font-semibold">{t('page.document_editor.read_only_prefix', { short: authoringLock.short })}</span>
           <span>{authoringLock.note}</span>
         </div>
       )}
 
       {/* Submitted state: the document is with the reviewers and locked for authoring. */}
-      {authoringLock === AUTHORING_LOCK['in-review'] && (
+      {authoringLockKey === 'in-review' && (
         <div
           role="status"
           className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-amber-200 bg-amber-50 px-6 py-2 text-[13px] text-amber-900"
           data-submitted-banner
         >
           <span aria-hidden="true" className="font-bold">✓</span>
-          <span className="font-semibold">Submitted for review.</span>
-          <span>The document is locked for authoring while reviewers respond.</span>
+          <span className="font-semibold">{t('page.document_editor.submitted_for_review_heading')}</span>
+          <span>{t('page.document_editor.submitted_for_review_body')}</span>
           <button
             type="button"
             onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/review`)}
             className="ml-auto font-semibold underline"
           >
-            Open Reviewer View →
+            {t('page.document_editor.open_reviewer_view')}
           </button>
         </div>
       )}
@@ -929,8 +952,8 @@ export function DocumentEditor() {
                       type="button"
                       onClick={() => setActivePanel('history')}
                       data-panel-trigger
-                      title="Edit history for this section"
-                      aria-label="Section edit history"
+                      title={t('page.document_editor.section_edit_history_tooltip')}
+                      aria-label={t('page.document_editor.section_edit_history_aria')}
                       className="flex items-center justify-center rounded-md border border-slate-300 bg-white p-1.5 text-slate-500 hover:bg-slate-50 hover:text-slate-700"
                     >
                       <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
@@ -950,10 +973,10 @@ export function DocumentEditor() {
                         })}
                         disabled={setSectionStatus.isPending || isLockedByOther || (!sectionIsComplete && !sectionHasText)}
                         title={
-                          isLockedByOther ? 'Another user is editing this section'
-                          : !sectionIsComplete && !sectionHasText ? 'Add content before marking this section complete'
-                          : sectionIsComplete ? 'Move this section back to in progress'
-                          : 'Mark this section complete'
+                          isLockedByOther ? t('page.document_editor.section_locked_other_tooltip')
+                          : !sectionIsComplete && !sectionHasText ? t('page.document_editor.add_content_before_complete')
+                          : sectionIsComplete ? t('page.document_editor.reopen_section_tooltip')
+                          : t('page.document_editor.mark_section_complete_tooltip')
                         }
                         data-action={sectionIsComplete ? 'reopen-section' : 'mark-section-complete'}
                         className={`flex items-center gap-1 rounded-md border px-2 py-1 text-[11px] font-semibold disabled:cursor-not-allowed disabled:opacity-50 ${
@@ -967,7 +990,7 @@ export function DocumentEditor() {
                             <polyline points="2,6.4 4.6,9 10,3.2" />
                           </svg>
                         )}
-                        {setSectionStatus.isPending ? 'Saving…' : sectionIsComplete ? 'Reopen' : 'Mark complete'}
+                        {setSectionStatus.isPending ? t('page.document_editor.saving') : sectionIsComplete ? t('page.document_editor.reopen') : t('page.document_editor.mark_complete')}
                       </button>
                     )}
                   </div>
@@ -982,14 +1005,19 @@ export function DocumentEditor() {
                   <p className="mt-1 overflow-hidden truncate whitespace-nowrap text-[11px] text-slate-500" data-section-meta>
                     {(() => {
                       // This section's own last save (and who made it) — not the whole document's.
-                      const edited = activeSectionData.lastEditedAt
-                        ? `Last edited ${new Date(activeSectionData.lastEditedAt).toLocaleString('en-GB', {
+                      const editedDate = activeSectionData.lastEditedAt
+                        ? new Date(activeSectionData.lastEditedAt).toLocaleString('en-GB', {
                             day: '2-digit', month: 'short', year: 'numeric',
                             hour: '2-digit', minute: '2-digit',
-                          })}${activeSectionData.lastEditedByName ? ` by ${activeSectionData.lastEditedByName}` : ''}`
-                        : 'Not edited yet'
+                          })
+                        : null
+                      const edited = editedDate
+                        ? (activeSectionData.lastEditedByName
+                            ? t('page.document_editor.last_edited_by', { date: editedDate, name: activeSectionData.lastEditedByName })
+                            : t('page.document_editor.last_edited', { date: editedDate }))
+                        : t('page.document_editor.not_edited_yet')
                       const refs = sectionReferences.length
-                        ? `${sectionReferences.length} source ${sectionReferences.length === 1 ? 'reference' : 'references'}`
+                        ? t('page.document_editor.source_references', { count: sectionReferences.length })
                         : null
                       return [activeSectionData.status, refs, edited].filter(Boolean).join(' · ')
                     })()}
@@ -1010,15 +1038,14 @@ export function DocumentEditor() {
                         <path d="M4.6 6.4 V4.4 a2.4 2.4 0 0 1 4.8 0 V6.4" />
                       </svg>
                       <span>
-                        <b>Read-only.</b>{' '}
+                        <b>{t('page.document_editor.read_only_label')}</b>{' '}
                         {(() => {
                           const name = sectionLock.holder ? usersById.get(sectionLock.holder.userId)?.name : null
                           return name
-                            ? `${name} is editing this section.`
-                            : 'Another writer is editing this section.'
+                            ? t('page.document_editor.named_user_editing_section', { name })
+                            : t('page.document_editor.another_writer_editing_section')
                         })()}{' '}
-                        The lock releases automatically when they stop,
-                        or after {Math.max(1, sectionLock.holder?.expiresInSeconds ?? 90)}s of inactivity.
+                        {t('page.document_editor.lock_releases_hint', { seconds: Math.max(1, sectionLock.holder?.expiresInSeconds ?? 90) })}
                       </span>
                     </div>
                   )}
@@ -1027,13 +1054,13 @@ export function DocumentEditor() {
                   </div>
                   {!activeSectionData.contentHtml && !canEditSection && !isLockedByOther && (
                     <p className="mt-2 text-[14px] italic text-slate-400">
-                      This section is empty.
+                      {t('page.document_editor.section_empty')}
                     </p>
                   )}
                 </>
               ) : (
                 <p className="mt-4 text-[14px] text-slate-400">
-                  Select a section from the navigator to view or edit.
+                  {t('page.document_editor.select_section_prompt')}
                 </p>
               )}
             </div>
@@ -1089,8 +1116,8 @@ export function DocumentEditor() {
             <div
               role="separator"
               aria-orientation="vertical"
-              aria-label="Resize panel"
-              title="Drag to resize · double-click to expand"
+              aria-label={t('page.document_editor.resize_panel_aria')}
+              title={t('page.document_editor.resize_panel_tooltip')}
               onMouseDown={e => { e.preventDefault(); panel.startDrag() }}
               onDoubleClick={togglePanelExpanded}
               className="absolute inset-y-0 -left-1 z-10 w-2 cursor-ew-resize transition-colors hover:bg-blue-300/60"
@@ -1152,7 +1179,7 @@ export function DocumentEditor() {
                   </svg>
                 </span>
               )}
-              <h3 className="text-sm font-bold text-slate-900">{PANEL_TITLES[activePanel]}</h3>
+              <h3 className="text-sm font-bold text-slate-900">{t(`page.document_editor.${PANEL_TITLE_KEYS[activePanel]}`)}</h3>
               {activePanel === 'ai' && (
                 <span
                   className="rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-500"
@@ -1184,7 +1211,7 @@ export function DocumentEditor() {
               <button
                 type="button"
                 onClick={() => setActivePanel(null)}
-                aria-label="Close panel"
+                aria-label={t('page.document_editor.close_panel_aria')}
                 className="flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
               >
                 ✕
@@ -1251,13 +1278,13 @@ export function DocumentEditor() {
                 canEditSection={canEditSection}
                 cannotEditReason={
                   !documentId || !activeSectionData
-                    ? 'Open a section first'
+                    ? t('page.document_editor.cannot_edit_open_section_first')
                     : authoringLock
-                      ? `Document is read-only — ${authoringLock.short}`
+                      ? t('page.document_editor.cannot_edit_read_only', { short: authoringLock.short })
                       : isLockedByOther
-                        ? `${sectionLock.holder ? (usersById.get(sectionLock.holder.userId)?.name ?? 'Another writer') : 'Another writer'} is editing this section`
+                        ? t('page.document_editor.cannot_edit_named_user_editing', { name: sectionLock.holder ? (usersById.get(sectionLock.holder.userId)?.name ?? t('page.document_editor.another_writer')) : t('page.document_editor.another_writer') })
                         : sectionLock.mode === 'idle'
-                          ? 'Acquiring edit lock…'
+                          ? t('page.document_editor.cannot_edit_acquiring_lock')
                           : undefined
                 }
                 onAcceptSuggestion={(html, model, range, aiCallRecordId) => {
@@ -1320,11 +1347,14 @@ export function DocumentEditor() {
                 activeSectionLabel={activeSectionData ? `${withSectionMark(activeSectionData.number)} ${activeSectionData.title}` : undefined}
               />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && (
+            {activePanel === 'ai-drafting-report' && (
+              <AiDraftingReportPanel status={aiDraft.data} loading={aiDraft.isLoading} />
+            )}
+            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && activePanel !== 'ai-drafting-report' && (
               <div className="flex-1 overflow-y-auto p-4">
-                <p className="font-mono text-xs uppercase tracking-widest text-slate-400">Placeholder</p>
+                <p className="font-mono text-xs uppercase tracking-widest text-slate-400">{t('page.document_editor.placeholder')}</p>
                 <p className="mt-2 text-sm text-slate-700">
-                  {PANEL_TITLES[activePanel]} panel — built in a later session.
+                  {t('page.document_editor.panel_pending', { name: t(`page.document_editor.${PANEL_TITLE_KEYS[activePanel]}`) })}
                 </p>
               </div>
             )}

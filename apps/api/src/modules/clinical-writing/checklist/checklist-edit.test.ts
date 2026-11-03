@@ -107,6 +107,52 @@ describe('POST /documents/:id/checklist/:itemId/remove', () => {
   })
 })
 
+const reopen = (app: Awaited<ReturnType<typeof build>>['app'], payload: unknown = {}) =>
+  app.inject({ method: 'POST', url: `/documents/${DOC}/checklist/i1/reopen`, payload: payload as never })
+
+describe('POST /documents/:id/checklist/:itemId/reopen', () => {
+  it('un-ticks a completed item without a reason and clears the completion', async () => {
+    const { app, update, append } = await build([row({ status: 'complete', completedBy: 'u-owner', completedAt: new Date() })])
+    const res = await reopen(app)
+    expect(res.statusCode).toBe(200)
+    expect(update.mock.calls[0]![0].data).toMatchObject({ status: 'pending', completedBy: null, completedAt: null })
+    expect(append.mock.calls[0]![0]).toMatchObject({ action: 'checklist_item_reopened', details: { previousStatus: 'complete', reason: null } })
+  })
+
+  it('un-waiving needs a reason, records it, and clears the waiver', async () => {
+    const { app, update, append } = await build([row({ status: 'waived', waivedBy: 'u-owner', waivedAt: new Date(), waiverReason: 'N/A for DSUR' })])
+    expect((await reopen(app)).statusCode).toBe(400)
+    expect(update).not.toHaveBeenCalled()
+    const res = await reopen(app, { reason: 'It does apply after all' })
+    expect(res.statusCode).toBe(200)
+    expect(update.mock.calls[0]![0].data).toMatchObject({ status: 'pending', waivedBy: null, waivedAt: null, waiverReason: null })
+    expect(append.mock.calls[0]![0].details).toMatchObject({ previousStatus: 'waived', previousWaiverReason: 'N/A for DSUR', reason: 'It does apply after all' })
+  })
+
+  it('is R-only and only applies to complete or waived items', async () => {
+    expect((await reopen((await build([row({ status: 'complete' })], { id: 'u-other' })).app)).statusCode).toBe(403)
+    expect((await reopen((await build([row({ status: 'pending' })])).app)).statusCode).toBe(409)
+    expect((await reopen((await build([row({ status: 'removed' })])).app)).statusCode).toBe(409)
+  })
+})
+
+describe('POST /documents/:id/checklist — add item', () => {
+  it('stores the mandatory flag and stage', async () => {
+    const { app } = await build([row({})])
+    ;(app as unknown as { prisma: { checklistInstanceItem: Record<string, unknown> } }).prisma.checklistInstanceItem.aggregate = vi.fn(async () => ({ _max: { sortOrder: 10 } }))
+    const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'new', ...data }))
+    ;(app as unknown as { prisma: { checklistInstanceItem: Record<string, unknown> } }).prisma.checklistInstanceItem.create = create
+    const res = await app.inject({ method: 'POST', url: `/documents/${DOC}/checklist`, payload: { text: 'QC sign-off', framework: 'ICH E3', frameworkMandatory: true, stage: 'during_study' } })
+    expect(res.statusCode).toBe(201)
+    expect(create.mock.calls[0]![0].data).toMatchObject({ text: 'QC sign-off', framework: 'ICH E3', frameworkMandatory: true, stage: 'during_study', isUserAdded: true, sortOrder: 20 })
+  })
+
+  it('rejects an unknown stage', async () => {
+    const { app } = await build([row({})])
+    expect((await app.inject({ method: 'POST', url: `/documents/${DOC}/checklist`, payload: { text: 'x', stage: 'whenever' } })).statusCode).toBe(400)
+  })
+})
+
 describe('GET /documents/:id/compliance-summary — removals', () => {
   it('discloses removed Framework Mandatory items and leaves them out of the rules', async () => {
     const { app } = await build([

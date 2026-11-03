@@ -20,6 +20,11 @@ export const checklistHandlers = [
     const item = checklist.find(i => i.id === params.itemId)
     return HttpResponse.json({ ...item, status: 'waived', waivedBy, waivedAt: new Date().toISOString(), waiverReason: reason })
   }),
+  http.post(`${BASE}/documents/:documentId/checklist/:itemId/reopen`, async ({ params }) => {
+    await delay(300)
+    const item = checklist.find(i => i.id === params.itemId)
+    return HttpResponse.json({ ...item, status: 'pending' })
+  }),
   http.post(`${BASE}/documents/:documentId/checklist/:itemId/remove`, async ({ request, params }) => {
     const { reason } = await request.json() as { reason: string }
     await delay(300)

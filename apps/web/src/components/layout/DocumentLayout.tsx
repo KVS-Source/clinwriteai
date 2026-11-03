@@ -11,8 +11,9 @@ import { documentsApi } from '../../api/documents'
 //     the active tab; Final Document remains viewable.
 //
 //   status = 'signed'
-//     Everything above PLUS E-Signature disabled. Only Final Document
-//     is reachable — it's a read-only snapshot of the signed record.
+//     Editor, Version Diff, Reviewer View stay disabled. E-Signature stays
+//     open as the read-only record of who signed (inspected later, e.g. by an
+//     auditor); Final Document is the read-only snapshot of the document.
 //
 // A disabled tab renders greyed-out + title tooltip; the user can still
 // deep-link to the URL, but the client code should refuse the action.
@@ -24,7 +25,7 @@ function tabDisablesFor(status: string | undefined): {
   sign:   boolean
 } {
   if (status === 'signed') {
-    return { editor: true, diff: true, review: true, sign: true }
+    return { editor: true, diff: true, review: true, sign: false }
   }
   if (status === 'pending-signature') {
     return { editor: true, diff: true, review: true, sign: false }
@@ -58,7 +59,7 @@ export function DocumentLayout() {
     { to: `${base}/diff`,   label: 'Version Diff',               disabled: d.diff,   title: d.diff   ? lockReason : undefined },
     { to: `${base}/review`, label: 'Reviewer View',              disabled: d.review, title: d.review ? lockReason : undefined },
     { to: `${base}/crm`,    label: 'CRM' },
-    { to: `${base}/sign`,   label: 'E-Signature',                disabled: d.sign,   title: d.sign   ? 'The document is signed; the signature step is complete.' : undefined },
+    { to: `${base}/sign`,   label: 'E-Signature',                disabled: d.sign },
     { to: `${base}/final`,  label: 'Final Document' },
   ]
 

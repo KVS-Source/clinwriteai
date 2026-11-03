@@ -12,7 +12,7 @@
 //
 // Lockdown rules mirror DocumentLayout's tabDisablesFor:
 //   status = 'pending-signature' → editor / diff / review are 404'd
-//   status = 'signed'            → above + sign is 404'd
+//   status = 'signed'            → same three; sign stays open (read-only record)
 //
 // We render nothing while the document fetch is pending (short — the
 // shared ['document', id] cache usually has it already). On fetch
@@ -31,7 +31,7 @@ interface Props {
 }
 
 function isDisabled(tab: GuardedTab, status: string | undefined): boolean {
-  if (status === 'signed') return tab !== 'sign' ? true : true
+  if (status === 'signed') return tab !== 'sign'   // the E-Signature record stays viewable
   if (status === 'pending-signature') return tab === 'editor' || tab === 'diff' || tab === 'review'
   return false
 }

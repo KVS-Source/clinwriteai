@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { useTranslation } from 'react-i18next'
 import type { Section } from '@platform/types'
 import { useDocumentStore } from '../../store'
 import { usePlatformStore } from '../../platform/store/platformStore'
@@ -64,6 +65,7 @@ export function SectionNavigator({
   progressLabelSuffix,
   aiConfidenceBySectionId,
 }: Props) {
+  const { t } = useTranslation()
   // The active-section avatar is the signed-in user (initials from their real name), not a fixed persona.
   const currentUser = usePlatformStore(s => s.currentUser)
   const me = loggedInUser ?? {
@@ -95,10 +97,10 @@ export function SectionNavigator({
 
       {/* Header */}
       <div className="flex flex-none items-center justify-between px-5 pt-4 pb-2 font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-        <span>Sections</span>
+        <span>{t('page.section_navigator.header')}</span>
         {query && (
           <span className="font-sans text-[10px] font-normal normal-case text-slate-400">
-            {visibleSections.length} of {sections.length}
+            {t('page.section_navigator.filter_count', { visible: visibleSections.length, total: sections.length })}
           </span>
         )}
       </div>
@@ -113,7 +115,7 @@ export function SectionNavigator({
             value={query}
             onChange={e => setQuery(e.target.value)}
             onKeyDown={e => { if (e.key === 'Escape') setQuery('') }}
-            placeholder="Search sections…"
+            placeholder={t('page.section_navigator.search_placeholder')}
             data-section-search
             className="h-7 w-full rounded border border-slate-200 bg-white pl-7 pr-7 text-[12px] outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-100"
           />
@@ -129,7 +131,7 @@ export function SectionNavigator({
             <button
               type="button"
               onClick={() => setQuery('')}
-              aria-label="Clear search"
+              aria-label={t('page.section_navigator.clear_search')}
               className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
             >
               <svg width="10" height="10" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round">
@@ -145,7 +147,7 @@ export function SectionNavigator({
       <div className="flex-1 overflow-y-auto">
         {visibleSections.length === 0 && (
           <p className="px-5 py-6 text-center text-[12px] italic text-slate-400">
-            No sections match "{query}".
+            {t('page.section_navigator.no_matches', { query })}
           </p>
         )}
         {visibleSections.map(section => {
@@ -163,7 +165,7 @@ export function SectionNavigator({
               data-section-id={section.id}
               data-active={isActive || undefined}
               onClick={() => setActiveSection(section.id)}
-              title={isLocked ? `Locked by ${lockOwner ?? 'another user'}` : undefined}
+              title={isLocked ? t('page.section_navigator.locked_by', { owner: lockOwner ?? t('page.section_navigator.another_user') }) : undefined}
               className="relative flex h-9 min-w-0 cursor-pointer items-center gap-2 px-3 text-[13px] hover:bg-slate-100 transition-colors"
               style={{
                 borderLeft:   `3px solid ${isActive ? '#2563EB' : 'transparent'}`,
@@ -245,7 +247,9 @@ export function SectionNavigator({
       {/* Footer — progress */}
       <div className="flex flex-none flex-col gap-2 border-t border-slate-200 px-4 py-3.5">
         <p className="text-[11px] text-slate-500">
-          {completeCount} of {sections.length} sections{progressLabelSuffix ? ` ${progressLabelSuffix}` : ''} · {pct}%
+          {progressLabelSuffix === 'reviewed'
+            ? t('page.section_navigator.progress_reviewed', { complete: completeCount, total: sections.length, pct })
+            : t('page.section_navigator.progress_complete', { complete: completeCount, total: sections.length, pct })}
         </p>
         <div className="h-1.5 overflow-hidden rounded-[3px] bg-slate-200">
           <div className="h-full" style={{ width: `${pct}%`, backgroundColor: '#2563EB' }} />

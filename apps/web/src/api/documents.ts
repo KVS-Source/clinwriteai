@@ -331,7 +331,9 @@ export const documentsApi = {
     api.patch<ChecklistItem>(`/documents/${documentId}/checklist/${itemId}/waive`, body),
   removeChecklistItem: (documentId: string, itemId: string, body: { reason: string }) =>
     api.post<ChecklistItem>(`/documents/${documentId}/checklist/${itemId}/remove`, body),
-  addChecklistItem: (documentId: string, body: { text: string; framework: string }) =>
+  reopenChecklistItem: (documentId: string, itemId: string, body: { reason?: string }) =>
+    api.post<ChecklistItem>(`/documents/${documentId}/checklist/${itemId}/reopen`, body),
+  addChecklistItem: (documentId: string, body: { text: string; framework: string; frameworkMandatory?: boolean; stage?: NonNullable<ChecklistItem['stage']> }) =>
     api.post<ChecklistItem>(`/documents/${documentId}/checklist`, body),
   // Comments
   getComments: (documentId: string) =>

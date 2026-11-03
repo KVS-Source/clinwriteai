@@ -135,6 +135,7 @@ async function draftSection(args: {
   sourcePdfs: SourcePdfPayload[]
   docType:   string
   model:     string
+  aiInstructions: string | null
 }): Promise<{ contentHtml: string; engine: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   if (!apiKey) {
@@ -167,11 +168,25 @@ async function draftWithClaude(args: {
   docType:    string
   apiKey:     string
   model:      string
+  aiInstructions: string | null
 }): Promise<string> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
   })
   const client = new Anthropic({ apiKey: args.apiKey })
+
+  // Author's instructions are rendered as their own block so they
+  // visibly steer the draft without displacing the structural rules
+  // (HTML-only output, no invented numbers, etc.). Omitted entirely
+  // when null — no empty block, no "Instructions: none" header.
+  const authorBlock = args.aiInstructions
+    ? [
+        ``,
+        `Author's instructions for this draft (follow these in addition to the rules above):`,
+        args.aiInstructions,
+        ``,
+      ].join('\n')
+    : ''
 
   const system = [
     `You are drafting a single section of a regulatory clinical writing deliverable.`,
@@ -182,6 +197,7 @@ async function draftWithClaude(args: {
     `Return clean HTML with <p>, <ul>/<li>, and <table> as appropriate — no Markdown, no code fences, no commentary before or after the HTML.`,
     `If the sources genuinely do not contain the information needed for this section, write a short <p>stating what is missing and what the writer should supply.</p>`,
     `Do not invent numeric values, patient counts, dates, or citations. Quote figures only when they appear in the sources.`,
+    authorBlock,
   ].join('\n')
 
   // Build the content array: PDFs first (so Claude reads context before
@@ -275,6 +291,15 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   })
   const resolvedModel = await resolveDraftModel(prisma, project?.tenantId ?? null)
 
+  // --- Load the author's AI instructions (migration 58) -----------------
+  // Flows into the Claude system prompt below so language / tone /
+  // structure directives steer every section. Null = default behaviour.
+  const docRow = await prisma.document.findUnique({
+    where:  { id: documentId },
+    select: { aiInstructions: true },
+  })
+  const aiInstructions = docRow?.aiInstructions?.trim() || null
+
   // --- Load the template -------------------------------------------------
   const template = await prisma.documentTemplate.findFirst({
     where: { type, isCurrent: true, retiredAt: null },
@@ -360,7 +385,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     }
     try {
       const { contentHtml, engine } = await draftSection({
-        section: sec, sources, sourcePdfs, docType: type, model: resolvedModel,
+        section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions,
       })
 
       await prisma.$transaction(async (tx) => {

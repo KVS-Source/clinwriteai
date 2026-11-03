@@ -8,6 +8,7 @@ import { Link } from 'react-router-dom'
 import { PLATFORM_USER_ROLE_LABEL, type PlatformUserRole } from '@platform/types'
 import { usePlatformStore } from '../store'
 import { MODULE_LABELS, MODULE_SLUG_TO_KEY, isModuleEnabled, type ModuleSlug } from '../../config/modules'
+import { isAdminRole } from '../../config/roles'
 
 interface QuickLink { label: string; href: string; hint: string }
 interface RoleProfile {
@@ -163,11 +164,14 @@ function fallbackProfile(label: string): RoleProfile {
 export function RoleHome() {
   const user = usePlatformStore(s => s.currentUser)
   const label = PLATFORM_USER_ROLE_LABEL[user.role] ?? user.role
-  const profile = (ROLE_PROFILES as Partial<Record<string, RoleProfile>>)[user.role] ?? fallbackProfile(label)
+  // 'tenant-admin' (the API's canonical name) gets the organisation-admin card.
+  const profileKey = user.role === 'tenant-admin' ? 'admin' : user.role
+  const profile = (ROLE_PROFILES as Partial<Record<string, RoleProfile>>)[profileKey] ?? fallbackProfile(label)
 
-  // Post 2026-10-27 role consolidation: admins carry role='admin' regardless
-  // of platform-vs-tenant scope (that distinction is on tenantId now).
-  const isAdmin = user.role === 'admin'
+  // Post 2026-10-27 role consolidation: admins carry an admin role ('admin',
+  // or 'tenant-admin' from the API) regardless of platform-vs-tenant scope
+  // (that distinction is on tenantId now).
+  const isAdmin = isAdminRole(user.role)
   const moduleEntries = Object.entries(MODULE_LABELS).filter(([slug]) => {
     const key = MODULE_SLUG_TO_KEY[slug as ModuleSlug]
     return key && isModuleEnabled(key) && (isAdmin || user.modules.includes(key))

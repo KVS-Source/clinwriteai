@@ -70,6 +70,12 @@ const createSchema = z.object({
   // let the worker draft every section from the sources. Document still
   // creates immediately — the draft fills in asynchronously.
   aiDraft: z.boolean().optional(),
+  // Author's free-text prompt to the AI drafter — language, tone,
+  // structure or house-style directives. Flows into the system prompt
+  // of every AI call for this doc (initial draft, validation re-drafts,
+  // future per-section regenerate). Capped at 2000 chars to bound the
+  // token spend per section + keep audit entries readable.
+  aiInstructions: z.string().max(2000).optional(),
 })
 
 // "```html\n…\n```" → "…"
@@ -340,6 +346,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       createdBy: request.user!.id,
       templateId: parsed.data.templateId,
       targetCompletionDate: parsed.data.targetCompletionDate ? new Date(parsed.data.targetCompletionDate) : undefined,
+      aiInstructions: parsed.data.aiInstructions?.trim() || undefined,
     })
 
     if (sourceUploadIds.length) {

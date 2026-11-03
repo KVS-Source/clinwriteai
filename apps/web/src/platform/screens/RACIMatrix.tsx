@@ -14,6 +14,7 @@ import raciTemplate from '../../data/raciMatrix.json'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
 import { PLATFORM_DEMO_USERS } from '../store/platformStore'
+import { isAdminRole } from '../../config/roles'
 
 // The role-based default template ships with the web bundle — the API only
 // stores per-project overrides (one row per `${module}:${taskId}` activity).
@@ -85,7 +86,7 @@ function marksFromOverride(o: ProjectRaciAssignment, roleOfUser: (id: string) =>
 export function RACIMatrix() {
   const currentUser = usePlatformStore(s => s.currentUser)
   // Mirrors the API's requireAuth({ roles: ['admin'] }) on PUT/DELETE.
-  const canEdit = currentUser.role === 'admin'
+  const canEdit = isAdminRole(currentUser.role)
   const raci = DEFAULT_TEMPLATE
   const { data: projects = [], isLoading: projectsLoading, isError: projectsError, refetch: refetchProjects } =
     useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list() })
@@ -240,7 +241,7 @@ export function RACIMatrix() {
           <div>
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>RACI matrix</h1>
             <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>
-              {currentUser.name} · {currentUser.role === 'admin' ? 'Admin' : PLATFORM_USER_ROLE_LABEL[currentUser.role]}
+              {currentUser.name} · {isAdminRole(currentUser.role) ? 'Admin' : PLATFORM_USER_ROLE_LABEL[currentUser.role]}
             </p>
           </div>
         </div>

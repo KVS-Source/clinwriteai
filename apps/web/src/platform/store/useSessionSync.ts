@@ -24,6 +24,7 @@ interface MeResponse {
   modules: Array<'A' | 'B' | 'C' | 'D' | 'E'>
   status: PlatformUser['status']
   lastActiveAt: string | null
+  tenantId?: string | null
   mustChangePassword?: boolean
 }
 
@@ -36,6 +37,8 @@ export function toPlatformUser(me: MeResponse): PlatformUser {
     modules: me.modules,
     status: me.status,
     lastActive: me.lastActiveAt,
+    // Platform admin vs tenant admin is decided on this (null = platform).
+    tenantId: me.tenantId ?? null,
   }
 }
 

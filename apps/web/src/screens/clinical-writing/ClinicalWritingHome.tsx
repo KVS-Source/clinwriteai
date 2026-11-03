@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
@@ -128,6 +129,7 @@ const CHECKLIST_ROW_COLOURS = {
 const COL_TEMPLATE = '2fr 1fr 1.2fr 1.1fr 0.9fr 1.1fr 120px 240px'
 
 export function ClinicalWritingHome() {
+  const { t } = useTranslation()
   const { projectId }    = useParams()
   const navigate         = useNavigate()
   const currentUser      = usePlatformStore(s => s.currentUser)
@@ -372,7 +374,7 @@ export function ClinicalWritingHome() {
           <div className="flex flex-none flex-col gap-2">
             <div className="flex items-center gap-2.5">
               <span className="h-2 w-2 flex-none rounded-full" style={{ backgroundColor: '#2563EB' }} />
-              <h1 className="text-2xl font-bold tracking-tight text-slate-900">Clinical Writing</h1>
+              <h1 className="text-2xl font-bold tracking-tight text-slate-900">{t('page.clinical_writing_home.title')}</h1>
             </div>
             <p className="text-sm text-slate-500">
               {[
@@ -380,8 +382,8 @@ export function ClinicalWritingHome() {
                 project?.therapeuticArea ?? '—',
                 project ? phaseLabel(project.phase) : '—',
                 project?.indication,
-                `${documents.length} documents`,
-                `${openCommentLabel} open comment${openCommentCount === 1 ? '' : 's'}`,
+                t('page.clinical_writing_home.documents_count', { count: documents.length }),
+                t('page.clinical_writing_home.open_comments_count', { count: openCommentCount, display: openCommentLabel }),
               ].filter(Boolean).join(' · ')}
             </p>
             <div className="flex gap-2.5 pt-1">
@@ -390,7 +392,7 @@ export function ClinicalWritingHome() {
                 onClick={() => setNewDocOpen({ duplicateSourceId: null })}
                 className="rounded-md bg-blue-600 px-3.5 py-2.5 text-[13px] font-semibold text-white transition-colors hover:bg-blue-700"
               >
-                + New Document
+                + {t('page.clinical_writing_home.new_document')}
               </button>
               <button
                 type="button"
@@ -398,14 +400,14 @@ export function ClinicalWritingHome() {
                 className="rounded-md border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] font-semibold text-slate-900 transition-colors hover:bg-slate-50"
                 data-action="upload-source"
               >
-                Upload source document
+                {t('page.clinical_writing_home.upload_source_doc')}
               </button>
             </div>
           </div>
 
           {/* Right: stage progress stepper */}
           <div className="flex flex-1 flex-col gap-2" style={{ maxWidth: '660px' }}>
-            <p className="text-xs font-semibold text-slate-500">Stage progress</p>
+            <p className="text-xs font-semibold text-slate-500">{t('page.clinical_writing_home.stage_progress')}</p>
             <div className="flex items-start">
               {STAGES_ORDERED.map((stage, i) => {
                 const state = stageProgress[stage]
@@ -442,7 +444,7 @@ export function ClinicalWritingHome() {
                         {STAGE_LABELS[stage]}
                       </div>
                       <p className="font-mono text-[10px] font-medium tracking-wider" style={{ color: count > 0 ? '#2563EB' : '#94A3B8' }}>
-                        {count} doc{count === 1 ? '' : 's'}
+                        {t('page.clinical_writing_home.docs_count', { count })}
                       </p>
                     </button>
                     {!isLast && (
@@ -461,9 +463,11 @@ export function ClinicalWritingHome() {
 
       {/* ============ Stage Tabs ============ */}
       <div className="flex flex-none gap-6 overflow-x-auto whitespace-nowrap border-b border-slate-200 bg-white px-8">
-        <TabButton label={`All Stages (${documents.length})`}  active={view === 'documents' && selectedStage === 'all'} onClick={() => showStage('all')} />
+        <TabButton label={t('page.clinical_writing_home.tab_all_stages', { count: documents.length })}  active={view === 'documents' && selectedStage === 'all'} onClick={() => showStage('all')} />
         <TabButton
-          label={sourceCount !== undefined ? `Source Documents (${sourceCount})` : 'Source Documents'}
+          label={sourceCount !== undefined
+            ? t('page.clinical_writing_home.tab_source_documents_with_count', { count: sourceCount })
+            : t('page.clinical_writing_home.tab_source_documents')}
           active={view === 'sources'}
           onClick={showSources}
         />
@@ -471,7 +475,7 @@ export function ClinicalWritingHome() {
         {STAGES_ORDERED.map(stage => (
           <TabButton
             key={stage}
-            label={`${STAGE_LABELS[stage]} (${stageCounts.get(stage) ?? 0})`}
+            label={t('page.clinical_writing_home.tab_stage_with_count', { stage: STAGE_LABELS[stage], count: stageCounts.get(stage) ?? 0 })}
             active={view === 'documents' && selectedStage === stage}
             onClick={() => showStage(stage)}
           />
@@ -485,9 +489,9 @@ export function ClinicalWritingHome() {
           <div className="flex min-w-0 flex-1 flex-col gap-4">
             {justAdded && (
               <div className="flex items-center justify-between gap-3 rounded-md border border-green-200 bg-green-50 px-4 py-3 text-[13px] text-green-900" role="status" data-upload-success>
-                <span>Source document saved to the library.</span>
+                <span>{t('page.clinical_writing_home.source_saved_toast')}</span>
                 <span className="flex flex-none items-center gap-4">
-                  <button type="button" onClick={() => setJustAdded(null)} className="font-semibold underline" aria-label="Dismiss">Dismiss</button>
+                  <button type="button" onClick={() => setJustAdded(null)} className="font-semibold underline" aria-label={t('page.clinical_writing_home.dismiss')}>{t('page.clinical_writing_home.dismiss')}</button>
                 </span>
               </div>
             )}
@@ -510,31 +514,31 @@ export function ClinicalWritingHome() {
                   type="text"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  placeholder="Search documents..."
+                  placeholder={t('page.clinical_writing_home.search_placeholder')}
                   className="w-full border-none bg-transparent text-sm text-slate-900 outline-none placeholder:text-slate-400"
                 />
               </div>
               <select
                 value={selectedType}
                 onChange={e => setSelectedType(e.target.value as DocumentType | 'all')}
-                aria-label="Filter by type"
+                aria-label={t('page.clinical_writing_home.filter_by_type')}
                 className="h-[38px] rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900"
               >
-                <option value="all">All Types</option>
-                {activeTypes.map(t => <option key={t} value={t}>{TYPE_LABELS[t]}</option>)}
+                <option value="all">{t('page.clinical_writing_home.all_types')}</option>
+                {activeTypes.map(ty => <option key={ty} value={ty}>{TYPE_LABELS[ty]}</option>)}
               </select>
               <select
                 value={selectedStatus}
                 onChange={e => setSelectedStatus(e.target.value as DocumentStatus | 'all')}
-                aria-label="Filter by status"
+                aria-label={t('page.clinical_writing_home.filter_by_status')}
                 className="h-[38px] rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900"
               >
-                <option value="all">All Statuses</option>
+                <option value="all">{t('page.clinical_writing_home.all_statuses')}</option>
                 {activeStatuses.map(st => <option key={st} value={st}>{STATUS_LABELS[st]}</option>)}
               </select>
               {filtersDirty && (
                 <button onClick={resetFilters} className="p-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
-                  Reset filters
+                  {t('page.clinical_writing_home.reset_filters')}
                 </button>
               )}
             </div>
@@ -548,8 +552,12 @@ export function ClinicalWritingHome() {
               style={{ display: 'grid', gridTemplateColumns: COL_TEMPLATE }}
             >
               {([
-                ['Document Title', 'title'], ['Type', 'type'], ['Stage', 'stage'],
-                ['Status', 'status'], ['Last Updated', 'updated'], ['Assigned To', 'assignee'],
+                [t('page.clinical_writing_home.col_title'),    'title'],
+                [t('page.clinical_writing_home.col_type'),     'type'],
+                [t('page.clinical_writing_home.col_stage'),    'stage'],
+                [t('page.clinical_writing_home.col_status'),   'status'],
+                [t('page.clinical_writing_home.col_updated'),  'updated'],
+                [t('page.clinical_writing_home.col_assignee'), 'assignee'],
               ] as Array<[string, DocSortKey]>).map(([label, key]) => (
                 <div key={key} aria-sort={docSort?.key === key ? (docSort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                   <button
@@ -562,20 +570,20 @@ export function ClinicalWritingHome() {
                   </button>
                 </div>
               ))}
-              <div className="text-right">Quick Actions</div>
-              <div className="pl-7">Comments</div>
+              <div className="text-right">{t('page.clinical_writing_home.col_quick_actions')}</div>
+              <div className="pl-7">{t('page.clinical_writing_home.col_comments')}</div>
             </div>
 
             {/* Rows */}
             {isLoading && (
-              <div className="p-12 text-center font-mono text-sm text-slate-400">Loading documents…</div>
+              <div className="p-12 text-center font-mono text-sm text-slate-400">{t('page.clinical_writing_home.loading')}</div>
             )}
 
             {!isLoading && filtered.length === 0 && (
               <div className="flex flex-col items-center gap-2 px-5 py-12">
-                <p className="text-sm font-semibold text-slate-900">No documents match these filters</p>
+                <p className="text-sm font-semibold text-slate-900">{t('page.clinical_writing_home.empty_filters')}</p>
                 <button onClick={resetFilters} className="text-xs font-semibold text-blue-600 hover:text-blue-700">
-                  Reset filters
+                  {t('page.clinical_writing_home.reset_filters')}
                 </button>
               </div>
             )}
@@ -656,7 +664,7 @@ export function ClinicalWritingHome() {
 
           {/* Count footer */}
           <div className="flex justify-between px-1 text-xs text-slate-500">
-            <span>Showing {filtered.length} of {documents.length} documents</span>
+            <span>{t('page.clinical_writing_home.showing_count', { visible: filtered.length, total: documents.length })}</span>
           </div>
         </div>
 
@@ -664,28 +672,28 @@ export function ClinicalWritingHome() {
         {SHOW_CHECKLIST_STATUS && <div className="flex w-[280px] flex-none flex-col gap-5">
 
           <div className="flex flex-col gap-2.5">
-            <p className="text-xs font-semibold text-slate-500">Checklist status</p>
+            <p className="text-xs font-semibold text-slate-500">{t('page.clinical_writing_home.checklist_status')}</p>
             <div className="flex flex-col gap-2.5 rounded-lg border border-slate-200 bg-white p-3.5" data-checklist-summary>
               {checklistLoading && (
-                <p className="text-[12px] text-slate-400">Loading checklist…</p>
+                <p className="text-[12px] text-slate-400">{t('page.clinical_writing_home.checklist_loading')}</p>
               )}
               {!checklistLoading && checklistSummary && checklistSummary.totalItems === 0 && (
                 <p className="text-[12px] text-slate-500" data-empty-checklist>
-                  No checklist items yet. Open a document's Checklist panel to begin, or ask Admin to seed the master templates.
+                  {t('page.clinical_writing_home.checklist_empty')}
                 </p>
               )}
               {!checklistLoading && checklistSummary && checklistSummary.totalItems > 0 && (
                 <>
-                  <ChecklistRow label="Complete" count={checklistSummary.complete} colour={CHECKLIST_ROW_COLOURS.complete} />
-                  <ChecklistRow label="Pending"  count={checklistSummary.pending}  colour={CHECKLIST_ROW_COLOURS.pending} />
-                  <ChecklistRow label="Waived"   count={checklistSummary.waived}   colour={CHECKLIST_ROW_COLOURS.waived} warn />
+                  <ChecklistRow label={t('page.clinical_writing_home.checklist_complete')} count={checklistSummary.complete} colour={CHECKLIST_ROW_COLOURS.complete} />
+                  <ChecklistRow label={t('page.clinical_writing_home.checklist_pending')}  count={checklistSummary.pending}  colour={CHECKLIST_ROW_COLOURS.pending} />
+                  <ChecklistRow label={t('page.clinical_writing_home.checklist_waived')}   count={checklistSummary.waived}   colour={CHECKLIST_ROW_COLOURS.waived} warn />
                   {checklistSummary.mandatoryPending > 0 && (
                     <div className="rounded-md border border-amber-200 bg-amber-50 px-2.5 py-2 text-[12px] font-semibold text-amber-900" data-mandatory-pending>
-                      Mandatory pending: {checklistSummary.mandatoryPending}
+                      {t('page.clinical_writing_home.checklist_mandatory_pending', { count: checklistSummary.mandatoryPending })}
                     </div>
                   )}
                   <p className="text-[11px] text-slate-500">
-                    {checklistSummary.documentsWithChecklist}/{checklistSummary.totalDocuments} document{checklistSummary.totalDocuments === 1 ? '' : 's'} tracked
+                    {t('page.clinical_writing_home.checklist_tracked', { done: checklistSummary.documentsWithChecklist, total: checklistSummary.totalDocuments })}
                   </p>
                 </>
               )}
@@ -717,7 +725,7 @@ export function ClinicalWritingHome() {
         <SlidePanel
           open={!!raciDoc}
           onClose={() => setRaciDoc(null)}
-          title={raciDoc ? `RACI — ${raciDoc.title}` : 'RACI'}
+          title={raciDoc ? t('page.clinical_writing_home.raci_panel_title_with_doc', { title: raciDoc.title }) : t('page.clinical_writing_home.raci_panel_title')}
           subtitle={raciDoc ? TYPE_LABELS[raciDoc.type] : undefined}
           storageKey="panel-width-raci-drawer"
           defaultWidth={720}
@@ -757,8 +765,8 @@ export function ClinicalWritingHome() {
       <SlidePanel
         open={newDocOpen !== false}
         onClose={() => setNewDocOpen(false)}
-        title={newDocOpen && newDocOpen.duplicateSourceId ? 'Duplicate document' : 'New document'}
-        subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
+        title={newDocOpen && newDocOpen.duplicateSourceId ? t('page.clinical_writing_home.duplicate_doc_panel') : t('page.clinical_writing_home.new_doc_panel')}
+        subtitle={project?.shortTitle ? t('page.clinical_writing_home.project_subtitle', { project: project.shortTitle }) : undefined}
         storageKey="panel-width-new-document"
         closeOnOutsideClick
         // Reload the wizard's lists (source library, document templates) from the server.
@@ -793,7 +801,7 @@ export function ClinicalWritingHome() {
       <SlidePanel
         open={auditDoc !== null}
         onClose={() => setAuditDoc(null)}
-        title="Audit trail"
+        title={t('page.clinical_writing_home.audit_trail_panel')}
         subtitle={auditDoc?.title}
         storageKey="panel-width-document-audit"
         defaultWidth={460}
@@ -806,7 +814,7 @@ export function ClinicalWritingHome() {
                 type="button"
                 onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${auditDoc.id}`)}
                 className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
-              >Open document →</button>
+              >{t('page.clinical_writing_home.open_doc_arrow')}</button>
             </div>
             <div className="min-h-0 flex-1">
               <AuditTrailPanel key={auditDoc.id} documentId={auditDoc.id} />
@@ -818,8 +826,8 @@ export function ClinicalWritingHome() {
       <SlidePanel
         open={uploadOpen}
         onClose={closeUpload}
-        title="Upload source document"
-        subtitle={project?.shortTitle ? `Project ${project.shortTitle}` : undefined}
+        title={t('page.clinical_writing_home.upload_source_doc_panel')}
+        subtitle={project?.shortTitle ? t('page.clinical_writing_home.project_subtitle', { project: project.shortTitle }) : undefined}
         storageKey="panel-width-upload-document"
         closeOnOutsideClick
       >
@@ -922,13 +930,15 @@ const RACI_MENU_STATUSES: ReadonlySet<string> = new Set(['in-authoring', 'in-rev
 // Document row "⋯" menu — Arc A5. Recommended default action set per
 // docs/decisions/module-a-defaults.md §1. Items marked (soon) are
 // backend-pending and show a tooltip explaining when they'll light up.
-function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail, onRaci }: {
+function DocumentRowMenu(props: {
   doc: Document
   onOpen: () => void
   onDuplicate: () => void
   onAuditTrail: () => void
   onRaci: () => void
 }) {
+  const { doc, onOpen, onDuplicate, onAuditTrail, onRaci } = props
+  const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
   const isSigned = doc.status === 'signed'
@@ -978,7 +988,7 @@ function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail, onRaci }: {
       <button
         ref={btnRef}
         type="button"
-        aria-label="More actions"
+        aria-label={t('page.clinical_writing_home.more_actions')}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={e => { e.stopPropagation(); setOpen(o => !o) }}
@@ -997,28 +1007,28 @@ function DocumentRowMenu({ doc, onOpen, onDuplicate, onAuditTrail, onRaci }: {
           data-row-menu
           onClick={e => e.stopPropagation()}
         >
-          <MenuItem onClick={() => { setOpen(false); onOpen() }}>Open</MenuItem>
-          <MenuItem onClick={() => { setOpen(false); onDuplicate() }}>Duplicate</MenuItem>
-          <MenuItem onClick={() => { setOpen(false); onAuditTrail() }}>Audit trail</MenuItem>
+          <MenuItem onClick={() => { setOpen(false); onOpen() }}>{t('page.clinical_writing_home.menu_open')}</MenuItem>
+          <MenuItem onClick={() => { setOpen(false); onDuplicate() }}>{t('page.clinical_writing_home.menu_duplicate')}</MenuItem>
+          <MenuItem onClick={() => { setOpen(false); onAuditTrail() }}>{t('page.clinical_writing_home.menu_audit_trail')}</MenuItem>
           {RACI_MENU_STATUSES.has(doc.status) && (
-            <MenuItem onClick={() => { setOpen(false); onRaci() }}>RACI</MenuItem>
+            <MenuItem onClick={() => { setOpen(false); onRaci() }}>{t('page.clinical_writing_home.menu_raci')}</MenuItem>
           )}
-          <MenuItem disabled title="Document-level PDF export is coming in a later release.">
-            Export PDF <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
+          <MenuItem disabled title={t('page.clinical_writing_home.menu_export_tooltip')}>
+            {t('page.clinical_writing_home.menu_export')} <span className="ml-1 text-[9px] uppercase text-slate-400">{t('page.clinical_writing_home.menu_soon_badge')}</span>
           </MenuItem>
           <div className="my-1 border-t border-slate-100" />
           <MenuItem
             disabled
-            title={isSigned ? 'Signed documents cannot be archived (Part 11 §11.10).' : 'Archive endpoint pending (Phase 2).'}
+            title={isSigned ? t('page.clinical_writing_home.menu_archive_tooltip_signed') : t('page.clinical_writing_home.menu_archive_tooltip_pending')}
           >
-            Archive <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
+            {t('page.clinical_writing_home.menu_archive')} <span className="ml-1 text-[9px] uppercase text-slate-400">{t('page.clinical_writing_home.menu_soon_badge')}</span>
           </MenuItem>
           <MenuItem
             disabled
             danger
-            title={isSigned ? 'Signed documents cannot be deleted (Part 11 §11.10).' : 'Delete endpoint pending (Phase 2); admin-only.'}
+            title={isSigned ? t('page.clinical_writing_home.menu_delete_tooltip_signed') : t('page.clinical_writing_home.menu_delete_tooltip_pending')}
           >
-            Delete <span className="ml-1 text-[9px] uppercase text-slate-400">soon</span>
+            {t('page.clinical_writing_home.menu_delete')} <span className="ml-1 text-[9px] uppercase text-slate-400">{t('page.clinical_writing_home.menu_soon_badge')}</span>
           </MenuItem>
         </div>
       )}

@@ -2,6 +2,8 @@ import { formatDate } from '../../utils/formatDate'
 import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { Project, ProjectStatus } from '@platform/types'
 import { projectsApi } from '../../api'
 import { ProjectStatusPill, SlidePanel } from '../../components/ui'
@@ -40,10 +42,14 @@ const ROW_GRID = 'minmax(200px,2fr) minmax(110px,1fr) 80px 100px minmax(120px,1.
 type SortKey = 'project' | 'ta' | 'phase' | 'start' | 'documents' | 'status'
 type SortState = { key: SortKey; dir: 'asc' | 'desc' } | null
 // Countries has no sensible order, so it isn't sortable.
-const COLUMN_HEADERS: Array<{ label: string; key: SortKey | null }> = [
-  { label: 'Project', key: 'project' }, { label: 'TA', key: 'ta' },
-  { label: 'Phase', key: 'phase' }, { label: 'Start date', key: 'start' }, { label: 'Countries', key: null },
-  { label: 'Documents', key: 'documents' }, { label: 'Status', key: 'status' },
+const COLUMN_HEADERS: Array<{ labelKey: string; key: SortKey | null }> = [
+  { labelKey: 'page.all_projects.col_project',   key: 'project' },
+  { labelKey: 'page.all_projects.col_ta',        key: 'ta' },
+  { labelKey: 'page.all_projects.col_phase',     key: 'phase' },
+  { labelKey: 'page.all_projects.col_start',     key: 'start' },
+  { labelKey: 'page.all_projects.col_countries', key: null },
+  { labelKey: 'page.all_projects.col_documents', key: 'documents' },
+  { labelKey: 'page.all_projects.col_status',    key: 'status' },
 ]
 // asc → desc → back to the default (newest first) order
 const nextSort = (cur: SortState, key: SortKey): SortState =>
@@ -70,14 +76,26 @@ function SortIcon({ state }: { state: 'asc' | 'desc' | null }) {
   )
 }
 
-const STATUS_FILTERS: { label: string; value: ProjectStatus | 'all' }[] = [
-  { label: 'All',       value: 'all' },
-  { label: 'Ongoing',   value: 'ongoing' },
-  { label: 'Initiated', value: 'initiated' },
-  { label: 'On Hold',   value: 'on-hold' },
+const STATUS_FILTERS: { labelKey: string; value: ProjectStatus | 'all' }[] = [
+  { labelKey: 'page.all_projects.filter_all',       value: 'all' },
+  { labelKey: 'page.all_projects.filter_ongoing',   value: 'ongoing' },
+  { labelKey: 'page.all_projects.filter_initiated', value: 'initiated' },
+  { labelKey: 'page.all_projects.filter_on_hold',   value: 'on-hold' },
 ]
 
+/** Human label for a project status — translated per status. */
+function statusLabel(status: ProjectStatus, t: TFunction): string {
+  switch (status) {
+    case 'ongoing':   return t('page.all_projects.status_ongoing')
+    case 'initiated': return t('page.all_projects.status_initiated')
+    case 're-open':   return t('page.all_projects.status_re_open')
+    case 'on-hold':   return t('page.all_projects.status_on_hold')
+    case 'closed':    return t('page.all_projects.status_closed')
+  }
+}
+
 export function AllProjects() {
+  const { t } = useTranslation()
   const navigate         = useNavigate()
   const setActiveProject = useProjectStore(s => s.setActiveProject)
 
@@ -162,8 +180,8 @@ export function AllProjects() {
     ...STATUS_ORDER
       .map(st => ({ st, n: projects.filter((p: Project) => p.status === st).length }))
       .filter(x => x.n > 0)
-      .map(x => `${x.n} ${x.st === 'on-hold' ? 'on hold' : x.st}`),
-    `${projects.length} total`,
+      .map(x => t('page.all_projects.status_summary_item', { count: x.n, label: statusLabel(x.st, t) })),
+    t('page.all_projects.status_summary_total', { count: projects.length }),
   ].join(' · ')
 
   return (
@@ -172,7 +190,7 @@ export function AllProjects() {
       {/* Page header */}
       <div className="flex items-center justify-between border-b border-slate-200 bg-white px-8 py-6">
         <div>
-          <h1 className="text-[22px] font-bold text-slate-900">Projects</h1>
+          <h1 className="text-[22px] font-bold text-slate-900">{t('page.all_projects.title')}</h1>
           <p className="mt-0.5 font-mono text-xs text-slate-500">
             {statusSummary}
           </p>
@@ -185,7 +203,7 @@ export function AllProjects() {
             className="flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-4 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
           >
             <span className="text-base leading-none">+</span>
-            New Project
+            {t('page.all_projects.new_project')}
           </button>
         )}
       </div>
@@ -200,14 +218,14 @@ export function AllProjects() {
             type="text"
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search projects…"
+            placeholder={t('page.all_projects.search_placeholder')}
             className="flex-1 bg-transparent text-[13px] text-slate-900 outline-none placeholder:text-slate-400"
           />
           {search && (
             <button
               onClick={() => setSearch('')}
               className="text-slate-400 hover:text-slate-600 text-xs leading-none"
-              aria-label="Clear search"
+              aria-label={t('page.all_projects.clear_search')}
             >
               ✕
             </button>
@@ -232,7 +250,7 @@ export function AllProjects() {
                 border: '1px solid #E2E8F0',
               }}
             >
-              {f.label}
+              {t(f.labelKey)}
             </button>
           ))}
         </div>
@@ -242,10 +260,10 @@ export function AllProjects() {
           value={taFilter}
           onChange={e => setTaFilter(e.target.value)}
           data-ta-filter
-          aria-label="Filter by TA"
+          aria-label={t('page.all_projects.filter_by_ta')}
           className="h-8 rounded-md border border-slate-200 bg-white px-2 text-[13px] text-slate-800"
         >
-          <option value="all">All TAs</option>
+          <option value="all">{t('page.all_projects.all_tas')}</option>
           {taOptions.map(ta => <option key={ta} value={ta}>{ta}</option>)}
         </select>
 
@@ -256,7 +274,7 @@ export function AllProjects() {
 
         {isLoading && (
           <div className="flex items-center justify-center py-20">
-            <p className="font-mono text-sm text-slate-400">Loading projects…</p>
+            <p className="font-mono text-sm text-slate-400">{t('page.all_projects.loading')}</p>
           </div>
         )}
 
@@ -264,8 +282,8 @@ export function AllProjects() {
           <div className="flex flex-col items-center justify-center gap-3 py-20">
             <FolderIcon />
             <div className="text-center">
-              <p className="text-[15px] font-bold text-slate-900">No projects found</p>
-              <p className="mt-1 text-[13px] text-slate-400">Try adjusting your search or filters</p>
+              <p className="text-[15px] font-bold text-slate-900">{t('page.all_projects.empty_title')}</p>
+              <p className="mt-1 text-[13px] text-slate-400">{t('page.all_projects.empty_hint')}</p>
             </div>
           </div>
         )}
@@ -275,17 +293,17 @@ export function AllProjects() {
             <div className="min-w-[900px]">
               <div className="grid items-center gap-4 px-6 pt-5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-400" style={{ gridTemplateColumns: ROW_GRID }}>
                 {COLUMN_HEADERS.map(h => h.key ? (
-                  <span key={h.label} aria-sort={sort?.key === h.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+                  <span key={h.labelKey} aria-sort={sort?.key === h.key ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
                     <button
                       type="button"
                       onClick={() => setSort(cur => nextSort(cur, h.key!))}
                       data-sort={h.key}
                       className="inline-flex items-center gap-1.5 font-semibold uppercase tracking-widest hover:text-slate-700"
                     >
-                      {h.label}<SortIcon state={sort?.key === h.key ? sort.dir : null} />
+                      {t(h.labelKey)}<SortIcon state={sort?.key === h.key ? sort.dir : null} />
                     </button>
                   </span>
-                ) : <span key={h.label}>{h.label}</span>)}
+                ) : <span key={h.labelKey}>{t(h.labelKey)}</span>)}
                 <span />
               </div>
               {sorted.map((project: Project) => {
@@ -307,7 +325,7 @@ export function AllProjects() {
                         ? <span className="inline-block max-w-full truncate rounded px-2 py-0.5 font-mono text-[11px] text-slate-500" style={{ backgroundColor: '#F1F5F9' }} title={project.therapeuticArea}>{project.therapeuticArea}</span>
                         : <span className="text-[13px] text-slate-400">—</span>}
                     </span>
-                    <span className="text-[13px] text-slate-700">{project.phase ? (/^phase\b|preclinical/i.test(project.phase) ? project.phase : `Phase ${project.phase}`) : '—'}</span>
+                    <span className="text-[13px] text-slate-700">{project.phase ? (/^phase\b|preclinical/i.test(project.phase) ? project.phase : t('page.all_projects.phase_prefix', { phase: project.phase })) : '—'}</span>
                     <span className="text-[13px] text-slate-700">{project.startDate ? formatDate(project.startDate) : '—'}</span>
                     <span className="flex flex-wrap gap-1">
                       {project.submissionCountries?.length
@@ -316,7 +334,7 @@ export function AllProjects() {
                           ))
                         : <span className="text-[13px] text-slate-400">—</span>}
                     </span>
-                    <span className="text-[13px] text-slate-500">{docs} document{docs === 1 ? '' : 's'}</span>
+                    <span className="text-[13px] text-slate-500">{t('page.all_projects.document_count', { count: docs })}</span>
                     <span><ProjectStatusPill status={project.status} /></span>
                     <ChevronRightIcon />
                   </div>
@@ -331,8 +349,8 @@ export function AllProjects() {
       <SlidePanel
         open={newProjectOpen}
         onClose={() => setNewProjectOpen(false)}
-        title="New project"
-        subtitle="Create a new study + its downstream deliverables"
+        title={t('page.all_projects.new_project_panel_title')}
+        subtitle={t('page.all_projects.new_project_panel_subtitle')}
         storageKey="panel-width-new-project"
         closeOnOutsideClick
       >

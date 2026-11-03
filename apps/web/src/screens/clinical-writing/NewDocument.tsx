@@ -23,6 +23,8 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { Trans, useTranslation } from 'react-i18next'
+import type { TFunction } from 'i18next'
 import type { BestPractice, CreateDocumentBody, DocumentType, PlatformUser } from '@platform/types'
 import { documentsApi, type DocumentTemplate } from '../../api'
 import { ApiError } from '../../api/client'
@@ -69,11 +71,13 @@ interface Props {
 }
 
 type Step = 1 | 2 | 3 | 4
-const STEP_LABELS: Record<Step, string> = {
-  1: 'Document type',
-  2: 'Source documents',
-  3: 'Details',
-  4: 'AI drafting',
+/** Step → i18n key under page.new_document.step_label_*. The actual
+ *  translated label is resolved via `t()` at render time. */
+const STEP_LABEL_KEYS: Record<Step, string> = {
+  1: 'page.new_document.step_label_1',
+  2: 'page.new_document.step_label_2',
+  3: 'page.new_document.step_label_3',
+  4: 'page.new_document.step_label_4',
 }
 
 export function NewDocumentForm({
@@ -87,6 +91,7 @@ export function NewDocumentForm({
   onCreated,
   onCancel,
 }: Props) {
+  const { t } = useTranslation()
   const qc = useQueryClient()
 
   const [step,                 setStep]                 = useState<Step>(1)
@@ -103,6 +108,9 @@ export function NewDocumentForm({
   // wizard is set up to feed sources into the worker; writers who want
   // to type from scratch flip to Create blank.
   const [aiDraft,              setAiDraft]              = useState<boolean>(true)
+  // Author's free-text prompt to the AI drafter. Max 2000 chars enforced
+  // at the API edge; UI shows a live char counter + warns at 1900.
+  const [aiInstructions,       setAiInstructions]       = useState<string>('')
 
   // Document templates — DB-backed section skeleton + source-category
   // rules per type. Drives both the step-1 dropdown and the step-2
@@ -254,6 +262,11 @@ export function NewDocumentForm({
         // Only ask the server to enqueue the draft job when the user
         // opted in AND there's at least one source to draft from.
         aiDraft: aiDraft && sourceIds.length > 0 ? true : undefined,
+        // Author's prompt to the AI drafter — only sent when they opted
+        // into AI drafting (so toggling off doesn't persist a stale
+        // directive). Empty string → undefined so the API treats it as
+        // "no directive" rather than "clear directive".
+        aiInstructions: aiDraft && aiInstructions.trim().length > 0 ? aiInstructions.trim() : undefined,
       }
       return documentsApi.create(projectId, body)
     },
@@ -325,7 +338,7 @@ export function NewDocumentForm({
                   }`}
                 >{isDone ? '✓' : n}</span>
                 <span className={`truncate text-[12px] ${isActive ? 'font-semibold text-slate-900' : 'text-slate-500'}`}>
-                  {STEP_LABELS[s]}
+                  {t(STEP_LABEL_KEYS[s])}
                 </span>
                 {n < 4 && <span className={`h-px flex-1 ${step > s ? 'bg-blue-600' : 'bg-slate-200'}`} />}
               </div>
@@ -339,21 +352,21 @@ export function NewDocumentForm({
         {step === 1 && (
           <section className="flex flex-col gap-4" data-step-body="type">
             <div>
-              <h3 className="text-[14px] font-semibold text-slate-900">What are you writing?</h3>
+              <h3 className="text-[14px] font-semibold text-slate-900">{t('page.new_document.step1_title')}</h3>
               <p className="mt-0.5 text-[12px] text-slate-500">
-                The type determines the section template + framework checks applied.
+                {t('page.new_document.step1_hint')}
               </p>
             </div>
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Document type *</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.new_document.document_type_label')}</span>
               <select
                 value={type}
                 onChange={e => setType(e.currentTarget.value as DocumentType)}
                 className="h-10 rounded-md border border-slate-300 px-3 text-[13px]"
                 data-field="type"
               >
-                {docTypeOptions.map(t => (
-                  <option key={t.value} value={t.value}>{t.label}</option>
+                {docTypeOptions.map(opt => (
+                  <option key={opt.value} value={opt.value}>{opt.label}</option>
                 ))}
               </select>
             </label>
@@ -362,7 +375,7 @@ export function NewDocumentForm({
                 <p className="text-[12px] text-slate-700">{selectedTypeMeta.description}</p>
                 {recommendedCategories && (
                   <p className="mt-2 text-[11px] text-slate-500">
-                    <span className="font-semibold">Typical sources:</span>{' '}
+                    <span className="font-semibold">{t('page.new_document.typical_sources_label')}</span>{' '}
                     {recommendedCategories.map(c => sourceCategoryLabel(c)).join(' · ')}
                   </p>
                 )}
@@ -383,14 +396,14 @@ export function NewDocumentForm({
         {step === 2 && (
           <section className="flex flex-col gap-4" data-step-body="sources">
             <div>
-              <h3 className="text-[14px] font-semibold text-slate-900">Pick the sources this document is written from</h3>
+              <h3 className="text-[14px] font-semibold text-slate-900">{t('page.new_document.step2_title')}</h3>
               <p className="mt-0.5 text-[12px] text-slate-500">
-                Mandatory — the writer (and later, the AI drafter) uses these as evidence.
+                {t('page.new_document.step2_hint')}
                 {uploadedHere.length > 0 && !showAllCategories && (
-                  <> Showing the sources you selected — tick <span className="font-semibold">Show all categories</span> to pick others.</>
+                  <> {t('page.new_document.step2_showing_uploaded_prefix')} <span className="font-semibold">{t('page.new_document.show_all_categories')}</span> {t('page.new_document.step2_showing_uploaded_suffix')}</>
                 )}
                 {recommendedCategories && !showAllCategories && uploadedHere.length === 0 && (
-                  <> Filtered to <span className="font-semibold">{recommendedCategories.map(c => sourceCategoryLabel(c)).join(' · ')}</span> for {selectedTypeMeta?.label}.</>
+                  <> {t('page.new_document.step2_filtered_prefix')} <span className="font-semibold">{recommendedCategories.map(c => sourceCategoryLabel(c)).join(' · ')}</span> {t('page.new_document.step2_filtered_suffix', { type: selectedTypeMeta?.label ?? '' })}</>
                 )}
               </p>
             </div>
@@ -404,17 +417,17 @@ export function NewDocumentForm({
                     className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
                     data-action="open-upload"
                   >
-                    + Upload source
+                    + {t('page.new_document.upload_source')}
                   </button>
                 )}
                 <button
                   type="button"
                   onClick={() => setShowAllCategories(true)}
                   className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
-                  title="Pick from the source documents already in this project's library"
+                  title={t('page.new_document.upload_existing_title')}
                   data-action="pick-existing-source"
                 >
-                  Upload from existing
+                  {t('page.new_document.upload_from_existing')}
                 </button>
               </div>
               {recommendedCategories && (
@@ -424,7 +437,7 @@ export function NewDocumentForm({
                     checked={showAllCategories}
                     onChange={e => setShowAllCategories(e.currentTarget.checked)}
                   />
-                  Show all categories
+                  {t('page.new_document.show_all_categories')}
                 </label>
               )}
             </div>
@@ -433,8 +446,8 @@ export function NewDocumentForm({
               <div className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-5 text-center">
                 <p className="text-[12px] text-slate-600">
                   {sources.length === 0
-                    ? "This project's library has no source documents yet."
-                    : "No sources match the recommended categories for this document type."}
+                    ? t('page.new_document.no_sources_library')
+                    : t('page.new_document.no_sources_match_category')}
                 </p>
               </div>
             ) : (
@@ -459,12 +472,12 @@ export function NewDocumentForm({
             <div className="flex items-center justify-between text-[11px]">
               <span className={sourceIds.length === 0 ? 'text-rose-600' : 'text-slate-600'}>
                 {sourceIds.length === 0
-                  ? 'Select at least one source to continue.'
-                  : `${sourceIds.length} selected`}
+                  ? t('page.new_document.select_one_source_hint')
+                  : t('page.new_document.selected_count', { count: sourceIds.length })}
               </span>
               {outOfScopeSelectedCount > 0 && (
                 <span className="text-amber-600">
-                  {outOfScopeSelectedCount} outside recommended categories
+                  {t('page.new_document.out_of_scope_count', { count: outOfScopeSelectedCount })}
                 </span>
               )}
             </div>
@@ -474,54 +487,54 @@ export function NewDocumentForm({
         {step === 3 && (
           <section className="flex flex-col gap-4" data-step-body="details">
             <div>
-              <h3 className="text-[14px] font-semibold text-slate-900">Document details</h3>
+              <h3 className="text-[14px] font-semibold text-slate-900">{t('page.new_document.step3_title')}</h3>
               <p className="mt-0.5 text-[12px] text-slate-500">
-                You picked {selectedTypeMeta?.label} with {sourceIds.length} source{sourceIds.length === 1 ? '' : 's'}.
+                {t('page.new_document.step3_summary', { type: selectedTypeMeta?.label ?? '', count: sourceIds.length })}
                 {relevantBestPractices.length > 0 && (
-                  <> {relevantBestPractices.length} best practice{relevantBestPractices.length === 1 ? '' : 's'} will apply{relevantBestPractices.some(bp => bp.reviewDue) ? ' (one is marked Review due)' : ''}.</>
+                  <> {t('page.new_document.step3_best_practices', { count: relevantBestPractices.length })}{relevantBestPractices.some(bp => bp.reviewDue) ? t('page.new_document.step3_review_due_suffix') : ''}.</>
                 )}
               </p>
             </div>
 
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Title *</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.new_document.title_label')}</span>
               <input value={title} onChange={e => setTitle(e.currentTarget.value)} required
-                placeholder={projectShortTitle ? `${projectShortTitle} CSR v1.0 — Primary Analysis` : 'e.g. CSR v1.0 — Primary Analysis'}
+                placeholder={projectShortTitle ? t('page.new_document.title_placeholder_with_project', { project: projectShortTitle }) : t('page.new_document.title_placeholder_fallback')}
                 className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
             </label>
 
             {/* FR-A-002 / AC-A-007: mandatory, inherited from the project, fixed after creation (Admin-only change) */}
             <div className="flex flex-col gap-1" data-field="therapeutic-area">
               <span className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-slate-500">
-                Therapeutic area *
-                <span className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-blue-700" data-ta-inherited>INHERITED</span>
+                {t('page.new_document.ta_label')}
+                <span className="rounded bg-blue-50 px-1.5 py-0.5 font-mono text-[10px] font-semibold tracking-wide text-blue-700" data-ta-inherited>{t('page.new_document.ta_inherited_badge')}</span>
               </span>
               <div className="flex h-9 items-center rounded-md border border-slate-200 bg-slate-100 px-3 text-[13px] text-slate-700" aria-readonly="true">
-                {projectTherapeuticArea || 'Loading…'}
+                {projectTherapeuticArea || t('page.new_document.ta_loading')}
               </div>
-              <span className="text-[11px] text-slate-500">Set by the project. Only an Admin can change it after the document is created.</span>
+              <span className="text-[11px] text-slate-500">{t('page.new_document.ta_hint')}</span>
             </div>
 
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Assigned writer *</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.new_document.assignee_label')}</span>
               <select value={assigneeId} onChange={e => setAssigneeId(e.currentTarget.value)} required
                 className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
-                <option value="">Select an assignee…</option>
+                <option value="">{t('page.new_document.assignee_placeholder')}</option>
                 {assigneeOptions.map(u => (
                   <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
                 ))}
               </select>
-              <span className="text-[11px] text-slate-500">The assignee is auto-added as the Responsible (R) on the RACI matrix.</span>
+              <span className="text-[11px] text-slate-500">{t('page.new_document.assignee_hint')}</span>
             </label>
 
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Target completion date</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.new_document.target_date_label')}</span>
               <input type="date" value={targetCompletionDate} onChange={e => setTargetCompletionDate(e.currentTarget.value)}
                 className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
             </label>
 
             <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Description</span>
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.new_document.description_label')}</span>
               <textarea value={description} onChange={e => setDescription(e.currentTarget.value)} rows={3}
                 className="rounded-md border border-slate-300 px-3 py-2 text-[13px]" />
             </label>
@@ -537,11 +550,9 @@ export function NewDocumentForm({
         {step === 4 && (
           <section className="flex flex-col gap-4" data-step-body="ai-drafting">
             <div>
-              <h3 className="text-[14px] font-semibold text-slate-900">Draft every section with AI?</h3>
+              <h3 className="text-[14px] font-semibold text-slate-900">{t('page.new_document.step4_title')}</h3>
               <p className="mt-0.5 text-[12px] text-slate-500">
-                The AI drafter reads your {sourceIds.length} source{sourceIds.length === 1 ? '' : 's'}
-                {' '}and fills in each section as a first-pass draft. You can then edit, accept, or
-                regenerate per section in the editor.
+                {t('page.new_document.step4_hint', { count: sourceIds.length })}
               </p>
             </div>
 
@@ -560,20 +571,16 @@ export function NewDocumentForm({
                 />
                 <div className="min-w-0 flex-1">
                   <p className="text-[13px] font-semibold text-slate-900">
-                    Draft with AI
+                    {t('page.new_document.ai_on_title')}
                     <span className="ml-2 rounded-full border border-slate-300 bg-white px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-600">
-                      recommended
+                      {t('page.new_document.recommended_badge')}
                     </span>
                   </p>
                   <p className="mt-1 text-[12px] text-slate-600">
-                    The worker queues a background job the moment you click Create. The document
-                    opens immediately in "Authoring"; sections fill in over 2–6 minutes. You can
-                    close this tab — a notification lands when drafting completes.
+                    {t('page.new_document.ai_on_description')}
                   </p>
                   <p className="mt-1 font-mono text-[10px] text-slate-500">
-                    Current build uses deterministic placeholder content per section — real LLM
-                    swap is pending ANTHROPIC_API_KEY provisioning (same pattern as voice-note
-                    transcription).
+                    {t('page.new_document.ai_on_note')}
                   </p>
                 </div>
               </label>
@@ -590,19 +597,24 @@ export function NewDocumentForm({
                   data-input="ai-draft-off"
                 />
                 <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold text-slate-900">Create blank</p>
+                  <p className="text-[13px] font-semibold text-slate-900">{t('page.new_document.ai_off_title')}</p>
                   <p className="mt-1 text-[12px] text-slate-600">
-                    I'll draft every section myself. The document opens with the section skeleton
-                    only — no AI involvement.
+                    {t('page.new_document.ai_off_description')}
                   </p>
                 </div>
               </label>
             </div>
 
+            {/* Author's prompt to the AI drafter. Shown only when
+                "Draft with AI" is selected AND at least one source is
+                attached — otherwise the directive would never be used. */}
+            {aiDraft && sourceIds.length > 0 && (
+              <AiInstructionsField value={aiInstructions} onChange={setAiInstructions} t={t} />
+            )}
+
             {sourceIds.length === 0 && (
               <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
-                AI drafting is disabled because you haven't attached any source documents.
-                Go back to step 2 to add one, or continue with "Create blank".
+                {t('page.new_document.ai_disabled_no_sources')}
               </p>
             )}
 
@@ -619,7 +631,7 @@ export function NewDocumentForm({
       <div className="flex flex-none items-center justify-between gap-2 border-t border-slate-200 bg-white px-5 py-3">
         <button type="button" onClick={onCancel}
           className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
-          Cancel
+          {t('button.cancel')}
         </button>
         <div className="flex items-center gap-2">
           {step > 1 && (
@@ -627,7 +639,7 @@ export function NewDocumentForm({
               className="rounded-md border border-slate-300 bg-white px-4 py-2 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
               data-action="wizard-back"
             >
-              Back
+              {t('button.back')}
             </button>
           )}
           {/* Distinct keys: without them React reuses one <button> for Next and
@@ -646,7 +658,7 @@ export function NewDocumentForm({
               className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
               data-action="wizard-next"
             >
-              Next
+              {t('button.next')}
             </button>
           ) : (
             <button
@@ -655,7 +667,11 @@ export function NewDocumentForm({
               disabled={!canSubmit}
               className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {create.isPending ? 'Creating…' : (aiDraft && sourceIds.length > 0 ? 'Create & draft with AI' : 'Create document')}
+              {create.isPending
+                ? t('page.new_document.creating')
+                : (aiDraft && sourceIds.length > 0
+                    ? t('page.new_document.create_with_ai')
+                    : t('page.new_document.create_blank_button'))}
             </button>
           )}
         </div>
@@ -670,17 +686,21 @@ export function NewDocumentForm({
 // expand on first open regardless, since those are the ones that most want
 // the writer's attention.
 function BestPracticesCard({ items, docTypeLabel }: { items: BestPractice[]; docTypeLabel: string }) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(items.length <= 2 || items.some(bp => bp.reviewDue))
 
   if (items.length === 0) {
     return (
       <div className="rounded-md border border-dashed border-slate-200 bg-white p-3">
         <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-          Best practices
+          {t('page.new_document.best_practices_header')}
         </p>
         <p className="mt-1 text-[12px] text-slate-500">
-          No best-practice items apply to {docTypeLabel}. Platform admins can publish items
-          via <span className="font-mono">Library → Best Practices</span>.
+          <Trans
+            i18nKey="page.new_document.best_practices_empty"
+            values={{ docType: docTypeLabel }}
+            components={{ libraryPath: <span className="font-mono" /> }}
+          />
         </p>
       </div>
     )
@@ -699,14 +719,14 @@ function BestPracticesCard({ items, docTypeLabel }: { items: BestPractice[]; doc
       >
         <div className="flex items-center gap-2">
           <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-            Best practices for {docTypeLabel}
+            {t('page.new_document.best_practices_for', { docType: docTypeLabel })}
           </span>
           <span className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[11px] font-semibold text-slate-700">
             {items.length}
           </span>
           {reviewDueCount > 0 && (
             <span className="rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-700">
-              {reviewDueCount} review due
+              {t('page.new_document.best_practices_review_due_count', { count: reviewDueCount })}
             </span>
           )}
         </div>
@@ -725,7 +745,7 @@ function BestPracticesCard({ items, docTypeLabel }: { items: BestPractice[]; doc
                 <p className="text-[13px] font-semibold text-slate-900">{bp.name}</p>
                 {bp.reviewDue && (
                   <span className="flex-none rounded-full border border-amber-300 bg-white px-2 py-0.5 text-[10px] font-semibold text-amber-700">
-                    Review due
+                    {t('page.new_document.best_practices_review_due_badge')}
                   </span>
                 )}
               </div>
@@ -740,6 +760,86 @@ function BestPracticesCard({ items, docTypeLabel }: { items: BestPractice[]; doc
           ))}
         </div>
       )}
+    </div>
+  )
+}
+
+// Instructions for the AI drafter — appears below the "Draft with AI"
+// opt-in in the NewDocument wizard. Free-text with inline helper +
+// clickable example chips that prepend to the current value. 2000-char
+// cap enforced server-side; the UI shows a live counter + warns at 1900.
+const AI_INSTRUCTIONS_MAX = 2000
+const AI_INSTRUCTIONS_WARN_AT = 1900
+/** Example-chip keys — each resolves to a translated phrase via t(). The
+ *  stable code identifies the chip for data-attribute telemetry; the
+ *  rendered text is per-language. */
+const AI_INSTRUCTIONS_EXAMPLE_KEYS = [
+  'draft_japanese',
+  'plain_english',
+  'include_tables',
+  'mhra_style',
+] as const
+
+function AiInstructionsField({ value, onChange, t }: { value: string; onChange: (v: string) => void; t: TFunction }) {
+  const remaining = AI_INSTRUCTIONS_MAX - value.length
+  const counterTone =
+    value.length > AI_INSTRUCTIONS_MAX ? 'text-rose-600' :
+    value.length > AI_INSTRUCTIONS_WARN_AT ? 'text-amber-700' : 'text-slate-400'
+
+  const prependExample = (example: string) => {
+    if (value.trim().length === 0) {
+      onChange(example)
+      return
+    }
+    // Prepend as its own line so the author can keep adding directives.
+    const next = `${example}\n${value}`
+    onChange(next.slice(0, AI_INSTRUCTIONS_MAX))
+  }
+
+  return (
+    <div
+      className="flex flex-col gap-2 rounded-md border border-slate-200 bg-white p-3"
+      data-ai-instructions
+    >
+      <div className="flex items-baseline justify-between">
+        <label htmlFor="ai-instructions" className="text-[12px] font-semibold text-slate-800">
+          {t('page.new_document.ai_instructions_label')}
+          <span className="ml-2 font-normal text-slate-500">{t('page.new_document.ai_instructions_optional')}</span>
+        </label>
+        <span className={`font-mono text-[10px] ${counterTone}`} data-ai-instructions-counter>
+          {t('page.new_document.ai_instructions_remaining', { count: remaining })}
+        </span>
+      </div>
+      <p className="text-[12px] text-slate-600">
+        {t('page.new_document.ai_instructions_help')}
+      </p>
+      <textarea
+        id="ai-instructions"
+        value={value}
+        onChange={e => onChange(e.currentTarget.value.slice(0, AI_INSTRUCTIONS_MAX))}
+        rows={3}
+        maxLength={AI_INSTRUCTIONS_MAX}
+        placeholder={t('page.new_document.ai_instructions_placeholder')}
+        className="w-full resize-y rounded-md border border-slate-200 bg-white px-3 py-2 text-[13px] text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-500 focus:ring-1 focus:ring-blue-100"
+        data-ai-instructions-input
+      />
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span className="font-mono text-[10px] text-slate-400 uppercase tracking-wider">{t('page.new_document.examples_label')}</span>
+        {AI_INSTRUCTIONS_EXAMPLE_KEYS.map(code => {
+          const label = t(`page.new_document.ai_instructions_example_${code}`)
+          return (
+            <button
+              key={code}
+              type="button"
+              onClick={() => prependExample(label)}
+              className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-0.5 text-[11px] text-slate-700 hover:border-blue-300 hover:bg-blue-50 hover:text-blue-700"
+              data-ai-instructions-example={code}
+            >
+              + {label}
+            </button>
+          )
+        })}
+      </div>
     </div>
   )
 }

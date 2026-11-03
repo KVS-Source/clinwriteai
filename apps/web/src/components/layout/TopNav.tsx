@@ -12,6 +12,9 @@ import { AUTH_BYPASS } from '../../config/auth'
 import { PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import type { PlatformUser } from '@platform/types'
 import { MODULE_KEY_TO_LABEL, type ModuleKey } from '../../config/modules'
+import { useTranslation } from 'react-i18next'
+import { useAppLanguage } from '../../i18n/useAppLanguage'
+import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS } from '../../i18n'
 
 // Module slug → label for the breadcrumb crumb between the project and the
 // document. Kept inline since this is the only consumer of the mapping;
@@ -113,6 +116,8 @@ export function TopNav() {
   const currentUser    = usePlatformStore(s => s.currentUser)
   const setCurrentUser = usePlatformStore(s => s.setCurrentUser)
   const logoutLocal    = useAuthStore(s => s.logout)
+  const { t }          = useTranslation()
+  const language       = useAppLanguage()
 
   const [open, setOpen] = useState(false)
   const menuRef = useRef<HTMLDivElement | null>(null)
@@ -299,14 +304,44 @@ export function TopNav() {
                 onClick={() => { setOpen(false); navigate('/set-password') }}
                 className="flex w-full items-center px-3 py-2 text-left text-[13px] text-slate-700 hover:bg-slate-50"
                 data-action="change-password"
-              >Change password</button>
+              >{t('header.change_password')}</button>
+
+              {/* Language toggle — Phase 1 i18n (2026-11-03). Chrome only;
+                  content stays as authored. */}
+              <div className="border-t border-slate-100 px-3 py-2.5" data-account-language>
+                <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                  {t('header.language')}
+                </p>
+                <div className="flex gap-1">
+                  {SUPPORTED_LANGUAGES.map(code => {
+                    const active = language.current === code
+                    return (
+                      <button
+                        key={code}
+                        type="button"
+                        onClick={() => { void language.change(code) }}
+                        aria-pressed={active}
+                        data-language-toggle={code}
+                        className={`flex-1 rounded-md border px-2 py-1 text-[12px] font-medium transition-colors ${
+                          active
+                            ? 'border-blue-500 bg-blue-50 text-blue-700'
+                            : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300'
+                        }`}
+                      >
+                        {LANGUAGE_LABELS[code]}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
               <button
                 type="button"
                 onClick={signOut}
                 disabled={signingOut}
                 className="flex w-full items-center border-t border-slate-100 px-3 py-2 text-left text-[13px] font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
                 data-action="sign-out"
-              >{signingOut ? 'Signing out…' : 'Sign out'}</button>
+              >{signingOut ? t('header.signing_out') : t('header.sign_out')}</button>
             </div>
           )}
 

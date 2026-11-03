@@ -3,6 +3,7 @@ import { NavLink, useNavigate, useParams } from 'react-router-dom'
 import { MonoLabel } from '../ui'
 import { usePlatformStore } from '../../platform/store'
 import { MODULE_LABELS, MODULE_SLUG_TO_KEY, isModuleEnabled, type ModuleSlug } from '../../config/modules'
+import { isAdminRole, isPlatformAdmin } from '../../config/roles'
 
 // Module accent colours — design-system.md Decision 10 (Platform = navy per PM00 §7 rule 1)
 const MODULE_COLOURS: Record<string, string> = {
@@ -190,10 +191,11 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
   // Post 2026-10-27 role consolidation: platform admin = role='admin' with
   // tenantId=null; tenant admin = role='admin' with a tenant id. The Platform
   // section (Tenants / Framework Registry / Rate Card) is platform-admin-only.
-  const isAdmin      = currentUser.role === 'admin'
-  const isSuperAdmin = isAdmin && (currentUser.tenantId ?? null) == null
-  const platformItems   = isAdmin      ? PLATFORM_NAV.filter(i => i.roles.includes(currentUser.role as 'admin'))   : []
-  const superAdminItems = isSuperAdmin ? SUPER_ADMIN_NAV.filter(i => i.roles.includes(currentUser.role as 'admin')) : []
+  // The API reports 'tenant-admin'; personas still say 'admin' — both count.
+  const isAdmin      = isAdminRole(currentUser.role)
+  const isSuperAdmin = isPlatformAdmin(currentUser)
+  const platformItems   = isAdmin      ? PLATFORM_NAV    : []
+  const superAdminItems = isSuperAdmin ? SUPER_ADMIN_NAV : []
   const showPlatform   = platformItems.length   > 0
   const libraryItems   = showPlatform ? [] : LIBRARY_NAV
   const showSuperAdmin = superAdminItems.length > 0

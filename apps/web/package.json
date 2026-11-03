@@ -11,7 +11,8 @@
     "preview": "vite preview",
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",
-    "generate:api-types": "openapi-typescript ${API_SPEC_URL:-http://127.0.0.1:3001/docs/json} -o src/api/openapi-types.ts"
+    "generate:api-types": "openapi-typescript ${API_SPEC_URL:-http://127.0.0.1:3001/docs/json} -o src/api/openapi-types.ts",
+    "translate": "tsx scripts/translate-missing-keys.ts"
   },
   "dependencies": {
     "@platform/types": "*",
@@ -29,8 +30,11 @@
     "@tiptap/pm": "^3.31.4",
     "@tiptap/react": "^3.31.4",
     "@tiptap/starter-kit": "^3.31.4",
+    "i18next": "^26.7.1",
+    "i18next-browser-languagedetector": "^8.3.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
+    "react-i18next": "^17.1.11",
     "react-router-dom": "^6.28.0",
     "socket.io-client": "^4.8.4",
     "y-protocols": "^1.0.7",

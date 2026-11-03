@@ -23,6 +23,7 @@ export type RACIRole = 'R' | 'A' | 'C' | 'I'
 export type PanelMode =
   | 'ai' | 'ai-help' | 'history' | 'traceability' | 'voice' | 'checklist' | 'audit' | 'comments'
   | 'review-assignment' | 'crm-resolution' | 'ich-e3' | 'meddra' | 'tlf' | 'raci'
+  | 'ai-drafting-report'
   | null
 
 export type SignatureStatus = 'signed' | 'awaiting' | 'queued'
@@ -355,6 +356,19 @@ export interface CreateDocumentBody {
    * them in asynchronously. Ignored when sourceUploadIds is empty.
    */
   aiDraft?: boolean
+  /**
+   * Author's free-text prompt to the AI drafter — language, tone,
+   * structure, or house-style directives (e.g. "draft in Japanese",
+   * "plain English, no jargon", "include tables where helpful").
+   *
+   * Persisted on Document.aiInstructions (migration 58) and injected
+   * into the system prompt of every AI call for this document (initial
+   * draft, validation re-drafts, and the future per-section
+   * regenerate). Capped at 2000 chars server-side.
+   *
+   * Only applied when `aiDraft` is true. Omitted / empty = no directive.
+   */
+  aiInstructions?: string
 }
 
 export interface UpdateSectionBody {

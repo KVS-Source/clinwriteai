@@ -88,7 +88,7 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
 beforeEach(() => { process.env.FEATURE_MODULES_ENABLED = 'A,B,C,D,E' })
 
 describe('POST /projects/:id/documents — assignee', () => {
-  it.each(['tenant-admin', 'admin', 'super-admin'])('refuses a %s as the assignee and creates nothing', async (role) => {
+  it.each(['tenant-admin', 'admin', 'super-admin', 'auditor', 'guest'])('refuses a %s as the assignee and creates nothing', async (role) => {
     const { post, documentsCreated } = await build()
     const res = await post({ assigneeId: `role:${role}` })
     expect(res.statusCode).toBe(422)

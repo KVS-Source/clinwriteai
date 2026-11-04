@@ -17,7 +17,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanAddComments, actorCanResolveComments, actorCanViewComments, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve } from '../../platform/document-raci/access.js'
+import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
 
 // Document audit panel paging. The default limit keeps older callers that send
 // no parameters (the Audit Review screen) getting the same size as before.
@@ -279,7 +279,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
   // Whether the caller may add comments — lets the screens leave out the composer instead of failing it.
   app.get('/:documentId/comments/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
     const { documentId } = request.params as { documentId: string }
-    return { canAdd: await actorCanAddComments(app.prisma, request.user!, documentId) }
+    return { canAdd: await actorCanAddComment(app.prisma, request.user!, documentId) }
   })
 
   app.post('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -289,8 +289,11 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
-    if (!(await actorCanAddComments(app.prisma, request.user!, documentId))) {
+    if (!(await actorCanAddComment(app.prisma, request.user!, documentId))) {
       return reply.code(403).send(COMMENT_ADD_FORBIDDEN)
+    }
+    if (parsed.data.verdict && !(await actorCanGiveVerdict(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(VERDICT_FORBIDDEN)
     }
 
     if (parsed.data.verdict === 'approve' && await pendingRevision(app.prisma, documentId, parsed.data.sectionRef)) {

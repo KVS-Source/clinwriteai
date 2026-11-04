@@ -18,6 +18,11 @@ function formatDay(iso: string): string {
   return `${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
+// yyyy-mm-dd in the user's own calendar, as <input type="date"> expects.
+function localDay(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export function ReportsAnalytics() {
   const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
@@ -29,8 +34,9 @@ export function ReportsAnalytics() {
   const [activeNav,   setActiveNav]   = useState<string>('dashboard')
   const [reportType,  setReportType]  = useState<string>('project-summary')
   const [format,      setFormat]      = useState<'pdf' | 'csv'>('pdf')
-  const [dateFrom,    setDateFrom]    = useState<string>('2026-09-01')
-  const [dateTo,      setDateTo]      = useState<string>('2026-09-09')
+  // Default range: the current month to date (CW-073: was pinned to 01–09 Sep 2026).
+  const [dateFrom,    setDateFrom]    = useState<string>(() => localDay(new Date(new Date().getFullYear(), new Date().getMonth(), 1)))
+  const [dateTo,      setDateTo]      = useState<string>(() => localDay(new Date()))
   const [generateResult, setGenerateResult] = useState<string | null>(null)
 
   const navItems = useMemo(

@@ -1,9 +1,13 @@
-import { Outlet, useParams } from 'react-router-dom'
+import { Link, Outlet, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { SubNav, type SubNavTab } from '../ui/SubNav'
 import { documentsApi } from '../../api/documents'
 import { useCanViewVersions } from '../../hooks/useCanViewVersions'
+import { ApiError } from '../../api/client'
+
+// 404 (not on the project / doesn't exist) and 403 (no access) mean the same to the user.
+const isNoAccess = (err: unknown) => err instanceof ApiError && (err.status === 403 || err.status === 404)
 
 // Tab-level read-only lockdown per docs/roles-and-permissions.md §11.3
 // stage transitions:
@@ -48,6 +52,8 @@ export function DocumentLayout() {
     queryFn:  () => documentsApi.get(documentId!),
     enabled:  !!documentId,
     staleTime: 10_000,
+    // A refusal won't change on retry; show the message straight away.
+    retry: (count, err) => !isNoAccess(err) && count < 3,
   })
   const status = docQuery.data?.status
   const d = tabDisablesFor(status)
@@ -69,6 +75,25 @@ export function DocumentLayout() {
     { to: `${base}/sign`,   label: t('component.document_layout.tab_e_signature'),               disabled: d.sign },
     { to: `${base}/final`,  label: t('component.document_layout.tab_final_document') },
   ]
+
+  // The document can't be opened (CW-090): one clear message for every tab instead of
+  // an empty page under the tab bar.
+  if (isNoAccess(docQuery.error)) {
+    return (
+      <div className="flex h-full items-center justify-center p-6" data-state="document-no-access">
+        <div className="flex max-w-md flex-col items-center gap-3 rounded-lg border border-slate-200 bg-white p-8 text-center">
+          <h2 className="text-base font-bold text-slate-900">{t('component.document_layout.no_access_title')}</h2>
+          <p className="text-[13px] text-slate-600">{t('component.document_layout.no_access_body')}</p>
+          <Link
+            to={`/projects/${projectId}/clinical-writing`}
+            className="mt-1 rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700"
+          >
+            {t('component.document_layout.no_access_back')}
+          </Link>
+        </div>
+      </div>
+    )
+  }
 
   // The signed-in user's RACI role chip lives in each tab's own title row
   // (MyRaciRole), next to the document's status.

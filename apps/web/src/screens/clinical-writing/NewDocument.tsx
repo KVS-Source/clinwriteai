@@ -105,10 +105,8 @@ export function NewDocumentForm({
   const [showAllCategories,    setShowAllCategories]    = useState(false)
   // Sources uploaded from this wizard (via "+ Upload source").
   const [uploadedHere,         setUploadedHere]         = useState<string[]>([])
-  // Step 4 — AI drafting opt-in. Default to AI drafting since the whole
-  // wizard is set up to feed sources into the worker; writers who want
-  // to type from scratch flip to Create blank.
-  const [aiDraft,              setAiDraft]              = useState<boolean>(true)
+  // Step 4 — every new document is drafted by AI from its sources (CW-056: there is
+  // no "Create blank"; step 2 already requires at least one source).
   // Author's free-text prompt to the AI drafter. Max 2000 chars enforced
   // at the API edge; UI shows a live char counter + warns at 1900.
   const [aiInstructions,       setAiInstructions]       = useState<string>('')
@@ -260,14 +258,11 @@ export function NewDocumentForm({
         targetCompletionDate: targetCompletionDate ? new Date(targetCompletionDate).toISOString() : undefined,
         description: description || undefined,
         sourceUploadIds: sourceIds.length ? sourceIds : undefined,
-        // Only ask the server to enqueue the draft job when the user
-        // opted in AND there's at least one source to draft from.
-        aiDraft: aiDraft && sourceIds.length > 0 ? true : undefined,
-        // Author's prompt to the AI drafter — only sent when they opted
-        // into AI drafting (so toggling off doesn't persist a stale
-        // directive). Empty string → undefined so the API treats it as
-        // "no directive" rather than "clear directive".
-        aiInstructions: aiDraft && aiInstructions.trim().length > 0 ? aiInstructions.trim() : undefined,
+        // AI drafting is the only path; step 2 guarantees at least one source.
+        aiDraft: true,
+        // Author's prompt to the AI drafter. Empty string → undefined so the
+        // API treats it as "no directive" rather than "clear directive".
+        aiInstructions: aiInstructions.trim().length > 0 ? aiInstructions.trim() : undefined,
       }
       return documentsApi.create(projectId, body)
     },
@@ -557,67 +552,16 @@ export function NewDocumentForm({
               </p>
             </div>
 
-            <div className="flex flex-col gap-2">
-              <label
-                className={`flex cursor-pointer gap-3 rounded-md border p-3 ${aiDraft ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
-              >
-                <input
-                  type="radio"
-                  name="ai-draft"
-                  checked={aiDraft}
-                  onChange={() => setAiDraft(true)}
-                  className="mt-0.5"
-                  data-input="ai-draft-on"
-                  disabled={sourceIds.length === 0}
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold text-slate-900">
-                    {t('page.new_document.ai_on_title')}
-                    <span className="ml-2 rounded-full border border-slate-300 bg-white px-2 py-0.5 font-mono text-[10px] font-semibold text-slate-600">
-                      {t('page.new_document.recommended_badge')}
-                    </span>
-                  </p>
-                  <p className="mt-1 text-[12px] text-slate-600">
-                    {t('page.new_document.ai_on_description')}
-                  </p>
-                  <p className="mt-1 font-mono text-[10px] text-slate-500">
-                    {t('page.new_document.ai_on_note')}
-                  </p>
-                </div>
-              </label>
-
-              <label
-                className={`flex cursor-pointer gap-3 rounded-md border p-3 ${!aiDraft ? 'border-blue-500 bg-blue-50' : 'border-slate-200 bg-white hover:border-slate-300'}`}
-              >
-                <input
-                  type="radio"
-                  name="ai-draft"
-                  checked={!aiDraft}
-                  onChange={() => setAiDraft(false)}
-                  className="mt-0.5"
-                  data-input="ai-draft-off"
-                />
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-semibold text-slate-900">{t('page.new_document.ai_off_title')}</p>
-                  <p className="mt-1 text-[12px] text-slate-600">
-                    {t('page.new_document.ai_off_description')}
-                  </p>
-                </div>
-              </label>
+            {/* AI drafting is the only path (CW-056), so this is information, not a choice. */}
+            <div className="rounded-md border border-blue-500 bg-blue-50 p-3" data-ai-draft-info>
+              <p className="text-[13px] font-semibold text-slate-900">{t('page.new_document.ai_on_title')}</p>
+              <p className="mt-1 text-[12px] text-slate-600">
+                {t('page.new_document.ai_on_description')}
+              </p>
             </div>
 
-            {/* Author's prompt to the AI drafter. Shown only when
-                "Draft with AI" is selected AND at least one source is
-                attached — otherwise the directive would never be used. */}
-            {aiDraft && sourceIds.length > 0 && (
-              <AiInstructionsField value={aiInstructions} onChange={setAiInstructions} t={t} />
-            )}
-
-            {sourceIds.length === 0 && (
-              <p className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-800">
-                {t('page.new_document.ai_disabled_no_sources')}
-              </p>
-            )}
+            {/* Author's optional prompt to the AI drafter. */}
+            <AiInstructionsField value={aiInstructions} onChange={setAiInstructions} t={t} />
 
             {errorMsg && (
               <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-[13px] text-red-700" role="alert">
@@ -668,11 +612,7 @@ export function NewDocumentForm({
               disabled={!canSubmit}
               className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
             >
-              {create.isPending
-                ? t('page.new_document.creating')
-                : (aiDraft && sourceIds.length > 0
-                    ? t('page.new_document.create_with_ai')
-                    : t('page.new_document.create_blank_button'))}
+              {create.isPending ? t('page.new_document.creating') : t('page.new_document.create_with_ai')}
             </button>
           )}
         </div>

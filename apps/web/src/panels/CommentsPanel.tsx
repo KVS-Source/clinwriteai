@@ -373,7 +373,7 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
           </div>
         </div>
       )}
-      {composing && (
+      {composing && canComment === true && (
         <CommentComposer
           documentId={documentId}
           sections={sections}

@@ -1173,8 +1173,8 @@
     },
 
     "new_document": {
-      "step_label_1": "ドキュメント種別",
-      "step_label_2": "ソース ドキュメント",
+      "step_label_1": "種別",
+      "step_label_2": "ソース",
       "step_label_3": "詳細",
       "step_label_4": "AI ドラフト",
 
@@ -1219,15 +1219,10 @@
       "target_date_label":    "目標完了日",
       "description_label":    "説明",
 
-      "step4_title": "すべてのセクションを AI でドラフトしますか?",
+      "step4_title": "AI ドラフト",
       "step4_hint":  "AI ドラフターが {{count}} 件のソースを読み取り、各セクションの初稿を作成します。エディターで編集・承認・再生成ができます。",
       "ai_on_title":        "AI でドラフト",
-      "recommended_badge":  "推奨",
       "ai_on_description":  "「作成」をクリックした瞬間にワーカーがバックグラウンド ジョブをキューに入れます。ドキュメントはすぐに「作成中」状態で開き、2〜6 分でセクションが埋まります。タブを閉じても構いません — 完了時に通知が届きます。",
-      "ai_on_note":         "現時点ではセクションごとに決定論的なプレースホルダー内容を使用しています — 実際の LLM への切り替えは ANTHROPIC_API_KEY のプロビジョニング待ちです (音声メモの文字起こしと同じパターン)。",
-      "ai_off_title":       "空白で作成",
-      "ai_off_description": "各セクションを自分で作成します。ドキュメントはセクション スケルトンのみで開きます — AI は使用しません。",
-      "ai_disabled_no_sources": "ソース ドキュメントが添付されていないため、AI ドラフトは無効です。ステップ 2 に戻って追加するか、「空白で作成」を選択してください。",
 
       "ai_instructions_label":    "AI ドラフターへの指示",
       "ai_instructions_optional": "(任意)",
@@ -1243,7 +1238,6 @@
 
       "creating":              "作成中…",
       "create_with_ai":        "作成して AI でドラフト",
-      "create_blank_button":   "ドキュメントを作成",
 
       "best_practices_header": "ベスト プラクティス",
       "best_practices_empty":  "{{docType}} に適用されるベスト プラクティス項目はありません。プラットフォーム管理者は <libraryPath>ライブラリ → ベスト プラクティス</libraryPath> から項目を公開できます。",
@@ -2269,7 +2263,7 @@
       "plan_active_marker": "✓ 有効",
       "col_scope": "対象範囲",
       "col_included": "含まれる量",
-      "col_used": "使用量 (9月)",
+      "col_used": "使用量 ({{period}})",
       "col_remaining": "残量",
       "scope_all": "すべての分野",
       "usage_note": "月間割当の {{pct}}% を使用 · 残り {{days}} 日",
@@ -2575,6 +2569,7 @@
     },
 
     "user_management_live": {
+      "tenant_ref_entered": "テナント ID (ユーザー入力): {{ref}}",
       "title": "ユーザー管理",
       "crumb_admin": "管理",
       "crumb_user_management": "ユーザー管理",
@@ -2884,6 +2879,9 @@
     },
 
     "document_layout": {
+      "no_access_title": "ドキュメントが見つからないか、アクセス権がありません",
+      "no_access_body": "このドキュメントは削除されたか、あなたがプロジェクトまたは RACI に含まれていない可能性があります。アクセスが必要な場合はプロジェクト マネージャーに確認してください。",
+      "no_access_back": "Clinical Writing に戻る",
       "nav_label": "ドキュメント ナビゲーション",
       "tab_editor": "エディター",
       "tab_version_diff": "バージョン差分",
@@ -3053,7 +3051,7 @@
     "services_dashboard": {
       "crumb_platform": "プラットフォーム",
       "crumb_services": "サービス",
-      "title": "サービス · 2026年9月",
+      "title": "サービス · {{period}}",
       "header_blurb": "GenBioCa Sciences のトークン消費とコスト。更新日: {{date}}。",
       "user_byline": "{{name}} · 管理者",
       "export_csv": "CSV エクスポート",
@@ -3067,7 +3065,7 @@
       "stat_estimated_spend": "見積コスト",
       "stat_contracted": "契約額",
       "stat_renewal": "更新",
-      "september_to_date": "9月の累計",
+      "period_to_date": "{{period}}の累計",
       "tokens_count_one": "{{count}} トークン",
       "tokens_count_other": "{{count}} トークン",
       "per_month": "月額",

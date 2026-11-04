@@ -49,6 +49,16 @@ function formatDay(iso: string | null | undefined): string {
   return `${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
+const TAB_STORAGE_KEY = 'clinwrite.bestPractices.tab'
+
+function readSavedTab(): TabKey {
+  try {
+    const saved = localStorage.getItem(TAB_STORAGE_KEY)
+    if (saved && TAB_META.some(m => m.key === saved)) return saved as TabKey
+  } catch { /* storage blocked */ }
+  return 'all'
+}
+
 export function BestPracticesLibrary() {
   const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
@@ -60,7 +70,12 @@ export function BestPracticesLibrary() {
     queryFn:  () => platformApi.listBestPractices(),
   })
 
-  const [tab, setTab]       = useState<TabKey>('D')
+  // Opens on "All" (CW-072), or on the tab the user last chose.
+  const [tab, setTabState]  = useState<TabKey>(readSavedTab)
+  const setTab = (next: TabKey) => {
+    setTabState(next)
+    try { localStorage.setItem(TAB_STORAGE_KEY, next) } catch { /* storage blocked: just don't remember */ }
+  }
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [name,     setName]     = useState('')
   const [module_,  setModule]   = useState<ModuleKey>('D')

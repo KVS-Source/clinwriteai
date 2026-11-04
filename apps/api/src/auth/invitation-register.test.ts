@@ -58,7 +58,7 @@ async function build(users: Row[], invitations: Row[]) {
 
 function seed() {
   const { token, tokenHash, expiresAt } = generateInvitationToken()
-  const users = [{ id: 'u1', email: 'ravi@acme.com', name: 'Ravi', role: 'contributor', status: 'invited', passwordHash: null }]
+  const users = [{ id: 'u1', email: 'ravi@acme.com', name: 'Ravi', role: 'contributor', status: 'invited', passwordHash: null, tenantId: 't-acme', tenantRef: null }]
   const invitations = [{ id: 'inv1', userId: 'u1', tokenHash, expiresAt, acceptedAt: null, revokedAt: null }]
   return { token, users, invitations }
 }
@@ -74,7 +74,7 @@ describe('POST /auth/invitations/register', () => {
   })
 
   it('activates the account, stores the chosen password, and consumes the token', async () => {
-    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, newPassword: STRONG, acceptTerms: true } })
+    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', newPassword: STRONG, acceptTerms: true } })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toMatchObject({ ok: true, email: 'ravi@acme.com' })
 
@@ -86,10 +86,53 @@ describe('POST /auth/invitations/register', () => {
     expect(await verifyPassword(STRONG, user.passwordHash)).toBe(true)   // the password they set actually works
     expect(ctx.invitations[0].acceptedAt).toBeInstanceOf(Date)           // one-time token consumed
     expect(ctx.audit.at(-1)).toMatchObject({ action: 'user.invitation.register' })
+    expect(user.name).toBe('Ravi Kumar')                                 // the name they entered replaces the derived one
+    expect(user.initials).toBe('RK')
+  })
+
+  it('requires a name, and a blank name changes nothing', async () => {
+    for (const payload of [
+      { token, newPassword: STRONG, acceptTerms: true },
+      { token, name: '   ', newPassword: STRONG, acceptTerms: true },
+    ]) {
+      const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().message).toBe('Name is required')
+    }
+    expect(ctx.users[0].status).toBe('invited')
+    expect(ctx.users[0].name).toBe('Ravi')
+    expect(ctx.invitations[0].acceptedAt).toBeNull()
+  })
+
+  it('saves the optional Tenant ID exactly as entered, without touching the tenant link', async () => {
+    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', tenantRef: '  ACME / Mumbai-01  ', newPassword: STRONG, acceptTerms: true } })
+    expect(res.statusCode).toBe(200)
+    expect(ctx.users[0].tenantRef).toBe('ACME / Mumbai-01')      // any text, trimmed, no lookup
+    expect(ctx.users[0].tenantId).toBe('t-acme')                 // access scoping unchanged
+    expect(ctx.audit.at(-1)).toMatchObject({ details: { tenantRef: 'ACME / Mumbai-01' } })
+  })
+
+  it('a blank or omitted Tenant ID is stored as empty', async () => {
+    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', tenantRef: '   ', newPassword: STRONG, acceptTerms: true } })
+    expect(res.statusCode).toBe(200)
+    expect(ctx.users[0].tenantRef).toBeNull()
+    expect(ctx.users[0].tenantId).toBe('t-acme')
+  })
+
+  it('refuses an over-long Tenant ID and changes nothing', async () => {
+    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', tenantRef: 'x'.repeat(101), newPassword: STRONG, acceptTerms: true } })
+    expect(res.statusCode).toBe(400)
+    expect(ctx.users[0]).toMatchObject({ status: 'invited', tenantRef: null, passwordHash: null })
+  })
+
+  it('the preview shows the email and role from the invitation', async () => {
+    const res = await ctx.app.inject({ method: 'GET', url: `/auth/invitations/preview?token=${encodeURIComponent(token)}` })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ valid: true, email: 'ravi@acme.com', role: 'contributor' })
   })
 
   it('rejects a weak password and changes nothing', async () => {
-    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, newPassword: 'weak', acceptTerms: true } })
+    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', newPassword: 'weak', acceptTerms: true } })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toBe('password_policy')
     expect(ctx.users[0].status).toBe('invited')
@@ -98,22 +141,22 @@ describe('POST /auth/invitations/register', () => {
   })
 
   it('requires the terms to be accepted', async () => {
-    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, newPassword: STRONG, acceptTerms: false } })
+    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', newPassword: STRONG, acceptTerms: false } })
     expect(res.statusCode).toBe(400)
     expect(res.json().message).toMatch(/terms/i)
     expect(ctx.users[0].status).toBe('invited')
   })
 
   it('refuses a reused (already-accepted) link', async () => {
-    const first = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, newPassword: STRONG, acceptTerms: true } })
+    const first = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', newPassword: STRONG, acceptTerms: true } })
     expect(first.statusCode).toBe(200)
-    const second = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, newPassword: STRONG, acceptTerms: true } })
+    const second = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token, name: 'Ravi Kumar', newPassword: STRONG, acceptTerms: true } })
     expect(second.statusCode).toBe(410)
     expect(second.json().reason).toBe('accepted')
   })
 
   it('refuses an unknown token', async () => {
-    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token: 'x'.repeat(40), newPassword: STRONG, acceptTerms: true } })
+    const res = await ctx.app.inject({ method: 'POST', url: '/auth/invitations/register', payload: { token: 'x'.repeat(40), name: 'Ravi Kumar', newPassword: STRONG, acceptTerms: true } })
     expect(res.statusCode).toBe(410)
   })
 })

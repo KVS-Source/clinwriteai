@@ -49,7 +49,7 @@ export function AuthCard({ title, subtitle, screen, children }: {
   )
 }
 
-export function AuthField({ id, label, type = 'text', value, onChange, autoComplete, autoFocus, placeholder }: {
+export function AuthField({ id, label, type = 'text', value, onChange, autoComplete, autoFocus, placeholder, requiredMark, optional }: {
   id: string
   label: string
   type?: 'text' | 'email' | 'password'
@@ -58,10 +58,16 @@ export function AuthField({ id, label, type = 'text', value, onChange, autoCompl
   autoComplete?: string
   autoFocus?: boolean
   placeholder?: string
+  /** Show a red asterisk after the label. */
+  requiredMark?: boolean
+  /** Inputs are `required` by default; pass true for an optional field. */
+  optional?: boolean
 }) {
   return (
     <div>
-      <label className="block text-[13px] font-medium text-slate-600" htmlFor={id}>{label}</label>
+      <label className="block text-[13px] font-medium text-slate-600" htmlFor={id}>
+        {label}{requiredMark && <span className="ml-0.5 text-red-600" aria-hidden="true">*</span>}
+      </label>
       <input
         id={id}
         type={type}
@@ -70,7 +76,7 @@ export function AuthField({ id, label, type = 'text', value, onChange, autoCompl
         autoComplete={autoComplete}
         autoFocus={autoFocus}
         placeholder={placeholder}
-        required
+        required={!optional}
         className="mt-1.5 h-10 w-full rounded-lg border border-slate-200 px-3 text-sm text-slate-900 outline-none placeholder:text-slate-400 focus:border-blue-600 focus:shadow-focus transition-colors"
       />
     </div>

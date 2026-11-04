@@ -85,6 +85,27 @@ export function ReviewerView() {
   // toggle. Outside clicks are judged on mousedown + click so a press that starts inside the
   // panel (resizing, selecting) never closes it.
   const rightPanelRef = useRef<HTMLDivElement>(null)
+
+  // The overlay panels (Comments, Checklist) start where the three-panel row starts, below the
+  // document header, the review-completion bar and any notices. Opened from the top of the page they
+  // covered Approve / Return / CRM meeting / Mark review done, which read as "no access".
+  // A callback ref (kept in state) so the measuring re-runs once the row exists: the panel can be
+  // open before the document has loaded.
+  const [panelRow, setPanelRow] = useState<HTMLDivElement | null>(null)
+  const [overlayTop, setOverlayTop] = useState<number | null>(null)
+  useEffect(() => {
+    if (activePanel === null || activePanel === 'audit') return
+    const row = panelRow
+    if (!row) return
+    const measure = () => setOverlayTop(Math.round(row.getBoundingClientRect().top))
+    measure()
+    // The row grows or shrinks whenever the header area above it changes height.
+    const ro = new ResizeObserver(measure)
+    ro.observe(row)
+    window.addEventListener('resize', measure)
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure) }
+  }, [activePanel, panelRow])
+
   useEffect(() => {
     if (activePanel !== 'audit' && activePanel !== 'comments') return
     const hasDraft = () => activePanel === 'comments' && Array.from(rightPanelRef.current?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea') ?? [])
@@ -328,7 +349,7 @@ export function ReviewerView() {
 
   const panelTitle = activePanel && activePanel in PANEL_TITLE_KEY ? t(`page.reviewer_view.${PANEL_TITLE_KEY[activePanel]}`) : ''
   // The Audit Trail panel is laid out like the editor's: beside the content, with an icon in
-  // its header and no expand button. Comments and Checklist stay as overlays.
+  // its header and no expand button. Comments and Checklist stay as overlays, below the header.
   const splitPanel = activePanel === 'audit'
   const statusMeta = STATUS_META[document.status] ?? { bg: '#F8FAFC', fg: '#64748B', label: document.status }
 
@@ -466,7 +487,7 @@ export function ReviewerView() {
         </div>
       )}
       {/* ============ Three-panel row ============ */}
-      <div className="flex flex-1 min-h-0">
+      <div ref={setPanelRow} className="flex flex-1 min-h-0">
 
         <SectionNavigator
           sections={document.sections}
@@ -627,6 +648,8 @@ export function ReviewerView() {
               style={splitPanel
                 ? { width: panel.width, maxWidth: '100%', backgroundColor: '#FFFFFF' }
                 : {
+                    // Below the document header (see overlayTop); top-14 until it is measured.
+                    ...(overlayTop !== null ? { top: overlayTop } : {}),
                     width:           panel.width,
                     maxWidth:        '100%',
                     zIndex:          30,

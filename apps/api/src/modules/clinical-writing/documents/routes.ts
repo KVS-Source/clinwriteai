@@ -21,7 +21,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, userCanBeAssignee } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
@@ -163,6 +163,25 @@ function sectionShape(
   }
 }
 
+// Protocol-metadata fields echoed back on every Document shape. Pulled
+// out of the inline spread so the mapper reads cleanly and both list +
+// detail paths carry the same 8 columns (small, text-only; the list
+// route pays ~a few hundred bytes extra per row, well under the
+// 400-doc page response budget).
+const PROTOCOL_METADATA_FIELDS = [
+  'studyTitle', 'protocolNumber', 'protocolVersion', 'sponsor',
+  'investigationalProduct', 'studyDesign', 'targetPopulation', 'regulatoryRegion',
+] as const
+
+function protocolMetadataShape(d: Record<string, unknown>): Record<string, string | null> {
+  const out: Record<string, string | null> = {}
+  for (const k of PROTOCOL_METADATA_FIELDS) {
+    const v = d[k]
+    out[k] = typeof v === 'string' ? v : v === null || v === undefined ? null : null
+  }
+  return out
+}
+
 function documentShapeMeta(d: { version?: string; type?: string; status?: string; stage?: string } & Record<string, unknown>) {
   // Metadata-only shape for list views. version is already a column on
   // Document? No — version lives on DocumentVersion. For list view, we
@@ -173,6 +192,10 @@ function documentShapeMeta(d: { version?: string; type?: string; status?: string
     status:  hyphenate(d.status),
     stage:   uiStage(d.stage),
     version: d.version ?? 'v0.0',
+    // Protocol metadata appears in both list + detail so the home row's
+    // protocol-number badge + the row-menu's Protocol panel can read it
+    // without a second round-trip.
+    ...protocolMetadataShape(d),
     sections: [] as Array<ReturnType<typeof sectionShape>>,
   }
 }
@@ -185,6 +208,7 @@ function documentShapeFull(d: { type?: string; status?: string; stage?: string; 
     status:  hyphenate(d.status),
     stage:   uiStage(d.stage),
     version: currentVersion?.versionNumber ?? 'v0.0',
+    ...protocolMetadataShape(d),
     sections: (currentVersion?.sections ?? []).map(sec => sectionShape(sec, editors)),
   }
 }
@@ -294,6 +318,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
     const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
     if (visible !== 'all' && !visible.has(projectId)) return reply.code(404).send({ error: 'project_not_found' })
+    if (!(await userCanBeAssignee(app.prisma, parsed.data.assigneeId))) return reply.code(422).send(ASSIGNEE_NOT_ELIGIBLE)
 
     // The project's therapeuticArea is copied in and immutable per FR-A-002.
     // Inheriting it is always allowed; anything else must be an active TA.
@@ -1976,5 +2001,131 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       sectionId:  rec.sectionId,
       contentHtml: rec.preCallSectionHtml,
     }
+  })
+
+  // --------------------------------------------------------------------
+  // Protocol metadata (migration 60, 2026-11-04).
+  //
+  // PATCH /documents/:documentId/protocol-metadata
+  //
+  // Partial update of the 8 protocol-specific columns on Document. Every
+  // key is optional; present+null clears it, absent leaves it unchanged.
+  // Only an assignee / document-R-or-A-or-Q / admin can edit — same gate
+  // shape as section edits, but we don't require a SectionLock (the panel
+  // has no section context). Signed / in-review / pending-signature /
+  // closed-project → 409 document_locked (authoringLockReason). The
+  // response is the full documentShapeFull, matching GET /documents/:id.
+  // --------------------------------------------------------------------
+  const protocolMetadataSchema = z.object({
+    studyTitle:             z.string().max(500).nullable().optional(),
+    protocolNumber:         z.string().max(100).nullable().optional(),
+    protocolVersion:        z.string().max(100).nullable().optional(),
+    sponsor:                z.string().max(500).nullable().optional(),
+    investigationalProduct: z.string().max(500).nullable().optional(),
+    studyDesign:            z.string().max(5000).nullable().optional(),
+    targetPopulation:       z.string().max(5000).nullable().optional(),
+    regulatoryRegion:       z.enum(['us', 'eu', 'india', 'global', 'other']).nullable().optional(),
+  }).strict()
+
+  // Trim strings; convert empty-after-trim to null so blurring an empty
+  // field clears the column instead of storing ''.
+  function normaliseProtocolPatch(input: z.infer<typeof protocolMetadataSchema>): Record<string, string | null> {
+    const out: Record<string, string | null> = {}
+    for (const [k, v] of Object.entries(input)) {
+      if (v === undefined) continue
+      if (v === null) { out[k] = null; continue }
+      const trimmed = typeof v === 'string' ? v.trim() : v
+      out[k] = trimmed === '' ? null : trimmed
+    }
+    return out
+  }
+
+  app.patch('/:documentId/protocol-metadata', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const parsed = protocolMetadataSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+
+    // Visibility gate first so non-visible doc ids don't leak via the 403.
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) {
+      return reply.code(404).send({ error: 'not_found' })
+    }
+
+    // Authoring lock — reuse the same rule section edits honour. A signed
+    // document returns the 'signed' variant; the UI shows the same
+    // read-only banner it already uses for section content.
+    const project = await app.prisma.project.findUnique({
+      where: { id: doc.projectId }, select: { status: true },
+    })
+    const locked = authoringLockReason(doc.status, project?.status)
+    if (locked) return reply.code(409).send(locked)
+
+    // Edit scope: tenant-admin / admin bypass; otherwise the caller must
+    // be the assignee or hold an R/A/Q letter on this document (same set
+    // the editor allows to mutate section content).
+    const isAdmin = request.user!.role === 'tenant-admin' || request.user!.role === 'admin'
+    const isAssignee = doc.assigneeId === request.user!.id
+    let canEdit = isAdmin || isAssignee
+    if (!canEdit) {
+      const raci = await app.prisma.documentRaci.findFirst({
+        where: {
+          documentId,
+          userId: request.user!.id,
+          letter: { in: ['R', 'A', 'Q'] },
+          removedAt: null,
+        },
+        select: { id: true },
+      })
+      canEdit = !!raci
+    }
+    if (!canEdit) return reply.code(403).send({ error: 'forbidden', message: 'Only the document assignee or an R/A/Q on the document can edit protocol metadata.' })
+
+    const patch = normaliseProtocolPatch(parsed.data)
+    // No-op patch (every key absent) — still return the current shape so
+    // the client's react-query cache stays correct without a 400.
+    if (Object.keys(patch).length === 0) {
+      const full = await svc.getWithSections(documentId)
+      return full ? documentShapeFull(full) : reply.code(404).send({ error: 'not_found' })
+    }
+
+    // Before / after / diff for the audit payload. Only keys the client
+    // actually tried to change land in the diff (an unchanged field that
+    // the client didn't send isn't noise in the trail).
+    const before: Record<string, string | null> = {}
+    const after:  Record<string, string | null> = {}
+    const diff:   Record<string, { before: string | null; after: string | null }> = {}
+    for (const k of Object.keys(patch)) {
+      const prev = (doc as unknown as Record<string, string | null>)[k] ?? null
+      const next = patch[k] ?? null
+      before[k] = prev
+      after[k]  = next
+      if (prev !== next) diff[k] = { before: prev, after: next }
+    }
+
+    await app.prisma.document.update({
+      where: { id: documentId },
+      data:  patch,
+    })
+
+    // Audit the change. Hash-chained; the action string is namespaced so
+    // module-A audit filters can find it without string-matching the
+    // generic 'document_updated'.
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'clinical-writing.document.protocol-metadata-updated',
+      entityType: 'document',
+      entityId: documentId,
+      details: { before, after, diff },
+      ipAddress: request.ip ?? null,
+    })
+
+    const full = await svc.getWithSections(documentId)
+    if (!full) return reply.code(404).send({ error: 'not_found' })
+    const editorIds = Array.from(new Set((full.currentVersion?.sections ?? []).map(sec => sec.lastEditedBy).filter((v): v is string => !!v)))
+    const editorUsers = editorIds.length ? await app.prisma.user.findMany({ where: { id: { in: editorIds } }, select: { id: true, name: true } }) : []
+    return documentShapeFull(full, new Map(editorUsers.map(u => [u.id, u.name])))
   })
 }

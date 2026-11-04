@@ -5,7 +5,22 @@ import type {
   CreateDocumentBody, UpdateSectionBody, CompleteItemBody, WaiveItemBody,
   RestoreSectionsBody, SubmitForReviewBody, AddCommentBody,
   ResolveCommentBody, AISuggestBody, AcceptSuggestionBody,
+  RegulatoryRegion,
 } from '@platform/types'
+
+// Protocol-metadata patch body for PATCH /documents/:id/protocol-metadata.
+// Every key is optional + nullable: present+null clears the column, absent
+// leaves it untouched. The panel's onBlur autosave sends one field at a time.
+export interface ProtocolMetadataPatch {
+  studyTitle?: string | null
+  protocolNumber?: string | null
+  protocolVersion?: string | null
+  sponsor?: string | null
+  investigationalProduct?: string | null
+  studyDesign?: string | null
+  targetPopulation?: string | null
+  regulatoryRegion?: RegulatoryRegion | null
+}
 
 // --- Source documents (per-project upload library) ---
 
@@ -151,6 +166,9 @@ export const documentsApi = {
     api.post<Document>(`/projects/${projectId}/documents/confirm-classification`, body),
   updateSection: (documentId: string, sectionId: string, body: UpdateSectionBody) =>
     api.patch<Document>(`/documents/${documentId}/sections/${sectionId}`, body),
+  // Protocol metadata (migration 60). Partial, nullable; server validates.
+  updateProtocolMetadata: (documentId: string, patch: ProtocolMetadataPatch) =>
+    api.patch<Document>(`/documents/${documentId}/protocol-metadata`, patch),
   // Mark a section complete / reopen it. Saving content moves a section back
   // to in_progress, so this is the only route to complete (ICH E3 validator).
   setSectionIchStatus: (documentId: string, sectionId: string, status: 'complete' | 'in_progress') =>

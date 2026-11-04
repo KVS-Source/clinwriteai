@@ -8,7 +8,7 @@
 // Approver may start a chain. The starter may remove people and add extra signers; the chain needs at
 // least one Approver.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
@@ -22,7 +22,8 @@ type Candidate = { id: string; name: string; role: string; email?: string }
 // they can be removed and reordered.
 // `source` says where a locked person was named, so the tooltips can point to the right place.
 type NamedSource = 'project' | 'document' | 'both'
-type SignerRow = { signerId: string; meaning: Meaning; locked?: boolean; source?: NamedSource }
+// `draft` is an added row the starter has not confirmed with the tick yet.
+type SignerRow = { signerId: string; meaning: Meaning; locked?: boolean; source?: NamedSource; draft?: boolean }
 
 const MEANING_ROLE: Record<Meaning, string> = { authored: 'Author', reviewed: 'Reviewer', approved: 'Approver', acknowledged: 'Informed' }
 
@@ -34,6 +35,7 @@ const LETTER_MEANING: Record<string, Meaning> = { R: 'authored', C: 'reviewed', 
 // has fully signed.
 const SIGNER_ORDER: Meaning[] = ['authored', 'reviewed', 'approved', 'acknowledged']
 const groupIndex = (m: Meaning) => { const i = SIGNER_ORDER.indexOf(m); return i === -1 ? SIGNER_ORDER.length : i }
+const rowOrder = (r: SignerRow) => (r.draft ? SIGNER_ORDER.length + 1 : groupIndex(r.meaning))
 
 // The order is always by group for now. The choice of order is hidden; the other two kinds are kept
 // (commented out) below and in the JSX so they can be switched back on.
@@ -90,8 +92,8 @@ const BLOCKED_HINT: Record<string, string> = {
   'signed':          'This document is already signed. See the Final Document tab.',
 }
 
-// The signer search for rows the starter adds: type at least 3 characters, then pick from the people assigned
-// to this project. (The pre-filled rows are fixed, so they keep their plain boxes.)
+// The signer search for rows the starter adds: type at least 3 characters, then pick from the active users
+// who are not already in the chain. (The pre-filled rows are fixed, so they keep their plain boxes.)
 const SEARCH_MIN_CHARS = 3
 
 function SignerSearch({ value, candidates, takenIds, onPick }: {
@@ -115,7 +117,7 @@ function SignerSearch({ value, candidates, takenIds, onPick }: {
       <input
         type="text"
         autoComplete="off"
-        value={open ? query : selected ? `${selected.name} · ${selected.role}` : query}
+        value={open ? query : selected ? `${selected.name}${selected.email ? ` · ${selected.email}` : ''}` : query}
         onFocus={() => { setOpen(true); setQuery('') }}
         onChange={e => { setQuery(e.currentTarget.value); setOpen(true) }}
         onBlur={() => setOpen(false)}
@@ -129,7 +131,7 @@ function SignerSearch({ value, candidates, takenIds, onPick }: {
           {q.length < SEARCH_MIN_CHARS ? (
             <p className="px-3 py-2 text-[12px] text-slate-500">Type at least {SEARCH_MIN_CHARS} characters to search.</p>
           ) : matches.length === 0 ? (
-            <p className="px-3 py-2 text-[12px] text-slate-500">No one on this project matches.</p>
+            <p className="px-3 py-2 text-[12px] text-slate-500">No active user matches.</p>
           ) : matches.map(c => (
             <button
               key={c.id}
@@ -139,7 +141,7 @@ function SignerSearch({ value, candidates, takenIds, onPick }: {
               data-signer-result={c.id}
             >
               <span className="text-[13px] font-medium text-slate-900">{c.name}</span>
-              <span className="text-[11px] text-slate-500">{c.role}{c.email ? ` · ${c.email}` : ''}</span>
+              {c.email && <span className="text-[11px] text-slate-500">{c.email}</span>}
             </button>
           ))}
         </div>
@@ -194,6 +196,14 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
   }, [assignable.isSuccess, assignable.data, members.data, project.data, raciRows])
 
+  // Who "+ Add signer" can search: active Clinical Writing users plus this project's own people, PMs
+  // included (the API returns both). People already in the chain are left out by SignerSearch's takenIds.
+  const activeUsers = useQuery({ queryKey: ['assignable-users', projectId, 'active'], queryFn: () => assignableUsersApi.list(projectId), enabled: !!projectId, retry: false })
+  const addableUsers: Candidate[] = useMemo(
+    () => (activeUsers.data ?? []).map(u => ({ id: u.id, name: u.name, role: '', email: u.email })),
+    [activeUsers.data],
+  )
+
   // Always grouped for now. To bring back the choice of order, use the state below and the radios in the JSX.
   // const [chainType, setChainType] = useState<ChainKind>('grouped')
   const chainType: ChainKind = 'grouped'
@@ -232,17 +242,19 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
     setRows(prev => {
       const prefilled = namedSigners.filter(n => !removedIds.has(n.signerId))
       const namedIds = new Set(namedSigners.map(n => n.signerId))
-      return [...prefilled, ...prev.filter(r => !r.locked && !namedIds.has(r.signerId))]
+      // A named person removed and then added back is an added row now, so it stays.
+      return [...prefilled, ...prev.filter(r => !r.locked && (!namedIds.has(r.signerId) || removedIds.has(r.signerId)))]
     })
   }, [namedLoaded, namedSigners, removedIds])
 
   const effectiveRows = rows.length ? rows : namedSigners.filter(n => !removedIds.has(n.signerId))
 
-  // A grouped chain signs group by group, so its rows are kept in group order (the order inside a group is free).
+  // A grouped chain signs group by group, so its rows are kept in group order (the order inside a group is
+  // free). An unconfirmed row stays last, so it doesn't jump while its role is being chosen.
   useEffect(() => {
     if (chainType !== 'grouped') return
     setRows(prev => {
-      const sorted = prev.map((r, i) => ({ r, i })).sort((a, b) => groupIndex(a.r.meaning) - groupIndex(b.r.meaning) || a.i - b.i).map(x => x.r)
+      const sorted = prev.map((r, i) => ({ r, i })).sort((a, b) => rowOrder(a.r) - rowOrder(b.r) || a.i - b.i).map(x => x.r)
       return sorted.every((r, i) => r === prev[i]) ? prev : sorted
     })
   }, [chainType, rows])
@@ -270,16 +282,30 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
     update(effectiveRows.filter((_, j) => j !== i))
   }
 
+  // Clicking outside an added row where nobody was chosen closes it.
+  const draftRowRef = useRef<HTMLDivElement>(null)
+  const emptyDraftOpen = effectiveRows.some(r => r.draft && !r.signerId)
+  const unconfirmedPick = effectiveRows.some(r => r.draft && r.signerId)
+  useEffect(() => {
+    if (!emptyDraftOpen) return
+    const onMouseDown = (e: MouseEvent) => {
+      if (draftRowRef.current?.contains(e.target as Node)) return
+      setRows(prev => prev.filter(r => !(r.draft && !r.signerId)))
+    }
+    window.document.addEventListener('mousedown', onMouseDown)
+    return () => window.document.removeEventListener('mousedown', onMouseDown)
+  }, [emptyDraftOpen])
+
   const pending = documentStatus === 'pending-signature'
   const duplicate = new Set(effectiveRows.map(r => r.signerId)).size !== effectiveRows.length
-  const incomplete = effectiveRows.some(r => !r.signerId)
-  const approverCount = effectiveRows.filter(r => r.meaning === 'approved' && r.signerId).length
+  const incomplete = effectiveRows.some(r => !r.signerId || r.draft)
+  const approverCount = effectiveRows.filter(r => r.meaning === 'approved' && r.signerId && !r.draft).length
   const noApprovers = namedLoaded && approverCount === 0
   const canSubmit = pending && access.canStartChain && !duplicate && !incomplete && !noApprovers
     && !initiate.isPending
 
   const submit = () => {
-    const byId = new Map(candidates.map(c => [c.id, c]))
+    const byId = new Map([...addableUsers, ...candidates].map(c => [c.id, c]))
     initiate.mutate({
       chainType,
       signers: effectiveRows.map(r => {
@@ -333,11 +359,13 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
       </div>
       */}
 
+      {/* Hidden for now:
       {chainType === 'grouped' && (
         <p className="-mt-2 text-[11px] text-slate-500" data-group-hint>
           Everyone in a group signs at once. The next group is released when the whole group before it has signed.
         </p>
       )}
+      */}
 
       {/* Pre-filled notice — everyone named on the document (Author, Reviewer, Approver, Informed) is
           pre-filled; the starter may remove people. The chain needs at least one Approver. */}
@@ -358,7 +386,8 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
           const help = r.locked && r.source ? lockHelp(r.meaning, r.source) : null
           return (
             <div
-              key={i}
+              key={r.draft ? 'draft' : i}
+              ref={r.draft ? draftRowRef : undefined}
               className="flex items-center gap-2"
               data-signer-row={i}
               data-locked={r.locked ? 'true' : 'false'}
@@ -376,10 +405,14 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
                   <option value="" disabled>Select signer…</option>
                   {candidates.map(c => <option key={c.id} value={c.id}>{c.name} · {c.role}</option>)}
                 </select>
+              ) : !r.draft ? (
+                <div className="flex h-9 min-w-0 flex-1 items-center truncate rounded-md border border-slate-300 bg-slate-50 px-2 text-[13px] text-slate-500" data-signer-confirmed>
+                  {addableUsers.find(u => u.id === r.signerId)?.name ?? candidates.find(c => c.id === r.signerId)?.name ?? r.signerId}
+                </div>
               ) : (
                 <SignerSearch
                   value={r.signerId}
-                  candidates={candidates}
+                  candidates={addableUsers}
                   takenIds={new Set(effectiveRows.filter((_, j) => j !== i).map(x => x.signerId))}
                   onPick={id => setRow(i, { signerId: id })}
                 />
@@ -390,7 +423,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
               <select
                 value={r.meaning}
                 onChange={e => setRow(i, { meaning: e.currentTarget.value as Meaning })}
-                disabled={r.locked}
+                disabled={r.locked || !r.draft}
                 className="h-9 w-52 flex-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
                 data-meaning-select
               >
@@ -400,6 +433,17 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
               <button type="button" onClick={() => move(i, -1)} disabled={i === 0 || chainType === 'grouped'} title={chainType === 'grouped' ? 'A grouped chain signs in group order' : undefined} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move up">↑</button>
               <button type="button" onClick={() => move(i, 1)} disabled={i === effectiveRows.length - 1 || chainType === 'grouped'} title={chainType === 'grouped' ? 'A grouped chain signs in group order' : undefined} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move down">↓</button>
               */}
+              {r.draft && (
+                <button
+                  type="button"
+                  onClick={() => setRow(i, { draft: false })}
+                  disabled={!r.signerId}
+                  className="h-9 w-8 flex-none rounded-md border border-emerald-600 text-emerald-700 hover:bg-emerald-50 disabled:border-slate-200 disabled:text-slate-400"
+                  aria-label="Confirm signer"
+                  title={r.signerId ? 'Confirm this signer' : 'Choose a signer first'}
+                  data-signer-confirm
+                >✓</button>
+              )}
               <button
                 type="button"
                 onClick={() => removeRow(i)}
@@ -415,12 +459,14 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
         })}
         <button
           type="button"
-          onClick={() => update([...effectiveRows, { signerId: '', meaning: 'reviewed' }])}
-          className="self-start text-[12px] font-semibold text-blue-700 hover:underline"
+          onClick={() => update([...effectiveRows.filter(r => !r.draft), { signerId: '', meaning: 'reviewed', draft: true }])}
+          disabled={unconfirmedPick}
+          className="self-start text-[12px] font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
           data-add-signer
         >+ Add signer</button>
       </div>
 
+      {unconfirmedPick && <p className="text-[12px] text-amber-700" data-confirm-hint>Click the tick to confirm the new signer before starting the chain.</p>}
       {duplicate && <p className="text-[12px] text-amber-700">Each person can appear only once in the chain.</p>}
       {initiate.isError && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-initiate-error>{errorText(initiate.error)}</p>}
 

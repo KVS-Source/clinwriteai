@@ -63,10 +63,6 @@ export const raciApi = {
   remove: (documentId: string, raciId: string) =>
     api.delete<void>(`/documents/${documentId}/raci/${raciId}`),
 
-  // Change a row's e-signature requirement in place (audited server-side).
-  setSignature: (documentId: string, raciId: string, body: { signatureRequired: boolean; signatureMeaning: string | null }) =>
-    api.patch<DocumentRaciRow>(`/documents/${documentId}/raci/${raciId}/signature`, body),
-
   complete: (documentId: string, raciId: string, body: { signatureId?: string | null } = {}) =>
     api.post<{
       row: DocumentRaciRow
@@ -115,6 +111,9 @@ export const assignableUsersApi = {
   /** RACI picker candidates — every active or invited non-admin, whatever their capabilities. */
   listForRaci: (projectId: string) =>
     api.get<AssignableUser[]>(`/projects/${projectId}/assignable-users?scope=raci`),
+  /** New Document assignee candidates — active users, without admins. */
+  listForAssignee: (projectId: string) =>
+    api.get<AssignableUser[]>(`/projects/${projectId}/assignable-users?scope=assignee`),
 }
 
 // --- Project members ------------------------------------------------------

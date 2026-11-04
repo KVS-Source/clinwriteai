@@ -21,6 +21,7 @@
 
 import type { PrismaClient } from '@prisma/client'
 import type { Capability } from '../../../auth/rbac.js'
+import { NEVER_AUTHOR_ROLES } from './access.js'
 
 export type RaciLetter = 'R' | 'A' | 'C' | 'I' | 'Q'
 
@@ -44,6 +45,7 @@ export type ValidationFailure =
   | { kind: 'invalid_letter'; letter: string }
   | { kind: 'missing_capability'; required: Capability; letter: RaciLetter }
   | { kind: 'self_grant_denied'; reason: string }
+  | { kind: 'role_cannot_author'; role: string }
   | { kind: 'duplicate_letter_on_section'; existingLetter: RaciLetter }
   | { kind: 'whole_doc_vs_section_conflict' }
   | { kind: 'approval_order_requires_a_letter' }
@@ -89,6 +91,10 @@ export async function validateRaciInsert(
 
   if (!user) return { ok: false, failure: { kind: 'user_not_found', userId: input.userId } }
   if (!document) return { ok: false, failure: { kind: 'document_not_found', documentId: input.documentId } }
+
+  if (input.letter === 'R' && NEVER_AUTHOR_ROLES.has(user.role)) {
+    return { ok: false, failure: { kind: 'role_cannot_author', role: user.role } }
+  }
 
   // --- Capability enforcement ----------------------------------------
   const requiredCap = LETTER_TO_CAPABILITY[input.letter]

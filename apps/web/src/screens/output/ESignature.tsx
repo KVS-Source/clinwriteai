@@ -74,7 +74,8 @@ function signErrorText(err: unknown): string {
     const body = err.body as { error?: string; message?: string; issues?: Array<{ message: string }> } | null
     switch (body?.error) {
       case 'wrong_signer':   return 'Only the designated signer can sign this step.'
-      case 'name_mismatch':  return body.message ?? 'Type your full name exactly as shown to confirm.'
+      case 'wrong_password': return 'That password is not correct. Please try again.'
+      case 'no_password_on_file': return body.message ?? 'Your account has no password set, so you cannot sign yet.'
       case 'already_signed': return 'This step has already been signed.'
       case 'not_awaiting':   return "It isn't this step's turn yet — earlier signatures are still pending."
       case 'chain_closed':   return 'This signature chain is closed (completed or cancelled).'
@@ -253,8 +254,8 @@ function groupedWaitingOn(chainType: SignatureChain['chainType'], records: Chain
   return undefined
 }
 
-function YouPanel({ record, email, credential, onCredential, error }: {
-  record: ChainRecord; email: string | undefined; credential: string; onCredential: (v: string) => void; error: string | null
+function YouPanel({ record, credential, onCredential, error }: {
+  record: ChainRecord; credential: string; onCredential: (v: string) => void; error: string | null
 }) {
   return (
     <div className="flex flex-col gap-4">
@@ -269,29 +270,20 @@ function YouPanel({ record, email, credential, onCredential, error }: {
       </div>
 
       <div className="flex flex-col gap-2">
-        <p className="text-[13px] font-bold">Confirm it's you</p>
-        <div className="flex items-center gap-2">
-          <LockIcon colour="#94A3B8" size={12} />
-          <p className="truncate text-[13px] text-slate-500">Signed in as {email ?? '—'}</p>
-        </div>
-        <label htmlFor="sig-name" className="text-xs font-semibold text-slate-500">
-          Type your full name — <span className="text-slate-700">{record.signerName}</span>
-        </label>
+        <label htmlFor="sig-password" className="text-xs font-semibold text-slate-500">Password</label>
         <input
-          id="sig-name"
-          type="text"
-          autoComplete="off"
-          spellCheck={false}
+          id="sig-password"
+          type="password"
+          autoComplete="current-password"
           value={credential}
           onChange={e => onCredential(e.target.value)}
-          placeholder={record.signerName}
+          placeholder="Enter your login password"
           className="h-10 rounded-md border px-3 text-sm outline-none focus:border-blue-600 focus:shadow-focus"
           style={{ borderColor: '#E2E8F0' }}
           data-credential-input
         />
         <p className="text-[11px] leading-relaxed text-slate-500">
-          Re-authentication at signing (logging in again) isn't set up yet. Until it is, you confirm by typing your full name, and the signature record says so.
-          Only you can sign this step — signatures can't be delegated.
+          Enter the password you log in with to confirm this signature. Only you can sign this step — signatures can't be delegated.
         </p>
         {error && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-sign-error>{error}</p>}
       </div>
@@ -300,7 +292,7 @@ function YouPanel({ record, email, credential, onCredential, error }: {
         <MonoLabel>What this signature will record</MonoLabel>
         <div className="mt-1.5">
           <KVRow label="Timestamp"      value="Server clock at signing (UTC)" />
-          <KVRow label="Authentication" value="SSO session + typed full-name confirmation" />
+          <KVRow label="Authentication" value="Login session + password re-entered at signing" />
           <KVRow label="Document hash"  value="SHA-256 of the current version" />
           <KVRow label="Scope"          value={record.scopeSections.length ? record.scopeSections.join(', ') : 'Whole document'} />
           <KVRow label="Device"         value={typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 60) : '—'} />
@@ -416,13 +408,13 @@ export function ESignature() {
   }
 
   const handleSign = () => {
-    if (selectedIndex === null || !credential.trim()) return
+    if (selectedIndex === null || !credential) return
     const record = records[selectedIndex]
     signMut.mutate(
       {
         recordId: record.id,
         body: {
-          confirmName: credential.trim(),
+          password: credential,
           localTime: new Date().toLocaleString(undefined, { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' }),
           deviceInfo: navigator.userAgent.slice(0, 200),
         },
@@ -433,6 +425,7 @@ export function ESignature() {
           setSelectedIndex(null)
           refreshAfterChange()
         },
+        onError: () => setCredential(''),
       },
     )
   }
@@ -725,7 +718,6 @@ export function ESignature() {
               {selectedState === 'you' && (
                 <YouPanel
                   record={selected}
-                  email={me?.email}
                   credential={credential}
                   onCredential={setCredential}
                   error={signMut.isError ? signErrorText(signMut.error) : null}
@@ -746,7 +738,7 @@ export function ESignature() {
                   <button
                     type="button"
                     onClick={handleSign}
-                    disabled={!credential.trim() || signMut.isPending}
+                    disabled={!credential || signMut.isPending}
                     className="whitespace-nowrap rounded-md bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     data-sign-submit
                   >{signMut.isPending ? 'Signing…' : 'Sign document'}</button>

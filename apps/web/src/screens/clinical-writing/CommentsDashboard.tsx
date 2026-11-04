@@ -261,7 +261,7 @@ function CommentCard({ comment, raci, resolverName, resolvingId, onResolveClick,
       {!isResolving && (
         <div className="flex items-center gap-2 border-t pt-2.5" style={{ borderColor: '#F1F5F9' }}>
           {/* No Reply control: replies aren't part of the PRD (FR-A-052). */}
-          {!isResolved && (
+          {!isResolved && comment.canResolve !== false && (
             <button
               type="button"
               onClick={() => onResolveClick(comment.id)}

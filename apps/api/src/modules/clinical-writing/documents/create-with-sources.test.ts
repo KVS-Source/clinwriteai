@@ -46,6 +46,7 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1', therapeuticArea: 'Oncology', submissionCountries: [] })) },
+    user: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ role: where.id.startsWith('role:') ? where.id.slice(5) : 'contributor' })) },
     // Project visibility for the PM creator: a member of proj-1.
     projectMember:     { findMany: vi.fn(async () => memberOf.map(projectId => ({ projectId }))) },
     projectTeamMember: { findMany: vi.fn(async () => []) },
@@ -85,6 +86,21 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
 }
 
 beforeEach(() => { process.env.FEATURE_MODULES_ENABLED = 'A,B,C,D,E' })
+
+describe('POST /projects/:id/documents — assignee', () => {
+  it.each(['tenant-admin', 'admin', 'super-admin'])('refuses a %s as the assignee and creates nothing', async (role) => {
+    const { post, documentsCreated } = await build()
+    const res = await post({ assigneeId: `role:${role}` })
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('assignee_not_eligible')
+    expect(documentsCreated).toEqual([])
+  })
+
+  it.each(['contributor', 'pm'])('accepts a %s', async (role) => {
+    const { post } = await build()
+    expect((await post({ assigneeId: `role:${role}` })).statusCode).toBe(201)
+  })
+})
 
 describe('POST /projects/:id/documents — sourceUploadIds', () => {
   it('links every selected source to the new document and audits it', async () => {

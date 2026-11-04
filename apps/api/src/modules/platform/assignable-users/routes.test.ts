@@ -77,6 +77,21 @@ describe('assignable users', () => {
     await app.close()
   })
 
+  it('scope=assignee: active users including PMs, without admins, even when they are project members', async () => {
+    const app = await build([
+      u('author'), u('no-caps', { capabilities: [] }), u('invited', { status: 'invited' }),
+      u('pm', { role: 'pm' }), u('tenant-admin', { role: 'tenant-admin' }), u('admin', { role: 'admin' }), u('super', { role: 'super-admin' }),
+    ], [{ userId: 'pm', projectRole: 'Project Manager' }, { userId: 'tenant-admin', projectRole: null }])
+    expect(await names(app, '?scope=assignee')).toEqual(['author', 'no-caps', 'pm'])
+    await app.close()
+  })
+
+  it('scope=raci: offers a PM but no admin', async () => {
+    const app = await build([u('author'), u('pm', { role: 'pm' }), u('admin', { role: 'tenant-admin' })])
+    expect(await names(app, '?scope=raci')).toEqual(['author', 'pm'])
+    await app.close()
+  })
+
   it('does not filter by tenant when the project has none', async () => {
     const app = await build([u('a', { tenantId: 'T9' })], [], null)
     expect(await names(app)).toEqual(['a'])

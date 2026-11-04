@@ -207,11 +207,8 @@ export const auditApi = {
     api.get<AuditNewer>(`/admin/audit/newer${toQueryString({ ...filters, afterId })}`),
   verify: (fromId?: string, toId?: string) =>
     api.get<AuditVerifyResult>(`/admin/audit/verify${toQueryString({ fromId, toId })}`),
-  // CSV export URL — not called via api.get because the response is a
-  // file download. The UI points an <a href> at this URL (same cookie,
-  // same origin via credentials: 'include' handled by the browser).
-  exportUrl: (q: Omit<AuditQuery, 'limit' | 'cursor'> = {}) => {
-    const base = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '')
-    return `${base}/admin/audit/export${toQueryString({ ...q })}`
-  },
+  // CSV export — through api.download rather than an <a href>, which can't send the
+  // demo-persona header and would export as the wrong user.
+  exportCsv: (q: Omit<AuditQuery, 'limit' | 'cursor'> = {}) =>
+    api.download(`/admin/audit/export${toQueryString({ ...q })}`),
 }

@@ -16,7 +16,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
-import { actorCanEditRaciAssignments } from './access.js'
+import { actorCanEditRaciAssignments, RACI_LOCKED_ROLES } from './access.js'
 import { nudgePendingCohort } from './nudge.js'
 
 const nudgeSchema = z.object({
@@ -164,6 +164,11 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
           })
         case 'self_grant_denied':
           return reply.code(422).send({ error: 'self_grant_denied', message: failure.reason })
+        case 'role_cannot_author':
+          return reply.code(422).send({
+            error: 'role_cannot_author',
+            message: 'An admin cannot be assigned as an author (R) of a document.',
+          })
         case 'duplicate_letter_on_section':
           return reply.code(409).send({
             error: 'duplicate_letter_on_section',
@@ -305,10 +310,56 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       })
     }
     if (!isSelfRow && (await activeChainBlocks(documentId))) return reply.code(409).send(CHAIN_ACTIVE)
+
+    // Removing an author. A document must keep someone able to edit it, and since the assignee can
+    // edit whether or not they hold an R row, removing the assignee hands the document to the next
+    // author; otherwise they would keep editing after being "removed".
+    let newAssignee: string | null = null
+    let previousAssignee: string | null = null
+    if (existing.letter === 'R') {
+      const [doc, otherRows] = await Promise.all([
+        app.prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
+        app.prisma.documentRaci.findMany({
+          where: { documentId, letter: 'R', removedAt: null, id: { not: raciId } },
+          orderBy: { assignedAt: 'asc' },
+          select: { userId: true },
+        }),
+      ])
+      const assigneeId = doc?.assigneeId ?? null
+      const ids = [...new Set([existing.userId, ...otherRows.map(r => r.userId), ...(assigneeId ? [assigneeId] : [])])]
+      const users = await app.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, role: true } })
+      const canAuthor = (id: string) => !RACI_LOCKED_ROLES.has(users.find(u => u.id === id)?.role ?? '')
+      const authors = [...new Set(otherRows.map(r => r.userId))].filter(canAuthor)
+      const assigneeRemains = !!assigneeId && assigneeId !== existing.userId && canAuthor(assigneeId)
+      if (canAuthor(existing.userId) && authors.length === 0 && !assigneeRemains) {
+        return reply.code(409).send({
+          error: 'last_author',
+          message: 'This is the only author on the document, and someone must be able to edit it. Add another author first.',
+        })
+      }
+      if (assigneeId === existing.userId && !authors.includes(existing.userId) && authors[0]) {
+        previousAssignee = assigneeId
+        newAssignee = authors[0]
+        await app.prisma.document.update({ where: { id: documentId }, data: { assigneeId: newAssignee } })
+      }
+    }
+
     const removed = await app.prisma.documentRaci.update({
       where: { id: raciId },
       data: { removedAt: new Date() },
     })
+
+    if (newAssignee) {
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: actor.id,
+        action: 'document.assignee_changed',
+        entityType: 'document',
+        entityId: documentId,
+        details: { from: previousAssignee, to: newAssignee, reason: 'assignee_removed_from_raci' },
+        ipAddress: request.ip ?? null,
+      })
+    }
 
     await app.audit.append({
       timestamp: new Date().toISOString(),

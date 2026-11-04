@@ -92,7 +92,8 @@
       "generic_error": "サインインに失敗しました。もう一度お試しください。",
       "reset_notice": "パスワードが更新されました。新しいパスワードでサインインしてください。",
       "first_time_heading": "初めてサインインしますか?",
-      "first_time_body": "管理者から配布された仮パスワードを使用してください。次の画面でご自身のパスワードを設定していただきます。仮パスワードをお持ちでない場合は、<firstLoginLink>メールでパスワードを設定</firstLoginLink>してください。"
+      "first_time_body": "管理者から配布された仮パスワードを使用してください。次の画面でご自身のパスワードを設定していただきます。仮パスワードをお持ちでない場合は、<firstLoginLink>メールでパスワードを設定</firstLoginLink>してください。",
+      "registered_notice": "アカウントの準備が完了しました。メールアドレスと新しいパスワードでサインインしてください。"
     },
 
     "section_navigator": {
@@ -290,6 +291,7 @@
       "panel_title_tlf":                  "TLF 相互参照",
       "panel_title_raci":                 "RACI 割り当て",
       "panel_title_ai_drafting_report":   "AI ドラフト レポート",
+      "panel_title_protocol_metadata":    "治験実施計画書メタデータ",
 
       "placeholder":    "プレースホルダー",
       "panel_pending":  "{{name}} パネルは今後のセッションで構築されます。",
@@ -1154,6 +1156,10 @@
       "menu_duplicate":         "複製",
       "menu_audit_trail":       "監査証跡",
       "menu_raci":              "RACI",
+      "menu_protocol_metadata": "治験実施計画書メタデータ",
+      "protocol_number_badge_tooltip": "プロトコル番号: {{number}}",
+      "protocol_metadata_panel_title": "治験実施計画書メタデータ",
+      "protocol_metadata_panel_title_with_doc": "治験実施計画書メタデータ — {{title}}",
       "menu_export":            "PDF エクスポート",
       "menu_export_tooltip":    "ドキュメント単位の PDF エクスポートは今後のリリースで対応予定です。",
       "menu_archive":           "アーカイブ",
@@ -1507,6 +1513,8 @@
       "voice_note_tooltip": "音声メモ",
       "checklist_tooltip": "チェックリスト",
       "audit_trail_tooltip": "監査証跡",
+      "protocol_tooltip": "治験実施計画書メタデータ",
+      "protocol_button": "プロトコル",
       "comments_tooltip": "コメント",
       "comments_label": "コメント",
       "ai_chat_tooltip": "AI チャットを開く (⌘J)",
@@ -2006,7 +2014,16 @@
       "reason_revoked": "この招待は取り消されています。管理者にお問い合わせください。",
       "reason_accepted": "この招待はすでに承諾されています。アカウントでサインインしてください。",
       "reason_user_not_invited": "この招待は該当するユーザーと一致しません。管理者にお問い合わせください。",
-      "reason_not_found": "この招待リンクは無効か、すでに利用できません。"
+      "reason_not_found": "この招待リンクは無効か、すでに利用できません。",
+      "subtitle_register": "アカウントの設定を完了するには、パスワードを設定してください。",
+      "email_label": "メールアドレス",
+      "password_label": "パスワードを作成",
+      "confirm_label": "パスワードを確認",
+      "mismatch": "パスワードが一致しません。",
+      "register_submit": "アカウントを作成",
+      "registering": "アカウントを作成しています…",
+      "err_register": "登録を完了できませんでした。もう一度お試しください。",
+      "go_to_sign_in": "サインイン画面へ"
     },
 
     "admin_panel": {
@@ -2341,6 +2358,8 @@
       "crumb_admin": "管理",
       "crumb_audit_trail": "監査証跡",
       "immutability_notice": "この証跡は追記専用でハッシュチェーンにより保護されています。エントリの編集・削除はできません。訂正は新しいエントリとして記録されます。",
+      "pm_scope_notice": "担当プロジェクトとそのドキュメントのアクティビティを表示しています。",
+      "export_failed": "エクスポートに失敗しました。もう一度お試しください。",
       "verify_chain": "チェーンを検証",
       "verifying": "検証中…",
       "verify_action": "検証",
@@ -2613,10 +2632,57 @@
       "reactivate": "再有効化",
       "deprovision": "プロビジョニング解除",
       "confirm_deprovision": "{{email}} のプロビジョニングを解除しますか? アクセスが取り消されますが、監査エントリとシグネチャーは保持されます。"
+    },
+
+    "protocol_metadata_panel": {
+      "section_identification":       "識別情報",
+      "section_sponsorship":          "スポンサー情報",
+      "section_study":                "試験",
+      "section_regulatory":           "規制",
+      "section_sources":              "ソース ドキュメント",
+      "label_study_title":            "試験タイトル",
+      "label_protocol_number":        "プロトコル番号",
+      "label_protocol_version":       "プロトコル バージョン",
+      "label_sponsor":                "スポンサー",
+      "label_investigational_product":"治験薬",
+      "label_therapeutic_area":       "治療領域",
+      "label_study_phase":            "試験フェーズ",
+      "label_study_design":           "試験デザイン",
+      "label_target_population":      "対象集団",
+      "label_regulatory_region":      "規制地域",
+      "placeholder_study_title":        "例: NSCLC に対する GBC-101 の無作為化第 III 相試験",
+      "placeholder_protocol_number":    "例: GB-NSCLC-002",
+      "placeholder_protocol_version":   "例: v3.1 または Amendment 2",
+      "placeholder_sponsor":            "例: GenBioCa, Inc.",
+      "placeholder_investigational_product": "例: GBC-101 (抗 PD-L1 モノクローナル抗体)",
+      "placeholder_study_design":       "例: 1:1 無作為割付の多施設共同・二重盲検・プラセボ対照試験…",
+      "placeholder_target_population":  "例: 一次プラチナ治療後の進行性 NSCLC を有する 18 歳以上の成人…",
+      "hint_therapeutic_area":          "プロジェクトから継承されます。プロジェクト設定で変更してください。",
+      "hint_study_phase":               "プロジェクトから継承されます。プロジェクト設定で変更してください。",
+      "region_unset":   "未設定",
+      "region_us":      "米国 (FDA)",
+      "region_eu":      "欧州連合 (EMA)",
+      "region_india":   "インド (CDSCO)",
+      "region_global":  "グローバル / 複数地域",
+      "region_other":   "その他",
+      "sources_count_one":    "リンク済みソース ドキュメント {{count}} 件",
+      "sources_count_other":  "リンク済みソース ドキュメント {{count}} 件",
+      "view_source_library":  "ソース ライブラリを表示 →",
+      "chip_saving":          "保存中…",
+      "chip_saved":           "保存済み",
+      "chip_error":           "未保存",
+      "save_error_generic":   "保存できませんでした。もう一度お試しください。",
+      "save_error_validation":"入力値が受け付けられません。項目を確認して再試行してください。",
+      "save_error_forbidden": "このドキュメントの治験実施計画書メタデータを編集する権限がありません。",
+      "save_error_locked":    "ドキュメントは読み取り専用のため、治験実施計画書メタデータを変更できません。"
     }
   },
 
   "component": {
+    "protocol_type_label": {
+      "protocol": "治験実施計画書",
+      "protocol_amendment": "治験実施計画書改訂"
+    },
     "ai_confidence_chip": {
       "state_pending": "AI ドラフトをキューに登録",
       "state_drafting": "AI ドラフト作成中…",
@@ -2678,13 +2744,7 @@
       "letter_c": "Consulted (レビュー担当者)",
       "letter_q": "QC (リリース)",
       "letter_i": "Informed (通知)",
-      "sig_author_attestation": "著者による証明",
-      "sig_medical_approval": "メディカル承認",
-      "sig_regulatory_approval": "レギュラトリー承認",
-      "sig_final_signatory": "最終署名者",
-      "sig_qc_release": "QC リリース",
       "err_raci_update": "RACI の更新に失敗しました",
-      "err_signature_update": "署名の更新に失敗しました",
       "err_http_suffix": "{{fallback}} (HTTP {{status}})",
       "err_load_raci": "RACI の読み込みに失敗しました",
       "heading": "RACI 割り当て",
@@ -2693,7 +2753,13 @@
       "sub_read_only": "現在の割り当ての読み取り専用ビュー。",
       "loading": "読み込み中…",
       "assigned_count": "{{count}} 名割り当て済み",
-      "requires_e_signature": "電子署名が必要"
+      "remove": "削除",
+      "remove_aria": "{{name}} を削除",
+      "remove_confirm": "このドキュメントから削除しますか？",
+      "none_assigned": "まだ誰も割り当てられていません。",
+      "adding": "{{name}} を追加しています…",
+      "added_status": "{{name}} を {{role}} に追加しました。",
+      "cancel": "キャンセル"
     },
 
     "status_strip": {
@@ -2713,6 +2779,9 @@
     "user_picker": {
       "failed_to_load": "ユーザーの読み込みに失敗しました",
       "search_placeholder": "ユーザーを検索…",
+      "add_placeholder": "検索して追加…",
+      "add": "追加",
+      "added": "追加済み",
       "filter_users_aria": "ユーザーを絞り込む",
       "loading": "読み込み中…",
       "no_matches": "一致するユーザーはありません。",
@@ -2737,6 +2806,7 @@
       "section_switch_module": "モジュールを切り替え",
       "section_platform": "プラットフォーム",
       "section_library": "ライブラリ",
+      "section_compliance": "コンプライアンス",
       "section_super_admin": "スーパー管理",
       "aria_navigation_collapsed": "ナビゲーション (折りたたみ)",
       "aria_platform": "プラットフォーム",

@@ -42,6 +42,7 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1', therapeuticArea: 'Oncology', submissionCountries: [] })) },
+    user: { findUnique: vi.fn(async () => ({ role: 'contributor' })) },
     // Project visibility for the PM creator: a member of proj-1.
     projectMember:     { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
     projectTeamMember: { findMany: vi.fn(async () => []) },

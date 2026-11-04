@@ -2,11 +2,16 @@
 // release) → document signed; refusals; cancel. Fastify inject() over an
 // in-memory Prisma double — no database needed.
 
+import bcrypt from 'bcryptjs'
 import Fastify, { type FastifyInstance } from 'fastify'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { signatureRoutes } from './routes.js'
 
 type Row = Record<string, any>
+
+// Everyone in these tests has the same login password (low bcrypt cost to keep the tests quick).
+const PASSWORD = 'Correct-Horse-1!'
+const PASSWORD_HASH = bcrypt.hashSync(PASSWORD, 4)
 
 function fakePrisma() {
   const documents: Row[] = [{
@@ -58,6 +63,7 @@ function fakePrisma() {
     },
     user: {
       findMany: async ({ where }: Row) => userRows.filter(u => matches(u, where)),
+      findUnique: async ({ where }: Row): Promise<Row | null> => ({ id: where.id, passwordHash: PASSWORD_HASH }),
     },
     // Version snapshot on the final signature (the document becomes v1.0).
     documentVersion: {
@@ -143,8 +149,7 @@ const twoSigners = {
     { signerId: 'u-reviewer', signerName: 'Rob Reviewer', signerRole: 'reviewer',        meaning: 'approved' },
   ],
 }
-// Interim confirmation until re-authentication exists: the signer types their own full name.
-const signAs = (name: string) => ({ confirmName: name, localTime: '10:00 IST' })
+const signAs = (password = PASSWORD) => ({ password, localTime: '10:00 IST' })
 
 describe('signature chain routes', () => {
   let t: Awaited<ReturnType<typeof build>>
@@ -171,16 +176,16 @@ describe('signature chain routes', () => {
 
     // Step 2 cannot be signed before step 1 (sequential).
     t.as(USERS.reviewer)
-    const early = await t.app.inject({ method: 'POST', url: `/signature-records/${step2.id}/sign`, payload: signAs('Rob Reviewer') })
+    const early = await t.app.inject({ method: 'POST', url: `/signature-records/${step2.id}/sign`, payload: signAs() })
     expect(early.json().error).toBe('not_awaiting')
 
     // Only the designated signer can sign step 1.
-    const wrong = await t.app.inject({ method: 'POST', url: `/signature-records/${step1.id}/sign`, payload: signAs('Ann Author') })
+    const wrong = await t.app.inject({ method: 'POST', url: `/signature-records/${step1.id}/sign`, payload: signAs() })
     expect(wrong.statusCode).toBe(403)
     expect(wrong.json().error).toBe('wrong_signer')
 
     t.as(USERS.author)
-    const s1 = await t.app.inject({ method: 'POST', url: `/signature-records/${step1.id}/sign`, payload: signAs('Ann Author') })
+    const s1 = await t.app.inject({ method: 'POST', url: `/signature-records/${step1.id}/sign`, payload: signAs() })
     expect(s1.statusCode).toBe(200)
     expect(s1.json().status).toBe('signed')
     expect(s1.json().versionAtSigning).toBe('v0.2')   // version number, not the label ('Draft')
@@ -188,7 +193,7 @@ describe('signature chain routes', () => {
     expect(t.db.documents[0].status).toBe('pending_signature')
 
     t.as(USERS.reviewer)
-    const s2 = await t.app.inject({ method: 'POST', url: `/signature-records/${step2.id}/sign`, payload: signAs('Rob Reviewer') })
+    const s2 = await t.app.inject({ method: 'POST', url: `/signature-records/${step2.id}/sign`, payload: signAs() })
     expect(s2.statusCode).toBe(200)
     expect(t.db.chains[0].status).toBe('complete')
     expect(t.db.documents[0]).toMatchObject({ status: 'signed', watermarked: false })
@@ -198,10 +203,10 @@ describe('signature chain routes', () => {
   it('makes the document v1.0 (Final) on the last signature, a snapshot of the signed content', async () => {
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
     t.as(USERS.author)
-    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs() })
     expect(t.db.versions).toHaveLength(1)                   // not after an intermediate signature
     t.as(USERS.reviewer)
-    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[1].id}/sign`, payload: signAs('Rob Reviewer') })
+    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[1].id}/sign`, payload: signAs() })
     const v1 = t.db.versions.find(v => v.versionNumber === 'v1.0')
     expect(v1).toMatchObject({ label: 'Final', isCurrent: true })
     expect(t.db.versions.find(v => v.versionNumber === 'v0.2')!.isCurrent).toBe(false)
@@ -211,12 +216,12 @@ describe('signature chain routes', () => {
 
   it('records the method actually used and the server time source — never "password re-auth + TOTP"', async () => {
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
-    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: { ...signAs('Ann Author'), timeSource: 'my laptop' } })
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: { ...signAs(), timeSource: 'my laptop' } })
     expect(res.statusCode).toBe(200)
     const rec = t.db.records[0]
-    expect(rec.authMethod).toBe('SSO session + typed full-name confirmation (re-authentication not yet configured)')
+    expect(rec.authMethod).toBe('Login session + password re-entered at signing')
     expect(rec.timeSource).toBe('Server clock (UTC)')
-    expect(rec.credentialHash).toMatch(/^[0-9a-f]{64}$/)          // a hash, never the typed value
+    expect(rec.credentialHash).toMatch(/^[0-9a-f]{64}$/)          // a hash, never the password
     expect(res.json().credentialHash).toBeUndefined()            // and never sent back
     expect(res.json().auditEntryId).toBe('1')
   })
@@ -230,7 +235,7 @@ describe('signature chain routes', () => {
       if (calls === 1) throw new Error('audit down')
       return real(e)
     }
-    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs() })
     expect(res.statusCode).toBe(200)
     expect(calls).toBe(2)
     expect(res.json().auditEntryId).toBe('1')
@@ -239,7 +244,7 @@ describe('signature chain routes', () => {
   it('does not report a recorded signature as failed when the audit write keeps failing', async () => {
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
     ;(t.app as unknown as { audit: { append: () => Promise<never> } }).audit.append = async () => { throw new Error('audit down') }
-    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs() })
     expect(res.statusCode).toBe(200)
     expect(res.json().auditEntryId).toBeNull()
     expect(t.db.records[0].status).toBe('signed')
@@ -248,7 +253,7 @@ describe('signature chain routes', () => {
   it('refuses to sign once the document is no longer pending_signature, and leaves the step awaiting', async () => {
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
     t.db.documents[0].status = 'in_authoring'            // moved by a status change while the chain was active
-    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs() })
     expect(res.statusCode).toBe(409)
     expect(res.json().error).toBe('document_not_pending_signature')
     expect(t.db.records[0].status).toBe('awaiting')
@@ -261,9 +266,9 @@ describe('signature chain routes', () => {
     const realCreate = dv.create
     dv.create = async () => { throw new Error('db down') }
     t.as(USERS.author)
-    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs() })
     t.as(USERS.reviewer)
-    const last = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[1].id}/sign`, payload: signAs('Rob Reviewer') })
+    const last = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[1].id}/sign`, payload: signAs() })
     expect(last.statusCode).toBe(200)                                   // the signature stands
     expect(t.db.documents[0].status).toBe('signed')
     expect(t.db.versions.find(v => v.versionNumber === 'v1.0')).toBeUndefined()
@@ -277,21 +282,35 @@ describe('signature chain routes', () => {
     expect(t.audit.at(-1)).toMatchObject({ action: 'final_version_created_late' })
   })
 
-  it('refuses a signature when the typed name is not the signer’s own', async () => {
+  it('refuses a wrong password, audits the attempt, and leaves the record unsigned', async () => {
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
-    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Rob Reviewer') })
-    expect(res.statusCode).toBe(422)
-    expect(res.json().error).toBe('name_mismatch')
-    const ok = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('  ann   AUTHOR ') })
-    expect(ok.statusCode).toBe(200)                              // case and spacing don't matter
-    const empty = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[1].id}/sign`, payload: signAs('') })
+    const url = `/signature-records/${chain.records[0].id}/sign`
+    const res = await t.app.inject({ method: 'POST', url, payload: signAs('Wrong-Password-1!') })
+    expect(res.statusCode).toBe(422)                             // not 401: that would bounce the signer to sign-in
+    expect(res.json().error).toBe('wrong_password')
+    expect(t.db.records[0].status).toBe('awaiting')
+    expect(t.audit.at(-1)).toMatchObject({ action: 'signature_password_failed', entityId: 'DOC-1' })
+    expect(JSON.stringify(t.audit)).not.toContain('Wrong-Password-1!')
+    const empty = await t.app.inject({ method: 'POST', url, payload: signAs('') })
     expect(empty.statusCode).toBe(400)
+    const ok = await t.app.inject({ method: 'POST', url, payload: signAs() })
+    expect(ok.statusCode).toBe(200)
+    expect(t.db.records[0].credentialHash).not.toContain(PASSWORD)
+  })
+
+  it('refuses to sign for an account with no password set', async () => {
+    const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
+    t.db.prisma.user.findUnique = async () => ({ passwordHash: null })
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs() })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('no_password_on_file')
+    expect(t.db.records[0].status).toBe('awaiting')
   })
 
   it('does not let an admin sign on someone else’s behalf', async () => {
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
     t.as(USERS.admin)
-    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs() })
     expect(res.statusCode).toBe(403)
     expect(res.json().error).toBe('wrong_signer')
     expect(t.db.records[0].status).toBe('awaiting')
@@ -300,7 +319,7 @@ describe('signature chain routes', () => {
   it('lists chains with each signed record’s audit entry id and without the credential hash', async () => {
     const audit: Row[] = []
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
-    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs() })
     ;(t.app as unknown as { audit: Row }).audit.pageForEntity = async (_t: string, _id: string, opts: Row) => ({
       rows: opts.action === 'signature_recorded' ? [{ id: 42n, details: { recordId: chain.records[0].id } }] : audit,
       total: 1,
@@ -316,10 +335,10 @@ describe('signature chain routes', () => {
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
     expect(t.notices.map(n => [n.recipientId, n.kind])).toEqual([['u-author', 'signature_requested']])
     expect(t.notices[0].linkPath).toBe('/projects/PROJ-1/clinical-writing/documents/DOC-1/sign')
-    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs('Ann Author') })
+    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[0].id}/sign`, payload: signAs() })
     expect(t.notices.map(n => n.recipientId)).toEqual(['u-author', 'u-reviewer'])
     t.as(USERS.reviewer)
-    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[1].id}/sign`, payload: signAs('Rob Reviewer') })
+    await t.app.inject({ method: 'POST', url: `/signature-records/${chain.records[1].id}/sign`, payload: signAs() })
     expect(t.notices).toHaveLength(2)                            // nobody left to notify
   })
 
@@ -473,7 +492,7 @@ describe('signature chain — who may start it', () => {
     const rec = chain.records.find((r: Row) => r.signerId === 'u-info')
     expect(rec.meaning).toBe('acknowledged')
     t.as(USERS.info)
-    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${rec.id}/sign`, payload: signAs('Ian Informed') })
+    const res = await t.app.inject({ method: 'POST', url: `/signature-records/${rec.id}/sign`, payload: signAs() })
     expect(res.statusCode).toBe(200)
     expect(res.json()).toMatchObject({ status: 'signed', meaning: 'acknowledged' })
   })
@@ -541,7 +560,7 @@ describe('signature chain — grouped order (Authors, then Reviewers, then Appro
     { signerId: 'u-author',  signerName: 'Ann Author',     signerRole: 'Author',   meaning: 'authored' },
   ]
   const start = async (extra: Row = {}) => (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: { chainType: 'grouped', signers, ...extra } })).json()
-  const sign = (who: Row, recordId: string, name: string) => { t.as(who); return t.app.inject({ method: 'POST', url: `/signature-records/${recordId}/sign`, payload: signAs(name) }) }
+  const sign = (who: Row, recordId: string) => { t.as(who); return t.app.inject({ method: 'POST', url: `/signature-records/${recordId}/sign`, payload: signAs() }) }
   const status = (chain: Row) => Object.fromEntries(t.db.records.filter(r => r.chainId === chain.id).map(r => [r.signerId, r.status]))
 
   it('is the default order when none is given', async () => {
@@ -563,24 +582,24 @@ describe('signature chain — grouped order (Authors, then Reviewers, then Appro
     const rec = (id: string) => chain.records.find((r: Row) => r.signerId === id).id
 
     // Reviewer cannot jump the queue while the Authors are still signing.
-    expect((await sign(USERS.cons, rec('u-cons'), 'Cora Consulted')).json().error).toBe('not_awaiting')
+    expect((await sign(USERS.cons, rec('u-cons'))).json().error).toBe('not_awaiting')
 
     // One Author signs: the other Author is still to sign, so nobody new is released.
-    expect((await sign(USERS.author, rec('u-author'), 'Ann Author')).statusCode).toBe(200)
+    expect((await sign(USERS.author, rec('u-author'))).statusCode).toBe(200)
     expect(status(chain)['u-cons']).toBe('queued')
 
     // The second Author signs: the Reviewer group is released and told.
-    expect((await sign(USERS.author2, rec('u-author2'), 'Alf Author')).statusCode).toBe(200)
+    expect((await sign(USERS.author2, rec('u-author2'))).statusCode).toBe(200)
     expect(status(chain)).toMatchObject({ 'u-cons': 'awaiting', 'u-reviewer': 'queued', 'u-info': 'queued' })
     expect(t.notices.at(-1)).toMatchObject({ recipientId: 'u-cons', kind: 'signature_requested' })
 
     // Reviewer signs -> Approver; Approver signs -> Informed; Informed signs -> the document is signed.
-    await sign(USERS.cons, rec('u-cons'), 'Cora Consulted')
+    await sign(USERS.cons, rec('u-cons'))
     expect(status(chain)).toMatchObject({ 'u-reviewer': 'awaiting', 'u-info': 'queued' })
-    await sign(USERS.reviewer, rec('u-reviewer'), 'Rob Reviewer')
+    await sign(USERS.reviewer, rec('u-reviewer'))
     expect(status(chain)).toMatchObject({ 'u-info': 'awaiting' })
     expect(t.db.documents[0].status).toBe('pending_signature')
-    expect((await sign(USERS.info, rec('u-info'), 'Ian Informed')).statusCode).toBe(200)
+    expect((await sign(USERS.info, rec('u-info'))).statusCode).toBe(200)
     expect(t.db.chains[0].status).toBe('complete')
     expect(t.db.documents[0].status).toBe('signed')
   })
@@ -589,8 +608,8 @@ describe('signature chain — grouped order (Authors, then Reviewers, then Appro
     const noReviewer = signers.filter(sg => sg.meaning !== 'reviewed')
     const chain = await start({ signers: noReviewer })
     const rec = (id: string) => chain.records.find((r: Row) => r.signerId === id).id
-    await sign(USERS.author, rec('u-author'), 'Ann Author')
-    await sign(USERS.author2, rec('u-author2'), 'Alf Author')
+    await sign(USERS.author, rec('u-author'))
+    await sign(USERS.author2, rec('u-author2'))
     expect(status(chain)).toMatchObject({ 'u-reviewer': 'awaiting', 'u-info': 'queued' })     // straight to the Approvers
   })
 })

@@ -15,6 +15,7 @@ import { z } from 'zod'
 import PDFDocument from 'pdfkit'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
+import { actorCanAddComment, actorCanGiveVerdict, COMMENT_ADD_FORBIDDEN, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 
@@ -278,6 +279,12 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanAddComment(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(COMMENT_ADD_FORBIDDEN)
+    }
+    if (parsed.data.verdict && !(await actorCanGiveVerdict(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(VERDICT_FORBIDDEN)
+    }
 
     if (parsed.data.verdict === 'approve' && await pendingRevision(app.prisma, documentId, parsed.data.sectionRef)) {
       return reply.code(409).send({

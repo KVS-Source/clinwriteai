@@ -67,6 +67,58 @@ export async function actorCanEditDocumentContent(
   return actorCanEditRaciAssignments(prisma, actor, documentId)
 }
 
+// Who may add a comment (action table row 15): the document's Author (R),
+// Reviewer (C), QC (Q) or Approver (A). Admins, PMs, auditors and Informed (I)
+// only read comments. External guests comment through their magic link
+// (guest-invitations/redemption.ts), which doesn't use this gate.
+const COMMENT_LOCKED_ROLES: ReadonlySet<string> = new Set([...RACI_LOCKED_ROLES, 'auditor', 'read-only', 'guest'])
+const COMMENT_LETTERS = ['R', 'C', 'Q', 'A']
+
+export async function actorCanAddComment(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+): Promise<boolean> {
+  if (COMMENT_LOCKED_ROLES.has(actor.role)) return false
+  const [doc, row] = await Promise.all([
+    prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
+    prisma.documentRaci.findFirst({
+      where: { documentId, userId: actor.id, letter: { in: COMMENT_LETTERS }, removedAt: null },
+      select: { id: true },
+    }),
+  ])
+  // The assignee is the document's first Author, before any R row exists.
+  return row !== null || (!!doc && doc.assigneeId === actor.id)
+}
+
+// Who may post a reviewer verdict (approve / return a section): Reviewer (C),
+// QC (Q) or Approver (A) — action table rows 12 and 14. The Author comments
+// but never approves or returns their own document.
+const VERDICT_LETTERS = ['C', 'Q', 'A']
+
+export async function actorCanGiveVerdict(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+): Promise<boolean> {
+  if (COMMENT_LOCKED_ROLES.has(actor.role)) return false
+  const row = await prisma.documentRaci.findFirst({
+    where: { documentId, userId: actor.id, letter: { in: VERDICT_LETTERS }, removedAt: null },
+    select: { id: true },
+  })
+  return row !== null
+}
+
+export const VERDICT_FORBIDDEN = {
+  error: 'verdict_forbidden',
+  message: 'Only the Reviewer (C), QC (Q) or Approver (A) on this document can approve or return a section.',
+} as const
+
+export const COMMENT_ADD_FORBIDDEN = {
+  error: 'comment_forbidden',
+  message: 'Only the Author (R), Reviewer (C), QC (Q) or Approver (A) on this document can add comments.',
+} as const
+
 export const DOCUMENT_EDIT_FORBIDDEN = {
   error: 'document_edit_forbidden',
   message: 'Only an author (R) on this document can edit it.',

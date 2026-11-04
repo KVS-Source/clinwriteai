@@ -28,12 +28,14 @@ async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCr
         : opts.existing === undefined ? { id: 'CMT-001', documentId: 'doc-b', sectionRef: '§11.4.1', status: 'open', reviewerId: 'user-jo' } : opts.existing)),
       update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'CMT-001', documentId: 'doc-b', reviewerId: 'user-jo', createdAt: new Date(), ...data })),
     },
+    // The caller is the document's Reviewer (C), so the comment gate lets them in.
+    documentRaci: { findFirst: vi.fn(async () => ({ id: 'raci-c' })) },
     user: { findUnique: vi.fn(async () => ({ name: 'Dr. Elena Vasquez', initials: 'EV' })) },
   } as never)
   app.decorate('audit', { append } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (r) => {
-    const user: AuthenticatedUser = { id: 'user-ev', email: 'e@v', role: 'admin', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'user-ev', email: 'e@v', role: 'reviewer', modules: ['A'], tenantId: null }
     Object.assign(r, { user })
   })
   await app.register(commentsRoutes, { prefix: '/documents' })

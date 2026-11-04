@@ -109,6 +109,8 @@
 
     "project_dashboard": {
       "loading": "プロジェクトを読み込み中…",
+      "not_found": "このプロジェクトを開けませんでした。存在しないか、アクセス権がない可能性があります。",
+      "back_to_projects": "プロジェクト一覧に戻る",
       "phase_prefix": "フェーズ {{phase}}",
 
       "team_responsible_one":   "実行責任者 {{count}} 名",

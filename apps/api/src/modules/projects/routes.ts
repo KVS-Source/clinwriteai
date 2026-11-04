@@ -156,6 +156,9 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         startDate: new Date(parsed.data.startDate),
         dataCutoff: parsed.data.dataCutoff ? new Date(parsed.data.dataCutoff) : null,
         tenantId: request.user!.tenantId,
+        // The creating PM joins the project, otherwise visibility.ts hides it
+        // from them (a new project has no documents to grant access through).
+        members: { create: { userId: request.user!.id, projectRole: 'Project Manager', addedBy: request.user!.id } },
       },
     })
 

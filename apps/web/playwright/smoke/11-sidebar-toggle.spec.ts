@@ -115,8 +115,8 @@ test('the rail shows module badges, hover labels and a toggle under the logo', a
   await expect(page.locator('[data-module-switch="clinical-writing"]')).toHaveAttribute('aria-current', 'true')
 
   // hovering an icon names it
-  await page.getByRole('link', { name: 'All Projects' }).hover()
-  await expect(page.locator('[data-rail-tip]')).toHaveText('All Projects')
+  await page.getByRole('link', { name: 'My Workspace' }).hover()
+  await expect(page.locator('[data-rail-tip]')).toHaveText('My Workspace')
   await page.mouse.move(700, 400)
   await expect(page.locator('[data-rail-tip]')).toHaveCount(0)
 

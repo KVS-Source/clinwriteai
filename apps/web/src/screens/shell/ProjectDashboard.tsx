@@ -1,5 +1,5 @@
 import { useEffect, useMemo } from 'react'
-import { useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { STATUS_META, type Document } from '@platform/types'
@@ -39,7 +39,7 @@ export function ProjectDashboard() {
   const navigate         = useNavigate()
   const setActiveProject = useProjectStore(s => s.setActiveProject)
 
-  const { data: project, isLoading } = useQuery({
+  const { data: project, isLoading, isError } = useQuery({
     queryKey: ['project', projectId],
     queryFn:  () => projectsApi.get(projectId!),
     enabled:  !!projectId,
@@ -134,6 +134,17 @@ export function ProjectDashboard() {
     }
     return { value: String(diff), sub: t('page.project_dashboard.cutoff_at', { date: project.dataCutoff.slice(0, 10) }), complete: false }
   }, [project, t])
+
+  // A project the API won't return (no access, or it doesn't exist) must not
+  // read as "loading" forever.
+  if (isError) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3">
+        <p className="text-sm text-slate-600">{t('page.project_dashboard.not_found')}</p>
+        <Link to="/projects" className="text-sm font-semibold text-blue-600 hover:text-blue-700">{t('page.project_dashboard.back_to_projects')}</Link>
+      </div>
+    )
+  }
 
   if (isLoading || !project) {
     return (

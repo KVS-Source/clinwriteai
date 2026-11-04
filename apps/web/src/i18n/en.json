@@ -102,6 +102,8 @@
     },
     "project_dashboard": {
       "loading": "Loading project…",
+      "not_found": "This project could not be opened. It may not exist, or you may not have access to it.",
+      "back_to_projects": "Back to projects",
       "phase_prefix": "Phase {{phase}}",
       "team_responsible_one": "{{count}} responsible",
       "team_responsible_other": "{{count}} responsible",

@@ -91,7 +91,7 @@ import { RateCardAdmin }                 from '../platform/screens/RateCardAdmin
 import { SubscriptionPayment }           from '../platform/screens/SubscriptionPayment'
 import { ReportsAnalytics }              from '../platform/screens/ReportsAnalytics'
 import { ChecklistTemplatesAdmin }      from '../platform/screens/ChecklistTemplatesAdmin'
-import { AdminGuard, SuperAdminGuard }  from '../platform/components/guards'
+import { AdminGuard, NonAdminGuard, SuperAdminGuard }  from '../platform/components/guards'
 import { PublicationLayout }            from '../components/layout/PublicationLayout'
 import { SubmissionLayout }             from '../components/layout/SubmissionLayout'
 import { ContentLayout }                from '../components/layout/ContentLayout'
@@ -118,7 +118,7 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/home" replace /> },
       { path: 'home',         element: <RoleHome /> },
-      { path: 'projects',     element: <AllProjects /> },
+      { path: 'projects',     element: <NonAdminGuard><AllProjects /></NonAdminGuard> },
       // /projects/new retired — slider lives on the AllProjects screen now.
       // Deep-links to the old URL redirect back to the list.
       { path: 'projects/new', element: <Navigate to="/projects" replace /> },

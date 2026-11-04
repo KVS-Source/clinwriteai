@@ -68,7 +68,7 @@ function tenantShape(t: {
   createdAt: Date
   updatedAt: Date
   archivedAt: Date | null
-}) {
+}, plan: string | null = null) {
   const deployment = enabledModules()
   const effective = t.modulesEnabled.filter(m => deployment.has(m as 'A' | 'B' | 'C' | 'D' | 'E'))
   return {
@@ -88,7 +88,21 @@ function tenantShape(t: {
     createdAt: t.createdAt.toISOString(),
     updatedAt: t.updatedAt.toISOString(),
     archivedAt: t.archivedAt ? t.archivedAt.toISOString() : null,
+    // The plan of the tenant's active subscription (trial / starter / growth / enterprise);
+    // null when it has none, or when the caller didn't look it up.
+    plan,
   }
+}
+
+// Active-subscription plan per tenant, in one query for the whole list (CW-074).
+async function fetchTenantPlans(prisma: import('@prisma/client').PrismaClient, tenantIds: string[]) {
+  if (tenantIds.length === 0) return new Map<string, string>()
+  const subs = await prisma.subscription.findMany({
+    where:   { tenantId: { in: tenantIds }, endedAt: null },
+    orderBy: { startedAt: 'asc' },   // the newest active one wins below
+    select:  { tenantId: true, plan: true },
+  })
+  return new Map(subs.map(s => [s.tenantId, s.plan]))
 }
 
 export const tenantsRoutes: FastifyPluginAsync = async (app) => {
@@ -123,7 +137,8 @@ export const tenantsRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/admin/tenants', { preHandler: platformAdminGate }, async () => {
     const rows = await app.prisma.tenant.findMany({ orderBy: { createdAt: 'desc' } })
-    return rows.map(tenantShape)
+    const plans = await fetchTenantPlans(app.prisma, rows.map(r => r.id))
+    return rows.map(r => tenantShape(r, plans.get(r.id) ?? null))
   })
 
   app.post('/admin/tenants', { preHandler: platformAdminGate }, async (request, reply) => {

@@ -114,7 +114,7 @@ describe('GET /library', () => {
     expect(lastWhere(count).AND[0]).toEqual({})
   })
 
-  it.each(['sort=bogus', 'limit=0', 'limit=999', 'from=yesterday', 'cursor=abc', 'version=latest'])('rejects %s', async (qs) => {
+  it.each(['sort=bogus', 'limit=0', 'limit=999', 'from=yesterday', 'from=2026-13-01', 'to=2026-02-30', 'cursor=abc', 'version=latest'])('rejects %s', async (qs) => {
     const { app } = await setup()
     expect((await app.inject({ method: 'GET', url: `/library?${qs}` })).statusCode).toBe(400)
   })

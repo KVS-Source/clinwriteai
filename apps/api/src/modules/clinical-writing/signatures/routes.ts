@@ -7,11 +7,9 @@
 //   • §11.70 artefact format: canonical JSON (hashSections() of the
 //     document's current version at signing time). Reproducible,
 //     machine-verifiable. A rendered-PDF binding is additive, not a swap.
-//   • §11.200 re-authentication at signing is NOT in place yet: login is SSO
-//     and no step-up (IdP re-login / TOTP / passkey) is configured. Until it
-//     is, the signer confirms by typing their full name, and each record says
-//     exactly that in authMethod (SIGNING_AUTH_METHOD) — never a method that
-//     wasn't used.
+//   • §11.200 re-authentication at signing: the signer re-enters their login
+//     password, checked against the stored bcrypt hash. Each record says exactly
+//     that in authMethod (SIGNING_AUTH_METHOD) — never a method that wasn't used.
 //   • Time source: the server clock (UTC) is authoritative; the signer's
 //     local time is kept alongside for reference.
 //   • The final signature makes the document v1.0 (AC-A-046): a "Final"
@@ -32,6 +30,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { PASSWORD_MAX_LENGTH, verifyPassword } from '../../../auth/password.js'
 import { DocumentService, hashSections } from '../documents/service.js'
 import type { PrismaClient } from '@prisma/client'
 import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
@@ -52,9 +51,8 @@ const initiateSchema = z.object({
 })
 
 const signSchema = z.object({
-  // Interim confirmation until re-authentication is configured: the signer
-  // types their full name, which must match the signer on the record.
-  confirmName: z.string().trim().min(1, 'Type your full name to confirm the signature'),
+  // Re-authentication at signing: the signer's own login password.
+  password: z.string().min(1, 'Enter your password to confirm the signature').max(PASSWORD_MAX_LENGTH),
   // Signer-side context, kept for reference (the server UTC time is authoritative).
   localTime: z.string().min(1),                 // '16:32 CET'
   deviceInfo: z.string().optional(),
@@ -64,12 +62,8 @@ const signSchema = z.object({
 // Postgres advisory-lock key serialising signature-id allocation (arbitrary, unique to this use).
 const SIGNATURE_ID_LOCK_KEY = 7301001
 
-export const SIGNING_AUTH_METHOD = 'SSO session + typed full-name confirmation (re-authentication not yet configured)'
+export const SIGNING_AUTH_METHOD = 'Login session + password re-entered at signing'
 export const SIGNING_TIME_SOURCE = 'Server clock (UTC)'
-
-// "Dr  Sarah  Chen" vs "dr sarah chen": same name, ignoring case and spacing.
-const sameName = (a: string, b: string) =>
-  a.trim().replace(/\s+/g, ' ').toLowerCase() === b.trim().replace(/\s+/g, ' ').toLowerCase()
 
 const cancelSchema = z.object({
   cancelReason: z.string().min(1, 'cancel reason required for Part 11 audit'),
@@ -308,7 +302,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
 
   // --- The signing act (§11.200) -----------------------------------------
 
-  app.post('/signature-records/:recordId/sign', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+  app.post('/signature-records/:recordId/sign', { preHandler: requireAuth({ modules: ['A'] }), config: { rateLimit: { max: 10, timeWindow: '1 minute' } } }, async (request, reply) => {
     const { recordId } = request.params as { recordId: string }
     const parsed = signSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -353,20 +347,34 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(409).send({ error: 'document_missing_version', message: 'Document has no current version to bind' })
     }
 
-    // Interim confirmation: the typed name must be the signer's own.
-    if (!sameName(parsed.data.confirmName, record.signerName)) {
-      return reply.code(422).send({
-        error:   'name_mismatch',
-        message: `Type your full name exactly as shown (${record.signerName}) to confirm the signature.`,
+    // Re-authentication: the signer's own login password. A wrong password is a 422, not a 401: the
+    // session is still valid and a 401 would send the signer to the sign-in page.
+    const signer = await app.prisma.user.findUnique({ where: { id: request.user!.id }, select: { passwordHash: true } })
+    if (!signer?.passwordHash) {
+      return reply.code(409).send({
+        error:   'no_password_on_file',
+        message: 'Your account has no password set, so you cannot sign yet. Set a password from the sign-in page first.',
       })
+    }
+    if (!(await verifyPassword(parsed.data.password, signer.passwordHash))) {
+      await app.audit.append({
+        timestamp: new Date().toISOString(),
+        actorId: request.user!.id,
+        action: 'signature_password_failed',
+        entityType: 'document',
+        entityId: record.chain.documentId,
+        details: { chainId: record.chainId, recordId: record.id, step: record.step },
+        ipAddress: request.ip ?? null,
+      })
+      return reply.code(422).send({ error: 'wrong_password', message: 'That password is not correct. Please try again.' })
     }
 
     const documentHash = hashSections(
       doc.currentVersion.sections.map(s => ({ sectionId: s.sectionId, contentHtml: s.contentHtml })),
     )
-    // Hash of what confirmed the signature (the typed name) — kept in place of a
-    // credential until re-authentication is configured. Never the plain value.
-    const credentialHash = createHash('sha256').update(`name-confirmation:${parsed.data.confirmName.trim()}`, 'utf8').digest('hex')
+    // Fingerprint of the credential that confirmed the signature: a hash of the stored bcrypt hash,
+    // which identifies it without the salt. Never the password or a fast hash of the password.
+    const credentialHash = createHash('sha256').update(`password-credential:${signer.passwordHash}`, 'utf8').digest('hex')
     const now = new Date()
 
     const result = await app.prisma.$transaction(async (tx) => {

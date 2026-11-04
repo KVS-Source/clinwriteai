@@ -2,8 +2,9 @@ import { useTranslation } from 'react-i18next'
 import { useDocumentStore } from '../../store'
 
 interface Props {
-  onAddComment: () => void
-  onFlagSection: () => void
+  // Left out for someone who may not comment: the Add comment button is then hidden.
+  onAddComment?: () => void
+  onFlagSection?: () => void
   // The signed-in reviewer's role, shown on the right. (RACI is per activity,
   // so it isn't a single letter for the whole document.)
   roleLabel?: string
@@ -95,6 +96,7 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
     >
 
       {/* Add comment — blue accent */}
+      {onAddComment && (
       <button
         type="button"
         onClick={onAddComment}
@@ -111,8 +113,10 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
           ⌘K
         </span>
       </button>
+      )}
 
-      {/* Flag section — outline */}
+      {/* Flag section — outline (hidden when left out, like Add comment) */}
+      {onFlagSection && (
       <button
         type="button"
         onClick={onFlagSection}
@@ -122,6 +126,7 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
         <FlagIcon />
         {t('page.reviewer_toolbar.flag_section_label')}
       </button>
+      )}
 
       <Divider />
 

@@ -81,8 +81,8 @@ function SectionHeader({ eyebrow, title, subtitle }: { eyebrow: string; title: s
 
 // -------------- Tab bodies --------------
 
-// A client is a tenant (GET/POST /admin/tenants). Plan, admin contact and
-// revenue aren't on the tenant record yet, so those columns show "—".
+// A client is a tenant (GET/POST /admin/tenants). Plan comes from the tenant's active
+// subscription; admin contact and revenue aren't recorded yet, so those columns show "—".
 function ClientsTab() {
   const { t } = useTranslation()
   const { data: tenants = [], isLoading, error } = useTenants()
@@ -110,8 +110,9 @@ function ClientsTab() {
       </div>
       {newOpen && <NewTenantDialog noun="client" onClose={() => setNewOpen(false)} />}
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-clients-table>
-        <table className="w-full text-[13px]">
+      {/* Scrolls sideways instead of running off the page on narrower screens (CW-074). */}
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white" data-clients-table>
+        <table className="w-full min-w-[760px] text-[13px]">
           <thead style={{ backgroundColor: '#F8FAFC' }}>
             <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
               <th className="px-4 py-2">{t('page.super_admin_panel.col_client')}</th>
@@ -139,7 +140,9 @@ function ClientsTab() {
                   <p className="font-semibold text-slate-900">{c.name}</p>
                   <p className="mt-0.5 font-mono text-[10px] text-slate-500">{c.slug}</p>
                 </td>
-                <td className="px-4 py-3 text-slate-400">—</td>
+                <td className="px-4 py-3 capitalize text-slate-700" data-client-plan>
+                  {c.plan ?? <span className="text-slate-400">—</span>}
+                </td>
                 <td className="px-4 py-3">
                   {c.status === 'active'    && <StatusChip status="ok"   label={t('page.super_admin_panel.chip_active')}    />}
                   {c.status === 'suspended' && <StatusChip status="warn" label={t('page.super_admin_panel.chip_suspended')} />}
@@ -228,7 +231,7 @@ function AIEnginesTab({ config }: { config: PlatformConfig }) {
     <div className="flex flex-col gap-5" data-tab-panel="ai-engines">
       <SectionHeader eyebrow={t('page.super_admin_panel.engines_eyebrow')} title={t('page.super_admin_panel.engines_title')} subtitle={t('page.super_admin_panel.engines_subtitle')} />
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-engines-table>
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white" data-engines-table>
         <table className="w-full text-[13px]">
           <thead style={{ backgroundColor: '#F8FAFC' }}>
             <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
@@ -276,7 +279,7 @@ function FeatureFlagsTab({ config, onToggle }: { config: PlatformConfig; onToggl
     <div className="flex flex-col gap-5" data-tab-panel="feature-flags">
       <SectionHeader eyebrow={t('page.super_admin_panel.flags_eyebrow')} title={t('page.super_admin_panel.flags_title', { count: config.featureFlags.length })} subtitle={t('page.super_admin_panel.flags_subtitle')} />
 
-      <div className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-flags-table>
+      <div className="overflow-x-auto rounded-lg border border-slate-200 bg-white" data-flags-table>
         <table className="w-full text-[13px]">
           <thead style={{ backgroundColor: '#F8FAFC' }}>
             <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
@@ -399,7 +402,7 @@ export function SuperAdminPanel() {
         </div>
 
         {/* Two-column: tab nav + content */}
-        <div className="grid gap-4" style={{ gridTemplateColumns: '240px 1fr' }}>
+        <div className="grid gap-4" style={{ gridTemplateColumns: '240px minmax(0, 1fr)' }}>
 
           <aside className="flex flex-col gap-1 rounded-lg border border-slate-200 bg-white p-2" data-settings-nav data-tab-count={TABS.length}>
             {TABS.map(ty => {
@@ -421,7 +424,7 @@ export function SuperAdminPanel() {
             })}
           </aside>
 
-          <section className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5" data-settings-content>
+          <section className="flex min-w-0 flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5" data-settings-content>
             {activeTab === 'clients'       && <ClientsTab />}
             {activeTab === 'analytics'     && analytics && <AnalyticsTab analytics={analytics as PlatformAnalytics} />}
             {activeTab === 'ai-engines'    && config    && <AIEnginesTab    config={config as PlatformConfig} />}

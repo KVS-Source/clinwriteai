@@ -63,10 +63,6 @@ export const raciApi = {
   remove: (documentId: string, raciId: string) =>
     api.delete<void>(`/documents/${documentId}/raci/${raciId}`),
 
-  // Change a row's e-signature requirement in place (audited server-side).
-  setSignature: (documentId: string, raciId: string, body: { signatureRequired: boolean; signatureMeaning: string | null }) =>
-    api.patch<DocumentRaciRow>(`/documents/${documentId}/raci/${raciId}/signature`, body),
-
   complete: (documentId: string, raciId: string, body: { signatureId?: string | null } = {}) =>
     api.post<{
       row: DocumentRaciRow

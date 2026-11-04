@@ -20,6 +20,7 @@ import { ReviewerToolbar } from './ReviewerToolbar'
 import { CommentsPanel }   from '../../panels/CommentsPanel'
 import { ChecklistHub, type ChecklistTab } from '../../panels/ChecklistHub'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
+import { useSignatureAccess } from '../output/useSignatureAccess'
 
 // Avatar colours for known people; anyone else gets the neutral blue. The person
 // shown as "you" is whoever the API says is signed in (useCurrentUser) — the
@@ -168,6 +169,9 @@ export function ReviewerView() {
     role:     me ? (PLATFORM_USER_ROLE_LABEL[me.role as PlatformUserRole] ?? me.role) : '',
   }
   const reviewerColours = AVATAR[reviewer.initials] ?? NEUTRAL_AVATAR
+  // Only R, C, Q and A may add comments (action table row 15), and only C, Q and A may approve,
+  // return or flag a section (rows 12 and 14). The API refuses everyone else.
+  const { canAddComment, canGiveVerdict } = useSignatureAccess(documentId)
 
   // Keep this reviewer in the document's presence list ("N active" here and in the Editor).
   useDocumentPresence(documentId, activeSection)
@@ -358,6 +362,7 @@ export function ReviewerView() {
             {/* Presence stack — live, same as the Editor (FR-A-053 / AC-A-037). */}
             {documentId && <PresenceStack documentId={documentId} currentUserId={me?.id} currentUserName={me?.name} />}
 
+            {canGiveVerdict && (<>
             <button
               type="button"
               onClick={handleApproveSection}
@@ -380,6 +385,7 @@ export function ReviewerView() {
             >
               {requestChangesMut.isPending ? t('page.reviewer_view.returning') : t('page.reviewer_view.return_for_revision')}
             </button>
+            </>)}
             {/* Review → Comments Resolution Meeting (PRD stage 5). */}
             {(document.status === 'in-review' || document.status === 'crm-in-progress') && (
               <button
@@ -460,8 +466,8 @@ export function ReviewerView() {
         {/* Editor pane */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
           <ReviewerToolbar
-            onAddComment={openComposer}
-            onFlagSection={handleFlagSection}
+            onAddComment={canAddComment ? openComposer : undefined}
+            onFlagSection={canGiveVerdict ? handleFlagSection : undefined}
             roleLabel={reviewer.role}
             openCommentCount={openCommentCount}
           />
@@ -499,7 +505,7 @@ export function ReviewerView() {
               )}
 
               {/* Comment composition box — Cancel collapses it; "Add comment" (or the prompt below) reopens it */}
-              {composerOpen ? (
+              {!canAddComment ? null : composerOpen ? (
               <div
                 className="mt-4 flex flex-col gap-2.5 rounded-lg border bg-white p-3.5"
                 style={{ borderColor: '#2563EB', boxShadow: '0 0 0 3px rgba(37,99,235,0.12)' }}
@@ -670,7 +676,7 @@ export function ReviewerView() {
                   documentId={documentId}
                   sections={document?.sections ?? []}
                   activeSectionId={activeSection}
-                  onAddComment={openComposer}
+                  onAddComment={canAddComment ? openComposer : undefined}
                 />
               )}
               {activePanel === 'checklist' && documentId && (

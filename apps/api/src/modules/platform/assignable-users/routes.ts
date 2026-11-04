@@ -13,7 +13,7 @@
 //                           can-qc | can-publish
 //   scope=raci (optional) — active + invited non-admins, capability filter
 //                           off (POST …/raci grants a missing capability)
-//   scope=assignee (optional) — active users, without admins
+//   scope=assignee (optional) — active users, without admins, auditors or guests
 //
 // Response is a minimal shape — the picker only needs name/email/
 // capabilities to render a chip + capability-match check:
@@ -30,6 +30,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type Capability } from '../../../auth/rbac.js'
+import { NEVER_ASSIGNEE_ROLES } from '../document-raci/access.js'
 
 const CAPABILITY_VALUES = ['can-author', 'can-review', 'can-approve', 'can-qc', 'can-publish'] as const
 const querySchema = z.object({
@@ -40,6 +41,8 @@ const querySchema = z.object({
   scope: z.enum(['raci', 'assignee']).optional(),
 })
 const ADMIN_ROLES = ['admin', 'tenant-admin', 'super-admin']
+// The New Document assignee becomes the Author (R): never an admin, an auditor (read-only) or a guest.
+const NON_ASSIGNEE_ROLES = [...NEVER_ASSIGNEE_ROLES]
 
 export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:projectId/assignable-users', { preHandler: requireAuth() }, async (request, reply) => {
@@ -82,7 +85,7 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
       where: {
         ...(forRaci
           ? { status: { in: ['active', 'invited'] }, role: { notIn: ADMIN_ROLES } }
-          : { status: 'active', ...(forAssignee ? { role: { notIn: ADMIN_ROLES } } : {}) }),
+          : { status: 'active', ...(forAssignee ? { role: { notIn: NON_ASSIGNEE_ROLES } } : {}) }),
         OR: [
           { id: { in: userIds } },
           {

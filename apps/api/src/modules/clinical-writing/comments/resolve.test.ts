@@ -31,8 +31,12 @@ async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCr
     user: { findUnique: vi.fn(async () => ({ name: 'Dr. Elena Vasquez', initials: 'EV' })) },
   } as never)
   // The resolver's part on the document: a reviewer (C) unless a test says otherwise.
+  // findFirst is the add-comment gate: the caller holds C, so they may comment.
   Object.assign((app as unknown as { prisma: Record<string, unknown> }).prisma, {
-    documentRaci: { findMany: vi.fn(async () => (opts.canResolve === false ? [] : [{ documentId: 'doc-b' }])) },
+    documentRaci: {
+      findMany:  vi.fn(async () => (opts.canResolve === false ? [] : [{ documentId: 'doc-b' }])),
+      findFirst: vi.fn(async () => ({ id: 'raci-c' })),
+    },
   })
   ;(app as unknown as { prisma: { document: Record<string, unknown> } }).prisma.document.findMany = vi.fn(async () => [])
   app.decorate('audit', { append } as never)

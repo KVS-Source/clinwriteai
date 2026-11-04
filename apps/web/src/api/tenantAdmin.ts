@@ -26,6 +26,8 @@ export interface Tenant {
   createdAt: string
   updatedAt: string
   archivedAt: string | null
+  /** Active subscription plan (trial / starter / growth / enterprise). Only the list returns it. */
+  plan?: string | null
 }
 
 export interface Membership {

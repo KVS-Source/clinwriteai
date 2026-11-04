@@ -1,8 +1,7 @@
 // Shared navigation helpers for the smoke suite.
 //
 // Current prototype: BYPASS_AUTH_IN_PROTOTYPE=true in AuthGuard.tsx — '/'
-// goes straight to /projects, and when there's one project the shell auto-
-// forwards to /projects/:id. Once the auth bypass is removed in Phase 2 the
+// goes straight to /projects. Once the auth bypass is removed in Phase 2 the
 // helper will need to walk /sign-in; the branch below handles that fallback.
 //
 // We navigate to the module screen via URL rather than clicking cards because

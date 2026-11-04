@@ -45,7 +45,7 @@ export async function actorCanEditDocumentRaci(
 // it — nor the document's content — even when they happen to be the assignee
 // or hold an R row. Auditors are a view-only role. The checklist / guest /
 // signature routes keep actorCanEditDocumentRaci.
-const RACI_LOCKED_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin', 'pm', 'auditor'])
+export const RACI_LOCKED_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin', 'pm', 'auditor'])
 
 export async function actorCanEditRaciAssignments(
   prisma: PrismaClient,
@@ -68,6 +68,58 @@ export async function actorCanEditDocumentContent(
 ): Promise<boolean> {
   return actorCanEditRaciAssignments(prisma, actor, documentId)
 }
+
+// Who may add a comment (action table row 15): the document's Author (R),
+// Reviewer (C), QC (Q) or Approver (A). Admins, PMs, auditors and Informed (I)
+// only read comments. External guests comment through their magic link
+// (guest-invitations/redemption.ts), which doesn't use this gate.
+const COMMENT_LOCKED_ROLES: ReadonlySet<string> = new Set([...RACI_LOCKED_ROLES, 'auditor', 'read-only', 'guest'])
+const COMMENT_LETTERS = ['R', 'C', 'Q', 'A']
+
+export async function actorCanAddComment(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+): Promise<boolean> {
+  if (COMMENT_LOCKED_ROLES.has(actor.role)) return false
+  const [doc, row] = await Promise.all([
+    prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
+    prisma.documentRaci.findFirst({
+      where: { documentId, userId: actor.id, letter: { in: COMMENT_LETTERS }, removedAt: null },
+      select: { id: true },
+    }),
+  ])
+  // The assignee is the document's first Author, before any R row exists.
+  return row !== null || (!!doc && doc.assigneeId === actor.id)
+}
+
+// Who may post a reviewer verdict (approve / return a section): Reviewer (C),
+// QC (Q) or Approver (A) — action table rows 12 and 14. The Author comments
+// but never approves or returns their own document.
+const VERDICT_LETTERS = ['C', 'Q', 'A']
+
+export async function actorCanGiveVerdict(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+): Promise<boolean> {
+  if (COMMENT_LOCKED_ROLES.has(actor.role)) return false
+  const row = await prisma.documentRaci.findFirst({
+    where: { documentId, userId: actor.id, letter: { in: VERDICT_LETTERS }, removedAt: null },
+    select: { id: true },
+  })
+  return row !== null
+}
+
+export const VERDICT_FORBIDDEN = {
+  error: 'verdict_forbidden',
+  message: 'Only the Reviewer (C), QC (Q) or Approver (A) on this document can approve or return a section.',
+} as const
+
+export const COMMENT_ADD_FORBIDDEN = {
+  error: 'comment_forbidden',
+  message: 'Only the Author (R), Reviewer (C), QC (Q) or Approver (A) on this document can add comments.',
+} as const
 
 export const DOCUMENT_EDIT_FORBIDDEN = {
   error: 'document_edit_forbidden',
@@ -113,15 +165,18 @@ export const AI_CHAT_FORBIDDEN = {
 // its author, though they still can't edit it or manage its RACI (see above).
 export const NEVER_AUTHOR_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin'])
 
+// Nor can an auditor (read-only everywhere) or a guest be a document's assignee (CW-081).
+export const NEVER_ASSIGNEE_ROLES: ReadonlySet<string> = new Set([...NEVER_AUTHOR_ROLES, 'auditor', 'read-only', 'guest'])
+
 // An unknown id passes here and fails on the Document's foreign key as it always has.
 export async function userCanBeAssignee(prisma: PrismaClient, userId: string): Promise<boolean> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
-  return !user || !NEVER_AUTHOR_ROLES.has(user.role)
+  return !user || !NEVER_ASSIGNEE_ROLES.has(user.role)
 }
 
 export const ASSIGNEE_NOT_ELIGIBLE = {
   error: 'assignee_not_eligible',
-  message: 'An admin cannot be assigned as the author of a document.',
+  message: 'An admin, auditor or guest cannot be assigned as the author of a document.',
 } as const
 
 // Submitting for review is for authors only: each R submits their own part

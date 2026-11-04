@@ -72,6 +72,15 @@ export const DOCUMENT_EDIT_FORBIDDEN = {
   message: 'Only an author (R) on this document can edit it.',
 } as const
 
+// AI Chat (and the inline section AI prompt) is turned off for Project Managers.
+// The web hides the entry points; the API refuses the calls so it can't be bypassed.
+export const actorCanUseAiChat = (actor: { role: string }): boolean => actor.role !== 'pm'
+
+export const AI_CHAT_FORBIDDEN = {
+  error: 'ai_chat_not_allowed',
+  message: 'AI Chat is not available to Project Managers.',
+} as const
+
 // The assignee is the document's first author. Someone who can't edit or manage RACI can't be
 // that, or the new document starts with nobody able to work on it. An unknown id passes here and
 // fails on the Document's foreign key as it always has.

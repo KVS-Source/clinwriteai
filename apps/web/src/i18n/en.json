@@ -1381,6 +1381,7 @@
       "comments_tooltip": "Comments",
       "comments_label": "Comments",
       "ai_chat_tooltip": "Open AI Chat (⌘J)",
+      "ai_chat_disabled_pm": "AI Chat isn't available to Project Managers",
       "ai_chat_label": "AI Chat",
       "insert_citation": "Insert citation",
       "soon_badge": "SOON"

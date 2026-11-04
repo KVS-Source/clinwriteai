@@ -28,6 +28,8 @@ const ROUTES: Array<{ name: string; method: 'POST' | 'PATCH'; url: string; paylo
   { name: 'remove a reference',     method: 'POST',  url: `/documents/${DOC}/references/ref-1/remove`, payload: {} },
 ]
 
+const AI_CHAT_ROUTES = new Set(['AI suggest', 'accept an AI message'])
+
 async function build(actor: Partial<AuthenticatedUser>, opts: { rRow?: boolean; assignee?: string } = {}) {
   const app = Fastify()
   const userId = actor.id ?? 'u-1'
@@ -68,11 +70,13 @@ describe('editing a document is for its authors only', () => {
     ['a tenant admin', { role: 'tenant-admin' as const }],
     ['a contributor who is not an author', { role: 'contributor' as const }],
   ])('%s', (_label, actor) => {
-    it.each(ROUTES)('cannot $name', async ({ method, url, payload }) => {
+    it.each(ROUTES)('cannot $name', async ({ name, method, url, payload }) => {
       const app = await build(actor)
       const res = await app.inject({ method, url, payload })
       expect(res.statusCode).toBe(403)
-      expect(res.json().error).toBe('document_edit_forbidden')
+      // AI Chat is off for PMs altogether, so on the AI routes they hit that refusal first.
+      const expected = actor.role === 'pm' && AI_CHAT_ROUTES.has(name) ? 'ai_chat_not_allowed' : 'document_edit_forbidden'
+      expect(res.json().error).toBe(expected)
       await app.close()
     })
   })
@@ -107,5 +111,24 @@ describe('actorCanEditDocumentContent', () => {
 
   it('lets the realtime sidecar through despite its synthetic admin role', async () => {
     expect(await actorCanEditDocumentContent(prisma(false), user({ id: 'system:collab', role: 'tenant-admin' }), DOC)).toBe(true)
+  })
+})
+
+describe('AI Chat is turned off for Project Managers', () => {
+  const aiRoutes = ROUTES.filter(r => AI_CHAT_ROUTES.has(r.name))
+
+  it.each(aiRoutes)('a PM is refused "$name" even as an author (assignee holding an R row)', async ({ method, url, payload }) => {
+    const app = await build({ id: 'u-pm', role: 'pm' }, { rRow: true, assignee: 'u-pm' })
+    const res = await app.inject({ method, url, payload })
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toMatchObject({ error: 'ai_chat_not_allowed', message: 'AI Chat is not available to Project Managers.' })
+    await app.close()
+  })
+
+  it.each(aiRoutes)('the PM rule does not block a contributor author on "$name"', async ({ method, url, payload }) => {
+    const app = await build({ id: 'u-w', role: 'contributor' }, { rRow: true, assignee: 'u-w' })
+    const res = await app.inject({ method, url, payload })
+    expect(res.json().error).not.toBe('ai_chat_not_allowed')
+    await app.close()
   })
 })

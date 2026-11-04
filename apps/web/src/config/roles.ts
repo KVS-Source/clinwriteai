@@ -10,3 +10,7 @@ export const isAdminRole = (role: string | null | undefined): boolean => !!role 
 /** Platform admin (GenBioCa operator): an admin role with no tenant. */
 export const isPlatformAdmin = (user: { role: string; tenantId?: string | null }): boolean =>
   isAdminRole(user.role) && (user.tenantId ?? null) == null
+
+/** AI Chat (and the inline section AI prompt) is turned off for Project Managers.
+ *  The API enforces the same rule (AI_CHAT_FORBIDDEN); this only hides the entry points. */
+export const canUseAiChat = (role: string | null | undefined): boolean => role !== 'pm'

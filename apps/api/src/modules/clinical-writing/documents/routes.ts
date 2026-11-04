@@ -21,7 +21,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanEditDocumentContent, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, userCanBeAssignee } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanUseAiChat, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, userCanBeAssignee } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
@@ -1171,6 +1171,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/sections/:sectionId/ai-suggest', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
+    if (!actorCanUseAiChat(request.user!)) return reply.code(403).send(AI_CHAT_FORBIDDEN)
     const parsed = aiSuggestSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -1640,6 +1641,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/ai-chat-messages/:messageId/accept', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { messageId } = request.params as { messageId: string }
+    if (!actorCanUseAiChat(request.user!)) return reply.code(403).send(AI_CHAT_FORBIDDEN)
     const msg = await app.prisma.aiConversationMessage.findUnique({ where: { id: messageId } })
     if (!msg) return reply.code(404).send({ error: 'not_found' })
     if (msg.actorId !== request.user!.id) return reply.code(403).send({ error: 'not_your_message' })

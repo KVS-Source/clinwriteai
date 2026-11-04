@@ -9,7 +9,7 @@ import { commentsRoutes } from './routes.js'
 
 const body = { sectionRef: '§11.4.1', text: 'Please add the 95% CI.', severity: 'major' }
 
-async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCreates?: number; existing?: Record<string, unknown> | null; canResolve?: boolean } = {}) {
+async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCreates?: number; existing?: Record<string, unknown> | null; canResolve?: boolean; role?: AuthenticatedUser['role'] } = {}) {
   let failures = opts.failCreates ?? 0
   const findMany = vi.fn(async () => (opts.maxSeq ? [{ id: `CMT-${String(opts.maxSeq).padStart(3, '0')}` }] : []))
   const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -35,14 +35,14 @@ async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCr
   Object.assign((app as unknown as { prisma: Record<string, unknown> }).prisma, {
     documentRaci: {
       findMany:  vi.fn(async () => (opts.canResolve === false ? [] : [{ documentId: 'doc-b' }])),
-      findFirst: vi.fn(async () => ({ id: 'raci-c' })),
+      findFirst: vi.fn(async () => (opts.canResolve === false ? null : { id: 'raci-c' })),
     },
   })
   ;(app as unknown as { prisma: { document: Record<string, unknown> } }).prisma.document.findMany = vi.fn(async () => [])
   app.decorate('audit', { append } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (r) => {
-    const user: AuthenticatedUser = { id: 'user-ev', email: 'e@v', role: 'contributor', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'user-ev', email: 'e@v', role: opts.role ?? 'contributor', modules: ['A'], tenantId: null }
     Object.assign(r, { user })
   })
   await app.register(commentsRoutes, { prefix: '/documents' })
@@ -71,6 +71,23 @@ describe('POST /documents/:id/comments', () => {
     expect((await post(app, { ...body, text: '' })).statusCode).toBe(400)
   })
 
+  it('refuses someone not on the document, for comments and verdicts alike, and writes nothing', async () => {
+    const { app, create, append } = await setup({ canResolve: false })
+    for (const payload of [body, { sectionRef: '§11.4.1', text: '', severity: 'query', verdict: 'approve' }, { sectionRef: '§11.4.1', text: '', severity: 'major', verdict: 'request_changes' }]) {
+      const res = await post(app, payload)
+      expect(res.statusCode).toBe(403)
+      expect(res.json().error).toBe('comment_forbidden')
+    }
+    expect(create).not.toHaveBeenCalled()
+    expect(append).not.toHaveBeenCalled()
+  })
+
+  it('reports the same answer on the access probe', async () => {
+    expect((await (await setup()).app.inject({ method: 'GET', url: '/documents/doc-b/comments/access' })).json()).toEqual({ canAdd: true })
+    await current?.close()
+    expect((await (await setup({ canResolve: false })).app.inject({ method: 'GET', url: '/documents/doc-b/comments/access' })).json()).toEqual({ canAdd: false })
+  })
+
   it('allows an empty text for a bare verdict', async () => {
     const { app, append } = await setup()
     const res = await post(app, { sectionRef: '§11.4.1', text: '', severity: 'query', verdict: 'approve' })
@@ -79,6 +96,24 @@ describe('POST /documents/:id/comments', () => {
   })
 })
 
+
+describe('GET /documents/:id/comments', () => {
+  it('stays open to an auditor and to a contributor not on the document, pending the product owner', async () => {
+    for (const role of ['auditor', 'contributor'] as const) {
+      const { app } = await setup({ canResolve: false, role })
+      expect((await app.inject({ method: 'GET', url: '/documents/doc-b/comments' })).statusCode).toBe(200)
+      await current?.close()
+      current = null
+    }
+  })
+
+  it.each(['tenant-admin', 'admin', 'super-admin'] as const)('refuses a %s', async (role) => {
+    const { app } = await setup({ role })
+    const res = await app.inject({ method: 'GET', url: '/documents/doc-b/comments' })
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error).toBe('comment_view_forbidden')
+  })
+})
 
 describe('PATCH /documents/:id/comments/:commentId/resolve', () => {
   const resolve = (app: FastifyInstance, payload: object) =>

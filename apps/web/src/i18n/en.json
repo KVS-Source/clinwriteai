@@ -435,6 +435,7 @@
       "removed_reason_label": "Reason: {{reason}}"
     },
     "checklist_hub": {
+      "not_allowed": "You don't have access to this document's checklist.",
       "tab_inputs": "Inputs",
       "tab_ich_e3": "ICH E3",
       "summary_inputs": "Inputs {{done}}/{{total}}",
@@ -1473,6 +1474,7 @@
       "comment_posted_short": "Comment posted — see Comments panel.",
       "comment_posted_long": "✓ Comment posted — see the Comments panel.",
       "add_comment_prompt": "＋ Add a comment{{suffix}}",
+      "comment_not_allowed": "View only. Comments can be added by this document's author, reviewer, QC or approver.",
       "add_comment_prompt_section": " for {{section}}",
       "flagged_banner": "⚑ Section flagged for follow-up",
       "resize_panel_aria": "Resize panel",

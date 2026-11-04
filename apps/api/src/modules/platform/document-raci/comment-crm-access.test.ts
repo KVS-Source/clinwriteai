@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
-import { actorCanResolveComments, actorCanScheduleCrm, documentsActorCanResolve } from './access.js'
+import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanScheduleCrm, actorCanViewChecklist, actorCanViewVersions, documentsActorCanResolve } from './access.js'
 
 const DOC = 'd-1'
 type Row = { documentId: string; userId: string; letter: string }
@@ -16,6 +16,8 @@ function prisma(opts: { rows?: Row[]; assignee?: string; memberOf?: string[] } =
         where.id ? (opts.assignee === where.assigneeId ? where.id.in.map(id => ({ id })) : []) : [],
     },
     documentRaci: {
+      findFirst: async ({ where }: { where: { userId: string; letter: { in: string[] } } }) =>
+        rows.find(r => r.userId === where.userId && where.letter.in.includes(r.letter)) ?? null,
       findMany: async ({ where }: { where: { documentId: string | { in: string[] }; userId: string; letter?: { in: string[] } } }) =>
         rows.filter(r =>
           r.userId === where.userId
@@ -31,6 +33,94 @@ const user = (role: AuthenticatedUser['role'] = 'contributor'): AuthenticatedUse
   ({ id: 'u-1', email: 'u@x', role, modules: ['A'], tenantId: null })
 const holds = (...letters: string[]): Row[] => letters.map(letter => ({ documentId: DOC, userId: 'u-1', letter }))
 
+describe('viewing the checklist', () => {
+  it.each(['R', 'C', 'Q', 'A'])('is open to a holder of %s', async (letter) => {
+    expect(await actorCanViewChecklist(prisma({ rows: holds(letter) }), user(), DOC)).toBe(true)
+  })
+
+  it('is open to the assignee', async () => {
+    expect(await actorCanViewChecklist(prisma({ assignee: 'u-1' }), user(), DOC)).toBe(true)
+  })
+
+  it('is closed to Informed, and to someone with no part on the document', async () => {
+    expect(await actorCanViewChecklist(prisma({ rows: holds('I') }), user(), DOC)).toBe(false)
+    expect(await actorCanViewChecklist(prisma(), user(), DOC)).toBe(false)
+  })
+
+  it('is open to an auditor, and to a PM only on a project they can see', async () => {
+    expect(await actorCanViewChecklist(prisma(), user('auditor'), DOC)).toBe(true)
+    expect(await actorCanViewChecklist(prisma({ memberOf: ['p-1'] }), user('pm'), DOC)).toBe(true)
+    expect(await actorCanViewChecklist(prisma({ memberOf: ['p-other'] }), user('pm'), DOC)).toBe(false)
+  })
+
+  it.each(['tenant-admin', 'admin', 'super-admin', 'guest'] as const)('is closed to a %s, even holding R', async (role) => {
+    expect(await actorCanViewChecklist(prisma({ rows: holds('R'), assignee: 'u-1' }), user(role), DOC)).toBe(false)
+  })
+})
+
+describe('viewing versions', () => {
+  it.each(['R', 'Q'])('is open to a holder of %s', async (letter) => {
+    expect(await actorCanViewVersions(prisma({ rows: holds(letter) }), user(), DOC)).toBe(true)
+  })
+
+  it('is open to the assignee, who is the first author', async () => {
+    expect(await actorCanViewVersions(prisma({ assignee: 'u-1' }), user(), DOC)).toBe(true)
+  })
+
+  it.each(['C', 'A', 'I'])('is closed to a holder of %s alone', async (letter) => {
+    expect(await actorCanViewVersions(prisma({ rows: holds(letter) }), user(), DOC)).toBe(false)
+  })
+
+  it('is closed to someone with no part on the document', async () => {
+    expect(await actorCanViewVersions(prisma(), user(), DOC)).toBe(false)
+  })
+
+  it('is open to an auditor, and to a PM only on a project they can see', async () => {
+    expect(await actorCanViewVersions(prisma(), user('auditor'), DOC)).toBe(true)
+    expect(await actorCanViewVersions(prisma({ memberOf: ['p-1'] }), user('pm'), DOC)).toBe(true)
+    expect(await actorCanViewVersions(prisma({ memberOf: ['p-other'] }), user('pm'), DOC)).toBe(false)
+  })
+
+  it.each(['tenant-admin', 'admin', 'super-admin', 'guest'] as const)('is closed to a %s, even holding R', async (role) => {
+    expect(await actorCanViewVersions(prisma({ rows: holds('R'), assignee: 'u-1' }), user(role), DOC)).toBe(false)
+  })
+})
+
+describe('adding comments', () => {
+  it.each(['R', 'C', 'Q', 'A'])('is open to a holder of %s', async (letter) => {
+    expect(await actorCanAddComment(prisma({ rows: holds(letter) }), user(), DOC)).toBe(true)
+  })
+
+  it('is open to the assignee, who is the first author', async () => {
+    expect(await actorCanAddComment(prisma({ assignee: 'u-1' }), user(), DOC)).toBe(true)
+  })
+
+  it('is closed to Informed, and to someone with no part on the document', async () => {
+    expect(await actorCanAddComment(prisma({ rows: holds('I') }), user(), DOC)).toBe(false)
+    expect(await actorCanAddComment(prisma(), user(), DOC)).toBe(false)
+  })
+
+  it.each(['pm', 'auditor', 'read-only', 'tenant-admin', 'admin', 'guest'] as const)('is closed to a %s, even holding a letter or assigned', async (role) => {
+    expect(await actorCanAddComment(prisma({ rows: holds('C'), assignee: 'u-1' }), user(role), DOC)).toBe(false)
+  })
+})
+
+describe('approving or returning a section', () => {
+  it.each(['C', 'Q', 'A'])('is open to a holder of %s', async (letter) => {
+    expect(await actorCanGiveVerdict(prisma({ rows: holds(letter) }), user(), DOC)).toBe(true)
+  })
+
+  it('is closed to the author, assignee or not, who can still comment', async () => {
+    expect(await actorCanGiveVerdict(prisma({ rows: holds('R') }), user(), DOC)).toBe(false)
+    expect(await actorCanGiveVerdict(prisma({ assignee: 'u-1' }), user(), DOC)).toBe(false)
+    expect(await actorCanAddComment(prisma({ rows: holds('R') }), user(), DOC)).toBe(true)
+  })
+
+  it.each(['pm', 'auditor', 'tenant-admin'] as const)('is closed to a %s, even holding C', async (role) => {
+    expect(await actorCanGiveVerdict(prisma({ rows: holds('C') }), user(role), DOC)).toBe(false)
+  })
+})
+
 describe('resolving comments', () => {
   it.each(['R', 'C', 'A'])('is open to a holder of %s', async (letter) => {
     expect(await actorCanResolveComments(prisma({ rows: holds(letter) }), user(), DOC)).toBe(true)
@@ -44,14 +134,12 @@ describe('resolving comments', () => {
     expect(await actorCanResolveComments(prisma({ rows: holds(letter) }), user(), DOC)).toBe(false)
   })
 
-  it('is closed to someone with no part on the document, and to a PM unless they hold a letter', async () => {
+  it('is closed to someone with no part on the document', async () => {
     expect(await actorCanResolveComments(prisma(), user(), DOC)).toBe(false)
-    expect(await actorCanResolveComments(prisma({ memberOf: ['p-1'] }), user('pm'), DOC)).toBe(false)
-    expect(await actorCanResolveComments(prisma({ rows: holds('A') }), user('pm'), DOC)).toBe(true)
   })
 
-  it.each(['tenant-admin', 'admin'] as const)('is closed to a %s, even holding a letter', async (role) => {
-    expect(await actorCanResolveComments(prisma({ rows: holds('R'), assignee: 'u-1' }), user(role), DOC)).toBe(false)
+  it.each(['pm', 'auditor', 'read-only', 'guest', 'tenant-admin', 'admin'] as const)('is closed to a %s, even holding a letter or assigned', async (role) => {
+    expect(await actorCanResolveComments(prisma({ rows: holds('R', 'C', 'A'), assignee: 'u-1' }), user(role), DOC)).toBe(false)
   })
 
   it('answers per document in the batched form', async () => {

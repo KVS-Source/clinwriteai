@@ -21,7 +21,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanEditDocumentContent, actorCanUseAiChat, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, resetAuthorSubmissions, SUBMIT_FORBIDDEN, userCanBeAssignee } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, resetAuthorSubmissions, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
@@ -630,10 +630,17 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     return svc.getWithSections(documentId)
   })
 
+  // Whether the caller may see versions — lets the screens hide the tab and menu instead of failing them.
+  app.get('/:documentId/versions/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
+    const { documentId } = request.params as { documentId: string }
+    return { canView: await actorCanViewVersions(app.prisma, request.user!, documentId) }
+  })
+
   app.get('/:documentId/versions', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanViewVersions(app.prisma, request.user!, documentId))) return reply.code(403).send(VERSION_VIEW_FORBIDDEN)
 
     const versions = await app.prisma.documentVersion.findMany({
       where: { documentId },
@@ -656,6 +663,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // One version's sections as stored — the Version Diff compares two of these. Read-only.
   app.get('/:documentId/versions/:versionId/sections', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, versionId } = request.params as { documentId: string; versionId: string }
+    if (!(await actorCanViewVersions(app.prisma, request.user!, documentId))) return reply.code(403).send(VERSION_VIEW_FORBIDDEN)
     const version = await app.prisma.documentVersion.findFirst({
       where:  { id: versionId, documentId },
       select: { id: true, versionNumber: true, sections: {

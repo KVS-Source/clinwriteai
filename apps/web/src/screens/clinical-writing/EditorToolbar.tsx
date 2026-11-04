@@ -141,6 +141,8 @@ interface EditorToolbarProps {
   // Enables type-conditional panel triggers (e.g. Protocol metadata, which
   // only applies to 'protocol' / 'protocol-amendment' documents).
   documentType?: DocumentType
+  // The Checklist button is left out once this is known to be false.
+  canViewChecklist?: boolean
 }
 
 // Document types where the Protocol metadata panel is reachable. Non-
@@ -148,7 +150,7 @@ interface EditorToolbarProps {
 // belong on a CSR / IB / DSUR row.
 const PROTOCOL_DOC_TYPES: ReadonlySet<DocumentType> = new Set(['protocol', 'protocol-amendment'])
 
-export function EditorToolbar({ editor, ichApplicable = true, documentType }: EditorToolbarProps = {}) {
+export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist }: EditorToolbarProps = {}) {
   const { t } = useTranslation()
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
@@ -236,7 +238,9 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType }: Ed
 
       {/* Panel triggers */}
       <IconButton title={t('page.editor_toolbar.voice_note_tooltip')} active={activePanel === 'voice'}     panelTrigger onClick={() => toggle('voice')}><VoiceIcon /></IconButton>
-      <IconButton title={t('page.editor_toolbar.checklist_tooltip')} active={activePanel === 'checklist'} panelTrigger onClick={() => toggle('checklist')}><ChecklistIcon /></IconButton>
+      {canViewChecklist !== false && (
+        <IconButton title={t('page.editor_toolbar.checklist_tooltip')} active={activePanel === 'checklist'} panelTrigger onClick={() => toggle('checklist')}><ChecklistIcon /></IconButton>
+      )}
       <IconButton title={t('page.editor_toolbar.audit_trail_tooltip')} active={activePanel === 'audit'}     panelTrigger onClick={() => toggle('audit')}><AuditIcon /></IconButton>
       {documentType && PROTOCOL_DOC_TYPES.has(documentType) && (
         <IconButton

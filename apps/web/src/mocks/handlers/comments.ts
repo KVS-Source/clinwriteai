@@ -51,6 +51,7 @@ const ageOf = (iso: string) => {
 }
 
 export const commentHandlers = [
+  http.get(`${BASE}/documents/:documentId/comments/access`, () => HttpResponse.json({ canAdd: true })),
   http.get(`${BASE}/documents/:documentId/comments`, async ({ params }) => {
     await delay(150)
     // Seed comments show on every demo document (as before); comments created in

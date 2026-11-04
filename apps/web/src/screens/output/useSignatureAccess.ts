@@ -6,8 +6,6 @@
 //   read the record     any RACI letter on the document, a PM, or an auditor. Never admin or guest.
 //   Final Document      same as reading the record, except QC (Q) alone, which is N/A for now.
 //   export audit trail  PM or auditor.
-//   add a comment       Author (R), Reviewer (C), QC (Q) or Approver (A) — action table row 15.
-//                       Never admin, PM, auditor, Informed (I) alone, or a signed-in guest.
 //   approve / return    Reviewer (C), QC (Q) or Approver (A) — rows 12 and 14. Not the Author.
 
 import { useQuery } from '@tanstack/react-query'
@@ -28,7 +26,6 @@ export interface SignatureAccess {
   canViewRecord: boolean
   canViewFinal: boolean
   canExportAudit: boolean
-  canAddComment: boolean
   canGiveVerdict: boolean
   /** The Author (R) may always cancel; anyone else only the chain they started. */
   canCancelChain: (chain: { initiatedBy: string } | undefined) => boolean
@@ -75,8 +72,6 @@ export function useSignatureAccess(documentId: string | undefined): SignatureAcc
     canViewRecord,
     canViewFinal,
     canExportAudit: isPm || isAuditor,
-    canAddComment:  !isAdmin && !isPm && !isAuditor && !isGuest
-                    && (isAuthor || ['C', 'Q', 'A'].some(l => letters.has(l))),
     canGiveVerdict: !isAdmin && !isPm && !isAuditor && !isGuest
                     && ['C', 'Q', 'A'].some(l => letters.has(l)),
     canCancelChain: chain => !!chain && !!me && (chain.initiatedBy === me.id || isAuthor),

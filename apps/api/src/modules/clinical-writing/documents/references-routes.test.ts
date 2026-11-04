@@ -14,6 +14,13 @@ vi.mock('mammoth', () => ({
 }))
 import { documentsSourceRoutes, isPreviewable } from './source-routes.js'
 
+// Who may edit is covered by documents/edit-gate.test.ts; this file tests what
+// happens once an author is let through.
+vi.mock('../../platform/document-raci/access.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../platform/document-raci/access.js')>()),
+  actorCanEditDocumentContent: vi.fn(async () => true),
+}))
+
 type Upload = {
   id: string; projectId: string; uploadedBy: string; blobKey: string; fileName: string; fileSizeBytes: number
   contentType: string; virusScanStatus: string; classification: unknown; status: string; documentId: string | null; createdAt: Date

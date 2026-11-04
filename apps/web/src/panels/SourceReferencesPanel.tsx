@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { documentsApi, type SourceDocument, type SourceReference } from '../api/documents'
 import { ApiError } from '../api/client'
+import { useCanEditDocument } from '../hooks/useCanEditDocument'
 import type { DocumentStatus } from '@platform/types'
 import { useEditorStore } from '../store'
 import { normalizeSpan, spansOverlap } from '../screens/clinical-writing/referenceHighlights'
@@ -162,6 +163,7 @@ export function SourceViewer({ projectId, documentId, source, page, quote, onBac
 // ------------------------------------------------------------------ list
 
 export function SourceReferencesPanel({ documentId, projectId, sectionId, sectionLabel, documentStatus, projectClosed }: Props) {
+  const canEditDocument = useCanEditDocument(documentId)
   const { t } = useTranslation()
   const qc = useQueryClient()
   const selected = useEditorStore(s => s.traceabilityTarget)
@@ -229,6 +231,7 @@ export function SourceReferencesPanel({ documentId, projectId, sectionId, sectio
   const lockedNoteKey = projectClosed
     ? 'page.source_references_panel.locked_note_project_closed'
     : (documentStatus ? LOCKED_NOTE_KEYS[documentStatus] : undefined)
+      ?? (canEditDocument === false ? 'page.source_references_panel.locked_note_view_only' : undefined)
   const lockedNote = lockedNoteKey ? t(lockedNoteKey) : undefined
 
   if (viewer) {

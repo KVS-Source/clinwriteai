@@ -7,6 +7,7 @@
 // Revert to any point.
 
 import { useTranslation } from 'react-i18next'
+import { useCanEditDocument } from '../hooks/useCanEditDocument'
 import { documentsApi } from '../api'
 import { EditHistoryPanel, type EditOrigin } from './EditHistoryPanel'
 
@@ -18,6 +19,7 @@ interface Props {
 
 export function SectionHistoryPanel({ documentId, sectionId, sectionLabel }: Props) {
   const { t } = useTranslation()
+  const canEditDocument = useCanEditDocument(documentId)
   if (!sectionId) {
     return (
       <EditHistoryPanel
@@ -42,6 +44,7 @@ export function SectionHistoryPanel({ documentId, sectionId, sectionLabel }: Pro
           origin: origin as EditOrigin | undefined,
         })
       }
+      readOnly={canEditDocument === false}
       revert={(editHistoryId) => documentsApi.revertSectionEdit(editHistoryId)}
       fetchDiff={(editHistoryId) => documentsApi.getSectionEditDiff(editHistoryId)}
     />

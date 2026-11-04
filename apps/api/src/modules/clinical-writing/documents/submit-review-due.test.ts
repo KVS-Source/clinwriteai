@@ -7,6 +7,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { documentsRoutes } from './routes.js'
 
+// Who may edit is covered by documents/edit-gate.test.ts; this file tests what
+// happens once an author is let through.
+vi.mock('../../platform/document-raci/access.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../platform/document-raci/access.js')>()),
+  actorCanEditDocumentContent: vi.fn(async () => true),
+}))
+
 async function build(opts: { columnMissing?: boolean } = {}) {
   const updates: Array<Record<string, unknown>> = []
   const app = Fastify()

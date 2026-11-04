@@ -11,6 +11,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { requireAuth } from '../../../auth/rbac.js'
+import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import {
   acquireLock,
   getHolder,
@@ -28,6 +29,8 @@ export const sectionLockRoutes: FastifyPluginAsync = async (app) => {
       select: { id: true, deletedAt: true },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    // A viewer must never hold a section lock — it would block the authors.
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const result = await acquireLock(app.prisma, {
       documentId, sectionId, userId: request.user!.id,

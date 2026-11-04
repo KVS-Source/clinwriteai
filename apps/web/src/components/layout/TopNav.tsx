@@ -153,7 +153,7 @@ export function TopNav() {
   const leafLabel      = leafSlug && LEAF_LABEL_KEYS[leafSlug] ? t(LEAF_LABEL_KEYS[leafSlug]!) : null
 
   const crumbs: Array<{ label: string; href: string | null }> = [
-    { label: t('component.top_nav.crumb_projects'), href: '/projects' },
+    ADMIN_ROLES.has(currentUser.role) ? null : { label: t('component.top_nav.crumb_projects'), href: '/projects' },
     inProjectRoute && project ? { label: project.shortTitle, href: `/projects/${project.id}` } : null,
     inProjectRoute && moduleLabel && project
       ? { label: moduleLabel, href: `/projects/${project.id}/${moduleSlug}` }

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { Section, VoiceNote } from '@platform/types'
 import { documentsApi } from '../api'
 import { ApiError } from '../api/client'
+import { useCanEditDocument } from '../hooks/useCanEditDocument'
 import { useAuthStore } from '../store/authStore'
 import { withSectionMark } from './CommentComposer'
 
@@ -181,7 +182,8 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
   const previewUrlRef = useRef<string | null>(null)
 
   const mimeType = useMemo(() => pickSupportedMimeType(), [])
-  const canRecord = typeof navigator !== 'undefined'
+  const canEditDocument = useCanEditDocument(documentId)
+  const canRecord = canEditDocument !== false && typeof navigator !== 'undefined'
     && !!navigator.mediaDevices?.getUserMedia
     && mimeType !== undefined
 
@@ -569,7 +571,7 @@ export function VoiceNotePanel({ documentId, initialSectionId = null }: Props) {
                 <button
                   type="button"
                   onClick={insertTranscript}
-                  disabled={!lastNote?.transcript || !selectedSection || insertMut.isPending}
+                  disabled={!canEditDocument || !lastNote?.transcript || !selectedSection || insertMut.isPending}
                   className="flex-1 rounded-md bg-blue-600 py-2 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:bg-slate-300"
                 >
                   {insertMut.isPending ? t('page.voice_note_panel.inserting') : t('page.voice_note_panel.insert_into_section', { section: shortSectionRef })}

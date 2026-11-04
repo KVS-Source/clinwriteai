@@ -277,7 +277,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
 
         <div className="flex w-full flex-col items-center gap-1 px-3 pt-3" data-sidebar-section="primary">
           <RailLink to="/home" label={t('component.sidebar.nav_my_workspace')} icon={<HomeIcon />} accent="#64748B" />
-          <RailLink to="/projects" label={t('component.sidebar.nav_all_projects')} icon={<GridIcon />} accent="#64748B" />
+          {!isAdmin && <RailLink to="/projects" label={t('component.sidebar.nav_all_projects')} icon={<GridIcon />} accent="#64748B" />}
         </div>
 
         {projectId && hasCurrentModuleAccess && (
@@ -408,22 +408,24 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
         </NavLink>
       </div>
 
-      {/* All Projects link */}
-      <div className="px-3 pt-1">
-        <NavLink
-          to="/projects"
-          className={({ isActive }) =>
-            `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${
-              isActive
-                ? 'bg-slate-700 text-white'
-                : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
-            }`
-          }
-        >
-          <GridIcon />
-          <span>{t('component.sidebar.nav_all_projects')}</span>
-        </NavLink>
-      </div>
+      {/* All Projects link — not for admins (see NonAdminGuard) */}
+      {!isAdmin && (
+        <div className="px-3 pt-1">
+          <NavLink
+            to="/projects"
+            className={({ isActive }) =>
+              `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${
+                isActive
+                  ? 'bg-slate-700 text-white'
+                  : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+              }`
+            }
+          >
+            <GridIcon />
+            <span>{t('component.sidebar.nav_all_projects')}</span>
+          </NavLink>
+        </div>
+      )}
 
       {/* Current module nav — appears IMMEDIATELY below All Projects when inside
           a project, so users doing project work don't have to scroll past the

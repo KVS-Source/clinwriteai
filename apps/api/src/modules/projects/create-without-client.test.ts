@@ -35,6 +35,16 @@ describe('POST /projects without a client', () => {
     await app.close()
   })
 
+  it('adds the creating PM as a project member so they can open it', async () => {
+    const { app, create } = await build()
+    const res = await app.inject({ method: 'POST', url: '/projects', payload: body })
+    expect(res.statusCode).toBe(201)
+    expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      members: { create: { userId: 'u', projectRole: 'Project Manager', addedBy: 'u' } },
+    }) })
+    await app.close()
+  })
+
   it('still stores a client when one is sent (existing callers)', async () => {
     const { app, create } = await build()
     const res = await app.inject({ method: 'POST', url: '/projects', payload: { ...body, client: 'Acme' } })

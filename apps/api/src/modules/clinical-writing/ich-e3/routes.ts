@@ -19,6 +19,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { hasRole, requireAuth, type Role } from '../../../auth/rbac.js'
 import { authoringLockReason } from '../document-status.js'
+import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import {
   buildIchE3Report,
   hasSectionContent,
@@ -128,6 +129,7 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
       })
       if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
       if (!isIchE3Applicable(doc.type)) return reply.code(400).send(NOT_APPLICABLE)
+      if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
       const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { status: true } })
       const locked = authoringLockReason(doc.status, project?.status)

@@ -209,14 +209,9 @@ export function UserManagementLive() {
   const [sort, setSort] = useState<SortKey | null>(null)
   const [dir,  setDir]  = useState<SortDir>('asc')
 
-  // Roles offered in the filter: the canonical five plus any legacy role a
-  // user still holds, so every row stays reachable from the dropdown.
-  const roleOptions = useMemo(() => {
-    const present = new Set(users.map(u => u.role))
-    const canonical = ROLE_OPTIONS.map(r => r.value)
-    const legacy = [...present].filter(r => !canonical.includes(r)).sort()
-    return [...canonical, ...legacy]
-  }, [users])
+  // Roles offered in the filter: the canonical five only. Users still on a
+  // legacy role (e.g. clinical-writer) show under "All Roles".
+  const roleOptions = ROLE_OPTIONS.map(r => r.value)
 
   const filtersActive = statusFilter !== 'all' || roleFilter !== 'all' || search.trim() !== ''
   const clearFilters = () => { setStatusFilter('all'); setRoleFilter('all'); setSearch('') }

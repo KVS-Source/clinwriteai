@@ -12,10 +12,16 @@
 // admin's own tenant (users."tenantId"). System/anonymous actors and actors in
 // other tenants are excluded; an admin with no tenant sees nothing (fail closed).
 // Verify-chain stays whole-chain for both: it returns only intact/firstBreakAt.
+//
+// A PM can view and export too, but only entries about the projects they can see,
+// whatever their tenant: the project itself, and anything recorded against it, one
+// of its documents, or a CRM meeting on one of them. Sign-ins, user changes and platform settings stay with
+// admins, and so does verify-chain.
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../../auth/rbac.js'
+import { visibleProjectIdsForUser } from '../../../projects/visibility.js'
 
 // audit_events.id is a BIGSERIAL — ids/cursors travel as digit strings.
 const bigintId = z.string().regex(/^\d{1,19}$/, 'must be a numeric audit id')
@@ -148,7 +154,7 @@ export function tenantScopeFor(user: { role: string; tenantId: string | null }):
 
 // Builds the WHERE clause + params array from the shared query schema.
 // Factored out so the query, count + export routes stay in lockstep.
-export function buildFilter(q: Partial<z.infer<typeof queryBaseSchema>>, scope: TenantScope = undefined): { where: string; params: unknown[] } {
+export function buildFilter(q: Partial<z.infer<typeof queryBaseSchema>>, scope: TenantScope = undefined, projectIds?: string[]): { where: string; params: unknown[] } {
   const conditions: string[] = []
   const params: unknown[] = []
   const param = (value: unknown) => {
@@ -157,6 +163,22 @@ export function buildFilter(q: Partial<z.infer<typeof queryBaseSchema>>, scope: 
   }
   if (scope === null)        conditions.push('FALSE')
   else if (scope !== undefined) conditions.push(`u."tenantId" = ${param(scope)}`)
+  if (projectIds) {
+    const p = param(projectIds)
+    conditions.push(`(
+      (a.entity_type = 'project' AND a.entity_id = ANY(${p}::text[]))
+      OR a.details->>'projectId' = ANY(${p}::text[])
+      OR EXISTS (
+        SELECT 1 FROM documents d
+        WHERE d."projectId" = ANY(${p}::text[])
+          AND d.id = CASE WHEN a.entity_type = 'document' THEN a.entity_id ELSE a.details->>'documentId' END
+      )
+      OR (a.entity_type = 'crm_meeting' AND EXISTS (
+        SELECT 1 FROM crm_meetings m JOIN documents d ON d.id = m."documentId"
+        WHERE m.id = a.entity_id AND d."projectId" = ANY(${p}::text[])
+      ))
+    )`)
+  }
   if (q.actorId)    conditions.push(`a.actor_id = ${param(q.actorId)}`)
   if (q.actor) {
     const exact = param(q.actor)
@@ -221,8 +243,14 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
     ipAddress: request.ip ?? null,
   })
 
-  const auditGate = requireAuth({ roles: ['admin'] })
-  const scopeOf = (request: import('fastify').FastifyRequest) => tenantScopeFor(request.user!)
+  const auditGate = requireAuth({ roles: ['admin', 'pm'] })
+  const verifyGate = requireAuth({ roles: ['admin'] })
+  const filterFor = async (request: import('fastify').FastifyRequest, q: Partial<z.infer<typeof queryBaseSchema>>) => {
+    const user = request.user!
+    if (user.role !== 'pm') return buildFilter(q, tenantScopeFor(user))
+    const visible = await visibleProjectIdsForUser(app.prisma, user)
+    return buildFilter(q, undefined, visible === 'all' ? undefined : [...visible])
+  }
 
   // Scoped to this plugin: unexpected failures are logged in full but the
   // client only gets a generic message + request id, never raw SQL /
@@ -243,7 +271,7 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const q = parsed.data
 
-    const { where, params } = buildFilter(q, scopeOf(request))
+    const { where, params } = await filterFor(request, q)
 
     // Count first, on the filter alone (no cursor), capped so a broad filter
     // stays cheap. Reported as total + totalCapped ("10000+").
@@ -304,7 +332,7 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const { afterId, ...filters } = parsed.data
 
-    const { where, params } = buildFilter(filters, scopeOf(request))
+    const { where, params } = await filterFor(request, filters)
     params.push(afterId)
     const sql = `
       SELECT count(*)::int AS n FROM (
@@ -319,8 +347,8 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
   // Distinct values for the filter dropdowns. Small, indexed columns; the
   // LIMIT keeps the payload bounded if action naming ever explodes.
   app.get('/admin/audit/facets', { preHandler: auditGate }, async (request) => {
-    // Admins only get facet values from their own tenant's entries.
-    const { where, params } = buildFilter({}, scopeOf(request))
+    // Facet values only come from the entries this user can see.
+    const { where, params } = await filterFor(request, {})
     const actions = await app.prisma.$queryRawUnsafe<Array<{ v: string }>>(
       `SELECT DISTINCT action AS v ${FROM_CLAUSE} ${where} ORDER BY v LIMIT 500`, ...params,
     )
@@ -333,7 +361,7 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
-  app.get('/admin/audit/verify', { preHandler: auditGate }, async (request, reply) => {
+  app.get('/admin/audit/verify', { preHandler: verifyGate }, async (request, reply) => {
     const parsed = verifySchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -366,7 +394,7 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
     const parsed = queryBaseSchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
-    const { where, params } = buildFilter(parsed.data, scopeOf(request))
+    const { where, params } = await filterFor(request, parsed.data)
     const exportDir = parsed.data.order === 'asc' ? 'ASC' : 'DESC'
     const exportOrderBy = parsed.data.sortBy === 'id'
       ? `a.id ${exportDir}`

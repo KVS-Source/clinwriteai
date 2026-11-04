@@ -215,9 +215,8 @@ export function useAuditVerify() {
   })
 }
 
-// Export the CSV URL helper so screens can wire an <a href> without
-// going through React Query — browser handles the file download.
-export const auditExportUrl = auditApi.exportUrl
+// A one-off file download, so it doesn't go through React Query.
+export const auditExportCsv = auditApi.exportCsv
 
 // Re-exported SSO/Tenant types for consumer convenience.
 export type { Tenant, Membership, SsoConnection, ModuleKey, AuditQuery }

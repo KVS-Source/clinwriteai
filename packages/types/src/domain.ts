@@ -24,6 +24,7 @@ export type PanelMode =
   | 'ai' | 'ai-help' | 'history' | 'traceability' | 'voice' | 'checklist' | 'audit' | 'comments'
   | 'review-assignment' | 'crm-resolution' | 'ich-e3' | 'meddra' | 'tlf' | 'raci'
   | 'ai-drafting-report'
+  | 'protocol-metadata'
   | null
 
 export type SignatureStatus = 'signed' | 'awaiting' | 'queued'
@@ -35,6 +36,12 @@ export type ICHSectionStatus = 'complete' | 'in-progress' | 'not-started' | 'war
 export type TLFItemType = 'T' | 'L' | 'F'
 export type ResolutionType = 'accept' | 'accept-with-modification' | 'reject'
 export type PresenceStatus = 'active' | 'locked' | 'idle'
+
+// Protocol metadata — populated when document.type is 'protocol' or
+// 'protocol-amendment' via the editor's right-side Protocol panel. Every
+// field is independently nullable + optional: a brand-new protocol row
+// starts empty and the panel fills it in over time (per-field autosave).
+export type RegulatoryRegion = 'us' | 'eu' | 'india' | 'global' | 'other'
 
 // --- Core interfaces ---
 
@@ -101,6 +108,20 @@ export interface Document {
   /** The assignee's RACI letters on this document (list route only), e.g. ['R']. */
   assigneeRaci?: string[]
   myRaci?: string[]
+  // --- Protocol metadata (migration 60). Present on every Document shape
+  // but only populated for protocol / protocol-amendment documents via the
+  // Protocol right-panel. Null / absent = "not yet set" (the panel treats
+  // empty string the same way — the mapper writes null for a trimmed-empty
+  // patch). Study phase + therapeutic area are read-only in the panel and
+  // continue to come from Project.phase + Document.therapeuticArea.
+  studyTitle?: string | null
+  protocolNumber?: string | null
+  protocolVersion?: string | null
+  sponsor?: string | null
+  investigationalProduct?: string | null
+  studyDesign?: string | null
+  targetPopulation?: string | null
+  regulatoryRegion?: RegulatoryRegion | null
   sections: Section[]
 }
 
@@ -129,6 +150,7 @@ export type ReviewerVerdict = 'approve' | 'request_changes' | 'block_approval'
 export interface Comment {
   id: string // CMT-###
   documentId: string
+  canResolve?: boolean // the signed-in user may resolve it; only the comment list routes send this
   sectionRef: string
   reviewerId: string
   reviewerName: string

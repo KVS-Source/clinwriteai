@@ -29,6 +29,7 @@ import type { BestPractice, CreateDocumentBody, DocumentType, PlatformUser } fro
 import { documentsApi, type DocumentTemplate } from '../../api'
 import { ApiError } from '../../api/client'
 import { assignableUsersApi } from '../../api/raci'
+import { AssigneeCombobox, type AssigneeOption } from '../../components/raci/AssigneeCombobox'
 import { platformApi } from '../../platform/api/platformApi'
 import { sourceCategoryLabel } from '../../utils/sourceCategories'
 import { sourceCategoriesForDocType } from '../../utils/documentTypeSourceCategories'
@@ -190,7 +191,7 @@ export function NewDocumentForm({
   })
   const { data: members = [] } = useQuery({
     queryKey: ['assignable-users', projectId],
-    queryFn:  () => assignableUsersApi.list(projectId),
+    queryFn:  () => assignableUsersApi.listForAssignee(projectId),
     retry: false,
   })
 
@@ -233,21 +234,21 @@ export function NewDocumentForm({
   // 'tenant-admin'; the legacy role names are still accepted for rows not yet rewritten. An API whose
   // Prisma client predates the capabilities column returns no `capabilities`, so a contributor
   // without the field still counts as a writer.
-  const assigneeOptions = useMemo((): { id: string; name: string; role: string }[] => {
+  const assigneeOptions = useMemo((): AssigneeOption[] => {
     // Project members who can author (a member without recorded capabilities counts as a writer, as below).
     const fromMembers = members
       .filter(m => m.capabilities.length === 0 || m.capabilities.includes('can-author'))
-      .map(m => ({ id: m.id, name: m.name, role: m.projectRole ?? 'member' }))
+      .map(m => ({ id: m.id, name: m.name, email: m.email, role: m.projectRole }))
     if (fromMembers.length > 0) return fromMembers
     return users.filter(u => {
       const status = u.status as string   // the API also returns 'deprovisioned'
       if (status === 'suspended' || status === 'deprovisioned') return false
       const role = u.role as string
-      if (['clinical-writer', 'scientific-writer', 'medical-writer', 'regulatory-writer', 'admin', 'tenant-admin'].includes(role)) return true
+      if (['clinical-writer', 'scientific-writer', 'medical-writer', 'regulatory-writer', 'pm'].includes(role)) return true
       if (role !== 'contributor') return false
       const capabilities = (u as { capabilities?: string[] }).capabilities
       return !capabilities || capabilities.includes('can-author')
-    }).map(u => ({ id: u.id, name: u.name, role: u.role as string }))
+    }).map(u => ({ id: u.id, name: u.name, email: u.email, role: null }))
   }, [users, members])
 
   const create = useMutation({
@@ -282,7 +283,8 @@ export function NewDocumentForm({
   // assignee. The final Create button is only reachable when all three pass.
   const canAdvanceFromStep1 = true
   const canAdvanceFromStep2 = sourceIds.length > 0
-  const canAdvanceFromStep3 = title.trim().length > 0 && assigneeId.length > 0
+  // Must be someone on the list: a duplicated document can carry over an assignee who no longer qualifies.
+  const canAdvanceFromStep3 = title.trim().length > 0 && assigneeOptions.some(o => o.id === assigneeId)
   const canSubmit           = canAdvanceFromStep3 && canAdvanceFromStep2 && !create.isPending
 
   const next = () => {
@@ -515,17 +517,16 @@ export function NewDocumentForm({
               <span className="text-[11px] text-slate-500">{t('page.new_document.ta_hint')}</span>
             </div>
 
-            <label className="flex flex-col gap-1">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.new_document.assignee_label')}</span>
-              <select value={assigneeId} onChange={e => setAssigneeId(e.currentTarget.value)} required
-                className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
-                <option value="">{t('page.new_document.assignee_placeholder')}</option>
-                {assigneeOptions.map(u => (
-                  <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
-                ))}
-              </select>
+            <div className="flex flex-col gap-1">
+              <AssigneeCombobox
+                label={t('page.new_document.assignee_label')}
+                placeholder={t('page.new_document.assignee_placeholder')}
+                options={assigneeOptions}
+                value={assigneeId}
+                onChange={setAssigneeId}
+              />
               <span className="text-[11px] text-slate-500">{t('page.new_document.assignee_hint')}</span>
-            </label>
+            </div>
 
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.new_document.target_date_label')}</span>

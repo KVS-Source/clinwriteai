@@ -18,6 +18,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import type { MultipartFile } from '@fastify/multipart'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { ASSIGNEE_NOT_ELIGIBLE, userCanBeAssignee } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections } from './templates.js'
 import { generateBlobKey } from '../../../modules/platform/blob/local-storage.js'
@@ -214,6 +215,7 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
 
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
+    if (!(await userCanBeAssignee(app.prisma, parsed.data.assigneeId))) return reply.code(422).send(ASSIGNEE_NOT_ELIGIBLE)
 
     // Inheriting the project's TA is always allowed; anything else must be
     // an active TA from the master list.

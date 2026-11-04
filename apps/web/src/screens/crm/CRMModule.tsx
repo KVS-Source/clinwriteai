@@ -19,6 +19,7 @@ import { crmApi, documentsApi, projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import type { CRMResolutionRow, ScheduleMeetingBody } from '../../api/crm'
+import { assignableUsersApi } from '../../api/raci'
 import { platformApi } from '../../platform/api/platformApi'
 import { useCurrentUser } from '../../hooks'
 import { useCRMStore } from '../../store'
@@ -122,7 +123,9 @@ function ResolvedCard({ comment, resolution, resolverName }: { comment: Comment;
   )
 }
 
-function ActiveCard({ comment, canResolve, onResolve, aiDraftNote }: { comment: Comment; canResolve: boolean; onResolve: (type: ResolutionType) => void; aiDraftNote?: string | null }) {
+function ActiveCard({ comment, meetingRunning, onResolve, aiDraftNote }: { comment: Comment; meetingRunning: boolean; onResolve: (type: ResolutionType) => void; aiDraftNote?: string | null }) {
+  const allowed = comment.canResolve !== false
+  const canResolve = meetingRunning && allowed
   const btn = 'rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40'
   return (
     <div
@@ -167,7 +170,8 @@ function ActiveCard({ comment, canResolve, onResolve, aiDraftNote }: { comment: 
         <button type="button" disabled={!canResolve} onClick={() => onResolve('accept-with-modification')} className={`${btn} border-slate-200 bg-white text-slate-900 hover:bg-slate-50`} data-resolve="accept-with-modification">Accept with modification</button>
         <button type="button" disabled={!canResolve} onClick={() => onResolve('reject')} className={btn} style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }} data-resolve="reject">Reject</button>
       </div>
-      {!canResolve && <p className="text-[11px] italic text-slate-500">Start the meeting to log resolutions.</p>}
+      {!allowed && <p className="text-[11px] italic text-slate-500" data-resolve-not-allowed>Only this document's author, reviewer or approver can resolve comments.</p>}
+      {allowed && !meetingRunning && <p className="text-[11px] italic text-slate-500">Start the meeting to log resolutions.</p>}
     </div>
   )
 }
@@ -298,11 +302,16 @@ function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentI
   const { data: me } = useCurrentUser()
   const users = useQuery({ queryKey: ['platform-users'], queryFn: () => platformApi.listUsers(), retry: false })
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => projectsApi.get(projectId), enabled: !!projectId })
+  // The user list above is admin-only, so a PM or contributor scheduling a meeting gets the project's candidates.
+  const assignable = useQuery({ queryKey: ['assignable-users', projectId, 'assignee'], queryFn: () => assignableUsersApi.listForAssignee(projectId), enabled: !!projectId, retry: false })
   const people = useMemo(() => {
     const active = (users.data ?? []).filter(u => u.status === 'active').map(u => ({ id: u.id, name: u.name }))
-    const list = active.length ? active : (project.data?.team ?? []).map(t => ({ id: t.userId, name: t.name }))
+    const candidates = (assignable.data ?? []).map(u => ({ id: u.id, name: u.name }))
+    const list = active.length ? active
+      : candidates.length ? candidates
+      : (project.data?.team ?? []).map(t => ({ id: t.userId, name: t.name }))
     return list.sort((a, b) => a.name.localeCompare(b.name))
-  }, [users.data, project.data])
+  }, [users.data, assignable.data, project.data])
 
   const today = new Date().toISOString().slice(0, 10)
   const [chairId, setChairId] = useState('')
@@ -432,6 +441,13 @@ export function CRMModule() {
     meetings.find(m => m.status === 'in_progress') ?? meetings.find(m => m.status === 'scheduled') ?? meetings[meetings.length - 1]
 
   useEffect(() => { if (meeting) setMeetingInStore(meeting) }, [meeting, setMeetingInStore])
+
+  const { data: crmAccess } = useQuery({
+    queryKey: ['crm-access', activeDocId],
+    queryFn:  () => crmApi.getAccess(activeDocId!),
+    enabled:  !!activeDocId,
+    retry:    false,
+  })
 
   // Scoped wrappers — supply the current meeting.id so writes never land on
   // another document's CRM entry. no-op when there is no live meeting yet.
@@ -602,7 +618,14 @@ export function CRMModule() {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 overflow-y-auto p-10 text-center" data-screen="crm-module">
         {docPicker}
-        {canSchedule ? (
+        {canSchedule && crmAccess?.canSchedule === false ? (
+          <div className="flex flex-col items-center gap-2" data-crm-schedule-not-allowed>
+            <p className="font-mono text-sm text-slate-500">No CRM meeting for this document.</p>
+            <p className="max-w-md text-xs text-slate-500">
+              A meeting can be scheduled by the document's participants or a project manager. Admins and QC cannot schedule one.
+            </p>
+          </div>
+        ) : canSchedule ? (
           <ScheduleMeetingForm documentId={activeDocId} projectId={projectId!} onScheduled={refresh} />
         ) : (
           <div className="flex flex-col items-center gap-2">
@@ -818,7 +841,7 @@ export function CRMModule() {
                   <ActiveCard
                     key={cid}
                     comment={c}
-                    canResolve={inProgress}
+                    meetingRunning={inProgress}
                     aiDraftNote={aiDraft}
                     onResolve={type => setResolutionDraft({ commentId: cid, type, note: aiDraft ?? '' })}
                   />

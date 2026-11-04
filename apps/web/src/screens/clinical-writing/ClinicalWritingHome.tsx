@@ -17,6 +17,7 @@ import { DocumentDetailPanel } from './DocumentDetailPanel'
 import { DocumentCommentsPanel } from './DocumentCommentsPanel'
 import { cleanSectionRef } from '../../panels/CommentComposer'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
+import { ProtocolMetadataPanel } from '../../panels/ProtocolMetadataPanel'
 
 // --- Enum → display label maps ---
 
@@ -178,6 +179,8 @@ export function ClinicalWritingHome() {
   // on DocumentDetailPanel, or row "⋯ → RACI"). Deliberately NOT a navigation — the user
   // stays in the project context.
   const [raciDoc, setRaciDoc] = useState<Document | null>(null)
+  // Document whose Protocol metadata panel is open (row "⋯ → Protocol metadata").
+  const [protocolDoc, setProtocolDoc] = useState<Document | null>(null)
   const [docSort, setDocSort] = useState<{ key: DocSortKey; dir: 'asc' | 'desc' } | null>(null)
   const qc = useQueryClient()
   // Set after "Save to library" in the upload drawer: we stay on the Source Documents
@@ -608,7 +611,19 @@ export function ClinicalWritingHome() {
                     borderBottom: i === sortedDocs.length - 1 ? 'none' : undefined,
                   }}
                 >
-                  <div className="pr-4 font-semibold text-slate-900 truncate">{doc.title}</div>
+                  <div className="pr-4 font-semibold text-slate-900 truncate">
+                    {doc.title}
+                    {PROTOCOL_TYPES.has(doc.type) && doc.protocolNumber && (
+                      <span
+                        className="ml-2 inline-flex items-center rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-500"
+                        style={{ borderColor: '#E2E8F0', backgroundColor: '#F1F5F9' }}
+                        title={t('page.clinical_writing_home.protocol_number_badge_tooltip', { number: doc.protocolNumber })}
+                        data-protocol-number-badge
+                      >
+                        {doc.protocolNumber}
+                      </span>
+                    )}
+                  </div>
                   <div className="text-slate-900">{TYPE_LABELS[doc.type]}</div>
                   <div className="text-slate-500">{STAGE_LABELS[doc.stage]}</div>
                   <div><StatusPill status={doc.status} size="sm" /></div>
@@ -646,6 +661,7 @@ export function ClinicalWritingHome() {
                       onDuplicate={isPm ? () => setNewDocOpen({ duplicateSourceId: doc.id }) : undefined}
                       onAuditTrail={() => setAuditDoc({ id: doc.id, title: doc.title })}
                       onRaci={() => setRaciDoc(doc)}
+                      onProtocolMetadata={() => setProtocolDoc(doc)}
                     />
                   </div>
                   {/* The whole cell is the button: it stretches over the row's padding so the full cell height is clickable. */}
@@ -723,6 +739,22 @@ export function ClinicalWritingHome() {
             if (d) setRaciDoc(d)
           }}
         />
+      )}
+
+      {view === 'documents' && (
+        <SlidePanel
+          open={!!protocolDoc}
+          onClose={() => setProtocolDoc(null)}
+          title={protocolDoc ? t('page.clinical_writing_home.protocol_metadata_panel_title_with_doc', { title: protocolDoc.title }) : t('page.clinical_writing_home.protocol_metadata_panel_title')}
+          subtitle={protocolDoc ? TYPE_LABELS[protocolDoc.type] : undefined}
+          storageKey="panel-width-protocol-metadata"
+          defaultWidth={520}
+          closeOnOutsideClick
+        >
+          {protocolDoc && (
+            <ProtocolMetadataPanel documentId={protocolDoc.id} />
+          )}
+        </SlidePanel>
       )}
 
       {view === 'documents' && projectId && (
@@ -931,6 +963,9 @@ function SearchIcon() {
 // RACI is offered from the row menu until the document reaches signature (not started → CRM).
 const RACI_MENU_STATUSES: ReadonlySet<string> = new Set(['not-started', 'in-authoring', 'in-review', 'crm-in-progress'])
 
+// Protocol metadata is only relevant for protocol-type documents.
+const PROTOCOL_TYPES: ReadonlySet<DocumentType> = new Set(['protocol', 'protocol-amendment'])
+
 // Document row "⋯" menu — Arc A5. Recommended default action set per
 // docs/decisions/module-a-defaults.md §1. Items marked (soon) are
 // backend-pending and show a tooltip explaining when they'll light up.
@@ -940,8 +975,9 @@ function DocumentRowMenu(props: {
   onDuplicate?: () => void
   onAuditTrail: () => void
   onRaci: () => void
+  onProtocolMetadata: () => void
 }) {
-  const { doc, onOpen, onDuplicate, onAuditTrail, onRaci } = props
+  const { doc, onOpen, onDuplicate, onAuditTrail, onRaci, onProtocolMetadata } = props
   const { t } = useTranslation()
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState<{ top: number; right: number } | null>(null)
@@ -1018,6 +1054,9 @@ function DocumentRowMenu(props: {
           <MenuItem onClick={() => { setOpen(false); onAuditTrail() }}>{t('page.clinical_writing_home.menu_audit_trail')}</MenuItem>
           {RACI_MENU_STATUSES.has(doc.status) && (
             <MenuItem onClick={() => { setOpen(false); onRaci() }}>{t('page.clinical_writing_home.menu_raci')}</MenuItem>
+          )}
+          {PROTOCOL_TYPES.has(doc.type) && (
+            <MenuItem onClick={() => { setOpen(false); onProtocolMetadata() }}>{t('page.clinical_writing_home.menu_protocol_metadata')}</MenuItem>
           )}
           <MenuItem disabled title={t('page.clinical_writing_home.menu_export_tooltip')}>
             {t('page.clinical_writing_home.menu_export')} <span className="ml-1 text-[9px] uppercase text-slate-400">{t('page.clinical_writing_home.menu_soon_badge')}</span>

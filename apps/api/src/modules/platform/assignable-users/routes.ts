@@ -13,6 +13,7 @@
 //                           can-qc | can-publish
 //   scope=raci (optional) — active + invited non-admins, capability filter
 //                           off (POST …/raci grants a missing capability)
+//   scope=assignee (optional) — active users, without admins
 //
 // Response is a minimal shape — the picker only needs name/email/
 // capabilities to render a chip + capability-match check:
@@ -35,7 +36,8 @@ const querySchema = z.object({
   capability: z.enum(CAPABILITY_VALUES).optional(),
   // scope=raci — the RACI picker: every active or invited non-admin candidate,
   // whatever their capabilities (assigning a letter grants the missing one).
-  scope: z.enum(['raci']).optional(),
+  // scope=assignee — the New Document assignee: active users, without admins.
+  scope: z.enum(['raci', 'assignee']).optional(),
 })
 const ADMIN_ROLES = ['admin', 'tenant-admin', 'super-admin']
 
@@ -75,11 +77,12 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
     // capability, so a writer doesn't have to be added to the project first to be picked.
     const userIds = Array.from(projectRoleByUser.keys())
     const forRaci = parsed.data.scope === 'raci'
+    const forAssignee = parsed.data.scope === 'assignee'
     const users = await app.prisma.user.findMany({
       where: {
         ...(forRaci
           ? { status: { in: ['active', 'invited'] }, role: { notIn: ADMIN_ROLES } }
-          : { status: 'active' }),
+          : { status: 'active', ...(forAssignee ? { role: { notIn: ADMIN_ROLES } } : {}) }),
         OR: [
           { id: { in: userIds } },
           {

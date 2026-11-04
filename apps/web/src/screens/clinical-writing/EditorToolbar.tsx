@@ -1,4 +1,4 @@
-import type { PanelMode } from '@platform/types'
+import type { DocumentType, PanelMode } from '@platform/types'
 import { useEditorState } from '@tiptap/react'
 import { useTranslation } from 'react-i18next'
 import { useDocumentStore } from '../../store'
@@ -71,6 +71,16 @@ function AuditIcon() {
     </svg>
   )
 }
+function ProtocolIcon() {
+  // Clipboard with a check — represents the protocol-metadata capture form.
+  return (
+    <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="2.2" width="8" height="10.2" rx="1" />
+      <rect x="5" y="1.2" width="4" height="2" rx="0.5" />
+      <polyline points="5.4,7.6 6.6,8.8 8.8,6.2" />
+    </svg>
+  )
+}
 function SparkleIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 14 14">
@@ -126,9 +136,17 @@ interface EditorToolbarProps {
   editor?: import('@tiptap/react').Editor | null
   // ICH E3 governs full CSRs only; other documents hide the ICH shortcut.
   ichApplicable?: boolean
+  // Enables type-conditional panel triggers (e.g. Protocol metadata, which
+  // only applies to 'protocol' / 'protocol-amendment' documents).
+  documentType?: DocumentType
 }
 
-export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarProps = {}) {
+// Document types where the Protocol metadata panel is reachable. Non-
+// protocol documents hide the button outright — these fields don't
+// belong on a CSR / IB / DSUR row.
+const PROTOCOL_DOC_TYPES: ReadonlySet<DocumentType> = new Set(['protocol', 'protocol-amendment'])
+
+export function EditorToolbar({ editor, ichApplicable = true, documentType }: EditorToolbarProps = {}) {
   const { t } = useTranslation()
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
@@ -217,6 +235,14 @@ export function EditorToolbar({ editor, ichApplicable = true }: EditorToolbarPro
       <IconButton title={t('page.editor_toolbar.voice_note_tooltip')} active={activePanel === 'voice'}     panelTrigger onClick={() => toggle('voice')}><VoiceIcon /></IconButton>
       <IconButton title={t('page.editor_toolbar.checklist_tooltip')} active={activePanel === 'checklist'} panelTrigger onClick={() => toggle('checklist')}><ChecklistIcon /></IconButton>
       <IconButton title={t('page.editor_toolbar.audit_trail_tooltip')} active={activePanel === 'audit'}     panelTrigger onClick={() => toggle('audit')}><AuditIcon /></IconButton>
+      {documentType && PROTOCOL_DOC_TYPES.has(documentType) && (
+        <IconButton
+          title={t('page.editor_toolbar.protocol_tooltip')}
+          active={activePanel === 'protocol-metadata'}
+          panelTrigger
+          onClick={() => toggle('protocol-metadata')}
+        ><ProtocolIcon /></IconButton>
+      )}
 
       {/* Spacer */}
       <div className="flex-1" />

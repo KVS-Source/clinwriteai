@@ -28,10 +28,17 @@ function fakePrisma() {
     { id: 'raci-1', documentId: 'DOC-1', userId: 'u-author',   letter: 'R', removedAt: null },
     { id: 'raci-2', documentId: 'DOC-1', userId: 'u-reviewer', letter: 'A', removedAt: null },
   ]
+  const acct = (id: string, name: string, over: Row = {}): Row => ({ id, name, role: 'contributor', status: 'active', tenantId: null, ...over })
   const userRows: Row[] = [
-    { id: 'u-author', name: 'Ann Author' }, { id: 'u-reviewer', name: 'Rob Reviewer' },
-    { id: 'u-author2', name: 'Alf Author' }, { id: 'u-cons', name: 'Cora Consulted' }, { id: 'u-info', name: 'Ian Informed' }, { id: 'u-qc', name: 'Quinn QC' },
+    acct('u-author', 'Ann Author'), acct('u-reviewer', 'Rob Reviewer'), acct('u-author2', 'Alf Author'), acct('u-cons', 'Cora Consulted'),
+    acct('u-info', 'Ian Informed'), acct('u-qc', 'Quinn QC'), acct('u-extra', 'Eve Extra'),
+    acct('u-outside', 'Otto Outsider'),                                           // a real user with no letter on the document
+    acct('u-pm', 'Pat Manager', { role: 'pm' }),
+    acct('u-guest', 'Gus Guest', { role: 'guest' }), acct('u-admin', 'Alex Admin', { role: 'tenant-admin' }),
+    acct('u-auditor', 'Ada Auditor', { role: 'auditor' }),
+    acct('u-inactive', 'Ina Inactive', { status: 'invited' }), acct('u-other', 'Olga Other', { tenantId: 'TENANT-2' }), acct('u-same', 'Sam Same', { tenantId: 'TENANT-1' }),
   ]
+  const projectRow: Row = { tenantId: null }
   // Project membership, used to decide which projects a PM can see.
   const projectMembers: Row[] = [{ projectId: 'PROJ-1', userId: 'u-pm', removedAt: null }]
   const chains: Row[] = []
@@ -58,6 +65,9 @@ function fakePrisma() {
     },
     user: {
       findMany: async ({ where }: Row) => userRows.filter(u => matches(u, where)),
+    },
+    project: {
+      findUnique: async () => projectRow,
     },
     // Version snapshot on the final signature (the document becomes v1.0).
     documentVersion: {
@@ -98,12 +108,14 @@ function fakePrisma() {
     documentRaci: {
       findMany: async ({ where }: Row) => raciRows.filter(r => matches(r, where)),
       findFirst: async ({ where }: Row) => raciRows.find(r => matches(r, where)) ?? null,
+      create: async ({ data }: Row) => { const r = { id: `raci-new-${raciRows.length}`, removedAt: null, ...data }; raciRows.push(r); return r },
+      update: async ({ where, data }: Row) => Object.assign(raciRows.find(r => r.id === where.id)!, data),
     },
     $queryRawUnsafe: async () => [],
     $executeRawUnsafe: async () => 0,
     $transaction: async (fn: (tx: Row) => unknown) => fn(prisma),
   }
-  return { prisma, documents, chains, records, versions, raciRows, projectMembers, projectTeamMembers }
+  return { prisma, documents, chains, records, versions, raciRows, projectMembers, projectTeamMembers, projectRow }
 }
 
 const USERS = {
@@ -592,5 +604,93 @@ describe('signature chain — grouped order (Authors, then Reviewers, then Appro
     await sign(USERS.author, rec('u-author'), 'Ann Author')
     await sign(USERS.author2, rec('u-author2'), 'Alf Author')
     expect(status(chain)).toMatchObject({ 'u-reviewer': 'awaiting', 'u-info': 'queued' })     // straight to the Approvers
+  })
+})
+
+describe('signature chain — signers from User Management who are not on the document', () => {
+  let t: Awaited<ReturnType<typeof build>>
+  beforeEach(async () => { t = await build(); t.as(USERS.author) })
+  const outsider = { signerId: 'u-outside', signerName: 'Otto Outsider', signerRole: 'Reviewer', meaning: 'reviewed' }
+  const start = (extra: Row[] = [], name?: Row) => t.app.inject({
+    method: 'POST', url: '/documents/DOC-1/signature-chains',
+    payload: { chainType: 'grouped', signers: [...twoSigners.signers, ...extra].map(sg => ({ ...sg, ...(name && name[sg.signerId] ? { signerName: name[sg.signerId] } : {}) })) },
+  })
+
+  it('lets the starter add someone with no letter on the document, and gives them read access (Informed) so they can open and sign it', async () => {
+    const res = await start([outsider])
+    expect(res.statusCode).toBe(201)
+    const row = t.db.raciRows.find(r => r.userId === 'u-outside')!
+    expect(row).toMatchObject({ documentId: 'DOC-1', letter: 'I', sectionId: null, removedAt: null, assignedBy: 'u-author', signatureRequired: false })
+    // The access grant is on the record: its own audit entry, and a line in the chain-started entry.
+    expect(t.audit.find(a => a.action === 'document_raci.assigned')).toMatchObject({
+      entityId: row.id, details: { documentId: 'DOC-1', userId: 'u-outside', letter: 'I', reason: 'signature_chain_signer' },
+    })
+    expect(t.audit.find(a => a.action === 'signature_initiated')!.details.grantedAccessTo).toEqual(['u-outside'])
+    // And they can now read the signature record.
+    t.as({ ...USERS.cons, id: 'u-outside', role: 'contributor' })
+    expect((await t.app.inject({ method: 'GET', url: '/documents/DOC-1/signature-chains' })).statusCode).toBe(200)
+  })
+
+  it('gives no extra access to people who can already open the document: a letter holder, the assignee, a PM', async () => {
+    const before = t.db.raciRows.length
+    const res = await start([
+      { signerId: 'u-qc', signerName: 'Quinn QC', signerRole: 'Reviewer', meaning: 'reviewed' },
+    ].concat([]))
+    expect(res.statusCode).toBe(201)                                           // u-qc has no letter in this fixture -> one grant
+    expect(t.db.raciRows.length).toBe(before + 1)
+    t.db.chains.length = 0; t.db.records.length = 0
+    t.db.raciRows.length = 0
+    t.db.raciRows.push(
+      { id: 'r1', documentId: 'DOC-1', userId: 'u-author', letter: 'R', removedAt: null },
+      { id: 'r2', documentId: 'DOC-1', userId: 'u-reviewer', letter: 'A', removedAt: null },
+      { id: 'r3', documentId: 'DOC-1', userId: 'u-info', letter: 'I', removedAt: null },
+    )
+    const res2 = await start([
+      { signerId: 'u-info', signerName: 'Ian Informed', signerRole: 'Informed', meaning: 'acknowledged' },   // has a letter
+      { signerId: 'u-pm',   signerName: 'Pat Manager',  signerRole: 'Reviewer',  meaning: 'reviewed' },        // PM
+    ])
+    expect(res2.statusCode).toBe(201)
+    expect(t.db.raciRows).toHaveLength(3)                                      // nobody got a new assignment
+    expect(t.audit.filter(a => a.action === 'document_raci.assigned')).toHaveLength(1)   // only the earlier grant
+  })
+
+  it('brings a removed Informed assignment back instead of adding a second one', async () => {
+    t.db.raciRows.push({ id: 'r-old', documentId: 'DOC-1', userId: 'u-outside', letter: 'I', sectionId: null, removedAt: new Date('2026-10-01') })
+    expect((await start([outsider])).statusCode).toBe(201)
+    expect(t.db.raciRows.filter(r => r.userId === 'u-outside')).toHaveLength(1)
+    expect(t.db.raciRows.find(r => r.id === 'r-old')!.removedAt).toBeNull()
+  })
+
+  it.each([
+    ['a guest', 'u-guest'], ['an admin', 'u-admin'], ['an auditor', 'u-auditor'],
+    ['an account that is not active', 'u-inactive'], ['a user that does not exist', 'u-nobody'],
+  ])('refuses %s as a signer, creating nothing', async (_label, id) => {
+    const res = await start([{ signerId: id, signerName: 'Some Person', signerRole: 'Reviewer', meaning: 'reviewed' }])
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('signer_not_eligible')
+    expect(res.json().ineligibleSigners.map((x: Row) => x.userId)).toEqual([id])
+    expect(t.db.chains).toHaveLength(0)
+    expect(t.db.raciRows.some(r => r.userId === id)).toBe(false)
+  })
+
+  it('when the project belongs to an organisation, refuses a signer from another one and accepts the same one', async () => {
+    t.db.projectRow.tenantId = 'TENANT-1'
+    const other = await start([{ signerId: 'u-other', signerName: 'Olga Other', signerRole: 'Reviewer', meaning: 'reviewed' }])
+    expect(other.statusCode).toBe(422)
+    expect(other.json().error).toBe('signer_not_eligible')
+    expect(t.db.chains).toHaveLength(0)
+    const same = await start([{ signerId: 'u-same', signerName: 'Sam Same', signerRole: 'Reviewer', meaning: 'reviewed' }])
+    expect(same.statusCode).toBe(201)
+  })
+
+  it('accepts any organisation when the project has none recorded', async () => {
+    t.db.projectRow.tenantId = null
+    expect((await start([{ signerId: 'u-other', signerName: 'Olga Other', signerRole: 'Reviewer', meaning: 'reviewed' }])).statusCode).toBe(201)
+  })
+
+  it('writes the signer name from the account, not from what the browser sent', async () => {
+    const res = await start([], { 'u-author': 'Totally Someone Else' })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().records.find((r: Row) => r.signerId === 'u-author').signerName).toBe('Ann Author')
   })
 })

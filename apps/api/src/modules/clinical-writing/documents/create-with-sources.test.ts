@@ -88,7 +88,7 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
 beforeEach(() => { process.env.FEATURE_MODULES_ENABLED = 'A,B,C,D,E' })
 
 describe('POST /projects/:id/documents — assignee', () => {
-  it.each(['pm', 'tenant-admin', 'admin', 'super-admin'])('refuses a %s as the assignee and creates nothing', async (role) => {
+  it.each(['tenant-admin', 'admin', 'super-admin'])('refuses a %s as the assignee and creates nothing', async (role) => {
     const { post, documentsCreated } = await build()
     const res = await post({ assigneeId: `role:${role}` })
     expect(res.statusCode).toBe(422)
@@ -96,9 +96,9 @@ describe('POST /projects/:id/documents — assignee', () => {
     expect(documentsCreated).toEqual([])
   })
 
-  it('accepts a contributor', async () => {
+  it.each(['contributor', 'pm'])('accepts a %s', async (role) => {
     const { post } = await build()
-    expect((await post({ assigneeId: 'role:contributor' })).statusCode).toBe(201)
+    expect((await post({ assigneeId: `role:${role}` })).statusCode).toBe(201)
   })
 })
 

@@ -181,16 +181,18 @@ function CommentCard({ comment, resolving, isPending, error, onResolveClick, onR
       {resolving ? (
         <ResolveForm onCancel={onResolveCancel} onConfirm={onResolveConfirm} isPending={isPending} error={error} />
       ) : (
-        <div className="flex items-center gap-3.5 border-t pt-2" style={{ borderColor: '#F1F5F9' }}>
-          <button
-            type="button"
-            onClick={onResolveClick}
-            data-action="resolve-comment"
-            className="text-xs font-semibold text-blue-600 hover:text-blue-700"
-          >{t('page.comments_panel.action_resolve')}</button>
-          {/* No Reply control: replies aren't part of the PRD (FR-A-052) — a comment's answer is its
-              resolution note, and discussion happens in the CRM meeting. */}
-        </div>
+        comment.canResolve !== false && (
+          <div className="flex items-center gap-3.5 border-t pt-2" style={{ borderColor: '#F1F5F9' }}>
+            <button
+              type="button"
+              onClick={onResolveClick}
+              data-action="resolve-comment"
+              className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+            >{t('page.comments_panel.action_resolve')}</button>
+            {/* No Reply control: replies aren't part of the PRD (FR-A-052) — a comment's answer is its
+                resolution note, and discussion happens in the CRM meeting. */}
+          </div>
+        )
       )}
     </div>
   )

@@ -8,9 +8,9 @@ import { isAdminRole } from '../../../config/roles'
 // Enforced: the signed-in user's role (from /auth/me) now decides access.
 const BYPASS_ROLE_GUARD_IN_PROTOTYPE = false
 
-export function AdminGuard({ children }: { children: ReactNode }) {
+export function AdminGuard({ children, allowPm }: { children: ReactNode; allowPm?: boolean }) {
   const currentUser = usePlatformStore(s => s.currentUser)
-  const allowed     = isAdminRole(currentUser.role)
+  const allowed     = isAdminRole(currentUser.role) || (!!allowPm && currentUser.role === 'pm')
 
   if (!allowed && !BYPASS_ROLE_GUARD_IN_PROTOTYPE) {
     return <Navigate to="/home" replace />

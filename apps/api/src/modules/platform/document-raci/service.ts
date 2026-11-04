@@ -21,7 +21,7 @@
 
 import type { PrismaClient } from '@prisma/client'
 import type { Capability } from '../../../auth/rbac.js'
-import { RACI_LOCKED_ROLES } from './access.js'
+import { NEVER_AUTHOR_ROLES } from './access.js'
 
 export type RaciLetter = 'R' | 'A' | 'C' | 'I' | 'Q'
 
@@ -92,8 +92,7 @@ export async function validateRaciInsert(
   if (!user) return { ok: false, failure: { kind: 'user_not_found', userId: input.userId } }
   if (!document) return { ok: false, failure: { kind: 'document_not_found', documentId: input.documentId } }
 
-  // R is the authoring letter, and these roles can never edit a document or manage its RACI.
-  if (input.letter === 'R' && RACI_LOCKED_ROLES.has(user.role)) {
+  if (input.letter === 'R' && NEVER_AUTHOR_ROLES.has(user.role)) {
     return { ok: false, failure: { kind: 'role_cannot_author', role: user.role } }
   }
 

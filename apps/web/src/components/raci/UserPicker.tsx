@@ -52,8 +52,8 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
     let cancelled = false
     setUsers(null)
     setError(null)
-    // Every non-admin is offered (for R, no PMs either); assigning someone without the letter's capability grants it server-side.
-    assignableUsersApi.listForRaci(projectId, letter)
+    // Every non-admin is offered; assigning someone without the letter's capability grants it server-side.
+    assignableUsersApi.listForRaci(projectId)
       .then(list => {
         if (cancelled) return
         setUsers(list)
@@ -63,7 +63,7 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
         setError(e instanceof Error ? e.message : t('component.user_picker.failed_to_load'))
       })
     return () => { cancelled = true }
-  }, [projectId, letter, t])
+  }, [projectId, t])
 
   const filtered = useMemo(() => (users ? filterUsers(users, query) : []), [users, query])
   const searching = query.trim().length >= MIN_SEARCH_CHARS

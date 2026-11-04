@@ -50,6 +50,10 @@ const LIBRARY_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
   { labelKey: 'component.sidebar.platform_master_library',  href: '/library',                icon: <BookIcon /> },
   { labelKey: 'component.sidebar.platform_best_practices',  href: '/library/best-practices', icon: <StarIcon /> },
 ]
+// A PM doesn't get the Platform section but can read their projects' audit trail.
+const PM_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
+  { labelKey: 'component.sidebar.platform_audit_trail', href: '/admin/audit', icon: <ClipboardIcon /> },
+]
 const SUPER_ADMIN_NAV: PlatformNavItem[] = [
   { labelKey: 'component.sidebar.super_admin_panel',       href: '/super-admin',            roles: ['admin'] as const, icon: <ShieldCheckIcon /> },
   { labelKey: 'component.sidebar.super_admin_tenants',     href: '/super-admin/tenants',    roles: ['admin'] as const, icon: <BuildingIcon /> },
@@ -202,6 +206,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
   const superAdminItems = isSuperAdmin ? SUPER_ADMIN_NAV : []
   const showPlatform   = platformItems.length   > 0
   const libraryItems   = showPlatform ? [] : LIBRARY_NAV
+  const pmItems        = currentUser.role === 'pm' ? PM_NAV : []
   const showSuperAdmin = superAdminItems.length > 0
 
   // Module access — admin/super-admin see all 5 modules; module users see only
@@ -349,6 +354,16 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
             <RailDivider />
             <nav className="flex w-full flex-col items-center gap-1 px-3" data-sidebar-section="library" aria-label={t('component.sidebar.aria_library')}>
               {libraryItems.map(item => (
+                <RailLink key={item.href} to={item.href} end label={t(item.labelKey)} icon={item.icon} accent={MODULE_COLOURS['platform']!} data={{ 'data-platform-link': item.href }} />
+              ))}
+            </nav>
+          </>
+        )}
+        {pmItems.length > 0 && (
+          <>
+            <RailDivider />
+            <nav className="flex w-full flex-col items-center gap-1 px-3" data-sidebar-section="compliance" aria-label={t('component.sidebar.section_compliance')}>
+              {pmItems.map(item => (
                 <RailLink key={item.href} to={item.href} end label={t(item.labelKey)} icon={item.icon} accent={MODULE_COLOURS['platform']!} data={{ 'data-platform-link': item.href }} />
               ))}
             </nav>
@@ -559,6 +574,36 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
           </div>
           <nav className="flex flex-col gap-0.5">
             {libraryItems.map(item => (
+              <NavLink
+                key={item.href}
+                to={item.href}
+                end
+                data-platform-link={item.href}
+                className={({ isActive }) =>
+                  `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${
+                    isActive ? 'text-white' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-200'
+                  }`
+                }
+                style={({ isActive }) =>
+                  isActive ? { backgroundColor: `${MODULE_COLOURS['platform']}44` } : {}
+                }
+              >
+                <span className="flex-none">{item.icon}</span>
+                <span>{t(item.labelKey)}</span>
+              </NavLink>
+            ))}
+          </nav>
+        </div>
+      )}
+
+      {/* Compliance — a PM's audit trail */}
+      {pmItems.length > 0 && (
+        <div className="mt-4 px-3" data-sidebar-section="compliance">
+          <div className="mb-2 px-2.5">
+            <MonoLabel className="text-slate-500">{t('component.sidebar.section_compliance')}</MonoLabel>
+          </div>
+          <nav className="flex flex-col gap-0.5">
+            {pmItems.map(item => (
               <NavLink
                 key={item.href}
                 to={item.href}

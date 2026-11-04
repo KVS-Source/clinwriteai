@@ -18,6 +18,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import type { PrismaClient } from '@prisma/client'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
+import { actorCanResolveComments, actorCanScheduleCrm, COMMENT_RESOLVE_FORBIDDEN, CRM_SCHEDULE_FORBIDDEN } from '../../platform/document-raci/access.js'
 
 const scheduleSchema = z.object({
   chairId: z.string().min(1),
@@ -166,6 +167,12 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     return Promise.all(meetings.map(m => crmMeetingShape(app.prisma, m, ctx)))
   })
 
+  // Whether the caller may schedule a meeting — lets the screen explain up front instead of failing the form.
+  app.get('/documents/:documentId/crm/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
+    const { documentId } = request.params as { documentId: string }
+    return { canSchedule: await actorCanScheduleCrm(app.prisma, request.user!, documentId) }
+  })
+
   app.post('/documents/:documentId/crm',{ preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = scheduleSchema.safeParse(request.body)
@@ -173,6 +180,9 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanScheduleCrm(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(CRM_SCHEDULE_FORBIDDEN)
+    }
     if (doc.status !== 'in_review' && doc.status !== 'crm_in_progress') {
       return reply.code(422).send({
         error: 'wrong_status',
@@ -434,6 +444,9 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
     if (meeting.status !== 'in_progress') {
       return reply.code(409).send({ error: 'wrong_status', message: `Resolutions only accepted when meeting is in_progress (current: ${meeting.status})` })
+    }
+    if (!(await actorCanResolveComments(app.prisma, request.user!, meeting.documentId))) {
+      return reply.code(403).send(COMMENT_RESOLVE_FORBIDDEN)
     }
 
     // Verify the comment is on this document.

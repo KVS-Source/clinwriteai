@@ -66,7 +66,13 @@ async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; call
   const append = vi.fn(async () => ({}))
 
   const app = Fastify()
-  app.decorate('prisma', { $queryRawUnsafe } as never)
+  app.decorate('prisma', {
+    $queryRawUnsafe,
+    // Project visibility for a PM: a member of p-1, and working on a document in p-2.
+    projectMember:     { findMany: vi.fn(async () => [{ projectId: 'p-1' }]) },
+    projectTeamMember: { findMany: vi.fn(async () => []) },
+    document:          { findMany: vi.fn(async () => [{ projectId: 'p-2' }]) },
+  } as never)
   app.decorate('audit', { verifyChain, append } as never)
   app.decorateRequest('user', null)
   const role = setup.role === undefined ? 'admin' : setup.role
@@ -219,6 +225,44 @@ describe('access control', () => {
     for (const url of ['/admin/audit', '/admin/audit/export', '/admin/audit/verify', '/admin/audit/facets']) {
       expect((await app.inject({ method: 'GET', url })).statusCode).toBe(200)
     }
+  })
+})
+
+describe('a project manager', () => {
+  it('can view and export, limited to the projects they can see', async () => {
+    const { app, calls } = await setupApp({ role: 'pm' })
+    for (const url of ['/admin/audit', '/admin/audit/newer?afterId=1', '/admin/audit/facets', '/admin/audit/export']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode).toBe(200)
+    }
+    expect(calls).toHaveLength(6) // count + page, newer, 2 facets, export
+    for (const c of calls) {
+      expect(c.sql).toContain(`a.entity_type = 'project'`)
+      expect(c.sql).toContain(`a.details->>'documentId'`)
+      expect(c.sql).toContain('crm_meetings m')
+      expect(c.params[0]).toEqual(['p-1', 'p-2'])
+    }
+  })
+
+  it('is not widened by having no tenant, and not narrowed by having one', async () => {
+    for (const tenantId of [null, 'TENANT-ACME']) {
+      const { app, calls } = await setupApp({ role: 'pm', tenantId })
+      await app.inject({ method: 'GET', url: '/admin/audit/export' })
+      expect(calls[0]!.params[0]).toEqual(['p-1', 'p-2'])
+      expect(calls[0]!.sql).not.toContain('u."tenantId"')
+      await app.close()
+    }
+  })
+
+  it('cannot verify the chain', async () => {
+    const { app, verifyChain } = await setupApp({ role: 'pm' })
+    expect((await app.inject({ method: 'GET', url: '/admin/audit/verify' })).statusCode).toBe(403)
+    expect(verifyChain).not.toHaveBeenCalled()
+  })
+
+  it('records an export like anyone else', async () => {
+    const { app, append } = await setupApp({ role: 'pm' })
+    await app.inject({ method: 'GET', url: '/admin/audit/export' })
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ action: 'audit.export', details: expect.objectContaining({ actorRole: 'pm' }) }))
   })
 })
 

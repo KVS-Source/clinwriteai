@@ -133,7 +133,7 @@ export const router = createBrowserRouter([
       // for the handover demo until Dev + QA sign off.
       { path: 'admin/users',       element: <AdminGuard><UserManagementLive /></AdminGuard> },
       { path: 'admin/users-mock',  element: <AdminGuard><UserManagement /></AdminGuard> },
-      { path: 'admin/audit',       element: <AdminGuard><AuditTrailViewerLive /></AdminGuard> },
+      { path: 'admin/audit',       element: <AdminGuard allowPm><AuditTrailViewerLive /></AdminGuard> },
       { path: 'admin/audit-mock',  element: <AdminGuard><AuditTrailViewer /></AdminGuard> },
       { path: 'super-admin/tenants',                  element: <SuperAdminGuard><TenantDirectory /></SuperAdminGuard> },
       { path: 'super-admin/tenants/:tenantId',        element: <SuperAdminGuard><TenantDetail /></SuperAdminGuard> },

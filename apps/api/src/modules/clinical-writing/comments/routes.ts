@@ -17,6 +17,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
+import { actorCanResolveComments, COMMENT_RESOLVE_FORBIDDEN, documentsActorCanResolve } from '../../platform/document-raci/access.js'
 
 // Document audit panel paging. The default limit keeps older callers that send
 // no parameters (the Audit Review screen) getting the same size as before.
@@ -267,8 +268,11 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       },
       orderBy: { createdAt: 'desc' },
     })
-    const reviewers = await fetchCommentReviewers(app.prisma, rows)
-    return rows.map(r => commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null))
+    const [reviewers, canResolve] = await Promise.all([
+      fetchCommentReviewers(app.prisma, rows),
+      actorCanResolveComments(app.prisma, request.user!, documentId),
+    ])
+    return rows.map(r => ({ ...commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null), canResolve }))
   })
 
   app.post('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -347,6 +351,9 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     if (!comment) return reply.code(404).send({ error: 'not_found' })
     if (comment.status === 'resolved') {
       return reply.code(409).send({ error: 'conflict', message: 'Comment already resolved' })
+    }
+    if (!(await actorCanResolveComments(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(COMMENT_RESOLVE_FORBIDDEN)
     }
 
     const updated = await app.prisma.comment.update({
@@ -594,7 +601,13 @@ export const projectCommentsRoutes: FastifyPluginAsync = async (app) => {
       where: { documentId: { in: docs.map(d => d.id) } },
       orderBy: { createdAt: 'desc' },
     })
-    const reviewers = await fetchCommentReviewers(app.prisma, rows)
-    return rows.map(r => commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null))
+    const [reviewers, canResolve] = await Promise.all([
+      fetchCommentReviewers(app.prisma, rows),
+      documentsActorCanResolve(app.prisma, request.user!, docs.map(d => d.id)),
+    ])
+    return rows.map(r => ({
+      ...commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null),
+      canResolve: canResolve.has(r.documentId),
+    }))
   })
 }

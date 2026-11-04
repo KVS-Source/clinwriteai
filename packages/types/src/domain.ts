@@ -150,6 +150,7 @@ export type ReviewerVerdict = 'approve' | 'request_changes' | 'block_approval'
 export interface Comment {
   id: string // CMT-###
   documentId: string
+  canResolve?: boolean // the signed-in user may resolve it; only the comment list routes send this
   sectionRef: string
   reviewerId: string
   reviewerName: string

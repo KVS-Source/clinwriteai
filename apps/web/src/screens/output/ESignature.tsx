@@ -471,7 +471,7 @@ export function ESignature() {
     if (error instanceof ApiError && error.status === 403) {
       return (
         <div className="flex h-full flex-col items-start gap-1 px-8 py-7" data-screen="e-signature" data-signature-access-denied>
-          <div className="mb-3 flex w-full justify-end">{backToCrm}</div>
+          <div className="mb-3 flex w-full justify-start">{backToCrm}</div>
           <p className="font-mono text-sm text-slate-600">You don't have access to this document's signature records.</p>
           <p className="max-w-xl text-xs text-slate-500">Signature records are visible to the people named on the document, project managers and auditors.</p>
         </div>
@@ -485,7 +485,7 @@ export function ESignature() {
   if (!chain || chain.status === 'cancelled') {
     return (
       <div className="flex h-full flex-col items-start gap-4 overflow-y-auto px-8 py-7" data-screen="e-signature">
-        <div className="flex w-full justify-end">{backToCrm}</div>
+        <div className="flex w-full justify-start">{backToCrm}</div>
         {chain?.status === 'cancelled' && (
           <p className="text-[12px] text-amber-700" data-chain-cancelled>
             The previous signature chain was cancelled{chain.cancelReason ? ` — “${chain.cancelReason}”` : ''}.

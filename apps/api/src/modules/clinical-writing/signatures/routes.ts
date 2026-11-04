@@ -37,7 +37,7 @@ import type { PrismaClient } from '@prisma/client'
 import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { initialStatuses, recordsToRelease, sortForChain, type ChainType, type SignatureStatus } from './chain-progress.js'
-import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain, requiredSigners, signerAccountOk } from './access.js'
+import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain, requiredSigners } from './access.js'
 
 const initiateSchema = z.object({
   chainType: z.enum(['sequential', 'parallel', 'grouped']).default('grouped'),
@@ -181,56 +181,11 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       .filter(r => !parsed.data.signers.some(s => s.signerId === r.userId && r.meanings.has(s.meaning)))
       .map(r => ({ userId: r.userId, name: r.name, meanings: [...r.meanings] }))
 
-    // Every signer must be a real, active account that is allowed to sign, in this project's tenant. The name on
-    // the record comes from the account itself, not from the browser. (People from User Management who are not
-    // on the project can be signers too — they are given access below.)
-    const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { tenantId: true } })
-    const accounts = await app.prisma.user.findMany({
-      where: { id: { in: parsed.data.signers.map(s => s.signerId) } },
-      select: { id: true, name: true, role: true, status: true, tenantId: true },
-    })
-    const accountById = new Map(accounts.map(u => [u.id, u]))
-    const ineligible = parsed.data.signers.filter(sg => {
-      const u = accountById.get(sg.signerId)
-      return !u || !signerAccountOk(u, project?.tenantId ?? null)
-    })
-    if (ineligible.length > 0) {
-      return reply.code(422).send({
-        error: 'signer_not_eligible',
-        message: `These people can't sign here (they need an active account that can sign, in this project's organisation): ${ineligible.map(i => i.signerName).join(', ')}.`,
-        ineligibleSigners: ineligible.map(i => ({ userId: i.signerId, name: i.signerName })),
-      })
-    }
-
-    // A signer has to be able to open the document. Anyone with no letter on it (and who is not its assignee
-    // or a PM, who already see every document in their project) is given a read-only Informed assignment,
-    // recorded in the audit trail below.
-    const holders = await app.prisma.documentRaci.findMany({
-      where: { documentId, removedAt: null, userId: { in: parsed.data.signers.map(sg => sg.signerId) } },
-      select: { userId: true },
-    })
-    const holderIds = new Set(holders.map(h => h.userId))
-    const needAccess = [...new Set(parsed.data.signers.map(sg => sg.signerId))].filter(id =>
-      !holderIds.has(id) && id !== doc.assigneeId && accountById.get(id)!.role !== 'pm')
-
     // A grouped chain stores the signers group by group (Authors, Reviewers, Approvers, Informed), so the
     // step numbers follow the signing order.
-    const signers = sortForChain(
-      parsed.data.signers.map(sg => ({ ...sg, signerName: accountById.get(sg.signerId)!.name })),
-      parsed.data.chainType,
-    )
+    const signers = sortForChain(parsed.data.signers, parsed.data.chainType)
     const startStatuses = initialStatuses(parsed.data.chainType, signers)
-    const grantedAccess: Array<{ raciId: string; userId: string }> = []
     const created = await app.prisma.$transaction(async (tx) => {
-      for (const userId of needAccess) {
-        const existing = await tx.documentRaci.findFirst({ where: { documentId, userId, letter: 'I', sectionId: null } })
-        const row = existing
-          ? await tx.documentRaci.update({ where: { id: existing.id }, data: { removedAt: null, assignedBy: request.user!.id, assignedAt: new Date() } })
-          : await tx.documentRaci.create({
-              data: { documentId, userId, letter: 'I', sectionId: null, approvalOrder: null, signatureRequired: false, signatureMeaning: null, assignedBy: request.user!.id },
-            })
-        grantedAccess.push({ raciId: row.id, userId })
-      }
       // Take the ids under a lock held until commit, so two chains started at the same moment
       // can't be handed the same ones.
       await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${SIGNATURE_ID_LOCK_KEY})`)
@@ -267,21 +222,9 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       action: 'signature_initiated',
       entityType: 'document',
       entityId: documentId,
-      details: { chainId: created.id, chainType: created.chainType, signerCount: signers.length, omittedNamedSigners, grantedAccessTo: grantedAccess.map(g => g.userId) },
+      details: { chainId: created.id, chainType: created.chainType, signerCount: signers.length, omittedNamedSigners },
       ipAddress: request.ip ?? null,
     })
-    // Each access grant is its own audit entry, so the RACI history shows who gave it and why.
-    for (const g of grantedAccess) {
-      await app.audit.append({
-        timestamp: new Date().toISOString(),
-        actorId: request.user!.id,
-        action: 'document_raci.assigned',
-        entityType: 'document_raci',
-        entityId: g.raciId,
-        details: { documentId, userId: g.userId, letter: 'I', sectionId: null, assignedBy: request.user!.id, reason: 'signature_chain_signer' },
-        ipAddress: request.ip ?? null,
-      })
-    }
 
     const withRecords = await app.prisma.signatureChain.findUnique({
       where: { id: created.id },

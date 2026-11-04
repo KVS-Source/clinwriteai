@@ -558,7 +558,8 @@ export function DocumentEditor() {
   useEffect(() => {
     // Auto-close-on-outside-click for Source References, Audit Trail,
     // Comments (which has its own section-follow behaviour), Section
-    // History, Voice Note and Input Checklist.
+    // History, Voice Note, Input Checklist and the ICH E3 tab of the same
+    // panel (it is the 'ich-e3' panel value, so it needs its own entry below).
     // AI Chat is intentionally sticky — the writer wants it alongside the
     // editor while they work. Close it via the X in the panel header, Esc
     // with focus outside any input, or by opening a different panel.
@@ -566,7 +567,8 @@ export function DocumentEditor() {
     // the AI Chat close on every editor click (QA reported "the fixed panel
     // of AI Chat on the right is rolled back").
     if (activePanel !== 'traceability' && activePanel !== 'audit' && activePanel !== 'comments'
-      && activePanel !== 'history' && activePanel !== 'voice' && activePanel !== 'checklist') return
+      && activePanel !== 'history' && activePanel !== 'voice' && activePanel !== 'checklist'
+      && activePanel !== 'ich-e3') return
     // The click that opened the panel is still being dispatched when this listener is added,
     // so only clicks whose mousedown we saw count.
     let pressed = false

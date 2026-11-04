@@ -176,6 +176,8 @@ export const documentsApi = {
       `/documents/${documentId}/sections/${encodeURIComponent(sectionId)}/ich-status`, { status },
     ),
   // Versions
+  getVersionAccess: (documentId: string) =>
+    api.get<{ canView: boolean }>(`/documents/${documentId}/versions/access`),
   getVersions: (documentId: string) =>
     api.get<DocumentVersion[]>(`/documents/${documentId}/versions`),
   // One version's sections as stored (Version Diff compares two of these).
@@ -323,6 +325,8 @@ export const documentsApi = {
     api.post<{ ok: true }>(`/checklist-templates/items/${itemId}/move`, { direction }),
 
   // Checklist
+  getChecklistAccess: (documentId: string) =>
+    api.get<{ canView: boolean }>(`/documents/${documentId}/checklist/access`),
   getChecklist: (documentId: string) =>
     api.get<ChecklistItem[]>(`/documents/${documentId}/checklist`),
   // Compliance Summary appendix of the output document (FR-A-030 / AC-A-029).
@@ -359,6 +363,8 @@ export const documentsApi = {
   // Every comment on the project's documents in one call (each row has its documentId).
   getProjectComments: (projectId: string) =>
     api.get<Comment[]>(`/projects/${projectId}/comments`),
+  getCommentAccess: (documentId: string) =>
+    api.get<{ canAdd: boolean }>(`/documents/${documentId}/comments/access`),
   addComment: (documentId: string, body: AddCommentBody) =>
     api.post<Comment>(`/documents/${documentId}/comments`, body),
   // The UI's ResolutionType is hyphenated ('accept-with-modification'); the API's

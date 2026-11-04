@@ -115,6 +115,17 @@ describe('CRM resolve + complete', () => {
   })
 })
 
+describe('comment text in a CRM meeting', () => {
+  it.each(['tenant-admin', 'admin', 'super-admin'])('is refused to a %s: resolutions, AI drafts and minutes', async (role) => {
+    const { app } = await build({ id: 'u-ta', role })
+    for (const [method, url] of [['GET', '/crm/m1/resolutions'], ['GET', '/crm/m1/ai-drafts'], ['POST', '/crm/m1/minutes']] as const) {
+      const res = await app.inject({ method, url })
+      expect(res.statusCode, url).toBe(403)
+      expect(res.json().error).toBe('comment_view_forbidden')
+    }
+  })
+})
+
 describe('who may schedule and resolve', () => {
   const schedule = (app: Awaited<ReturnType<typeof build>>['app']) => app.inject({
     method: 'POST', url: '/documents/DOC-1/crm',
@@ -142,8 +153,23 @@ describe('who may schedule and resolve', () => {
     expect((await schedule(app)).statusCode).toBe(201)
   })
 
-  it('refuses a resolution from QC, Informed, or a chair with no R, C or A', async () => {
-    for (const letter of ['Q', 'I', null]) {
+  it('refuses a resolution from QC or Informed', async () => {
+    for (const letter of ['Q', 'I']) {
+      const { app, db } = await build({ id: 'u-x', role: 'contributor' })
+      db.raci.push({ documentId: 'DOC-1', userId: 'u-x', letter })
+      db.comments.push({ id: 'c-real', documentId: 'DOC-1', status: 'open', verdict: null })
+      const res = await app.inject({
+        method: 'POST', url: '/crm/m1/resolve',
+        payload: { commentId: 'c-real', resolutionType: 'accept', resolutionNote: 'Agreed' },
+      })
+      expect(res.statusCode).toBe(403)
+      expect(res.json().error).toBe('comment_resolve_forbidden')
+      expect(db.comments[0].status).toBe('open')
+    }
+  })
+
+  it('refuses a resolution from a PM chairing the meeting, whatever letter they hold', async () => {
+    for (const letter of ['R', 'C', 'A', null]) {
       const { app, db } = await build({ id: 'u-x', role: 'pm' })
       db.meetings[0]!.chairId = 'u-x'
       if (letter) db.raci.push({ documentId: 'DOC-1', userId: 'u-x', letter })
@@ -160,11 +186,10 @@ describe('who may schedule and resolve', () => {
 })
 
 describe('a project manager running a CRM', () => {
-  it('schedules, starts and completes the meeting they chair, with a reviewer resolving the comment', async () => {
+  it('schedules, starts and completes the meeting they chair, once a reviewer has resolved the comment', async () => {
     const { app, db } = await build({ id: 'u-pm', role: 'pm' })
     db.documents[0]!.status = 'in_review'
     db.meetings.length = 0
-    db.raci.push({ documentId: 'DOC-1', userId: 'u-pm', letter: 'C' })
     db.comments.push({ id: 'c-real', documentId: 'DOC-1', status: 'open', verdict: null })
 
     const scheduled = await app.inject({
@@ -177,11 +202,9 @@ describe('a project manager running a CRM', () => {
     expect((await app.inject({ method: 'POST', url: `/crm/${id}/start` })).statusCode).toBe(200)
     expect(db.documents[0]!.status).toBe('crm_in_progress')
 
-    const resolved = await app.inject({
-      method: 'POST', url: `/crm/${id}/resolve`,
-      payload: { commentId: 'c-real', resolutionType: 'accept', resolutionNote: 'Agreed' },
-    })
-    expect(resolved.statusCode).toBeLessThan(300)
+    // The chair can't close it over an open comment, and can't resolve it themselves.
+    expect((await app.inject({ method: 'POST', url: `/crm/${id}/complete` })).statusCode).toBe(422)
+    db.comments[0]!.status = 'resolved'
 
     expect((await app.inject({ method: 'POST', url: `/crm/${id}/complete` })).statusCode).toBe(200)
     expect(db.documents[0]!.status).toBe('pending_signature')

@@ -9,6 +9,7 @@ import { useTranslation } from 'react-i18next'
 import type { Comment, CommentSeverity, Document } from '@platform/types'
 import { documentsApi } from '../../api'
 import { CommentComposer, cleanSectionRef, sectionLabelFor, sectionOfRef } from '../../panels/CommentComposer'
+import { useCanComment } from '../../hooks/useCanComment'
 import { CommentMeta } from '../../panels/CommentsPanel'
 
 const SEVERITY_BADGE_KEY: Record<CommentSeverity, { labelKey: string; bg: string; fg: string }> = {
@@ -48,6 +49,7 @@ interface Props {
 
 export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRetry, onClose, onOpenDocument }: Props) {
   const { t } = useTranslation()
+  const canComment = useCanComment(doc.id)
   const panelRef = useRef<HTMLDivElement | null>(null)
   const closeTimer = useRef<number | null>(null)
   const [shown, setShown] = useState(false)
@@ -292,15 +294,17 @@ export function DocumentCommentsPanel({ doc, comments, isLoading, isError, onRet
             ))}
           </div>
           <div className="flex-1" />
-          <button
-            type="button"
-            onClick={() => { setPostedNote(null); setComposing(true) }}
-            disabled={composing}
-            data-action="add-comment"
-            className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-          >
-            {t('page.document_comments_panel.add_comment')}
-          </button>
+          {canComment === true && (
+            <button
+              type="button"
+              onClick={() => { setPostedNote(null); setComposing(true) }}
+              disabled={composing}
+              data-action="add-comment"
+              className="rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
+            >
+              {t('page.document_comments_panel.add_comment')}
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

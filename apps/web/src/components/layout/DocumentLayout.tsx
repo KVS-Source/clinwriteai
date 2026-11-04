@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { SubNav, type SubNavTab } from '../ui/SubNav'
 import { documentsApi } from '../../api/documents'
+import { useCanViewVersions } from '../../hooks/useCanViewVersions'
 
 // Tab-level read-only lockdown per docs/roles-and-permissions.md §11.3
 // stage transitions:
@@ -50,6 +51,7 @@ export function DocumentLayout() {
   })
   const status = docQuery.data?.status
   const d = tabDisablesFor(status)
+  const canViewVersions = useCanViewVersions(documentId)
 
   const lockReason =
     status === 'signed' ? t('component.document_layout.lock_signed')
@@ -58,7 +60,10 @@ export function DocumentLayout() {
 
   const tabs: SubNavTab[] = [
     { to: base,             label: t('component.document_layout.tab_editor'),         end: true, disabled: d.editor, title: d.editor ? lockReason : undefined },
-    { to: `${base}/diff`,   label: t('component.document_layout.tab_version_diff'),              disabled: d.diff,   title: d.diff   ? lockReason : undefined },
+    // Reviewers, approvers and Informed don't get version history (the API refuses it too).
+    ...(canViewVersions === false ? [] : [
+      { to: `${base}/diff`, label: t('component.document_layout.tab_version_diff'),              disabled: d.diff,   title: d.diff   ? lockReason : undefined },
+    ]),
     { to: `${base}/review`, label: t('component.document_layout.tab_reviewer_view'),             disabled: d.review, title: d.review ? lockReason : undefined },
     { to: `${base}/crm`,    label: t('component.document_layout.tab_crm') },
     { to: `${base}/sign`,   label: t('component.document_layout.tab_e_signature'),               disabled: d.sign },

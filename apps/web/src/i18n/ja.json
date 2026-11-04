@@ -504,6 +504,7 @@
     },
 
     "checklist_hub": {
+      "not_allowed":               "このドキュメントのチェックリストにアクセスする権限がありません。",
       "tab_inputs":                "入力",
       "tab_ich_e3":                "ICH E3",
       "summary_inputs":            "入力 {{done}}/{{total}}",
@@ -1618,6 +1619,7 @@
       "comment_posted_short": "コメントを投稿しました — コメント パネルをご覧ください。",
       "comment_posted_long": "✓ コメントを投稿しました — コメント パネルをご覧ください。",
       "add_comment_prompt": "＋ コメントを追加{{suffix}}",
+      "comment_not_allowed": "閲覧のみ。コメントを追加できるのは、このドキュメントの作成者、レビュー担当者、QC、承認者です。",
       "add_comment_prompt_section": " ({{section}} 向け)",
       "flagged_banner": "⚑ フォローアップのためセクションにフラグを立てました",
       "resize_panel_aria": "パネルのサイズを変更",

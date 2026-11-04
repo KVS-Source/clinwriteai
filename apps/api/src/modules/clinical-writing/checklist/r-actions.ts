@@ -16,7 +16,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentRaci, actorCanViewChecklist, CHECKLIST_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { evaluateSubmitGate, type ChecklistItemForGate } from './submit-gate.js'
 import { AI_PASS_PROFILES, buildAiPassPrompt, parseAiPassResponse } from './autocheck/ai-pass-prompt.js'
 import { putAiPassResult } from './autocheck/ai-pass-cache.js'
@@ -122,7 +122,7 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // ---------------------------------------------------------------------
-  // GET /:documentId/checklist/submit-check — any authenticated user.
+  // GET /:documentId/checklist/submit-check — anyone who may view the checklist.
   //
   // Non-mutating preview of the submit gate. The UI uses this to pre-fill
   // the "Submit for Review" modal with the pending-mandatory / pending-
@@ -130,6 +130,7 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   app.get('/:documentId/checklist/submit-check', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanViewChecklist(app.prisma, request.user!, documentId))) return reply.code(403).send(CHECKLIST_VIEW_FORBIDDEN)
 
     const instance = await app.prisma.checklistInstance.findUnique({
       where: { documentId },

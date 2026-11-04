@@ -17,7 +17,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanResolveComments, COMMENT_RESOLVE_FORBIDDEN, documentsActorCanResolve } from '../../platform/document-raci/access.js'
+import { actorCanAddComments, actorCanResolveComments, actorCanViewComments, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve } from '../../platform/document-raci/access.js'
 
 // Document audit panel paging. The default limit keeps older callers that send
 // no parameters (the Audit Review screen) getting the same size as before.
@@ -258,6 +258,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!actorCanViewComments(request.user!)) return reply.code(403).send(COMMENT_VIEW_FORBIDDEN)
 
     const rows = await app.prisma.comment.findMany({
       where: {
@@ -275,6 +276,12 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     return rows.map(r => ({ ...commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null), canResolve }))
   })
 
+  // Whether the caller may add comments — lets the screens leave out the composer instead of failing it.
+  app.get('/:documentId/comments/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
+    const { documentId } = request.params as { documentId: string }
+    return { canAdd: await actorCanAddComments(app.prisma, request.user!, documentId) }
+  })
+
   app.post('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = addSchema.safeParse(request.body)
@@ -282,6 +289,9 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanAddComments(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(COMMENT_ADD_FORBIDDEN)
+    }
 
     if (parsed.data.verdict === 'approve' && await pendingRevision(app.prisma, documentId, parsed.data.sectionRef)) {
       return reply.code(409).send({
@@ -588,6 +598,7 @@ export const projectCommentsRoutes: FastifyPluginAsync = async (app) => {
     const { projectId } = request.params as { projectId: string }
     const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
     if (!project) return reply.code(404).send({ error: 'not_found' })
+    if (!actorCanViewComments(request.user!)) return reply.code(403).send(COMMENT_VIEW_FORBIDDEN)
     const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
     if (visible !== 'all' && !visible.has(projectId)) return reply.code(404).send({ error: 'not_found' })
 

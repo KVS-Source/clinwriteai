@@ -5,6 +5,8 @@ import { useTranslation } from 'react-i18next'
 import type { DocumentStatus, PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { useCanEditDocument } from '../../hooks/useCanEditDocument'
+import { useCanViewVersions } from '../../hooks/useCanViewVersions'
+import { useCanViewChecklist } from '../../hooks/useCanViewChecklist'
 import { ApiError } from '../../api/client'
 import { useDocumentPresence } from '../../hooks/usePresence'
 import { useCurrentUser } from '../../hooks/useCurrentUser'
@@ -119,10 +121,13 @@ export function DocumentEditor() {
     enabled:  !!projectId,
   })
 
+  // Reviewers, approvers and Informed don't get version history; the header then just shows the document's version.
+  const canViewVersions = useCanViewVersions(documentId)
+  const canViewChecklist = useCanViewChecklist(documentId)
   const { data: versions = [] } = useQuery({
     queryKey: ['versions', documentId],
     queryFn:  () => documentsApi.getVersions(documentId!),
-    enabled:  !!documentId,
+    enabled:  !!documentId && canViewVersions === true,
   })
 
   // The session's user (/auth/me) — the legacy auth store is only filled by the old
@@ -675,17 +680,21 @@ export function DocumentEditor() {
               <button
                 type="button"
                 onClick={() => setVersionMenuOpen(v => !v)}
-                title={t('page.document_editor.switch_revision_tooltip')}
+                disabled={canViewVersions === false}
+                title={canViewVersions === false ? undefined : t('page.document_editor.switch_revision_tooltip')}
                 aria-haspopup="menu"
                 aria-expanded={versionMenuOpen}
-                className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 transition-colors hover:bg-slate-50"
+                className="flex items-center gap-2 rounded-md border px-2.5 py-1.5 transition-colors hover:bg-slate-50 disabled:cursor-default disabled:hover:bg-white"
                 style={{ borderColor: '#E2E8F0', backgroundColor: '#FFFFFF' }}
+                data-version-trigger
               >
                 <span className="font-mono text-[11px] font-medium text-slate-500">{currentVersion}</span>
-                <svg width="9" height="9" viewBox="0 0 10 10" className="text-slate-500"><polygon points="1,3 9,3 5,8" fill="currentColor"/></svg>
+                {canViewVersions !== false && (
+                  <svg width="9" height="9" viewBox="0 0 10 10" className="text-slate-500"><polygon points="1,3 9,3 5,8" fill="currentColor"/></svg>
+                )}
               </button>
 
-              {versionMenuOpen && (
+              {versionMenuOpen && canViewVersions !== false && (
                 <div
                   role="menu"
                   className="absolute left-0 z-30 flex flex-col rounded-lg bg-white p-1.5"
@@ -923,7 +932,7 @@ export function DocumentEditor() {
             band so content narrows (text wraps) instead of being hidden
             when the panel opens. */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} />
+          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} canViewChecklist={canViewChecklist} />
 
           {/* Split row — content column (scrollable + AI prompt dock
               stacked) + optional right panel column (fixed width,

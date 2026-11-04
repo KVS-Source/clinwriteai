@@ -15,15 +15,20 @@ const row = (over: Record<string, unknown>) => ({
   completedBy: null, completedAt: null, waivedBy: null, waivedAt: null, waiverReason: null, sortOrder: 0, ...over,
 })
 
-async function build(items: Array<Record<string, unknown>>, user: Partial<AuthenticatedUser> = {}) {
+async function build(items: Array<Record<string, unknown>>, user: Partial<AuthenticatedUser> = {}, letters: string[] = []) {
   const update = vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({ ...items.find(i => i.id === where.id), ...data }))
   const append = vi.fn()
+  const instanceFindUnique = vi.fn(async () => ({ id: 'inst', documentId: DOC, templateVersion: 1, items }))
   const app = Fastify()
   app.decorate('prisma', {
-    document: { findUnique: vi.fn(async () => ({ id: DOC, type: 'dsur', assigneeId: 'u-owner' })) },
-    documentRaci: { findFirst: vi.fn(async () => null) },
+    document: { findUnique: vi.fn(async () => ({ id: DOC, type: 'dsur', assigneeId: 'u-owner', projectId: 'p-1' })) },
+    documentRaci: {
+      findFirst: vi.fn(async () => null),
+      findMany: vi.fn(async ({ where }: { where: { letter: { in: string[] } } }) =>
+        letters.filter(l => where.letter.in.includes(l)).map(() => ({ documentId: DOC }))),
+    },
     checklistInstance: {
-      findUnique: vi.fn(async () => ({ id: 'inst', documentId: DOC, templateVersion: 1, items })),
+      findUnique: instanceFindUnique,
     },
     checklistInstanceItem: {
       findFirst: vi.fn(async ({ where }: { where: { id: string } }) => items.find(i => i.id === where.id) ?? null),
@@ -42,7 +47,7 @@ async function build(items: Array<Record<string, unknown>>, user: Partial<Authen
   })
   await app.register(checklistRoutes, { prefix: '/documents' })
   await app.ready()
-  return { app, update, append }
+  return { app, update, append, instanceFindUnique }
 }
 
 const remove = (app: Awaited<ReturnType<typeof build>>['app'], payload: unknown) =>
@@ -55,10 +60,30 @@ describe('GET /documents/:id/checklist', () => {
     expect(body[0]).toMatchObject({ completedBy: 'Dr Priya Nair', canEdit: true })
   })
 
-  it('canEdit is false for a user who is not R, assignee or admin', async () => {
-    const { app } = await build([row({})], { id: 'u-other' })
+  it('canEdit is false for a reviewer, who can view but is not R, assignee or admin', async () => {
+    const { app } = await build([row({})], { id: 'u-other' }, ['C'])
     const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist` })).json()
     expect(body[0].canEdit).toBe(false)
+  })
+
+  it.each([
+    ['Informed', { id: 'u-other' }, ['I']],
+    ['someone not on the document', { id: 'u-other' }, []],
+    ['a tenant admin', { id: 'u-other', role: 'tenant-admin' }, []],
+    ['a guest account', { id: 'u-other', role: 'guest' }, ['C']],
+  ] as const)('refuses %s, without reading or creating a checklist', async (_label, user, letters) => {
+    const { app, instanceFindUnique } = await build([row({})], user as Partial<AuthenticatedUser>, [...letters])
+    const res = await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist` })
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error).toBe('checklist_view_forbidden')
+    expect(instanceFindUnique).not.toHaveBeenCalled()
+    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist/access` })).json()).toEqual({ canView: false })
+  })
+
+  it('stays open to an auditor', async () => {
+    const { app } = await build([row({})], { id: 'u-other', role: 'auditor' })
+    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist` })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist/access` })).json()).toEqual({ canView: true })
   })
 
   it('shapes a removed item with a removal block and no waiver fields', async () => {

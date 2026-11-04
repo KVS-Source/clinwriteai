@@ -4,6 +4,10 @@ import { useDocumentStore } from '../../store'
 interface Props {
   onAddComment: () => void
   onFlagSection: () => void
+  // Add comment and Flag section are only offered to someone who may comment.
+  canComment: boolean
+  // The Checklist button is left out once this is known to be false.
+  canViewChecklist?: boolean
   // The signed-in reviewer's role, shown on the right. (RACI is per activity,
   // so it isn't a single letter for the whole document.)
   roleLabel?: string
@@ -80,7 +84,7 @@ function Divider() {
   return <span className="h-[18px] w-px flex-none" style={{ backgroundColor: '#E2E8F0' }} />
 }
 
-export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCommentCount }: Props) {
+export function ReviewerToolbar({ onAddComment, onFlagSection, canComment, canViewChecklist, roleLabel, openCommentCount }: Props) {
   const { t } = useTranslation()
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
@@ -94,36 +98,42 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
       style={{ backgroundColor: '#F8FAFC' }}
     >
 
-      {/* Add comment — blue accent */}
-      <button
-        type="button"
-        onClick={onAddComment}
-        title={t('page.reviewer_toolbar.add_comment_tooltip')}
-        className="flex h-7 flex-none items-center gap-1.5 rounded-md px-2.5 text-xs font-bold text-white transition-colors hover:bg-blue-700"
-        style={{ backgroundColor: '#2563EB' }}
-      >
-        <CommentIcon />
-        {t('page.reviewer_toolbar.add_comment_label')}
-        <span
-          className="rounded-[3px] px-1 py-0.5 font-mono text-[9px] font-medium"
-          style={{ backgroundColor: 'rgba(255,255,255,0.22)', color: '#FFFFFF' }}
-        >
-          ⌘K
-        </span>
-      </button>
+      {canComment && (
+        <>
+          {/* Add comment — blue accent */}
+          <button
+            type="button"
+            onClick={onAddComment}
+            title={t('page.reviewer_toolbar.add_comment_tooltip')}
+            data-action="toolbar-add-comment"
+            className="flex h-7 flex-none items-center gap-1.5 rounded-md px-2.5 text-xs font-bold text-white transition-colors hover:bg-blue-700"
+            style={{ backgroundColor: '#2563EB' }}
+          >
+            <CommentIcon />
+            {t('page.reviewer_toolbar.add_comment_label')}
+            <span
+              className="rounded-[3px] px-1 py-0.5 font-mono text-[9px] font-medium"
+              style={{ backgroundColor: 'rgba(255,255,255,0.22)', color: '#FFFFFF' }}
+            >
+              ⌘K
+            </span>
+          </button>
 
-      {/* Flag section — outline */}
-      <button
-        type="button"
-        onClick={onFlagSection}
-        title={t('page.reviewer_toolbar.flag_section_tooltip')}
-        className="flex h-7 flex-none items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
-      >
-        <FlagIcon />
-        {t('page.reviewer_toolbar.flag_section_label')}
-      </button>
+          {/* Flag section — outline */}
+          <button
+            type="button"
+            onClick={onFlagSection}
+            title={t('page.reviewer_toolbar.flag_section_tooltip')}
+            data-action="toolbar-flag-section"
+            className="flex h-7 flex-none items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-semibold text-slate-600 transition-colors hover:bg-slate-100"
+          >
+            <FlagIcon />
+            {t('page.reviewer_toolbar.flag_section_label')}
+          </button>
 
-      <Divider />
+          <Divider />
+        </>
+      )}
 
       {/* Comments panel — closed until asked for */}
       <button
@@ -149,13 +159,17 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, roleLabel, openCo
       </button>
 
       {/* Checklist (view-only) */}
-      <IconButton
-        title={t('page.reviewer_toolbar.view_checklist_tooltip')}
-        active={activePanel === 'checklist'}
-        onClick={() => toggle('checklist')}
-      >
-        <ChecklistIcon />
-      </IconButton>
+      {canViewChecklist !== false && (
+        <span data-action="toolbar-checklist" className="contents">
+          <IconButton
+            title={t('page.reviewer_toolbar.view_checklist_tooltip')}
+            active={activePanel === 'checklist'}
+            onClick={() => toggle('checklist')}
+          >
+            <ChecklistIcon />
+          </IconButton>
+        </span>
+      )}
 
       {/* Audit trail */}
       <IconButton

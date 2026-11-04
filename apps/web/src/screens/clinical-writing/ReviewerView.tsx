@@ -9,6 +9,8 @@ import { documentsApi, projectsApi } from '../../api'
 import { MyRaciRole } from './MyRaciRole'
 import { useCurrentUser } from '../../hooks'
 import { useDocumentPresence } from '../../hooks/usePresence'
+import { useCanComment } from '../../hooks/useCanComment'
+import { useCanViewChecklist } from '../../hooks/useCanViewChecklist'
 import { withSectionMark } from '../../panels/CommentComposer'
 import { PLATFORM_USER_ROLE_LABEL, STATUS_META, type PlatformUserRole } from '@platform/types'
 import { EditorContent } from '@tiptap/react'
@@ -159,6 +161,10 @@ export function ReviewerView() {
   useEffect(() => {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
+
+  // Comments and the Approve / Return verdicts share one server rule: R, C, Q or A on this document.
+  const canComment = useCanComment(documentId)
+  const canViewChecklist = useCanViewChecklist(documentId)
 
   // Who is acting — the same identity the server records the comment under.
   const { data: me } = useCurrentUser()
@@ -358,28 +364,32 @@ export function ReviewerView() {
             {/* Presence stack — live, same as the Editor (FR-A-053 / AC-A-037). */}
             {documentId && <PresenceStack documentId={documentId} currentUserId={me?.id} currentUserName={me?.name} />}
 
-            <button
-              type="button"
-              onClick={handleApproveSection}
-              disabled={approveMut.isPending || !!approveBlockedReason || alreadyApproved}
-              title={approveBlockedReason ?? (alreadyApproved ? t('page.reviewer_view.already_approved', { section: activeRef }) : undefined)}
-              data-action="approve-section"
-              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
-              style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}
-            >
-              {approveMut.isPending ? t('page.reviewer_view.approving') : alreadyApproved ? t('page.reviewer_view.approved_by_you') : awaitingRevision ? t('page.reviewer_view.awaiting_revision') : t('page.reviewer_view.approve_section')}
-            </button>
-            <button
-              type="button"
-              onClick={handleReturnForRevision}
-              disabled={requestChangesMut.isPending || !!verdictBlockedReason}
-              title={verdictBlockedReason ?? undefined}
-              data-action="return-for-revision"
-              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
-              style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
-            >
-              {requestChangesMut.isPending ? t('page.reviewer_view.returning') : t('page.reviewer_view.return_for_revision')}
-            </button>
+            {canComment === true && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleApproveSection}
+                  disabled={approveMut.isPending || !!approveBlockedReason || alreadyApproved}
+                  title={approveBlockedReason ?? (alreadyApproved ? t('page.reviewer_view.already_approved', { section: activeRef }) : undefined)}
+                  data-action="approve-section"
+                  className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}
+                >
+                  {approveMut.isPending ? t('page.reviewer_view.approving') : alreadyApproved ? t('page.reviewer_view.approved_by_you') : awaitingRevision ? t('page.reviewer_view.awaiting_revision') : t('page.reviewer_view.approve_section')}
+                </button>
+                <button
+                  type="button"
+                  onClick={handleReturnForRevision}
+                  disabled={requestChangesMut.isPending || !!verdictBlockedReason}
+                  title={verdictBlockedReason ?? undefined}
+                  data-action="return-for-revision"
+                  className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
+                  style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
+                >
+                  {requestChangesMut.isPending ? t('page.reviewer_view.returning') : t('page.reviewer_view.return_for_revision')}
+                </button>
+              </>
+            )}
             {/* Review → Comments Resolution Meeting (PRD stage 5). */}
             {(document.status === 'in-review' || document.status === 'crm-in-progress') && (
               <button
@@ -462,6 +472,8 @@ export function ReviewerView() {
           <ReviewerToolbar
             onAddComment={openComposer}
             onFlagSection={handleFlagSection}
+            canComment={canComment === true}
+            canViewChecklist={canViewChecklist}
             roleLabel={reviewer.role}
             openCommentCount={openCommentCount}
           />
@@ -498,8 +510,14 @@ export function ReviewerView() {
                 </p>
               )}
 
+              {canComment === false && (
+                <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-600" data-comment-not-allowed>
+                  {t('page.reviewer_view.comment_not_allowed')}
+                </p>
+              )}
+
               {/* Comment composition box — Cancel collapses it; "Add comment" (or the prompt below) reopens it */}
-              {composerOpen ? (
+              {canComment !== true ? null : composerOpen ? (
               <div
                 className="mt-4 flex flex-col gap-2.5 rounded-lg border bg-white p-3.5"
                 style={{ borderColor: '#2563EB', boxShadow: '0 0 0 3px rgba(37,99,235,0.12)' }}

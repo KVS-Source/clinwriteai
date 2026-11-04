@@ -30,6 +30,7 @@ async function buildApp(seed: Row[]) {
   app.decorate('prisma', {
     document: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id })) },
     comment,
+    documentRaci: { findMany: vi.fn(async () => [{ documentId: 'any' }]) },   // holds C; who may comment is in resolve.test.ts
     user: { findUnique: vi.fn(async () => ({ name: 'Reviewer', initials: 'RV' })) },
   } as never)
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)
@@ -103,6 +104,7 @@ describe('POST /documents/:id/comments — approving a returned section', () => 
           return row
         }),
       },
+      documentRaci: { findMany: vi.fn(async () => [{ documentId: 'doc-a' }]) },
       user: { findUnique: vi.fn(async () => ({ name: 'Reviewer', initials: 'RV' })) },
     } as never)
     app.decorate('audit', { append: vi.fn(async () => undefined) } as never)

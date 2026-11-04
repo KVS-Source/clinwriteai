@@ -88,15 +88,87 @@ export const ASSIGNEE_NOT_ELIGIBLE = {
   message: 'An admin cannot be assigned as the author of a document.',
 } as const
 
+// Viewing a document's versions and comparing them: an auditor, a PM who can see the project, or the
+// document's R (or assignee) or Q. Not its reviewers (C), approvers (A) or Informed, and not admins.
+export function actorCanViewVersions(prisma: PrismaClient, actor: AuthenticatedUser, documentId: string): Promise<boolean> {
+  return auditorPmOrLetters(prisma, actor, documentId, ['R', 'Q'])
+}
+
+// Viewing a document's checklist: the same, plus its reviewers and approvers. Not Informed or a guest.
+export function actorCanViewChecklist(prisma: PrismaClient, actor: AuthenticatedUser, documentId: string): Promise<boolean> {
+  return auditorPmOrLetters(prisma, actor, documentId, ['R', 'C', 'Q', 'A'])
+}
+
+async function auditorPmOrLetters(prisma: PrismaClient, actor: AuthenticatedUser, documentId: string, letters: string[]): Promise<boolean> {
+  if (actor.role === 'auditor' || actor.role === 'read-only') return true
+  if (NEVER_AUTHOR_ROLES.has(actor.role) || actor.role === 'guest') return false
+  const [doc, rows] = await Promise.all([
+    prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true, projectId: true } }),
+    prisma.documentRaci.findMany({
+      where: { documentId, userId: actor.id, letter: { in: letters }, removedAt: null },
+      select: { documentId: true },
+    }),
+  ])
+  if (!doc) return false
+  if (actor.role === 'pm') {
+    const visible = await visibleProjectIdsForUser(prisma, actor)
+    return visible === 'all' || visible.has(doc.projectId)
+  }
+  return rows.length > 0 || doc.assigneeId === actor.id
+}
+
+export const CHECKLIST_VIEW_FORBIDDEN = {
+  error: 'checklist_view_forbidden',
+  message: "You don't have access to this document's checklist.",
+} as const
+
+export const VERSION_VIEW_FORBIDDEN = {
+  error: 'version_view_forbidden',
+  message: "You don't have access to this document's version history.",
+} as const
+
+// Reading comment text, including CRM resolution notes, AI drafts and minutes. Tenant admins can't.
+// The permission matrix also leaves out auditors, but that is awaiting the product owner's confirmation.
+export function actorCanViewComments(actor: AuthenticatedUser): boolean {
+  return !NEVER_AUTHOR_ROLES.has(actor.role)
+}
+
+export const COMMENT_VIEW_FORBIDDEN = {
+  error: 'comment_view_forbidden',
+  message: "You don't have access to this document's comments.",
+} as const
+
+// Adding a comment, which includes a reviewer's Approve / Return for revision verdicts: the document's
+// R (or assignee), C, Q or A. Informed can't, and a PM, admin or auditor can't even when holding a letter.
+// Guests comment through their invitation link instead (guest-invitations/redemption.ts), not this rule.
+const COMMENT_LOCKED_ROLES: ReadonlySet<string> = new Set([...RACI_LOCKED_ROLES, 'auditor', 'read-only', 'guest'])
+
+export async function actorCanAddComments(prisma: PrismaClient, actor: AuthenticatedUser, documentId: string): Promise<boolean> {
+  if (COMMENT_LOCKED_ROLES.has(actor.role)) return false
+  const [doc, rows] = await Promise.all([
+    prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
+    prisma.documentRaci.findMany({
+      where: { documentId, userId: actor.id, letter: { in: ['R', 'C', 'Q', 'A'] }, removedAt: null },
+      select: { documentId: true },
+    }),
+  ])
+  return rows.length > 0 || doc?.assigneeId === actor.id
+}
+
+export const COMMENT_ADD_FORBIDDEN = {
+  error: 'comment_add_forbidden',
+  message: "Only this document's author, reviewer, QC or approver can add comments.",
+} as const
+
 // Resolving a comment, in a CRM meeting or outside one: the document's Author (R, or the assignee),
-// Reviewer (C) or Approver (A), and no one else, whatever their role. Of the given documents, returns
-// the ones this actor may resolve comments on.
+// Reviewer (C) or Approver (A). QC and Informed can't, and a PM, admin, auditor or guest can't even
+// when holding a letter. Of the given documents, returns the ones this actor may resolve comments on.
 export async function documentsActorCanResolve(
   prisma: PrismaClient,
   actor: AuthenticatedUser,
   documentIds: string[],
 ): Promise<Set<string>> {
-  if (NEVER_AUTHOR_ROLES.has(actor.role) || documentIds.length === 0) return new Set()
+  if (COMMENT_LOCKED_ROLES.has(actor.role) || documentIds.length === 0) return new Set()
   const [rows, assigned] = await Promise.all([
     prisma.documentRaci.findMany({
       where: { documentId: { in: documentIds }, userId: actor.id, letter: { in: ['R', 'C', 'A'] }, removedAt: null },

@@ -77,6 +77,25 @@ describe('assignable users', () => {
     await app.close()
   })
 
+  it('scope=assignee: active users who can author, without PMs or admins, even when they are project members', async () => {
+    const app = await build([
+      u('author'), u('no-caps', { capabilities: [] }), u('invited', { status: 'invited' }),
+      u('pm', { role: 'pm' }), u('tenant-admin', { role: 'tenant-admin' }), u('admin', { role: 'admin' }), u('super', { role: 'super-admin' }),
+    ], [{ userId: 'pm', projectRole: 'Project Manager' }, { userId: 'tenant-admin', projectRole: null }])
+    expect(await names(app, '?scope=assignee')).toEqual(['author', 'no-caps'])
+    await app.close()
+  })
+
+  it('scope=raci: a PM is offered for every letter except R; admins for none', async () => {
+    const app = await build([u('author'), u('pm', { role: 'pm' }), u('admin', { role: 'tenant-admin' })])
+    expect(await names(app, '?scope=raci&letter=R')).toEqual(['author'])
+    for (const letter of ['A', 'C', 'I', 'Q']) {
+      expect(await names(app, `?scope=raci&letter=${letter}`)).toEqual(['author', 'pm'])
+    }
+    expect(await names(app, '?scope=raci')).toEqual(['author', 'pm'])
+    await app.close()
+  })
+
   it('does not filter by tenant when the project has none', async () => {
     const app = await build([u('a', { tenantId: 'T9' })], [], null)
     expect(await names(app)).toEqual(['a'])

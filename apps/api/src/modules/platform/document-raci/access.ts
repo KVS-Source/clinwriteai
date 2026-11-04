@@ -43,7 +43,7 @@ export async function actorCanEditDocumentRaci(
 // RACI is owned by the document's authors: admins and PMs never edit it,
 // even when they happen to be the assignee or hold an R row. The
 // checklist / guest / signature routes keep actorCanEditDocumentRaci.
-const RACI_LOCKED_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin', 'pm'])
+export const RACI_LOCKED_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin', 'pm'])
 
 export async function actorCanEditRaciAssignments(
   prisma: PrismaClient,
@@ -70,4 +70,17 @@ export async function actorCanEditDocumentContent(
 export const DOCUMENT_EDIT_FORBIDDEN = {
   error: 'document_edit_forbidden',
   message: 'Only an author (R) on this document can edit it.',
+} as const
+
+// The assignee is the document's first author. Someone who can't edit or manage RACI can't be
+// that, or the new document starts with nobody able to work on it. An unknown id passes here and
+// fails on the Document's foreign key as it always has.
+export async function userCanBeAssignee(prisma: PrismaClient, userId: string): Promise<boolean> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
+  return !user || !RACI_LOCKED_ROLES.has(user.role)
+}
+
+export const ASSIGNEE_NOT_ELIGIBLE = {
+  error: 'assignee_not_eligible',
+  message: 'A project manager or admin cannot be assigned as the author of a document.',
 } as const

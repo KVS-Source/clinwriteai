@@ -21,7 +21,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, userCanBeAssignee } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
@@ -294,6 +294,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
     const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
     if (visible !== 'all' && !visible.has(projectId)) return reply.code(404).send({ error: 'project_not_found' })
+    if (!(await userCanBeAssignee(app.prisma, parsed.data.assigneeId))) return reply.code(422).send(ASSIGNEE_NOT_ELIGIBLE)
 
     // The project's therapeuticArea is copied in and immutable per FR-A-002.
     // Inheriting it is always allowed; anything else must be an active TA.

@@ -164,6 +164,11 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
           })
         case 'self_grant_denied':
           return reply.code(422).send({ error: 'self_grant_denied', message: failure.reason })
+        case 'role_cannot_author':
+          return reply.code(422).send({
+            error: 'role_cannot_author',
+            message: 'A project manager or admin cannot be assigned as an author (R) of a document.',
+          })
         case 'duplicate_letter_on_section':
           return reply.code(409).send({
             error: 'duplicate_letter_on_section',

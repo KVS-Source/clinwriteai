@@ -21,6 +21,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
+import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
@@ -488,6 +489,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
     const parsed = sectionUpdateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const locked = await authoringLock(documentId)
     if (locked) return reply.code(409).send(locked)
@@ -697,6 +699,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = restoreSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const locked = await authoringLock(documentId)
     if (locked) return reply.code(409).send(locked)
@@ -745,6 +748,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const from = doc.status as DocumentStatus
     // Idempotent re-submit: already in review → return the document unchanged.
@@ -1041,6 +1045,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const snap = await svc.createVersionSnapshot({
       documentId,
@@ -1153,6 +1158,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       include: { currentVersion: { include: { sections: { where: { OR: [{ sectionId }, { id: sectionId }] } } } } },
     })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
     const section = doc.currentVersion?.sections[0]
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
 
@@ -1613,6 +1619,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (!msg) return reply.code(404).send({ error: 'not_found' })
     if (msg.actorId !== request.user!.id) return reply.code(403).send({ error: 'not_your_message' })
     if (msg.role !== 'assistant') return reply.code(422).send({ error: 'not_an_assistant_message' })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, msg.documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const updated = await app.prisma.aiConversationMessage.update({
       where: { id: messageId },
@@ -1792,6 +1799,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const { editHistoryId } = request.params as { editHistoryId: string }
     const target = await app.prisma.editHistory.findUnique({ where: { id: editHistoryId }, select: { documentId: true } })
     if (target?.documentId) {
+      if (!(await actorCanEditDocumentContent(app.prisma, request.user!, target.documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
       const locked = await authoringLock(target.documentId)
       if (locked) return reply.code(409).send(locked)
     }
@@ -1908,6 +1916,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (rec.undoneAt) return reply.code(409).send({ error: 'already_undone' })
     if (!rec.preCallSectionHtml) return reply.code(422).send({ error: 'no_snapshot' })
     if (!rec.documentId || !rec.sectionId) return reply.code(422).send({ error: 'not_section_scoped' })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, rec.documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const locked = await authoringLock(rec.documentId)
     if (locked) return reply.code(409).send(locked)

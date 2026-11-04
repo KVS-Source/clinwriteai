@@ -53,3 +53,21 @@ export async function actorCanEditRaciAssignments(
   if (RACI_LOCKED_ROLES.has(actor.role)) return false
   return actorCanEditDocumentRaci(prisma, actor, documentId)
 }
+
+// Who may change a document's content (sections, versions, references, AI
+// edits, submit for review): the same people as its RACI — the authors. Admins,
+// PMs and every other letter are view-only. The realtime sidecar authenticates
+// as a synthetic admin and only relays edits the author's session made.
+export async function actorCanEditDocumentContent(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+): Promise<boolean> {
+  if (actor.id === 'system:collab') return true
+  return actorCanEditRaciAssignments(prisma, actor, documentId)
+}
+
+export const DOCUMENT_EDIT_FORBIDDEN = {
+  error: 'document_edit_forbidden',
+  message: 'Only an author (R) on this document can edit it.',
+} as const

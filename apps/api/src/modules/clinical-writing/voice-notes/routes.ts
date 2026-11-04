@@ -15,6 +15,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import type { MultipartFile } from '@fastify/multipart'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { generateBlobKey } from '../../../modules/platform/blob/local-storage.js'
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024   // 25 MB — ~5min of mp3
@@ -79,6 +80,7 @@ export const voiceNotesRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
 
     const file: MultipartFile | undefined = await request.file().catch(() => undefined)
     if (!file) return reply.code(400).send({ error: 'no_file' })

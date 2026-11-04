@@ -239,6 +239,8 @@
       "lock_note_pending_signature":    "署名処理中のため、ドキュメントは編集ロックされています。署名者が差し戻した場合、新しいバージョンとして作成状態に戻ります。",
       "lock_short_signed":              "署名済み",
       "lock_note_signed":               "署名済みバージョンは最終版のため、変更できません。",
+      "lock_short_view_only": "閲覧のみ",
+      "lock_note_view_only": "このドキュメントを編集できるのは作成者 (Responsible, R) のみです。",
       "lock_short_project_closed":      "プロジェクト完了",
       "lock_note_project_closed":       "プロジェクトが完了しているため、ドキュメントは読み取り専用です。",
 
@@ -564,6 +566,7 @@
       "locked_note_in_review":         "ドキュメントはレビュー中で編集ロックされているため、参照の追加・削除はできません。",
       "locked_note_pending_signature": "ドキュメントは署名待ちのため、参照の追加・削除はできません。",
       "locked_note_signed":            "ドキュメントは署名済みのため、参照の追加・削除はできません。",
+      "locked_note_view_only": "参照を追加・削除できるのは、このドキュメントの作成者 (Responsible, R) のみです。",
       "locked_note_project_closed":    "プロジェクトは完了・読み取り専用のため、参照の追加・削除はできません。",
 
       "file_not_found":                "保存されたファイルが見つかりませんでした。",

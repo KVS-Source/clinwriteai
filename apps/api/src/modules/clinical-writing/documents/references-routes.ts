@@ -15,6 +15,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { isPreviewable, stripExt } from './source-routes.js'
 import { suggestSourceCategory } from './source-categories.js'
 import { referencesLocked } from '../document-status.js'
+import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
 
 const createSchema = z.object({
   sectionId: z.string().trim().min(1).max(200),
@@ -204,6 +205,7 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, projectId: true, status: true, deletedAt: true } })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
     if (referencesLocked(doc.status)) return reply.code(423).send(lockedBody(doc.status))
     if (await projectClosed(doc.projectId)) return reply.code(423).send(lockedBody('project_closed'))
 
@@ -265,6 +267,7 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, projectId: true, status: true, deletedAt: true } })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
     if (referencesLocked(doc.status)) return reply.code(423).send(lockedBody(doc.status))
     if (await projectClosed(doc.projectId)) return reply.code(423).send(lockedBody('project_closed'))
     const ref = await withRefColumns(select => app.prisma.sourceReference.findFirst({ where: { id: referenceId, documentId }, ...(select ? { select } : {}) }))

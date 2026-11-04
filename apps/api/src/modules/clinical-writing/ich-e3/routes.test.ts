@@ -6,6 +6,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { ichE3Routes } from './routes.js'
 
+// Who may edit is covered by documents/edit-gate.test.ts; this file tests what
+// happens once an author is let through.
+vi.mock('../../platform/document-raci/access.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../platform/document-raci/access.js')>()),
+  actorCanEditDocumentContent: vi.fn(async () => true),
+}))
+
 const DOC = 'DOC-1'
 
 interface Opts {
@@ -155,7 +162,7 @@ describe('PATCH /documents/:id/sections/:sectionId/ich-status', () => {
     expect(append.mock.calls[0]![0].action).toBe('section_reopened')
   })
 
-  it('works for any authoring role, not just admins', async () => {
+  it('works for an author of any role, not just admins', async () => {
     const { app } = await build({ role: 'clinical-writer' })
     expect((await setStatus(app, 'complete')).statusCode).toBe(200)
   })

@@ -4,6 +4,7 @@ import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { useCanEditDocument } from '../../hooks/useCanEditDocument'
 import { MyRaciRole } from './MyRaciRole'
 import { platformApi } from '../../platform/api/platformApi'
 import { usePresenceSnapshot } from '../../hooks/usePresence'
@@ -85,6 +86,7 @@ export function DiffView() {
   const setActiveProject          = useProjectStore(s => s.setActiveProject)
 
   const diffVersions            = useDocumentStore(s => s.diffVersions)
+  const canEditDocument         = useCanEditDocument(documentId)
   const selectedForRestore      = useDocumentStore(s => s.selectedForRestore)
   const toggleSectionForRestore = useDocumentStore(s => s.toggleSectionForRestore)
   const clearRestoreSelection   = useDocumentStore(s => s.clearRestoreSelection)
@@ -423,14 +425,16 @@ export function DiffView() {
             >
               {t('page.diff_view.back_to_editor')}
             </button>
-            <button
-              type="button"
-              onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}?submit=1`)}
-              title={t('page.diff_view.submit_for_review_tooltip')}
-              className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
-            >
-              {t('page.diff_view.submit_for_review')}
-            </button>
+            {canEditDocument && (
+              <button
+                type="button"
+                onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}?submit=1`)}
+                title={t('page.diff_view.submit_for_review_tooltip')}
+                className="rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
+              >
+                {t('page.diff_view.submit_for_review')}
+              </button>
+            )}
           </div>
         </div>
       </div>
@@ -491,7 +495,7 @@ export function DiffView() {
 
               {!comparing && !compareFailed && changedDiffs.map((d, idx) => {
                 const isSelected = selectedForRestore.includes(d.sectionId)
-                const canRestore = restorable(d)
+                const canRestore = canEditDocument === true && restorable(d)
                 return (
                   <div key={d.sectionId} className={idx === 0 ? '' : 'mt-7'} data-diff-section={d.sectionId}>
                     <div className="flex items-center gap-3 rounded-md px-3 py-2" style={{ backgroundColor: d.kind === 'removed' ? '#FEF2F2' : '#F0FDF4' }}>

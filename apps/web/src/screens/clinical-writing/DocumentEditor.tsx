@@ -43,6 +43,7 @@ import { SectionHistoryPanel }    from '../../panels/SectionHistoryPanel'
 import { AIPromptHelpPanel }      from '../../panels/AIPromptHelpPanel'
 import { TlfPanel }               from '../../panels/TlfPanel'
 import { AiDraftingReportPanel }  from '../../panels/AiDraftingReportPanel'
+import { ProtocolMetadataPanel }  from '../../panels/ProtocolMetadataPanel'
 
 // Panel title translation keys (page.document_editor.panel_title_*). Resolved
 // at render time via t() so language changes don't need a re-mount.
@@ -62,6 +63,7 @@ const PANEL_TITLE_KEYS: Record<NonNullable<PanelMode>, string> = {
   'tlf':               'panel_title_tlf',
   'raci':              'panel_title_raci',
   'ai-drafting-report': 'panel_title_ai_drafting_report',
+  'protocol-metadata':  'panel_title_protocol_metadata',
 }
 
 // Keys to the authoring-lock copy (short label + explanatory note). Mirrors
@@ -919,7 +921,7 @@ export function DocumentEditor() {
             band so content narrows (text wraps) instead of being hidden
             when the panel opens. */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar editor={editor} ichApplicable={ichApplicable} />
+          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} />
 
           {/* Split row — content column (scrollable + AI prompt dock
               stacked) + optional right panel column (fixed width,
@@ -1119,7 +1121,7 @@ export function DocumentEditor() {
               style={{
                 width:           panel.width,
                 maxWidth:        '100%',
-                backgroundColor: (activePanel === 'traceability' || activePanel === 'checklist' || activePanel === 'raci' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra') ? '#FFFFFF' : '#F8FAFC',
+                backgroundColor: (activePanel === 'traceability' || activePanel === 'checklist' || activePanel === 'raci' || activePanel === 'audit' || activePanel === 'review-assignment' || activePanel === 'ich-e3' || activePanel === 'meddra' || activePanel === 'protocol-metadata') ? '#FFFFFF' : '#F8FAFC',
               }}
             >
             {/* Drag handle on the left edge: drag to resize, double-click to expand/shrink */}
@@ -1360,7 +1362,13 @@ export function DocumentEditor() {
             {activePanel === 'ai-drafting-report' && (
               <AiDraftingReportPanel status={aiDraft.data} loading={aiDraft.isLoading} />
             )}
-            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && activePanel !== 'ai-drafting-report' && (
+            {activePanel === 'protocol-metadata' && documentId && (
+              <ProtocolMetadataPanel
+                documentId={documentId}
+                onOpenSources={() => setActivePanel('traceability')}
+              />
+            )}
+            {activePanel !== 'traceability' && activePanel !== 'voice' && activePanel !== 'checklist' && activePanel !== 'raci' && activePanel !== 'audit' && activePanel !== 'review-assignment' && activePanel !== 'ich-e3' && activePanel !== 'meddra' && activePanel !== 'comments' && activePanel !== 'ai' && activePanel !== 'history' && activePanel !== 'ai-help' && activePanel !== 'tlf' && activePanel !== 'ai-drafting-report' && activePanel !== 'protocol-metadata' && (
               <div className="flex-1 overflow-y-auto p-4">
                 <p className="font-mono text-xs uppercase tracking-widest text-slate-400">{t('page.document_editor.placeholder')}</p>
                 <p className="mt-2 text-sm text-slate-700">

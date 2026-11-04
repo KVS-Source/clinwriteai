@@ -61,6 +61,23 @@ model Document {
   aiLastPassAt           DateTime? @map("ai_last_pass_at")
   aiLastPassNumber       Int?      @map("ai_last_pass_number")
 
+  // ---- Protocol metadata (migration 60, 2026-11-04) ----
+  // Captured on the "Protocol" right-panel when type is 'protocol' /
+  // 'protocol-amendment'. Every column is nullable: the panel is a
+  // progressive-disclosure form and empty is the baseline state. Longer
+  // fields (studyDesign, targetPopulation) are plain String — Postgres
+  // TEXT (there is no @db.Text bound here because Prisma defaults String
+  // to TEXT on Postgres). regulatoryRegion is one of:
+  //   'us' | 'eu' | 'india' | 'global' | 'other' (stored lowercase).
+  studyTitle             String?   @map("study_title")
+  protocolNumber         String?   @map("protocol_number")
+  protocolVersion        String?   @map("protocol_version")
+  sponsor                String?
+  investigationalProduct String?   @map("investigational_product")
+  studyDesign            String?   @map("study_design")
+  targetPopulation       String?   @map("target_population")
+  regulatoryRegion       String?   @map("regulatory_region")
+
   versions               DocumentVersion[]   @relation("DocumentVersions")
   currentVersion         DocumentVersion?    @relation("DocumentCurrentVersion", fields: [currentVersionId], references: [id])
   checklistInstance      ChecklistInstance?

@@ -12,13 +12,12 @@ import { useEffect, useMemo, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
-import { raciApi } from '../../api/raci'
-import { platformApi } from '../../platform/api/platformApi'
+import { assignableUsersApi, projectMembersApi, raciApi } from '../../api/raci'
 import { useInitiateSignatureChain } from '../../hooks'
 import { useSignatureAccess } from './useSignatureAccess'
 
 type Meaning = 'authored' | 'reviewed' | 'approved' | 'acknowledged'
-type Candidate = { id: string; name: string; role: string }
+type Candidate = { id: string; name: string; role: string; email?: string }
 // `locked` rows are the people named on the document. Their signer and meaning can't be changed, but
 // they can be removed and reordered.
 // `source` says where a locked person was named, so the tooltips can point to the right place.
@@ -30,9 +29,20 @@ const MEANING_ROLE: Record<Meaning, string> = { authored: 'Author', reviewed: 'R
 // RACI letter -> the meaning that person signs with. Q (QC) never signs.
 const LETTER_MEANING: Record<string, Meaning> = { R: 'authored', C: 'reviewed', A: 'approved', I: 'acknowledged' }
 
-// Default order of the chain's rows. TEMPORARY until the SME decides the order: Author, Reviewer,
-// Approver, then Informed. Change it here.
+// The order of the groups in a chain: Authors, then Reviewers, then Approvers, then Informed. In a
+// "by group" chain everyone in a group signs at once, and a group is released when the group before it
+// has fully signed.
 const SIGNER_ORDER: Meaning[] = ['authored', 'reviewed', 'approved', 'acknowledged']
+const groupIndex = (m: Meaning) => { const i = SIGNER_ORDER.indexOf(m); return i === -1 ? SIGNER_ORDER.length : i }
+
+// The order is always by group for now. The choice of order is hidden; the other two kinds are kept
+// (commented out) below and in the JSX so they can be switched back on.
+type ChainKind = 'grouped' | 'sequential' | 'parallel'
+// const CHAIN_KINDS: Array<{ value: ChainKind; label: string }> = [
+//   { value: 'grouped',    label: 'By group (Authors, then Reviewers, then Approvers, then Informed)' },
+  // { value: 'sequential', label: 'Sequential (one after another)' },
+  // { value: 'parallel',   label: 'Parallel (any order)' },
+// ]
 
 // Tooltips for a pre-filled row's signer box / remove button, by where the person is named.
 function lockHelp(meaning: Meaning, source: NamedSource): { signer: string; lock: string } {
@@ -80,6 +90,64 @@ const BLOCKED_HINT: Record<string, string> = {
   'signed':          'This document is already signed. See the Final Document tab.',
 }
 
+// The signer search for rows the starter adds: type at least 3 characters, then pick from the people assigned
+// to this project. (The pre-filled rows are fixed, so they keep their plain boxes.)
+const SEARCH_MIN_CHARS = 3
+
+function SignerSearch({ value, candidates, takenIds, onPick }: {
+  value: string
+  candidates: Candidate[]
+  /** People already in the chain, who are not offered again. */
+  takenIds: Set<string>
+  onPick: (id: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const selected = candidates.find(c => c.id === value)
+  const q = query.trim().toLowerCase()
+  const matches = q.length >= SEARCH_MIN_CHARS
+    ? candidates.filter(c => !takenIds.has(c.id) && `${c.name} ${c.email ?? ''} ${c.role}`.toLowerCase().includes(q)).slice(0, 8)
+    : []
+  const pick = (id: string) => { onPick(id); setQuery(''); setOpen(false) }
+
+  return (
+    <div className="relative min-w-0 flex-1">
+      <input
+        type="text"
+        autoComplete="off"
+        value={open ? query : selected ? `${selected.name} · ${selected.role}` : query}
+        onFocus={() => { setOpen(true); setQuery('') }}
+        onChange={e => { setQuery(e.currentTarget.value); setOpen(true) }}
+        onBlur={() => setOpen(false)}
+        onKeyDown={e => { if (e.key === 'Escape') e.currentTarget.blur() }}
+        placeholder="Search for a signer"
+        className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] outline-none focus:border-blue-600"
+        data-signer-search
+      />
+      {open && q.length > 0 && (
+        <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg" data-signer-results>
+          {q.length < SEARCH_MIN_CHARS ? (
+            <p className="px-3 py-2 text-[12px] text-slate-500">Type at least {SEARCH_MIN_CHARS} characters to search.</p>
+          ) : matches.length === 0 ? (
+            <p className="px-3 py-2 text-[12px] text-slate-500">No one on this project matches.</p>
+          ) : matches.map(c => (
+            <button
+              key={c.id}
+              type="button"
+              onMouseDown={e => { e.preventDefault(); pick(c.id) }}
+              className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-slate-50"
+              data-signer-result={c.id}
+            >
+              <span className="text-[13px] font-medium text-slate-900">{c.name}</span>
+              <span className="text-[11px] text-slate-500">{c.role}{c.email ? ` · ${c.email}` : ''}</span>
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 interface Props {
   documentId: string
   projectId: string
@@ -91,28 +159,44 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   const initiate = useInitiateSignatureChain(documentId)
   const access = useSignatureAccess(documentId)
 
-  // Signers must be real accounts — the API only lets the record's signerId
-  // sign. Prefer the user directory; fall back to the project team.
-  const users = useQuery({ queryKey: ['platform-users'], queryFn: () => platformApi.listUsers(), retry: false })
+  // Signers must be real accounts — the API only lets the record's signerId sign. The people offered are
+  // the ones assigned to THIS project (its members and team), so the list differs from project to project.
+  const assignable = useQuery({ queryKey: ['assignable-users', projectId, 'raci'], queryFn: () => assignableUsersApi.listForRaci(projectId), enabled: !!projectId, retry: false })
+  const members = useQuery({ queryKey: ['project-members', projectId], queryFn: () => projectMembersApi.list(projectId), enabled: !!projectId, retry: false })
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => projectsApi.get(projectId), enabled: !!projectId, retry: false })
 
   // The document's own RACI. The list also carries removed rows, so keep only the active ones.
   const docRaci = useQuery({ queryKey: ['document-raci', documentId], queryFn: () => raciApi.list(documentId), retry: false })
   const raciRows = useMemo(() => (docRaci.data ?? []).filter(r => !r.removedAt), [docRaci.data])
 
-  // Everyone who can be picked. The names of people named in the RACI always come from the RACI
-  // response itself (it carries the name), so non-admins — who can't read the admin user list — see names.
+  // Everyone who can be picked: the people assigned to this project (a project member, or on the project
+  // team — those given roles when the project was set up), plus anyone named in this document's RACI. The
+  // names of people named in the RACI come from the RACI response itself, so users who can't read other
+  // user lists still see them.
   const candidates: Candidate[] = useMemo(() => {
-    const active = (users.data ?? []).filter(u => u.status === 'active').map(u => ({ id: u.id, name: u.name, role: u.role }))
-    const base = active.length ? active : (project.data?.team ?? []).map(t => ({ id: t.userId, name: t.name, role: t.role }))
-    const map = new Map(base.map(c => [c.id, c]))
+    const assignedIds = new Set([
+      ...(members.data ?? []).filter(m => !m.removedAt).map(m => m.userId),
+      ...(project.data?.team ?? []).map(t => t.userId),
+    ])
+    const map = new Map<string, Candidate>()
+    if (assignable.isSuccess) {
+      for (const u of assignable.data) {
+        if (assignedIds.has(u.id)) map.set(u.id, { id: u.id, name: u.name, role: u.projectRole ?? 'Project member', email: u.email })
+      }
+    } else {
+      for (const t of project.data?.team ?? []) map.set(t.userId, { id: t.userId, name: t.name, role: t.role })
+    }
     for (const r of raciRows) {
       if (!map.has(r.userId)) map.set(r.userId, { id: r.userId, name: r.userName ?? r.userId, role: MEANING_ROLE[LETTER_MEANING[r.letter] ?? 'reviewed'] })
     }
+    // Project-team Approvers are pre-filled too, so their names must be known.
+    for (const t of project.data?.team ?? []) if (t.raci === 'A' && !map.has(t.userId)) map.set(t.userId, { id: t.userId, name: t.name, role: t.role })
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
-  }, [users.data, project.data, raciRows])
+  }, [assignable.isSuccess, assignable.data, members.data, project.data, raciRows])
 
-  const [chainType, setChainType] = useState<'sequential' | 'parallel'>('sequential')
+  // Always grouped for now. To bring back the choice of order, use the state below and the radios in the JSX.
+  // const [chainType, setChainType] = useState<ChainKind>('grouped')
+  const chainType: ChainKind = 'grouped'
   const [rows, setRows] = useState<SignerRow[]>([])
   // Named people the starter took off the chain. They stay off when the RACI is re-read.
   const [removedIds, setRemovedIds] = useState<Set<string>>(() => new Set())
@@ -154,6 +238,15 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
 
   const effectiveRows = rows.length ? rows : namedSigners.filter(n => !removedIds.has(n.signerId))
 
+  // A grouped chain signs group by group, so its rows are kept in group order (the order inside a group is free).
+  useEffect(() => {
+    if (chainType !== 'grouped') return
+    setRows(prev => {
+      const sorted = prev.map((r, i) => ({ r, i })).sort((a, b) => groupIndex(a.r.meaning) - groupIndex(b.r.meaning) || a.i - b.i).map(x => x.r)
+      return sorted.every((r, i) => r === prev[i]) ? prev : sorted
+    })
+  }, [chainType, rows])
+
   const update = (next: SignerRow[]) => setRows(next)
   const setRow = (i: number, patch: Partial<SignerRow>) => {
     const row = effectiveRows[i]
@@ -162,13 +255,14 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
     if (row.locked && (patch.signerId !== undefined || patch.meaning !== undefined)) return
     update(effectiveRows.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   }
-  const move = (i: number, dir: -1 | 1) => {
-    const j = i + dir
-    if (j < 0 || j >= effectiveRows.length) return
-    const next = [...effectiveRows]
-    ;[next[i], next[j]] = [next[j], next[i]]
-    update(next)
-  }
+  // Moving a row is off for now: the groups decide the order.
+  // const move = (i: number, dir: -1 | 1) => {
+  //   const j = i + dir
+  //   if (j < 0 || j >= effectiveRows.length) return
+  //   const next = [...effectiveRows]
+  //   ;[next[i], next[j]] = [next[j], next[i]]
+  //   update(next)
+  // }
   const removeRow = (i: number) => {
     const row = effectiveRows[i]
     if (!row) return
@@ -199,9 +293,9 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   if (!pending) {
     const hint = BLOCKED_HINT[documentStatus ?? ''] ?? 'A signature chain can only be started once the document is Pending signature.'
     return (
-      <div className="flex flex-col items-center gap-2 text-center" data-initiate-blocked>
+      <div className="flex flex-col items-start gap-2 text-left" data-initiate-blocked>
         <p className="font-mono text-sm text-slate-500">No signature chain has been initiated for this document.</p>
-        <p className="max-w-md text-xs text-slate-500">{hint}</p>
+        <p className="max-w-xl text-xs text-slate-500">{hint}</p>
       </div>
     )
   }
@@ -212,37 +306,45 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   // Only the document's Author (R) or Approver (A) starts a chain.
   if (!access.canStartChain) {
     return (
-      <div className="flex flex-col items-center gap-2 text-center" data-start-forbidden>
+      <div className="flex flex-col items-start gap-2 text-left" data-start-forbidden>
         <p className="font-mono text-sm text-slate-500">No signature chain has been initiated for this document.</p>
-        <p className="max-w-md text-xs text-slate-500">Only the document's Author (R) or Approver (A) can start the signature chain.</p>
+        <p className="max-w-xl text-xs text-slate-500">Only the document's Author (R) or Approver (A) can start the signature chain.</p>
       </div>
     )
   }
 
   return (
-    <div className="flex w-full max-w-[860px] flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5 text-left" data-initiate-chain>
+    <div className="flex w-full flex-col gap-4 text-left" data-initiate-chain>
       <div>
         <p className="text-sm font-bold text-slate-900">Initiate signature chain</p>
         <p className="mt-1 text-xs text-slate-500">
-          Choose who signs, the meaning of each signature and the order. Signatures cannot be delegated (21 CFR Part 11).
+          Choose who signs and the meaning of each signature. Signatures cannot be delegated (21 CFR Part 11).
         </p>
       </div>
 
-      <div className="flex items-center gap-4 text-[12px] text-slate-700">
-        {(['sequential', 'parallel'] as const).map(t => (
-          <label key={t} className="flex items-center gap-1.5">
-            <input type="radio" name="chain-type" checked={chainType === t} onChange={() => setChainType(t)} data-chain-type={t} />
-            {t === 'sequential' ? 'Sequential (one after another)' : 'Parallel (any order)'}
+      {/* The order is always by group, so the choice of order is hidden for now. Kept for later:
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[12px] text-slate-700">
+        {CHAIN_KINDS.map(k => (
+          <label key={k.value} className="flex items-center gap-1.5">
+            <input type="radio" name="chain-type" checked={chainType === k.value} onChange={() => setChainType(k.value)} data-chain-type={k.value} />
+            {k.label}
           </label>
         ))}
       </div>
+      */}
+
+      {chainType === 'grouped' && (
+        <p className="-mt-2 text-[11px] text-slate-500" data-group-hint>
+          Everyone in a group signs at once. The next group is released when the whole group before it has signed.
+        </p>
+      )}
 
       {/* Pre-filled notice — everyone named on the document (Author, Reviewer, Approver, Informed) is
           pre-filled; the starter may remove people. The chain needs at least one Approver. */}
       {namedLoaded && !noApprovers && (
         <p className="rounded-md border border-blue-200 bg-blue-50 p-2 text-[12px] text-blue-800" data-approvers-notice>
           <strong>Pre-filled ({namedSigners.length}):</strong> everyone named on this document as Author, Reviewer, Approver or Informed is
-          pre-filled below. You may remove people, reorder them and add extra signers. The chain needs at least one Approver. Nobody has signed yet — each person signs after the chain starts.
+          pre-filled below. You may remove people and add extra signers. The chain needs at least one Approver. Nobody has signed yet — each person signs after the chain starts.
         </p>
       )}
       {noApprovers && (
@@ -262,17 +364,26 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
               data-locked={r.locked ? 'true' : 'false'}
             >
               <span className="w-6 flex-none text-center font-mono text-[12px] font-bold text-slate-500">{i + 1}</span>
-              <select
-                value={r.signerId}
-                onChange={e => setRow(i, { signerId: e.currentTarget.value })}
-                disabled={r.locked}
-                className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
-                data-signer-select
-                title={help?.signer}
-              >
-                <option value="" disabled>Select signer…</option>
-                {candidates.map(c => <option key={c.id} value={c.id}>{c.name} · {c.role}</option>)}
-              </select>
+              {r.locked ? (
+                <select
+                  value={r.signerId}
+                  onChange={e => setRow(i, { signerId: e.currentTarget.value })}
+                  disabled={r.locked}
+                  className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
+                  data-signer-select
+                  title={help?.signer}
+                >
+                  <option value="" disabled>Select signer…</option>
+                  {candidates.map(c => <option key={c.id} value={c.id}>{c.name} · {c.role}</option>)}
+                </select>
+              ) : (
+                <SignerSearch
+                  value={r.signerId}
+                  candidates={candidates}
+                  takenIds={new Set(effectiveRows.filter((_, j) => j !== i).map(x => x.signerId))}
+                  onPick={id => setRow(i, { signerId: id })}
+                />
+              )}
               {r.locked && r.source && (
                 <span className="hidden flex-none whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 sm:inline" data-approver-source={r.source}>{SOURCE_TAG[r.source]}</span>
               )}
@@ -285,8 +396,10 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
               >
                 {MEANINGS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
               </select>
-              <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move up">↑</button>
-              <button type="button" onClick={() => move(i, 1)} disabled={i === effectiveRows.length - 1} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move down">↓</button>
+              {/* The order of the rows is fixed by the groups, so the move arrows are hidden for now:
+              <button type="button" onClick={() => move(i, -1)} disabled={i === 0 || chainType === 'grouped'} title={chainType === 'grouped' ? 'A grouped chain signs in group order' : undefined} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move up">↑</button>
+              <button type="button" onClick={() => move(i, 1)} disabled={i === effectiveRows.length - 1 || chainType === 'grouped'} title={chainType === 'grouped' ? 'A grouped chain signs in group order' : undefined} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move down">↓</button>
+              */}
               <button
                 type="button"
                 onClick={() => removeRow(i)}

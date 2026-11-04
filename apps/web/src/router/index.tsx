@@ -1,4 +1,4 @@
-import { createBrowserRouter, Navigate } from 'react-router-dom'
+import { createBrowserRouter, Navigate, Outlet } from 'react-router-dom'
 import { AppShell } from '../components/layout/AppShell'
 import { AuthGuard } from '../components/layout/AuthGuard'
 import { PlaceholderScreen } from '../components/layout/PlaceholderScreen'
@@ -91,7 +91,7 @@ import { RateCardAdmin }                 from '../platform/screens/RateCardAdmin
 import { SubscriptionPayment }           from '../platform/screens/SubscriptionPayment'
 import { ReportsAnalytics }              from '../platform/screens/ReportsAnalytics'
 import { ChecklistTemplatesAdmin }      from '../platform/screens/ChecklistTemplatesAdmin'
-import { AdminGuard, SuperAdminGuard }  from '../platform/components/guards'
+import { AdminGuard, NonAdminGuard, SuperAdminGuard }  from '../platform/components/guards'
 import { PublicationLayout }            from '../components/layout/PublicationLayout'
 import { SubmissionLayout }             from '../components/layout/SubmissionLayout'
 import { ContentLayout }                from '../components/layout/ContentLayout'
@@ -118,14 +118,14 @@ export const router = createBrowserRouter([
     children: [
       { index: true, element: <Navigate to="/home" replace /> },
       { path: 'home',         element: <RoleHome /> },
-      { path: 'projects',     element: <AllProjects /> },
+      { path: 'projects',     element: <NonAdminGuard><AllProjects /></NonAdminGuard> },
       // /projects/new retired — slider lives on the AllProjects screen now.
       // Deep-links to the old URL redirect back to the list.
       { path: 'projects/new', element: <Navigate to="/projects" replace /> },
       // Portfolio dashboard — cross-project RACI-aware rollup. Backend
       // filters by membership so any auth can hit this URL and only see
       // the projects they belong to (admins see everything in-tenant).
-      { path: 'dashboards/portfolio', element: <PortfolioDashboard /> },
+      { path: 'dashboards/portfolio', element: <NonAdminGuard><PortfolioDashboard /></NonAdminGuard> },
       { path: 'admin',        element: <AdminGuard><AdminPanel /></AdminGuard> },
       { path: 'super-admin',  element: <SuperAdminGuard><SuperAdminPanel /></SuperAdminGuard> },
       // Tenant admin (Arc 4). Live screens use the real API; the legacy
@@ -152,6 +152,9 @@ export const router = createBrowserRouter([
       { path: 'reports',                element: <AdminGuard><ReportsAnalytics /></AdminGuard> },
       {
         path: 'projects/:projectId',
+        // Admins never view projects — this covers every module and document
+        // page below, including a persona switch while one is open.
+        element: <NonAdminGuard><Outlet /></NonAdminGuard>,
         children: [
           { index: true, element: <ProjectDashboard /> },
           // Per-project settings — gated inside ProjectSettings to the

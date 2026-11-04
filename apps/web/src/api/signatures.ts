@@ -28,7 +28,7 @@ export interface SignatureRecord {
 export interface SignatureChain {
   id: string
   documentId: string
-  chainType: 'sequential' | 'parallel'
+  chainType: 'sequential' | 'parallel' | 'grouped'
   status: 'initiated' | 'in_progress' | 'complete' | 'cancelled'
   initiatedBy: string
   initiatedAt: string
@@ -39,7 +39,7 @@ export interface SignatureChain {
 }
 
 export interface InitiateChainBody {
-  chainType?: 'sequential' | 'parallel'
+  chainType?: 'sequential' | 'parallel' | 'grouped'
   signers: Array<{
     signerId: string
     signerName: string

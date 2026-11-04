@@ -63,6 +63,8 @@ export interface HistoryDiff {
 export interface Props<R extends HistoryResponse = HistoryResponse> {
   /** Fetches the history list given the current filters. */
   loader: (filters: { mine: boolean; origin: EditOrigin | undefined }) => Promise<R>
+  /** View-only users see the history but no Revert buttons. */
+  readOnly?: boolean
   /** Fires the revert mutation for a given history row id. */
   revert: (editHistoryId: string) => Promise<unknown>
   /** Fetches the full beforeHtml + afterHtml for a row (optional — enables "Show change" expansion). */
@@ -323,7 +325,7 @@ export function EditHistoryPanel<R extends HistoryResponse = HistoryResponse>(pr
                     {expandedId === e.id ? t('page.edit_history_panel.hide_change') : t('page.edit_history_panel.show_change')}
                   </button>
                 )}
-                {e.canRevert && (
+                {e.canRevert && !props.readOnly && (
                   <button
                     type="button"
                     onClick={() => setPending({

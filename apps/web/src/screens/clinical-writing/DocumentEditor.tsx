@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { DocumentStatus, PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { useCanEditDocument } from '../../hooks/useCanEditDocument'
 import { ApiError } from '../../api/client'
 import { useDocumentPresence } from '../../hooks/usePresence'
 import { useCurrentUser } from '../../hooks/useCurrentUser'
@@ -74,6 +75,8 @@ const AUTHORING_LOCK_KEYS: Partial<Record<DocumentStatus, { shortKey: string; no
   'signed':            { shortKey: 'lock_short_signed',             noteKey: 'lock_note_signed' },
 }
 const PROJECT_CLOSED_LOCK_KEYS = { shortKey: 'lock_short_project_closed', noteKey: 'lock_note_project_closed' }
+// Everyone but the document's authors (PMs, admins, reviewers, approvers…) views it read-only.
+const VIEW_ONLY_LOCK_KEYS = { shortKey: 'lock_short_view_only', noteKey: 'lock_note_view_only' }
 
 export function DocumentEditor() {
   const { t } = useTranslation()
@@ -184,21 +187,26 @@ export function DocumentEditor() {
   // heartbeats every 30s, releases on unmount / section switch. Editor
   // becomes editable only when we own the live lock.
   // The whole document locked for authoring — no section lock is taken then.
-  const authoringLockKey: DocumentStatus | 'project-closed' | null = project?.status === 'closed'
+  const canEditDocument = useCanEditDocument(documentId)
+  const authoringLockKey: DocumentStatus | 'project-closed' | 'view-only' | null = project?.status === 'closed'
     ? 'project-closed'
-    : document && AUTHORING_LOCK_KEYS[document.status] ? document.status : null
+    : document && AUTHORING_LOCK_KEYS[document.status] ? document.status
+    : canEditDocument === false ? 'view-only' : null
   const authoringLock = (() => {
     if (!authoringLockKey) return null
     const keys = authoringLockKey === 'project-closed'
       ? PROJECT_CLOSED_LOCK_KEYS
-      : AUTHORING_LOCK_KEYS[authoringLockKey as DocumentStatus]
+      : authoringLockKey === 'view-only'
+        ? VIEW_ONLY_LOCK_KEYS
+        : AUTHORING_LOCK_KEYS[authoringLockKey as DocumentStatus]
     if (!keys) return null
     return {
       short: t(`page.document_editor.${keys.shortKey}`),
       note:  t(`page.document_editor.${keys.noteKey}`),
     }
   })()
-  const sectionLock = useSectionLock(documentId, authoringLock ? undefined : activeSectionData?.id)
+  // No lock until we know the user may edit: a viewer holding one would block the authors.
+  const sectionLock = useSectionLock(documentId, authoringLock || !canEditDocument ? undefined : activeSectionData?.id)
   const isLockedByUs      = sectionLock.mode === 'owned'
   const isLockedByOther   = sectionLock.mode === 'foreign'
   const canEditSection    = isLockedByUs && !authoringLock
@@ -687,7 +695,7 @@ export function DocumentEditor() {
                        three sanctioned ways to create a new DocumentVersion
                        row (the other two happen on review-bounce and section
                        restore). */}
-                  {!createVersionFormOpen && (
+                  {!createVersionFormOpen && canEditDocument && (
                     <button
                       type="button"
                       role="menuitem"
@@ -854,7 +862,7 @@ export function DocumentEditor() {
               >
                 {t('page.document_editor.submitted_for_review_button')}
               </button>
-            ) : (
+            ) : canEditDocument && (
               <button
                 type="button"
                 onClick={handleSubmitForReview}

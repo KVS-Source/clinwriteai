@@ -54,7 +54,6 @@ const ROLE_PROFILES: Partial<Record<PlatformUserRole, RoleProfile>> & Record<
       { labelKey: 'page.role_home.link_tenants_label',          href: '/super-admin/tenants', hintKey: 'page.role_home.link_tenants_hint' },
       { labelKey: 'page.role_home.link_platform_admin_label',   href: '/super-admin',         hintKey: 'page.role_home.link_platform_admin_hint' },
       ...ADMIN_LINKS.slice(0, 2),
-      PROJECTS,
     ],
   },
   admin: {
@@ -71,7 +70,7 @@ const ROLE_PROFILES: Partial<Record<PlatformUserRole, RoleProfile>> & Record<
       'page.role_home.cannot_admin_2',
       'page.role_home.cannot_admin_3',
     ],
-    links: [...ADMIN_LINKS, PROJECTS],
+    links: [...ADMIN_LINKS],
   },
   'clinical-writer': {
     accent: '#2563EB',

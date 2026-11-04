@@ -30,7 +30,7 @@ function fakePrisma() {
   ]
   const userRows: Row[] = [
     { id: 'u-author', name: 'Ann Author' }, { id: 'u-reviewer', name: 'Rob Reviewer' },
-    { id: 'u-cons', name: 'Cora Consulted' }, { id: 'u-info', name: 'Ian Informed' }, { id: 'u-qc', name: 'Quinn QC' },
+    { id: 'u-author2', name: 'Alf Author' }, { id: 'u-cons', name: 'Cora Consulted' }, { id: 'u-info', name: 'Ian Informed' }, { id: 'u-qc', name: 'Quinn QC' },
   ]
   // Project membership, used to decide which projects a PM can see.
   const projectMembers: Row[] = [{ projectId: 'PROJ-1', userId: 'u-pm', removedAt: null }]
@@ -78,6 +78,7 @@ function fakePrisma() {
       createMany: async ({ data }: Row) => { records.push(...data); return { count: data.length } },
       findUnique: async ({ where, include }: Row) => { const r = records.find(x => x.id === where.id); return r ? (include?.chain ? { ...r, chain: chains.find(c => c.id === r.chainId) } : r) : null },
       findFirst: async ({ where }: Row) => records.find(r => matches(r, where)) ?? null,
+      findMany: async ({ where }: Row) => records.filter(r => matches(r, where)),
       update: async ({ where, data }: Row) => Object.assign(records.find(r => r.id === where.id)!, data),
       count: async ({ where }: Row) => records.filter(r => matches(r, where)).length,
     },
@@ -117,6 +118,7 @@ const USERS = {
   cons:     { id: 'u-cons',     email: 'c@x.test', role: 'contributor',     modules: ['A'], tenantId: null },
   info:     { id: 'u-info',     email: 'i@x.test', role: 'contributor',     modules: ['A'], tenantId: null },
   qc:       { id: 'u-qc',       email: 'q@x.test', role: 'contributor',     modules: ['A'], tenantId: null },
+  author2:  { id: 'u-author2', email: 'a2@x.test', role: 'clinical-writer', modules: ['A'], tenantId: null },
   outsider: { id: 'u-out',      email: 'x@x.test', role: 'contributor',     modules: ['A'], tenantId: null },   // no letter on the document
 }
 
@@ -517,5 +519,78 @@ describe('signature chain — who may read the record', () => {
   it('does not count a removed assignment as access', async () => {
     t.db.raciRows.find(r => r.id === 'raci-q')!.removedAt = new Date()
     expect((await list(USERS.qc)).statusCode).toBe(403)
+  })
+})
+
+describe('signature chain — grouped order (Authors, then Reviewers, then Approvers, then Informed)', () => {
+  let t: Awaited<ReturnType<typeof build>>
+  beforeEach(async () => {
+    t = await build()
+    t.db.raciRows.push(
+      { id: 'raci-c', documentId: 'DOC-1', userId: 'u-cons', letter: 'C', removedAt: null },
+      { id: 'raci-i', documentId: 'DOC-1', userId: 'u-info', letter: 'I', removedAt: null },
+    )
+    t.as(USERS.author)
+  })
+  // Submitted in a scrambled order on purpose: the server must put the groups in order.
+  const signers = [
+    { signerId: 'u-info',    signerName: 'Ian Informed',   signerRole: 'Informed', meaning: 'acknowledged' },
+    { signerId: 'u-reviewer', signerName: 'Rob Reviewer',  signerRole: 'Approver', meaning: 'approved' },
+    { signerId: 'u-cons',    signerName: 'Cora Consulted', signerRole: 'Reviewer', meaning: 'reviewed' },
+    { signerId: 'u-author2', signerName: 'Alf Author',     signerRole: 'Author',   meaning: 'authored' },
+    { signerId: 'u-author',  signerName: 'Ann Author',     signerRole: 'Author',   meaning: 'authored' },
+  ]
+  const start = async (extra: Row = {}) => (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: { chainType: 'grouped', signers, ...extra } })).json()
+  const sign = (who: Row, recordId: string, name: string) => { t.as(who); return t.app.inject({ method: 'POST', url: `/signature-records/${recordId}/sign`, payload: signAs(name) }) }
+  const status = (chain: Row) => Object.fromEntries(t.db.records.filter(r => r.chainId === chain.id).map(r => [r.signerId, r.status]))
+
+  it('is the default order when none is given', async () => {
+    const res = await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: { signers } })
+    expect(res.statusCode).toBe(201)
+    expect(res.json().chainType).toBe('grouped')
+  })
+
+  it('stores the groups in order and has the whole first group awaiting, everyone else queued', async () => {
+    const chain = await start()
+    expect(chain.records.map((r: Row) => r.meaning)).toEqual(['authored', 'authored', 'reviewed', 'approved', 'acknowledged'])
+    expect(chain.records.map((r: Row) => r.step)).toEqual([1, 2, 3, 4, 5])
+    expect(status(chain)).toEqual({ 'u-author': 'awaiting', 'u-author2': 'awaiting', 'u-cons': 'queued', 'u-reviewer': 'queued', 'u-info': 'queued' })
+    expect(t.notices.map(n => n.recipientId).sort()).toEqual(['u-author', 'u-author2'])     // both Authors are told
+  })
+
+  it('releases each group only when the group before it has fully signed, and tells who is released', async () => {
+    const chain = await start()
+    const rec = (id: string) => chain.records.find((r: Row) => r.signerId === id).id
+
+    // Reviewer cannot jump the queue while the Authors are still signing.
+    expect((await sign(USERS.cons, rec('u-cons'), 'Cora Consulted')).json().error).toBe('not_awaiting')
+
+    // One Author signs: the other Author is still to sign, so nobody new is released.
+    expect((await sign(USERS.author, rec('u-author'), 'Ann Author')).statusCode).toBe(200)
+    expect(status(chain)['u-cons']).toBe('queued')
+
+    // The second Author signs: the Reviewer group is released and told.
+    expect((await sign(USERS.author2, rec('u-author2'), 'Alf Author')).statusCode).toBe(200)
+    expect(status(chain)).toMatchObject({ 'u-cons': 'awaiting', 'u-reviewer': 'queued', 'u-info': 'queued' })
+    expect(t.notices.at(-1)).toMatchObject({ recipientId: 'u-cons', kind: 'signature_requested' })
+
+    // Reviewer signs -> Approver; Approver signs -> Informed; Informed signs -> the document is signed.
+    await sign(USERS.cons, rec('u-cons'), 'Cora Consulted')
+    expect(status(chain)).toMatchObject({ 'u-reviewer': 'awaiting', 'u-info': 'queued' })
+    await sign(USERS.reviewer, rec('u-reviewer'), 'Rob Reviewer')
+    expect(status(chain)).toMatchObject({ 'u-info': 'awaiting' })
+    expect(t.db.documents[0].status).toBe('pending_signature')
+    expect((await sign(USERS.info, rec('u-info'), 'Ian Informed')).statusCode).toBe(200)
+    expect(t.db.chains[0].status).toBe('complete')
+    expect(t.db.documents[0].status).toBe('signed')
+  })
+
+  it('skips a group nobody is in', async () => {
+    const noReviewer = signers.filter(sg => sg.meaning !== 'reviewed')
+    const chain = await start({ signers: noReviewer })
+    const rec = (id: string) => chain.records.find((r: Row) => r.signerId === id).id
+    await sign(USERS.author, rec('u-author'), 'Ann Author')
+    await sign(USERS.author2, rec('u-author2'), 'Alf Author')
+    expect(status(chain)).toMatchObject({ 'u-reviewer': 'awaiting', 'u-info': 'queued' })     // straight to the Approvers
   })
 })

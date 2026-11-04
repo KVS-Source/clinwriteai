@@ -1,10 +1,9 @@
-// DocumentTabGuard — redirects deep-links to disabled tabs back to the
-// Final Document view. Pairs with the subnav lockdown in
+// DocumentTabGuard — redirects deep-links to disabled tabs to E-Signature
+// (pending-signature) or the Final Document view (signed). Pairs with the subnav lockdown in
 // DocumentLayout.tsx: once a doc is pending-signature ("Approved") the
 // Editor / Version Diff / Reviewer View tabs are UI-greyed, but a
 // bookmark or shared URL still renders the page in a half-locked state.
-// This component short-circuits that path with a Navigate so the user
-// lands on the one tab that's definitely safe for every status.
+// This component short-circuits that path with a Navigate.
 //
 // Usage: wrap a tab's element in the router:
 //
@@ -52,8 +51,9 @@ export function DocumentTabGuard({ tab, children }: Props) {
   if (!docQuery.data)     return <>{children}</>
 
   if (isDisabled(tab, docQuery.data.status)) {
-    const final = `/projects/${projectId}/clinical-writing/documents/${documentId}/final`
-    return <Navigate to={final} replace />
+    // A document awaiting signature opens on E-Signature, where the next step is; a signed one on its final copy.
+    const landing = docQuery.data.status === 'pending-signature' ? 'sign' : 'final'
+    return <Navigate to={`/projects/${projectId}/clinical-writing/documents/${documentId}/${landing}`} replace />
   }
   return <>{children}</>
 }

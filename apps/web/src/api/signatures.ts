@@ -50,8 +50,8 @@ export interface InitiateChainBody {
 }
 
 export interface SignRecordBody {
-  // Interim confirmation until re-authentication is configured: the signer's own full name.
-  confirmName: string
+  // Re-authentication at signing: the signer's own login password.
+  password: string
   localTime: string
   deviceInfo?: string
 }

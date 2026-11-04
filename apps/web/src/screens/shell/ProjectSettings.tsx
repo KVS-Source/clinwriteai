@@ -1,10 +1,12 @@
 // Project Settings — v2 (team RACI editable).
 //
 // Access gated to Authors — team members with RACI='R' whose userId
-// matches the current user. Any Author can add / change / remove team
-// members. Admins deliberately don't see this screen (API refuses too).
-// A non-Author who deep-links to the URL is bounced back to the project
-// dashboard (not /home) so they stay oriented.
+// matches the current user — and the PM. Any Author can add / change /
+// remove team members; a PM who isn't one sees the team read-only (the API
+// refuses their edits) and controls the project's status here. Admins
+// deliberately don't see this screen (API refuses too). Anyone else who
+// deep-links to the URL is bounced back to the project dashboard (not
+// /home) so they stay oriented.
 //
 // Metadata section stays read-only in v2; inline edit lands in a follow-up
 // once we have the project PATCH endpoint.
@@ -13,11 +15,13 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { PlatformUser, RACIRole, TeamMember } from '@platform/types'
+import type { PlatformUser, ProjectStatus, RACIRole, TeamMember } from '@platform/types'
 import { projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { usePlatformStore } from '../../platform/store'
 import { ApiError } from '../../api/client'
+import { ProjectStatusPill } from '../../components/ui'
+import { ProjectStatusDialog, ProjectStatusHistory, ProjectStatusMenu } from './ProjectStatusControl'
 
 const RACI_LABEL_KEYS: Record<RACIRole, string> = {
   R: 'page.project_settings.raci_label_responsible',
@@ -60,6 +64,8 @@ export function ProjectSettings() {
 
   const [addOpen, setAddOpen] = useState(false)
   const [opError, setOpError] = useState<string | null>(null)
+  const [statusChange, setStatusChange] = useState<ProjectStatus | null>(null)
+  const isPm = currentUser.role === 'pm'
 
   const { data: project, isLoading, isError } = useQuery({
     queryKey: ['project', projectId],
@@ -74,8 +80,8 @@ export function ProjectSettings() {
     [project, currentUser.id],
   )
   useEffect(() => {
-    if (project && !isAuthor) navigate(`/projects/${projectId}`, { replace: true })
-  }, [project, isAuthor, projectId, navigate])
+    if (project && !isAuthor && !isPm) navigate(`/projects/${projectId}`, { replace: true })
+  }, [project, isAuthor, isPm, projectId, navigate])
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['project', projectId] })
 
@@ -113,7 +119,7 @@ export function ProjectSettings() {
   if (isError || !project) {
     return <div className="p-8 text-sm text-red-700" role="alert">{t('page.project_settings.load_failed')}</div>
   }
-  if (!isAuthor) return null
+  if (!isAuthor && !isPm) return null
 
   return (
     <div className="flex h-full flex-col overflow-auto bg-slate-50" data-screen="project-settings">
@@ -135,6 +141,20 @@ export function ProjectSettings() {
           <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
             {opError}
           </div>
+        )}
+
+        {isPm && (
+          <section className="rounded-lg border border-slate-200 bg-white" data-section="project-status">
+            <h2 className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
+              <span className="flex items-center gap-3">
+                {t('component.project_status.section_title')}
+                <ProjectStatusPill status={project.status} />
+              </span>
+              <ProjectStatusMenu projectId={project.id} onPick={setStatusChange} />
+            </h2>
+            <h3 className="px-4 pt-3 text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('component.project_status.history_title')}</h3>
+            <ProjectStatusHistory projectId={project.id} />
+          </section>
         )}
 
         {/* Metadata — read-only in v2 */}
@@ -165,20 +185,28 @@ export function ProjectSettings() {
         <section className="rounded-lg border border-slate-200 bg-white" data-section="team">
           <h2 className="flex items-baseline justify-between border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">
             <span>{t('page.project_settings.team_header', { count: project.team.length })}</span>
-            <button
-              type="button"
-              onClick={() => { setAddOpen(true); setOpError(null) }}
-              className="rounded-md bg-blue-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-blue-700"
-              data-action="add-member"
-            >
-              {t('page.project_settings.add_team_member')}
-            </button>
+            {isAuthor && (
+              <button
+                type="button"
+                onClick={() => { setAddOpen(true); setOpError(null) }}
+                className="rounded-md bg-blue-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-blue-700"
+                data-action="add-member"
+              >
+                {t('page.project_settings.add_team_member')}
+              </button>
+            )}
           </h2>
           {project.team.length === 0 ? (
             <p className="px-4 py-4 text-[13px] text-slate-500">{t('page.project_settings.team_empty')}</p>
           ) : (
             <div className="divide-y divide-slate-100">
-              {project.team.map(member => (
+              {project.team.map(member => !isAuthor ? (
+                <div key={member.userId} className="flex items-center gap-3 px-4 py-2.5 text-[13px]" data-team-member-readonly={member.userId}>
+                  <span className="min-w-0 flex-1 truncate font-semibold text-slate-900">{member.name}</span>
+                  <span className="truncate text-[12px] text-slate-500">{member.role}</span>
+                  <span className="flex-none rounded-full px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: RACI_COLOUR[member.raci].bg, color: RACI_COLOUR[member.raci].fg }} title={t(RACI_LABEL_KEYS[member.raci])}>{member.raci}</span>
+                </div>
+              ) : (
                 <TeamRow
                   key={member.userId}
                   member={member}
@@ -195,6 +223,10 @@ export function ProjectSettings() {
           )}
         </section>
       </div>
+
+      {statusChange && (
+        <ProjectStatusDialog project={project} to={statusChange} onClose={() => setStatusChange(null)} />
+      )}
 
       {addOpen && (
         <AddMemberModal

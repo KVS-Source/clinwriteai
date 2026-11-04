@@ -6,6 +6,7 @@ import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, Pl
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { usePlatformStore } from '../../platform/store'
+import { isReadOnlyRole } from '../../config/roles'
 import { StatusPill, SlidePanel } from '../../components/ui'
 import { RaciEditor } from '../../components/raci/RaciEditor'
 import { documentRaciKey } from './MyRaciRole'
@@ -401,14 +402,16 @@ export function ClinicalWritingHome() {
                   + {t('page.clinical_writing_home.new_document')}
                 </button>
               )}
-              <button
-                type="button"
-                onClick={() => setUploadOpen(true)}
-                className="rounded-md border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] font-semibold text-slate-900 transition-colors hover:bg-slate-50"
-                data-action="upload-source"
-              >
-                {t('page.clinical_writing_home.upload_source_doc')}
-              </button>
+              {!isReadOnlyRole(currentUser.role) && (
+                <button
+                  type="button"
+                  onClick={() => setUploadOpen(true)}
+                  className="rounded-md border border-slate-200 bg-white px-3.5 py-2.5 text-[13px] font-semibold text-slate-900 transition-colors hover:bg-slate-50"
+                  data-action="upload-source"
+                >
+                  {t('page.clinical_writing_home.upload_source_doc')}
+                </button>
+              )}
             </div>
           </div>
 
@@ -504,7 +507,7 @@ export function ClinicalWritingHome() {
             )}
             <SourceDocumentsTab
               projectId={projectId}
-              onUpload={() => setUploadOpen(true)}
+              onUpload={isReadOnlyRole(currentUser.role) ? undefined : () => setUploadOpen(true)}
             />
           </div>
         ) : (

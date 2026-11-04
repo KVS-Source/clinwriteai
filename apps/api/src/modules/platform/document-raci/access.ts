@@ -264,7 +264,8 @@ export const NUDGE_FORBIDDEN = {
 } as const
 
 // Back to authoring (reviewer / CRM bounce, signer refusal) starts a new round:
-// every author submits their part again. Accepts the client or a transaction.
+// every author submits their part again, and every reviewer and QC reviews the
+// revised document again. Accepts the client or a transaction.
 export async function resetAuthorSubmissions(
   db: { documentRaci: Pick<PrismaClient['documentRaci'], 'updateMany'> },
   documentId: string,
@@ -272,6 +273,10 @@ export async function resetAuthorSubmissions(
   await db.documentRaci.updateMany({
     where: { documentId, letter: 'R', removedAt: null, submittedAt: { not: null } },
     data: { submittedAt: null },
+  })
+  await db.documentRaci.updateMany({
+    where: { documentId, letter: { in: ['C', 'Q'] }, removedAt: null, reviewedAt: { not: null } },
+    data: { reviewedAt: null },
   })
 }
 

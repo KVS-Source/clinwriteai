@@ -14,6 +14,7 @@ import { documentVisibilityWhere, visibleProjectIdsForUser } from './visibility.
 import {
   canTransition,
   InvalidTransitionError,
+  nextStates,
   PROJECT_STATUSES,
   type ProjectStatus,
 } from './state-machine.js'
@@ -37,8 +38,10 @@ const projectUpdateSchema = projectCreateSchema.partial().omit({ id: true })
 
 const transitionSchema = z.object({
   to: z.enum(PROJECT_STATUSES),
-  reason: z.string().max(500).optional(),
+  reason: z.string().trim().min(3, 'A reason is required to change the project status').max(500),
 })
+
+const STATE_CHANGED = 'project.state_changed'
 
 // Shape rows for the UI's `Project` interface in packages/types. Flattens
 // the Prisma teamMembers relation into the `team` array the UI consumes.
@@ -237,6 +240,9 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     const parsed = transitionSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
+    const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+    if (visible !== 'all' && !visible.has(id)) return reply.code(404).send({ error: 'not_found' })
+
     const project = await app.prisma.project.findUnique({ where: { id } })
     if (!project) return reply.code(404).send({ error: 'not_found' })
 
@@ -252,14 +258,49 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
-      action: 'project.state_changed',
+      action: STATE_CHANGED,
       entityType: 'project',
       entityId: id,
-      details: { from, to, reason: parsed.data.reason ?? null },
+      details: { from, to, reason: parsed.data.reason },
       ipAddress: request.ip ?? null,
     })
 
     return updated
+  })
+
+  // The status control's data: where the project is, where it can go (the state
+  // machine stays the only source of the rules), and its past moves from the audit
+  // trail, newest first. For the PM, like the transition itself.
+  app.get('/:id/status', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+    if (visible !== 'all' && !visible.has(id)) return reply.code(404).send({ error: 'not_found' })
+
+    const project = await app.prisma.project.findUnique({ where: { id }, select: { status: true } })
+    if (!project) return reply.code(404).send({ error: 'not_found' })
+
+    const { rows } = await app.audit.pageForEntity('project', id, { action: STATE_CHANGED, limit: 100 })
+    const actorIds = [...new Set(rows.map(r => r.actorId))]
+    const actors = actorIds.length
+      ? await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
+      : []
+    const nameOf = (actorId: string) => actors.find(a => a.id === actorId)?.name ?? actorId
+
+    return {
+      status: project.status,
+      next: nextStates(project.status as ProjectStatus),
+      history: rows.map(r => {
+        const details = r.details as { from?: string; to?: string; reason?: string | null }
+        return {
+          id: r.id,
+          at: r.timestamp,
+          by: nameOf(r.actorId),
+          from: details.from ?? null,
+          to: details.to ?? null,
+          reason: details.reason ?? null,
+        }
+      }),
+    }
   })
 
   // --------------------------------------------------------------------------

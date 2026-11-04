@@ -1,14 +1,15 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { STATUS_META, type Document } from '@platform/types'
+import { STATUS_META, type Document, type ProjectStatus } from '@platform/types'
 import { documentsApi, projectsApi, reportsApi } from '../../api'
 import { ProjectStatusPill } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { usePlatformStore } from '../../platform/store'
 import { MODULE_KEY_TO_SLUG, type ModuleKey, type ModuleSlug } from '../../config/modules'
 import { isAdminRole } from '../../config/roles'
+import { ProjectStatusDialog, ProjectStatusHistory, ProjectStatusMenu, ProjectStatusSuggestion } from './ProjectStatusControl'
 
 // --- Module metadata for the "Available modules" grid (filtered against project.activeModules) ---
 const INACTIVE_MODULES = [
@@ -74,6 +75,9 @@ export function ProjectDashboard() {
   const currentUser = usePlatformStore(s => s.currentUser)
   const role    = currentUser.role
   const isAdmin = isAdminRole(role)
+  const isPm    = role === 'pm'
+  const [statusChange, setStatusChange] = useState<ProjectStatus | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   // Project Settings is gated to Authors — team members with RACI='R'
   // whose userId matches the current user. Any Author can add / edit /
@@ -216,7 +220,21 @@ export function ProjectDashboard() {
                 ? t('page.project_dashboard.last_activity', { time: new Date(stats.lastActivity).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) })
                 : t('page.project_dashboard.no_activity')}
             </div>
-            {isProjectAuthor && (
+            {isPm && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(v => !v)}
+                  aria-expanded={historyOpen}
+                  className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50"
+                  data-action="toggle-status-history"
+                >
+                  {t('component.project_status.history_title')}
+                </button>
+                <ProjectStatusMenu projectId={project.id} onPick={setStatusChange} />
+              </>
+            )}
+            {(isProjectAuthor || isPm) && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${encodeURIComponent(projectId ?? '')}/settings`)}
@@ -245,6 +263,15 @@ export function ProjectDashboard() {
       {/* ============ Content ============ */}
       <div className="flex-1 overflow-auto px-8 py-6">
         <div className="flex flex-col gap-6">
+
+          {isPm && historyOpen && (
+            <section className="rounded-lg border border-slate-200 bg-white" data-section="status-history">
+              <h2 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">{t('component.project_status.history_title')}</h2>
+              <ProjectStatusHistory projectId={project.id} />
+            </section>
+          )}
+
+          {isPm && <ProjectStatusSuggestion project={project} documents={documents} onPick={setStatusChange} />}
 
           {/* Success banner — only shown when data cutoff has passed */}
           {daysToCutoff.complete && (
@@ -499,6 +526,10 @@ export function ProjectDashboard() {
 
         </div>
       </div>
+
+      {statusChange && (
+        <ProjectStatusDialog project={project} to={statusChange} onClose={() => setStatusChange(null)} />
+      )}
     </div>
   )
 }

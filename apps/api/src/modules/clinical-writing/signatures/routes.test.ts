@@ -357,7 +357,7 @@ describe('signature chain routes', () => {
       t.as(who)
       const denied = await t.app.inject({ method: 'POST', url: `/signature-chains/${chain.id}/cancel`, payload: { cancelReason: 'Not mine to cancel' } })
       expect(denied.statusCode, who.role).toBe(403)
-      expect(denied.json().error).toBe('cancel_forbidden')
+      expect(denied.json().error).toBe(who === USERS.auditor ? 'auditor_read_only' : 'cancel_forbidden')
     }
     expect(t.db.chains[0].status).toBe('in_progress')
     t.as(USERS.author)                                           // the Author (R) can, though they did not start it
@@ -429,7 +429,7 @@ describe('signature chain — who may start it', () => {
     for (const who of [USERS.admin, USERS.pm, USERS.auditor, USERS.guest, USERS.cons, USERS.qc, USERS.info, USERS.outsider]) {
       const res = await startAs(who, all4)
       expect(res.statusCode, who.id).toBe(403)
-      expect(res.json().error, who.id).toBe('start_forbidden')
+      expect(res.json().error, who.id).toBe(who === USERS.auditor ? 'auditor_read_only' : 'start_forbidden')
     }
     expect(t.db.chains).toHaveLength(0)
   })

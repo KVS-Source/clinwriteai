@@ -19,6 +19,7 @@ import { useRichTextEditor } from './RichTextEditor'
 import { SectionNavigator } from './SectionNavigator'
 import { PresenceStack } from './PresenceStack'
 import { ReviewerToolbar } from './ReviewerToolbar'
+import { ReviewCompletionBar } from './ReviewCompletionBar'
 import { CommentsPanel }   from '../../panels/CommentsPanel'
 import { ChecklistHub, type ChecklistTab } from '../../panels/ChecklistHub'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
@@ -435,6 +436,11 @@ export function ReviewerView() {
             {t('page.reviewer_view.go_to_editor')}
           </button>
         </div>
+      )}
+
+      {/* Who among the Reviewers and QC has finished, and the button for someone still to. */}
+      {documentId && (document.status === 'in-review' || document.status === 'crm-in-progress') && (
+        <ReviewCompletionBar documentId={documentId} projectId={projectId} />
       )}
 
       {/* Approve/Return inline notices */}

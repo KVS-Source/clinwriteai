@@ -66,7 +66,7 @@ describe('nudge — authors (R) only', () => {
     const t = await build(actor)
     const res = await t.nudge()
     expect(res.statusCode).toBe(403)
-    expect(res.json().error).toBe('nudge_forbidden')
+    expect(res.json().error).toBe((actor as { role?: string }).role === 'auditor' ? 'auditor_read_only' : 'nudge_forbidden')
     expect(t.createMany).not.toHaveBeenCalled()
     expect(t.audit).not.toHaveBeenCalled()
   })

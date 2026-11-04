@@ -20,6 +20,8 @@ async function build(letter: string | null) {
         (letter && where.letter.in.includes(letter) ? [{ documentId: DOC }] : [])),
     },
     documentVersion: { findMany: list, findFirst: one },
+    // The versions list names each version's creator (createdByName).
+    user: { findMany: vi.fn(async () => []) },
   } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {

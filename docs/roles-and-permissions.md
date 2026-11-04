@@ -259,8 +259,11 @@ the screens hide what would be refused.
   signers. The chain needs **at least one Approver** (`approver_required` otherwise). Anyone named who is left
   off is recorded in the `signature_initiated` audit entry (`omittedNamedSigners`). Q (QC), Admin, PM,
   Auditor and Guest are never pre-filled.
-- **Order.** Sequential or parallel, chosen by the starter. Default row order (temporary, until the SME decides):
-  Author, Reviewer, Approver, Informed.
+- **Order.** The default is **by group**: all Authors sign at once, then all Reviewers at once, then all
+  Approvers at once, then all Informed at once. A group is released only when the whole group before it has
+  signed, and a group nobody is in is skipped. The starter may instead choose sequential (one after another, in
+  the order given) or parallel (everyone at once). A grouped chain stores the signers group by group, so step
+  numbers follow the signing order (`chain-progress.ts`).
 - **A fixed chain.** While a chain is in progress the document's RACI can't be assigned, reassigned or have its
   signature settings changed (a person may still remove their own assignment). Cancel the chain first.
 - **Dual roles** (one person holding two letters, e.g. a PM who is also an Author) are out of scope: admins and

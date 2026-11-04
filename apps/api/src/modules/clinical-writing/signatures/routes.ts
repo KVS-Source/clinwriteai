@@ -36,10 +36,11 @@ import { DocumentService, hashSections } from '../documents/service.js'
 import type { PrismaClient } from '@prisma/client'
 import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
+import { initialStatuses, recordsToRelease, sortForChain, type ChainType, type SignatureStatus } from './chain-progress.js'
 import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain, requiredSigners } from './access.js'
 
 const initiateSchema = z.object({
-  chainType: z.enum(['sequential', 'parallel']).default('sequential'),
+  chainType: z.enum(['sequential', 'parallel', 'grouped']).default('grouped'),
   signers: z.array(z.object({
     signerId: z.string().min(1),
     signerName: z.string().min(1),
@@ -180,7 +181,10 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       .filter(r => !parsed.data.signers.some(s => s.signerId === r.userId && r.meanings.has(s.meaning)))
       .map(r => ({ userId: r.userId, name: r.name, meanings: [...r.meanings] }))
 
-    const signers = parsed.data.signers
+    // A grouped chain stores the signers group by group (Authors, Reviewers, Approvers, Informed), so the
+    // step numbers follow the signing order.
+    const signers = sortForChain(parsed.data.signers, parsed.data.chainType)
+    const startStatuses = initialStatuses(parsed.data.chainType, signers)
     const created = await app.prisma.$transaction(async (tx) => {
       // Take the ids under a lock held until commit, so two chains started at the same moment
       // can't be handed the same ones.
@@ -203,9 +207,9 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
           signerRole: s.signerRole,
           step: idx + 1,
           meaning: s.meaning,
-          // Sequential chains: step 1 is awaiting; rest queued.
-          // Parallel chains: all awaiting from the start.
-          status: parsed.data.chainType === 'parallel' || idx === 0 ? 'awaiting' : 'queued',
+          // Sequential chains: step 1 is awaiting; rest queued. Parallel chains: all awaiting from the start.
+          // Grouped chains: the whole first group is awaiting; the later groups are queued.
+          status: startStatuses[idx]!,
           scopeSections: s.scopeSections,
         })),
       })
@@ -382,18 +386,16 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         },
       })
 
-      // 2. Promote the next sequential step (if any) from queued → awaiting.
+      // 2. Release whoever is next: the next step (sequential), or the next group once the signed person's
+      // group has fully signed (grouped). Parallel chains release nobody — everyone is already awaiting.
       let chainStatus = record.chain.status
       let completedAt: Date | null = null
-      let released: { signerId: string; step: number } | null = null
-      if (record.chain.chainType === 'sequential') {
-        const next = await tx.signatureRecord.findFirst({
-          where: { chainId: record.chainId, step: record.step + 1 },
-        })
-        if (next) {
-          await tx.signatureRecord.update({ where: { id: next.id }, data: { status: 'awaiting' } })
-          released = { signerId: next.signerId, step: next.step }
-        }
+      const released: Array<{ signerId: string; step: number }> = []
+      const chainRecords = (await tx.signatureRecord.findMany({ where: { chainId: record.chainId } }))
+        .map(r => ({ id: r.id, step: r.step, status: r.status as SignatureStatus, signerId: r.signerId, meaning: r.meaning }))
+      for (const next of recordsToRelease(chainRecords, record.chain.chainType as ChainType, record.id)) {
+        await tx.signatureRecord.update({ where: { id: next.id }, data: { status: 'awaiting' } })
+        released.push({ signerId: next.signerId, step: next.step })
       }
 
       // 3. Chain complete when all records are signed.
@@ -418,8 +420,8 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     })
 
     // The next signer in a sequential chain is told it's their turn.
-    if (result.released) {
-      await notifySigners([result.released], { id: doc.id, projectId: doc.projectId, title: doc.title })
+    if (result.released.length > 0) {
+      await notifySigners(result.released, { id: doc.id, projectId: doc.projectId, title: doc.title })
     }
 
     // Auto-complete items tagged autoCompleteOn='document_signed' —

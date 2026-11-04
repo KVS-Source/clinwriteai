@@ -4,6 +4,10 @@ import {
   nextAwaitingStep,
   chainCompleteAfterSign,
   chainStateAfterSign,
+  initialStatuses,
+  recordsToRelease,
+  signingGroup,
+  sortForChain,
   type SignatureRecordLite,
   type SignatureChainLite,
 } from './chain-progress.js'
@@ -77,5 +81,63 @@ describe('chainStateAfterSign', () => {
   it('leaves document in pending_signature when the chain still has work', () => {
     const r = chainStateAfterSign([mkRecord(1, 'signed'), mkRecord(2, 'awaiting')])
     expect(r).toEqual({ chainStatus: 'in_progress', flipDocumentToSigned: false })
+  })
+})
+
+describe('grouped chains: Authors, then Reviewers, then Approvers, then Informed', () => {
+  const rec = (step: number, meaning: string, status: SignatureRecordLite['status']): SignatureRecordLite =>
+    ({ id: `rec-${step}`, step, status, signerId: `user-${step}`, meaning })
+
+  it('orders the groups Authors, Reviewers, Approvers, Informed', () => {
+    expect(['acknowledged', 'approved', 'reviewed', 'authored'].map(signingGroup)).toEqual([3, 2, 1, 0])
+    expect(signingGroup('something-else')).toBe(4)               // unknown goes last
+  })
+
+  it('stores the signers group by group, keeping the submitted order inside a group', () => {
+    const signers = [
+      { id: 'i1', meaning: 'acknowledged' }, { id: 'a1', meaning: 'approved' }, { id: 'r1', meaning: 'authored' },
+      { id: 'c1', meaning: 'reviewed' }, { id: 'r2', meaning: 'authored' }, { id: 'a2', meaning: 'approved' },
+    ]
+    expect(sortForChain(signers, 'grouped').map(s => s.id)).toEqual(['r1', 'r2', 'c1', 'a1', 'a2', 'i1'])
+    expect(sortForChain(signers, 'sequential').map(s => s.id)).toEqual(signers.map(s => s.id))   // others keep the submitted order
+    expect(sortForChain(signers, 'parallel').map(s => s.id)).toEqual(signers.map(s => s.id))
+  })
+
+  it('starts with the whole first group awaiting', () => {
+    const signers = [{ meaning: 'authored' }, { meaning: 'authored' }, { meaning: 'reviewed' }, { meaning: 'approved' }]
+    expect(initialStatuses('grouped', signers)).toEqual(['awaiting', 'awaiting', 'queued', 'queued'])
+    expect(initialStatuses('sequential', signers)).toEqual(['awaiting', 'queued', 'queued', 'queued'])
+    expect(initialStatuses('parallel', signers)).toEqual(['awaiting', 'awaiting', 'awaiting', 'awaiting'])
+  })
+
+  it('starts at the first group that exists when there are no Authors', () => {
+    expect(initialStatuses('grouped', [{ meaning: 'approved' }, { meaning: 'approved' }, { meaning: 'acknowledged' }]))
+      .toEqual(['awaiting', 'awaiting', 'queued'])
+  })
+
+  it('releases nobody while anyone in the signed person\'s group is still to sign', () => {
+    const records = [rec(1, 'authored', 'signed'), rec(2, 'authored', 'awaiting'), rec(3, 'reviewed', 'queued')]
+    expect(recordsToRelease(records, 'grouped', 'rec-1')).toEqual([])
+  })
+
+  it('releases the whole next group once the group is complete', () => {
+    const records = [rec(1, 'authored', 'signed'), rec(2, 'authored', 'signed'),
+      rec(3, 'reviewed', 'queued'), rec(4, 'reviewed', 'queued'), rec(5, 'approved', 'queued')]
+    expect(recordsToRelease(records, 'grouped', 'rec-2').map(r => r.id)).toEqual(['rec-3', 'rec-4'])
+  })
+
+  it('skips a group nobody is in', () => {
+    const records = [rec(1, 'authored', 'signed'), rec(2, 'approved', 'queued'), rec(3, 'acknowledged', 'queued')]
+    expect(recordsToRelease(records, 'grouped', 'rec-1').map(r => r.id)).toEqual(['rec-2'])
+  })
+
+  it('releases nothing after the last group, and nothing in a parallel chain', () => {
+    expect(recordsToRelease([rec(1, 'acknowledged', 'signed')], 'grouped', 'rec-1')).toEqual([])
+    expect(recordsToRelease([rec(1, 'authored', 'signed'), rec(2, 'reviewed', 'awaiting')], 'parallel', 'rec-1')).toEqual([])
+  })
+
+  it('still releases the next step in a sequential chain', () => {
+    const records = [rec(1, 'authored', 'signed'), rec(2, 'reviewed', 'queued')]
+    expect(recordsToRelease(records, 'sequential', 'rec-1').map(r => r.id)).toEqual(['rec-2'])
   })
 })

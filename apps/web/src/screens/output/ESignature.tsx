@@ -44,6 +44,11 @@ const MEANING_TEXT: Record<ChainRecord['meaning'], string> = {
   acknowledged: 'I have read and acknowledge this document',
 }
 
+// A grouped chain signs Authors, then Reviewers, then Approvers, then Informed.
+const GROUP_ORDER: Array<ChainRecord['meaning']> = ['authored', 'reviewed', 'approved', 'acknowledged']
+const GROUP_NAME: Record<ChainRecord['meaning'], string> = { authored: 'Authors', reviewed: 'Reviewers', approved: 'Approvers', acknowledged: 'Informed' }
+const CHAIN_LABEL: Record<SignatureChain['chainType'], string> = { grouped: 'by group', sequential: 'sequential', parallel: 'parallel' }
+
 const initialsOf = (name: string) =>
   name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('') || '?'
 
@@ -139,7 +144,7 @@ function KVRow({ label, value, mono }: { label: string; value: string; mono?: bo
 
 // --- Signer row ---
 
-function SignerRow({ record, state, isSelected, onSelect }: { record: ChainRecord; state: RowState; isSelected: boolean; onSelect: () => void }) {
+function SignerRow({ record, state, isSelected, onSelect, grouped }: { record: ChainRecord; state: RowState; isSelected: boolean; onSelect: () => void; grouped?: boolean }) {
   const baseStyle: React.CSSProperties =
     state === 'signed' ? { border: '1px solid #BBF7D0', borderLeft: '4px solid #16A34A', backgroundColor: '#F0FDF4' }
     : state === 'you'  ? { border: '2px solid #2563EB', backgroundColor: '#FFFFFF', boxShadow: '0 0 0 3px rgba(37,99,235,0.10)' }
@@ -150,7 +155,7 @@ function SignerRow({ record, state, isSelected, onSelect }: { record: ChainRecor
     state === 'signed'   ? `${fmtUtc(record.timestampUtc)} · document hash bound`
     : state === 'you'    ? 'Your signature is required — complete the panel at right.'
     : state === 'awaiting' ? 'Waiting for this signer.'
-    : 'Released once the preceding signature is recorded.'
+    : grouped ? 'Released once the group before has signed.' : 'Released once the preceding signature is recorded.'
 
   return (
     <button
@@ -214,7 +219,7 @@ function SignedPanel({ record }: { record: ChainRecord }) {
   )
 }
 
-function PendingPanel({ record, previous, state }: { record: ChainRecord; previous?: ChainRecord; state: 'awaiting' | 'queued' }) {
+function PendingPanel({ record, previous, state, waitingOn }: { record: ChainRecord; previous?: ChainRecord; state: 'awaiting' | 'queued'; waitingOn?: string }) {
   return (
     <div className="flex flex-col gap-4">
       <div className="rounded-lg border border-slate-200 p-3 pl-3.5" style={{ backgroundColor: '#F8FAFC' }}>
@@ -225,7 +230,7 @@ function PendingPanel({ record, previous, state }: { record: ChainRecord; previo
         <MonoLabel>Pending signature</MonoLabel>
         <div className="mt-1.5">
           <KVRow label="Status"      value={state === 'awaiting' ? `Awaiting ${record.signerName}` : 'Queued'} />
-          {state === 'queued' && <KVRow label="Waiting on" value={previous ? `Step ${previous.step} · ${previous.signerName}` : '—'} />}
+          {state === 'queued' && <KVRow label="Waiting on" value={waitingOn ?? (previous ? `Step ${previous.step} · ${previous.signerName}` : '—')} />}
           <KVRow label="Delegation"  value="Not permitted — Part 11" />
           <KVRow label="Scope"       value={record.scopeSections.length ? record.scopeSections.join(', ') : 'Whole document'} />
         </div>
@@ -235,6 +240,17 @@ function PendingPanel({ record, previous, state }: { record: ChainRecord; previo
       </p>
     </div>
   )
+}
+
+// "Waiting on" for a person in a later group of a grouped chain: who in the nearest earlier group is yet to sign.
+function groupedWaitingOn(chainType: SignatureChain['chainType'], records: ChainRecord[], record: ChainRecord): string | undefined {
+  if (chainType !== 'grouped') return undefined
+  const mine = GROUP_ORDER.indexOf(record.meaning)
+  for (let g = mine - 1; g >= 0; g--) {
+    const unsigned = records.filter(r => GROUP_ORDER.indexOf(r.meaning) === g && r.status !== 'signed')
+    if (unsigned.length > 0) return `${GROUP_NAME[GROUP_ORDER[g]!]}: ${unsigned.map(r => r.signerName).join(', ')}`
+  }
+  return undefined
 }
 
 function YouPanel({ record, email, credential, onCredential, error }: {
@@ -436,6 +452,17 @@ export function ESignature() {
   // backToEditor was consumed by the in-screen breadcrumb's document-title
   // link; now that TopNav owns the breadcrumb, the helper is unused.
 
+  // Back to the step before this one (the CRM tab is always open, whatever the document's status), the
+  // mirror of the CRM screen's "Go to E-Signature →".
+  const backToCrm = (
+    <button
+      type="button"
+      onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/crm`)}
+      className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 transition-colors hover:bg-slate-50"
+      data-back-to-crm
+    >← Back to CRM</button>
+  )
+
   if (isLoading) {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">Loading signature chain…</p></div>
   }
@@ -443,9 +470,10 @@ export function ESignature() {
     // 403: the API refuses the signature record to a user the e-signature table gives no access.
     if (error instanceof ApiError && error.status === 403) {
       return (
-        <div className="flex h-full flex-col items-center justify-center gap-1" data-screen="e-signature" data-signature-access-denied>
+        <div className="flex h-full flex-col items-start gap-1 px-8 py-7" data-screen="e-signature" data-signature-access-denied>
+          <div className="mb-3 flex w-full justify-end">{backToCrm}</div>
           <p className="font-mono text-sm text-slate-600">You don't have access to this document's signature records.</p>
-          <p className="max-w-md text-center text-xs text-slate-500">Signature records are visible to the people named on the document, project managers and auditors.</p>
+          <p className="max-w-xl text-xs text-slate-500">Signature records are visible to the people named on the document, project managers and auditors.</p>
         </div>
       )
     }
@@ -456,19 +484,14 @@ export function ESignature() {
   // No active chain → initiate (or explain why not yet).
   if (!chain || chain.status === 'cancelled') {
     return (
-      <div className="flex h-full flex-col items-center justify-center gap-4 overflow-y-auto p-10" data-screen="e-signature">
+      <div className="flex h-full flex-col items-start gap-4 overflow-y-auto px-8 py-7" data-screen="e-signature">
+        <div className="flex w-full justify-end">{backToCrm}</div>
         {chain?.status === 'cancelled' && (
           <p className="text-[12px] text-amber-700" data-chain-cancelled>
             The previous signature chain was cancelled{chain.cancelReason ? ` — “${chain.cancelReason}”` : ''}.
           </p>
         )}
         <InitiateSignatureChain documentId={documentId!} projectId={projectId!} documentStatus={document?.status} />
-        {document?.status !== 'signed' && (
-          <button onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/review`)}
-            className="text-[12px] font-semibold text-slate-600 hover:underline">
-            Open Reviewer View
-          </button>
-        )}
       </div>
     )
   }
@@ -507,17 +530,20 @@ export function ESignature() {
             {documentId && <MyRaciRole documentId={documentId} />}
             <span className="flex-none font-mono text-[11px] text-slate-500">{document?.version ?? ''}</span>
           </div>
-          {chainActive && access.canCancelChain(chain) && (
-            <button
-              type="button"
-              onClick={() => setCancelOpen(v => !v)}
-              className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
-              style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
-              data-cancel-chain
-            >
-              Cancel signature chain
-            </button>
-          )}
+          <div className="flex flex-none items-center gap-2">
+            {backToCrm}
+            {chainActive && access.canCancelChain(chain) && (
+              <button
+                type="button"
+                onClick={() => setCancelOpen(v => !v)}
+                className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
+                style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
+                data-cancel-chain
+              >
+                Cancel signature chain
+              </button>
+            )}
+          </div>
         </div>
         {cancelOpen && chainActive && access.canCancelChain(chain) && (
           <div className="mb-3 flex flex-col gap-2 rounded-md border border-amber-200 bg-amber-50 p-3" data-cancel-form>
@@ -618,11 +644,12 @@ export function ESignature() {
             {/* Signature chain */}
             <div className="flex flex-col gap-2.5">
               <div className="flex items-baseline justify-between gap-3">
-                <MonoLabel>Signature chain · {chain.chainType}</MonoLabel>
+                <MonoLabel>Signature chain · {CHAIN_LABEL[chain.chainType] ?? chain.chainType}</MonoLabel>
                 <p className="text-xs text-slate-500">Select a signatory to inspect its record.</p>
               </div>
               {records.map((record, i) => (
                 <SignerRow
+                  grouped={chain.chainType === 'grouped'}
                   key={record.id}
                   record={record}
                   state={states[i]}
@@ -693,7 +720,7 @@ export function ESignature() {
 
               {selectedState === 'signed' && <SignedPanel record={selected} />}
               {(selectedState === 'awaiting' || selectedState === 'queued') && (
-                <PendingPanel record={selected} previous={records[selectedIndex! - 1]} state={selectedState} />
+                <PendingPanel record={selected} previous={records[selectedIndex! - 1]} state={selectedState} waitingOn={groupedWaitingOn(chain.chainType, records, selected)} />
               )}
               {selectedState === 'you' && (
                 <YouPanel

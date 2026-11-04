@@ -18,13 +18,17 @@ type MockRecord = {
   timestampUtc: string | null; localTime: string | null; timeSource: string | null; authMethod: string | null
 }
 type MockChain = {
-  id: string; documentId: string; chainType: 'sequential' | 'parallel'
+  id: string; documentId: string; chainType: 'sequential' | 'parallel' | 'grouped'
   status: 'initiated' | 'in_progress' | 'complete' | 'cancelled'
   initiatedBy: string; initiatedAt: string; completedAt: string | null
   cancelledAt: string | null; cancelReason: string | null; records: MockRecord[]
 }
 
 const chainsByDoc = new Map<string, MockChain[]>()
+
+// Grouped chains: Authors, then Reviewers, then Approvers, then Informed (same rule as the API).
+const GROUPS: Meaning[] = ['authored', 'reviewed', 'approved', 'acknowledged']
+const groupOf = (m: Meaning) => { const i = GROUPS.indexOf(m); return i === -1 ? GROUPS.length : i }
 
 function seedChain(documentId: string): MockChain {
   const chainId = `chain-${documentId}-seed`
@@ -66,15 +70,19 @@ export const signatureHandlers = [
     if (chains.some(c => c.status === 'initiated' || c.status === 'in_progress')) {
       return HttpResponse.json({ error: 'chain_already_active' }, { status: 409 })
     }
-    const body = await request.json() as { chainType?: 'sequential' | 'parallel'; signers: Array<{ signerId: string; signerName: string; signerRole: string; meaning: Meaning; scopeSections?: string[] }> }
-    const chainType = body.chainType ?? 'sequential'
+    const body = await request.json() as { chainType?: 'sequential' | 'parallel' | 'grouped'; signers: Array<{ signerId: string; signerName: string; signerRole: string; meaning: Meaning; scopeSections?: string[] }> }
+    const chainType = body.chainType ?? 'grouped'
+    const signers = chainType === 'grouped'
+      ? body.signers.map((s, i) => ({ s, i })).sort((a, b) => groupOf(a.s.meaning) - groupOf(b.s.meaning) || a.i - b.i).map(x => x.s)
+      : body.signers
+    const firstGroup = Math.min(...signers.map(s => groupOf(s.meaning)))
     const chainId = `chain-${documentId}-${Date.now()}`
     const chain: MockChain = {
       id: chainId, documentId, chainType, status: 'initiated', initiatedBy: 'user-MW', initiatedAt: new Date().toISOString(),
       completedAt: null, cancelledAt: null, cancelReason: null,
-      records: body.signers.map((s, i) => ({
+      records: signers.map((s, i) => ({
         id: `sig-${Date.now()}-${i}`, chainId, ...s, scopeSections: s.scopeSections ?? [], step: i + 1,
-        status: chainType === 'parallel' || i === 0 ? 'awaiting' : 'queued',
+        status: chainType === 'parallel' || (chainType === 'sequential' && i === 0) || (chainType === 'grouped' && groupOf(s.meaning) === firstGroup) ? 'awaiting' : 'queued',
         documentHash: null, versionAtSigning: null, credentialHash: null, timestampUtc: null, localTime: null, timeSource: null, authMethod: null,
       })),
     }
@@ -110,6 +118,11 @@ export const signatureHandlers = [
     if (chain.chainType === 'sequential') {
       const next = chain.records.find(r => r.status === 'queued')
       if (next) next.status = 'awaiting'
+    }
+    if (chain.chainType === 'grouped' && !chain.records.some(r => groupOf(r.meaning) === groupOf(record.meaning) && r.status !== 'signed')) {
+      const queued = chain.records.filter(r => r.status === 'queued' && groupOf(r.meaning) > groupOf(record.meaning))
+      const nextGroup = Math.min(...queued.map(r => groupOf(r.meaning)))
+      for (const r of queued) if (groupOf(r.meaning) === nextGroup) r.status = 'awaiting'
     }
     if (chain.records.every(r => r.status === 'signed')) {
       chain.status = 'complete'

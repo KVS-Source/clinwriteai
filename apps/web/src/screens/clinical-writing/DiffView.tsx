@@ -288,7 +288,8 @@ export function DiffView() {
     )
   }
 
-  const toAuthor = toRecord ? (usersById.get(toRecord.createdBy)?.name ?? toRecord.createdBy) : null
+  // The API names the creator (CW-103); the admin-only user list is a fallback for older APIs.
+  const toAuthor = toRecord ? (toRecord.createdByName ?? usersById.get(toRecord.createdBy)?.name ?? toRecord.createdBy) : null
   const comparing = fromLoading || toLoading || versionsLoading
   const compareFailed = fromFailed || toFailed
 

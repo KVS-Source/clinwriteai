@@ -106,6 +106,11 @@ export const handleRestoreVersion: JobHandler<RestoreJobPayload> = async (job, {
       sectionTitle: sourceSection.sectionTitle,
       contentHtml: sourceSection.contentHtml,
       ichStatus: sourceSection.ichStatus,
+      // A restore is an edit by whoever ran it; the content (and its AI / human make-up) is the source's.
+      lastEditedBy: actorId,
+      lastEditedAt: new Date(),
+      aiSpanCount: sourceSection.aiSpanCount,
+      humanSpanCount: sourceSection.humanSpanCount,
     })
   }
 
@@ -149,6 +154,12 @@ export const handleRestoreVersion: JobHandler<RestoreJobPayload> = async (job, {
             contentHtml: s.contentHtml,
             ichStatus: s.ichStatus,
             wordCount: countWords(s.contentHtml),
+            // Carried over (CW-093): sections not restored keep who last edited them and their span
+            // counts instead of being reset to empty and 0.
+            lastEditedBy: s.lastEditedBy,
+            lastEditedAt: s.lastEditedAt,
+            aiSpanCount: s.aiSpanCount,
+            humanSpanCount: s.humanSpanCount,
           })),
         },
       },

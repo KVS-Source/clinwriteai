@@ -4,7 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom'
 import { useProjectStore } from '../../store/projectStore'
 import { useDocumentStore } from '../../store/documentStore'
 import { useAuthStore } from '../../store/authStore'
-import { authApi } from '../../api'
+import { authApi, documentsApi, projectsApi } from '../../api'
 import { usePlatformStore, hasPersonaOverride, clearPersonaOverride, PLATFORM_DEMO_USERS } from '../../platform/store'
 import { platformApi } from '../../platform/api/platformApi'
 import { ApiError } from '../../api/client'
@@ -149,19 +149,39 @@ export function TopNav() {
   const moduleLabel    = moduleSlug && MODULE_LABEL_KEYS[moduleSlug] ? t(MODULE_LABEL_KEYS[moduleSlug]!) : null
   const trailing       = projectRouteMatch?.[3] ?? ''      // whatever follows /module/
   const docMatch       = /^documents\/([^/]+)/.exec(trailing)
+
+  // Screens that don't put the project / document into the store (CRM, E-Signature) used to get a
+  // cut-short breadcrumb (CW-100). Load them from the URL instead, on the same query keys the
+  // screens use, so this is normally a cache read.
+  const routeProjectId  = projectRouteMatch?.[1] && projectRouteMatch[1] !== 'new' ? projectRouteMatch[1] : null
+  const routeDocumentId = docMatch?.[1] ?? null
+  const { data: routeProject } = useQuery({
+    queryKey: ['project', routeProjectId],
+    queryFn:  () => projectsApi.get(routeProjectId!),
+    enabled:  !!routeProjectId && project?.id !== routeProjectId,
+    retry:    false,
+  })
+  const { data: routeDocument } = useQuery({
+    queryKey: ['document', routeDocumentId],
+    queryFn:  () => documentsApi.get(routeDocumentId!),
+    enabled:  !!routeDocumentId && activeDocument?.id !== routeDocumentId,
+    retry:    false,
+  })
+  const crumbProject  = project?.id === routeProjectId ? project : routeProject ?? null
+  const crumbDocument = activeDocument?.id === routeDocumentId ? activeDocument : routeDocument ?? null
   const leafSlug       = !docMatch && trailing ? trailing.split('/')[0]! : null
   const leafLabel      = leafSlug && LEAF_LABEL_KEYS[leafSlug] ? t(LEAF_LABEL_KEYS[leafSlug]!) : null
 
   const crumbs: Array<{ label: string; href: string | null }> = [
     ADMIN_ROLES.has(currentUser.role) ? null : { label: t('component.top_nav.crumb_projects'), href: '/projects' },
-    inProjectRoute && project ? { label: project.shortTitle, href: `/projects/${project.id}` } : null,
-    inProjectRoute && moduleLabel && project
-      ? { label: moduleLabel, href: `/projects/${project.id}/${moduleSlug}` }
+    inProjectRoute && crumbProject ? { label: crumbProject.shortTitle, href: `/projects/${crumbProject.id}` } : null,
+    inProjectRoute && moduleLabel && crumbProject
+      ? { label: moduleLabel, href: `/projects/${crumbProject.id}/${moduleSlug}` }
       : null,
     // Leaf OR document title — mutually exclusive since docMatch and
     // leafSlug can't both be truthy by construction above.
-    docMatch && activeDocument
-      ? { label: activeDocument.title, href: null }
+    docMatch && crumbDocument
+      ? { label: crumbDocument.title, href: null }
       : leafLabel
         ? { label: leafLabel, href: null }
         : null,

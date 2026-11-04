@@ -617,7 +617,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
-    return app.prisma.documentVersion.findMany({
+    const versions = await app.prisma.documentVersion.findMany({
       where: { documentId },
       orderBy: { createdAt: 'desc' },
       select: {
@@ -625,6 +625,14 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         isCurrent: true, createdBy: true, createdAt: true, restoreSource: true,
       },
     })
+    // Creator names in one lookup (CW-103): the Version Diff used to name them from the admin-only
+    // user list, so everyone else saw a raw user id.
+    const creatorIds = [...new Set(versions.map(v => v.createdBy))]
+    const creators = creatorIds.length
+      ? await app.prisma.user.findMany({ where: { id: { in: creatorIds } }, select: { id: true, name: true } })
+      : []
+    const nameById = new Map(creators.map(u => [u.id, u.name]))
+    return versions.map(v => ({ ...v, createdByName: nameById.get(v.createdBy) ?? null }))
   })
 
   // One version's sections as stored — the Version Diff compares two of these. Read-only.
@@ -728,6 +736,24 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
     const locked = await authoringLock(documentId)
     if (locked) return reply.code(409).send(locked)
+
+    // Check every requested section exists in the version it is restored from, on this document,
+    // before queuing (CW-094): the worker used to fail on it later and the user never saw why.
+    const versionIds = [...new Set(parsed.data.sections.map(s => s.fromVersionId))]
+    const sourceVersions = await app.prisma.documentVersion.findMany({
+      where:  { id: { in: versionIds }, documentId },
+      select: { id: true, versionNumber: true, sections: { select: { sectionId: true } } },
+    })
+    const byId = new Map(sourceVersions.map(v => [v.id, v]))
+    const missing = parsed.data.sections.filter(s => !byId.get(s.fromVersionId)?.sections.some(x => x.sectionId === s.sectionId))
+    if (missing.length > 0) {
+      return reply.code(400).send({
+        error:   'restore_sections_missing',
+        message: `These sections are not in the chosen version: ${missing
+          .map(s => `${s.sectionId} (${byId.get(s.fromVersionId)?.versionNumber ?? 'unknown version'})`).join(', ')}.`,
+        missing,
+      })
+    }
 
     const job = await app.prisma.versionRestoreJob.create({
       data: {

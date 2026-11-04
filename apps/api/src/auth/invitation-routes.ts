@@ -2,7 +2,7 @@
 //
 //   GET  /auth/invitations/preview?token=...   what the accept page shows
 //   POST /auth/invitations/accept              { token, acceptTerms: true }
-//   POST /auth/invitations/register            { token, newPassword, acceptTerms } → activate + set password
+//   POST /auth/invitations/register            { token, name, tenantRef?, newPassword, acceptTerms } → activate + set password
 //
 // `accept` is the legacy SSO path: it validates the link, records that T&C
 // were accepted in the browser, and stores the token in a short-lived
@@ -28,9 +28,18 @@ const acceptBody = z.object({
 })
 const registerBody = z.object({
   token: z.string().min(16).max(128),
+  // The invitee enters their own name; it replaces the one derived from the email at invite time.
+  name: z.string().trim().min(1).max(120),
+  // Optional free-text Tenant ID, stored as entered (users.tenant_ref). It is
+  // not the tenant link (users.tenantId), which stays as the admin set it.
+  tenantRef: z.string().trim().max(100).optional(),
   newPassword: z.string().min(1).max(128),
   acceptTerms: z.literal(true),
 })
+
+// "Jane Doe" → "JD"; at most two letters, matching the initials elsewhere in the app.
+const initialsOf = (name: string) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('')
 
 // Tight per-route limit: these are unauthenticated and token-guessing targets.
 const limit = { rateLimit: { max: 20, timeWindow: '1 minute' } }
@@ -86,10 +95,12 @@ export const invitationRoutes: FastifyPluginAsync = async (app) => {
   app.post('/auth/invitations/register', { config: limit }, async (request, reply) => {
     const parsed = registerBody.safeParse(request.body)
     if (!parsed.success) {
-      const termsIssue = parsed.error.issues.some(i => i.path[0] === 'acceptTerms')
+      const field = (name: string) => parsed.error.issues.some(i => i.path[0] === name)
       return reply.code(400).send({
         error: 'validation',
-        message: termsIssue ? 'Terms must be accepted to continue' : 'Invalid registration details',
+        message: field('name') ? 'Name is required'
+          : field('acceptTerms') ? 'Terms must be accepted to continue'
+          : 'Invalid registration details',
       })
     }
 
@@ -102,6 +113,9 @@ export const invitationRoutes: FastifyPluginAsync = async (app) => {
     if (!invitation || !check.valid) {
       return reply.code(410).send({ error: 'invitation_invalid', reason: check.valid ? 'not_found' : check.reason })
     }
+
+    // Free text, saved exactly as entered (trimmed); blank saves nothing.
+    const tenantRef = parsed.data.tenantRef || null
 
     const now = new Date()
     const passwordHash = await hashPassword(parsed.data.newPassword)
@@ -117,6 +131,9 @@ export const invitationRoutes: FastifyPluginAsync = async (app) => {
       app.prisma.user.update({
         where: { id: invitation.userId },
         data: {
+          name: parsed.data.name,
+          initials: initialsOf(parsed.data.name),
+          tenantRef,
           passwordHash,
           passwordChangedAt: now,
           mustChangePassword: false,
@@ -133,7 +150,7 @@ export const invitationRoutes: FastifyPluginAsync = async (app) => {
       action: 'user.invitation.register',
       entityType: 'user',
       entityId: invitation.userId,
-      details: { email: invitation.user.email, termsVersion: TERMS_VERSION },
+      details: { email: invitation.user.email, termsVersion: TERMS_VERSION, tenantRef },
       ipAddress: request.ip ?? null,
     })
 

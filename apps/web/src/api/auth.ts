@@ -34,8 +34,9 @@ export const authApi = {
   changePassword: (currentPassword: string, newPassword: string) =>
     api.post<{ ok: true }>('/auth/change-password', { currentPassword, newPassword }, NO_REDIRECT),
   // Register from an invite link: set a password, which activates the account.
-  registerFromInvite: (token: string, newPassword: string) =>
-    api.post<{ ok: true; email: string }>('/auth/invitations/register', { token, newPassword, acceptTerms: true }, NO_REDIRECT),
+  // tenantRef: the optional free-text Tenant ID, sent only when entered.
+  registerFromInvite: (token: string, name: string, newPassword: string, tenantRef?: string) =>
+    api.post<{ ok: true; email: string }>('/auth/invitations/register', { token, name, newPassword, acceptTerms: true, ...(tenantRef && { tenantRef }) }, NO_REDIRECT),
   session: () =>
     api.get<User & { email: string; mustChangePassword?: boolean }>('/auth/me', NO_REDIRECT),
 }

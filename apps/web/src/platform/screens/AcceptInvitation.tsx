@@ -26,6 +26,20 @@ interface InvitationPreview {
   expiresAt?: string
 }
 
+// "tenant-admin" → "Tenant Admin", "contributor" → "Contributor".
+const formatRole = (role?: string) =>
+  (role ?? '').split(/[-_\s]+/).filter(Boolean).map(w => w[0]!.toUpperCase() + w.slice(1)).join(' ')
+
+// A value fixed by the invitation, styled like the email box (grey, not editable).
+function ReadOnlyField({ label, value, attr }: { label: string; value: string; attr: string }) {
+  return (
+    <div>
+      <label className="mb-1 block text-[13px] font-medium text-slate-600">{label}</label>
+      <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700" {...{ [attr]: '' }}>{value}</div>
+    </div>
+  )
+}
+
 const REASON_KEYS: Record<string, string> = {
   expired:          'page.accept_invitation.reason_expired',
   revoked:          'page.accept_invitation.reason_revoked',
@@ -40,6 +54,8 @@ export function AcceptInvitation() {
   const [params] = useSearchParams()
   const token = params.get('token') ?? ''
 
+  const [name,     setName]     = useState('')
+  const [tenantRef, setTenantRef] = useState('')   // optional free text
   const [password, setPassword] = useState('')
   const [confirm,  setConfirm]  = useState('')
   const [agreed,   setAgreed]   = useState(false)
@@ -52,13 +68,14 @@ export function AcceptInvitation() {
   })
 
   const register = useMutation({
-    mutationFn: () => authApi.registerFromInvite(token, password),
+    mutationFn: () => authApi.registerFromInvite(token, name.trim(), password, tenantRef.trim() || undefined),
     onSuccess: () => navigate('/sign-in?registered=1', { replace: true }),
   })
 
   const data = preview.data
   const mismatch  = confirm.length > 0 && confirm !== password
-  const canSubmit = passwordMeetsPolicy(password) && confirm === password && agreed
+  // Name, password and confirm password are mandatory (plus the Terms).
+  const canSubmit = name.trim().length > 0 && passwordMeetsPolicy(password) && confirm === password && agreed
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault()
@@ -91,19 +108,28 @@ export function AcceptInvitation() {
       {data?.valid && (
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <p className="text-[13px] text-slate-600" data-invite-greeting>
-            {t('page.accept_invitation.greeting_prefix', { name: data.name })}<strong>{data.role}</strong>{t('page.accept_invitation.greeting_suffix')}
+            {t('page.accept_invitation.greeting_prefix', { name: data.name })}<strong>{formatRole(data.role)}</strong>{t('page.accept_invitation.greeting_suffix')}
           </p>
 
-          {/* Email is fixed by the invitation — shown read-only so the user
-              knows which address they'll sign in with. */}
-          <div>
-            <label className="mb-1 block text-[13px] font-medium text-slate-600">{t('page.accept_invitation.email_label')}</label>
-            <div className="flex h-10 items-center rounded-lg border border-slate-200 bg-slate-50 px-3 text-sm text-slate-700" data-invite-email>{data.email}</div>
-          </div>
+          <AuthField id="invite-name" label={t('page.accept_invitation.name_label')} value={name} onChange={setName} autoComplete="name" placeholder={t('page.accept_invitation.name_placeholder')} autoFocus requiredMark />
 
-          <AuthField id="new-password" label={t('page.accept_invitation.password_label')} type="password" value={password} onChange={setPassword} autoComplete="new-password" autoFocus />
+          {/* Email and role are fixed by the invitation — shown read-only. */}
+          <ReadOnlyField label={t('page.accept_invitation.email_label')} value={data.email ?? ''} attr="data-invite-email" />
+          <ReadOnlyField label={t('page.accept_invitation.role_label')} value={formatRole(data.role)} attr="data-invite-role" />
+
+          {/* Optional free text, saved as entered. */}
+          <AuthField
+            id="invite-tenant"
+            label={t('page.accept_invitation.tenant_label')}
+            value={tenantRef}
+            onChange={setTenantRef}
+            autoComplete="off"
+            placeholder={t('page.accept_invitation.tenant_placeholder')}
+            optional
+          />
+          <AuthField id="new-password" label={t('page.accept_invitation.password_label')} type="password" value={password} onChange={setPassword} autoComplete="new-password" requiredMark />
           <PasswordRules password={password} />
-          <AuthField id="confirm-password" label={t('page.accept_invitation.confirm_label')} type="password" value={confirm} onChange={setConfirm} autoComplete="new-password" />
+          <AuthField id="confirm-password" label={t('page.accept_invitation.confirm_label')} type="password" value={confirm} onChange={setConfirm} autoComplete="new-password" requiredMark />
           {mismatch && <p className="-mt-2 text-[12px] text-red-600" data-password-mismatch>{t('page.accept_invitation.mismatch')}</p>}
 
           <label className="flex items-start gap-2 text-[13px] text-slate-700">

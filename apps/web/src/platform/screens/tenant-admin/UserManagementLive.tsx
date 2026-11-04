@@ -10,13 +10,21 @@
 // can be the home for the real API wiring without churning the UX of
 // the older screen.
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { describeApiError } from '../../../api'
 import { api } from '../../../api/client'
+import { SortIcon } from '../../../components/ui/SortIcon'
 
 type UserStatus = 'invited' | 'active' | 'suspended' | 'deprovisioned'
+
+// Filter / sort state for the table. Filtering and sorting run client-side
+// over the full /admin/users list (already scoped to the admin's tenant).
+type SortKey = 'name' | 'role' | 'tenant' | 'status' | 'lastActive'
+type SortDir = 'asc' | 'desc'
+
+const STATUS_ORDER: UserStatus[] = ['active', 'invited', 'suspended', 'deprovisioned']
 
 interface AdminUser {
   id: string
@@ -27,6 +35,7 @@ interface AdminUser {
   modules: string[]
   status: UserStatus
   tenantId: string | null
+  tenantRef?: string | null     // Tenant ID the user typed when registering (free text)
   lastActiveAt: string | null   // stamped on each sign-in (auth/routes.ts)
   createdAt: string
   updatedAt: string
@@ -68,6 +77,15 @@ const ROLE_OPTIONS: { value: string; labelKey: string; descriptionKey: string }[
   { value: 'guest',        labelKey: 'page.user_management_live.role_label_guest',        descriptionKey: 'page.user_management_live.role_desc_guest' },
 ]
 
+// Tenant column: the Tenant ID the user entered at registration, else the tenant link.
+const tenantOf = (u: AdminUser) => u.tenantRef || u.tenantId || null
+
+// Display label for a role: the canonical label when there is one, else the raw (legacy) name.
+function roleLabelOf(role: string, t: (k: string) => string): string {
+  const opt = ROLE_OPTIONS.find(r => r.value === role)
+  return opt ? t(opt.labelKey) : role
+}
+
 const usersApi = {
   list:         () => api.get<AdminUser[]>('/admin/users'),
   invite:       (body: { email: string; name: string; role: string; modules?: string[]; tenantId?: string }) =>
@@ -95,21 +113,28 @@ function StatusChip({ status }: { status: UserStatus }) {
   )
 }
 
+// The invite form asks only for email + role. The API still needs a display
+// name, so derive one from the address: "jane.doe@acme.com" \u2192 "Jane Doe".
+function nameFromEmail(email: string): string {
+  const local = email.split('@')[0] ?? ''
+  const words = local.split(/[._\-+]+/).filter(Boolean)
+  const name = words.map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
+  return name || local || email
+}
+
 function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => void }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const [email, setEmail] = useState('')
-  const [name,  setName]  = useState('')
   const [role,  setRole]  = useState<string>('contributor')
-  const [tenantId, setTenantId] = useState('')
   const [err, setErr] = useState<string | null>(null)
 
+  // Pasted addresses can carry stray spaces or zero-width characters that fail validation.
+  const cleanEmail = email.replace(/[\s\u200B-\u200D\uFEFF]/g, '')
+
+  // No tenant is sent: the API puts the invitee in the inviting admin's tenant.
   const invite = useMutation({
-    // Pasted addresses can carry stray spaces or zero-width characters that fail validation.
-    mutationFn: () => usersApi.invite({
-      email: email.replace(/[\s​-‍﻿]/g, ''),
-      name: name.trim(), role, tenantId: tenantId.trim() || undefined, modules: ['A'],
-    }),
+    mutationFn: () => usersApi.invite({ email: cleanEmail, name: nameFromEmail(cleanEmail), role, modules: ['A'] }),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['admin-users'] })
       onDone(created.email, { inviteUrl: created.inviteUrl, inviteExpiresAt: created.inviteExpiresAt })
@@ -121,13 +146,7 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-4" data-section="invite-user">
       <h3 className="text-[13px] font-bold text-slate-900">{t('page.user_management_live.invite_user_heading')}</h3>
-      {/* Labelled fields, name first: with placeholders only, a filled form gave no hint which
-          box was which and names typed into the email box came back as "Invalid email". */}
       <div className="mt-3 grid gap-2" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
-        <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
-          {t('page.user_management_live.field_display_name')}
-          <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder={t('page.user_management_live.display_name_placeholder')} value={name} onChange={e => { setName(e.target.value); setErr(null) }} data-input="name" />
-        </label>
         <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
           {t('page.user_management_live.field_email')}
           <input type="email" className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder={t('page.user_management_live.email_placeholder')} value={email} onChange={e => { setEmail(e.target.value); setErr(null) }} data-input="email" />
@@ -144,26 +163,19 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
             {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value} title={t(r.descriptionKey)}>{t(r.labelKey)}</option>)}
           </select>
         </label>
-        <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
-          {t('page.user_management_live.field_tenant_id')}
-          <input className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900" placeholder={t('page.user_management_live.tenant_id_placeholder')} value={tenantId} onChange={e => setTenantId(e.target.value)} data-input="tenantId" />
-        </label>
       </div>
       {err && <p className="mt-2 rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-error>{err}</p>}
       <div className="mt-3 flex justify-end">
         <button
           type="button"
           onClick={() => {
-            const clean = email.replace(/[\s​-‍﻿]/g, '')
-            if (!/^[^@]+@[^@]+\.[^@]+$/.test(clean)) {
-              setErr(name.includes('@')
-                ? t('page.user_management_live.err_swap_fields')
-                : t('page.user_management_live.err_invalid_email', { email: email.trim() }))
+            if (!/^[^@]+@[^@]+\.[^@]+$/.test(cleanEmail)) {
+              setErr(t('page.user_management_live.err_invalid_email', { email: email.trim() }))
               return
             }
             invite.mutate()
           }}
-          disabled={!email || !name || invite.isPending}
+          disabled={!cleanEmail || invite.isPending}
           className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
           data-action="invite"
         >
@@ -188,6 +200,79 @@ export function UserManagementLive() {
   // (the top banner can be off-screen, or already showing identical text).
   const [resendState, setResendState] = useState<{ id: string; phase: 'sending' | 'done' | 'failed'; message?: string } | null>(null)
   const noticeRef = useRef<HTMLDivElement>(null)
+
+  // --- filters + sort ---------------------------------------------------
+  const [statusFilter, setStatusFilter] = useState<'all' | UserStatus>('all')
+  const [roleFilter,   setRoleFilter]   = useState<string>('all')
+  const [search,       setSearch]       = useState('')
+  // null = keep the API order (newest first) until a header is clicked.
+  const [sort, setSort] = useState<SortKey | null>(null)
+  const [dir,  setDir]  = useState<SortDir>('asc')
+
+  // Roles offered in the filter: the canonical five plus any legacy role a
+  // user still holds, so every row stays reachable from the dropdown.
+  const roleOptions = useMemo(() => {
+    const present = new Set(users.map(u => u.role))
+    const canonical = ROLE_OPTIONS.map(r => r.value)
+    const legacy = [...present].filter(r => !canonical.includes(r)).sort()
+    return [...canonical, ...legacy]
+  }, [users])
+
+  const filtersActive = statusFilter !== 'all' || roleFilter !== 'all' || search.trim() !== ''
+  const clearFilters = () => { setStatusFilter('all'); setRoleFilter('all'); setSearch('') }
+
+  const visibleUsers = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const filtered = users.filter(u =>
+      (statusFilter === 'all' || u.status === statusFilter) &&
+      (roleFilter === 'all' || u.role === roleFilter) &&
+      // "Employee ID" is the user's ID; email matches too, as admins often search by it.
+      (!q || u.name.toLowerCase().includes(q) || u.id.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)),
+    )
+    if (!sort) return filtered
+
+    const byName = (a: AdminUser, b: AdminUser) => a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+    const sign = dir === 'asc' ? 1 : -1
+    return [...filtered].sort((a, b) => {
+      let c = 0
+      switch (sort) {
+        case 'name':   c = byName(a, b); break
+        case 'role':   c = roleLabelOf(a.role, t).localeCompare(roleLabelOf(b.role, t), undefined, { sensitivity: 'base' }); break
+        case 'status': c = STATUS_ORDER.indexOf(a.status) - STATUS_ORDER.indexOf(b.status); break
+        case 'tenant':
+        case 'lastActive': {
+          const av = sort === 'tenant' ? tenantOf(a) : a.lastActiveAt
+          const bv = sort === 'tenant' ? tenantOf(b) : b.lastActiveAt
+          // Blank tenant / never-active rows always sink to the bottom.
+          if (!av || !bv) return av === bv ? byName(a, b) : av ? -1 : 1
+          c = sort === 'tenant' ? av.localeCompare(bv) : new Date(av).getTime() - new Date(bv).getTime()
+          break
+        }
+      }
+      return c !== 0 ? c * sign : byName(a, b)
+    })
+    // Role labels come from t(); re-sort when the language changes.
+  }, [users, statusFilter, roleFilter, search, sort, dir, t])
+
+  const toggleSort = (key: SortKey) => {
+    if (sort === key) setDir(d => (d === 'asc' ? 'desc' : 'asc'))
+    else { setSort(key); setDir(key === 'lastActive' ? 'desc' : 'asc') }
+  }
+
+  // A render helper (not a nested component) so headers don't remount on every render.
+  const th = (label: string, key?: SortKey, className = '') => (
+    <th
+      scope="col"
+      aria-sort={key && sort === key ? (dir === 'asc' ? 'ascending' : 'descending') : 'none'}
+      className={`px-4 py-2 ${className}`}
+    >
+      {key ? (
+        <button type="button" onClick={() => toggleSort(key)} className="inline-flex items-center gap-1.5 uppercase tracking-widest hover:text-slate-800" data-sort={key}>
+          {label}<SortIcon state={sort === key ? dir : null} />
+        </button>
+      ) : label}
+    </th>
+  )
 
   useEffect(() => {
     if (inviteLink) noticeRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
@@ -232,7 +317,11 @@ export function UserManagementLive() {
           <div>
             <h1 className="text-[22px] font-bold text-slate-900">{t('page.user_management_live.title')}</h1>
             <p className="mt-1 text-[12px] text-slate-500">
-              {isLoading ? t('status.loading') : t('page.user_management_live.user_count', { count: users.length })}
+              {isLoading
+                ? t('status.loading')
+                : filtersActive
+                  ? t('page.user_management_live.showing_count', { shown: visibleUsers.length, total: users.length })
+                  : t('page.user_management_live.user_count', { count: users.length })}
             </p>
           </div>
           <button
@@ -263,27 +352,72 @@ export function UserManagementLive() {
           </div>
         )}
 
+        {/* Filter bar: status, role, search (name / employee ID / email), clear. */}
+        <div className="flex flex-wrap items-center gap-3" data-section="user-filters">
+          <select
+            value={statusFilter}
+            onChange={e => setStatusFilter(e.currentTarget.value as 'all' | UserStatus)}
+            aria-label={t('page.user_management_live.filter_status_aria')}
+            data-filter="status"
+            className="h-9 min-w-[140px] rounded-md border border-slate-200 bg-white px-3 font-mono text-[12px] text-slate-900"
+          >
+            <option value="all">{t('page.user_management_live.filter_all_status')}</option>
+            {STATUS_ORDER.map(s => <option key={s} value={s}>{t(`page.user_management_live.status_${s}`)}</option>)}
+          </select>
+          <select
+            value={roleFilter}
+            onChange={e => setRoleFilter(e.currentTarget.value)}
+            aria-label={t('page.user_management_live.filter_role_aria')}
+            data-filter="role"
+            className="h-9 min-w-[170px] rounded-md border border-slate-200 bg-white px-3 font-mono text-[12px] text-slate-900"
+          >
+            <option value="all">{t('page.user_management_live.filter_all_roles')}</option>
+            {roleOptions.map(r => <option key={r} value={r}>{roleLabelOf(r, t)}</option>)}
+          </select>
+          <div className="flex h-9 min-w-[240px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 focus-within:border-slate-800">
+            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#94A3B8" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3.5 3.5" strokeLinecap="round" /></svg>
+            <input
+              type="search"
+              value={search}
+              onChange={e => setSearch(e.currentTarget.value)}
+              placeholder={t('page.user_management_live.search_placeholder')}
+              aria-label={t('page.user_management_live.search_aria')}
+              data-filter="search"
+              className="w-full border-none bg-transparent font-mono text-[12px] text-slate-900 outline-none placeholder:text-slate-400"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={clearFilters}
+            disabled={!filtersActive}
+            className="inline-flex items-center gap-1.5 font-mono text-[12px] text-slate-500 hover:text-slate-900 disabled:cursor-default disabled:opacity-50 disabled:hover:text-slate-500"
+            data-action="clear-filters"
+          >
+            <span aria-hidden="true">✕</span>{t('page.user_management_live.clear_filters')}
+          </button>
+        </div>
+
         <div className="overflow-hidden rounded-lg border border-slate-200 bg-white">
           <table className="w-full text-[13px]">
             <thead style={{ backgroundColor: '#F8FAFC' }}>
               <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                <th className="px-4 py-2">{t('page.user_management_live.col_user')}</th>
-                <th className="px-4 py-2">{t('page.user_management_live.col_role')}</th>
-                <th className="px-4 py-2">{t('page.user_management_live.col_tenant')}</th>
-                <th className="px-4 py-2">{t('page.user_management_live.col_status')}</th>
-                <th className="px-4 py-2">{t('page.user_management_live.col_last_active')}</th>
-                <th className="px-4 py-2 text-right">{t('page.user_management_live.col_actions')}</th>
+                {th(t('page.user_management_live.col_user'), 'name')}
+                {th(t('page.user_management_live.col_role'), 'role')}
+                {th(t('page.user_management_live.col_tenant'), 'tenant')}
+                {th(t('page.user_management_live.col_status'), 'status')}
+                {th(t('page.user_management_live.col_last_active'), 'lastActive')}
+                {th(t('page.user_management_live.col_actions'), undefined, 'text-right')}
               </tr>
             </thead>
             <tbody>
-              {users.map(u => (
+              {visibleUsers.map(u => (
                 <tr key={u.id} className="border-t border-slate-200" data-user-row={u.id}>
                   <td className="px-4 py-3">
                     <p className="font-semibold text-slate-900">{u.name}</p>
                     <p className="mt-0.5 font-mono text-[10px] text-slate-500">{u.email}</p>
                   </td>
                   <td className="px-4 py-3 text-slate-700">{u.role}</td>
-                  <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{u.tenantId ?? '—'}</td>
+                  <td className="px-4 py-3 font-mono text-[11px] text-slate-500" data-tenant-cell>{tenantOf(u) ?? '—'}</td>
                   <td className="px-4 py-3"><StatusChip status={u.status} /></td>
                   <td className="px-4 py-3 text-[12px] text-slate-600" data-last-active>
                     {u.lastActiveAt
@@ -330,7 +464,15 @@ export function UserManagementLive() {
                 </tr>
               ))}
               {users.length === 0 && !isLoading && (
-                <tr><td colSpan={5} className="px-4 py-6 text-center text-[12px] text-slate-500">{t('page.user_management_live.no_users')}</td></tr>
+                <tr><td colSpan={6} className="px-4 py-6 text-center text-[12px] text-slate-500">{t('page.user_management_live.no_users')}</td></tr>
+              )}
+              {users.length > 0 && visibleUsers.length === 0 && (
+                <tr>
+                  <td colSpan={6} className="px-4 py-6 text-center text-[12px] text-slate-500" data-empty-filtered>
+                    {t('page.user_management_live.no_matches')}{' '}
+                    <button type="button" onClick={clearFilters} className="font-semibold text-blue-600 hover:text-blue-700">{t('page.user_management_live.clear_filters')}</button>
+                  </td>
+                </tr>
               )}
             </tbody>
           </table>

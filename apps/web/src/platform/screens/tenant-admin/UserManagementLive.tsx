@@ -35,6 +35,7 @@ interface AdminUser {
   modules: string[]
   status: UserStatus
   tenantId: string | null
+  tenantName?: string | null    // the real tenant's name (looked up by the API from tenantId)
   tenantRef?: string | null     // Tenant ID the user typed when registering (free text)
   lastActiveAt: string | null   // stamped on each sign-in (auth/routes.ts)
   createdAt: string
@@ -77,8 +78,9 @@ const ROLE_OPTIONS: { value: string; labelKey: string; descriptionKey: string }[
   { value: 'guest',        labelKey: 'page.user_management_live.role_label_guest',        descriptionKey: 'page.user_management_live.role_desc_guest' },
 ]
 
-// Tenant column: the Tenant ID the user entered at registration, else the tenant link.
-const tenantOf = (u: AdminUser) => u.tenantRef || u.tenantId || null
+// Tenant column: the real tenant (CW-099). The Tenant ID typed at registration is free text
+// anyone can fill in, so it is only shown underneath, labelled as entered by the user.
+const tenantOf = (u: AdminUser) => u.tenantName || u.tenantId || null
 
 // Display label for a role: the canonical label when there is one, else the raw (legacy) name.
 function roleLabelOf(role: string, t: (k: string) => string): string {
@@ -412,7 +414,14 @@ export function UserManagementLive() {
                     <p className="mt-0.5 font-mono text-[10px] text-slate-500">{u.email}</p>
                   </td>
                   <td className="px-4 py-3 text-slate-700">{u.role}</td>
-                  <td className="px-4 py-3 font-mono text-[11px] text-slate-500" data-tenant-cell>{tenantOf(u) ?? '—'}</td>
+                  <td className="px-4 py-3 text-[12px] text-slate-700" data-tenant-cell>
+                    <p>{tenantOf(u) ?? '—'}</p>
+                    {u.tenantRef && (
+                      <p className="mt-0.5 font-mono text-[10px] text-slate-500" data-tenant-ref>
+                        {t('page.user_management_live.tenant_ref_entered', { ref: u.tenantRef })}
+                      </p>
+                    )}
+                  </td>
                   <td className="px-4 py-3"><StatusChip status={u.status} /></td>
                   <td className="px-4 py-3 text-[12px] text-slate-600" data-last-active>
                     {u.lastActiveAt

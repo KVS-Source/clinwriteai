@@ -7,7 +7,17 @@ import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
 
-const TODAY = new Date('2026-09-09T00:00:00Z')
+// Midnight UTC today: card validity and renewal are calendar days (this used to be pinned to 9 Sep 2026).
+function startOfTodayUTC(): Date {
+  const now = new Date()
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+}
+
+// "Nov 2026" for a 'YYYY-MM' billing period, in the UI language (the column used to say "Sept").
+function billingPeriodName(month: string | undefined, lang: string): string {
+  const d = month && /^\d{4}-\d{2}$/.test(month) ? new Date(`${month}-01T00:00:00Z`) : new Date()
+  return new Intl.DateTimeFormat(lang, { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(d)
+}
 
 const STEPS = [100_000, 250_000, 500_000, 1_000_000, 2_000_000, 5_000_000]
 
@@ -35,7 +45,7 @@ function InvoiceStatus({ status }: { status: string }) {
 }
 
 export function SubscriptionPayment() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
   const [searchParams] = useSearchParams()
   const prefill = Number(searchParams.get('prefill') ?? '0')
@@ -45,7 +55,8 @@ export function SubscriptionPayment() {
   const { data: cfg }    = useQuery<PlatformConfig>({ queryKey: ['platform-config'],  queryFn: () => platformApi.getConfig() })
 
   const activeCard = cards.find(c => c.status === 'active')
-  const isExpired  = activeCard ? new Date(activeCard.validUntil) < TODAY : false
+  const today      = useMemo(() => startOfTodayUTC(), [])
+  const isExpired  = activeCard ? new Date(activeCard.validUntil) < today : false
 
   // Initial step: prefill from query (if present, pick closest step) else default 500K
   const initialStep = useMemo(() => {
@@ -80,6 +91,9 @@ export function SubscriptionPayment() {
   if (!sub) return <div className="p-8 text-center text-sm text-slate-500" data-screen="subscription-payment">{t('status.loading')}</div>
 
   const usedPct = Math.round((sub.currentPeriod.tokensConsumed / sub.contractedTokensPerMonth) * 100)
+  const periodName = billingPeriodName(sub.currentPeriod.month, i18n.language)
+  // Whole days from today to the renewal date (was a fixed 22).
+  const daysToRenewal = Math.max(0, Math.round((new Date(sub.renewalDate).getTime() - today.getTime()) / 86_400_000))
 
   return (
     <div className="bg-slate-50" data-screen="subscription-payment">
@@ -117,7 +131,7 @@ export function SubscriptionPayment() {
                   <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
                     <th className="px-4 py-2">{t('page.subscription_payment.col_scope')}</th>
                     <th className="px-4 py-2 text-right">{t('page.subscription_payment.col_included')}</th>
-                    <th className="px-4 py-2 text-right">{t('page.subscription_payment.col_used')}</th>
+                    <th className="px-4 py-2 text-right">{t('page.subscription_payment.col_used', { period: periodName })}</th>
                     <th className="px-4 py-2 text-right">{t('page.subscription_payment.col_remaining')}</th>
                   </tr>
                 </thead>
@@ -131,7 +145,7 @@ export function SubscriptionPayment() {
                 </tbody>
               </table>
               <p className="border-t border-slate-200 p-2 font-mono text-[11px] text-slate-500" data-usage-note>
-                {t('page.subscription_payment.usage_note', { pct: usedPct, days: 22 })}
+                {t('page.subscription_payment.usage_note', { pct: usedPct, days: daysToRenewal })}
               </p>
             </div>
 

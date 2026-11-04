@@ -99,8 +99,15 @@ function downloadFile(filename: string, content: string, type: string) {
   URL.revokeObjectURL(url)
 }
 
+// "November 2026" for a 'YYYY-MM' billing period, in the UI language (CW-073: the title and
+// stat captions used to say "September" whatever the period was).
+function billingPeriodName(month: string | undefined, lang: string): string {
+  const d = month && /^\d{4}-\d{2}$/.test(month) ? new Date(`${month}-01T00:00:00Z`) : new Date()
+  return new Intl.DateTimeFormat(lang, { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(d)
+}
+
 export function ServicesDashboard() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
   const navigate = useNavigate()
   const today = useMemo(() => startOfTodayUTC(), [])
@@ -149,6 +156,7 @@ export function ServicesDashboard() {
   if (!sub) return <div className="p-8 text-center text-sm text-slate-500" data-screen="services-dashboard">{t('status.loading')}</div>
 
   const period = sub.currentPeriod
+  const periodName = billingPeriodName(period.month, i18n.language)
   const remainingPct = Math.round((period.tokensRemaining / sub.contractedTokensPerMonth) * 100)
   const renewalDays = daysBetween(today, new Date(sub.renewalDate))
   const alert = sub.burnRateAlert
@@ -177,7 +185,7 @@ export function ServicesDashboard() {
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.services_dashboard.title')}</h1>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.services_dashboard.title', { period: periodName })}</h1>
             <p className="mt-1 text-[13px] text-slate-600" data-header-blurb>
               {t('page.services_dashboard.header_blurb', { date: formatDay(sub.renewalDate) })}
             </p>
@@ -207,7 +215,7 @@ export function ServicesDashboard() {
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="tokens-consumed">
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_tokens_consumed')}</p>
             <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{period.tokensConsumed.toLocaleString()}</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.september_to_date')}</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.period_to_date', { period: periodName })}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="remaining-balance">
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_remaining_balance')}</p>
@@ -217,7 +225,7 @@ export function ServicesDashboard() {
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="estimated-spend">
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_estimated_spend')}</p>
             <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{formatUSD(period.estimatedSpend)}</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.september_to_date')}</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.period_to_date', { period: periodName })}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="contracted">
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_contracted')}</p>

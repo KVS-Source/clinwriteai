@@ -77,11 +77,12 @@ describe('assignable users', () => {
     await app.close()
   })
 
-  it('scope=assignee: active users including PMs, without admins, even when they are project members', async () => {
+  it('scope=assignee: active users including PMs, without admins, auditors or guests, even when they are project members', async () => {
     const app = await build([
       u('author'), u('no-caps', { capabilities: [] }), u('invited', { status: 'invited' }),
       u('pm', { role: 'pm' }), u('tenant-admin', { role: 'tenant-admin' }), u('admin', { role: 'admin' }), u('super', { role: 'super-admin' }),
-    ], [{ userId: 'pm', projectRole: 'Project Manager' }, { userId: 'tenant-admin', projectRole: null }])
+      u('auditor', { role: 'auditor' }), u('guest', { role: 'guest' }),
+    ], [{ userId: 'pm', projectRole: 'Project Manager' }, { userId: 'tenant-admin', projectRole: null }, { userId: 'auditor', projectRole: 'Auditor' }])
     expect(await names(app, '?scope=assignee')).toEqual(['author', 'no-caps', 'pm'])
     await app.close()
   })

@@ -129,15 +129,18 @@ export const DOCUMENT_EDIT_FORBIDDEN = {
 // its author, though they still can't edit it or manage its RACI (see above).
 export const NEVER_AUTHOR_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin'])
 
+// Nor can an auditor (read-only everywhere) or a guest be a document's assignee (CW-081).
+export const NEVER_ASSIGNEE_ROLES: ReadonlySet<string> = new Set([...NEVER_AUTHOR_ROLES, 'auditor', 'read-only', 'guest'])
+
 // An unknown id passes here and fails on the Document's foreign key as it always has.
 export async function userCanBeAssignee(prisma: PrismaClient, userId: string): Promise<boolean> {
   const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
-  return !user || !NEVER_AUTHOR_ROLES.has(user.role)
+  return !user || !NEVER_ASSIGNEE_ROLES.has(user.role)
 }
 
 export const ASSIGNEE_NOT_ELIGIBLE = {
   error: 'assignee_not_eligible',
-  message: 'An admin cannot be assigned as the author of a document.',
+  message: 'An admin, auditor or guest cannot be assigned as the author of a document.',
 } as const
 
 // Resolving a comment, in a CRM meeting or outside one: the document's Author (R, or the assignee),

@@ -236,6 +236,17 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
   // Without query params this returns the full scoped array (existing
   // clients). Any of q/role/status/module/tenantId/page/pageSize switches
   // to a paginated envelope { items, total, page, pageSize }.
+  // The real tenant's name for each user (CW-099): the Tenant column used to show the free-text
+  // Tenant ID typed at registration (tenantRef) instead. One query per page of users.
+  async function withTenantNames<U extends { tenantId: string | null }>(users: U[]): Promise<Array<U & { tenantName: string | null }>> {
+    const ids = [...new Set(users.map(u => u.tenantId).filter((v): v is string => !!v))]
+    const tenants = ids.length
+      ? await app.prisma.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
+      : []
+    const nameById = new Map(tenants.map(t => [t.id, t.name]))
+    return users.map(u => ({ ...u, tenantName: u.tenantId ? nameById.get(u.tenantId) ?? null : null }))
+  }
+
   app.get('/', { preHandler: adminGate }, async (request, reply) => {
     const actor = request.user!
     const parsedQuery = listQuerySchema.safeParse(request.query)
@@ -262,7 +273,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     // Preserve the "no params = flat array" contract for existing clients.
     // Any filter triggers the paginated envelope.
     if (page === undefined && pageSize === undefined && !q && !role && !status && !module && !tenantId && !capability) {
-      return app.prisma.user.findMany({ where, orderBy: { createdAt: 'desc' } })
+      return withTenantNames(await app.prisma.user.findMany({ where, orderBy: { createdAt: 'desc' } }))
     }
 
     const p = page ?? 1
@@ -271,7 +282,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       app.prisma.user.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (p - 1) * size, take: size }),
       app.prisma.user.count({ where }),
     ])
-    return { items, total, page: p, pageSize: size }
+    return { items: await withTenantNames(items), total, page: p, pageSize: size }
   })
 
   app.get('/:id', { preHandler: adminGate }, async (request, reply) => {

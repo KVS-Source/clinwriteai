@@ -7,8 +7,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { documentsRoutes } from './routes.js'
 
-// Who may edit is covered by documents/edit-gate.test.ts; this file tests what
-// happens once an author is let through.
+// Who may submit is covered by documents/submit-for-review-authors.test.ts; this file
+// tests what happens once an author is let through.
 vi.mock('../../platform/document-raci/access.js', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../platform/document-raci/access.js')>()),
   actorCanEditDocumentContent: vi.fn(async () => true),
@@ -30,6 +30,13 @@ async function build(opts: { columnMissing?: boolean } = {}) {
       }),
     },
     checklistInstanceItem: { findMany: vi.fn(async () => []) },
+    // u1 is the document's only author (R), so their submission sends it to review.
+    documentRaci: {
+      findMany:   vi.fn(async () => [{ id: 'raci-r', userId: 'u1', sectionId: null, submittedAt: null, rejectedAt: null }]),
+      updateMany: vi.fn(async () => ({ count: 1 })),
+    },
+    project: { findUnique: vi.fn(async () => ({ id: 'proj-1', status: 'initiated' })) },
+    user:    { findMany: vi.fn(async () => []) },
   } as never)
   const append = vi.fn(async (_event: { action: string; details: Record<string, unknown> }) => undefined)
   app.decorate('audit', { append } as never)

@@ -18,6 +18,8 @@ import { SectionAutosaveStatus } from './SectionAutosaveStatus'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill } from '../../components/ui'
 import { useDocumentStore, useProjectStore, useEditorStore } from '../../store'
+import { usePlatformStore } from '../../platform/store'
+import { canUseAiChat } from '../../config/roles'
 import { SectionAIPrompt } from './SectionAIPrompt'
 import { SourceReferencesPanel } from '../../panels/SourceReferencesPanel'
 import {
@@ -133,6 +135,13 @@ export function DocumentEditor() {
   // The session's user (/auth/me) — the legacy auth store is only filled by the old
   // sign-in screen, so it can be empty or a different person than the one signed in.
   const { data: currentUser } = useCurrentUser()
+
+  // AI Chat and the inline section AI prompt are off for Project Managers.
+  // Close the panel if it was left open (e.g. from a previous persona).
+  const aiChatAllowed = canUseAiChat(usePlatformStore(s => s.currentUser.role))
+  useEffect(() => {
+    if (!aiChatAllowed && activePanel === 'ai') setActivePanel(null)
+  }, [aiChatAllowed, activePanel, setActivePanel])
 
   // Resolve user id → PlatformUser so avatars can show initials + full
   // name tooltip without the presence payload having to carry them.
@@ -1095,7 +1104,7 @@ export function DocumentEditor() {
               panel is open so the user never sees two prompt inputs at
               once; AI Help has no prompt input of its own, so the dock
               stays visible when Help is open. */}
-          {activeSectionData && documentId && activePanel !== 'ai' && !authoringLock && (
+          {aiChatAllowed && activeSectionData && documentId && activePanel !== 'ai' && !authoringLock && (
             <div className="flex-none border-t border-slate-200 bg-white px-12 py-3" data-section-ai-prompt-dock>
               <div className="max-w-[760px]">
                 <SectionAIPrompt
@@ -1292,7 +1301,7 @@ export function DocumentEditor() {
                 scopeToSection
               />
             )}
-            {activePanel === 'ai' && documentId && (
+            {aiChatAllowed && activePanel === 'ai' && documentId && (
               <AIChatPanel
                 documentId={documentId}
                 sectionId={activeSection}

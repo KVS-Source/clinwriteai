@@ -35,6 +35,9 @@ async function build(opts: { chat?: Chat; auditFails?: boolean; noSection?: bool
         currentVersion: { sections: opts.noSection ? [] : [{ id: 'row-1', sectionId: 'd2', sectionNumber: '§2', sectionTitle: 'Worldwide Marketing Approval Status', contentHtml: '<p>Patient Jane Roe, saved text.</p>' }] },
       })),
     },
+    // The section-edit gate also checks the status lock and the section lock.
+    project:     { findUnique: vi.fn(async () => ({ status: 'initiated' })) },
+    sectionLock: { findUnique: vi.fn(async () => null) },
   } as never)
   app.decorate('aiGateway', { chat } as never)
   app.decorate('audit', { append } as never)

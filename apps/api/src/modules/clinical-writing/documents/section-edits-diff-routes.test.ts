@@ -18,9 +18,11 @@ type Row = {
   afterHtml: string
 }
 
-async function build(opts: { row?: Row } = {}) {
+async function build(opts: { row?: Row; canSee?: boolean } = {}) {
   const app = Fastify()
   app.decorate('prisma', {
+    // canSeeDocument: the diff is readable by anyone who can see the document.
+    document: { count: vi.fn(async () => (opts.canSee === false ? 0 : 1)) },
     editHistory: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
         if (!opts.row) return null
@@ -66,6 +68,13 @@ describe('GET /section-edits/:id/diff', () => {
       beforeHtml:    '<p>Before text.</p>',
       afterHtml:     '<p>After text.</p>',
     })
+  })
+
+  it('404s for someone who cannot see the document (no leaking edits outside your work)', async () => {
+    const { app } = await build({ row: sampleRow, canSee: false })
+    const res = await app.inject({ method: 'GET', url: `/documents/section-edits/${sampleRow.id}/diff` })
+    expect(res.statusCode).toBe(404)
+    expect(res.json().error).toBe('not_found')
   })
 
   it('404s when the row does not exist', async () => {

@@ -64,7 +64,8 @@ test('with access: the tab and version menu are there', async ({ page }) => {
   await stub(page, true)
   await page.goto(base(), { waitUntil: 'domcontentloaded' })
   await expect(tab(page)).toBeVisible({ timeout: 60_000 })
-  await expect(page.locator('[data-version-trigger]')).toBeEnabled()
+  // The tab bar draws before the Editor below it has finished loading.
+  await expect(page.locator('[data-version-trigger]')).toBeEnabled({ timeout: 60_000 })
   await page.locator('[data-version-trigger]').click()
   await expect(page.locator('[data-version-option="v0.1"]')).toBeVisible()
 })

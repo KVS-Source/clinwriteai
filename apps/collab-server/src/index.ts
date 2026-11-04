@@ -30,7 +30,7 @@ import { parse as parseCookie } from 'cookie'
 import { IncomingMessage } from 'node:http'
 import pino from 'pino'
 import { Room, type PersistArgs } from './room.js'
-import { verifySession, type SessionIdentity } from './auth.js'
+import { canEditDocument, verifySession, type SessionIdentity } from './auth.js'
 import { persistToApi } from './persistence.js'
 
 const PORT          = Number(process.env.COLLAB_PORT ?? '1234')
@@ -102,8 +102,12 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
 
   // --- Auth gate ---
   let identity: SessionIdentity | null = null
+  // Only the document's authors (active R row, or the assignee) may change the
+  // room; everyone else joins read-only — they see live edits, theirs are dropped.
+  let canEdit = false
   if (SKIP_AUTH) {
     identity = { userId: 'anonymous', name: 'Anonymous', email: 'anon@localhost' }
+    canEdit = true
   } else {
     const cookies = parseCookie(req.headers.cookie ?? '')
     const token = cookies[SESSION_COOKIE_NAME]
@@ -119,10 +123,12 @@ wss.on('connection', async (ws: WebSocket, req: IncomingMessage) => {
       ws.close(1008, 'auth_failed')
       return
     }
+    canEdit = await canEditDocument(API_BASE_URL, token, documentId)
+    if (!canEdit) log.info({ roomId, user: identity.userId }, 'read-only connection — not an author on this document')
   }
 
   const room = getOrCreateRoom(roomId)
-  room.addConnection(ws, identity, { documentId, sectionId })
+  room.addConnection(ws, identity, { documentId, sectionId, canEdit })
 })
 
 // Graceful shutdown — flush all rooms + close websockets.

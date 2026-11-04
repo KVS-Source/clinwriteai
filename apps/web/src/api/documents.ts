@@ -1,5 +1,6 @@
 import { api } from './client'
 import type {
+
   Document, ChecklistItem, AuditEntry, Comment,
   AISuggestion, SignatureRecord, DocumentVersion, DocumentStage, VoiceNote,
   CreateDocumentBody, UpdateSectionBody, CompleteItemBody, WaiveItemBody,
@@ -7,6 +8,14 @@ import type {
   ResolveCommentBody, AISuggestBody, AcceptSuggestionBody,
   RegulatoryRegion,
 } from '@platform/types'
+
+// Submit for review, when other authors (R) still have to submit their part.
+export interface PartSubmittedResponse {
+  id:             string
+  status:         string
+  partSubmitted:  true
+  pendingAuthors: Array<{ userId: string; name: string }>
+}
 
 // Protocol-metadata patch body for PATCH /documents/:id/protocol-metadata.
 // Every key is optional + nullable: present+null clears the column, absent
@@ -196,8 +205,10 @@ export const documentsApi = {
   restoreSections: (documentId: string, body: RestoreSectionsBody) =>
     api.post<Document>(`/documents/${documentId}/restore`, body),
   // Review
+  // Each author (R) submits their own part. 200 → every author has submitted and the
+  // document is in review; 202 → this author's part is in, others still to submit.
   submitForReview: (documentId: string, body: SubmitForReviewBody) =>
-    api.post<Document>(`/documents/${documentId}/submit-for-review`, body),
+    api.post<Document | PartSubmittedResponse>(`/documents/${documentId}/submit-for-review`, body),
   // Stage (PRD-A-010 linear stage-gated progression). Advance moves the
   // document to the next stage in [study-start-up → during-study → post-study
   // → cross-functional-review → crm → final-output]. Fails 422 when the

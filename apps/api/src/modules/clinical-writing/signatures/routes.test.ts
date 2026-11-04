@@ -45,7 +45,8 @@ function fakePrisma() {
   const matches = (row: Row, where: Row = {}): boolean => Object.entries(where).every(([k, v]) => {
     if (k === 'NOT') return !matches(row, v)
     if (v && typeof v === 'object' && 'in' in v) return (v.in as unknown[]).includes(row[k])
-    return row[k] === v
+    if (v && typeof v === 'object' && 'not' in v) return (row[k] ?? null) !== v.not
+    return (row[k] ?? null) === v
   })
   const withRecords = (c: Row | undefined) => c && { ...c, records: records.filter(r => r.chainId === c.id).sort((a, b) => a.step - b.step) }
 
@@ -104,6 +105,7 @@ function fakePrisma() {
     documentRaci: {
       findMany: async ({ where }: Row) => raciRows.filter(r => matches(r, where)),
       findFirst: async ({ where }: Row) => raciRows.find(r => matches(r, where)) ?? null,
+      updateMany: async ({ where, data }: Row) => { const hit = raciRows.filter(r => matches(r, where)); hit.forEach(r => Object.assign(r, data)); return { count: hit.length } },
     },
     $queryRawUnsafe: async () => [],
     $executeRawUnsafe: async () => 0,
@@ -378,6 +380,8 @@ describe('signature chain routes', () => {
   })
 
   it('cancel requires a reason and returns the document to in_authoring', async () => {
+    // The author had submitted their part; a signer refusal starts a new authoring round.
+    t.db.raciRows[0].submittedAt = new Date('2026-11-01T00:00:00Z')
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
     const noReason = await t.app.inject({ method: 'POST', url: `/signature-chains/${chain.id}/cancel`, payload: { cancelReason: '' } })
     expect(noReason.statusCode).toBe(400)
@@ -385,6 +389,7 @@ describe('signature chain routes', () => {
     expect(res.statusCode).toBe(200)
     expect(t.db.chains[0].status).toBe('cancelled')
     expect(t.db.documents[0].status).toBe('in_authoring')
+    expect(t.db.raciRows[0].submittedAt).toBeNull()          // every author submits their part again
   })
 })
 

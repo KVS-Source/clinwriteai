@@ -3,6 +3,8 @@ import { useEditorState } from '@tiptap/react'
 import { useTranslation } from 'react-i18next'
 import { useDocumentStore } from '../../store'
 import { ReferenceDropdown } from '../../components/ui'
+import { usePlatformStore } from '../../platform/store'
+import { canUseAiChat } from '../../config/roles'
 
 // --- Icons ---
 
@@ -154,6 +156,7 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
   const toggle = (mode: NonNullable<PanelMode>) => setActivePanel(activePanel === mode ? null : mode)
+  const aiChatAllowed = canUseAiChat(usePlatformStore(s => s.currentUser.role))
 
   // Formatting command shortcuts — null-safe so toolbar can mount
   // before the editor is ready.
@@ -276,13 +279,16 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
           mode toggle has no job. The lock holder is indicated by a status
           pill next to the section title (SectionAutosaveStatus). */}
 
-      {/* AI Chat — accent button (label matches the panel header). */}
+      {/* AI Chat — accent button (label matches the panel header). Disabled for
+          Project Managers (canUseAiChat); the API refuses their AI calls too. */}
       <button
         type="button"
-        title={t('page.editor_toolbar.ai_chat_tooltip')}
-        onClick={() => toggle('ai')}
+        title={aiChatAllowed ? t('page.editor_toolbar.ai_chat_tooltip') : t('page.editor_toolbar.ai_chat_disabled_pm')}
+        onClick={() => { if (aiChatAllowed) toggle('ai') }}
+        disabled={!aiChatAllowed}
         data-panel-trigger
-        className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-bold transition-colors"
+        data-action="toggle-ai-chat"
+        className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-bold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
         style={{
           borderColor:     activePanel === 'ai' ? '#93C5FD' : '#BFDBFE',
           backgroundColor: activePanel === 'ai' ? '#DBEAFE' : '#EFF6FF',

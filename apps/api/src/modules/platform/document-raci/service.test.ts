@@ -124,7 +124,7 @@ describe('validateRaciInsert — capability match', () => {
     }
   })
 
-  it.each(['pm', 'tenant-admin', 'admin', 'super-admin'])('refuses R for a %s, even holding can-author or self-granting', async (role) => {
+  it.each(['tenant-admin', 'admin', 'super-admin'])('refuses R for a %s, even holding can-author or self-granting', async (role) => {
     const user = { id: 'u-1', capabilities: ['can-author'], role }
     const assigned = await validateRaciInsert(makePrisma({ user }), { ...baseInput, letter: 'R' })
     const selfGrant = await validateRaciInsert(makePrisma({ user }), { ...baseInput, letter: 'R', assignedBy: 'u-1', isActorTenantAdmin: true })
@@ -134,10 +134,11 @@ describe('validateRaciInsert — capability match', () => {
     }
   })
 
-  it('leaves the other letters open to a PM', async () => {
-    const user = { id: 'u-1', capabilities: ['can-review'], role: 'pm' }
-    expect((await validateRaciInsert(makePrisma({ user }), { ...baseInput, letter: 'C' })).ok).toBe(true)
-    expect((await validateRaciInsert(makePrisma({ user }), { ...baseInput, letter: 'I' })).ok).toBe(true)
+  it('lets a PM hold any letter, R included', async () => {
+    const user = { id: 'u-1', capabilities: ['can-author', 'can-review'], role: 'pm' }
+    for (const letter of ['R', 'C', 'I'] as const) {
+      expect((await validateRaciInsert(makePrisma({ user }), { ...baseInput, letter })).ok).toBe(true)
+    }
   })
 
   it('permits tenant-admin self-grant without the capability', async () => {

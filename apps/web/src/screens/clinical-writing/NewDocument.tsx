@@ -244,7 +244,7 @@ export function NewDocumentForm({
       const status = u.status as string   // the API also returns 'deprovisioned'
       if (status === 'suspended' || status === 'deprovisioned') return false
       const role = u.role as string
-      if (['clinical-writer', 'scientific-writer', 'medical-writer', 'regulatory-writer'].includes(role)) return true
+      if (['clinical-writer', 'scientific-writer', 'medical-writer', 'regulatory-writer', 'pm'].includes(role)) return true
       if (role !== 'contributor') return false
       const capabilities = (u as { capabilities?: string[] }).capabilities
       return !capabilities || capabilities.includes('can-author')

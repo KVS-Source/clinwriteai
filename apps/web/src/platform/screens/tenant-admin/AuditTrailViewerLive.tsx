@@ -1,8 +1,8 @@
 // Audit trail viewer (live) — Arc 4.7 of docs/pivot-plan.md.
 //
-// Super-admin only. Paginated filter form over the real audit_events
-// table with hash-chain verify button + CSV export via <a href> (the
-// browser handles the download; cookie travels via credentials:'include').
+// Admins, and PMs for their own projects' entries (the API applies that scope).
+// Paginated filter form over the real audit_events table with hash-chain verify
+// button (admins only) + CSV export.
 //
 // Filters are drafted in the form and only take effect on Apply, so the
 // table, the page count and the CSV export always describe the same set.
@@ -17,8 +17,9 @@ import { DateTimeRangeFilter, defaultRange, rangeToIso, toInputValue, type TimeZ
 import { SortIcon } from '../../../components/ui/SortIcon'
 import { MODULE_KEY_TO_LABEL, type ModuleKey } from '../../../config/modules'
 import {
-  useAuditQuery, useAuditVerify, useAuditFacets, useAuditNewer, auditExportUrl, type AuditQuery,
+  useAuditQuery, useAuditVerify, useAuditFacets, useAuditNewer, auditExportCsv, type AuditQuery,
 } from '../../../hooks'
+import { usePlatformStore } from '../../store'
 import { useQuery } from '@tanstack/react-query'
 import { auditApi, projectsApi, describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry, type AuditSortKey } from '../../../api'
 
@@ -423,6 +424,10 @@ function VerifyMenu({ busy, filtersReady, pageHasRows, onVerify }: {
 
 export function AuditTrailViewerLive() {
   const { t } = useTranslation()
+  // A PM reads and exports their own projects' entries; verifying the chain stays with admins.
+  const isPm = usePlatformStore(s => s.currentUser.role) === 'pm'
+  const [exporting, setExporting] = useState(false)
+  const [exportFailed, setExportFailed] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()
   const initialFilters = useMemo(() => filtersFromUrl(searchParams), [searchParams])
 
@@ -624,12 +629,36 @@ export function AuditTrailViewerLive() {
   const totalLabel = data ? `${data.total.toLocaleString()}${data.totalCapped ? '+' : ''}` : ''
   const exportOverCap = data ? (data.totalCapped || data.total > AUDIT_EXPORT_ROW_CAP) : false
 
+  async function runExport() {
+    setExporting(true)
+    setExportFailed(false)
+    try {
+      const { blob, filename } = await auditExportCsv(baseQuery)
+      const url = URL.createObjectURL(blob)
+      const a = window.document.createElement('a')
+      a.href = url
+      a.download = filename ?? 'audit.csv'
+      window.document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setExportFailed(true)
+    } finally {
+      setExporting(false)
+    }
+  }
+
   return (
     <div className="bg-slate-50" data-screen="audit-trail-viewer-live">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.audit_trail_viewer_live.crumb_admin')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
+          {!isPm && (
+            <>
+              <span>{t('page.audit_trail_viewer_live.crumb_admin')}</span>
+              <span style={{ color: '#CBD5E1' }}>&gt;</span>
+            </>
+          )}
           <span className="font-semibold text-slate-900">{t('page.audit_trail_viewer_live.crumb_audit_trail')}</span>
         </nav>
 
@@ -644,15 +673,20 @@ export function AuditTrailViewerLive() {
               </svg>
               <span>{t('page.audit_trail_viewer_live.immutability_notice')}</span>
             </p>
+            {isPm && (
+              <p className="mt-1 text-[12px] text-slate-500" data-section="pm-scope-notice">{t('page.audit_trail_viewer_live.pm_scope_notice')}</p>
+            )}
           </div>
           <div className="flex flex-col items-end gap-1">
             <div className="flex items-center gap-2">
-              <VerifyMenu
-                busy={verify.isPending || lookingUp}
-                filtersReady={!dirty}
-                pageHasRows={(data?.rows.length ?? 0) > 0}
-                onVerify={runVerify}
-              />
+              {!isPm && (
+                <VerifyMenu
+                  busy={verify.isPending || lookingUp}
+                  filtersReady={!dirty}
+                  pageHasRows={(data?.rows.length ?? 0) > 0}
+                  onVerify={runVerify}
+                />
+              )}
               {dirty ? (
                 <button
                   type="button"
@@ -662,13 +696,18 @@ export function AuditTrailViewerLive() {
                   data-action="export-csv"
                 >{t('page.audit_trail_viewer_live.export_csv')}</button>
               ) : (
-                <a
-                  href={auditExportUrl(baseQuery)}
-                  className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-slate-700"
+                <button
+                  type="button"
+                  disabled={exporting}
+                  onClick={() => void runExport()}
+                  className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-slate-700 disabled:opacity-60"
                   data-action="export-csv"
-                >{t('page.audit_trail_viewer_live.export_csv')}</a>
+                >{t('page.audit_trail_viewer_live.export_csv')}</button>
               )}
             </div>
+            {exportFailed && (
+              <p role="alert" className="text-[11px] text-red-700" data-export-error>{t('page.audit_trail_viewer_live.export_failed')}</p>
+            )}
             <p className="text-[10px] text-slate-500">
               {dirty
                 ? (dateRangeInvalid ? t('page.audit_trail_viewer_live.fix_date_range_to_export') : t('page.audit_trail_viewer_live.updating_filters'))

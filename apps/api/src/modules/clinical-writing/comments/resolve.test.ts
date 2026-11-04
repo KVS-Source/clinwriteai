@@ -9,7 +9,7 @@ import { commentsRoutes } from './routes.js'
 
 const body = { sectionRef: '§11.4.1', text: 'Please add the 95% CI.', severity: 'major' }
 
-async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCreates?: number; existing?: Record<string, unknown> | null } = {}) {
+async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCreates?: number; existing?: Record<string, unknown> | null; canResolve?: boolean } = {}) {
   let failures = opts.failCreates ?? 0
   const findMany = vi.fn(async () => (opts.maxSeq ? [{ id: `CMT-${String(opts.maxSeq).padStart(3, '0')}` }] : []))
   const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
@@ -30,10 +30,15 @@ async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCr
     },
     user: { findUnique: vi.fn(async () => ({ name: 'Dr. Elena Vasquez', initials: 'EV' })) },
   } as never)
+  // The resolver's part on the document: a reviewer (C) unless a test says otherwise.
+  Object.assign((app as unknown as { prisma: Record<string, unknown> }).prisma, {
+    documentRaci: { findMany: vi.fn(async () => (opts.canResolve === false ? [] : [{ documentId: 'doc-b' }])) },
+  })
+  ;(app as unknown as { prisma: { document: Record<string, unknown> } }).prisma.document.findMany = vi.fn(async () => [])
   app.decorate('audit', { append } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (r) => {
-    const user: AuthenticatedUser = { id: 'user-ev', email: 'e@v', role: 'admin', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'user-ev', email: 'e@v', role: 'contributor', modules: ['A'], tenantId: null }
     Object.assign(r, { user })
   })
   await app.register(commentsRoutes, { prefix: '/documents' })
@@ -101,6 +106,14 @@ describe('PATCH /documents/:id/comments/:commentId/resolve', () => {
     expect((await resolve(app, { resolutionType: 'accept', note: '' })).statusCode).toBe(400)
     expect((await resolve(app, { resolutionType: 'accept', note: '   ' })).statusCode).toBe(400)
     expect((await resolve(app, { resolutionType: 'accept-with-modification', note: 'x' })).statusCode).toBe(400)
+  })
+
+  it('refuses someone who is not the author, reviewer or approver, and writes nothing', async () => {
+    const { app, append } = await setup({ canResolve: false })
+    const res = await resolve(app, { resolutionType: 'accept', note: 'x' })
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error).toBe('comment_resolve_forbidden')
+    expect(append).not.toHaveBeenCalled()
   })
 
   it('409s on an already-resolved comment and 404s on an unknown one', async () => {

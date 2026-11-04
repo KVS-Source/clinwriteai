@@ -27,6 +27,8 @@ export interface CRMResolutionRow {
 export const crmApi = {
   getMeetings: (documentId: string) =>
     api.get<CRMMeeting[]>(`/documents/${documentId}/crm`),
+  getAccess: (documentId: string) =>
+    api.get<{ canSchedule: boolean }>(`/documents/${documentId}/crm/access`),
   createMeeting: (documentId: string, body: ScheduleMeetingBody) =>
     api.post<CRMMeeting>(`/documents/${documentId}/crm`, body),
   startMeeting: (meetingId: string) =>

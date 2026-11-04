@@ -13,8 +13,7 @@
 //                           can-qc | can-publish
 //   scope=raci (optional) — active + invited non-admins, capability filter
 //                           off (POST …/raci grants a missing capability)
-//   scope=assignee (optional) — active users, minus PMs and admins
-//   letter (optional, with scope=raci) — letter=R also leaves out PMs
+//   scope=assignee (optional) — active users, without admins
 //
 // Response is a minimal shape — the picker only needs name/email/
 // capabilities to render a chip + capability-match check:
@@ -31,19 +30,14 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type Capability } from '../../../auth/rbac.js'
-import { RACI_LOCKED_ROLES } from '../document-raci/access.js'
 
 const CAPABILITY_VALUES = ['can-author', 'can-review', 'can-approve', 'can-qc', 'can-publish'] as const
 const querySchema = z.object({
   capability: z.enum(CAPABILITY_VALUES).optional(),
   // scope=raci — the RACI picker: every active or invited non-admin candidate,
   // whatever their capabilities (assigning a letter grants the missing one).
-  // scope=assignee — the New Document assignee: active users who can be its
-  // first author, so nobody whose role locks them out of editing and RACI.
+  // scope=assignee — the New Document assignee: active users, without admins.
   scope: z.enum(['raci', 'assignee']).optional(),
-  // With scope=raci: the letter being filled. R is the authoring letter, so it
-  // also leaves out the PMs who can hold any other letter.
-  letter: z.enum(['R', 'A', 'C', 'I', 'Q']).optional(),
 })
 const ADMIN_ROLES = ['admin', 'tenant-admin', 'super-admin']
 
@@ -87,8 +81,8 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
     const users = await app.prisma.user.findMany({
       where: {
         ...(forRaci
-          ? { status: { in: ['active', 'invited'] }, role: { notIn: parsed.data.letter === 'R' ? [...RACI_LOCKED_ROLES] : ADMIN_ROLES } }
-          : { status: 'active', ...(forAssignee ? { role: { notIn: [...RACI_LOCKED_ROLES] } } : {}) }),
+          ? { status: { in: ['active', 'invited'] }, role: { notIn: ADMIN_ROLES } }
+          : { status: 'active', ...(forAssignee ? { role: { notIn: ADMIN_ROLES } } : {}) }),
         OR: [
           { id: { in: userIds } },
           {

@@ -112,10 +112,10 @@ export const assignableUsersApi = {
     api.get<AssignableUser[]>(
       `/projects/${projectId}/assignable-users${capability ? `?capability=${capability}` : ''}`,
     ),
-  /** RACI picker candidates — every active or invited non-admin, whatever their capabilities. For R, also no PMs. */
-  listForRaci: (projectId: string, letter?: RaciLetter) =>
-    api.get<AssignableUser[]>(`/projects/${projectId}/assignable-users?scope=raci${letter ? `&letter=${letter}` : ''}`),
-  /** New Document assignee candidates — active users, without the PMs and admins who can't author. */
+  /** RACI picker candidates — every active or invited non-admin, whatever their capabilities. */
+  listForRaci: (projectId: string) =>
+    api.get<AssignableUser[]>(`/projects/${projectId}/assignable-users?scope=raci`),
+  /** New Document assignee candidates — active users, without admins. */
   listForAssignee: (projectId: string) =>
     api.get<AssignableUser[]>(`/projects/${projectId}/assignable-users?scope=assignee`),
 }

@@ -2575,13 +2575,7 @@
       "letter_c": "Consulted (reviewers)",
       "letter_q": "QC (release)",
       "letter_i": "Informed",
-      "sig_author_attestation": "Author attestation",
-      "sig_medical_approval": "Medical approval",
-      "sig_regulatory_approval": "Regulatory approval",
-      "sig_final_signatory": "Final signatory",
-      "sig_qc_release": "QC release",
       "err_raci_update": "RACI update failed",
-      "err_signature_update": "Signature update failed",
       "err_http_suffix": "{{fallback}} (HTTP {{status}})",
       "err_load_raci": "Failed to load RACI",
       "heading": "RACI assignments",
@@ -2590,7 +2584,13 @@
       "sub_read_only": "Read-only view of the current assignments.",
       "loading": "Loading…",
       "assigned_count": "{{count}} assigned",
-      "requires_e_signature": "Requires e-signature"
+      "remove": "Remove",
+      "remove_aria": "Remove {{name}}",
+      "remove_confirm": "Remove from this document?",
+      "none_assigned": "No one assigned yet.",
+      "adding": "Adding {{name}}…",
+      "added_status": "{{name}} added to {{role}}.",
+      "cancel": "Cancel"
     },
     "status_strip": {
       "letter_r_label": "authors",
@@ -2608,6 +2608,9 @@
     "user_picker": {
       "failed_to_load": "Failed to load users",
       "search_placeholder": "Search users…",
+      "add_placeholder": "Search to add someone…",
+      "add": "Add",
+      "added": "Added",
       "filter_users_aria": "Filter users",
       "loading": "Loading…",
       "no_matches": "No matches.",

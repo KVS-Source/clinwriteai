@@ -2744,13 +2744,7 @@
       "letter_c": "Consulted (レビュー担当者)",
       "letter_q": "QC (リリース)",
       "letter_i": "Informed (通知)",
-      "sig_author_attestation": "著者による証明",
-      "sig_medical_approval": "メディカル承認",
-      "sig_regulatory_approval": "レギュラトリー承認",
-      "sig_final_signatory": "最終署名者",
-      "sig_qc_release": "QC リリース",
       "err_raci_update": "RACI の更新に失敗しました",
-      "err_signature_update": "署名の更新に失敗しました",
       "err_http_suffix": "{{fallback}} (HTTP {{status}})",
       "err_load_raci": "RACI の読み込みに失敗しました",
       "heading": "RACI 割り当て",
@@ -2759,7 +2753,13 @@
       "sub_read_only": "現在の割り当ての読み取り専用ビュー。",
       "loading": "読み込み中…",
       "assigned_count": "{{count}} 名割り当て済み",
-      "requires_e_signature": "電子署名が必要"
+      "remove": "削除",
+      "remove_aria": "{{name}} を削除",
+      "remove_confirm": "このドキュメントから削除しますか？",
+      "none_assigned": "まだ誰も割り当てられていません。",
+      "adding": "{{name}} を追加しています…",
+      "added_status": "{{name}} を {{role}} に追加しました。",
+      "cancel": "キャンセル"
     },
 
     "status_strip": {
@@ -2779,6 +2779,9 @@
     "user_picker": {
       "failed_to_load": "ユーザーの読み込みに失敗しました",
       "search_placeholder": "ユーザーを検索…",
+      "add_placeholder": "検索して追加…",
+      "add": "追加",
+      "added": "追加済み",
       "filter_users_aria": "ユーザーを絞り込む",
       "loading": "読み込み中…",
       "no_matches": "一致するユーザーはありません。",

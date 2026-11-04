@@ -44,7 +44,7 @@ export async function actorCanEditDocumentRaci(
 // RACI is owned by the document's authors: admins and PMs never edit it,
 // even when they happen to be the assignee or hold an R row. The
 // checklist / guest / signature routes keep actorCanEditDocumentRaci.
-const RACI_LOCKED_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin', 'pm'])
+export const RACI_LOCKED_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin', 'pm'])
 
 export async function actorCanEditRaciAssignments(
   prisma: PrismaClient,

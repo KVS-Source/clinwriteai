@@ -1,13 +1,14 @@
-// UserPicker — searchable list of assignable users for one RACI letter.
+// UserPicker — search box for adding a user to one RACI letter.
 //
-// Hits GET /projects/:projectId/assignable-users?capability=<cap>
-// so the list is already filtered server-side to users who can hold the
-// chosen letter. Multi-select (per the design doc §5a — every letter
-// supports multiple users).
+// Hits GET /projects/:projectId/assignable-users?scope=raci so every
+// non-admin candidate is listed; assigning grants a missing capability.
+// One click adds one person (per the design doc §5a every letter supports
+// multiple users, so the box stays available for the next one). Taking
+// someone off is the parent panel's job: its rows have Remove + Cancel.
 //
 // Minimal + headless — the component manages its own fetch + search state
-// but exposes the current selection via `onChange(userIds)`. Styling kept
-// deliberately plain so the parent panel can wrap or restyle it.
+// and reports the choice via `onAdd`. Styling kept deliberately plain so the
+// parent panel can wrap or restyle it.
 
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -30,17 +31,18 @@ export function filterUsers(users: AssignableUser[], query: string): AssignableU
 export interface UserPickerProps {
   projectId: string
   letter: RaciLetter
-  /** Current selection — user ids already chosen for this letter. */
+  /** User ids already holding this letter — shown as added, not selectable. */
   value: string[]
-  onChange: (userIds: string[]) => void
-  /** Set to true when the parent is read-only (e.g. doc is signed). */
+  /** Add this user; resolves true once added. The search closes on success and stays open on failure. */
+  onAdd: (user: AssignableUser) => Promise<boolean>
+  /** Set to true when the parent is read-only (e.g. doc is signed) or busy. */
   disabled?: boolean
   /** Users already holding another letter on the document — shown greyed out, not selectable. */
   heldElsewhere?: Map<string, RaciLetter>
   className?: string
 }
 
-export function UserPicker({ projectId, letter, value, onChange, disabled, heldElsewhere, className }: UserPickerProps) {
+export function UserPicker({ projectId, letter, value, onAdd, disabled, heldElsewhere, className }: UserPickerProps) {
   const { t } = useTranslation()
   const [users, setUsers] = useState<AssignableUser[] | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -68,14 +70,11 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
   const filtered = useMemo(() => (users ? filterUsers(users, query) : []), [users, query])
   const searching = query.trim().length >= MIN_SEARCH_CHARS
 
-  const selected = useMemo(() => new Set(value), [value])
+  const added = useMemo(() => new Set(value), [value])
 
-  function toggle(userId: string) {
+  async function add(user: AssignableUser) {
     if (disabled) return
-    const next = new Set(selected)
-    if (next.has(userId)) next.delete(userId)
-    else next.add(userId)
-    onChange(Array.from(next))
+    if (await onAdd(user)) setQuery('')
   }
 
   return (
@@ -84,7 +83,7 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
         type="search"
         value={query}
         onChange={e => setQuery(e.target.value)}
-        placeholder={t('component.user_picker.search_placeholder')}
+        placeholder={t('component.user_picker.add_placeholder')}
         className="w-full px-3 py-1.5 text-sm border border-slate-300 rounded-md focus:outline-none focus:ring-1 focus:ring-blue-500"
         aria-label={t('component.user_picker.filter_users_aria')}
         disabled={disabled}
@@ -101,23 +100,21 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
           <div className="p-3 text-xs text-slate-500">{t('component.user_picker.no_matches')}</div>
         )}
         {filtered.map(u => {
-          const isSelected = selected.has(u.id)
-          const otherLetter = isSelected ? undefined : heldElsewhere?.get(u.id)
-          const blocked = disabled || !!otherLetter
-          const grants = !isSelected && !otherLetter && capability && !u.capabilities.includes(capability) ? capability : null
+          const isAdded = added.has(u.id)
+          const otherLetter = isAdded ? undefined : heldElsewhere?.get(u.id)
+          const canAdd = !disabled && !isAdded && !otherLetter
+          const grants = !isAdded && !otherLetter && capability && !u.capabilities.includes(capability) ? capability : null
           return (
-            <label
+            <button
               key={u.id}
+              type="button"
+              onClick={() => void add(u)}
+              disabled={!canAdd}
               title={otherLetter ? t('component.user_picker.held_elsewhere_tooltip', { name: u.name, letter: otherLetter }) : undefined}
-              className={`flex items-center gap-3 px-3 py-2 text-sm cursor-pointer ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'} ${blocked ? 'opacity-60 cursor-not-allowed' : ''}`}
+              className={`flex w-full items-center gap-3 px-3 py-2 text-left text-sm ${canAdd ? 'cursor-pointer hover:bg-blue-50' : 'cursor-default'} ${otherLetter ? 'opacity-60' : ''} ${disabled && !isAdded ? 'opacity-60' : ''}`}
+              data-user-result={u.id}
+              data-result-state={isAdded ? 'added' : otherLetter ? 'held-elsewhere' : 'available'}
             >
-              <input
-                type="checkbox"
-                checked={isSelected}
-                onChange={() => toggle(u.id)}
-                disabled={blocked}
-                className="shrink-0"
-              />
               <span className="shrink-0 w-7 h-7 rounded-full bg-slate-200 text-slate-700 flex items-center justify-center text-[11px] font-semibold">
                 {u.initials ?? u.name.slice(0, 2).toUpperCase()}
               </span>
@@ -144,7 +141,15 @@ export function UserPicker({ projectId, letter, value, onChange, disabled, heldE
                   {u.projectRole}
                 </span>
               )}
-            </label>
+              {isAdded && (
+                <span className="shrink-0 rounded bg-emerald-50 px-1.5 py-0.5 text-[11px] font-semibold text-emerald-700" data-already-added>
+                  ✓ {t('component.user_picker.added')}
+                </span>
+              )}
+              {canAdd && (
+                <span className="shrink-0 text-[12px] font-semibold text-blue-600">+ {t('component.user_picker.add')}</span>
+              )}
+            </button>
           )
         })}
       </div>

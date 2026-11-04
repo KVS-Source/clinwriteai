@@ -16,12 +16,13 @@
 // inline on the document detail page. The parent owns open/close.
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import type { PlatformUser } from '@platform/types'
 import {
   raciApi,
+  type AssignableUser,
   type DocumentRaciRow,
   type RaciLetter,
 } from '../../api/raci'
@@ -52,24 +53,7 @@ const LETTER_LABEL_KEY: Record<RaciLetter, string> = {
   I: 'letter_i',
 }
 
-// Options the server accepts in signatureMeaning. Shown in a dropdown next to
-// the "Requires e-signature" checkbox when a row is marked signatureRequired=true.
-const SIGNATURE_MEANINGS = [
-  'Author attestation',
-  'Medical approval',
-  'Regulatory approval',
-  'Final signatory',
-  'QC release',
-] as const
-type SignatureMeaning = typeof SIGNATURE_MEANINGS[number]
-
-const SIGNATURE_MEANING_KEY: Record<SignatureMeaning, string> = {
-  'Author attestation':    'sig_author_attestation',
-  'Medical approval':      'sig_medical_approval',
-  'Regulatory approval':   'sig_regulatory_approval',
-  'Final signatory':       'sig_final_signatory',
-  'QC release':            'sig_qc_release',
-}
+const JUST_ADDED_MS = 6000
 
 // The server's own message when it sent one ("This person has already
 // completed their part…"), not a bare "API error 409".
@@ -81,14 +65,6 @@ function errorText(e: unknown, fallback: string, t: TFunction): string {
   return e instanceof Error ? e.message : fallback
 }
 
-const DEFAULT_SIG_MEANING: Record<RaciLetter, SignatureMeaning> = {
-  R: 'Author attestation',
-  A: 'Medical approval',
-  C: 'Medical approval',
-  Q: 'QC release',
-  I: 'Author attestation', // unused — I rows never require signatures
-}
-
 export function RaciEditor({ projectId, documentId, documentStatus, editable: editableProp, onChanged, className }: RaciEditorProps) {
   const { t } = useTranslation()
   const [rows, setRows] = useState<DocumentRaciRow[] | null>(null)
@@ -97,6 +73,16 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
   // the panel-level banner sits at the top, out of view once scrolled.
   const [letterError, setLetterError] = useState<{ letter: RaciLetter; message: string } | null>(null)
   const [busyLetter, setBusyLetter] = useState<RaciLetter | null>(null)
+  const [confirmingRemove, setConfirmingRemove] = useState<string | null>(null)
+  const [adding, setAdding] = useState<{ letter: RaciLetter; name: string } | null>(null)
+  // The person just added: their row is highlighted and the section confirms it, then both settle.
+  const [justAdded, setJustAdded] = useState<{ letter: RaciLetter; userId: string; name: string } | null>(null)
+  useEffect(() => {
+    if (!justAdded) return
+    const timer = window.setTimeout(() => setJustAdded(null), JUST_ADDED_MS)
+    return () => window.clearTimeout(timer)
+  }, [justAdded])
+  const qc = useQueryClient()
 
   // Only an admin, an R on the document or its assignee may change RACI (server
   // rule); everyone else gets the read-only view instead of a 403 per click.
@@ -134,28 +120,25 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
   const byLetter = useMemo(() => groupActive(rows ?? []), [rows])
   const transitionEval = useMemo(() => buildTransitionEval(rows ?? [], documentStatus), [rows, documentStatus])
 
-  async function addUser(letter: RaciLetter, selected: string[]) {
-    if (!rows) return
-    const already = new Set(byLetter[letter].map(r => r.userId))
-    const toAdd    = selected.filter(id => !already.has(id))
-    const toRemove = byLetter[letter].filter(r => !selected.includes(r.userId))
-
+  async function addUser(letter: RaciLetter, user: AssignableUser): Promise<boolean> {
+    if (!rows) return false
     setBusyLetter(letter)
+    setAdding({ letter, name: user.name })
+    setJustAdded(null)
     setError(null)
     setLetterError(null)
     try {
-      for (const userId of toAdd) {
-        await raciApi.assign(documentId, { userId, letter })
-      }
-      for (const row of toRemove) {
-        await raciApi.remove(documentId, row.id)
-      }
+      await raciApi.assign(documentId, { userId: user.id, letter })
       await refresh()
+      setJustAdded({ letter, userId: user.id, name: user.name })
       onChanged?.()
+      return true
     } catch (e: unknown) {
       setLetterError({ letter, message: errorText(e, t('component.raci_editor.err_raci_update'), t) })
       void refresh()
+      return false
     } finally {
+      setAdding(null)
       setBusyLetter(null)
     }
   }
@@ -201,42 +184,73 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
               </span>
             </header>
 
-            {/* Signature-requirement controls per row. The I letter is
-                excluded — "informed" doesn't sign off. The toggle changes
-                the row in place (PATCH …/raci/:id/signature, audited). */}
-            {letter !== 'I' && current.length > 0 && (
+            {/* One row per person, with Remove. This list is the record of who is assigned. */}
+            {current.length === 0 && (
+              <p className="mb-3 text-[12px] italic text-slate-500" data-raci-empty>{t('component.raci_editor.none_assigned')}</p>
+            )}
+            {current.length > 0 && (
               <ul className="mb-3 space-y-1 text-xs">
-                {current.map(row => (
+                {current.map(row => {
+                  const isNew = justAdded?.letter === letter && justAdded.userId === row.userId
+                  return (
                   <li
                     key={row.id}
-                    className="flex items-center gap-3 px-2 py-1.5 rounded border border-slate-100 bg-slate-50/50"
+                    className={`flex flex-wrap items-center gap-3 px-2 py-1.5 rounded border transition-colors ${isNew ? 'border-emerald-300 bg-emerald-50' : 'border-slate-100 bg-slate-50/50'}`}
+                    data-raci-row={row.id}
+                    data-just-added={isNew || undefined}
                   >
                     <span className="shrink-0 text-[12px] font-medium text-slate-800" title={row.userId}>{nameOf(row.userId)}</span>
-                    <label className="flex items-center gap-1.5 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={row.signatureRequired}
-                        onChange={() => void toggleSignatureRequired(row)}
-                        disabled={!editable || busyLetter === letter}
-                      />
-                      <span className="select-none">{t('component.raci_editor.requires_e_signature')}</span>
-                    </label>
-                    {row.signatureRequired && (
-                      <select
-                        value={(row.signatureMeaning as SignatureMeaning | null) ?? DEFAULT_SIG_MEANING[letter]}
-                        onChange={e => void updateSignatureMeaning(row, e.target.value as SignatureMeaning)}
-                        disabled={!editable || busyLetter === letter}
-                        className="ml-auto text-[11px] border border-slate-300 rounded px-1 py-0.5 bg-white"
-                      >
-                        {SIGNATURE_MEANINGS.map(meaning => (
-                          <option key={meaning} value={meaning}>{t(`component.raci_editor.${SIGNATURE_MEANING_KEY[meaning]}`)}</option>
-                        ))}
-                      </select>
+                    {isNew && (
+                      <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">✓ {t('component.user_picker.added')}</span>
+                    )}
+                    {editable && (
+                      <span className="ml-auto flex items-center gap-2">
+                        {confirmingRemove === row.id ? (
+                          <>
+                            <span className="text-[11px] text-slate-600">{t('component.raci_editor.remove_confirm')}</span>
+                            <button
+                              type="button"
+                              onClick={() => void removeRow(row)}
+                              disabled={busyLetter === letter}
+                              className="rounded bg-rose-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-rose-700 disabled:opacity-50"
+                              data-action="confirm-remove-raci"
+                            >{t('component.raci_editor.remove')}</button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmingRemove(null)}
+                              className="rounded border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                              data-action="cancel-remove-raci"
+                            >{t('component.raci_editor.cancel')}</button>
+                          </>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => { setLetterError(null); setConfirmingRemove(row.id) }}
+                            disabled={busyLetter === letter}
+                            aria-label={t('component.raci_editor.remove_aria', { name: nameOf(row.userId) })}
+                            className="text-[11px] font-semibold text-rose-700 hover:text-rose-800 disabled:opacity-50"
+                            data-action="remove-raci"
+                          >{t('component.raci_editor.remove')}</button>
+                        )}
+                      </span>
                     )}
                   </li>
-                ))}
+                  )
+                })}
               </ul>
             )}
+
+            {/* Always mounted so screen readers announce the change. */}
+            <div role="status" aria-live="polite">
+              {adding?.letter === letter && (
+                <p className="mb-2 text-[12px] text-slate-600" data-raci-adding>{t('component.raci_editor.adding', { name: adding.name })}</p>
+              )}
+              {justAdded?.letter === letter && (
+                <p className="mb-2 rounded border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs font-medium text-emerald-800" data-raci-added>
+                  {t('component.raci_editor.added_status', { name: justAdded.name, role: t(`component.raci_editor.${LETTER_LABEL_KEY[letter]}`) })}
+                </p>
+              )}
+            </div>
 
             {letterError?.letter === letter && (
               <div className="mb-2 rounded border border-rose-200 bg-rose-50 px-3 py-2 text-xs text-rose-700" role="alert" data-raci-letter-error>
@@ -248,7 +262,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
               projectId={projectId}
               letter={letter}
               value={selectedIds}
-              onChange={ids => void addUser(letter, ids)}
+              onAdd={user => addUser(letter, user)}
               disabled={!editable || busyLetter === letter}
               heldElsewhere={heldElsewhere(letter)}
             />
@@ -269,40 +283,28 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
     return out
   }
 
-  async function toggleSignatureRequired(row: DocumentRaciRow) {
-    const nextSigRequired = !row.signatureRequired
-    const nextMeaning = nextSigRequired
-      ? (row.signatureMeaning as SignatureMeaning | null) ?? DEFAULT_SIG_MEANING[row.letter]
-      : null
-    await swapRowSignature(row, nextSigRequired, nextMeaning)
-  }
-
-  async function updateSignatureMeaning(row: DocumentRaciRow, meaning: SignatureMeaning) {
-    await swapRowSignature(row, true, meaning)
-  }
-
-  async function swapRowSignature(
-    row: DocumentRaciRow,
-    signatureRequired: boolean,
-    signatureMeaning: string | null,
-  ) {
+  async function removeRow(row: DocumentRaciRow) {
     setBusyLetter(row.letter)
     setError(null)
     setLetterError(null)
     try {
-      await raciApi.setSignature(documentId, row.id, {
-        signatureRequired,
-        signatureMeaning: signatureRequired ? signatureMeaning : null,
-      })
+      await raciApi.remove(documentId, row.id)
+      setConfirmingRemove(null)
       await refresh()
+      // Removing yourself can end your edit rights, and removing the assignee moves the document on.
+      qc.invalidateQueries({ queryKey: ['document-raci-can-edit', documentId] })
+      qc.invalidateQueries({ queryKey: ['documents', projectId] })
+      qc.invalidateQueries({ queryKey: ['document', documentId] })
       onChanged?.()
     } catch (e: unknown) {
-      setLetterError({ letter: row.letter, message: errorText(e, t('component.raci_editor.err_signature_update'), t) })
-      void refresh()   // show the server's current state, not a stale row
+      setConfirmingRemove(null)
+      setLetterError({ letter: row.letter, message: errorText(e, t('component.raci_editor.err_raci_update'), t) })
+      void refresh()
     } finally {
       setBusyLetter(null)
     }
   }
+
 }
 
 // ---- Helpers ---------------------------------------------------------

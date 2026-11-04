@@ -23,17 +23,20 @@ const USERS = [
 
 test.beforeEach(async ({ page }) => {
   // Only the RACI rows and the candidate users are answered here; the document list is real (read-only).
-  await page.addInitScript(({ users }) => {
+  await page.addInitScript(({ users, persona }) => {
+    // Admins can't open projects, so run as a PM, and answer that this user may edit the RACI.
+    window.localStorage.setItem('clinwrite.demo.currentUserId', persona)
     const json = (b: unknown) => Promise.resolve(new Response(JSON.stringify(b), { status: 200, headers: { 'Content-Type': 'application/json' } }))
     const real = window.fetch.bind(window)
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       const method = (init?.method ?? 'GET').toUpperCase()
+      if (/\/documents\/[^/]+\/raci\/can-edit/.test(url)) return json({ canEdit: true })
       if (/\/projects\/[^/]+\/assignable-users/.test(url)) return json(users)
       if (/\/documents\/[^/?]+\/raci(\?.*)?$/.test(url) && method === 'GET') return json([])
       return real(input, init)
     }
-  }, { users: USERS })
+  }, { users: USERS, persona: process.env.E2E_PM_PERSONA ?? 'user-sa' })
 })
 
 async function openRaci(page: Page) {

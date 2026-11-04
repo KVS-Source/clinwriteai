@@ -71,6 +71,28 @@ const authPlugin: FastifyPluginAsync = async (app) => {
         const header = request.headers['x-system-token']
         const presented = Array.isArray(header) ? header[0] : header
         if (presented && presented === COLLAB_SYSTEM_TOKEN) {
+          // The sidecar names the author whose edit it is saving. The request
+          // then runs as that user, so the usual checks apply to them: an
+          // active R row or being the assignee, the status lock, and their own
+          // section lock. An unknown or inactive user leaves it unauthenticated.
+          const actingHeader = request.headers['x-acting-user']
+          const actingId = Array.isArray(actingHeader) ? actingHeader[0] : actingHeader
+          if (actingId) {
+            const acting = await app.prisma.user.findUnique({ where: { id: actingId } })
+            if (acting && acting.status === 'active') {
+              request.user = {
+                id: acting.id,
+                email: acting.email,
+                role: acting.role as Role,
+                capabilities: acting.capabilities as Capability[],
+                modules: acting.modules as ModuleKey[],
+                tenantId: acting.tenantId ?? null,
+              }
+            }
+            return
+          }
+          // No acting user: the synthetic sidecar identity, which may not
+          // change document content (see actorCanEditDocumentContent).
           request.user = {
             id: 'system:collab',
             email: 'collab-sidecar@localhost',

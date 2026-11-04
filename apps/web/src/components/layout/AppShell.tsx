@@ -3,6 +3,8 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { TopNav }  from './TopNav'
 import { Sidebar } from './Sidebar'
 import { useDocumentStore } from '../../store'
+import { usePlatformStore } from '../../platform/store'
+import { canUseAiChat } from '../../config/roles'
 
 const MODULES = ['clinical-writing', 'scientific-writing', 'medical-writing', 'regulatory-writing', 'ideation-publishing']
 const PLATFORM_ROUTES = ['/admin', '/super-admin', '/library', '/notifications', '/reports', '/services']
@@ -57,6 +59,7 @@ export function AppShell() {
   // layouts. preventDefault blocks Chrome's Downloads-panel binding.
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
+  const aiChatAllowed  = canUseAiChat(usePlatformStore(s => s.currentUser.role))
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return
@@ -66,11 +69,13 @@ export function AppShell() {
       // instead of fighting the browser's Downloads shortcut for nothing.
       if (!/\/documents\/[^/]+/.test(pathname)) return
       e.preventDefault()
+      // AI Chat is off for Project Managers — the shortcut does nothing.
+      if (!aiChatAllowed) return
       setActivePanel(activePanel === 'ai' ? null : 'ai')
     }
     window.addEventListener('keydown', onKey, { capture: true })
     return () => window.removeEventListener('keydown', onKey, { capture: true } as EventListenerOptions)
-  }, [activePanel, setActivePanel, pathname])
+  }, [activePanel, setActivePanel, pathname, aiChatAllowed])
 
   return (
     <div className="flex h-screen overflow-hidden bg-slate-50">

@@ -284,7 +284,10 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
 
   const handleSend = () => {
     const text = prompt.trim()
-    if (!text || send.isPending) return
+    // AI follows editing rights: only someone who may edit this section (its
+    // author, holding the section lock, document open) can ask. The API refuses
+    // anyone else; viewers keep the read-only conversation above.
+    if (!text || send.isPending || !canEditSection) return
     // When the user has attached source documents, scope is forced to
     // 'source' server-side anyway; passing it here just keeps the wire
     // explicit. Otherwise we fall back to the inferred scope.
@@ -485,8 +488,10 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
             }}
             rows={1}
             maxLength={2000}
-            disabled={send.isPending}
-            placeholder={t('page.ai_chat_panel.input_placeholder')}
+            disabled={send.isPending || !canEditSection}
+            placeholder={canEditSection ? t('page.ai_chat_panel.input_placeholder') : (cannotEditReason ?? t('page.ai_chat_panel.section_read_only'))}
+            title={canEditSection ? undefined : (cannotEditReason ?? t('page.ai_chat_panel.section_read_only'))}
+            data-ai-chat-input
             aria-label={t('page.ai_chat_panel.input_aria')}
             className="block max-h-40 min-h-[36px] w-full resize-none rounded-t-xl border-0 bg-transparent px-3 pt-2 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
           />
@@ -499,7 +504,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
               <button
                 type="button"
                 onClick={() => setSourcePickerOpen(o => !o)}
-                disabled={availableSources.length === 0 || send.isPending}
+                disabled={availableSources.length === 0 || send.isPending || !canEditSection}
                 aria-label={t('page.ai_chat_panel.attach_source_aria')}
                 aria-expanded={sourcePickerOpen}
                 title={
@@ -573,8 +578,9 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
             <button
               type="button"
               onClick={handleSend}
-              disabled={!prompt.trim() || send.isPending}
+              disabled={!prompt.trim() || send.isPending || !canEditSection}
               aria-label={t('page.ai_chat_panel.send_to_ai_aria')}
+              data-ai-chat-send
               className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:bg-slate-300"
             >
               {send.isPending

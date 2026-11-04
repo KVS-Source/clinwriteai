@@ -14,6 +14,9 @@ function submitErrorMessage(err: unknown, currentStatus: string, t: TFunction): 
   if (!(err instanceof ApiError)) return t('page.review_assignment_panel.err_network')
   // Checklist gate (Phase 2) — the API returns 409 with error='checklist_blocked'
   // and a `blocking` list. Enumerate the blockers so the writer knows what to tick.
+  if (err.status === 403 && (err.body as { error?: string } | null)?.error === 'submit_forbidden') {
+    return t('page.review_assignment_panel.err_submit_forbidden')
+  }
   if (err.status === 409) {
     const body = err.body as { error?: string; blocking?: Array<{ text: string; framework: string }>; blockingCount?: number } | null
     if (body?.error === 'checklist_blocked' && Array.isArray(body.blocking)) {
@@ -169,6 +172,8 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
   const [reviewers,  setReviewers]  = useState<TeamMember[]>([])
   const [showPreview, setShowPreview] = useState(false)
   const [adding,      setAdding]      = useState(false)
+  // Set when this author's part is in but other authors (R) still have to submit theirs.
+  const [waitingFor,  setWaitingFor]  = useState<string[] | null>(null)
 
   // Seed reviewers from project.team on first load
   useEffect(() => {
@@ -187,6 +192,13 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
       dueDate,
     }),
     onSuccess: (updated) => {
+      if (updated && 'partSubmitted' in updated && updated.partSubmitted) {
+        // The document stays in authoring until every author has submitted.
+        setWaitingFor(updated.pendingAuthors.map(a => a.name))
+        qc.invalidateQueries({ queryKey: ['document',  documentId] })
+        qc.invalidateQueries({ queryKey: ['document-raci', documentId] })
+        return
+      }
       // The server may answer with the raw row (snake_case status, no sections), so apply the new
       // status onto the document the screen already has — the editor flips to "In Review" at once,
       // and the refetch below then confirms it.
@@ -400,6 +412,11 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
 
       {/* ===== Footer ===== */}
       <div className="flex flex-none flex-col gap-2 border-t border-slate-200 bg-white px-4 py-3">
+        {waitingFor && (
+          <div className="rounded-md border border-green-200 bg-green-50 px-3 py-2 text-[12px] text-green-800" role="status" data-part-submitted>
+            {t('page.review_assignment_panel.part_submitted', { names: waitingFor.join(', ') })}
+          </div>
+        )}
         {submitMut.isError && (
           <div className="whitespace-pre-line rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
             {submitErrorMessage(submitMut.error, statusMeta.label, t)}
@@ -417,7 +434,7 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitMut.isPending || !dueDate}
+            disabled={submitMut.isPending || !dueDate || !!waitingFor}
             title={!dueDate ? t('page.review_assignment_panel.pick_due_first_title') : undefined}
             className="flex-1 rounded-md bg-blue-600 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:bg-slate-300 disabled:hover:bg-slate-300"
           >

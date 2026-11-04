@@ -41,10 +41,11 @@ export async function actorCanEditDocumentRaci(
 
 // Stricter gate for changing a document's RACI assignments themselves
 // (add / remove / signature settings, and the panel's can-edit probe).
-// RACI is owned by the document's authors: admins and PMs never edit it,
-// even when they happen to be the assignee or hold an R row. The
-// checklist / guest / signature routes keep actorCanEditDocumentRaci.
-export const RACI_LOCKED_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin', 'pm'])
+// RACI is owned by the document's authors: admins, PMs and auditors never edit
+// it — nor the document's content — even when they happen to be the assignee
+// or hold an R row. Auditors are a view-only role. The checklist / guest /
+// signature routes keep actorCanEditDocumentRaci.
+export const RACI_LOCKED_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin', 'pm', 'auditor'])
 
 export async function actorCanEditRaciAssignments(
   prisma: PrismaClient,
@@ -55,16 +56,16 @@ export async function actorCanEditRaciAssignments(
   return actorCanEditDocumentRaci(prisma, actor, documentId)
 }
 
-// Who may change a document's content (sections, versions, references, AI
-// edits, submit for review): the same people as its RACI — the authors. Admins,
-// PMs and every other letter are view-only. The realtime sidecar authenticates
-// as a synthetic admin and only relays edits the author's session made.
+// Who may change a document's content (sections, section locks, versions,
+// references, AI edits, submit for review): its authors — an active R row on
+// the document, or its assignee. Admins, PMs and every other letter are
+// view-only (403). The realtime sidecar gets no exemption: it saves on behalf
+// of the author who typed (x-acting-user), so this check runs as that user.
 export async function actorCanEditDocumentContent(
   prisma: PrismaClient,
   actor: AuthenticatedUser,
   documentId: string,
 ): Promise<boolean> {
-  if (actor.id === 'system:collab') return true
   return actorCanEditRaciAssignments(prisma, actor, documentId)
 }
 
@@ -125,6 +126,41 @@ export const DOCUMENT_EDIT_FORBIDDEN = {
   message: 'Only an author (R) on this document can edit it.',
 } as const
 
+// Source documents belong to the project, not to one document, so "author" there
+// means an author on any of the project's documents: an active R row, or a
+// document's assignee (the same rule as actorCanEditDocumentContent, scoped to
+// the project). Admins, PMs and auditors never; C, Q, A and I letters are
+// view-only. Used to remove a project's source files.
+export async function actorIsProjectAuthor(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  projectId: string,
+): Promise<boolean> {
+  if (RACI_LOCKED_ROLES.has(actor.role)) return false
+  const [rRow, assigned] = await Promise.all([
+    prisma.documentRaci.findFirst({
+      where: { userId: actor.id, letter: 'R', removedAt: null, document: { projectId, deletedAt: null } },
+      select: { id: true },
+    }),
+    prisma.document.findFirst({ where: { projectId, deletedAt: null, assigneeId: actor.id }, select: { id: true } }),
+  ])
+  return !!(rRow || assigned)
+}
+
+export const SOURCE_EDIT_FORBIDDEN = {
+  error: 'source_edit_forbidden',
+  message: "Only an author (R) on this project's documents can remove its source documents.",
+} as const
+
+// AI Chat (and the inline section AI prompt) is turned off for Project Managers.
+// The web hides the entry points; the API refuses the calls so it can't be bypassed.
+export const actorCanUseAiChat = (actor: { role: string }): boolean => actor.role !== 'pm'
+
+export const AI_CHAT_FORBIDDEN = {
+  error: 'ai_chat_not_allowed',
+  message: 'AI Chat is not available to Project Managers.',
+} as const
+
 // Admins can never hold R or be a document's assignee. A PM can, so that they sign the document as
 // its author, though they still can't edit it or manage its RACI (see above).
 export const NEVER_AUTHOR_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin'])
@@ -142,6 +178,52 @@ export const ASSIGNEE_NOT_ELIGIBLE = {
   error: 'assignee_not_eligible',
   message: 'An admin, auditor or guest cannot be assigned as the author of a document.',
 } as const
+
+// Submitting for review is for authors only: each R submits their own part
+// (POST /documents/:id/submit-for-review marks their active R rows submitted),
+// and the document goes to review once every R has. On a document with no R
+// rows yet, its assignee submits it alone. Everyone else is refused.
+export const SUBMIT_FORBIDDEN = {
+  error: 'submit_forbidden',
+  message: 'Only an author (R) on this document can submit it for review.',
+} as const
+
+// An author (R) on the document: an active R row, or — on a document with no R
+// rows yet — its assignee. The same people who may submit for review; a PM
+// holding R counts (they hold R to sign as author). Auditors are a view-only
+// role and admins can never hold R. Used for author-only actions that aren't
+// content edits, such as nudging the pending cohort.
+export async function actorIsDocumentAuthor(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+): Promise<boolean> {
+  if (actor.role === 'auditor' || NEVER_AUTHOR_ROLES.has(actor.role)) return false
+  const [doc, rows] = await Promise.all([
+    prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
+    prisma.documentRaci.findMany({ where: { documentId, letter: 'R', removedAt: null }, select: { userId: true } }),
+  ])
+  if (!doc) return false
+  if (rows.some(r => r.userId === actor.id)) return true
+  return rows.length === 0 && doc.assigneeId === actor.id
+}
+
+export const NUDGE_FORBIDDEN = {
+  error: 'nudge_forbidden',
+  message: 'Only an author (R) on this document can nudge the people it is waiting on.',
+} as const
+
+// Back to authoring (reviewer / CRM bounce, signer refusal) starts a new round:
+// every author submits their part again. Accepts the client or a transaction.
+export async function resetAuthorSubmissions(
+  db: { documentRaci: Pick<PrismaClient['documentRaci'], 'updateMany'> },
+  documentId: string,
+): Promise<void> {
+  await db.documentRaci.updateMany({
+    where: { documentId, letter: 'R', removedAt: null, submittedAt: { not: null } },
+    data: { submittedAt: null },
+  })
+}
 
 // Resolving a comment, in a CRM meeting or outside one: the document's Author (R, or the assignee),
 // Reviewer (C) or Approver (A), and no one else, whatever their role. Of the given documents, returns

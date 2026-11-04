@@ -19,6 +19,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { actorIsProjectAuthor, SOURCE_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { SOURCE_CATEGORY_LABEL, suggestSourceCategory, type SourceCategory } from './source-categories.js'
 
 const SORT_KEYS = ['title', 'file', 'category', 'state', 'scan', 'usedIn', 'size', 'uploaded'] as const
@@ -229,6 +230,14 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     const { projectId, uploadId } = request.params as { projectId: string; uploadId: string }
     const row = await app.prisma.documentUpload.findFirst({ where: { id: uploadId, projectId } }) as UploadRow | null
     if (!row) return reply.code(404).send({ error: 'not_found' })
+    // Removing a source file is for authors (R) on the project's documents;
+    // C, Q, A, I, auditors, PMs and admins are view-only.
+    if (!(await actorIsProjectAuthor(app.prisma, request.user!, projectId))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
+    // Status lock: a closed project is read-only.
+    const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { status: true } })
+    if (project?.status === 'closed') {
+      return reply.code(423).send({ error: 'document_locked', status: 'project_closed', message: 'The project is closed and read-only, so its source documents can’t be changed.' })
+    }
     if (row.status !== 'pending_classification') {
       return reply.code(409).send({ error: 'not_discardable', message: 'Only an upload that was not saved to the library can be discarded.' })
     }

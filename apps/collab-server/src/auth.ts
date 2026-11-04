@@ -36,3 +36,22 @@ export async function verifySession(apiBaseUrl: string, sessionToken: string): P
     email:  body.email ?? '',
   }
 }
+
+// May this user change the document's content? Same question (and endpoint)
+// the editor asks before making a section editable: an active R row on the
+// document, or being its assignee. Anyone else joins the room read-only.
+// Fail-closed: any error → read-only.
+export async function canEditDocument(apiBaseUrl: string, sessionToken: string, documentId: string): Promise<boolean> {
+  try {
+    const url = `${apiBaseUrl.replace(/\/$/, '')}/documents/${encodeURIComponent(documentId)}/raci/can-edit`
+    const res = await fetch(url, {
+      method: 'GET',
+      headers: { cookie: `aurora_session=${sessionToken}`, accept: 'application/json' },
+    })
+    if (res.status !== 200) return false
+    const body = await res.json() as { canEdit?: boolean }
+    return body.canEdit === true
+  } catch {
+    return false
+  }
+}

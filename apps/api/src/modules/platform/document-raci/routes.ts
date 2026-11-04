@@ -16,7 +16,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
-import { actorCanEditRaciAssignments, RACI_LOCKED_ROLES } from './access.js'
+import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES } from './access.js'
 import { nudgePendingCohort } from './nudge.js'
 
 const nudgeSchema = z.object({
@@ -489,6 +489,16 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(403).send({ error: 'only_assignee_can_complete' })
     }
 
+    // An author's part is submitted through submit-for-review, which applies
+    // the mandatory-checklist gate and moves the document to review once every
+    // R has submitted. One path, so neither can be skipped.
+    if (row.letter === 'R') {
+      return reply.code(409).send({
+        error:   'use_submit_for_review',
+        message: 'Authors (R) submit their part with Submit for review.',
+      })
+    }
+
     // Already-done check — the per-letter timestamp fields are the source
     // of truth. C and Q share reviewedAt (the row's letter column
     // distinguishes them in the audit trail).
@@ -637,13 +647,11 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   // POST /:documentId/nudge — notify pending users in the gating cohort.
   //
-  // Any authenticated user with Module A can call. The nudge function
-  // itself enforces who's in the cohort — users who aren't in the
-  // current gate can't be nudged (returned as not_in_cohort / already_done
-  // decisions). PM / admin can nudge anyone in the cohort; peers can
-  // nudge their fellow cohort members (that's what the permission matrix
-  // means by "any R while in Draft" etc.) — enforced by cohort
-  // membership, not a separate role check.
+  // Authors only: the caller must be an author (R) on the document — an
+  // active R row, or the assignee on a document with no R rows yet (see
+  // actorIsDocumentAuthor). C, Q, A, I, auditors, admins and PMs without R
+  // get 403. The nudge function then decides who can be nudged — users who
+  // aren't in the current gate come back as not_in_cohort / already_done.
   //
   // 24h throttle per (documentId, actorId, targetUserId). Returns a
   // per-target decision + the current gating letters so the UI can
@@ -657,6 +665,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const actor = request.user!
+    if (!(await actorIsDocumentAuthor(app.prisma, actor, documentId))) return reply.code(403).send(NUDGE_FORBIDDEN)
     const result = await nudgePendingCohort(app.prisma, {
       documentId,
       actor,

@@ -19,9 +19,9 @@
 import { createHash } from 'node:crypto'
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { requireAuth } from '../../../auth/rbac.js'
+import { requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanEditDocumentContent, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, userCanBeAssignee } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanUseAiChat, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, resetAuthorSubmissions, SUBMIT_FORBIDDEN, userCanBeAssignee } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
@@ -478,6 +478,24 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     return authoringLockReason(doc.status, project?.status)
   }
 
+  // Changing a section — by hand or through AI (suggest, accept, undo, revert) —
+  // follows one rule, the same as a section save: the actor's editing rights
+  // (an active R row on the document, or its assignee), the document's status
+  // lock, and nobody else holding the section's live lock. Returns the refusal
+  // to send, or null when the change may go ahead.
+  async function sectionEditRefusal(user: AuthenticatedUser, documentId: string, sectionKey: string | null) {
+    if (!(await actorCanEditDocumentContent(app.prisma, user, documentId))) {
+      return { code: 403, body: DOCUMENT_EDIT_FORBIDDEN as unknown }
+    }
+    const locked = await authoringLock(documentId)
+    if (locked) return { code: 409, body: locked as unknown }
+    if (sectionKey) {
+      const holder = await requireLockHeldBy(app.prisma, { documentId, sectionId: sectionKey, userId: user.id })
+      if (holder) return { code: 423, body: { error: 'locked', holder, staleSeconds: SECTION_LOCK_STALE_SECONDS } as unknown }
+    }
+    return null
+  }
+
   app.get('/:documentId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await svc.getWithSections(documentId)
@@ -795,17 +813,39 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(202).send({ jobId: job.id, status: 'pending' })
   })
 
+  // Submit for review — each author (R) submits their own part. The caller must
+  // hold an active R row on the document (on a document with no R rows yet, its
+  // assignee submits alone); anyone else gets 403. Every submission must pass the
+  // mandatory-checklist gate (Gate C). The caller's R rows are marked submitted;
+  // the document moves to in_review only once every active R has submitted —
+  // until then the answer is 202 with the authors still to submit.
   app.post('/:documentId/submit-for-review', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
-    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+
+    const actor = request.user!
+    // Auditors are a view-only role, even if they were given an R row.
+    if (actor.role === 'auditor') return reply.code(403).send(SUBMIT_FORBIDDEN)
+    const authorRows = await app.prisma.documentRaci.findMany({
+      where:  { documentId, letter: 'R', removedAt: null },
+      select: { id: true, userId: true, sectionId: true, submittedAt: true, rejectedAt: true },
+    })
+    const ownRows = authorRows.filter(r => r.userId === actor.id)
+    const soleAssignee = authorRows.length === 0 && doc.assigneeId === actor.id && !NEVER_AUTHOR_ROLES.has(actor.role)
+    if (ownRows.length === 0 && !soleAssignee) return reply.code(403).send(SUBMIT_FORBIDDEN)
 
     const from = doc.status as DocumentStatus
     // Idempotent re-submit: already in review → return the document unchanged.
     if (from === 'in_review') {
       return doc
     }
+    if (from !== 'not_started' && !canTransitionDocument(from, 'in_review')) {
+      const err = new InvalidDocumentTransitionError(from, 'in_review')
+      return reply.code(409).send({ error: 'invalid_transition', message: err.message })
+    }
+    const locked = await authoringLock(documentId)
+    if (locked) return reply.code(409).send(locked)
 
     // Gate C — all mandatory items for the current stage must be complete
     // or waived before submission. See checklist/gates.ts. Returns a 409
@@ -817,6 +857,24 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         return reply.code(409).send(blockedBody('submit_for_review', gate))
       }
     }
+
+    // This author's part: every active R row they hold (whole document and/or
+    // particular sections). Re-submitting an already-submitted part is a no-op.
+    const now = new Date()
+    const toMark = ownRows.filter(r => !r.submittedAt && !r.rejectedAt).map(r => r.id)
+    if (toMark.length > 0) {
+      await app.prisma.documentRaci.updateMany({ where: { id: { in: toMark } }, data: { submittedAt: now } })
+      await app.audit.append({
+        timestamp: now.toISOString(),
+        actorId: actor.id,
+        action: 'document_part_submitted',
+        entityType: 'document',
+        entityId: documentId,
+        details: { raciIds: toMark, sections: ownRows.map(r => r.sectionId ?? 'whole_document') },
+        ipAddress: request.ip ?? null,
+      })
+    }
+
     // UX gate: not_started is the day-one state for a brand-new document.
     // The strict state machine requires not_started → in_authoring → in_review,
     // but the UI's "Submit for review" button is the only path a writer takes
@@ -829,16 +887,28 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       })
       await app.audit.append({
         timestamp: new Date().toISOString(),
-        actorId: request.user!.id,
+        actorId: actor.id,
         action: 'document_status_changed',
         entityType: 'document',
         entityId: documentId,
         details: { from: 'not_started', to: 'in_authoring', implicit: true },
         ipAddress: request.ip ?? null,
       })
-    } else if (!canTransitionDocument(from, 'in_review')) {
-      const err = new InvalidDocumentTransitionError(from, 'in_review')
-      return reply.code(409).send({ error: 'invalid_transition', message: err.message })
+    }
+
+    // Other authors who still have to submit their part → stay in authoring.
+    const pendingIds = Array.from(new Set(
+      authorRows.filter(r => r.userId !== actor.id && !r.submittedAt && !r.rejectedAt).map(r => r.userId),
+    ))
+    if (pendingIds.length > 0) {
+      const pendingUsers = await app.prisma.user.findMany({ where: { id: { in: pendingIds } }, select: { id: true, name: true } })
+      const nameOf = new Map(pendingUsers.map(u => [u.id, u.name]))
+      return reply.code(202).send({
+        id:             documentId,
+        status:         'in_authoring',
+        partSubmitted:  true,
+        pendingAuthors: pendingIds.map(id => ({ userId: id, name: nameOf.get(id) ?? id })),
+      })
     }
 
     // Review due date from the Submit-for-review panel ('YYYY-MM-DD' or ISO).
@@ -916,6 +986,14 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
     const from = doc.status as DocumentStatus
     const to = parsed.data.to
+    // Into review only through submit-for-review: authors (R) only, each their
+    // own part, behind the mandatory-checklist gate.
+    if (to === 'in_review') {
+      return reply.code(409).send({
+        error:   'use_submit_for_review',
+        message: "A document goes to review when every author (R) has submitted their part — use Submit for review.",
+      })
+    }
     if (!canTransitionDocument(from, to)) {
       const err = new InvalidDocumentTransitionError(from, to)
       return reply.code(409).send({ error: 'invalid_transition', message: err.message })
@@ -950,6 +1028,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // as its own row and the author edits a fresh in-place-mutable version.
     let snapshotVersion: Awaited<ReturnType<DocumentService['createVersionSnapshot']>>['version'] | null = null
     if (to === 'in_authoring' && from !== 'in_authoring' && from !== 'not_started') {
+      // A new authoring round: every author submits their part again.
+      await resetAuthorSubmissions(app.prisma, documentId)
       const reason =
         from === 'in_review'          ? 'review_bounce' :
         from === 'crm_in_progress'    ? 'crm_bounce' :
@@ -1197,6 +1277,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/sections/:sectionId/ai-suggest', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
+    if (!actorCanUseAiChat(request.user!)) return reply.code(403).send(AI_CHAT_FORBIDDEN)
     const parsed = aiSuggestSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -1212,6 +1293,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
     const section = doc.currentVersion?.sections[0]
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
+    {
+      const refusal = await sectionEditRefusal(request.user!, documentId, section.sectionId)
+      if (refusal) return reply.code(refusal.code).send(refusal.body)
+    }
 
     const sectionHeader = `${section.sectionNumber.startsWith('§') ? '' : '§'}${section.sectionNumber} ${section.sectionTitle}`
     const currentContent = (parsed.data.intent === 'edit' ? parsed.data.currentContent : undefined) ?? section.contentHtml ?? ''
@@ -1666,11 +1751,15 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/ai-chat-messages/:messageId/accept', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { messageId } = request.params as { messageId: string }
+    if (!actorCanUseAiChat(request.user!)) return reply.code(403).send(AI_CHAT_FORBIDDEN)
     const msg = await app.prisma.aiConversationMessage.findUnique({ where: { id: messageId } })
     if (!msg) return reply.code(404).send({ error: 'not_found' })
     if (msg.actorId !== request.user!.id) return reply.code(403).send({ error: 'not_your_message' })
     if (msg.role !== 'assistant') return reply.code(422).send({ error: 'not_an_assistant_message' })
-    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, msg.documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+    {
+      const refusal = await sectionEditRefusal(request.user!, msg.documentId, msg.sectionId)
+      if (refusal) return reply.code(refusal.code).send(refusal.body)
+    }
 
     const updated = await app.prisma.aiConversationMessage.update({
       where: { id: messageId },
@@ -1707,10 +1796,13 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       include: { currentVersion: { include: { sections: { where: { OR: [{ sectionId }, { id: sectionId }] } } } } },
     })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    // Read-only history for anyone who can see the document (reviewers included); 404 otherwise.
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const section = doc.currentVersion?.sections[0]
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
-    // Revert is offered only while the document is open for authoring.
+    // Revert is offered only to the document's authors, while it is open for authoring.
     const contentLocked = !!(await authoringLock(documentId))
+    const viewerCanEdit = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
 
     const rows = await app.prisma.editHistory.findMany({
       where: {
@@ -1788,7 +1880,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         // Can revert if the document is open for authoring, the snapshot
         // exists and the section is still on the version this edit was made
         // on. Sealed-version check happens in the service.
-        canRevert:          !contentLocked
+        canRevert:          viewerCanEdit
+                              && !contentLocked
                               && !!r.beforeHtml
                               && r.documentVersionId === doc.currentVersionId,
       }
@@ -1831,6 +1924,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (row.entityType !== 'clinical_section') {
       return reply.code(404).send({ error: 'wrong_entity_type' })
     }
+    if (row.documentId && !(await canSeeDocument(app.prisma, request.user!, row.documentId))) {
+      return reply.code(404).send({ error: 'not_found' })
+    }
     return {
       editHistoryId: row.id,
       documentId:    row.documentId,
@@ -1848,11 +1944,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // the chain stays complete.
   app.post('/section-edits/:editHistoryId/revert', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { editHistoryId } = request.params as { editHistoryId: string }
-    const target = await app.prisma.editHistory.findUnique({ where: { id: editHistoryId }, select: { documentId: true } })
+    const target = await app.prisma.editHistory.findUnique({ where: { id: editHistoryId }, select: { documentId: true, sectionId: true } })
     if (target?.documentId) {
-      if (!(await actorCanEditDocumentContent(app.prisma, request.user!, target.documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
-      const locked = await authoringLock(target.documentId)
-      if (locked) return reply.code(409).send(locked)
+      const refusal = await sectionEditRefusal(request.user!, target.documentId, target.sectionId ?? null)
+      if (refusal) return reply.code(refusal.code).send(refusal.body)
     }
     try {
       const result = await svc.revertSection({
@@ -1905,8 +2000,13 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       include: { currentVersion: { include: { sections: { where: { OR: [{ sectionId }, { id: sectionId }] } } } } },
     })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    // Read-only AI history for anyone who can see the document (reviewers included); 404 otherwise.
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const section = doc.currentVersion?.sections[0]
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
+    // Undo is offered only to the document's authors, while it is open for authoring.
+    const viewerCanEdit = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
+    const contentLocked = !!(await authoringLock(documentId))
 
     const rows = await app.prisma.aiCallRecord.findMany({
       where: { documentId, sectionId: section.sectionId },
@@ -1937,7 +2037,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         // Can only undo if: (a) not already undone, (b) a pre-call snapshot
         // exists, (c) this prompt's post-call version is the document's
         // current version (otherwise someone else has since edited past it).
-        canUndo:                   !r.undoneAt
+        canUndo:                   viewerCanEdit
+                                     && !contentLocked
+                                     && !r.undoneAt
                                      && !!r.preCallSectionHtml
                                      && r.postCallDocumentVersionId === doc.currentVersionId,
       })),
@@ -1967,10 +2069,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (rec.undoneAt) return reply.code(409).send({ error: 'already_undone' })
     if (!rec.preCallSectionHtml) return reply.code(422).send({ error: 'no_snapshot' })
     if (!rec.documentId || !rec.sectionId) return reply.code(422).send({ error: 'not_section_scoped' })
-    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, rec.documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
-
-    const locked = await authoringLock(rec.documentId)
-    if (locked) return reply.code(409).send(locked)
+    {
+      const refusal = await sectionEditRefusal(request.user!, rec.documentId, rec.sectionId)
+      if (refusal) return reply.code(refusal.code).send(refusal.body)
+    }
 
     const doc = await app.prisma.document.findUnique({
       where: { id: rec.documentId },

@@ -30,6 +30,9 @@ export async function persistToApi(apiBaseUrl: string, args: PersistArgs, log: L
       // Flag the save as a collaborative-session snapshot so the audit
       // event carries context (not a human click).
       'x-save-source':  `collab:${args.reason}`,
+      // The author whose edit this is. The API runs the save as them (R row /
+      // assignee, status lock, their section lock); without it the save is refused.
+      'x-acting-user':  args.actingUserId,
     },
     body: JSON.stringify({ contentHtml: args.html }),
   })

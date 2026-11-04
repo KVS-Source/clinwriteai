@@ -25,6 +25,9 @@ export interface PersistArgs {
   sectionId:  string
   html:       string
   reason:     'last_client_leaves' | 'debounce'
+  // The author whose edit is being saved; the API runs its edit, status-lock
+  // and section-lock checks as this user, not as the sidecar.
+  actingUserId: string
 }
 
 export interface RoomOpts {
@@ -39,6 +42,9 @@ interface Conn {
   identity:  SessionIdentity
   documentId: string
   sectionId:  string
+  // False for anyone who isn't an author on the document (active R row, or the
+  // assignee): they receive the room's updates but their own are dropped.
+  canEdit:    boolean
 }
 
 export class Room {
@@ -47,6 +53,8 @@ export class Room {
   private readonly conns = new Set<Conn>()
   private persistTimer:  NodeJS.Timeout | null = null
   private lastPersistedHtml: string = ''
+  // Who made the most recent change applied to the room (always an author).
+  private lastWriter: string | null = null
 
   constructor(private readonly roomId: string, private readonly opts: RoomOpts) {
     this.awareness.setLocalState(null)
@@ -56,8 +64,8 @@ export class Room {
     this.doc.on('update', () => this.schedulePersist('debounce'))
   }
 
-  addConnection(ws: WebSocket, identity: SessionIdentity, meta: { documentId: string; sectionId: string }): void {
-    const conn: Conn = { ws, identity, documentId: meta.documentId, sectionId: meta.sectionId }
+  addConnection(ws: WebSocket, identity: SessionIdentity, meta: { documentId: string; sectionId: string; canEdit: boolean }): void {
+    const conn: Conn = { ws, identity, documentId: meta.documentId, sectionId: meta.sectionId, canEdit: meta.canEdit }
     this.conns.add(conn)
     this.opts.log.info({ user: identity.userId, size: this.conns.size }, 'client joined')
 
@@ -69,7 +77,7 @@ export class Room {
 
     ws.on('message', (data: Buffer | ArrayBuffer) => {
       try {
-        this.handleMessage(ws, new Uint8Array(data as ArrayBuffer))
+        this.handleMessage(conn, new Uint8Array(data as ArrayBuffer))
       } catch (err) {
         this.opts.log.warn({ err }, 'message handler threw')
       }
@@ -99,12 +107,22 @@ export class Room {
     })
   }
 
-  private handleMessage(ws: WebSocket, data: Uint8Array): void {
+  private handleMessage(conn: Conn, data: Uint8Array): void {
+    const { ws } = conn
     const decoder = decoding.createDecoder(data)
     const encoder = encoding.createEncoder()
     const messageType = decoding.readVarUint(decoder)
     switch (messageType) {
       case MESSAGE_SYNC: {
+        // Step 1 only asks for the room's state; step 2 / update change it.
+        // A read-only connection may ask but never change.
+        if (decoding.peekVarUint(decoder) !== syncProtocol.messageYjsSyncStep1) {
+          if (!conn.canEdit) {
+            this.opts.log.warn({ user: conn.identity.userId }, 'dropped edit from read-only connection')
+            break
+          }
+          this.lastWriter = conn.identity.userId
+        }
         encoding.writeVarUint(encoder, MESSAGE_SYNC)
         syncProtocol.readSyncMessage(decoder, encoder, this.doc, null)
         if (encoding.length(encoder) > 1) ws.send(encoding.toUint8Array(encoder))
@@ -157,6 +175,8 @@ export class Room {
   private async persistNow(reason: PersistArgs['reason']): Promise<void> {
     const html = this.getHtml()
     if (html === this.lastPersistedHtml) return
+    // Nothing an author changed → nothing to save on anyone's behalf.
+    if (!this.lastWriter) return
     // All conns share the same (documentId, sectionId); pull from any.
     const anyConn = this.conns.values().next().value
     if (!anyConn) return
@@ -166,6 +186,7 @@ export class Room {
         sectionId:  anyConn.sectionId,
         html,
         reason,
+        actingUserId: this.lastWriter,
       })
       this.lastPersistedHtml = html
       this.opts.log.debug({ reason, bytes: html.length }, 'persisted room')

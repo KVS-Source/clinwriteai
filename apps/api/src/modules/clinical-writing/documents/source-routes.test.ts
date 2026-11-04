@@ -30,11 +30,18 @@ const ROWS: Upload[] = [
   up({ id: 'other', projectId: 'proj-2', fileName: 'someone-elses.pdf' }),
 ]
 
-async function build(blob: { get: ReturnType<typeof vi.fn>; del?: ReturnType<typeof vi.fn> } = { get: vi.fn() }) {
+// Who is calling, for the remove (DELETE) rules: the RACI letters they hold on the project's
+// documents, whether they are a document's assignee, and the project's status. By default the
+// caller is an author (R) on the project.
+type Caller = { role?: AuthenticatedUser['role']; letters?: string[]; assignee?: boolean; projectStatus?: string }
+
+async function build(blob: { get: ReturnType<typeof vi.fn>; del?: ReturnType<typeof vi.fn> } = { get: vi.fn() }, caller: Caller = {}) {
+  const letters = caller.letters ?? ['R']
   const audit = vi.fn(async () => undefined)
   const app = Fastify()
   app.decorate('prisma', {
-    project: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => (where.id === 'proj-1' ? { id: 'proj-1' } : null)) },
+    project: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => (where.id === 'proj-1' ? { id: 'proj-1', status: caller.projectStatus ?? 'ongoing' } : null)) },
+    documentRaci: { findFirst: vi.fn(async ({ where }: { where: { letter: string } }) => (letters.includes(where.letter) ? { id: 'raci-1' } : null)) },
     documentUpload: {
       findMany: vi.fn(async ({ where }: { where: { projectId: string; status?: { in: string[] } } }) =>
         ROWS.filter(r => r.projectId === where.projectId && (!where.status || where.status.in.includes(r.status)))),
@@ -42,14 +49,17 @@ async function build(blob: { get: ReturnType<typeof vi.fn>; del?: ReturnType<typ
       findFirst: vi.fn(async ({ where }: { where: { id: string; projectId: string } }) => ROWS.find(r => r.id === where.id && r.projectId === where.projectId) ?? null),
     },
     documentSource: { findMany: vi.fn(async () => [{ documentId: 'DOC-9', uploadId: 'a', linkedBy: 'u1', createdAt: new Date() }]) },
-    document: { findMany: vi.fn(async () => [{ id: 'DOC-9', title: 'CSR — VELORA-301' }]) },
+    document: {
+      findMany:  vi.fn(async () => [{ id: 'DOC-9', title: 'CSR — VELORA-301' }]),
+      findFirst: vi.fn(async () => (caller.assignee ? { id: 'DOC-9' } : null)),
+    },
     user: { findMany: vi.fn(async () => [{ id: 'u1', name: 'Priya Nair', email: 'p@x.io' }, { id: 'u2', name: 'Dan Okafor', email: 'd@x.io' }]) },
   } as never)
   app.decorate('blob', blob as never)
   app.decorate('audit', { append: audit } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    const user: AuthenticatedUser = { id: 'viewer', email: 'v@x.io', role: 'clinical-writer', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'viewer', email: 'v@x.io', role: caller.role ?? 'clinical-writer', modules: ['A'], tenantId: null }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
   })
   await app.register(documentsSourceRoutes, { prefix: '/projects' })
@@ -228,6 +238,41 @@ describe('DELETE /projects/:id/source-documents/:uploadId (discard an unsaved up
     const { app } = await build({ get: vi.fn(), del: vi.fn(async () => { throw new Error('gone') }) })
     expect((await app.inject({ method: 'DELETE', url: '/projects/proj-1/source-documents/unsaved' })).statusCode).toBe(204)
     ROWS.push(up({ id: 'unsaved', fileName: 'never-saved.pdf', createdAt: new Date('2026-10-22T08:00:00Z') }))
+  })
+})
+
+describe('DELETE source document — authors (R) only; C, Q, A and auditors are view-only', () => {
+  it.each([
+    ['a reviewer (C)', { letters: ['C'] }],
+    ['a QC reviewer (Q)', { letters: ['Q'] }],
+    ['an approver (A)', { letters: ['A'] }],
+    ['someone informed (I)', { letters: ['I'] }],
+    ['an auditor, even holding R', { role: 'auditor' as const, letters: ['R'] }],
+    ['a PM, even holding R', { role: 'pm' as const, letters: ['R'] }],
+    ['a tenant admin', { role: 'tenant-admin' as const, letters: [] }],
+  ])('%s is refused (403) and nothing is removed', async (_l, caller) => {
+    const del = vi.fn()
+    const { app } = await build({ get: vi.fn(), del }, caller)
+    const res = await app.inject({ method: 'DELETE', url: '/projects/proj-1/source-documents/unsaved' })
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error).toBe('source_edit_forbidden')
+    expect(del).not.toHaveBeenCalled()
+    expect(ROWS.some(r => r.id === 'unsaved')).toBe(true)
+  })
+
+  it("a document's assignee (the first author, before any R row) may remove", async () => {
+    const { app } = await build({ get: vi.fn(), del: vi.fn(async () => true) }, { letters: [], assignee: true })
+    expect((await app.inject({ method: 'DELETE', url: '/projects/proj-1/source-documents/unsaved' })).statusCode).toBe(204)
+    ROWS.push(up({ id: 'unsaved', fileName: 'never-saved.pdf', createdAt: new Date('2026-10-22T08:00:00Z') }))   // restore
+  })
+
+  it('keeps the status lock: a closed project is read-only (423), even for its author', async () => {
+    const del = vi.fn()
+    const { app } = await build({ get: vi.fn(), del }, { projectStatus: 'closed' })
+    const res = await app.inject({ method: 'DELETE', url: '/projects/proj-1/source-documents/unsaved' })
+    expect(res.statusCode).toBe(423)
+    expect(res.json()).toMatchObject({ error: 'document_locked', status: 'project_closed' })
+    expect(del).not.toHaveBeenCalled()
   })
 })
 

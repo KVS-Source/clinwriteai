@@ -1,12 +1,11 @@
-// Nudge the pending cohort on a document — a PM / peer "poke" to users
+// Nudge the pending cohort on a document — an author's "poke" to users
 // who still owe a submission / review / approval.
 //
-// Design: docs/roles-and-permissions.md §10 Q3 (24h throttle) + the
-// permission matrix row "Nudge pending cohort". Allowed actors:
-//   - PM / admin (always)
-//   - Any R in the gating cohort while status is Draft
-//   - Any C or Q in the gating cohort while status is In Review
-//   - Any A in the gating cohort while status is Pending Signature
+// Design: docs/roles-and-permissions.md §10 Q3 (24h throttle). Who may
+// nudge is decided by the route, not here: authors (R) only — an active R
+// row, or the assignee on a document with no R rows yet
+// (actorIsDocumentAuthor). C, Q, A, I, auditors, admins and PMs without R
+// are refused there. This function decides who can be nudged.
 //
 // The nudge creates one Notification per target (channels: in_app by
 // default; email can be opted in via `channels` param). An actor-level

@@ -68,8 +68,9 @@ test('the filter bar shows All Status, All Roles, the search field and a disable
   await expect(search(page)).toHaveAttribute('placeholder', 'Search by name or employee ID...')
   await expect(clear(page)).toBeDisabled()
   await expect(page.getByText('5 users', { exact: true })).toBeVisible()
-  // the legacy role a user still holds is offered, so that row stays reachable
-  await expect(role(page).locator('option[value="clinical-writer"]')).toHaveCount(1)
+  // only the five standard roles are offered — no legacy roles such as clinical-writer
+  await expect(role(page).locator('option')).toHaveText(['All Roles', 'Tenant admin', 'Project manager', 'Contributor', 'Auditor', 'Guest'])
+  await expect(role(page).locator('option[value="clinical-writer"]')).toHaveCount(0)
 })
 
 test('status filter narrows the rows and the count', async ({ page }) => {

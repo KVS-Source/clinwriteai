@@ -888,6 +888,8 @@
       "err_400": "Check the review due date and the reviewers, then try again.",
       "err_401": "Your session has expired. Sign in again to continue.",
       "err_403": "You don't have permission to submit this document for review.",
+      "err_submit_forbidden": "Only an author (R) on this document can submit it for review.",
+      "part_submitted": "Your part is submitted. The document goes to review once the other authors submit theirs: {{names}}.",
       "err_404": "This document no longer exists. Refresh the page.",
       "err_409": "This document is \"{{status}}\", so it can't be sent for review right now. Documents are submitted for review from In Authoring — finish or cancel the current step first.",
       "err_default": "Something went wrong on our side. Please try again.",

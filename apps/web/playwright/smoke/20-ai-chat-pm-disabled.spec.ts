@@ -15,8 +15,8 @@ test.setTimeout(120_000)
 const PROJECT = 'PROJ-E2E-AI'
 const DOC = 'DOC-E2E-AI'
 
-async function openEditorAs(page: Page, role: 'pm' | 'contributor') {
-  await page.addInitScript(({ role, project, doc }) => {
+async function openEditorAs(page: Page, role: 'pm' | 'contributor', opts: { canEdit?: boolean } = {}) {
+  await page.addInitScript(({ role, project, doc, canEdit }) => {
     const me = { id: `u-${role}`, email: `${role}@example.com`, name: role === 'pm' ? 'Pat Manager' : 'Cora Writer', role,
       modules: ['A'], status: 'active', lastActiveAt: null, tenantId: null }
     const document = {
@@ -30,11 +30,13 @@ async function openEditorAs(page: Page, role: 'pm' | 'contributor') {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       const method = (init?.method ?? 'GET').toUpperCase()
       if (/\/auth\/me(\?.*)?$/.test(url) && method === 'GET') return json(me)
+      // Editing rights (an active R row or the assignee); undefined = leave it to the real API.
+      if (canEdit !== undefined && url.includes(`/documents/${doc}/raci/can-edit`)) return json({ canEdit })
       if (new RegExp(`/documents/${doc}(\\?.*)?$`).test(url) && method === 'GET') return json(document)
       const res = await real(input, init)
       return res.status === 401 ? json({ error: 'e2e_no_session' }, 503) : res
     }
-  }, { role, project: PROJECT, doc: DOC })
+  }, { role, project: PROJECT, doc: DOC, canEdit: opts.canEdit })
   await page.goto(`/projects/${PROJECT}/clinical-writing/documents/${DOC}`)
   await expect(page.locator('[data-screen="document-editor"]')).toBeVisible({ timeout: 60_000 })
 }
@@ -64,4 +66,14 @@ test('Contributor: AI Chat stays available — the button opens the panel', asyn
   await expect(aiButton(page)).toHaveAttribute('title', 'Open AI Chat (⌘J)')
   await aiButton(page).dispatchEvent('click')
   await expect(aiPanel(page)).toBeVisible()
+})
+
+test('Reviewer (not an author): AI Chat opens read-only — the prompt box and Send are disabled with the reason', async ({ page }) => {
+  await openEditorAs(page, 'contributor', { canEdit: false })
+  await aiButton(page).dispatchEvent('click')
+  await expect(aiPanel(page)).toBeVisible()
+  const input = page.locator('[data-ai-chat-input]')
+  await expect(input).toBeDisabled()
+  await expect(input).not.toHaveAttribute('placeholder', 'Ask about this section, or request a rewrite…')
+  await expect(page.locator('[data-ai-chat-send]')).toBeDisabled()
 })

@@ -26,6 +26,9 @@ async function build(responseText = '<p>Revised.</p>') {
         currentVersion: { sections: [{ id: 'row-1', sectionId: 'd2', sectionNumber: '§2', sectionTitle: 'Worldwide Marketing Approval Status', contentHtml: '<p>Saved text.</p>' }] },
       })),
     },
+    // The section-edit gate also checks the status lock and the section lock.
+    project:     { findUnique: vi.fn(async () => ({ status: 'initiated' })) },
+    sectionLock: { findUnique: vi.fn(async () => null) },
   } as never)
   app.decorate('aiGateway', { chat } as never)
   app.decorate('audit', { append: vi.fn() } as never)

@@ -38,6 +38,7 @@ import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { initialStatuses, recordsToRelease, sortForChain, type ChainType, type SignatureStatus } from './chain-progress.js'
 import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain, requiredSigners } from './access.js'
+import { resetAuthorSubmissions } from '../../platform/document-raci/access.js'
 
 const initiateSchema = z.object({
   chainType: z.enum(['sequential', 'parallel', 'grouped']).default('grouped'),
@@ -514,10 +515,12 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         data: { status: 'cancelled', cancelledAt: now, cancelReason: parsed.data.cancelReason },
       })
       // Doc reverts to in_authoring per the state machine (signer refusal).
-      await tx.document.updateMany({
+      const reverted = await tx.document.updateMany({
         where: { id: chain.documentId, status: 'pending_signature' },
         data: { status: 'in_authoring' },
       })
+      // A new authoring round: every author submits their part again.
+      if (reverted.count > 0) await resetAuthorSubmissions(tx, chain.documentId)
       return c
     })
 

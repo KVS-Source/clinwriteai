@@ -127,9 +127,9 @@ export function SlidePanel({
 
   if (!open) return null
 
-  const shownWidth = expanded
-    ? Math.round(window.innerWidth * 0.92)
-    : expandedWidth ? Math.min(Math.max(width, expandedWidth), Math.round(window.innerWidth * 0.92)) : width
+  // Never wider than the window allows, so a saved or wide panel still fits a narrow screen.
+  const widest = Math.round(window.innerWidth * 0.92)
+  const shownWidth = expanded ? widest : Math.min(expandedWidth ? Math.max(width, expandedWidth) : width, widest)
 
   return (
     <aside

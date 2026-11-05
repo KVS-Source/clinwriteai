@@ -555,8 +555,11 @@ export function DocumentEditor() {
 
   // A new section starts without a stale selection / open source.
   useEffect(() => { setTraceabilityTarget(null) }, [activeSection, setTraceabilityTarget])
-  // Closing the panel closes the viewer too.
-  useEffect(() => { if (activePanel !== 'traceability') setSourceViewer(null) }, [activePanel, setSourceViewer])
+  // Closing the panel closes the viewer and the citation form too.
+  const setCitationMode = useEditorStore(s => s.setCitationMode)
+  useEffect(() => {
+    if (activePanel !== 'traceability') { setSourceViewer(null); setCitationMode(false) }
+  }, [activePanel, setSourceViewer, setCitationMode])
 
   // ⌘J / Ctrl+J — the shortcut was moved to AppShell so it works even on
   // first-paint before this component mounts and survives route changes
@@ -614,6 +617,8 @@ export function DocumentEditor() {
       // picking text to link). A selection left over from earlier doesn't count — clicking a
       // button elsewhere doesn't clear it, and that click must still close the panel.
       if (pressedInContent && !window.getSelection()?.isCollapsed) return
+      // Inserting a citation: a click in the section places the cursor where it goes.
+      if (pressedInContent && activePanel === 'traceability' && useEditorStore.getState().citationMode) return
       if (sectionContentRef.current?.contains(t) && referenceAtPoint(linkedRangesRef.current, e.clientX, e.clientY)) return
       if (hasCommentDraft()) return
       setActivePanel(null)
@@ -651,6 +656,41 @@ export function DocumentEditor() {
     // Always land on the References list; "View source" opens the file from there.
     setSourceViewer(null)
     setActivePanel('traceability')
+  }
+
+  // Insert citation (FR-A-022): put the citation text in at the cursor (after the selection, if
+  // any) and return where it sits in the section's text, so the reference created for it is
+  // anchored to this exact occurrence — it is then marked like any reference-linked text and
+  // clicking it opens the source. revert() takes the text out again if the reference can't be
+  // saved. Null when the section isn't open for editing or the cursor isn't in text.
+  const insertCitation = (text: string): { span: { start: number; end: number } | null; revert: () => void } | null => {
+    const root = sectionContentRef.current
+    if (!editor || editor.isDestroyed || !editor.isEditable || !canEditSection || !root) return null
+    const { to, $to } = editor.state.selection
+    if (!$to.parent.isTextblock) return null
+    const before = $to.parent.textBetween(Math.max(0, $to.parentOffset - 1), $to.parentOffset)
+    const lead = before && !/\s/.test(before) ? ' ' : ''
+    if (!editor.chain().focus().insertContentAt(to, { type: 'text', text: lead + text }).run()) return null
+    const from = to + lead.length
+    const end = from + text.length
+    let span: { start: number; end: number } | null = null
+    try {
+      const a = editor.view.domAtPos(from)
+      const b = editor.view.domAtPos(end)
+      const range = window.document.createRange()
+      range.setStart(a.node, a.offset)
+      range.setEnd(b.node, b.offset)
+      span = spanOfRange(buildTextIndex(root), range)
+    } catch { /* positions only help find the occurrence; the reference still works without them */ }
+    editor.commands.setTextSelection(end)
+    requestAnimationFrame(() => { void autosave.flush() })
+    return {
+      span,
+      revert: () => {
+        if (editor.isDestroyed || editor.state.doc.content.size < end) return
+        if (editor.state.doc.textBetween(from, end) === text) editor.chain().deleteRange({ from: to, to: end }).run()
+      },
+    }
   }
 
   if (!document) {
@@ -942,7 +982,7 @@ export function DocumentEditor() {
             band so content narrows (text wraps) instead of being hidden
             when the panel opens. */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} canViewChecklist={canViewChecklist} aiChatAllowed={aiChatAllowed} canViewSources={canViewSources} />
+          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} canViewChecklist={canViewChecklist} aiChatAllowed={aiChatAllowed} canViewSources={canViewSources} editable={canEditSection} />
 
           {/* Split row — content column (scrollable + AI prompt dock
               stacked) + optional right panel column (fixed width,
@@ -1361,6 +1401,8 @@ export function DocumentEditor() {
                 sectionLabel={activeSectionData ? `${activeSectionData.number.startsWith('§') ? '' : '§'}${activeSectionData.number} ${activeSectionData.title}` : undefined}
                 documentStatus={document?.status}
                 projectClosed={project?.status === 'closed'}
+                canInsertCitation={canEditSection}
+                onInsertCitation={insertCitation}
               />
             )}
             {activePanel === 'history' && documentId && (

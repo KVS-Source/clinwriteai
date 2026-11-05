@@ -1,7 +1,7 @@
 import type { DocumentType, PanelMode } from '@platform/types'
 import { useEditorState } from '@tiptap/react'
 import { useTranslation } from 'react-i18next'
-import { useDocumentStore } from '../../store'
+import { useDocumentStore, useEditorStore } from '../../store'
 import { ReferenceDropdown } from '../../components/ui'
 
 // --- Icons ---
@@ -81,6 +81,14 @@ function ProtocolIcon() {
     </svg>
   )
 }
+function CiteIcon() {
+  // Quotation mark — a citation to a source.
+  return (
+    <svg width="12" height="12" viewBox="0 0 14 14" fill="currentColor" aria-hidden="true">
+      <path d="M2 8.2C2 5.6 3.4 3.8 5.6 3.2l.4 1C4.8 4.7 4.1 5.6 4 6.6h1.8V11H2zM8 8.2c0-2.6 1.4-4.4 3.6-5l.4 1c-1.2.5-1.9 1.4-2 2.4h1.8V11H8z" />
+    </svg>
+  )
+}
 function SparkleIcon() {
   return (
     <svg width="12" height="12" viewBox="0 0 14 14">
@@ -141,6 +149,10 @@ interface EditorToolbarProps {
   documentType?: DocumentType
   // The Checklist button is left out once this is known to be false.
   canViewChecklist?: boolean
+  // The section is open for editing (this user holds its lock). The editor is re-created when
+  // this flips, and useEditorState only re-reads on the next transaction, so without it the
+  // buttons stayed grey until the first click in the text.
+  editable?: boolean
   // AI Chat is for this document's authors; the button stays disabled until that's known.
   aiChatAllowed?: boolean
   // The Source References option is left out once this is known to be false.
@@ -152,12 +164,16 @@ interface EditorToolbarProps {
 // belong on a CSR / IB / DSUR row.
 const PROTOCOL_DOC_TYPES: ReadonlySet<DocumentType> = new Set(['protocol', 'protocol-amendment'])
 
-export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist, aiChatAllowed = false, canViewSources }: EditorToolbarProps = {}) {
+export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist, aiChatAllowed = false, canViewSources, editable }: EditorToolbarProps = {}) {
   const { t } = useTranslation()
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
   const toggle = (mode: NonNullable<PanelMode>) => setActivePanel(activePanel === mode ? null : mode)
+  const citationMode    = useEditorStore(s => s.citationMode)
+  const setCitationMode = useEditorStore(s => s.setCitationMode)
+  const setSourceViewer = useEditorStore(s => s.setSourceViewer)
+  const citationOpen = citationMode && activePanel === 'traceability'
 
   // Formatting command shortcuts — null-safe so toolbar can mount
   // before the editor is ready.
@@ -186,7 +202,7 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
     }),
   })
   const isActive = (name: string) => !!state?.[name as keyof typeof state]
-  const formatDisabled = !state?.editable
+  const formatDisabled = !(editable ?? state?.editable)
   const currentHeadingLevel = state?.headingLevel ?? null
 
   return (
@@ -303,23 +319,32 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
         </span>
       </button>
 
-      {/* Insert citation — disabled coming-soon stub */}
+      {/* Insert citation (FR-A-022) — opens the Source References panel with the citation form:
+          pick a source document, and a citation linked to it goes in at the cursor. Needs the
+          section open for editing (this user holds its lock); left out, like the Source References
+          option, for someone who may not view the project's sources. */}
+      {canViewSources !== false && (
       <button
         type="button"
-        disabled
-        className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold"
-        style={{
-          borderColor:     '#E2E8F0',
-          backgroundColor: '#FFFFFF',
-          color:           '#94A3B8',
-          cursor:          'not-allowed',
+        title={formatDisabled ? t('page.editor_toolbar.insert_citation_disabled_tooltip') : t('page.editor_toolbar.insert_citation_tooltip')}
+        disabled={formatDisabled}
+        aria-pressed={citationOpen}
+        onClick={() => {
+          setSourceViewer(null)
+          setCitationMode(true)
+          setActivePanel('traceability')
         }}
+        data-panel-trigger
+        data-action="insert-citation"
+        className="flex h-7 flex-none items-center gap-1.5 rounded-md border px-2.5 text-xs font-semibold transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-white"
+        style={citationOpen
+          ? { borderColor: '#93C5FD', backgroundColor: '#EFF6FF', color: '#1D4ED8' }
+          : { borderColor: '#CBD5E1', backgroundColor: '#FFFFFF', color: '#334155' }}
       >
+        <CiteIcon />
         {t('page.editor_toolbar.insert_citation')}
-        <span className="rounded-[3px] px-1 py-0.5 font-mono text-[9px] font-medium tracking-wider" style={{ backgroundColor: '#F1F5F9', color: '#94A3B8' }}>
-          {t('page.editor_toolbar.soon_badge')}
-        </span>
       </button>
+      )}
     </div>
   )
 }

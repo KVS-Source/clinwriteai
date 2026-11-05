@@ -144,6 +144,29 @@ export const documentHandlers = [
     return HttpResponse.json({ sectionId: params.sectionId, ichStatus: status })
   }),
   http.get(`${BASE}/documents/:documentId/versions/access`, () => HttpResponse.json({ canView: true })),
+  http.get(`${BASE}/documents/:documentId/versions/:versionId/sections`, async ({ params }) => {
+    await delay(150)
+    const doc = (documents as unknown as Array<{ id: string; sections?: Array<{ id: string; number: string; title: string; contentHtml?: string }> }>).find(d => d.id === params.documentId)
+    return HttpResponse.json({
+      id: params.versionId,
+      versionNumber: `v0.${String(params.versionId).replace(/\D/g, '') || '1'}`,
+      sections: (doc?.sections ?? []).map(s => ({ sectionId: s.id, sectionNumber: s.number, sectionTitle: s.title, contentHtml: s.contentHtml ?? '' })),
+    })
+  }),
+  http.get(`${BASE}/documents/:documentId/compliance-summary`, async ({ params }) => {
+    await delay(150)
+    return HttpResponse.json({
+      documentId: params.documentId,
+      checklistTemplateVersion: 1,
+      generatedAt: new Date().toISOString(),
+      frameworks: [{
+        name: 'ICH E3', version: 'R1', jurisdiction: 'ICH', description: 'Structure and content of clinical study reports.', sourceUrl: null, inRegistry: true,
+        rules: [{ text: 'All mandatory sections are present', mandatory: true, status: 'complete' }],
+      }],
+      waivedMandatory: [],
+      removedMandatory: [],
+    })
+  }),
   http.get(`${BASE}/documents/:documentId/deadlines/access`, () => HttpResponse.json({ canEditTarget: true, canEditReviewDue: true })),
   http.get(`${BASE}/documents/:documentId/versions`, async () => {
     await delay(150)

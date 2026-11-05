@@ -1,7 +1,9 @@
 // Right-hand detail panel for a document in the All Stages list: metadata, the source
-// documents it is based on (with the sections that cite each), and an Open button.
+// documents it is based on (with the sections that cite each), and an Open button. A signed
+// document's Author (R) can also push it, or one section, to the Master Library from here with
+// the four mandatory tags (FR-A-080) — the same push as on the Final Document screen.
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { Document } from '@platform/types'
@@ -14,6 +16,7 @@ import { SourceViewer } from '../../panels/SourceReferencesPanel'
 import { EyeIcon, MetaRow, MetaSection, fmtDate } from './detailPanelParts'
 import { DeadlineField } from './DeadlineField'
 import { useSourceAccess } from '../../hooks/useSourceAccess'
+import { LibraryPushedBadge, PushToLibraryButton } from '../../components/library/PushToLibraryButton'
 
 interface Props {
   projectId: string
@@ -63,6 +66,20 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
     enabled: !!doc,
     retry: false,
   })
+
+  // Master Library push: only a signed document can go in. The list row has no section
+  // content, so the full document is read for the "one section" choice.
+  const isSigned = doc?.status === 'signed'
+  const fullDoc = useQuery({
+    queryKey: ['document', doc?.id],
+    queryFn: () => documentsApi.get(doc!.id),
+    enabled: !!doc && isSigned,
+    retry: false,
+  })
+  const pushSections = useMemo(
+    () => [...(fullDoc.data?.sections ?? [])].sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })),
+    [fullDoc.data],
+  )
 
   const qc = useQueryClient()
   const advance = useMutation({
@@ -140,7 +157,10 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
         <div className="flex min-h-full flex-col" data-panel="document-detail">
           <div className="flex-1">
             <MetaSection label={t('page.document_detail_panel.status')}>
-              <StatusPill status={doc.status} />
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusPill status={doc.status} />
+                {isSigned && <LibraryPushedBadge document={doc} />}
+              </div>
             </MetaSection>
 
             <MetaSection label={t('page.document_detail_panel.document')}>
@@ -259,6 +279,8 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                     {t('page.document_detail_panel.raci_action')}
                   </button>
                 )}
+                {/* Shows itself only to the Author (R) of a signed document not yet in the library. */}
+                {isSigned && fullDoc.data && <PushToLibraryButton document={fullDoc.data} sections={pushSections} />}
               </div>
               {stage.data && !stage.data.terminal && (
                 <button

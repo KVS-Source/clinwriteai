@@ -7,6 +7,7 @@ import Fastify, { type FastifyInstance } from 'fastify'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { signatureRoutes } from './routes.js'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose in-memory Prisma double
 type Row = Record<string, any>
 
 // Everyone in these tests has the same login password (low bcrypt cost to keep the tests quick).

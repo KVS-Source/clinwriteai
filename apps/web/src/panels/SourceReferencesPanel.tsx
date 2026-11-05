@@ -11,6 +11,9 @@ import { normalizeSpan, spansOverlap } from '../screens/clinical-writing/referen
 
 // Source references panel (FR-A-022). Two views in the right-hand panel:
 //   list   — reference links for the active section + "add a reference" from selected text
+//            (or, opened from the toolbar's "Insert citation", the citation form: pick a source
+//            and a citation such as "[Protocol.pdf, p. 12]" goes in at the cursor, saved as a
+//            reference on exactly that text)
 //   viewer — the linked source document (PDF / image), opened at the cited page
 // "Already linked" is per text range, not per section: when the selected text overlaps a
 // linked range the panel points at that reference (View source / Remove) instead of the add
@@ -26,7 +29,14 @@ interface Props {
   documentStatus?: DocumentStatus
   /** a closed project is read-only whatever the document's status */
   projectClosed?: boolean
+  /** the section is open for editing by this user, so a citation can go in */
+  canInsertCitation?: boolean
+  /** puts the citation text in at the cursor; where it landed, and how to take it out again */
+  onInsertCitation?: (text: string) => { span: { start: number; end: number } | null; revert: () => void } | null
 }
+
+// The citation couldn't be put in the section (cursor not in text, editing ended).
+class CitationPlacementError extends Error {}
 
 const LOCKED_NOTE_KEYS: Partial<Record<DocumentStatus, string>> = {
   'in-review':         'page.source_references_panel.locked_note_in_review',
@@ -37,6 +47,7 @@ const LOCKED_NOTE_KEYS: Partial<Record<DocumentStatus, string>> = {
 const excerpt = (s: string, n = 90) => (s.length > n ? `${s.slice(0, n).trimEnd()}…` : s)
 
 function reason(err: unknown, t: TFunction): string {
+  if (err instanceof CitationPlacementError) return t('page.source_references_panel.citation_insert_failed')
   if (err instanceof ApiError) {
     const body = err.body as { message?: string; error?: string } | null
     if (body?.message) return body.message
@@ -162,7 +173,7 @@ export function SourceViewer({ projectId, documentId, source, page, quote, onBac
 
 // ------------------------------------------------------------------ list
 
-export function SourceReferencesPanel({ documentId, projectId, sectionId, sectionLabel, documentStatus, projectClosed }: Props) {
+export function SourceReferencesPanel({ documentId, projectId, sectionId, sectionLabel, documentStatus, projectClosed, canInsertCitation, onInsertCitation }: Props) {
   const canEditDocument = useCanEditDocument(documentId)
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -211,6 +222,39 @@ export function SourceReferencesPanel({ documentId, projectId, sectionId, sectio
 
   const canAdd = !!sectionId && !!selected && !!uploadId && (page === '' || Number(page) >= 1)
 
+  // Insert citation: the text goes in first (so its position is known), then the reference is
+  // saved on it; if saving fails the text comes out again.
+  const citationMode = useEditorStore(s => s.citationMode)
+  const setCitationMode = useEditorStore(s => s.setCitationMode)
+  const citationSource = sourceById.get(uploadId)
+  const citationText = citationSource
+    ? `[${[citationSource.fileName, page ? t('page.source_references_panel.page_short', { page }) : null, locator.trim() || null].filter(Boolean).join(', ')}]`
+    : ''
+  const insert = useMutation({
+    mutationFn: async () => {
+      const placed = onInsertCitation?.(citationText)
+      if (!placed) throw new CitationPlacementError()
+      try {
+        return await documentsApi.createReference(documentId, {
+          sectionId: sectionId!,
+          spanText: normalizeSpan(citationText),
+          uploadId,
+          ...(placed.span ? { startOffset: placed.span.start, endOffset: placed.span.end } : {}),
+          ...(page ? { page: Number(page) } : {}),
+          ...(locator.trim() ? { locator: locator.trim() } : {}),
+        })
+      } catch (e) {
+        placed.revert()
+        throw e
+      }
+    },
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['references', documentId] })
+      setPage(''); setLocator(''); setCitationMode(false)
+    },
+  })
+  const canInsert = !!sectionId && !!canInsertCitation && !!onInsertCitation && !!citationSource && (page === '' || Number(page) >= 1)
+
   // Remove: inline confirm with an optional reason (kept on the audit trail).
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const [removeReason, setRemoveReason] = useState('')
@@ -249,6 +293,50 @@ export function SourceReferencesPanel({ documentId, projectId, sectionId, sectio
         <section className="border-b border-slate-200 p-4" data-reference-locked>
           <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">{sectionLabel ? t('page.source_references_panel.references_locked_with_section', { section: sectionLabel }) : t('page.source_references_panel.references_locked')}</h4>
           <p className="mt-1 text-xs text-slate-500">{lockedNote}</p>
+        </section>
+      ) : citationMode ? (
+        <section className="border-b border-slate-200 p-4" data-citation-form>
+          <h4 className="text-xs font-bold uppercase tracking-wide text-slate-500">{sectionLabel ? t('page.source_references_panel.insert_citation_title_with_section', { section: sectionLabel }) : t('page.source_references_panel.insert_citation_title')}</h4>
+          <p className="mt-1 text-xs text-slate-500">{canInsertCitation ? t('page.source_references_panel.insert_citation_hint') : t('page.source_references_panel.citation_needs_editing')}</p>
+
+          <label className="mt-3 block text-xs font-semibold text-slate-700" htmlFor="cite-source">{t('page.source_references_panel.source_document_label')}</label>
+          <select id="cite-source" value={uploadId} onChange={e => setUploadId(e.target.value)} data-field="citation-source"
+            className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-xs">
+            <option value="">{sourcesQ.isLoading ? t('status.loading') : sources.length ? t('page.source_references_panel.select_source_option') : t('page.source_references_panel.no_sources_in_project')}</option>
+            {sources.map(s => <option key={s.id} value={s.id}>{s.fileName}</option>)}
+          </select>
+
+          <div className="mt-3 flex gap-2">
+            <div className="w-20">
+              <label className="block text-xs font-semibold text-slate-700" htmlFor="cite-page">{t('page.source_references_panel.page_label')}</label>
+              <input id="cite-page" type="number" min={1} value={page} onChange={e => setPage(e.target.value)} data-field="citation-page"
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs" />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs font-semibold text-slate-700" htmlFor="cite-locator">{t('page.source_references_panel.locator_label')} <span className="font-normal text-slate-400">{t('page.source_references_panel.optional_suffix')}</span></label>
+              <input id="cite-locator" maxLength={200} value={locator} onChange={e => setLocator(e.target.value)} placeholder={t('page.source_references_panel.locator_placeholder')} data-field="citation-locator"
+                className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-xs" />
+            </div>
+          </div>
+
+          {citationText && (
+            <p className="mt-3 rounded-md border border-slate-200 bg-white p-2 text-xs text-slate-800" data-citation-preview>
+              <span className="font-semibold text-slate-500">{t('page.source_references_panel.citation_preview_label')}: </span>{citationText}
+            </p>
+          )}
+
+          <div className="mt-3 flex gap-2">
+            <button type="button" disabled={!canInsert || insert.isPending} onClick={() => insert.mutate()} data-action="confirm-insert-citation"
+              className="flex-1 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
+              {insert.isPending ? t('page.source_references_panel.inserting_citation') : t('page.source_references_panel.insert_citation_button')}
+            </button>
+            <button type="button" disabled={insert.isPending} onClick={() => { setCitationMode(false); insert.reset() }} data-action="cancel-insert-citation"
+              className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+              {t('button.cancel')}
+            </button>
+          </div>
+          {insert.isError && <p role="alert" className="mt-2 text-xs text-red-700" data-citation-error>{reason(insert.error, t)}</p>}
+          <p className="mt-2 text-[11px] text-slate-400">{t('page.source_references_panel.audit_trail_hint')}</p>
         </section>
       ) : linked ? (
         <section className="border-b border-slate-200 p-4" data-reference-linked>

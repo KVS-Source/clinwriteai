@@ -1,7 +1,7 @@
 import type React from 'react'
 import { useEffect, useRef, useState } from 'react'
 import type { PanelMode } from '@platform/types'
-import { useDocumentStore } from '../../store'
+import { useDocumentStore, useEditorStore } from '../../store'
 
 type ReferenceMode = 'traceability' | 'ich-e3' | 'meddra' | 'tlf'
 
@@ -87,7 +87,9 @@ export function ReferenceDropdown({ showIch = true, showSources = true }: { show
     return () => window.document.removeEventListener('mousedown', handler)
   }, [open])
 
+  const setCitationMode = useEditorStore(s => s.setCitationMode)
   const selectOption = (mode: ReferenceMode) => {
+    setCitationMode(false)   // the plain references list, not the "Insert citation" form
     setActivePanel(mode as NonNullable<PanelMode>)
     setOpen(false)
   }

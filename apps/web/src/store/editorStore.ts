@@ -18,6 +18,8 @@ interface EditorStore {
   linkedSpans: Record<string, TextSpan>
   /** Source open in the right-hand viewer (optionally at a page, with the cited text) */
   sourceViewer: { uploadId: string; page?: number | null; spanText?: string } | null
+  /** Source References panel opened from "Insert citation": it shows the citation form */
+  citationMode: boolean
   updateContent: (sectionId: string, html: string) => void
   setAIState: (state: AIState) => void
   setAISuggestion: (suggestion: AISuggestion | null) => void
@@ -26,6 +28,7 @@ interface EditorStore {
   setTraceabilityTarget: (value: string | null, range?: TextSpan | null) => void
   setLinkedSpans: (value: Record<string, TextSpan>) => void
   setSourceViewer: (value: EditorStore['sourceViewer']) => void
+  setCitationMode: (value: boolean) => void
   markSaved: () => void
 }
 
@@ -39,6 +42,7 @@ export const useEditorStore = create<EditorStore>(set => ({
   traceabilityRange: null,
   linkedSpans: {},
   sourceViewer: null,
+  citationMode: false,
   updateContent: (sectionId, html) =>
     set(s => ({ content: { ...s.content, [sectionId]: html }, isDirty: true })),
   setAIState: (aiState) => set({ aiState }),
@@ -48,5 +52,6 @@ export const useEditorStore = create<EditorStore>(set => ({
   setTraceabilityTarget: (traceabilityTarget, range) => set({ traceabilityTarget, traceabilityRange: traceabilityTarget ? range ?? null : null }),
   setLinkedSpans: (linkedSpans) => set({ linkedSpans }),
   setSourceViewer: (sourceViewer) => set({ sourceViewer }),
+  setCitationMode: (citationMode) => set({ citationMode }),
   markSaved: () => set({ isDirty: false, lastSavedAt: new Date().toISOString() }),
 }))

@@ -199,10 +199,10 @@ export function AllProjects() {
       </div>
 
       {/* Filter bar */}
-      <div className="flex items-center gap-3 border-b border-slate-200 bg-white px-8 py-4">
+      <div className="flex flex-wrap items-center gap-3 border-b border-slate-200 bg-white px-8 py-4">
 
         {/* Search */}
-        <div className="flex h-9 w-[280px] items-center gap-2 rounded-md border border-slate-200 px-3">
+        <div className="flex h-9 w-full max-w-[280px] items-center gap-2 rounded-md border border-slate-200 px-3">
           <SearchIcon />
           <input
             type="text"
@@ -223,7 +223,7 @@ export function AllProjects() {
         </div>
 
         {/* Filter chips */}
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {STATUS_FILTERS.map(f => (
             <button
               key={f.value}

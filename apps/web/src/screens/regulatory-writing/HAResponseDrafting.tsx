@@ -3,7 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { HACorrespondence, HAQuestion } from '@platform/types'
 import { regulatoryWritingApi } from '../../modules/regulatory-writing/api/regulatoryWriting'
-import { HAResponseHistoryPanel } from '../../panels/HAResponseHistoryPanel'
+import { HAResponseHistoryPanel } from './HAResponseHistoryPanel'
 
 const CATEGORY_META = {
   clinical:       { bg: '#EFF6FF', fg: '#2563EB', label: 'Clinical' },

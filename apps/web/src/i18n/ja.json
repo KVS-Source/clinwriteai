@@ -604,6 +604,14 @@
       "adding":                        "追加中…",
       "add_reference_button":          "参照を追加",
       "audit_trail_hint":              "追加または削除した参照はすべてドキュメントの監査証跡に記録されます。",
+      "insert_citation_title":         "引用を挿入",
+      "insert_citation_title_with_section": "引用を挿入 · {{section}}",
+      "insert_citation_hint":          "引用はカーソル位置に挿入され、ソース文書にリンクされます。カーソルを移動するにはセクション内をクリックしてください。",
+      "citation_preview_label":        "引用",
+      "insert_citation_button":        "引用を挿入",
+      "inserting_citation":            "挿入中…",
+      "citation_needs_editing":        "引用を挿入するにはセクションを編集可能にしてください。",
+      "citation_insert_failed":        "引用をセクションに挿入できませんでした。",
 
       "references_in_section":         "このセクションの参照",
       "load_references_failed":        "参照を読み込めませんでした。",
@@ -1516,7 +1524,8 @@
       "ai_chat_authors_only": "AI チャットを利用できるのは、このドキュメントの作成者 (Responsible, R) のみです",
       "ai_chat_label": "AI チャット",
       "insert_citation": "引用を挿入",
-      "soon_badge": "SOON"
+      "insert_citation_tooltip": "ソース文書にリンクした引用をカーソル位置に挿入",
+      "insert_citation_disabled_tooltip": "引用を挿入するにはセクションを編集可能にしてください"
     },
 
     "html_diff": {},
@@ -2181,7 +2190,6 @@
       "discipline_label": "分野",
       "module_platform": "プラットフォーム",
       "export_csv": "CSV をエクスポート",
-      "export_ready": "エクスポート準備完了 · {{rows}} 行 · {{url}}",
       "col_timestamp_utc": "タイムスタンプ (UTC)",
       "col_user": "ユーザー",
       "col_action": "アクション",

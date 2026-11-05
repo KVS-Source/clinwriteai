@@ -6,6 +6,7 @@ import Fastify from 'fastify'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { crmRoutes } from './routes.js'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose in-memory Prisma double
 type Row = Record<string, any>
 
 function fakePrisma() {

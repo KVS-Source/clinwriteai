@@ -16,6 +16,7 @@ function makePrisma(opts: {
   user?: StubUser | null
   documentExists?: boolean
   existingRows?: ExistingRow[]
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose in-memory Prisma double
 }): any {
   const user = opts.user === undefined
     ? { id: 'u-1', capabilities: ['can-author'], role: 'contributor' }

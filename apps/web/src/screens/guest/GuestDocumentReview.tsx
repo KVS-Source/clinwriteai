@@ -23,14 +23,45 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n'
 import { ApiError } from '../../api/client'
+import { documentStatusLabel, documentTypeLabel } from '../../utils/documentLabels'
+import { uiLocale } from '../../utils/formatDate'
 import {
   guestRedemptionApi,
   type GuestDocumentPayload,
   type GuestVerifyResult,
 } from '../../api/raci'
 
+// The invitation's refusal in the guest's language. A refusal this screen doesn't know keeps the server's words.
+const GUEST_ERROR_KEY: Record<string, string> = {
+  bad_token: 'page.guest_document_review.err_bad_token',
+  invitation_not_found: 'page.guest_document_review.err_not_found',
+  revoked: 'page.guest_document_review.err_revoked',
+  expired: 'page.guest_document_review.err_expired',
+  scope_mismatch: 'page.guest_document_review.err_scope_mismatch',
+  document_mismatch: 'page.guest_document_review.err_mismatch',
+  project_mismatch: 'page.guest_document_review.err_mismatch',
+  document_not_found: 'page.guest_document_review.err_document_not_found',
+}
+
+function guestErrorText(e: ApiError): string {
+  const body = (e.body ?? {}) as { error?: string; message?: string }
+  if (body.error === 'token_invalid') {
+    return i18n.t(/expired/i.test(body.message ?? '') ? 'page.guest_document_review.err_token_expired' : 'page.guest_document_review.err_token_invalid')
+  }
+  const key = body.error ? GUEST_ERROR_KEY[body.error] : undefined
+  return key ? i18n.t(key) : body.message ?? body.error ?? friendlyFor(e.status)
+}
+
+const COMMENT_STATUS_KEY: Record<string, string> = {
+  open: 'page.guest_document_review.comment_open',
+  resolved: 'page.guest_document_review.comment_resolved',
+}
+
 export function GuestDocumentReview() {
+  const { t } = useTranslation()
   const { token } = useParams<{ token: string }>()
   const [verify,  setVerify]  = useState<GuestVerifyResult | null>(null)
   const [doc,     setDoc]     = useState<GuestDocumentPayload | null>(null)
@@ -39,7 +70,7 @@ export function GuestDocumentReview() {
 
   const refresh = useCallback(async () => {
     if (!token) {
-      setError({ code: 400, message: 'Missing token in URL.' })
+      setError({ code: 400, message: t('page.guest_document_review.missing_token') })
       setLoading(false)
       return
     }
@@ -51,7 +82,7 @@ export function GuestDocumentReview() {
       if (v.scope !== 'document') {
         setError({
           code: 403,
-          message: 'This invitation is scoped to a project (external audit), not a single document. Ask the issuer for a document link instead.',
+          message: t('page.guest_document_review.wrong_scope'),
         })
         setLoading(false)
         return
@@ -60,19 +91,18 @@ export function GuestDocumentReview() {
       setDoc(payload)
     } catch (e: unknown) {
       if (e instanceof ApiError) {
-        const body = (e.body ?? {}) as { error?: string; message?: string }
-        setError({ code: e.status, message: body.message ?? body.error ?? friendlyFor(e.status) })
+        setError({ code: e.status, message: guestErrorText(e) })
       } else {
-        setError({ code: 500, message: e instanceof Error ? e.message : 'Unknown error' })
+        setError({ code: 500, message: friendlyFor(500) })
       }
     } finally {
       setLoading(false)
     }
-  }, [token])
+  }, [token, t])
 
   useEffect(() => { void refresh() }, [refresh])
 
-  if (loading) return <GuestShell><div className="text-sm text-slate-500">Loading…</div></GuestShell>
+  if (loading) return <GuestShell><div className="text-sm text-slate-500">{t('status.loading')}</div></GuestShell>
 
   if (error) {
     return (
@@ -83,7 +113,7 @@ export function GuestDocumentReview() {
   }
 
   if (!doc || !verify) {
-    return <GuestShell><ErrorCard code={500} message="Could not load the document." onRetry={() => void refresh()} /></GuestShell>
+    return <GuestShell><ErrorCard code={500} message={t('page.guest_document_review.load_failed')} onRetry={() => void refresh()} /></GuestShell>
   }
 
   return <ReviewView doc={doc} token={token!} onCommentPosted={() => void refresh()} />
@@ -97,6 +127,7 @@ function ReviewView({ doc, token, onCommentPosted }: {
   token: string
   onCommentPosted: () => void
 }) {
+  const { t } = useTranslation()
   const commentsBySection = useMemo(() => {
     const out: Record<string, GuestDocumentPayload['comments']> = {}
     for (const c of doc.comments) {
@@ -114,25 +145,25 @@ function ReviewView({ doc, token, onCommentPosted }: {
         <h1 className="text-xl font-semibold text-slate-900">{doc.document.title}</h1>
         <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500">
           <span className="rounded border border-slate-300 bg-slate-50 px-2 py-0.5 font-mono text-[10px]">
-            {doc.document.type}
+            {documentTypeLabel(doc.document.type.replace(/_/g, '-'), doc.document.type)}
           </span>
-          <span>Status: <span className="font-semibold text-slate-700">{doc.document.status}</span></span>
-          <span>Guest: <span className="font-semibold text-slate-700">{doc.guest.email}</span></span>
-          <span>Purpose: <span className="font-semibold text-slate-700">{doc.guest.purpose}</span></span>
+          <span>{t('page.guest_document_review.label_status')} <span className="font-semibold text-slate-700">{documentStatusLabel(doc.document.status.replace(/_/g, '-'), doc.document.status)}</span></span>
+          <span>{t('page.guest_document_review.label_guest')} <span className="font-semibold text-slate-700">{doc.guest.email}</span></span>
+          <span>{t('page.guest_document_review.label_purpose')} <span className="font-semibold text-slate-700">{doc.guest.purpose}</span></span>
           <span>
-            Access expires: <span className="font-semibold text-slate-700">
-              {new Date(doc.guest.expiresAt).toLocaleString()}
+            {t('page.guest_document_review.label_expires')} <span className="font-semibold text-slate-700">
+              {new Date(doc.guest.expiresAt).toLocaleString(uiLocale())}
             </span>
           </span>
         </div>
         <p className="mt-3 text-xs text-slate-500">
-          Read-only view. You can add comments scoped to a section. You will not see other documents on this project.
+          {t('page.guest_document_review.intro')}
         </p>
       </header>
 
       {doc.sections.length === 0 ? (
         <div className="text-sm text-slate-500">
-          This document has no content yet.
+          {t('page.guest_document_review.no_content')}
         </div>
       ) : (
         doc.sections.map(sec => {
@@ -148,7 +179,7 @@ function ReviewView({ doc, token, onCommentPosted }: {
                   comments below are rendered as plain text (safe). */}
               <div
                 className="prose prose-sm max-w-none text-slate-800"
-                dangerouslySetInnerHTML={{ __html: sec.contentHtml || '<em>(no content yet)</em>' }}
+                dangerouslySetInnerHTML={{ __html: sec.contentHtml || `<em>${t('page.guest_document_review.no_section_content')}</em>` }}
               />
               <CommentBlock
                 token={token}
@@ -173,6 +204,7 @@ function CommentBlock({ token, sectionRef, comments, onPosted }: {
   comments: GuestDocumentPayload['comments']
   onPosted: () => void
 }) {
+  const { t } = useTranslation()
   const [text, setText]   = useState('')
   const [busy, setBusy]   = useState(false)
   const [err,  setErr]    = useState<string | null>(null)
@@ -188,7 +220,7 @@ function CommentBlock({ token, sectionRef, comments, onPosted }: {
       setText('')
       onPosted()
     } catch (e: unknown) {
-      setErr(e instanceof Error ? e.message : 'Could not post comment')
+      setErr(e instanceof ApiError ? guestErrorText(e) : t('page.guest_document_review.post_failed'))
     } finally {
       setBusy(false)
     }
@@ -202,10 +234,10 @@ function CommentBlock({ token, sectionRef, comments, onPosted }: {
             <li key={c.id} className="rounded border border-slate-200 bg-slate-50 px-3 py-2 text-xs">
               <div className="mb-1 flex items-center justify-between">
                 <span className="font-semibold text-slate-700">
-                  {c.id.startsWith('G-') ? 'External reviewer' : 'Internal reviewer'}
+                  {c.id.startsWith('G-') ? t('page.guest_document_review.reviewer_external') : t('page.guest_document_review.reviewer_internal')}
                 </span>
                 <span className="text-slate-400">
-                  {new Date(c.createdAt).toLocaleString()} · {c.status}
+                  {new Date(c.createdAt).toLocaleString(uiLocale())} · {COMMENT_STATUS_KEY[c.status] ? t(COMMENT_STATUS_KEY[c.status]!) : c.status}
                 </span>
               </div>
               <div className="whitespace-pre-wrap text-slate-800">{c.text}</div>
@@ -217,7 +249,7 @@ function CommentBlock({ token, sectionRef, comments, onPosted }: {
         <textarea
           value={text}
           onChange={e => setText(e.target.value)}
-          placeholder={`Add a comment on ${sectionRef}…`}
+          placeholder={t('page.guest_document_review.comment_placeholder', { section: sectionRef })}
           rows={2}
           maxLength={5000}
           className="flex-1 rounded border border-slate-300 px-3 py-2 text-xs focus:outline-none focus:ring-1 focus:ring-blue-500"
@@ -228,7 +260,7 @@ function CommentBlock({ token, sectionRef, comments, onPosted }: {
           disabled={busy || text.trim().length === 0}
           className="rounded bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
         >
-          {busy ? 'Posting…' : 'Post'}
+          {busy ? t('page.guest_document_review.posting') : t('page.guest_document_review.post')}
         </button>
       </form>
       {err && <div className="mt-2 text-xs text-rose-600">{err}</div>}
@@ -250,6 +282,7 @@ function GuestShell({ children, wide }: { children: React.ReactNode; wide?: bool
 }
 
 function ErrorCard({ code, message, onRetry }: { code: number; message: string; onRetry: () => void }) {
+  const { t } = useTranslation()
   const title = titleFor(code)
   const colour = code >= 500 ? '#BE123C' : code === 410 ? '#A16207' : '#334155'
   return (
@@ -268,7 +301,7 @@ function ErrorCard({ code, message, onRetry }: { code: number; message: string; 
           onClick={onRetry}
           className="mt-4 inline-flex items-center rounded border border-slate-300 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50"
         >
-          Try again
+          {t('page.guest_document_review.try_again')}
         </button>
       )}
     </div>
@@ -276,18 +309,18 @@ function ErrorCard({ code, message, onRetry }: { code: number; message: string; 
 }
 
 function titleFor(code: number): string {
-  if (code === 410) return 'Link no longer valid'
-  if (code === 404) return 'Invitation not found'
-  if (code === 403) return 'Access denied'
-  if (code === 401) return 'Link not valid'
-  if (code === 400) return 'Bad request'
-  return 'Something went wrong'
+  if (code === 410) return i18n.t('page.guest_document_review.title_410')
+  if (code === 404) return i18n.t('page.guest_document_review.title_404')
+  if (code === 403) return i18n.t('page.guest_document_review.title_403')
+  if (code === 401) return i18n.t('page.guest_document_review.title_401')
+  if (code === 400) return i18n.t('page.guest_document_review.title_400')
+  return i18n.t('page.guest_document_review.title_other')
 }
 
 function friendlyFor(code: number): string {
-  if (code === 410) return 'This invitation has expired or been revoked. Ask the issuer for a new one.'
-  if (code === 404) return 'The invitation no longer exists.'
-  if (code === 403) return 'This invitation cannot access that resource.'
-  if (code === 401) return 'This link is not valid or has expired.'
-  return 'We could not load the page. Please try again.'
+  if (code === 410) return i18n.t('page.guest_document_review.friendly_410')
+  if (code === 404) return i18n.t('page.guest_document_review.friendly_404')
+  if (code === 403) return i18n.t('page.guest_document_review.friendly_403')
+  if (code === 401) return i18n.t('page.guest_document_review.friendly_401')
+  return i18n.t('page.guest_document_review.friendly_other')
 }

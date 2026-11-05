@@ -3,6 +3,7 @@
 
 import type { ReactNode } from 'react'
 import i18n from '../../i18n'
+import { dateLocale } from '../../utils/formatDate'
 
 export function MetaSection({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -25,13 +26,13 @@ export function MetaRow({ label, children }: { label: string; children: ReactNod
 export function fmtDateTime(iso: string | null | undefined): string {
   if (!iso) return i18n.t('page.detail_panel_parts.em_dash')
   const d = new Date(iso)
-  const date = d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
-  const time = d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
+  const date = d.toLocaleDateString(dateLocale(), { day: '2-digit', month: 'short', year: 'numeric' })
+  const time = d.toLocaleTimeString(dateLocale(), { hour: '2-digit', minute: '2-digit' })
   return i18n.t('page.detail_panel_parts.datetime_at', { date, time })
 }
 
 export function fmtDate(iso: string | null | undefined): string {
-  return iso ? new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : i18n.t('page.detail_panel_parts.em_dash')
+  return iso ? new Date(iso).toLocaleDateString(dateLocale(), { day: '2-digit', month: 'short', year: 'numeric' }) : i18n.t('page.detail_panel_parts.em_dash')
 }
 
 export function fmtSize(bytes: number): string {

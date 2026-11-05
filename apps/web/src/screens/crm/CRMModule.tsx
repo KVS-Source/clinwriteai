@@ -14,7 +14,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { CRMMeeting, CRMResolution, Comment, ResolutionType } from '@platform/types'
+import i18n from '../../i18n'
+import { documentStatusLabel } from '../../utils/documentLabels'
+import { dateLocale } from '../../utils/formatDate'
 import { crmApi, documentsApi, projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
@@ -38,10 +42,30 @@ const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
   LP: { bg: '#F3F4F6', fg: '#374151' },
 }
 
-const RESOLUTION_LABEL: Record<CRMResolutionRow['resolutionType'], string> = {
-  accept: 'Accept',
-  accept_with_modification: 'Accept with modification',
-  reject: 'Reject',
+const RESOLUTION_LABEL_KEY: Record<CRMResolutionRow['resolutionType'], string> = {
+  accept: 'page.crm_module.resolution_accept',
+  accept_with_modification: 'page.crm_module.resolution_accept_mod',
+  reject: 'page.crm_module.resolution_reject',
+}
+
+const SEVERITY_KEY: Record<string, string> = {
+  major: 'page.crm_module.severity_major',
+  minor: 'page.crm_module.severity_minor',
+  query: 'page.crm_module.severity_query',
+}
+const severityLabel = (severity: string) => (SEVERITY_KEY[severity] ? i18n.t(SEVERITY_KEY[severity]!) : severity)
+
+// A meeting attendee's role as the API stores it; shown translated.
+const ATTENDEE_ROLE_KEY: Record<string, string> = {
+  Chair: 'page.crm_module.role_chair',
+  Reviewer: 'page.crm_module.role_reviewer',
+}
+
+const TRANSCRIPT_SOURCE_KEY: Record<string, string> = {
+  manual_paste: 'page.crm_module.source_manual_paste',
+  zoom_native: 'page.crm_module.source_zoom_native',
+  teams_export: 'page.crm_module.source_teams_export',
+  otter: 'page.crm_module.source_otter',
 }
 
 // Document statuses (UI hyphen-case) in which a CRM meeting may be scheduled.
@@ -49,10 +73,11 @@ const SCHEDULABLE = new Set(['in-review', 'crm-in-progress'])
 
 function apiMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
-    const body = err.body as { error?: string; message?: string; issues?: Array<{ message: string }> } | null
-    if (body?.error === 'comments_unresolved') return `${body.message ?? 'Some comments are unresolved'} — resolve them before ending the meeting.`
-    if (body?.error === 'only_chair') return 'Only the meeting chair (or an Admin) can do this.'
-    if (body?.error === 'wrong_status') return body.message ?? 'The meeting or document is not in the right state for this.'
+    const body = err.body as { error?: string; message?: string; issues?: Array<{ message: string }>; unresolvedCommentIds?: string[] } | null
+    if (body?.error === 'comments_unresolved') return i18n.t('page.crm_module.err_unresolved', { count: body.unresolvedCommentIds?.length ?? 0 })
+    if (body?.error === 'only_chair') return i18n.t('page.crm_module.err_only_chair')
+    if (body?.error === 'wrong_status') return i18n.t('page.crm_module.err_wrong_status')
+    if (body?.error === 'meeting_closed' || body?.error === 'already_closed') return i18n.t('page.crm_module.err_meeting_closed')
     if (body?.issues?.[0]?.message) return body.issues[0].message
     if (body?.message) return body.message
   }
@@ -94,29 +119,30 @@ function MetaRow({ label, value, mono }: { label: string; value: string; mono?: 
 // --- Comment cards ---
 
 function ResolvedCard({ comment, resolution, resolverName }: { comment: Comment; resolution?: CRMResolutionRow; resolverName?: string }) {
+  const { t } = useTranslation()
   return (
     <div className="flex flex-col gap-2 rounded-lg p-4" style={{ border: '1px solid #BBF7D0', backgroundColor: '#F0FDF4' }} data-crm-comment={comment.id} data-state="resolved">
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[9px] tracking-wider text-slate-500">{comment.id}</span>
         <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }}>{cleanSectionRef(comment.sectionRef)}</span>
         <div className="flex-1" />
-        <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0' }}>Resolved ✓</span>
+        <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0' }}>{t('page.crm_module.resolved_badge')}</span>
       </div>
       <div className="flex items-center gap-2">
         <Avatar initials={comment.reviewerInitials} size={18} />
         <p className="text-xs text-slate-500">{comment.reviewerName}</p>
       </div>
-      <p className="text-[13px] italic leading-relaxed text-slate-500">{comment.text || '(no text)'}</p>
+      <p className="text-[13px] italic leading-relaxed text-slate-500">{comment.text || t('page.crm_module.no_text')}</p>
       {resolution && (
         <div className="mt-0.5 flex flex-col gap-1.5 border-t pt-2.5" style={{ borderColor: '#BBF7D0' }}>
-          <MonoLabel color="#15803D">Resolution</MonoLabel>
+          <MonoLabel color="#15803D">{t('page.crm_module.resolution_label')}</MonoLabel>
           <div>
             <span className="inline-block rounded border px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}>
-              {RESOLUTION_LABEL[resolution.resolutionType]}
+              {t(RESOLUTION_LABEL_KEY[resolution.resolutionType])}
             </span>
           </div>
           <p className="text-xs leading-relaxed" style={{ color: '#15803D' }}>{resolution.resolutionNote}</p>
-          <p className="text-[11px] text-slate-500">Resolved by {resolverName ?? resolution.resolvedBy} · {fmtTime(resolution.resolvedAt)}</p>
+          <p className="text-[11px] text-slate-500">{t('page.crm_module.resolved_by', { name: resolverName ?? resolution.resolvedBy, time: fmtTime(resolution.resolvedAt) })}</p>
         </div>
       )}
     </div>
@@ -124,6 +150,7 @@ function ResolvedCard({ comment, resolution, resolverName }: { comment: Comment;
 }
 
 function ActiveCard({ comment, meetingRunning, onResolve, aiDraftNote }: { comment: Comment; meetingRunning: boolean; onResolve: (type: ResolutionType) => void; aiDraftNote?: string | null }) {
+  const { t } = useTranslation()
   const allowed = comment.canResolve !== false
   const canResolve = meetingRunning && allowed
   const btn = 'rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40'
@@ -134,19 +161,19 @@ function ActiveCard({ comment, meetingRunning, onResolve, aiDraftNote }: { comme
       data-crm-comment={comment.id}
       data-state="active"
     >
-      <MonoLabel color="#2563EB">Active discussion</MonoLabel>
+      <MonoLabel color="#2563EB">{t('page.crm_module.active_label')}</MonoLabel>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-mono text-[9px] tracking-wider text-slate-500">{comment.id}</span>
         <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }}>{cleanSectionRef(comment.sectionRef)}</span>
-        <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500" style={{ backgroundColor: '#F8FAFC' }}>{comment.verdict === 'request_changes' ? 'Return for revision' : comment.severity}</span>
+        <span className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-500" style={{ backgroundColor: '#F8FAFC' }}>{comment.verdict === 'request_changes' ? t('page.crm_module.return_for_revision') : severityLabel(comment.severity)}</span>
         <div className="flex-1" />
-        <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#2563EB' }}>In discussion</span>
+        <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#2563EB' }}>{t('page.crm_module.in_discussion')}</span>
       </div>
       <div className="flex items-center gap-2">
         <Avatar initials={comment.reviewerInitials} size={18} />
         <p className="text-xs text-slate-500">{comment.reviewerName}</p>
       </div>
-      <p className="text-[13px] leading-relaxed text-slate-900">{comment.text || '(no text)'}</p>
+      <p className="text-[13px] leading-relaxed text-slate-900">{comment.text || t('page.crm_module.no_text')}</p>
 
       {aiDraftNote && (
         <div
@@ -155,28 +182,29 @@ function ActiveCard({ comment, meetingRunning, onResolve, aiDraftNote }: { comme
         >
           <div className="mb-1 flex items-center gap-1.5">
             <svg width="10" height="10" viewBox="0 0 14 14"><polygon points="7,1.2 8.6,5.4 12.8,7 8.6,8.6 7,12.8 5.4,8.6 1.2,7 5.4,5.4" fill="#4338CA" /></svg>
-            <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-indigo-700">AI draft note</span>
+            <span className="font-mono text-[9px] font-semibold uppercase tracking-wider text-indigo-700">{t('page.crm_module.ai_draft_note')}</span>
           </div>
           {aiDraftNote}
           <p className="mt-1 text-[10px] italic text-indigo-700/70">
-            The resolution composer will prefill with this; edit before saving.
+            {t('page.crm_module.ai_draft_hint')}
           </p>
         </div>
       )}
 
       <div className="mt-1 flex flex-wrap items-center gap-2 border-t pt-3" style={{ borderColor: '#E2E8F0' }}>
-        <span className="text-xs text-slate-500">Resolve as:</span>
-        <button type="button" disabled={!canResolve} onClick={() => onResolve('accept')} className={btn} style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }} data-resolve="accept">Accept</button>
-        <button type="button" disabled={!canResolve} onClick={() => onResolve('accept-with-modification')} className={`${btn} border-slate-200 bg-white text-slate-900 hover:bg-slate-50`} data-resolve="accept-with-modification">Accept with modification</button>
-        <button type="button" disabled={!canResolve} onClick={() => onResolve('reject')} className={btn} style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }} data-resolve="reject">Reject</button>
+        <span className="text-xs text-slate-500">{t('page.crm_module.resolve_as')}</span>
+        <button type="button" disabled={!canResolve} onClick={() => onResolve('accept')} className={btn} style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }} data-resolve="accept">{t('page.crm_module.resolution_accept')}</button>
+        <button type="button" disabled={!canResolve} onClick={() => onResolve('accept-with-modification')} className={`${btn} border-slate-200 bg-white text-slate-900 hover:bg-slate-50`} data-resolve="accept-with-modification">{t('page.crm_module.resolution_accept_mod')}</button>
+        <button type="button" disabled={!canResolve} onClick={() => onResolve('reject')} className={btn} style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }} data-resolve="reject">{t('page.crm_module.resolution_reject')}</button>
       </div>
-      {!allowed && <p className="text-[11px] italic text-slate-500" data-resolve-not-allowed>Only this document's author, reviewer or approver can resolve comments.</p>}
-      {allowed && !meetingRunning && <p className="text-[11px] italic text-slate-500">Start the meeting to log resolutions.</p>}
+      {!allowed && <p className="text-[11px] italic text-slate-500" data-resolve-not-allowed>{t('page.crm_module.not_allowed')}</p>}
+      {allowed && !meetingRunning && <p className="text-[11px] italic text-slate-500">{t('page.crm_module.start_to_log')}</p>}
     </div>
   )
 }
 
 function PendingCard({ comment, onSelect }: { comment: Comment; onSelect: () => void }) {
+  const { t } = useTranslation()
   return (
     <button
       type="button"
@@ -190,13 +218,13 @@ function PendingCard({ comment, onSelect }: { comment: Comment; onSelect: () => 
         <span className="font-mono text-[9px] tracking-wider text-slate-500">{comment.id}</span>
         <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#94A3B8' }}>{cleanSectionRef(comment.sectionRef)}</span>
         <div className="flex-1" />
-        <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>Pending</span>
+        <span className="whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-semibold" style={{ backgroundColor: '#F8FAFC', color: '#64748B', border: '1px solid #E2E8F0' }}>{t('page.crm_module.pending')}</span>
       </div>
       <div className="flex items-center gap-2">
         <Avatar initials={comment.reviewerInitials} size={18} />
         <p className="text-xs text-slate-500">{comment.reviewerName}</p>
       </div>
-      <p className="text-[13px] leading-relaxed text-slate-500">{comment.text || '(no text)'}</p>
+      <p className="text-[13px] leading-relaxed text-slate-500">{comment.text || t('page.crm_module.no_text')}</p>
     </button>
   )
 }
@@ -217,6 +245,7 @@ function TranscriptUploadModal({
   isSubmitting: boolean
   error:       string | null
 }) {
+  const { t } = useTranslation()
   const [text, setText] = useState('')
   const [source, setSource] = useState<'manual_paste' | 'zoom_native' | 'teams_export' | 'otter'>('manual_paste')
   const wordCount = text.trim() ? text.trim().split(/\s+/).length : 0
@@ -232,46 +261,46 @@ function TranscriptUploadModal({
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Upload meeting transcript"
+        aria-label={t('page.crm_module.transcript_title')}
         className="w-full max-w-2xl rounded-lg bg-white shadow-xl"
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3.5">
-          <h3 className="text-sm font-bold text-slate-900">Upload meeting transcript</h3>
-          <button type="button" onClick={onClose} aria-label="Close" className="rounded-md p-1 text-slate-500 hover:bg-slate-100">
+          <h3 className="text-sm font-bold text-slate-900">{t('page.crm_module.transcript_title')}</h3>
+          <button type="button" onClick={onClose} aria-label={t('page.crm_module.close')} className="rounded-md p-1 text-slate-500 hover:bg-slate-100">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"><line x1="4" y1="4" x2="12" y2="12" /><line x1="12" y1="4" x2="4" y2="12" /></svg>
           </button>
         </div>
         <div className="flex flex-col gap-3 px-5 py-4">
           <p className="text-[12px] text-slate-600">
-            Paste the transcript below. We'll generate draft resolution notes for every open comment. Audio is never stored — only the transcript text.
+            {t('page.crm_module.transcript_intro')}
           </p>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold text-slate-700">Source</span>
+            <span className="text-[11px] font-semibold text-slate-700">{t('page.crm_module.source_label')}</span>
             <select
               value={source}
               onChange={e => setSource(e.target.value as typeof source)}
               className="h-8 rounded border border-slate-300 bg-white px-2 text-[12px]"
             >
-              <option value="manual_paste">Manual paste</option>
-              <option value="zoom_native">Zoom (Save transcript export)</option>
-              <option value="teams_export">Microsoft Teams export</option>
-              <option value="otter">Otter.ai export</option>
+              <option value="manual_paste">{t('page.crm_module.source_manual_paste')}</option>
+              <option value="zoom_native">{t('page.crm_module.source_zoom_native')}</option>
+              <option value="teams_export">{t('page.crm_module.source_teams_export')}</option>
+              <option value="otter">{t('page.crm_module.source_otter')}</option>
             </select>
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] font-semibold text-slate-700">Transcript</span>
+            <span className="text-[11px] font-semibold text-slate-700">{t('page.crm_module.transcript_label')}</span>
             <textarea
               rows={14}
               value={text}
               onChange={e => setText(e.target.value)}
-              placeholder="Paste the meeting transcript here. Speaker-labelled formats (e.g. 'Chair:' / 'Dr Chen:') produce better per-comment attribution."
+              placeholder={t('page.crm_module.transcript_placeholder')}
               className="w-full resize-y rounded border border-slate-300 p-2 font-mono text-[12px] outline-none focus:border-blue-600"
               autoFocus
             />
           </label>
           <p className="text-[11px] text-slate-500">
-            {wordCount.toLocaleString()} word{wordCount === 1 ? '' : 's'} · Esc to cancel
+            {t('page.crm_module.word_count', { count: wordCount, words: wordCount.toLocaleString() })}
           </p>
           {error && <p className="text-[11px] text-rose-600" role="alert">{error}</p>}
         </div>
@@ -281,14 +310,14 @@ function TranscriptUploadModal({
             onClick={onClose}
             disabled={isSubmitting}
             className="text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
-          >Cancel</button>
+          >{t('page.crm_module.cancel')}</button>
           <button
             type="button"
             onClick={() => onSubmit(text, source)}
             disabled={isSubmitting || wordCount < 5}
             className="rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
           >
-            {isSubmitting ? 'Extracting drafts…' : 'Upload + extract drafts'}
+            {isSubmitting ? t('page.crm_module.extracting') : t('page.crm_module.upload_extract')}
           </button>
         </div>
       </div>
@@ -299,6 +328,7 @@ function TranscriptUploadModal({
 // --- Schedule form (no active meeting yet) ---
 
 function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentId: string; projectId: string; onScheduled: () => void }) {
+  const { t } = useTranslation()
   const { data: me } = useCurrentUser()
   const users = useQuery({ queryKey: ['platform-users'], queryFn: () => platformApi.listUsers(), retry: false })
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => projectsApi.get(projectId), enabled: !!projectId })
@@ -341,29 +371,29 @@ function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentI
   return (
     <div className="flex w-full max-w-[560px] flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5 text-left" data-crm-schedule>
       <div>
-        <p className="text-sm font-bold text-slate-900">Schedule Comments Resolution Meeting</p>
-        <p className="mt-1 text-xs text-slate-500">The chair runs the meeting; every open comment gets a recorded decision before the document can go to signature.</p>
+        <p className="text-sm font-bold text-slate-900">{t('page.crm_module.schedule_title')}</p>
+        <p className="mt-1 text-xs text-slate-500">{t('page.crm_module.schedule_intro')}</p>
       </div>
       <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">
-        Chair
+        {t('page.crm_module.chair')}
         <select value={chair} onChange={e => setChairId(e.currentTarget.value)} className="h-9 rounded-md border border-slate-300 px-2 text-[13px] font-normal" data-crm-chair>
           {people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           {me && !people.some(p => p.id === me.id) && <option value={me.id}>{me.name}</option>}
         </select>
       </label>
       <div className="grid grid-cols-3 gap-3">
-        <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">Date
+        <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">{t('page.crm_module.date')}
           <input type="date" value={date} onChange={e => setDate(e.currentTarget.value)} className="h-9 rounded-md border border-slate-300 px-2 text-[13px] font-normal" />
         </label>
-        <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">Start
+        <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">{t('page.crm_module.start_time')}
           <input type="time" value={startTime} onChange={e => setStartTime(e.currentTarget.value)} className="h-9 rounded-md border border-slate-300 px-2 text-[13px] font-normal" />
         </label>
-        <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">End
+        <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">{t('page.crm_module.end_time')}
           <input type="time" value={endTime} onChange={e => setEndTime(e.currentTarget.value)} className="h-9 rounded-md border border-slate-300 px-2 text-[13px] font-normal" />
         </label>
       </div>
       <div className="flex flex-col gap-1">
-        <p className="text-[12px] font-semibold text-slate-600">Attendees</p>
+        <p className="text-[12px] font-semibold text-slate-600">{t('page.crm_module.attendees')}</p>
         <div className="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-md border border-slate-200 p-2">
           {people.filter(p => p.id !== chair).map(p => (
             <label key={p.id} className="flex items-center gap-2 text-[12px] text-slate-700">
@@ -382,7 +412,7 @@ function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentI
           ))}
         </div>
       </div>
-      {schedule.isError && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800">{apiMessage(schedule.error, 'Could not schedule the meeting.')}</p>}
+      {schedule.isError && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800">{apiMessage(schedule.error, t('page.crm_module.schedule_failed'))}</p>}
       <div className="flex justify-end">
         <button
           type="button"
@@ -390,7 +420,7 @@ function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentI
           disabled={!chair || !date || schedule.isPending}
           className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           data-crm-schedule-submit
-        >{schedule.isPending ? 'Scheduling…' : 'Schedule meeting'}</button>
+        >{schedule.isPending ? t('page.crm_module.scheduling') : t('page.crm_module.schedule')}</button>
       </div>
     </div>
   )
@@ -399,6 +429,7 @@ function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentI
 // --- Main screen ---
 
 export function CRMModule() {
+  const { t } = useTranslation()
   // documentId is set on a document's CRM tab; the project-level CRM screen has none.
   const { projectId, documentId: routeDocumentId } = useParams()
   const navigate = useNavigate()
@@ -518,7 +549,7 @@ export function CRMModule() {
   // which is the same order the queue renders in the centre panel.
   const activeCommentPosition = effectiveActive ? queueIds.indexOf(effectiveActive) + 1 : 0
   const activeCommentLabel = activeComment
-    ? `${cleanSectionRef(activeComment.sectionRef)}${activeComment.severity ? ` · ${activeComment.severity.charAt(0).toUpperCase()}${activeComment.severity.slice(1)}` : ''}`
+    ? `${cleanSectionRef(activeComment.sectionRef)}${activeComment.severity ? ` · ${severityLabel(activeComment.severity)}` : ''}`
     : null
 
   const refresh = () => {
@@ -596,20 +627,20 @@ export function CRMModule() {
 
   const docPicker = routeDocumentId ? null : (
     <label className="flex items-center gap-2 text-xs text-slate-500">
-      Document
+      {t('page.crm_module.document')}
       <select
         value={activeDocId ?? ''}
         onChange={e => { setSearchParams({ doc: e.currentTarget.value }); setActiveCommentId(null) }}
         className="h-8 max-w-[360px] rounded-md border border-slate-300 bg-white px-2 text-[12px] text-slate-800"
         data-crm-doc-picker
       >
-        {projectDocs.map(d => <option key={d.id} value={d.id}>{d.title} · {String(d.status).replace(/-/g, ' ')}</option>)}
+        {projectDocs.map(d => <option key={d.id} value={d.id}>{d.title} · {documentStatusLabel(d.status)}</option>)}
       </select>
     </label>
   )
 
   if (!activeDocId || meetingsLoading) {
-    return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">{projectDocs.length === 0 && !meetingsLoading ? 'No documents in this project yet.' : 'Loading meeting…'}</p></div>
+    return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">{projectDocs.length === 0 && !meetingsLoading ? t('page.crm_module.no_documents') : t('page.crm_module.loading_meeting')}</p></div>
   }
 
   // No live meeting (none yet, or the last one was cancelled) → schedule.
@@ -620,19 +651,18 @@ export function CRMModule() {
         {docPicker}
         {canSchedule && crmAccess?.canSchedule === false ? (
           <div className="flex flex-col items-center gap-2" data-crm-schedule-not-allowed>
-            <p className="font-mono text-sm text-slate-500">No CRM meeting for this document.</p>
+            <p className="font-mono text-sm text-slate-500">{t('page.crm_module.no_meeting')}</p>
             <p className="max-w-md text-xs text-slate-500">
-              A meeting can be scheduled by the document's participants or a project manager. Admins and QC cannot schedule one.
+              {t('page.crm_module.schedule_not_allowed')}
             </p>
           </div>
         ) : canSchedule ? (
           <ScheduleMeetingForm documentId={activeDocId} projectId={projectId!} onScheduled={refresh} />
         ) : (
           <div className="flex flex-col items-center gap-2">
-            <p className="font-mono text-sm text-slate-500">No CRM meeting for this document.</p>
+            <p className="font-mono text-sm text-slate-500">{t('page.crm_module.no_meeting')}</p>
             <p className="max-w-md text-xs text-slate-500">
-              A meeting can be scheduled once the document has been submitted for review
-              (current status: <span className="font-semibold">{String(activeDoc?.status ?? '—').replace(/-/g, ' ')}</span>).
+              {t('page.crm_module.schedule_after_review', { status: documentStatusLabel(activeDoc?.status, '—') })}
             </p>
           </div>
         )}
@@ -641,10 +671,10 @@ export function CRMModule() {
   }
 
   const statusPill =
-    isComplete ? { label: 'Meeting complete', bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' }
-    : inProgress ? { label: 'Meeting in progress', bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' }
-    : { label: 'Scheduled', bg: '#EFF6FF', fg: '#2563EB', border: '#BFDBFE' }
-  const meetingDateLabel = new Date(meeting.date).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
+    isComplete ? { label: t('page.crm_module.status_complete'), bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' }
+    : inProgress ? { label: t('page.crm_module.status_in_progress'), bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' }
+    : { label: t('page.crm_module.status_scheduled'), bg: '#EFF6FF', fg: '#2563EB', border: '#BFDBFE' }
+  const meetingDateLabel = new Date(meeting.date).toLocaleDateString(dateLocale(), { day: '2-digit', month: 'short', year: 'numeric' })
 
   return (
     <div className="relative flex h-full flex-col" data-screen="crm-module" data-meeting-status={meeting.status}>
@@ -659,7 +689,7 @@ export function CRMModule() {
         </div>
         <div className="flex flex-wrap items-center gap-4">
           <div className="flex min-w-0 flex-col gap-1">
-            <h1 className="text-2xl font-bold tracking-tight">Comments Resolution Meeting</h1>
+            <h1 className="text-2xl font-bold tracking-tight">{t('page.crm_module.title')}</h1>
             <p className="text-[13px] text-slate-500">
               {meeting.meetingRef} · {meeting.documentTitle} · {meetingDateLabel} · {meeting.startTime}–{meeting.endTime}
             </p>
@@ -677,7 +707,7 @@ export function CRMModule() {
               disabled={startMut.isPending}
               className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               data-crm-start
-            >{startMut.isPending ? 'Starting…' : 'Start meeting'}</button>
+            >{startMut.isPending ? t('page.crm_module.starting') : t('page.crm_module.start_meeting')}</button>
           )}
           {inProgress && (
             <button
@@ -687,7 +717,7 @@ export function CRMModule() {
               className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90 disabled:opacity-50"
               style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}
               data-crm-end
-            >{endMut.isPending ? 'Ending…' : 'End meeting'}</button>
+            >{endMut.isPending ? t('page.crm_module.ending') : t('page.crm_module.end_meeting')}</button>
           )}
           {isComplete && (
             <button
@@ -695,21 +725,21 @@ export function CRMModule() {
               onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${activeDocId}/sign`)}
               className="whitespace-nowrap rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700"
               data-crm-to-signature
-            >Go to E-Signature →</button>
+            >{t('page.crm_module.go_to_signature')}</button>
           )}
         </div>
         {(startMut.isError || endMut.isError) && (
           <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-crm-error>
-            {startMut.isError ? apiMessage(startMut.error, 'Could not start the meeting.') : apiMessage(endMut.error, 'Could not end the meeting.')}
+            {startMut.isError ? apiMessage(startMut.error, t('page.crm_module.start_failed')) : apiMessage(endMut.error, t('page.crm_module.end_failed'))}
           </p>
         )}
         {isComplete && (activeDoc?.status === 'crm-in-progress' ? (
           <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-800" data-crm-complete-pending>
-            Meeting complete — updating the document status to Pending signature…
+            {t('page.crm_module.complete_pending')}
           </p>
         ) : (
           <p className="rounded-md bg-green-50 p-2 text-[12px] text-green-800" data-crm-complete>
-            ✓ Meeting complete — all comments resolved. The document is now Pending signature.
+            {t('page.crm_module.complete_done')}
           </p>
         ))}
       </div>
@@ -720,21 +750,21 @@ export function CRMModule() {
         {/* Left panel */}
         <div className="flex w-[280px] flex-none flex-col overflow-y-auto border-r border-slate-200" style={{ backgroundColor: '#F8FAFC' }}>
           <div className="border-b border-slate-200 p-4">
-            <div className="mb-2.5"><MonoLabel>Meeting details</MonoLabel></div>
-            <MetaRow label="Chair"    value={meeting.chair.name} />
-            <MetaRow label="Document" value={meeting.documentTitle} />
-            <MetaRow label="Version"  value={meeting.version} mono />
-            <MetaRow label="Started"  value={meeting.startedAt ? fmtTime(meeting.startedAt) : 'Not started'} />
-            {meeting.endedAt && <MetaRow label="Ended" value={fmtTime(meeting.endedAt)} />}
+            <div className="mb-2.5"><MonoLabel>{t('page.crm_module.details_label')}</MonoLabel></div>
+            <MetaRow label={t('page.crm_module.chair')}    value={meeting.chair.name} />
+            <MetaRow label={t('page.crm_module.document')} value={meeting.documentTitle} />
+            <MetaRow label={t('page.crm_module.version')}  value={meeting.version} mono />
+            <MetaRow label={t('page.crm_module.started')}  value={meeting.startedAt ? fmtTime(meeting.startedAt) : t('page.crm_module.not_started')} />
+            {meeting.endedAt && <MetaRow label={t('page.crm_module.ended')} value={fmtTime(meeting.endedAt)} />}
           </div>
 
           <div className="border-b border-slate-200 p-4">
-            <div className="mb-2.5"><MonoLabel>Attendees</MonoLabel></div>
+            <div className="mb-2.5"><MonoLabel>{t('page.crm_module.attendees')}</MonoLabel></div>
             {meeting.attendees.map(a => (
               <div key={a.userId} className="flex min-w-0 items-center gap-2 py-1">
                 <Avatar initials={a.initials} />
                 <p className="min-w-0 flex-1 truncate text-[13px]">{a.name}</p>
-                <p className="font-mono text-[9px] tracking-wider text-slate-500">{a.role}</p>
+                <p className="font-mono text-[9px] tracking-wider text-slate-500">{ATTENDEE_ROLE_KEY[a.role] ? t(ATTENDEE_ROLE_KEY[a.role]!) : a.role}</p>
               </div>
             ))}
           </div>
@@ -745,24 +775,24 @@ export function CRMModule() {
               feeds the transcript automatically. */}
           <div className="border-b border-slate-200 p-4">
             <div className="mb-2.5 flex items-center gap-2">
-              <MonoLabel>AI Note-Taker</MonoLabel>
-              <span className="rounded-full bg-blue-50 px-2 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-blue-700">Beta</span>
+              <MonoLabel>{t('page.crm_module.ai_note_taker')}</MonoLabel>
+              <span className="rounded-full bg-blue-50 px-2 py-0.5 font-mono text-[9px] font-semibold uppercase tracking-wider text-blue-700">{t('page.crm_module.beta')}</span>
             </div>
             {aiNoteTaker?.transcript ? (
               <>
                 <p className="text-[11px] text-slate-700">
-                  Transcript loaded · {aiNoteTaker.transcript.wordCount.toLocaleString()} words
+                  {t('page.crm_module.transcript_loaded', { words: aiNoteTaker.transcript.wordCount.toLocaleString() })}
                 </p>
                 <p className="text-[10px] text-slate-500">
-                  {aiNoteTaker.transcript.source.replace(/_/g, ' ')} · {fmtTime(aiNoteTaker.transcript.uploadedAt)}
+                  {TRANSCRIPT_SOURCE_KEY[aiNoteTaker.transcript.source] ? t(TRANSCRIPT_SOURCE_KEY[aiNoteTaker.transcript.source]!) : aiNoteTaker.transcript.source.replace(/_/g, ' ')} · {fmtTime(aiNoteTaker.transcript.uploadedAt)}
                 </p>
                 <p className="mt-1 text-[11px] font-semibold text-emerald-700">
-                  {aiNoteTaker.drafts.length} comment draft{aiNoteTaker.drafts.length === 1 ? '' : 's'} ready
+                  {t('page.crm_module.drafts_ready', { count: aiNoteTaker.drafts.length })}
                 </p>
               </>
             ) : (
               <p className="text-[11px] italic text-slate-500">
-                No transcript yet. Paste one to get per-comment draft notes.
+                {t('page.crm_module.no_transcript')}
               </p>
             )}
             <div className="mt-2.5 flex flex-wrap gap-1.5">
@@ -772,21 +802,21 @@ export function CRMModule() {
                 className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
                 data-action="upload-transcript"
               >
-                {aiNoteTaker?.transcript ? 'Replace transcript' : 'Upload transcript'}
+                {aiNoteTaker?.transcript ? t('page.crm_module.replace_transcript') : t('page.crm_module.upload_transcript')}
               </button>
               <button
                 type="button"
                 onClick={() => minutesMut.mutate()}
                 disabled={minutesMut.isPending || meeting.status === 'scheduled'}
                 className="rounded-md bg-blue-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300"
-                title={meeting.status === 'scheduled' ? 'Start the meeting first' : 'Generate minutes HTML'}
+                title={meeting.status === 'scheduled' ? t('page.crm_module.start_first') : t('page.crm_module.minutes_tooltip')}
                 data-action="generate-minutes"
               >
-                {minutesMut.isPending ? 'Generating…' : 'Generate minutes'}
+                {minutesMut.isPending ? t('page.crm_module.generating') : t('page.crm_module.generate_minutes')}
               </button>
             </div>
             {minutesMut.isError && (
-              <p className="mt-1.5 text-[10px] text-rose-600" role="alert">Minutes generation failed — try again.</p>
+              <p className="mt-1.5 text-[10px] text-rose-600" role="alert">{t('page.crm_module.minutes_failed')}</p>
             )}
             {minutesMut.isSuccess && minutesMut.data?.minutesHtml && (
               <a
@@ -794,22 +824,22 @@ export function CRMModule() {
                 download={`${meeting.meetingRef ?? 'crm'}-minutes.html`}
                 className="mt-1.5 inline-block text-[11px] font-semibold text-blue-600 underline"
               >
-                Download minutes HTML →
+                {t('page.crm_module.download_minutes')}
               </a>
             )}
           </div>
 
           <div className="p-4">
-            <div className="mb-2.5"><MonoLabel>Meeting progress</MonoLabel></div>
+            <div className="mb-2.5"><MonoLabel>{t('page.crm_module.progress_label')}</MonoLabel></div>
             <div className="flex items-baseline justify-between">
-              <p className="text-xs text-slate-900" data-crm-progress>{resolvedCount} of {totalCount} comments resolved</p>
+              <p className="text-xs text-slate-900" data-crm-progress>{t('page.crm_module.progress_value', { resolved: resolvedCount, total: totalCount })}</p>
               <p className="text-xs font-bold" style={{ color: '#2563EB' }}>{pct}%</p>
             </div>
             <div className="mt-1.5 h-1.5 overflow-hidden rounded-[3px]" style={{ backgroundColor: '#E2E8F0' }}>
               <div className="h-full" style={{ width: `${pct}%`, backgroundColor: '#2563EB' }} />
             </div>
             {totalCount === 0 && (
-              <p className="mt-2 text-[11px] italic text-slate-500">No open comments need resolving — reviewer approvals don't. The meeting can be ended once started.</p>
+              <p className="mt-2 text-[11px] italic text-slate-500">{t('page.crm_module.no_open_comments')}</p>
             )}
           </div>
         </div>
@@ -817,14 +847,14 @@ export function CRMModule() {
         {/* Centre panel — resolution queue */}
         <div className="flex flex-1 min-w-0 flex-col overflow-y-auto border-r border-slate-200 bg-white p-6">
           <div className="mb-4 flex flex-wrap items-center gap-3">
-            <h2 className="text-base font-bold">Resolution Queue</h2>
+            <h2 className="text-base font-bold">{t('page.crm_module.queue_title')}</h2>
             <div className="flex-1" />
-            <p className="whitespace-nowrap text-xs text-slate-500">{totalCount} comments · {resolvedCount} resolved · {totalCount - resolvedCount} remaining</p>
+            <p className="whitespace-nowrap text-xs text-slate-500">{t('page.crm_module.queue_counts', { total: totalCount, resolved: resolvedCount, remaining: totalCount - resolvedCount })}</p>
             <button
               onClick={() => setDocViewerOpen(true)}
               className="whitespace-nowrap text-xs font-semibold text-blue-600 hover:text-blue-700"
               data-action="open-doc-viewer"
-            >View document →</button>
+            >{t('page.crm_module.view_document')}</button>
           </div>
 
           <div className="flex flex-col gap-3">
@@ -855,8 +885,8 @@ export function CRMModule() {
         {/* Right panel — resolution log */}
         <div className="flex w-[280px] flex-none flex-col overflow-y-auto" style={{ backgroundColor: '#F8FAFC' }}>
           <div className="flex-none border-b border-slate-200 p-4">
-            <MonoLabel>Resolution log</MonoLabel>
-            <p className="mt-0.5 text-[11px] italic text-slate-500">Recorded in the audit trail · tamper-evident</p>
+            <MonoLabel>{t('page.crm_module.log_label')}</MonoLabel>
+            <p className="mt-0.5 text-[11px] italic text-slate-500">{t('page.crm_module.log_note')}</p>
           </div>
           {resolutions.map(r => (
             <div key={r.id} className="mx-3 mt-3 flex flex-col gap-1.5 rounded-lg border border-slate-200 bg-white p-3" data-crm-log-entry>
@@ -867,22 +897,22 @@ export function CRMModule() {
               </div>
               <div>
                 <span className="inline-block rounded border px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D', borderColor: '#BBF7D0' }}>
-                  {RESOLUTION_LABEL[r.resolutionType]}
+                  {t(RESOLUTION_LABEL_KEY[r.resolutionType])}
                 </span>
               </div>
               <p className="text-xs leading-relaxed text-slate-900">{r.resolutionNote}</p>
-              <p className="text-[11px] text-slate-500">{nameOf(r.resolvedBy) ?? r.resolvedBy} logged resolution</p>
+              <p className="text-[11px] text-slate-500">{t('page.crm_module.logged_resolution', { name: nameOf(r.resolvedBy) ?? r.resolvedBy })}</p>
             </div>
           ))}
           {pendingIds.filter(id => !resolvedIds.includes(id)).map(cid => (
             <div key={`placeholder-${cid}`} className="mx-3 mt-2 flex items-center gap-2 rounded-lg border border-dashed px-3 py-3" style={{ borderColor: '#E2E8F0' }}>
               <span className="font-mono text-[9px] tracking-wider text-slate-400">{cid}</span>
               <div className="flex-1" />
-              <span className="text-[11px] text-slate-400">Awaiting resolution</span>
+              <span className="text-[11px] text-slate-400">{t('page.crm_module.awaiting_resolution')}</span>
             </div>
           ))}
           {resolutions.length === 0 && pendingIds.length === 0 && (
-            <p className="m-4 text-[12px] text-slate-500">No resolutions recorded.</p>
+            <p className="m-4 text-[12px] text-slate-500">{t('page.crm_module.no_resolutions')}</p>
           )}
         </div>
       </div>
@@ -918,8 +948,8 @@ export function CRMModule() {
           onSubmit={(rawText, source) => uploadTranscriptMut.mutate({ rawText, source })}
           isSubmitting={uploadTranscriptMut.isPending}
           error={uploadTranscriptMut.isError ? (uploadTranscriptMut.error instanceof ApiError
-            ? `Upload failed (HTTP ${uploadTranscriptMut.error.status})`
-            : 'Upload failed') : null}
+            ? t('page.crm_module.upload_failed_http', { status: uploadTranscriptMut.error.status })
+            : t('page.crm_module.upload_failed')) : null}
         />
       )}
     </div>

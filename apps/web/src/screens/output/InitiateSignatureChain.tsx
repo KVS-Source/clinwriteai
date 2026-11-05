@@ -10,6 +10,8 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n'
 import { projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { assignableUsersApi, projectMembersApi, raciApi } from '../../api/raci'
@@ -25,7 +27,15 @@ type NamedSource = 'project' | 'document' | 'both'
 // `draft` is an added row the starter has not confirmed with the tick yet.
 type SignerRow = { signerId: string; meaning: Meaning; locked?: boolean; source?: NamedSource; draft?: boolean }
 
+// Saved on the signature record as the signer's role, so this stays in English whatever the screen language.
 const MEANING_ROLE: Record<Meaning, string> = { authored: 'Author', reviewed: 'Reviewer', approved: 'Approver', acknowledged: 'Informed' }
+// The same roles as shown on screen.
+const MEANING_ROLE_KEY: Record<Meaning, string> = {
+  authored: 'page.initiate_signature_chain.role_authored',
+  reviewed: 'page.initiate_signature_chain.role_reviewed',
+  approved: 'page.initiate_signature_chain.role_approved',
+  acknowledged: 'page.initiate_signature_chain.role_acknowledged',
+}
 
 // RACI letter -> the meaning that person signs with. Q (QC) never signs.
 const LETTER_MEANING: Record<string, Meaning> = { R: 'authored', C: 'reviewed', A: 'approved', I: 'acknowledged' }
@@ -48,22 +58,26 @@ type ChainKind = 'grouped' | 'sequential' | 'parallel'
 
 // Tooltips for a pre-filled row's signer box / remove button, by where the person is named.
 function lockHelp(meaning: Meaning, source: NamedSource): { signer: string; lock: string } {
-  const role = MEANING_ROLE[meaning]
-  const where = source === 'project' ? 'on the project team'
-    : source === 'both' ? "both in this document's RACI and on the project team"
-    : "in this document's RACI"
+  const role = i18n.t(MEANING_ROLE_KEY[meaning])
+  const where = source === 'project' ? i18n.t('page.initiate_signature_chain.where_project')
+    : source === 'both' ? i18n.t('page.initiate_signature_chain.where_both')
+    : i18n.t('page.initiate_signature_chain.where_document')
   return {
-    signer: `Named as ${role} ${where}.`,
-    lock:   `Remove this ${role} from the chain. They stay named ${where}.`,
+    signer: i18n.t('page.initiate_signature_chain.named_signer', { role, where }),
+    lock:   i18n.t('page.initiate_signature_chain.named_lock', { role, where }),
   }
 }
-const SOURCE_TAG: Record<NamedSource, string> = { project: 'Project team', document: 'Document RACI', both: 'Document RACI + project team' }
+const SOURCE_TAG_KEY: Record<NamedSource, string> = {
+  project: 'page.initiate_signature_chain.source_project',
+  document: 'page.initiate_signature_chain.source_document',
+  both: 'page.initiate_signature_chain.source_both',
+}
 
-const MEANINGS: { value: Meaning; label: string }[] = [
-  { value: 'authored',     label: 'Will sign as: Author' },
-  { value: 'reviewed',     label: 'Will sign as: Reviewer' },
-  { value: 'approved',     label: 'Will sign as: Approver' },
-  { value: 'acknowledged', label: 'Will sign as: Informed' },
+const MEANINGS: { value: Meaning; labelKey: string }[] = [
+  { value: 'authored',     labelKey: 'page.initiate_signature_chain.will_sign_authored' },
+  { value: 'reviewed',     labelKey: 'page.initiate_signature_chain.will_sign_reviewed' },
+  { value: 'approved',     labelKey: 'page.initiate_signature_chain.will_sign_approved' },
+  { value: 'acknowledged', labelKey: 'page.initiate_signature_chain.will_sign_acknowledged' },
 ]
 
 function errorText(err: unknown): string {
@@ -73,23 +87,23 @@ function errorText(err: unknown): string {
       message?: string
       issues?: Array<{ message: string }>
     } | null
-    if (body?.error === 'wrong_status') return 'The chain can only be started once the Comments Resolution Meeting is complete (status: Pending signature).'
-    if (body?.error === 'chain_already_active') return 'A signature chain is already active for this document.'
-    if (body?.error === 'start_forbidden') return "Only the document's Author (R) or Approver (A) can start the signature chain."
-    if (body?.error === 'approver_required') return 'The signature chain needs at least one Approver. Add an Approver to the chain.'
+    if (body?.error === 'wrong_status') return i18n.t('page.initiate_signature_chain.err_wrong_status')
+    if (body?.error === 'chain_already_active') return i18n.t('page.initiate_signature_chain.err_already_active')
+    if (body?.error === 'start_forbidden') return i18n.t('page.initiate_signature_chain.err_start_forbidden')
+    if (body?.error === 'approver_required') return i18n.t('page.initiate_signature_chain.err_approver_required')
     if (body?.issues?.[0]?.message) return body.issues[0].message
     if (body?.message) return body.message
   }
-  return 'Could not start the signature chain. Please try again.'
+  return i18n.t('page.initiate_signature_chain.err_generic')
 }
 
 // What to tell the user when no chain can start yet, by document status (UI form, hyphen-case).
-const BLOCKED_HINT: Record<string, string> = {
-  'not-started':     'This document has not been started yet. Write it and submit it for review first.',
-  'in-authoring':    'This document is still being written. Submit it for review first.',
-  'in-review':       'The document is in review. Start the Comments Resolution Meeting and resolve all comments to continue.',
-  'crm-in-progress': 'The Comments Resolution Meeting is in progress. Complete it to move the document to signature.',
-  'signed':          'This document is already signed. See the Final Document tab.',
+const BLOCKED_HINT_KEY: Record<string, string> = {
+  'not-started':     'page.initiate_signature_chain.blocked_not_started',
+  'in-authoring':    'page.initiate_signature_chain.blocked_in_authoring',
+  'in-review':       'page.initiate_signature_chain.blocked_in_review',
+  'crm-in-progress': 'page.initiate_signature_chain.blocked_crm_in_progress',
+  'signed':          'page.initiate_signature_chain.blocked_signed',
 }
 
 // The signer search for rows the starter adds: type at least 3 characters, then pick from the active users
@@ -103,6 +117,7 @@ function SignerSearch({ value, candidates, takenIds, onPick }: {
   takenIds: Set<string>
   onPick: (id: string) => void
 }) {
+  const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [open, setOpen] = useState(false)
   const selected = candidates.find(c => c.id === value)
@@ -122,16 +137,16 @@ function SignerSearch({ value, candidates, takenIds, onPick }: {
         onChange={e => { setQuery(e.currentTarget.value); setOpen(true) }}
         onBlur={() => setOpen(false)}
         onKeyDown={e => { if (e.key === 'Escape') e.currentTarget.blur() }}
-        placeholder="Search for a signer"
+        placeholder={t('page.initiate_signature_chain.search_placeholder')}
         className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-[13px] outline-none focus:border-blue-600"
         data-signer-search
       />
       {open && q.length > 0 && (
         <div className="absolute z-20 mt-1 w-full overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg" data-signer-results>
           {q.length < SEARCH_MIN_CHARS ? (
-            <p className="px-3 py-2 text-[12px] text-slate-500">Type at least {SEARCH_MIN_CHARS} characters to search.</p>
+            <p className="px-3 py-2 text-[12px] text-slate-500">{t('page.initiate_signature_chain.search_min_chars', { min: SEARCH_MIN_CHARS })}</p>
           ) : matches.length === 0 ? (
-            <p className="px-3 py-2 text-[12px] text-slate-500">No active user matches.</p>
+            <p className="px-3 py-2 text-[12px] text-slate-500">{t('page.initiate_signature_chain.search_no_match')}</p>
           ) : matches.map(c => (
             <button
               key={c.id}
@@ -158,6 +173,7 @@ interface Props {
 }
 
 export function InitiateSignatureChain({ documentId, projectId, documentStatus }: Props) {
+  const { t } = useTranslation()
   const initiate = useInitiateSignatureChain(documentId)
   const access = useSignatureAccess(documentId)
 
@@ -183,18 +199,18 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
     const map = new Map<string, Candidate>()
     if (assignable.isSuccess) {
       for (const u of assignable.data) {
-        if (assignedIds.has(u.id)) map.set(u.id, { id: u.id, name: u.name, role: u.projectRole ?? 'Project member', email: u.email })
+        if (assignedIds.has(u.id)) map.set(u.id, { id: u.id, name: u.name, role: u.projectRole ?? t('page.initiate_signature_chain.project_member'), email: u.email })
       }
     } else {
       for (const t of project.data?.team ?? []) map.set(t.userId, { id: t.userId, name: t.name, role: t.role })
     }
     for (const r of raciRows) {
-      if (!map.has(r.userId)) map.set(r.userId, { id: r.userId, name: r.userName ?? r.userId, role: MEANING_ROLE[LETTER_MEANING[r.letter] ?? 'reviewed'] })
+      if (!map.has(r.userId)) map.set(r.userId, { id: r.userId, name: r.userName ?? r.userId, role: t(MEANING_ROLE_KEY[LETTER_MEANING[r.letter] ?? 'reviewed']) })
     }
     // Project-team Approvers are pre-filled too, so their names must be known.
     for (const t of project.data?.team ?? []) if (t.raci === 'A' && !map.has(t.userId)) map.set(t.userId, { id: t.userId, name: t.name, role: t.role })
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
-  }, [assignable.isSuccess, assignable.data, members.data, project.data, raciRows])
+  }, [assignable.isSuccess, assignable.data, members.data, project.data, raciRows, t])
 
   // Who "+ Add signer" can search: active Clinical Writing users plus this project's own people, PMs
   // included (the API returns both). People already in the chain are left out by SignerSearch's takenIds.
@@ -317,10 +333,11 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   }
 
   if (!pending) {
-    const hint = BLOCKED_HINT[documentStatus ?? ''] ?? 'A signature chain can only be started once the document is Pending signature.'
+    const hintKey = BLOCKED_HINT_KEY[documentStatus ?? '']
+    const hint = t(hintKey ?? 'page.initiate_signature_chain.blocked_default')
     return (
       <div className="flex flex-col items-start gap-2 text-left" data-initiate-blocked>
-        <p className="font-mono text-sm text-slate-500">No signature chain has been initiated for this document.</p>
+        <p className="font-mono text-sm text-slate-500">{t('page.initiate_signature_chain.no_chain')}</p>
         <p className="max-w-xl text-xs text-slate-500">{hint}</p>
       </div>
     )
@@ -333,8 +350,8 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   if (!access.canStartChain) {
     return (
       <div className="flex flex-col items-start gap-2 text-left" data-start-forbidden>
-        <p className="font-mono text-sm text-slate-500">No signature chain has been initiated for this document.</p>
-        <p className="max-w-xl text-xs text-slate-500">Only the document's Author (R) or Approver (A) can start the signature chain.</p>
+        <p className="font-mono text-sm text-slate-500">{t('page.initiate_signature_chain.no_chain')}</p>
+        <p className="max-w-xl text-xs text-slate-500">{t('page.initiate_signature_chain.err_start_forbidden')}</p>
       </div>
     )
   }
@@ -342,9 +359,9 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   return (
     <div className="flex w-full flex-col gap-4 text-left" data-initiate-chain>
       <div>
-        <p className="text-sm font-bold text-slate-900">Initiate signature chain</p>
+        <p className="text-sm font-bold text-slate-900">{t('page.initiate_signature_chain.title')}</p>
         <p className="mt-1 text-xs text-slate-500">
-          Choose who signs and the meaning of each signature. Signatures cannot be delegated (21 CFR Part 11).
+          {t('page.initiate_signature_chain.subtitle')}
         </p>
       </div>
 
@@ -371,13 +388,12 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
           pre-filled; the starter may remove people. The chain needs at least one Approver. */}
       {namedLoaded && !noApprovers && (
         <p className="rounded-md border border-blue-200 bg-blue-50 p-2 text-[12px] text-blue-800" data-approvers-notice>
-          <strong>Pre-filled ({namedSigners.length}):</strong> everyone named on this document as Author, Reviewer, Approver or Informed is
-          pre-filled below. You may remove people and add extra signers. The chain needs at least one Approver. Nobody has signed yet — each person signs after the chain starts.
+          <strong>{t('page.initiate_signature_chain.prefilled_label', { total: namedSigners.length })}</strong> {t('page.initiate_signature_chain.prefilled_body')}
         </p>
       )}
       {noApprovers && (
         <p className="rounded-md border border-amber-200 bg-amber-50 p-2 text-[12px] text-amber-800" data-no-approvers>
-          The chain needs at least one Approver. Add one below, or assign one in the document's RACI.
+          {t('page.initiate_signature_chain.no_approvers')}
         </p>
       )}
 
@@ -402,7 +418,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
                   data-signer-select
                   title={help?.signer}
                 >
-                  <option value="" disabled>Select signer…</option>
+                  <option value="" disabled>{t('page.initiate_signature_chain.select_signer')}</option>
                   {candidates.map(c => <option key={c.id} value={c.id}>{c.name} · {c.role}</option>)}
                 </select>
               ) : !r.draft ? (
@@ -418,7 +434,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
                 />
               )}
               {r.locked && r.source && (
-                <span className="hidden flex-none whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 sm:inline" data-approver-source={r.source}>{SOURCE_TAG[r.source]}</span>
+                <span className="hidden flex-none whitespace-nowrap rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 sm:inline" data-approver-source={r.source}>{t(SOURCE_TAG_KEY[r.source])}</span>
               )}
               <select
                 value={r.meaning}
@@ -427,7 +443,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
                 className="h-9 w-52 flex-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
                 data-meaning-select
               >
-                {MEANINGS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+                {MEANINGS.map(m => <option key={m.value} value={m.value}>{t(m.labelKey)}</option>)}
               </select>
               {/* The order of the rows is fixed by the groups, so the move arrows are hidden for now:
               <button type="button" onClick={() => move(i, -1)} disabled={i === 0 || chainType === 'grouped'} title={chainType === 'grouped' ? 'A grouped chain signs in group order' : undefined} className="h-9 w-8 rounded-md border border-slate-200 text-slate-600 disabled:opacity-30" aria-label="Move up">↑</button>
@@ -439,8 +455,8 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
                   onClick={() => setRow(i, { draft: false })}
                   disabled={!r.signerId}
                   className="h-9 w-8 flex-none rounded-md border border-emerald-600 text-emerald-700 hover:bg-emerald-50 disabled:border-slate-200 disabled:text-slate-400"
-                  aria-label="Confirm signer"
-                  title={r.signerId ? 'Confirm this signer' : 'Choose a signer first'}
+                  aria-label={t('page.initiate_signature_chain.confirm_aria')}
+                  title={r.signerId ? t('page.initiate_signature_chain.confirm_title') : t('page.initiate_signature_chain.confirm_choose_first')}
                   data-signer-confirm
                 >✓</button>
               )}
@@ -449,7 +465,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
                 onClick={() => removeRow(i)}
                 disabled={effectiveRows.length === 1}
                 className="h-9 w-8 rounded-md border border-slate-200 text-slate-500 hover:text-red-700 disabled:opacity-30"
-                aria-label="Remove signer"
+                aria-label={t('page.initiate_signature_chain.remove_aria')}
                 title={help?.lock}
               >
                 ✕
@@ -463,11 +479,11 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
           disabled={unconfirmedPick}
           className="self-start text-[12px] font-semibold text-blue-700 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
           data-add-signer
-        >+ Add signer</button>
+        >{t('page.initiate_signature_chain.add_signer')}</button>
       </div>
 
-      {unconfirmedPick && <p className="text-[12px] text-amber-700" data-confirm-hint>Click the tick to confirm the new signer before starting the chain.</p>}
-      {duplicate && <p className="text-[12px] text-amber-700">Each person can appear only once in the chain.</p>}
+      {unconfirmedPick && <p className="text-[12px] text-amber-700" data-confirm-hint>{t('page.initiate_signature_chain.confirm_hint')}</p>}
+      {duplicate && <p className="text-[12px] text-amber-700">{t('page.initiate_signature_chain.duplicate')}</p>}
       {initiate.isError && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-initiate-error>{errorText(initiate.error)}</p>}
 
       <div className="flex justify-end">
@@ -477,7 +493,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
           disabled={!canSubmit}
           className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
           data-initiate-submit
-        >{initiate.isPending ? 'Starting…' : 'Start signature chain'}</button>
+        >{initiate.isPending ? t('page.initiate_signature_chain.starting') : t('page.initiate_signature_chain.start')}</button>
       </div>
     </div>
   )

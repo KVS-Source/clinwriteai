@@ -1,7 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { STATUS_META, type Section, type SignatureRecord } from '@platform/types'
+import i18n from '../../i18n'
+import { DOCUMENT_STATUS_KEY, signerRoleLabel } from '../../utils/documentLabels'
+import { formatDateUtc, uiLocale } from '../../utils/formatDate'
 import { documentsApi, projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
@@ -22,9 +26,12 @@ const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
 }
 
 // What each signature means, as shown in the chain banner.
-const MEANING_VERB: Record<string, string> = { authored: 'Authored', reviewed: 'Reviewed', approved: 'Approved', acknowledged: 'Acknowledged' }
-
-const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+const MEANING_VERB_KEY: Record<string, string> = {
+  authored: 'page.final_document.meaning_authored',
+  reviewed: 'page.final_document.meaning_reviewed',
+  approved: 'page.final_document.meaning_approved',
+  acknowledged: 'page.final_document.meaning_acknowledged',
+}
 
 // '28 Oct 2026 15:47 UTC' — signed records are shown in UTC, like the e-signature screen.
 // Returns null for a missing or unreadable time rather than printing a made-up one.
@@ -33,12 +40,12 @@ function formatUtc(iso: string | null | undefined): string | null {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return null
   const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getUTCDate())} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC`
+  return `${formatDateUtc(d)} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())} UTC`
 }
 
 // The same moment in the viewer's own time zone, for the hover text.
 const formatLocal = (iso: string | null | undefined): string | undefined =>
-  iso && !Number.isNaN(new Date(iso).getTime()) ? new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' }) : undefined
+  iso && !Number.isNaN(new Date(iso).getTime()) ? new Date(iso).toLocaleString(uiLocale(), { dateStyle: 'medium', timeStyle: 'short' }) : undefined
 
 // '3a9f…c4d2' — a SHA-256 shortened for the banner (the full value is in the hover text).
 const shortHash = (h: string) => (h.length > 12 ? `${h.slice(0, 4)}…${h.slice(-4)}` : h)
@@ -76,15 +83,28 @@ const bySectionNumber = (a: Section, b: Section) =>
 const isBlankHtml = (html: string | undefined) => !html || html.replace(/<[^>]*>/g, '').trim() === ''
 
 // Outcome of a checklist rule, as printed in the Compliance Summary.
-const RULE_OUTCOME: Record<string, { label: string; colour: string }> = {
-  complete:      { label: 'Met',           colour: '#15803D' },
-  waived:        { label: 'Waived',        colour: '#B45309' },
-  pending:       { label: 'Not completed', colour: '#B91C1C' },
-  'in-progress': { label: 'Not completed', colour: '#B91C1C' },
-  in_progress:   { label: 'Not completed', colour: '#B91C1C' },
+const RULE_OUTCOME: Record<string, { labelKey: string; colour: string }> = {
+  complete:      { labelKey: 'page.final_document.outcome_met',           colour: '#15803D' },
+  waived:        { labelKey: 'page.final_document.outcome_waived',        colour: '#B45309' },
+  pending:       { labelKey: 'page.final_document.outcome_not_completed', colour: '#B91C1C' },
+  'in-progress': { labelKey: 'page.final_document.outcome_not_completed', colour: '#B91C1C' },
+  in_progress:   { labelKey: 'page.final_document.outcome_not_completed', colour: '#B91C1C' },
+}
+
+// Why the server refused the PDF, in the reader's language. An unknown refusal keeps the server's own words.
+function pdfErrorText(e: unknown): string {
+  if (e instanceof ApiError) {
+    const body = e.body as { error?: string; message?: string } | null
+    if (body?.error === 'signature_records_missing') return i18n.t('page.final_document.pdf_refused_no_records')
+    if (body?.error === 'signed_content_changed') return i18n.t('page.final_document.pdf_refused_changed')
+    if (e.status === 403) return i18n.t('page.final_document.denied_title')
+    if (body?.message) return body.message
+  }
+  return i18n.t('page.final_document.pdf_failed')
 }
 
 export function FinalDocument() {
+  const { t } = useTranslation()
   const { projectId, documentId } = useParams()
   // Who may see the Final Document (the e-signature action table): not an admin, a guest, or QC on its own.
   const access = useSignatureAccess(documentId)
@@ -202,8 +222,7 @@ export function FinalDocument() {
       a.remove()
       setTimeout(() => URL.revokeObjectURL(url), 10_000)
     } catch (e) {
-      const message = e instanceof ApiError ? (e.body as { message?: string } | null)?.message : null
-      setPdfError(message ?? 'The PDF could not be created. Please try again.')
+      setPdfError(pdfErrorText(e))
     } finally {
       setPdfBusy(false)
     }
@@ -259,8 +278,8 @@ export function FinalDocument() {
   if (refused) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-1" data-final-access-denied>
-        <p className="font-mono text-sm text-slate-600">You don't have access to this document's Final Document view.</p>
-        <p className="max-w-md text-center text-xs text-slate-500">It is available to the people named on the document (except QC), project managers and auditors.</p>
+        <p className="font-mono text-sm text-slate-600">{t('page.final_document.denied_title')}</p>
+        <p className="max-w-md text-center text-xs text-slate-500">{t('page.final_document.denied_body')}</p>
       </div>
     )
   }
@@ -268,10 +287,12 @@ export function FinalDocument() {
   if (!document) {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="font-mono text-sm text-slate-400">Loading document…</p>
+        <p className="font-mono text-sm text-slate-400">{t('page.final_document.loading')}</p>
       </div>
     )
   }
+
+  const unsignedStatusKey = DOCUMENT_STATUS_KEY[document.status] ?? DOCUMENT_STATUS_KEY['not-started']
 
   return (
     <div className="flex h-full flex-col" data-screen="final-document">
@@ -288,7 +309,7 @@ export function FinalDocument() {
           <div className="flex min-w-0 items-center gap-3">
             <h1 className="truncate text-base font-bold tracking-tight text-slate-900">{document.title}</h1>
             <span className="flex-none font-mono text-[11px] font-medium text-slate-500">
-              {isSigned ? `${document.version} · Final` : document.version}
+              {isSigned ? t('page.final_document.version_final', { version: document.version }) : document.version}
             </span>
             {isSigned ? (
               <span
@@ -296,7 +317,7 @@ export function FinalDocument() {
                 style={{ backgroundColor: '#F0FDF4', color: '#15803D', border: '1px solid #BBF7D0' }}
                 data-doc-status="signed"
               >
-                Signed ✓
+                {t('page.final_document.signed_badge')}
               </span>
             ) : (
               <span
@@ -308,7 +329,7 @@ export function FinalDocument() {
                 }}
                 data-doc-status={document.status}
               >
-                {(STATUS_META[document.status] ?? STATUS_META['not-started']).label}
+                {t(unsignedStatusKey)}
               </span>
             )}
             <LibraryPushedBadge document={document} />
@@ -319,7 +340,7 @@ export function FinalDocument() {
             {isSigned && signedAtText && (
               <div className="flex items-center gap-1.5 whitespace-nowrap text-xs text-slate-500" title={formatLocal(signedAtIso)} data-signed-at>
                 <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#16A34A' }} />
-                Signed {signedAtText.replace(/ (\d\d:\d\d UTC)$/, ' · $1')}
+                {t('page.final_document.signed_at', { when: signedAtText.replace(/ (\d\d:\d\d UTC)$/, ' · $1') })}
               </div>
             )}
             <PushToLibraryButton document={document} sections={orderedSections} />
@@ -328,27 +349,27 @@ export function FinalDocument() {
               disabled={signatureGap || pdfBusy}
               onClick={() => void downloadPdf()}
               title={signatureGap
-                ? 'No signature records are on file, so this cannot be exported as a signed document'
-                : isSigned ? 'Download the signed document as a PDF' : 'Download a draft PDF, watermarked on every page'}
+                ? t('page.final_document.pdf_tooltip_gap')
+                : isSigned ? t('page.final_document.pdf_tooltip_signed') : t('page.final_document.pdf_tooltip_draft')}
               className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-blue-600"
               data-action="download-final-pdf"
             >
-              {pdfBusy ? 'Preparing PDF…' : isSigned ? 'Download PDF' : 'Download draft PDF'}
+              {pdfBusy ? t('page.final_document.pdf_preparing') : isSigned ? t('page.final_document.pdf_download') : t('page.final_document.pdf_download_draft')}
             </button>
             <button
               type="button"
               onClick={() => {
                 const url = window.location.href
                 if (navigator.clipboard?.writeText) {
-                  navigator.clipboard.writeText(url).then(() => setToast('Link copied'), () => window.prompt('Copy this link to share:', url))
+                  navigator.clipboard.writeText(url).then(() => setToast(t('page.final_document.link_copied')), () => window.prompt(t('page.final_document.copy_prompt'), url))
                 } else {
-                  window.prompt('Copy this link to share:', url)
+                  window.prompt(t('page.final_document.copy_prompt'), url)
                 }
               }}
-              title="Copy a shareable link to this document"
+              title={t('page.final_document.share_tooltip')}
               className="rounded-md border border-slate-200 bg-white px-4 py-2 text-[13px] font-semibold text-slate-900 hover:bg-slate-50 transition-colors"
             >
-              Share
+              {t('page.final_document.share')}
             </button>
           </div>
         </div>
@@ -365,8 +386,8 @@ export function FinalDocument() {
         <ShieldIcon size={14} colour={isSigned ? '#15803D' : '#B45309'} />
         <p className="overflow-hidden text-ellipsis whitespace-nowrap text-[13px]" style={{ color: isSigned ? '#15803D' : '#B45309' }}>
           {isSigned
-            ? 'This document is signed and locked. No further edits are permitted.'
-            : `This document is not signed yet (${(STATUS_META[document.status] ?? STATUS_META['not-started']).label}). This is a read-only preview of its current content.`}
+            ? t('page.final_document.banner_signed')
+            : t('page.final_document.banner_unsigned', { status: t(unsignedStatusKey) })}
         </p>
         <div className="flex-1" />
         <button
@@ -376,14 +397,14 @@ export function FinalDocument() {
           style={{ color: isSigned ? '#15803D' : '#B45309' }}
           data-action="view-audit-trail"
         >
-          View audit trail →
+          {t('page.final_document.view_audit')}
         </button>
       </div>
 
       {pdfError && (
         <div className="flex flex-none items-start justify-between gap-3 border-b border-red-200 bg-red-50 px-8 py-2.5 text-[13px] text-red-800" role="alert" data-final-pdf-error>
           <span>{pdfError}</span>
-          <button type="button" onClick={() => setPdfError(null)} className="flex-none font-semibold underline">Dismiss</button>
+          <button type="button" onClick={() => setPdfError(null)} className="flex-none font-semibold underline">{t('page.final_document.dismiss')}</button>
         </div>
       )}
 
@@ -396,7 +417,7 @@ export function FinalDocument() {
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
           {showWatermark && (
             <div aria-hidden="true" data-watermark className="pointer-events-none absolute inset-0 z-[5] flex items-center justify-center overflow-hidden">
-              <span className="-rotate-[28deg] select-none whitespace-nowrap text-[88px] font-black tracking-widest" style={{ color: 'rgba(148,163,184,0.2)' }}>DRAFT — NOT SIGNED</span>
+              <span className="-rotate-[28deg] select-none whitespace-nowrap text-[88px] font-black tracking-widest" style={{ color: 'rgba(148,163,184,0.2)' }}>{t('page.final_document.watermark')}</span>
             </div>
           )}
           {/* Content scroll */}
@@ -412,10 +433,9 @@ export function FinalDocument() {
                 >
                   <ShieldIcon size={24} colour="#B45309" />
                   <div className="flex min-w-0 flex-1 flex-col gap-1">
-                    <p className="text-sm font-bold" style={{ color: '#B45309' }}>Marked as signed, but no signatures are on record</p>
+                    <p className="text-sm font-bold" style={{ color: '#B45309' }}>{t('page.final_document.gap_title')}</p>
                     <p className="text-[12px] leading-relaxed" style={{ color: '#92400E' }}>
-                      This document's status is Signed, but it has no completed e-signature chain, so there are no signers, signature meanings or document hash to show.
-                      It cannot be treated or exported as a signed record. Ask an administrator to check how its status was set.
+                      {t('page.final_document.gap_body')}
                     </p>
                   </div>
                 </div>
@@ -430,7 +450,7 @@ export function FinalDocument() {
               >
                 <ShieldIcon size={24} colour="#15803D" />
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <p className="text-sm font-bold" style={{ color: '#15803D' }}>Electronically signed document</p>
+                  <p className="text-sm font-bold" style={{ color: '#15803D' }}>{t('page.final_document.signed_title')}</p>
                   <p className="font-mono text-[11px] font-medium" style={{ color: '#15803D', opacity: 0.7 }} title={sealHash ? `SHA-256: ${sealHash}` : undefined}>
                     {document.title} · {signedVersion}{sealHash ? ` · SHA-256: ${shortHash(sealHash)}` : ''}
                   </p>
@@ -438,7 +458,7 @@ export function FinalDocument() {
                 <div className="flex flex-none flex-col gap-1">
                   {signedRecords.length === 0 && (
                     <p className="text-[11px] italic" style={{ color: '#15803D', opacity: 0.8 }} data-no-signatures>
-                      No signature records on file
+                      {t('page.final_document.no_signature_records')}
                     </p>
                   )}
                   {signedRecords.map(record => {
@@ -453,7 +473,7 @@ export function FinalDocument() {
                           {record.initials}
                         </div>
                         <p className="whitespace-nowrap text-[11px]" style={{ color: '#15803D' }}>
-                          {record.signer}{record.role ? ` · ${record.role}` : ''} · {MEANING_VERB[record.meaning] ?? record.meaning}{when ? ` · ${when}` : ''}
+                          {record.signer}{record.role ? ` · ${signerRoleLabel(record.role)}` : ''} · {MEANING_VERB_KEY[record.meaning] ? t(MEANING_VERB_KEY[record.meaning]!) : record.meaning}{when ? ` · ${when}` : ''}
                         </p>
                       </div>
                     )
@@ -476,37 +496,39 @@ export function FinalDocument() {
                       {section.number}. {section.title}
                     </h2>
                     {isBlankHtml(html)
-                      ? <p className="mt-2 text-sm italic text-slate-400">No content recorded for this section.</p>
+                      ? <p className="mt-2 text-sm italic text-slate-400">{t('page.final_document.no_section_content')}</p>
                       : <FinalSectionBody html={html} />}
                   </section>
                 )
               })}
               {document.sections.length === 0 && (
-                <p className="text-sm italic text-slate-400">This document has no sections.</p>
+                <p className="text-sm italic text-slate-400">{t('page.final_document.no_sections')}</p>
               )}
 
               {/* Appendix — Compliance Summary (FR-A-030, FR-A-001d; AC-A-029, AC-A-013) */}
               <section className="mt-4 border-t border-slate-200 pt-6" data-compliance-summary>
-                <h2 className="text-[20px] font-bold" style={{ breakAfter: 'avoid' }}>Appendix — Compliance Summary</h2>
-                {complianceFailed && <p className="mt-2 text-sm text-red-700">The Compliance Summary could not be loaded.</p>}
-                {!compliance && !complianceFailed && <p className="mt-2 font-mono text-xs text-slate-400">Loading compliance summary…</p>}
+                <h2 className="text-[20px] font-bold" style={{ breakAfter: 'avoid' }}>{t('page.final_document.appendix_title')}</h2>
+                {complianceFailed && <p className="mt-2 text-sm text-red-700">{t('page.final_document.compliance_failed')}</p>}
+                {!compliance && !complianceFailed && <p className="mt-2 font-mono text-xs text-slate-400">{t('page.final_document.compliance_loading')}</p>}
                 {compliance && (
                   <>
                     <p className="mt-2 text-[13px] text-slate-600">
-                      Generated from this document's input checklist{compliance.checklistTemplateVersion != null ? ` (template v${compliance.checklistTemplateVersion})` : ''}.
+                      {compliance.checklistTemplateVersion != null
+                        ? t('page.final_document.compliance_generated_version', { version: compliance.checklistTemplateVersion })
+                        : t('page.final_document.compliance_generated')}
                     </p>
 
-                    <h3 className="mt-5 text-[15px] font-bold text-slate-900">Applicable regulatory frameworks</h3>
+                    <h3 className="mt-5 text-[15px] font-bold text-slate-900">{t('page.final_document.frameworks_title')}</h3>
                     {compliance.frameworks.length === 0
-                      ? <p className="mt-1 text-[13px] italic text-slate-500">No frameworks are recorded on this document's checklist.</p>
+                      ? <p className="mt-1 text-[13px] italic text-slate-500">{t('page.final_document.no_frameworks')}</p>
                       : (
                         <table className="mt-2 w-full border-collapse text-[12px]">
                           <thead>
                             <tr className="text-left text-slate-500">
-                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Framework</th>
-                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Version</th>
-                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Jurisdiction</th>
-                              <th className="border-b border-slate-200 py-1.5 font-semibold">Reference</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">{t('page.final_document.col_framework')}</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">{t('page.final_document.col_version')}</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">{t('page.final_document.col_jurisdiction')}</th>
+                              <th className="border-b border-slate-200 py-1.5 font-semibold">{t('page.final_document.col_reference')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -516,7 +538,7 @@ export function FinalDocument() {
                                 <td className="border-b border-slate-100 py-1.5 pr-3 text-slate-700">{f.version ?? '—'}</td>
                                 <td className="border-b border-slate-100 py-1.5 pr-3 text-slate-700">{f.jurisdiction ?? '—'}</td>
                                 <td className="break-all border-b border-slate-100 py-1.5 text-slate-700">
-                                  {f.sourceUrl ?? (f.inRegistry ? '—' : 'Not in the framework registry')}
+                                  {f.sourceUrl ?? (f.inRegistry ? '—' : t('page.final_document.not_in_registry'))}
                                 </td>
                               </tr>
                             ))}
@@ -524,17 +546,17 @@ export function FinalDocument() {
                         </table>
                       )}
 
-                    <h3 className="mt-6 text-[15px] font-bold text-slate-900">Rules applied</h3>
+                    <h3 className="mt-6 text-[15px] font-bold text-slate-900">{t('page.final_document.rules_title')}</h3>
                     {compliance.frameworks.map(f => (
                       <div key={f.name} className="mt-3" style={{ breakInside: 'avoid' }}>
                         <p className="text-[13px] font-semibold text-slate-800">{f.name}</p>
                         <ul className="mt-1 flex flex-col gap-1">
                           {f.rules.map((r, i) => {
-                            const outcome = RULE_OUTCOME[r.status] ?? { label: r.status, colour: '#475569' }
+                            const outcome = RULE_OUTCOME[r.status]
                             return (
                               <li key={i} className="flex items-start gap-3 text-[12px]">
-                                <span className="min-w-0 flex-1 text-slate-800">{r.text}{r.mandatory ? '' : ' (recommended)'}</span>
-                                <span className="flex-none font-semibold" style={{ color: outcome.colour }}>{outcome.label}</span>
+                                <span className="min-w-0 flex-1 text-slate-800">{r.text}{r.mandatory ? '' : t('page.final_document.recommended_suffix')}</span>
+                                <span className="flex-none font-semibold" style={{ color: outcome?.colour ?? '#475569' }}>{outcome ? t(outcome.labelKey) : r.status}</span>
                               </li>
                             )
                           })}
@@ -542,17 +564,17 @@ export function FinalDocument() {
                       </div>
                     ))}
 
-                    <h3 className="mt-6 text-[15px] font-bold text-slate-900">Waived Framework Mandatory items</h3>
+                    <h3 className="mt-6 text-[15px] font-bold text-slate-900">{t('page.final_document.waived_title')}</h3>
                     {compliance.waivedMandatory.length === 0
-                      ? <p className="mt-1 text-[13px] text-slate-600">None — no Framework Mandatory item (checklist item or ICH E3 section) was waived.</p>
+                      ? <p className="mt-1 text-[13px] text-slate-600">{t('page.final_document.waived_none')}</p>
                       : (
                         <table className="mt-2 w-full border-collapse text-[12px]" data-waived-items>
                           <thead>
                             <tr className="text-left text-slate-500">
-                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Item</th>
-                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Framework</th>
-                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Waived by</th>
-                              <th className="border-b border-slate-200 py-1.5 font-semibold">Reason</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">{t('page.final_document.col_item')}</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">{t('page.final_document.col_framework')}</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">{t('page.final_document.col_waived_by')}</th>
+                              <th className="border-b border-slate-200 py-1.5 font-semibold">{t('page.final_document.col_reason')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -570,17 +592,17 @@ export function FinalDocument() {
                         </table>
                       )}
 
-                    <h3 className="mt-6 text-[15px] font-bold text-slate-900">Removed Framework Mandatory items</h3>
+                    <h3 className="mt-6 text-[15px] font-bold text-slate-900">{t('page.final_document.removed_title')}</h3>
                     {(compliance.removedMandatory ?? []).length === 0
-                      ? <p className="mt-1 text-[13px] text-slate-600">None — no Framework Mandatory checklist item was removed.</p>
+                      ? <p className="mt-1 text-[13px] text-slate-600">{t('page.final_document.removed_none')}</p>
                       : (
                         <table className="mt-2 w-full border-collapse text-[12px]" data-removed-items>
                           <thead>
                             <tr className="text-left text-slate-500">
-                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Item</th>
-                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Framework</th>
-                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">Removed by</th>
-                              <th className="border-b border-slate-200 py-1.5 font-semibold">Reason</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">{t('page.final_document.col_item')}</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">{t('page.final_document.col_framework')}</th>
+                              <th className="border-b border-slate-200 py-1.5 pr-3 font-semibold">{t('page.final_document.col_removed_by')}</th>
+                              <th className="border-b border-slate-200 py-1.5 font-semibold">{t('page.final_document.col_reason')}</th>
                             </tr>
                           </thead>
                           <tbody>
@@ -610,11 +632,11 @@ export function FinalDocument() {
             data-provenance-bar
           >
             {[
-              activeSectionData ? `Section ${activeSectionData.number.replace(/^§/, '')} ${activeSectionData.title}` : null,
-              isSigned ? 'read-only' : 'read-only preview · not signed',
-              isSigned ? `signed ${signedVersion}` : document.version,
-              isSigned ? `${signedRecords.length} ${signedRecords.length === 1 ? 'signature' : 'signatures'} on record` : null,
-              isSigned && signedAtText ? `locked ${signedAtText}` : null,
+              activeSectionData ? t('page.final_document.provenance_section', { number: activeSectionData.number.replace(/^§/, ''), title: activeSectionData.title }) : null,
+              isSigned ? t('page.final_document.provenance_read_only') : t('page.final_document.provenance_preview'),
+              isSigned ? t('page.final_document.provenance_signed', { version: signedVersion }) : document.version,
+              isSigned ? t('page.final_document.provenance_signatures', { count: signedRecords.length }) : null,
+              isSigned && signedAtText ? t('page.final_document.provenance_locked', { when: signedAtText }) : null,
             ].filter(Boolean).join(' · ')}
           </div>
         </div>
@@ -630,7 +652,7 @@ export function FinalDocument() {
       <SlidePanel
         open={auditOpen}
         onClose={() => setAuditOpen(false)}
-        title="Audit trail"
+        title={t('page.final_document.audit_panel_title')}
         subtitle={document.title}
         storageKey="panel-width-document-audit"
         defaultWidth={460}

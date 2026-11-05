@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import type { AuditEntry } from '@platform/types'
+import { formatDateUtc } from '../../utils/formatDate'
 import { documentsApi, projectsApi } from '../../api'
 import { useProjectStore } from '../../store'
 
@@ -17,28 +19,28 @@ const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
 }
 
 // Event-type badge palette + label
-const EVENT_META: Record<AuditEntry['eventType'], { label: string; bg: string; fg: string; verb: string }> = {
-  'document-signed':      { label: 'DOCUMENT SIGNED',      bg: '#F0FDF4', fg: '#15803D', verb: 'signed' },
-  'comment-resolved':     { label: 'COMMENT RESOLVED',     bg: '#F0FDF4', fg: '#15803D', verb: 'resolved' },
-  'checklist-completed':  { label: 'CHECKLIST COMPLETED',  bg: '#F0FDF4', fg: '#15803D', verb: 'completed' },
-  'checklist-waived':     { label: 'CHECKLIST WAIVED',     bg: '#FFFBEB', fg: '#B45309', verb: 'waived item' },
-  'comment-added':        { label: 'COMMENT ADDED',        bg: '#FFFBEB', fg: '#B45309', verb: 'added comment' },
-  'content-edited':       { label: 'CONTENT EDITED',       bg: '#EFF6FF', fg: '#2563EB', verb: 'authored' },
-  'ai-draft':             { label: 'AI DRAFT',             bg: '#F5F3FF', fg: '#7C3AED', verb: 'generated draft' },
-  'version-restore':      { label: 'VERSION RESTORE',      bg: '#EFF6FF', fg: '#2563EB', verb: 'restored' },
-  'voice-note-added':     { label: 'VOICE NOTE ADDED',     bg: '#EFF6FF', fg: '#2563EB', verb: 'added voice note' },
-  'qa-review-completed':  { label: 'QA REVIEW COMPLETED',  bg: '#F0FDF4', fg: '#15803D', verb: 'logged QA review' },
-  'ai-requested':         { label: 'AI REQUESTED',         bg: '#F5F3FF', fg: '#7C3AED', verb: 'asked the AI' },
+const EVENT_META: Record<AuditEntry['eventType'], { labelKey: string; bg: string; fg: string; verbKey: string }> = {
+  'document-signed':      { labelKey: 'page.audit_review_alert.event_document_signed',     bg: '#F0FDF4', fg: '#15803D', verbKey: 'page.audit_review_alert.verb_signed' },
+  'comment-resolved':     { labelKey: 'page.audit_review_alert.event_comment_resolved',    bg: '#F0FDF4', fg: '#15803D', verbKey: 'page.audit_review_alert.verb_resolved' },
+  'checklist-completed':  { labelKey: 'page.audit_review_alert.event_checklist_completed', bg: '#F0FDF4', fg: '#15803D', verbKey: 'page.audit_review_alert.verb_completed' },
+  'checklist-waived':     { labelKey: 'page.audit_review_alert.event_checklist_waived',    bg: '#FFFBEB', fg: '#B45309', verbKey: 'page.audit_review_alert.verb_waived' },
+  'comment-added':        { labelKey: 'page.audit_review_alert.event_comment_added',       bg: '#FFFBEB', fg: '#B45309', verbKey: 'page.audit_review_alert.verb_added_comment' },
+  'content-edited':       { labelKey: 'page.audit_review_alert.event_content_edited',      bg: '#EFF6FF', fg: '#2563EB', verbKey: 'page.audit_review_alert.verb_authored' },
+  'ai-draft':             { labelKey: 'page.audit_review_alert.event_ai_draft',            bg: '#F5F3FF', fg: '#7C3AED', verbKey: 'page.audit_review_alert.verb_generated_draft' },
+  'version-restore':      { labelKey: 'page.audit_review_alert.event_version_restore',     bg: '#EFF6FF', fg: '#2563EB', verbKey: 'page.audit_review_alert.verb_restored' },
+  'voice-note-added':     { labelKey: 'page.audit_review_alert.event_voice_note_added',    bg: '#EFF6FF', fg: '#2563EB', verbKey: 'page.audit_review_alert.verb_added_voice_note' },
+  'qa-review-completed':  { labelKey: 'page.audit_review_alert.event_qa_review_completed', bg: '#F0FDF4', fg: '#15803D', verbKey: 'page.audit_review_alert.verb_logged_qa' },
+  'ai-requested':         { labelKey: 'page.audit_review_alert.event_ai_requested',        bg: '#F5F3FF', fg: '#7C3AED', verbKey: 'page.audit_review_alert.verb_asked_ai' },
 }
 
 // QA review checklist rows — matches prototype exactly
-const CHECKLIST_ITEMS = [
-  'Verify all entries are present and complete',
-  'Confirm no unauthorised edits',
-  'Review all waived checklist items',
-  'Confirm AI provenance records are intact',
-  'Check signature chain for completeness',
-  'Log review completion with signature',
+const CHECKLIST_ITEM_KEYS = [
+  'page.audit_review_alert.check_entries',
+  'page.audit_review_alert.check_edits',
+  'page.audit_review_alert.check_waived',
+  'page.audit_review_alert.check_ai',
+  'page.audit_review_alert.check_signatures',
+  'page.audit_review_alert.check_log',
 ]
 
 function WarningTriangle({ size = 18, colour = '#D97706' }: { size?: number; colour?: string }) {
@@ -62,18 +64,16 @@ function AISparkle({ colour = '#7C3AED' }: { colour?: string }) {
 function formatTimestamp(iso: string): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
   const hh = String(d.getUTCHours()).padStart(2, '0')
   const mm = String(d.getUTCMinutes()).padStart(2, '0')
-  return `${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()} ${hh}:${mm} UTC`
+  return `${formatDateUtc(d)} ${hh}:${mm} UTC`
 }
 
 function formatDateShort(iso: string | null | undefined): string {
   if (!iso) return '—'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return `${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+  return formatDateUtc(d)
 }
 
 interface AuditRowProps {
@@ -81,6 +81,7 @@ interface AuditRowProps {
 }
 
 function AuditRow({ entry }: AuditRowProps) {
+  const { t } = useTranslation()
   // Fallback so any unknown event type renders as a plain "content edited"
   // row instead of crashing the whole audit-review screen.
   const meta = EVENT_META[entry.eventType] ?? EVENT_META['content-edited']
@@ -100,7 +101,7 @@ function AuditRow({ entry }: AuditRowProps) {
           style={{ backgroundColor: meta.bg, color: meta.fg, padding: '2px 6px' }}
           data-event-badge={entry.eventType}
         >
-          {meta.label}
+          {t(meta.labelKey)}
         </span>
       </div>
 
@@ -113,7 +114,7 @@ function AuditRow({ entry }: AuditRowProps) {
         </div>
         <p className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap text-[13px]">
           <span className="font-bold text-slate-900">{entry.actor}</span>{' '}
-          <span className="text-slate-500">{meta.verb}</span>
+          <span className="text-slate-500">{t(meta.verbKey)}</span>
         </p>
       </div>
 
@@ -123,6 +124,7 @@ function AuditRow({ entry }: AuditRowProps) {
 }
 
 export function AuditReviewAlert() {
+  const { t } = useTranslation()
   const { projectId }    = useParams()
   const qc               = useQueryClient()
   const setActiveProject = useProjectStore(s => s.setActiveProject)
@@ -175,7 +177,8 @@ export function AuditReviewAlert() {
       if (!activeDocId) throw new Error('No document available in this project to log a QA review against.')
       return documentsApi.logQAReview(activeDocId, {
         reviewedBy: LOGGED_IN_USER,
-        notes:      `QA review logged; ${checked.size} of ${CHECKLIST_ITEMS.length} checklist items complete.`,
+        // Goes into the audit trail, so it stays in English whatever the screen language.
+        notes:      `QA review logged; ${checked.size} of ${CHECKLIST_ITEM_KEYS.length} checklist items complete.`,
       })
     },
     onSuccess: () => {
@@ -206,9 +209,9 @@ export function AuditReviewAlert() {
 
         <div className="flex flex-wrap items-end justify-between gap-4">
           <div className="flex min-w-0 flex-col gap-1.5">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900">Audit Trail Review</h1>
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900">{t('page.audit_review_alert.title')}</h1>
             <p className="text-[13px] text-slate-500">
-              {project?.shortTitle ?? 'VELORA-301'} · Clinical Writing · QA review cadence: {cadenceDays} days · Last reviewed: {formatDateShort(lastReviewedAt)}
+              {t('page.audit_review_alert.subtitle', { project: project?.shortTitle ?? 'VELORA-301', days: cadenceDays, date: formatDateShort(lastReviewedAt) })}
             </p>
           </div>
           <div className="flex flex-none items-center gap-2.5">
@@ -224,7 +227,7 @@ export function AuditReviewAlert() {
                   data-overdue-dot
                 />
                 <span className="text-[13px] font-semibold" style={{ color: '#B45309' }}>
-                  Review overdue · {cadenceDays} days elapsed
+                  {t('page.audit_review_alert.overdue_pill', { days: cadenceDays })}
                 </span>
               </div>
             )}
@@ -234,7 +237,7 @@ export function AuditReviewAlert() {
               disabled={logMut.isPending}
               className="whitespace-nowrap rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
             >
-              {logMut.isPending ? 'Logging…' : 'Begin QA review'}
+              {logMut.isPending ? t('page.audit_review_alert.logging') : t('page.audit_review_alert.begin')}
             </button>
           </div>
         </div>
@@ -249,9 +252,9 @@ export function AuditReviewAlert() {
         >
           <WarningTriangle size={18} colour="#D97706" />
           <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-            <p className="text-sm font-bold" style={{ color: '#B45309' }}>Audit trail review is overdue.</p>
+            <p className="text-sm font-bold" style={{ color: '#B45309' }}>{t('page.audit_review_alert.banner_title')}</p>
             <p className="text-[13px] leading-snug" style={{ color: '#B45309' }}>
-              The Admin-configured {cadenceDays}-day review cadence elapsed on {formatDateShort(nextDueAt)}. A QA review event must be logged to maintain compliance.
+              {t('page.audit_review_alert.banner_body', { days: cadenceDays, date: formatDateShort(nextDueAt) })}
             </p>
           </div>
           <button
@@ -260,7 +263,7 @@ export function AuditReviewAlert() {
             className="flex-none whitespace-nowrap text-[13px] font-semibold hover:opacity-80 transition-opacity"
             style={{ color: '#B45309' }}
           >
-            View compliance record →
+            {t('page.audit_review_alert.view_record')}
           </button>
         </div>
       )}
@@ -272,7 +275,7 @@ export function AuditReviewAlert() {
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline justify-between gap-3 pb-3">
             <p className="font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-              Entries since last review
+              {t('page.audit_review_alert.entries_label')}
             </p>
             <p className="font-mono text-[10px] font-medium text-slate-500">
               {formatDateShort(lastReviewedAt)} → {formatDateShort(nextDueAt)}
@@ -283,9 +286,9 @@ export function AuditReviewAlert() {
 
           <div className="flex items-center justify-between gap-2.5 px-1 pt-1.5">
             <p className="text-xs text-slate-500">
-              Showing {entries.length} of {totalEntries} entries since last review
+              {t('page.audit_review_alert.showing', { shown: entries.length, total: totalEntries })}
             </p>
-            <button className="text-xs font-semibold text-blue-600 hover:text-blue-700">Load all →</button>
+            <button className="text-xs font-semibold text-blue-600 hover:text-blue-700">{t('page.audit_review_alert.load_all')}</button>
           </div>
         </div>
 
@@ -301,17 +304,17 @@ export function AuditReviewAlert() {
             <div className="flex items-center gap-2">
               <WarningTriangle size={16} colour="#D97706" />
               <p className="text-[13px] font-bold" style={{ color: '#B45309' }}>
-                {isOverdue ? 'Review overdue' : 'Review current'}
+                {isOverdue ? t('page.audit_review_alert.status_overdue') : t('page.audit_review_alert.status_current')}
               </p>
             </div>
             <p className="text-xs text-slate-500">
-              Last QA review: {formatDateShort(lastReviewedAt)} · by Dr. Linda Park
+              {t('page.audit_review_alert.last_review', { date: formatDateShort(lastReviewedAt), name: 'Dr. Linda Park' })}
             </p>
             <p className="text-xs font-semibold" style={{ color: isOverdue ? '#B45309' : '#15803D' }} data-next-due>
-              Next review due: {formatDateShort(nextDueAt)}{isOverdue ? ' (today)' : ''}
+              {t(isOverdue ? 'page.audit_review_alert.next_due_today' : 'page.audit_review_alert.next_due', { date: formatDateShort(nextDueAt) })}
             </p>
             <p className="text-xs font-semibold" style={{ color: isOverdue ? '#B45309' : '#15803D' }}>
-              Days overdue: {qaReview?.daysOverdue ?? 0}
+              {t('page.audit_review_alert.days_overdue', { days: qaReview?.daysOverdue ?? 0 })}
             </p>
             <button
               type="button"
@@ -319,16 +322,16 @@ export function AuditReviewAlert() {
               disabled={logMut.isPending}
               className="mt-1.5 w-full rounded-md bg-blue-600 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
             >
-              {logMut.isPending ? 'Logging…' : 'Begin QA review'}
+              {logMut.isPending ? t('page.audit_review_alert.logging') : t('page.audit_review_alert.begin')}
             </button>
           </div>
 
           {/* QA review checklist */}
           <div className="flex flex-col rounded-lg border border-slate-200 bg-white p-4" data-panel="qa-checklist">
             <p className="mb-2.5 font-mono text-[10px] font-medium uppercase tracking-widest text-slate-500">
-              QA review checklist
+              {t('page.audit_review_alert.checklist_label')}
             </p>
-            {CHECKLIST_ITEMS.map((item, idx) => {
+            {CHECKLIST_ITEM_KEYS.map((itemKey, idx) => {
               const isChecked = checked.has(idx)
               return (
                 <button
@@ -353,7 +356,7 @@ export function AuditReviewAlert() {
                       </svg>
                     )}
                   </span>
-                  <span className="min-w-0 text-slate-900">{item}</span>
+                  <span className="min-w-0 text-slate-900">{t(itemKey)}</span>
                 </button>
               )
             })}
@@ -363,7 +366,7 @@ export function AuditReviewAlert() {
               disabled={logMut.isPending}
               className="mt-3 w-full rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 transition-colors disabled:opacity-50"
             >
-              {logMut.isPending ? 'Logging…' : 'Log completed review'}
+              {logMut.isPending ? t('page.audit_review_alert.logging') : t('page.audit_review_alert.log_completed')}
             </button>
           </div>
 
@@ -373,23 +376,23 @@ export function AuditReviewAlert() {
             className="flex flex-col gap-0.5 rounded-lg border border-slate-200 bg-white p-4"
             data-panel="compliance-record"
           >
-            <p className="mb-1 text-[13px] font-bold text-slate-900">Compliance record</p>
+            <p className="mb-1 text-[13px] font-bold text-slate-900">{t('page.audit_review_alert.record_title')}</p>
             <div className="flex items-baseline justify-between gap-2.5 py-1 text-xs">
-              <span className="text-slate-500">Cadence</span>
-              <span className="font-bold text-slate-900">{cadenceDays} days (Admin)</span>
+              <span className="text-slate-500">{t('page.audit_review_alert.cadence')}</span>
+              <span className="font-bold text-slate-900">{t('page.audit_review_alert.cadence_value', { days: cadenceDays })}</span>
             </div>
             <div className="flex items-baseline justify-between gap-2.5 py-1 text-xs">
-              <span className="text-slate-500">Reviews on time</span>
-              <span className="font-bold text-slate-900">11 of 12</span>
+              <span className="text-slate-500">{t('page.audit_review_alert.on_time')}</span>
+              <span className="font-bold text-slate-900">{t('page.audit_review_alert.on_time_value', { onTime: 11, total: 12 })}</span>
             </div>
             <div className="flex items-baseline justify-between gap-2.5 py-1 text-xs">
-              <span className="text-slate-500">Current streak</span>
+              <span className="text-slate-500">{t('page.audit_review_alert.streak')}</span>
               <span className="font-bold" style={{ color: isOverdue ? '#B45309' : '#15803D' }}>
-                {isOverdue ? '0 days ⚠' : '30 days'}
+                {isOverdue ? t('page.audit_review_alert.streak_overdue', { days: 0 }) : t('page.audit_review_alert.streak_value', { days: 30 })}
               </span>
             </div>
             <button className="mt-2 self-start text-xs font-semibold" style={{ color: '#B45309' }}>
-              View full compliance history →
+              {t('page.audit_review_alert.view_history')}
             </button>
           </div>
         </div>

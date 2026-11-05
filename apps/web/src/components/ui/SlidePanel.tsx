@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useTranslation } from 'react-i18next'
 
 interface SlidePanelProps {
   open:         boolean
@@ -58,6 +59,7 @@ export function SlidePanel({
   onRefresh,
   belowTopBar = false,
 }: SlidePanelProps) {
+  const { t } = useTranslation()
   const [expanded, setExpanded] = useState(false)
   const [width, setWidth] = useState<number>(() => {
     if (!storageKey) return defaultWidth
@@ -150,10 +152,10 @@ export function SlidePanel({
       <div
         role="separator"
         aria-orientation="vertical"
-        aria-label="Resize panel"
+        aria-label={t('component.slide_panel.resize_aria')}
         onMouseDown={beginResize}
         onDoubleClick={() => setWidth(defaultWidth)}
-        title="Drag to resize · double-click to reset"
+        title={t('component.slide_panel.resize_title')}
         className="group absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize bg-transparent hover:bg-blue-100 active:bg-blue-300"
         style={{ transition: dragging ? 'none' : 'background-color 120ms' }}
       >
@@ -170,8 +172,8 @@ export function SlidePanel({
           <button
             type="button"
             onClick={() => setExpanded(v => !v)}
-            aria-label={expanded ? 'Shrink panel' : 'Expand panel'}
-            title={expanded ? 'Shrink' : 'Expand'}
+            aria-label={expanded ? t('component.slide_panel.shrink_aria') : t('component.slide_panel.expand_aria')}
+            title={expanded ? t('component.slide_panel.shrink') : t('component.slide_panel.expand')}
             className="flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
@@ -185,8 +187,8 @@ export function SlidePanel({
           <button
             type="button"
             onClick={onRefresh}
-            aria-label="Refresh"
-            title="Refresh"
+            aria-label={t('component.slide_panel.refresh')}
+            title={t('component.slide_panel.refresh')}
             className="flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
             data-action="panel-refresh"
           >
@@ -199,7 +201,7 @@ export function SlidePanel({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close panel"
+          aria-label={t('component.slide_panel.close_aria')}
           className="flex h-7 w-7 flex-none items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-900"
         >
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">

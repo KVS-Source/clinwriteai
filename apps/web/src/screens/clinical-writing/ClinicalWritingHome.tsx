@@ -3,6 +3,7 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
+import { DOCUMENT_STAGE_KEY, DOCUMENT_STATUS_KEY, DOCUMENT_STATUS_PLAIN_KEY, DOCUMENT_TYPE_KEY, documentStageLabel, documentTypeLabel } from '../../utils/documentLabels'
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { usePlatformStore } from '../../platform/store'
@@ -23,36 +24,6 @@ import { ProtocolMetadataPanel } from '../../panels/ProtocolMetadataPanel'
 
 // --- Enum → display label maps ---
 
-const TYPE_LABELS: Record<DocumentType, string> = {
-  'csr-full':             'CSR (Full)',
-  'csr-synopsis':         'CSR Synopsis',
-  'protocol':             'Protocol',
-  'protocol-amendment':   'Protocol Amendment',
-  'ib':                   "Investigator's Brochure",
-  'icf':                  'Informed Consent Form',
-  'safety-narrative':     'Safety Narrative',
-  'dsur':                 'DSUR',
-  'end-of-study-summary': 'End of Study Summary',
-  'patient-narrative':    'Patient Narrative Compendium',
-}
-
-const STAGE_LABELS: Record<DocumentStage, string> = {
-  'study-start-up':            'Study Start-Up',
-  'during-study':              'During Study',
-  'post-study':                'Post-Study / Data Analysis',
-  'cross-functional-review':   'Cross-Functional Review',
-  'crm':                       'CRM',
-  'final-output':              'Final Output',
-}
-
-const STATUS_LABELS: Record<DocumentStatus, string> = {
-  'not-started':       'Not Started',
-  'in-authoring':      'In Authoring',
-  'in-review':         'In Review',
-  'crm-in-progress':   'CRM In Progress',
-  'pending-signature': 'Pending Signature',
-  'signed':            'Signed',
-}
 
 // Same admin set as TopNav — the session user's role is the raw API role ('tenant-admin'), demo personas use 'admin'.
 const ADMIN_ROLES: ReadonlySet<string> = new Set(['admin', 'tenant-admin', 'super-admin'])
@@ -158,9 +129,9 @@ export function ClinicalWritingHome() {
     return v && allowed.includes(v) ? (v as T) : 'all'
   }
   const search         = searchParams.get('q') ?? ''
-  const selectedStage  = pick<DocumentStage>('stage', Object.keys(STAGE_LABELS))
-  const selectedStatus = pick<DocumentStatus>('status', Object.keys(STATUS_LABELS))
-  const selectedType   = pick<DocumentType>('type', Object.keys(TYPE_LABELS))
+  const selectedStage  = pick<DocumentStage>('stage', Object.keys(DOCUMENT_STAGE_KEY))
+  const selectedStatus = pick<DocumentStatus>('status', Object.keys(DOCUMENT_STATUS_KEY))
+  const selectedType   = pick<DocumentType>('type', Object.keys(DOCUMENT_TYPE_KEY))
   const sourceAccess = useSourceAccess(projectId)
   const view: 'documents' | 'sources' = searchParams.get('tab') === 'sources' && sourceAccess?.canView !== false ? 'sources' : 'documents'
   const setSearch         = (v: string) => setParams({ q: v })
@@ -265,7 +236,7 @@ export function ClinicalWritingHome() {
       // Search covers the list's text columns: title, type and assignee (PRD A §8.4).
       const matchSearch = q === '' ||
         d.title.toLowerCase().includes(q) ||
-        (TYPE_LABELS[d.type] ?? '').toLowerCase().includes(q) ||
+        documentTypeLabel(d.type).toLowerCase().includes(q) ||
         (teamById.get(d.assigneeId)?.name ?? '').toLowerCase().includes(q)
       const matchStage  = selectedStage  === 'all' || d.stage  === selectedStage
       const matchStatus = selectedStatus === 'all' || d.status === selectedStatus
@@ -294,12 +265,12 @@ export function ClinicalWritingHome() {
 
   const sortedDocs = useMemo(() => {
     if (!docSort) return filtered
-    const stageOrder = Object.keys(STAGE_LABELS)
-    const statusOrder = Object.keys(STATUS_LABELS)
+    const stageOrder = Object.keys(DOCUMENT_STAGE_KEY)
+    const statusOrder = Object.keys(DOCUMENT_STATUS_KEY)
     const val = (d: Document): string | number => {
       switch (docSort.key) {
         case 'title':    return d.title
-        case 'type':     return TYPE_LABELS[d.type]
+        case 'type':     return documentTypeLabel(d.type)
         case 'stage':    return stageOrder.indexOf(d.stage)
         case 'status':   return statusOrder.indexOf(d.status)
         case 'updated':  return d.updatedAt ? Date.parse(d.updatedAt) : 0
@@ -430,7 +401,7 @@ export function ClinicalWritingHome() {
                       onClick={() => showStage(stage)}
                       className="flex flex-none flex-col items-center gap-2 rounded-md px-1 py-1 hover:bg-slate-50"
                       style={{ width }}
-                      aria-label={`${STAGE_LABELS[stage]}: ${count} document${count === 1 ? '' : 's'}`}
+                      aria-label={t('page.clinical_writing_home.stage_count_aria', { stage: documentStageLabel(stage), count })}
                       data-stage-step={stage}
                       data-stage-state={state}
                     >
@@ -449,7 +420,7 @@ export function ClinicalWritingHome() {
                         className="text-center text-[11px] leading-tight"
                         style={{ color: state === 'pending' ? '#64748B' : '#1E293B', fontWeight: state === 'in-progress' ? 600 : 400 }}
                       >
-                        {STAGE_LABELS[stage]}
+                        {documentStageLabel(stage)}
                       </div>
                       <p className="font-mono text-[10px] font-medium tracking-wider" style={{ color: count > 0 ? '#2563EB' : '#94A3B8' }}>
                         {t('page.clinical_writing_home.docs_count', { count })}
@@ -485,7 +456,7 @@ export function ClinicalWritingHome() {
         {STAGES_ORDERED.map(stage => (
           <TabButton
             key={stage}
-            label={t('page.clinical_writing_home.tab_stage_with_count', { stage: STAGE_LABELS[stage], count: stageCounts.get(stage) ?? 0 })}
+            label={t('page.clinical_writing_home.tab_stage_with_count', { stage: documentStageLabel(stage), count: stageCounts.get(stage) ?? 0 })}
             active={view === 'documents' && selectedStage === stage}
             onClick={() => showStage(stage)}
           />
@@ -535,7 +506,7 @@ export function ClinicalWritingHome() {
                 className="h-[38px] rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900"
               >
                 <option value="all">{t('page.clinical_writing_home.all_types')}</option>
-                {activeTypes.map(ty => <option key={ty} value={ty}>{TYPE_LABELS[ty]}</option>)}
+                {activeTypes.map(ty => <option key={ty} value={ty}>{documentTypeLabel(ty)}</option>)}
               </select>
               <select
                 value={selectedStatus}
@@ -544,7 +515,7 @@ export function ClinicalWritingHome() {
                 className="h-[38px] rounded-md border border-slate-200 bg-slate-50 px-3 text-sm text-slate-900"
               >
                 <option value="all">{t('page.clinical_writing_home.all_statuses')}</option>
-                {activeStatuses.map(st => <option key={st} value={st}>{STATUS_LABELS[st]}</option>)}
+                {activeStatuses.map(st => <option key={st} value={st}>{t(DOCUMENT_STATUS_PLAIN_KEY[st])}</option>)}
               </select>
               {filtersDirty && (
                 <button onClick={resetFilters} className="p-1 text-xs font-semibold text-blue-600 hover:text-blue-700">
@@ -627,8 +598,8 @@ export function ClinicalWritingHome() {
                       </span>
                     )}
                   </div>
-                  <div className="text-slate-900">{TYPE_LABELS[doc.type]}</div>
-                  <div className="text-slate-500">{STAGE_LABELS[doc.stage]}</div>
+                  <div className="text-slate-900">{documentTypeLabel(doc.type)}</div>
+                  <div className="text-slate-500">{documentStageLabel(doc.stage)}</div>
                   <div><StatusPill status={doc.status} size="sm" /></div>
                   <div className="text-slate-500">{doc.updatedAt ? new Date(doc.updatedAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' }) : '—'}</div>
                   {/* Admin: the assignee's RACI letter(s), e.g. "Dr Elena Vasquez (R)".
@@ -733,8 +704,8 @@ export function ClinicalWritingHome() {
           projectId={projectId}
           // The latest copy from the list, so a change made in the panel shows straight away.
           doc={detailDoc ? documents.find(d => d.id === detailDoc.id) ?? detailDoc : null}
-          typeLabel={detailDoc ? TYPE_LABELS[detailDoc.type] : ''}
-          stageLabel={detailDoc ? STAGE_LABELS[detailDoc.stage] : ''}
+          typeLabel={detailDoc ? documentTypeLabel(detailDoc.type) : ''}
+          stageLabel={detailDoc ? documentStageLabel(detailDoc.stage) : ''}
           assigneeName={detailDoc ? (teamById.get(detailDoc.assigneeId)?.name ?? '—') : ''}
           onClose={() => setDetailDoc(null)}
           onOpen={openById}
@@ -750,7 +721,7 @@ export function ClinicalWritingHome() {
           open={!!protocolDoc}
           onClose={() => setProtocolDoc(null)}
           title={protocolDoc ? t('page.clinical_writing_home.protocol_metadata_panel_title_with_doc', { title: protocolDoc.title }) : t('page.clinical_writing_home.protocol_metadata_panel_title')}
-          subtitle={protocolDoc ? TYPE_LABELS[protocolDoc.type] : undefined}
+          subtitle={protocolDoc ? documentTypeLabel(protocolDoc.type) : undefined}
           storageKey="panel-width-protocol-metadata"
           defaultWidth={520}
           closeOnOutsideClick
@@ -766,7 +737,7 @@ export function ClinicalWritingHome() {
           open={!!raciDoc}
           onClose={() => setRaciDoc(null)}
           title={raciDoc ? t('page.clinical_writing_home.raci_panel_title_with_doc', { title: raciDoc.title }) : t('page.clinical_writing_home.raci_panel_title')}
-          subtitle={raciDoc ? TYPE_LABELS[raciDoc.type] : undefined}
+          subtitle={raciDoc ? documentTypeLabel(raciDoc.type) : undefined}
           storageKey="panel-width-raci-drawer"
           defaultWidth={720}
           closeOnOutsideClick

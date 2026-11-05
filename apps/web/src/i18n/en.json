@@ -2425,7 +2425,7 @@
       "capped_tooltip": "Some enabled modules are not available in this deployment and have been capped out of the effective set."
     },
     "user_management_live": {
-      "tenant_ref_entered": "Tenant ID (entered by user): {{ref}}",
+      "tenant_ref_entered": "Tenant ID: {{ref}}",
       "title": "User Management",
       "crumb_admin": "Admin",
       "crumb_user_management": "User Management",
@@ -2436,8 +2436,8 @@
       "filter_all_roles": "All Roles",
       "filter_status_aria": "Filter by status",
       "filter_role_aria": "Filter by role",
-      "search_placeholder": "Search by name or employee ID...",
-      "search_aria": "Search users by name, employee ID or email",
+      "search_placeholder": "Search by name or email...",
+      "search_aria": "Search users by name or email",
       "clear_filters": "Clear filters",
       "no_matches": "No users match these filters.",
       "invite_user_button": "Invite user",

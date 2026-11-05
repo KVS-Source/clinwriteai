@@ -223,8 +223,7 @@ export function UserManagementLive() {
     const filtered = users.filter(u =>
       (statusFilter === 'all' || u.status === statusFilter) &&
       (roleFilter === 'all' || u.role === roleFilter) &&
-      // "Employee ID" is the user's ID; email matches too, as admins often search by it.
-      (!q || u.name.toLowerCase().includes(q) || u.id.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)),
+      (!q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)),
     )
     if (!sort) return filtered
 
@@ -349,7 +348,7 @@ export function UserManagementLive() {
           </div>
         )}
 
-        {/* Filter bar: status, role, search (name / employee ID / email), clear. */}
+        {/* Filter bar: status, role, search (name / email), clear. */}
         <div className="flex flex-wrap items-center gap-3" data-section="user-filters">
           <select
             value={statusFilter}

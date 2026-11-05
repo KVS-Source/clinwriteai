@@ -1,4 +1,4 @@
-// QA regression — Admin > User Management filter bar (status, role, search by name / employee ID, clear)
+// QA regression — Admin > User Management filter bar (status, role, search by name / email, clear)
 // and sortable table columns.
 //
 //   E2E_BASE_URL=http://localhost:5173 npx playwright test playwright/smoke/19-user-management-filters.spec.ts
@@ -65,7 +65,7 @@ test('the filter bar shows All Status, All Roles, the search field and a disable
   await openUserManagement(page)
   await expect(status(page).locator('option:checked')).toHaveText('All Status')
   await expect(role(page).locator('option:checked')).toHaveText('All Roles')
-  await expect(search(page)).toHaveAttribute('placeholder', 'Search by name or employee ID...')
+  await expect(search(page)).toHaveAttribute('placeholder', 'Search by name or email...')
   await expect(clear(page)).toBeDisabled()
   await expect(page.getByText('5 users', { exact: true })).toBeVisible()
   // only the five standard roles are offered — no legacy roles such as clinical-writer
@@ -87,12 +87,12 @@ test('role filter narrows the rows', async ({ page }) => {
   expect(await rowIds(page)).toEqual(['emp-1001', 'emp-1004'])
 })
 
-test('search matches name, employee ID and email, case-insensitively', async ({ page }) => {
+test('search matches name and email, case-insensitively — not the internal user ID', async ({ page }) => {
   await openUserManagement(page)
   await search(page).fill('BRUNO')
   expect(await rowIds(page)).toEqual(['emp-1002'])
   await search(page).fill('emp-1003')
-  expect(await rowIds(page)).toEqual(['emp-1003'])
+  await expect(page.locator('[data-user-row]')).toHaveCount(0)
   await search(page).fill('esha.elango@')
   expect(await rowIds(page)).toEqual(['emp-1005'])
 })

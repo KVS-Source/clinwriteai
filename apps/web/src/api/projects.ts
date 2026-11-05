@@ -1,5 +1,5 @@
 import { api } from './client'
-import type { Project, RACIRole, TeamMember } from '@platform/types'
+import type { Project, ProjectStatus, RACIRole, TeamMember } from '@platform/types'
 
 export const projectsApi = {
   list: (params?: { status?: string; ta?: string; search?: string }) => {
@@ -11,6 +11,14 @@ export const projectsApi = {
   get:    (projectId: string) => api.get<Project>(`/projects/${projectId}`),
   create: (body: Omit<Project, 'id' | 'team' | 'activeModules' | 'client'> & { client?: string }) =>
     api.post<Project>('/projects', body),
+  // Status control (PM): where the project is, where it may go, and its past moves.
+  getStatus: (projectId: string) => api.get<{
+    status: ProjectStatus
+    next: ProjectStatus[]
+    history: Array<{ id: string; at: string; by: string; from: string | null; to: string | null; reason: string | null }>
+  }>(`/projects/${projectId}/status`),
+  transition: (projectId: string, body: { to: ProjectStatus; reason: string }) =>
+    api.post<Project>(`/projects/${projectId}/transition`, body),
   // TLF packages delivered to the project (Clinical Writing). Newest first.
   listTlfPackages: (projectId: string) =>
     api.get<Array<{ id: string; version: string; createdAt: string; _count?: { items: number } }>>(`/projects/${projectId}/tlf-packages`),

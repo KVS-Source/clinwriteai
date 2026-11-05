@@ -56,7 +56,8 @@ function Pill({ bg, fg, children, title }: { bg: string; fg: string; children: R
 
 interface Props {
   projectId: string
-  onUpload: () => void
+  /** Left out for someone who can't upload (an auditor): the empty state then offers no button. */
+  onUpload?: () => void
   /** Open New Document with this source preselected */
 }
 
@@ -246,7 +247,9 @@ export function SourceDocumentsTab({ projectId, onUpload }: Props) {
                     <>
                       <p className="text-[14px] font-semibold text-slate-900">{t('page.source_documents_tab.empty_title')}</p>
                       <p className="mt-1 text-[13px] text-slate-500">{t('page.source_documents_tab.empty_hint')}</p>
-                      <button type="button" onClick={onUpload} className="mt-3 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700">{t('page.source_documents_tab.upload_button')}</button>
+                      {onUpload && (
+                        <button type="button" onClick={onUpload} className="mt-3 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700">{t('page.source_documents_tab.upload_button')}</button>
+                      )}
                     </>
                   ) : (
                     <>

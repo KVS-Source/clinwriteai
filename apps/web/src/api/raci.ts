@@ -152,6 +152,7 @@ export interface PmDashboardDocument {
   status: string
   assigneeId: string
   targetCompletionDate: string | null
+  reviewDueAt: string | null
   isOverdue: boolean
   raciProgress: RaciTransitionEvaluation
 }

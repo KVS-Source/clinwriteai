@@ -419,7 +419,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
   // Record an adoption by a consuming module. Non-admin; any authenticated
   // user can adopt (modules call this on behalf of their users).
-  app.post('/sections/:id/adopt', { preHandler: requireAuth() }, async (request, reply) => {
+  app.post('/sections/:id/adopt', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = adoptSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })

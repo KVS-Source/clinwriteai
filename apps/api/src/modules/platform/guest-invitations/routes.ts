@@ -63,7 +63,7 @@ export const guestInvitationRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   // POST /documents/:documentId/guest-invitations — R-only, scope='document'
   // ---------------------------------------------------------------------
-  app.post('/documents/:documentId/guest-invitations', { preHandler: requireAuth() }, async (request, reply) => {
+  app.post('/documents/:documentId/guest-invitations', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = documentInviteSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -139,7 +139,7 @@ export const guestInvitationRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   // POST /projects/:projectId/guest-invitations — admin-only, scope='project'
   // ---------------------------------------------------------------------
-  app.post('/projects/:projectId/guest-invitations', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  app.post('/projects/:projectId/guest-invitations', { preHandler: requireAuth({ roles: ['admin'], clinicalWriting: true }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = projectInviteSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -243,7 +243,7 @@ export const guestInvitationRoutes: FastifyPluginAsync = async (app) => {
   //   - doc-scoped invites: R-on-doc or admin.
   //   - project-scoped invites: admin only (same as who could create them).
   // ---------------------------------------------------------------------
-  app.delete('/guest-invitations/:id', { preHandler: requireAuth() }, async (request, reply) => {
+  app.delete('/guest-invitations/:id', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const existing = await app.prisma.guestInvitation.findUnique({ where: { id } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })

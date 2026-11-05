@@ -15,10 +15,9 @@ import { z } from 'zod'
 import PDFDocument from 'pdfkit'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
-import { actorCanAddComment, actorCanGiveVerdict, COMMENT_ADD_FORBIDDEN, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanResolveComments, COMMENT_RESOLVE_FORBIDDEN, documentsActorCanResolve } from '../../platform/document-raci/access.js'
+import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
 
 // Document audit panel paging. The default limit keeps older callers that send
 // no parameters (the Audit Review screen) getting the same size as before.
@@ -91,7 +90,7 @@ function auditDetail(row: AuditRow): string {
     if (d.outcome === 'quota_reached') parts.push('Quota reached')
     else if (d.outcome === 'failed') parts.push('Request failed')
   }
-  if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from)} → ${String(d.to)}`)
+  if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from ?? 'none')} → ${String(d.to ?? 'none')}`)
   if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
   return parts.length ? parts.join(' · ') : humanise(row.action)
 }
@@ -259,6 +258,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!actorCanViewComments(request.user!)) return reply.code(403).send(COMMENT_VIEW_FORBIDDEN)
 
     const rows = await app.prisma.comment.findMany({
       where: {
@@ -274,6 +274,12 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       actorCanResolveComments(app.prisma, request.user!, documentId),
     ])
     return rows.map(r => ({ ...commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null), canResolve }))
+  })
+
+  // Whether the caller may add comments — lets the screens leave out the composer instead of failing it.
+  app.get('/:documentId/comments/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
+    const { documentId } = request.params as { documentId: string }
+    return { canAdd: await actorCanAddComment(app.prisma, request.user!, documentId) }
   })
 
   app.post('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -595,6 +601,7 @@ export const projectCommentsRoutes: FastifyPluginAsync = async (app) => {
     const { projectId } = request.params as { projectId: string }
     const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
     if (!project) return reply.code(404).send({ error: 'not_found' })
+    if (!actorCanViewComments(request.user!)) return reply.code(403).send(COMMENT_VIEW_FORBIDDEN)
     const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
     if (visible !== 'all' && !visible.has(projectId)) return reply.code(404).send({ error: 'not_found' })
 

@@ -255,7 +255,7 @@ describe('DELETE source document — authors (R) only; C, Q, A and auditors are 
     const { app } = await build({ get: vi.fn(), del }, caller)
     const res = await app.inject({ method: 'DELETE', url: '/projects/proj-1/source-documents/unsaved' })
     expect(res.statusCode).toBe(403)
-    expect(res.json().error).toBe('source_edit_forbidden')
+    expect(res.json().error).toBe((caller as { role?: string }).role === 'auditor' ? 'auditor_read_only' : 'source_edit_forbidden')
     expect(del).not.toHaveBeenCalled()
     expect(ROWS.some(r => r.id === 'unsaved')).toBe(true)
   })

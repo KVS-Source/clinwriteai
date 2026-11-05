@@ -1,14 +1,16 @@
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import { STATUS_META, type Document } from '@platform/types'
+import { STATUS_META, type Document, type ProjectStatus } from '@platform/types'
 import { documentsApi, projectsApi, reportsApi } from '../../api'
 import { ProjectStatusPill } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { usePlatformStore } from '../../platform/store'
 import { MODULE_KEY_TO_SLUG, type ModuleKey, type ModuleSlug } from '../../config/modules'
 import { isAdminRole } from '../../config/roles'
+import { ProjectStatusDialog, ProjectStatusHistory, ProjectStatusMenu, ProjectStatusSuggestion } from './ProjectStatusControl'
+import { deadlineDay, fmtDeadline, localToday } from '../clinical-writing/DeadlineField'
 
 // --- Module metadata for the "Available modules" grid (filtered against project.activeModules) ---
 const INACTIVE_MODULES = [
@@ -74,6 +76,9 @@ export function ProjectDashboard() {
   const currentUser = usePlatformStore(s => s.currentUser)
   const role    = currentUser.role
   const isAdmin = isAdminRole(role)
+  const isPm    = role === 'pm'
+  const [statusChange, setStatusChange] = useState<ProjectStatus | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
 
   // Project Settings is gated to Authors — team members with RACI='R'
   // whose userId matches the current user. Any Author can add / edit /
@@ -107,6 +112,27 @@ export function ProjectDashboard() {
     const lastActivity = documents.reduce<string | null>(
       (max, d) => (d.updatedAt && (!max || d.updatedAt > max) ? d.updatedAt : max), null)
     return { inFlight, inReview, awaitingSign, signed, inAuthoring, notStarted, inCrm, current, lastActivity }
+  }, [documents])
+
+  // Open documents with a date set. Review due only counts while the document is in review.
+  const deadlines = useMemo(() => {
+    const today = localToday()
+    return documents
+      .filter(d => d.status !== 'signed' && (d.targetCompletionDate || d.reviewDueAt))
+      .map(d => {
+        const inReview = d.status === 'in-review' || d.status === 'crm-in-progress'
+        const target = deadlineDay(d.targetCompletionDate)
+        const review = inReview ? deadlineDay(d.reviewDueAt) : ''
+        return {
+          ...d,
+          reviewDueAt: review ? d.reviewDueAt : null,
+          targetOverdue: !!target && target < today,
+          reviewOverdue: !!review && review < today,
+          soonest: [target, review].filter(Boolean).sort()[0] ?? '',
+        }
+      })
+      .filter(d => d.soonest)
+      .sort((a, b) => a.soonest.localeCompare(b.soonest))
   }, [documents])
 
   // Team role breakdown — real counts from project.team.raci instead
@@ -216,7 +242,21 @@ export function ProjectDashboard() {
                 ? t('page.project_dashboard.last_activity', { time: new Date(stats.lastActivity).toLocaleString('en-GB', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' }) })
                 : t('page.project_dashboard.no_activity')}
             </div>
-            {isProjectAuthor && (
+            {isPm && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setHistoryOpen(v => !v)}
+                  aria-expanded={historyOpen}
+                  className="rounded-md border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-900 transition-colors hover:bg-slate-50"
+                  data-action="toggle-status-history"
+                >
+                  {t('component.project_status.history_title')}
+                </button>
+                <ProjectStatusMenu projectId={project.id} onPick={setStatusChange} />
+              </>
+            )}
+            {(isProjectAuthor || isPm) && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${encodeURIComponent(projectId ?? '')}/settings`)}
@@ -245,6 +285,15 @@ export function ProjectDashboard() {
       {/* ============ Content ============ */}
       <div className="flex-1 overflow-auto px-8 py-6">
         <div className="flex flex-col gap-6">
+
+          {isPm && historyOpen && (
+            <section className="rounded-lg border border-slate-200 bg-white" data-section="status-history">
+              <h2 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">{t('component.project_status.history_title')}</h2>
+              <ProjectStatusHistory projectId={project.id} />
+            </section>
+          )}
+
+          {isPm && <ProjectStatusSuggestion project={project} documents={documents} onPick={setStatusChange} />}
 
           {/* Success banner — only shown when data cutoff has passed */}
           {daysToCutoff.complete && (
@@ -292,6 +341,29 @@ export function ProjectDashboard() {
               sub={teamBreakdown || t('page.project_dashboard.roster_pending')}
             />
           </div>
+
+          {/* Deadlines — the dates PMs and authors set, soonest first */}
+          {deadlines.length > 0 && (
+            <section className="rounded-lg border border-slate-200 bg-white" data-section="deadlines">
+              <h2 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">{t('component.deadlines.title')}</h2>
+              <div className="divide-y divide-slate-100">
+                {deadlines.map(d => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => navigate(`/projects/${project.id}/clinical-writing/documents/${d.id}`)}
+                    className="flex w-full flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2.5 text-left text-[13px] hover:bg-slate-50"
+                    data-deadline-row={d.id}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-semibold text-slate-900">{d.title}</span>
+                    <span className="flex-none text-slate-500">{STATUS_META[d.status]?.label ?? d.status}</span>
+                    <DeadlineCell label={t('component.deadlines.target')} iso={d.targetCompletionDate} overdue={d.targetOverdue} overdueLabel={t('component.deadlines.overdue')} field="target" />
+                    <DeadlineCell label={t('component.deadlines.review_due')} iso={d.reviewDueAt} overdue={d.reviewOverdue} overdueLabel={t('component.deadlines.overdue')} field="review" />
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Active module cards. project.activeModules comes from the
               API as ModuleKey[] (letters like 'A'); the UI meta map +
@@ -499,11 +571,24 @@ export function ProjectDashboard() {
 
         </div>
       </div>
+
+      {statusChange && (
+        <ProjectStatusDialog project={project} to={statusChange} onClose={() => setStatusChange(null)} />
+      )}
     </div>
   )
 }
 
 // --- Small sub-components ---
+
+function DeadlineCell({ label, iso, overdue, overdueLabel, field }: { label: string; iso: string | null | undefined; overdue: boolean; overdueLabel: string; field: string }) {
+  return (
+    <span className="flex-none text-[12px] text-slate-500" data-deadline-cell={field} data-overdue={overdue || undefined}>
+      {label}: <span className={overdue ? 'font-semibold text-red-700' : 'font-medium text-slate-800'}>{fmtDeadline(iso)}</span>
+      {overdue && <span className="ml-1 font-semibold text-red-700">· {overdueLabel}</span>}
+    </span>
+  )
+}
 
 interface KpiProps {
   label:      string

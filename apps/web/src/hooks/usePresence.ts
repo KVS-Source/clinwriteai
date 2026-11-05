@@ -10,6 +10,8 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { presenceApi } from '../api'
 import { ApiError } from '../api/client'
+import { isReadOnlyRole } from '../config/roles'
+import { useCurrentUser } from './useCurrentUser'
 
 // Heartbeat cadence per API_Contracts §12 ("called every 15 seconds"). The
 // server drops a session after PRESENCE_STALE_SECONDS (90s) without one.
@@ -52,10 +54,13 @@ export function usePresenceHeartbeat(documentId: string, sessionId: string | und
  * open: joins on mount, heartbeats every 15s, reports section switches, and
  * leaves on unmount / tab close. A heartbeat answered 404/409 (the session was
  * closed — reaped as stale, or replaced when the same user joined from another
- * tab) re-joins.
+ * tab) re-joins. Waits to know who the user is: an auditor is read-only, so joins
+ * nothing rather than having every ping refused (and logged as a failed attempt).
  */
 export function useDocumentPresence(documentId: string | undefined, sectionId: string | null | undefined) {
   const qc = useQueryClient()
+  const { data: me } = useCurrentUser()
+  const canJoin = !!me && !isReadOnlyRole(me.role)
   const sessionRef = useRef<string | null>(null)
   const sectionRef = useRef(sectionId)
   sectionRef.current = sectionId
@@ -63,7 +68,7 @@ export function useDocumentPresence(documentId: string | undefined, sectionId: s
 
   // Join / heartbeat loop / leave — one session per open document.
   useEffect(() => {
-    if (!documentId) return
+    if (!documentId || !canJoin) return
     let cancelled = false
     let joining: Promise<void> | null = null
     const refresh = () => qc.invalidateQueries({ queryKey: snapshotKey(documentId) })
@@ -112,18 +117,18 @@ export function useDocumentPresence(documentId: string | undefined, sectionId: s
       window.removeEventListener('pagehide', leave)
       leave()
     }
-  }, [documentId, qc])
+  }, [documentId, canJoin, qc])
 
   // Section switch — report it straight away (joins if the first join hadn't
   // happened yet because no section was picked).
   useEffect(() => {
-    if (!documentId || !sectionId) return
+    if (!documentId || !sectionId || !canJoin) return
     const id = sessionRef.current
     if (!id) { void joinRef.current?.(); return }
     void presenceApi.heartbeat(documentId, id, { sectionId })
       .then(() => qc.invalidateQueries({ queryKey: snapshotKey(documentId) }))
       .catch(() => {})
-  }, [documentId, sectionId, qc])
+  }, [documentId, sectionId, canJoin, qc])
 }
 
 export function useLeavePresence(documentId: string) {

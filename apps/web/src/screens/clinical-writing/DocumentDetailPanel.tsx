@@ -12,6 +12,7 @@ import { sourceCategoryLabel } from '../../utils/sourceCategories'
 import { downloadSourceFile, sourceErrorMessage } from '../../utils/openSource'
 import { SourceViewer } from '../../panels/SourceReferencesPanel'
 import { EyeIcon, MetaRow, MetaSection, fmtDate } from './detailPanelParts'
+import { DeadlineField } from './DeadlineField'
 
 interface Props {
   projectId: string
@@ -51,6 +52,14 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
     queryFn: () => documentsApi.getStage(doc!.id),
     enabled: !!doc,
     staleTime: 10_000,
+  })
+
+  // Who may change this document's dates; the status it's in decides too, so it follows the document.
+  const deadlineAccess = useQuery({
+    queryKey: ['document-deadline-access', doc?.id, doc?.status],
+    queryFn: () => documentsApi.getDeadlineAccess(doc!.id),
+    enabled: !!doc,
+    retry: false,
   })
 
   const qc = useQueryClient()
@@ -143,7 +152,29 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
             <MetaSection label={t('page.document_detail_panel.dates')}>
               <MetaRow label={t('page.document_detail_panel.created')}>{fmtDate(doc.createdAt)}</MetaRow>
               <MetaRow label={t('page.document_detail_panel.last_updated')}>{fmtDate(doc.updatedAt)}</MetaRow>
-              <MetaRow label={t('page.document_detail_panel.target_date')}>{fmtDate(doc.targetCompletionDate)}</MetaRow>
+              <MetaRow label={t('page.document_detail_panel.target_date')}>
+                <DeadlineField
+                  key={`target-${doc.id}`}
+                  field="target-date"
+                  value={doc.targetCompletionDate}
+                  canEdit={deadlineAccess.data?.canEditTarget === true}
+                  canClear
+                  projectId={projectId}
+                  documentId={doc.id}
+                  onSave={date => documentsApi.setTargetDate(doc.id, date)}
+                />
+              </MetaRow>
+              <MetaRow label={t('component.deadlines.review_due')}>
+                <DeadlineField
+                  key={`review-${doc.id}`}
+                  field="review-due"
+                  value={doc.reviewDueAt}
+                  canEdit={deadlineAccess.data?.canEditReviewDue === true}
+                  projectId={projectId}
+                  documentId={doc.id}
+                  onSave={date => documentsApi.setReviewDueDate(doc.id, date!)}
+                />
+              </MetaRow>
             </MetaSection>
 
             <MetaSection label={sources.data ? t('page.document_detail_panel.source_documents_with_count', { count: items.length }) : t('page.document_detail_panel.source_documents')}>

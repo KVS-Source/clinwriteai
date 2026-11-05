@@ -73,7 +73,7 @@ describe('submit for review — authors (R) only', () => {
     t.as(id, role)
     const res = await t.submit()
     expect(res.statusCode).toBe(403)
-    expect(res.json().error).toBe('submit_forbidden')
+    expect(res.json().error).toBe(role === 'auditor' ? 'auditor_read_only' : 'submit_forbidden')
     expect(t.doc.status).toBe('in_authoring')
     expect(t.raci.every(r => r.submittedAt === null)).toBe(true)
   })

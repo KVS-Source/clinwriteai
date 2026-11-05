@@ -614,7 +614,10 @@ async function createNewVersionFromEdit(
     current: {
       id: string
       versionNumber: string
-      sections: Array<{ sectionId: string; sectionNumber: string; sectionTitle: string; contentHtml: string; ichStatus: string }>
+      sections: Array<{
+        sectionId: string; sectionNumber: string; sectionTitle: string; contentHtml: string; ichStatus: string
+        lastEditedBy?: string | null; lastEditedAt?: Date | null; aiSpanCount?: number; humanSpanCount?: number
+      }>
     }
     args: {
       documentId: string
@@ -644,6 +647,9 @@ async function createNewVersionFromEdit(
   })
   const nextVersionNumber = bumpVersion(highestVersion(allVersions.map(v => v.versionNumber), current.versionNumber))
   const nextHash = hashSections(nextSections)
+  // Sections this edit didn't touch keep who last edited them and their AI / human span counts
+  // (CW-093: they used to be reset to empty and 0 on every new version).
+  const previousById = new Map(current.sections.map(s => [s.sectionId, s]))
 
   await tx.documentVersion.updateMany({
     where: { documentId: doc.id, isCurrent: true },
@@ -659,18 +665,23 @@ async function createNewVersionFromEdit(
       isCurrent:    true,
       createdBy:    args.editorUserId,
       sections: {
-        create: nextSections.map(s => ({
-          sectionId:    s.sectionId,
-          sectionNumber: s.sectionNumber,
-          sectionTitle:  s.sectionTitle,
-          contentHtml:   s.contentHtml,
-          ichStatus:     s.ichStatus ?? 'in_progress',
-          wordCount:     countWords(s.contentHtml),
-          lastEditedBy:  s.sectionId === args.sectionId ? args.editorUserId : null,
-          lastEditedAt:  s.sectionId === args.sectionId ? new Date() : null,
-          aiSpanCount:   s.sectionId === args.sectionId && args.aiDrafted ? 1 : 0,
-          humanSpanCount: s.sectionId === args.sectionId && !args.aiDrafted ? 1 : 0,
-        })),
+        create: nextSections.map(s => {
+          const edited = s.sectionId === args.sectionId
+          const prev = previousById.get(s.sectionId)
+          return {
+            sectionId:    s.sectionId,
+            sectionNumber: s.sectionNumber,
+            sectionTitle:  s.sectionTitle,
+            contentHtml:   s.contentHtml,
+            ichStatus:     s.ichStatus ?? 'in_progress',
+            wordCount:     countWords(s.contentHtml),
+            lastEditedBy:  edited ? args.editorUserId : prev?.lastEditedBy ?? null,
+            lastEditedAt:  edited ? new Date() : prev?.lastEditedAt ?? null,
+            // The edited section adds one span to what it had, matching the in-place edit path.
+            aiSpanCount:    (prev?.aiSpanCount ?? 0) + (edited && args.aiDrafted ? 1 : 0),
+            humanSpanCount: (prev?.humanSpanCount ?? 0) + (edited && !args.aiDrafted ? 1 : 0),
+          }
+        }),
       },
     },
   })

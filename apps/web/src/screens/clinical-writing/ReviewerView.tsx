@@ -10,6 +10,8 @@ import { MyRaciRole } from './MyRaciRole'
 import { ReturnToAuthoring } from './ReturnToAuthoring'
 import { useCurrentUser } from '../../hooks'
 import { useDocumentPresence } from '../../hooks/usePresence'
+import { useCanComment } from '../../hooks/useCanComment'
+import { useCanViewChecklist } from '../../hooks/useCanViewChecklist'
 import { withSectionMark } from '../../panels/CommentComposer'
 import { PLATFORM_USER_ROLE_LABEL, STATUS_META, type PlatformUserRole } from '@platform/types'
 import { EditorContent } from '@tiptap/react'
@@ -18,6 +20,7 @@ import { useRichTextEditor } from './RichTextEditor'
 import { SectionNavigator } from './SectionNavigator'
 import { PresenceStack } from './PresenceStack'
 import { ReviewerToolbar } from './ReviewerToolbar'
+import { ReviewCompletionBar } from './ReviewCompletionBar'
 import { CommentsPanel }   from '../../panels/CommentsPanel'
 import { ChecklistHub, type ChecklistTab } from '../../panels/ChecklistHub'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
@@ -83,6 +86,27 @@ export function ReviewerView() {
   // toggle. Outside clicks are judged on mousedown + click so a press that starts inside the
   // panel (resizing, selecting) never closes it.
   const rightPanelRef = useRef<HTMLDivElement>(null)
+
+  // The overlay panels (Comments, Checklist) start where the three-panel row starts, below the
+  // document header, the review-completion bar and any notices. Opened from the top of the page they
+  // covered Approve / Return / CRM meeting / Mark review done, which read as "no access".
+  // A callback ref (kept in state) so the measuring re-runs once the row exists: the panel can be
+  // open before the document has loaded.
+  const [panelRow, setPanelRow] = useState<HTMLDivElement | null>(null)
+  const [overlayTop, setOverlayTop] = useState<number | null>(null)
+  useEffect(() => {
+    if (activePanel === null || activePanel === 'audit') return
+    const row = panelRow
+    if (!row) return
+    const measure = () => setOverlayTop(Math.round(row.getBoundingClientRect().top))
+    measure()
+    // The row grows or shrinks whenever the header area above it changes height.
+    const ro = new ResizeObserver(measure)
+    ro.observe(row)
+    window.addEventListener('resize', measure)
+    return () => { ro.disconnect(); window.removeEventListener('resize', measure) }
+  }, [activePanel, panelRow])
+
   useEffect(() => {
     if (activePanel !== 'audit' && activePanel !== 'comments') return
     const hasDraft = () => activePanel === 'comments' && Array.from(rightPanelRef.current?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea') ?? [])
@@ -162,6 +186,10 @@ export function ReviewerView() {
     if (project) setActiveProject(project)
   }, [project, setActiveProject])
 
+  // Comments and the Approve / Return verdicts share one server rule: R, C, Q or A on this document.
+  const canComment = useCanComment(documentId)
+  const canViewChecklist = useCanViewChecklist(documentId)
+
   // Who is acting — the same identity the server records the comment under.
   const { data: me } = useCurrentUser()
   const reviewer = {
@@ -172,7 +200,7 @@ export function ReviewerView() {
   const reviewerColours = AVATAR[reviewer.initials] ?? NEUTRAL_AVATAR
   // Only R, C, Q and A may add comments (action table row 15), and only C, Q and A may approve,
   // return or flag a section (rows 12 and 14). The API refuses everyone else.
-  const { canAddComment, canGiveVerdict } = useSignatureAccess(documentId)
+  const { canGiveVerdict } = useSignatureAccess(documentId)
 
   // Keep this reviewer in the document's presence list ("N active" here and in the Editor).
   useDocumentPresence(documentId, activeSection)
@@ -322,7 +350,7 @@ export function ReviewerView() {
 
   const panelTitle = activePanel && activePanel in PANEL_TITLE_KEY ? t(`page.reviewer_view.${PANEL_TITLE_KEY[activePanel]}`) : ''
   // The Audit Trail panel is laid out like the editor's: beside the content, with an icon in
-  // its header and no expand button. Comments and Checklist stay as overlays.
+  // its header and no expand button. Comments and Checklist stay as overlays, below the header.
   const splitPanel = activePanel === 'audit'
   const statusMeta = STATUS_META[document.status] ?? { bg: '#F8FAFC', fg: '#64748B', label: document.status }
 
@@ -440,6 +468,11 @@ export function ReviewerView() {
         </div>
       )}
 
+      {/* Who among the Reviewers and QC has finished, and the button for someone still to. */}
+      {documentId && (document.status === 'in-review' || document.status === 'crm-in-progress') && (
+        <ReviewCompletionBar documentId={documentId} projectId={projectId} />
+      )}
+
       {/* Approve/Return inline notices */}
       {!hasSections && (
         <div className="flex-none border-b border-slate-200 px-6 py-2 text-[12px] text-slate-600" style={{ backgroundColor: '#F8FAFC' }} data-notice="no-sections">
@@ -463,7 +496,7 @@ export function ReviewerView() {
         </div>
       )}
       {/* ============ Three-panel row ============ */}
-      <div className="flex flex-1 min-h-0">
+      <div ref={setPanelRow} className="flex flex-1 min-h-0">
 
         <SectionNavigator
           sections={document.sections}
@@ -475,8 +508,9 @@ export function ReviewerView() {
         {/* Editor pane */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
           <ReviewerToolbar
-            onAddComment={canAddComment ? openComposer : undefined}
+            onAddComment={canComment === true ? openComposer : undefined}
             onFlagSection={canGiveVerdict ? handleFlagSection : undefined}
+            canViewChecklist={canViewChecklist}
             roleLabel={reviewer.role}
             openCommentCount={openCommentCount}
           />
@@ -513,8 +547,14 @@ export function ReviewerView() {
                 </p>
               )}
 
+              {canComment === false && (
+                <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-[12px] text-slate-600" data-comment-not-allowed>
+                  {t('page.reviewer_view.comment_not_allowed')}
+                </p>
+              )}
+
               {/* Comment composition box — Cancel collapses it; "Add comment" (or the prompt below) reopens it */}
-              {!canAddComment ? null : composerOpen ? (
+              {canComment !== true ? null : composerOpen ? (
               <div
                 className="mt-4 flex flex-col gap-2.5 rounded-lg border bg-white p-3.5"
                 style={{ borderColor: '#2563EB', boxShadow: '0 0 0 3px rgba(37,99,235,0.12)' }}
@@ -617,6 +657,8 @@ export function ReviewerView() {
               style={splitPanel
                 ? { width: panel.width, maxWidth: '100%', backgroundColor: '#FFFFFF' }
                 : {
+                    // Below the document header (see overlayTop); top-14 until it is measured.
+                    ...(overlayTop !== null ? { top: overlayTop } : {}),
                     width:           panel.width,
                     maxWidth:        '100%',
                     zIndex:          30,
@@ -685,7 +727,7 @@ export function ReviewerView() {
                   documentId={documentId}
                   sections={document?.sections ?? []}
                   activeSectionId={activeSection}
-                  onAddComment={canAddComment ? openComposer : undefined}
+                  onAddComment={canComment === true ? openComposer : undefined}
                 />
               )}
               {activePanel === 'checklist' && documentId && (

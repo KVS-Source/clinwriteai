@@ -231,6 +231,8 @@ export interface DocumentVersion {
   versionNumber: string
   label: string
   createdBy: string
+  /** The creator's name, resolved by GET /documents/:id/versions (null for an unknown id). */
+  createdByName?: string | null
   createdAt: string
   isCurrent: boolean
   contentHash: string

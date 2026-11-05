@@ -18,7 +18,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import type { PrismaClient } from '@prisma/client'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
-import { actorCanResolveComments, actorCanScheduleCrm, COMMENT_RESOLVE_FORBIDDEN, CRM_SCHEDULE_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanResolveComments, actorCanScheduleCrm, actorCanViewComments, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, CRM_SCHEDULE_FORBIDDEN } from '../../platform/document-raci/access.js'
 
 const scheduleSchema = z.object({
   chairId: z.string().min(1),
@@ -503,6 +503,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const { meetingId } = request.params as { meetingId: string }
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
+    if (!actorCanViewComments(request.user!)) return reply.code(403).send(COMMENT_VIEW_FORBIDDEN)
     return app.prisma.crmResolution.findMany({
       where: { meetingId },
       orderBy: { resolvedAt: 'asc' },
@@ -626,6 +627,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const { meetingId } = request.params as { meetingId: string }
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId }, select: { id: true } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
+    if (!actorCanViewComments(request.user!)) return reply.code(403).send(COMMENT_VIEW_FORBIDDEN)
 
     const [drafts, transcript] = await Promise.all([
       app.prisma.crmAiDraftNote.findMany({
@@ -665,6 +667,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       },
     })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
+    if (!actorCanViewComments(request.user!)) return reply.code(403).send(COMMENT_VIEW_FORBIDDEN)
 
     // Pull comments so the minutes can show section + severity + body text.
     const commentIds = meeting.resolutions.map(r => r.commentId)

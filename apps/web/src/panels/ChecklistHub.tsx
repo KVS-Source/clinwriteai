@@ -11,6 +11,7 @@
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { documentsApi } from '../api'
+import { useCanViewChecklist } from '../hooks/useCanViewChecklist'
 import { ChecklistPanel } from './ChecklistPanel'
 import { ICHValidatorPanel } from './ICHValidatorPanel'
 
@@ -30,17 +31,23 @@ export function ChecklistHub({ documentId, tab, onTabChange, showIch, lockReason
   const { t } = useTranslation()
   // A stale 'ich-e3' request on a non-CSR falls back to the inputs list.
   const activeTab: ChecklistTab = showIch ? tab : 'inputs'
+  const canView = useCanViewChecklist(documentId)
 
   const { data: items = [] } = useQuery({
     queryKey: ['checklist', documentId],
     queryFn:  () => documentsApi.getChecklist(documentId),
-    enabled:  !!documentId,
+    enabled:  !!documentId && canView !== false,
   })
   const { data: ich } = useQuery({
     queryKey: ['ich-e3', documentId],
     queryFn:  () => documentsApi.getICHE3(documentId),
-    enabled:  !!documentId && showIch,
+    enabled:  !!documentId && showIch && canView !== false,
   })
+
+  // The toolbar button is hidden too; this covers a panel left open or opened another way.
+  if (canView === false) {
+    return <p className="p-4 text-[13px] text-slate-500" data-checklist-not-allowed>{t('page.checklist_hub.not_allowed')}</p>
+  }
 
   const liveItems  = items.filter(i => i.status !== 'removed')
   const inputsDone = liveItems.filter(i => i.status === 'complete' || i.status === 'waived').length

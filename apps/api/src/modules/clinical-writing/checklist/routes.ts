@@ -17,7 +17,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentRaci, actorCanViewChecklist, CHECKLIST_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { ICH_E3_SECTIONS, isIchE3Applicable } from '../ich-e3/catalog.js'
 import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
 import {
@@ -54,11 +54,18 @@ const reopenSchema = z.object({
 })
 
 export const checklistRoutes: FastifyPluginAsync = async (app) => {
+  // Whether the caller may see the checklist — lets the screens hide its button instead of failing the panel.
+  app.get('/:documentId/checklist/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
+    const { documentId } = request.params as { documentId: string }
+    return { canView: await actorCanViewChecklist(app.prisma, request.user!, documentId) }
+  })
+
   app.get('/:documentId/checklist', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanViewChecklist(app.prisma, request.user!, documentId))) return reply.code(403).send(CHECKLIST_VIEW_FORBIDDEN)
 
     // ensureChecklistInstance is idempotent — it short-circuits when the
     // instance already exists (the common case now that create() materialises

@@ -14,6 +14,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { documentsApi, type SignatureChain, type SignatureRecord as ChainRecord } from '../../api'
 import { ApiError } from '../../api/client'
+import { crmApi } from '../../api/crm'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import { useCancelSignatureChain, useCurrentUser, useSignatureChains, useSignRecord } from '../../hooks'
 import { useDocumentStore } from '../../store'
@@ -318,6 +319,15 @@ export function ESignature() {
   })
   const { data: chains = [], isLoading, isError, error } = useSignatureChains(documentId!)
   const access = useSignatureAccess(documentId)
+  // Same query (and cache) as the CRM tab: did this document ever have a meeting?
+  const { data: meetings = [] } = useQuery({
+    queryKey: ['crm-meetings', documentId],
+    queryFn:  () => crmApi.getMeetings(documentId!),
+    enabled:  !!documentId,
+    retry:    false,
+  })
+  const hadCrm = meetings.length > 0
+  const editorLocked = document?.status === 'pending-signature' || document?.status === 'signed'
 
   // Push the loaded document into the store so TopNav's enriched breadcrumb
   // picks up the title on the E-Signature tab the same way it does on the
@@ -446,15 +456,20 @@ export function ESignature() {
   // backToEditor was consumed by the in-screen breadcrumb's document-title
   // link; now that TopNav owns the breadcrumb, the helper is unused.
 
-  // Back to the step before this one (the CRM tab is always open, whatever the document's status), the
-  // mirror of the CRM screen's "Go to E-Signature →".
+  // Back to the step before this one: the CRM meeting when the document had one, the mirror of the
+  // CRM screen's "Go to E-Signature →". Without a meeting (CW-101) it goes back to the Editor while the
+  // document is still being authored, else to the document list (the Editor is locked from here on).
+  const backTarget =
+    hadCrm ? { to: `/projects/${projectId}/clinical-writing/documents/${documentId}/crm`, label: '← Back to CRM', kind: 'crm' }
+    : editorLocked ? { to: `/projects/${projectId}/clinical-writing`, label: '← Back to documents', kind: 'documents' }
+    : { to: `/projects/${projectId}/clinical-writing/documents/${documentId}`, label: '← Back to Editor', kind: 'editor' }
   const backToCrm = (
     <button
       type="button"
-      onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/crm`)}
+      onClick={() => navigate(backTarget.to)}
       className="whitespace-nowrap rounded-md border border-slate-200 bg-white px-3.5 py-2 text-[13px] font-semibold text-slate-900 transition-colors hover:bg-slate-50"
-      data-back-to-crm
-    >← Back to CRM</button>
+      data-back-to={backTarget.kind}
+    >{backTarget.label}</button>
   )
 
   if (isLoading) {
@@ -670,8 +685,11 @@ export function ESignature() {
 
             <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }}>
               <span className="mt-0.5"><LockIcon colour="#94A3B8" size={12} /></span>
-              <p className="text-[12px] italic leading-relaxed text-slate-500">
-                The document is locked for authoring while signatures are being collected. Cancelling the chain returns it to In Authoring; a new chain is then needed and everyone signs again.
+              {/* Signed (CW-102): the chain is closed, so the "while collecting" wording no longer applies. */}
+              <p className="text-[12px] italic leading-relaxed text-slate-500" data-lock-note={chain.status === 'complete' ? 'signed' : 'collecting'}>
+                {chain.status === 'complete'
+                  ? 'Every signature is recorded. The document is signed and locked; any change needs a new version, which must be signed again.'
+                  : 'The document is locked for authoring while signatures are being collected. Cancelling the chain returns it to In Authoring; a new chain is then needed and everyone signs again.'}
               </p>
             </div>
           </div>

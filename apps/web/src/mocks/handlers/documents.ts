@@ -142,6 +142,8 @@ export const documentHandlers = [
     const { status } = await request.json() as { status: 'complete' | 'in_progress' }
     return HttpResponse.json({ sectionId: params.sectionId, ichStatus: status })
   }),
+  http.get(`${BASE}/documents/:documentId/versions/access`, () => HttpResponse.json({ canView: true })),
+  http.get(`${BASE}/documents/:documentId/deadlines/access`, () => HttpResponse.json({ canEditTarget: true, canEditReviewDue: true })),
   http.get(`${BASE}/documents/:documentId/versions`, async () => {
     await delay(150)
     return HttpResponse.json([

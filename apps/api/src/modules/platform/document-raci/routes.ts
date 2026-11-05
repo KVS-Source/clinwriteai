@@ -109,7 +109,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     return { canEdit: await actorCanEditRaciAssignments(app.prisma, request.user!, documentId) }
   })
 
-  app.post('/:documentId/raci', { preHandler: requireAuth() }, async (request, reply) => {
+  app.post('/:documentId/raci', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     const parsed = insertSchema.safeParse(request.body)
     if (!parsed.success) {
@@ -292,7 +292,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  app.delete('/:documentId/raci/:raciId', { preHandler: requireAuth() }, async (request, reply) => {
+  app.delete('/:documentId/raci/:raciId', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId, raciId } = request.params as { documentId: string; raciId: string }
     const existing = await app.prisma.documentRaci.findUnique({ where: { id: raciId } })
     if (!existing || existing.documentId !== documentId) {
@@ -414,7 +414,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   // unique index blocks re-adding a per-section row whose removed copy is
   // still kept. Refused once the row's part is done — the signature
   // terms it was completed under must not change afterwards.
-  app.patch('/:documentId/raci/:raciId/signature', { preHandler: requireAuth() }, async (request, reply) => {
+  app.patch('/:documentId/raci/:raciId/signature', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId, raciId } = request.params as { documentId: string; raciId: string }
     const parsed = signatureSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -477,7 +477,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   // document state machine (see document-status.ts), so this endpoint
   // doesn't yet mutate Document.status itself. That lands when the
   // stage-auto-transition is wired in Chunk 2.
-  app.post('/:documentId/raci/:raciId/complete', { preHandler: requireAuth() }, async (request, reply) => {
+  app.post('/:documentId/raci/:raciId/complete', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId, raciId } = request.params as { documentId: string; raciId: string }
     const parsed = completeSchema.safeParse(request.body ?? {})
     if (!parsed.success) {
@@ -515,6 +515,19 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       row.letter === 'I'
     if (alreadyDone) return reply.code(409).send({ error: 'already_complete' })
 
+    // Review is only finished during review. A mark made earlier would count for a
+    // round that hasn't started; one made later has nothing left to affect.
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { status: true },
+    })
+    if ((row.letter === 'C' || row.letter === 'Q') && doc?.status !== 'in_review' && doc?.status !== 'crm_in_progress') {
+      return reply.code(409).send({
+        error: 'not_in_review',
+        message: 'Review can only be marked done while the document is in review.',
+      })
+    }
+
     if (row.signatureRequired && !parsed.data.signatureId) {
       return reply.code(400).send({
         error: 'signature_required',
@@ -551,10 +564,6 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     // canTransitionDocument guard preserves the Part 11-aware invariant:
     // we never jump a stage, never move from a terminal state, never
     // bypass the explicit edges in document-status.ts.
-    const doc = await app.prisma.document.findUnique({
-      where: { id: documentId },
-      select: { status: true },
-    })
     const allRows = await app.prisma.documentRaci.findMany({
       where: { documentId },
       select: {
@@ -566,9 +575,19 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     const currentStatus = (doc?.status ?? 'not_started') as DocumentStatus
     const evaluation = evaluateStageTransition(currentStatus, allRows as RaciRowForEval[])
 
+    // From CRM, finishing review must not skip the meeting: while one is open or a
+    // comment is unresolved, completing the meeting is what moves the document on.
+    const crmStillOpen = currentStatus === 'crm_in_progress' && evaluation.cohortComplete && (
+      await app.prisma.crmMeeting.count({ where: { documentId, status: { in: ['scheduled', 'in_progress'] } } }) > 0
+      || await app.prisma.comment.count({
+        where: { documentId, status: 'open', OR: [{ verdict: null }, { verdict: { not: 'approve' } }] },
+      }) > 0
+    )
+
     let transitioned = false
     if (
       evaluation.cohortComplete &&
+      !crmStillOpen &&
       evaluation.nextStatus !== null &&
       canTransitionDocument(currentStatus, evaluation.nextStatus)
     ) {
@@ -609,7 +628,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   //     returned state is preserved and the authors edit a fresh version;
   //   - a new round starts (resetRaciRound): authors submit again, C / Q / A
   //     review and approve again. The note stays on the row as the reason given.
-  app.post('/:documentId/raci/:raciId/reject', { preHandler: requireAuth() }, async (request, reply) => {
+  app.post('/:documentId/raci/:raciId/reject', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId, raciId } = request.params as { documentId: string; raciId: string }
     const parsed = rejectSchema.safeParse(request.body)
     if (!parsed.success) {

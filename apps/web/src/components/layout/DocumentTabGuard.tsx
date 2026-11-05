@@ -21,6 +21,7 @@
 import { Navigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { documentsApi } from '../../api/documents'
+import { useCanViewVersions } from '../../hooks/useCanViewVersions'
 
 export type GuardedTab = 'editor' | 'diff' | 'review' | 'sign'
 
@@ -43,6 +44,12 @@ export function DocumentTabGuard({ tab, children }: Props) {
     enabled:  !!documentId,
     staleTime: 10_000,
   })
+  const canViewVersions = useCanViewVersions(documentId)
+
+  // A deep link to Version Diff for someone without version access goes to the document instead.
+  if (tab === 'diff' && canViewVersions === false) {
+    return <Navigate to={`/projects/${projectId}/clinical-writing/documents/${documentId}`} replace />
+  }
 
   // While loading we render nothing to avoid a flash of the editor
   // followed by a redirect. If the fetch errors (e.g. 404 on the doc

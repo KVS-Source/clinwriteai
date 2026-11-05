@@ -156,6 +156,14 @@ export function _resetEnabledModulesCache(): void {
   enabledModulesCache = null
 }
 
+const READ_ONLY_ROLES: ReadonlySet<Role> = new Set<Role>(['auditor', 'read-only'])
+const READ_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS'])
+
+export const AUDITOR_READ_ONLY = {
+  error: 'auditor_read_only',
+  message: 'Auditors have read-only access to Clinical Writing.',
+} as const
+
 /**
  * preHandler factory — returns a Fastify hook that 401s if unauthenticated and
  * 403s if the user doesn't satisfy both the role + module gates.
@@ -164,9 +172,15 @@ export function _resetEnabledModulesCache(): void {
  *   app.get('/documents', { preHandler: requireAuth({ modules: ['A'] }) }, handler)
  *   app.post('/admin/users', { preHandler: requireAuth({ roles: ['admin'] }) }, handler)
  */
-export function requireAuth(opts: { roles?: Role[]; modules?: ModuleKey[] } = {}): preHandlerHookHandler {
+export function requireAuth(opts: {
+  roles?: Role[]
+  modules?: ModuleKey[]
+  /** For a route that changes Clinical Writing data without declaring module A: the read-only rule still applies. */
+  clinicalWriting?: boolean
+} = {}): preHandlerHookHandler {
   const requiredRoles = opts.roles ?? []
   const requiredModules = opts.modules ?? []
+  const clinicalWriting = opts.clinicalWriting === true || requiredModules.includes('A')
 
   return async (request: FastifyRequest, reply: FastifyReply) => {
     // Deployment-level kill-switch runs before auth so disabled modules
@@ -183,6 +197,13 @@ export function requireAuth(opts: { roles?: Role[]; modules?: ModuleKey[] } = {}
     const user = request.user
     if (!user) {
       reply.code(401).send({ error: 'unauthenticated', message: 'Authentication required' })
+      return reply
+    }
+
+    // An auditor only ever reads Clinical Writing. Every route with this module
+    // comes through here, so a new one can't forget the rule.
+    if (clinicalWriting && READ_ONLY_ROLES.has(user.role) && !READ_METHODS.has(request.method)) {
+      reply.code(403).send(AUDITOR_READ_ONLY)
       return reply
     }
 

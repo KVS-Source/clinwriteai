@@ -4,9 +4,9 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import type { Comment, ResolutionType } from '@platform/types'
 import { documentsApi, describeApiError } from '../api'
+import { useCanComment } from '../hooks/useCanComment'
 import { ResolveForm, parseResolutionNote } from './ResolveCommentForm'
 import { CommentComposer, cleanSectionRef, sectionOfRef, withSectionMark, type ComposerSection } from './CommentComposer'
-import { useSignatureAccess } from '../screens/output/useSignatureAccess'
 
 interface Props {
   documentId:   string
@@ -270,11 +270,10 @@ function ApprovalCard({ comment }: { comment: Comment }) {
 export function CommentsPanel({ documentId, sections = [], activeSectionId = null, onAddComment, focusCommentId = null, scopeToSection = false }: Props) {
   const { t } = useTranslation()
   const qc = useQueryClient()
+  const canComment = useCanComment(documentId)
   const [resolvingId, setResolvingId] = useState<string | null>(null)
   const [composing, setComposing] = useState(false)
   const [postedNote, setPostedNote] = useState<string | null>(null)
-  // Only R, C, Q and A may add comments (action table row 15); everyone else just reads them.
-  const { canAddComment } = useSignatureAccess(documentId)
 
   const { data: comments = [] } = useQuery({
     queryKey: ['comments', documentId],
@@ -374,7 +373,7 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
           </div>
         </div>
       )}
-      {composing && canAddComment && (
+      {composing && canComment === true && (
         <CommentComposer
           documentId={documentId}
           sections={sections}
@@ -430,7 +429,7 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
       )}
 
       {/* A screen with its own composer (Reviewer View) already has an Add comment entry point. */}
-      {!onAddComment && canAddComment && (
+      {!onAddComment && canComment === true && (
         <button
           type="button"
           onClick={() => { setPostedNote(null); setComposing(true) }}

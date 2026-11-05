@@ -4,6 +4,7 @@ import checklist from '../../data/checklist.json'
 const BASE = import.meta.env.VITE_API_URL ?? '/api'
 
 export const checklistHandlers = [
+  http.get(`${BASE}/documents/:documentId/checklist/access`, () => HttpResponse.json({ canView: true })),
   http.get(`${BASE}/documents/:documentId/checklist`, async () => {
     await delay(100)
     return HttpResponse.json(checklist)

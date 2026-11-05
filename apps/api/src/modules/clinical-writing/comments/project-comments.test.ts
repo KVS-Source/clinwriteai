@@ -5,7 +5,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { projectCommentsRoutes } from './routes.js'
 
-async function build(opts: { project?: boolean; docs?: string[] } = {}) {
+async function build(opts: { project?: boolean; docs?: string[]; role?: AuthenticatedUser['role'] } = {}) {
   const docFindMany = vi.fn(async () => (opts.docs ?? ['d1', 'd2']).map(id => ({ id })))
   const commentFindMany = vi.fn(async () => [
     { id: 'CMT-002', documentId: 'd2', reviewerId: 'u1', status: 'open', createdAt: new Date('2026-10-02T00:00:00Z') },
@@ -20,7 +20,7 @@ async function build(opts: { project?: boolean; docs?: string[] } = {}) {
   } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (r) => {
-    const user: AuthenticatedUser = { id: 'u', email: 'e@v', role: 'admin', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'u', email: 'e@v', role: opts.role ?? 'auditor', modules: ['A'], tenantId: null }
     Object.assign(r, { user })
   })
   await app.register(projectCommentsRoutes, { prefix: '/projects' })
@@ -38,6 +38,15 @@ describe('GET /projects/:projectId/comments', () => {
     expect(rows[0].reviewerName).toBe('Ann Lee')
     expect(docFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: 'p1', deletedAt: null } }))
     expect(commentFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { documentId: { in: ['d1', 'd2'] } } }))
+    await app.close()
+  })
+
+  it.each(['tenant-admin', 'admin', 'super-admin'] as const)('refuses a %s and reads no comments', async (role) => {
+    const { app, commentFindMany } = await build({ role })
+    const res = await app.inject({ method: 'GET', url: '/projects/p1/comments' })
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error).toBe('comment_view_forbidden')
+    expect(commentFindMany).not.toHaveBeenCalled()
     await app.close()
   })
 

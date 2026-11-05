@@ -27,7 +27,7 @@ import { compareSections } from '../../clinical-writing/documents/service.js'
 import { htmlToPlainText } from './plain-text.js'
 import { pdfFileName, renderLibraryItemPdf } from './pdf-renderer.js'
 import {
-  BEST_PRACTICE_NAME, parseTags, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
+  BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
   type LibraryContext, type SectionRow,
 } from './shape.js'
 
@@ -140,15 +140,27 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
   // One batched lookup for the names/projects a page of rows refers to.
   async function fetchContext(rows: SectionRow[]): Promise<LibraryContext> {
-    const userIds = [...new Set(rows.map(r => r.approvedBy))]
     const projectIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('project:')).map(t => t.slice(8))))]
-    const [users, projects] = await Promise.all([
-      userIds.length ? app.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : [],
+    const documentIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('source:')).map(t => sourceDocumentId(t.slice(7)))))]
+    const titles = [...new Set(rows.filter(r => r.category !== 'best_practice').map(r => r.title))]
+    const [projects, documents, versions] = await Promise.all([
       projectIds.length ? app.prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true, status: true } }) : [],
+      documentIds.length ? app.prisma.document.findMany({ where: { id: { in: documentIds } }, select: { id: true, title: true } }) : [],
+      titles.length ? app.prisma.librarySection.findMany({ where: { title: { in: titles } }, select: { title: true, tenantId: true, version: true, createdAt: true, approvedBy: true } }) : [],
     ])
+    const firstVersions = new Map<string, { createdAt: Date; by: string; version: number }>()
+    for (const v of versions) {
+      const key = firstVersionKey(v)
+      const seen = firstVersions.get(key)
+      if (!seen || v.version < seen.version) firstVersions.set(key, { createdAt: v.createdAt, by: v.approvedBy, version: v.version })
+    }
+    const userIds = [...new Set([...rows.map(r => r.approvedBy), ...[...firstVersions.values()].map(f => f.by)])]
+    const users = userIds.length ? await app.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : []
     return {
       userNames: new Map(users.map(u => [u.id, u.name])),
       projects: new Map(projects.map(p => [p.id, { name: p.name, status: p.status }])),
+      documents: new Map(documents.map(d => [d.id, d.title])),
+      firstVersions,
     }
   }
 

@@ -45,7 +45,7 @@ async function setup(s: Setup = {}) {
   const prisma = {
     librarySection,
     libraryAdoptionRecord: { findMany: vi.fn(async () => []), create: vi.fn(async () => ({})) },
-    document: { findFirst: vi.fn(async () => (s.doc === undefined ? finalDoc() : s.doc)) },
+    document: { findFirst: vi.fn(async () => (s.doc === undefined ? finalDoc() : s.doc)), findMany: vi.fn(async () => []) },
     project: { findUnique: vi.fn(async () => ({ tenantId: 't1' })), findMany: vi.fn(async () => []) },
     user: { findMany: vi.fn(async () => [{ id: 'u1', name: 'Dr A' }]) },
     therapeuticArea: { findFirst: vi.fn(async () => ({ label: 'Oncology' })) },

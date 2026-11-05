@@ -22,6 +22,7 @@ import { Navigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { documentsApi } from '../../api/documents'
 import { useCanViewVersions } from '../../hooks/useCanViewVersions'
+import { useDocumentTabAccess } from '../../hooks/useDocumentTabAccess'
 
 export type GuardedTab = 'editor' | 'diff' | 'review' | 'sign'
 
@@ -45,10 +46,21 @@ export function DocumentTabGuard({ tab, children }: Props) {
     staleTime: 10_000,
   })
   const canViewVersions = useCanViewVersions(documentId)
+  const tabAccess = useDocumentTabAccess(documentId)
 
   // A deep link to Version Diff for someone without version access goes to the document instead.
   if (tab === 'diff' && canViewVersions === false) {
     return <Navigate to={`/projects/${projectId}/clinical-writing/documents/${documentId}`} replace />
+  }
+
+  // An Author (R) has no Reviewer View and a Reviewer (C) has no Editor: a deep link to
+  // the other one lands on the tab that is theirs. Nothing is shown until that is known.
+  if ((tab === 'editor' || tab === 'review') && tabAccess === undefined) return null
+  if (tab === 'review' && tabAccess?.review === false) {
+    return <Navigate to={`/projects/${projectId}/clinical-writing/documents/${documentId}`} replace />
+  }
+  if (tab === 'editor' && tabAccess?.editor === false) {
+    return <Navigate to={`/projects/${projectId}/clinical-writing/documents/${documentId}/review`} replace />
   }
 
   // While loading we render nothing to avoid a flash of the editor

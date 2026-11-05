@@ -213,15 +213,20 @@ export const NUDGE_FORBIDDEN = {
   message: 'Only an author (R) on this document can nudge the people it is waiting on.',
 } as const
 
-// Back to authoring (reviewer / CRM bounce, signer refusal) starts a new round:
-// every author submits their part again. Accepts the client or a transaction.
-export async function resetAuthorSubmissions(
+// Back to authoring (a C, Q or A returning it, a reviewer / CRM bounce, a signer
+// refusal) starts a new round on the new version: every author submits their part
+// again, and every reviewer, QC and approver reviews / approves it again. Clears
+// each active row's completion (submittedAt / reviewedAt / approvedAt and the
+// completion signature) and any rejection, so no one is stuck as "rejected" and
+// no earlier verdict carries over. rejectionNote is kept as the reason last given.
+// Accepts the client or a transaction.
+export async function resetRaciRound(
   db: { documentRaci: Pick<PrismaClient['documentRaci'], 'updateMany'> },
   documentId: string,
 ): Promise<void> {
   await db.documentRaci.updateMany({
-    where: { documentId, letter: 'R', removedAt: null, submittedAt: { not: null } },
-    data: { submittedAt: null },
+    where: { documentId, removedAt: null },
+    data: { submittedAt: null, reviewedAt: null, approvedAt: null, signatureId: null, rejectedAt: null },
   })
 }
 

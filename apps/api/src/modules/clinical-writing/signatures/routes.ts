@@ -37,7 +37,7 @@ import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { initialStatuses, recordsToRelease, sortForChain, type ChainType, type SignatureStatus } from './chain-progress.js'
 import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain, requiredSigners } from './access.js'
-import { resetAuthorSubmissions } from '../../platform/document-raci/access.js'
+import { resetRaciRound } from '../../platform/document-raci/access.js'
 
 const initiateSchema = z.object({
   chainType: z.enum(['sequential', 'parallel', 'grouped']).default('grouped'),
@@ -527,8 +527,8 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         where: { id: chain.documentId, status: 'pending_signature' },
         data: { status: 'in_authoring' },
       })
-      // A new authoring round: every author submits their part again.
-      if (reverted.count > 0) await resetAuthorSubmissions(tx, chain.documentId)
+      // A new round: authors submit again, reviewers and approvers review / approve again.
+      if (reverted.count > 0) await resetRaciRound(tx, chain.documentId)
       return c
     })
 

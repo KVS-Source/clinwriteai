@@ -161,6 +161,10 @@ export const documentsApi = {
     api.get<Document[]>(`/projects/${projectId}/documents`),
   get: (documentId: string) =>
     api.get<Document>(`/documents/${documentId}`),
+  // The Final Document screen's read — same content, but the API refuses those who may not
+  // read the Final Document (admin, guest, QC (Q) alone), as the screen does.
+  getFinal: (documentId: string) =>
+    api.get<Document>(`/documents/${documentId}/final`),
   create: (projectId: string, body: CreateDocumentBody) =>
     api.post<Document>(`/projects/${projectId}/documents`, body),
   upload: (projectId: string, formData: FormData) =>

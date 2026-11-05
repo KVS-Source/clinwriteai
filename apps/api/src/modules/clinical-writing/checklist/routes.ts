@@ -19,6 +19,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanEditDocumentRaci } from '../../platform/document-raci/access.js'
 import { ICH_E3_SECTIONS, isIchE3Applicable } from '../ich-e3/catalog.js'
+import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
 import {
   computeProjectChecklistSummary,
   ensureChecklistInstance,
@@ -99,8 +100,10 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
   // waived it, when and why. Read-only — never creates a checklist instance.
   app.get('/:documentId/compliance-summary', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
-    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, type: true } })
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, type: true, projectId: true, assigneeId: true } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    // Part of the Final Document — readable by the same people (see actorCanReadFinalDocument).
+    if (!(await actorCanReadFinalDocument(app.prisma, request.user!, doc))) return reply.code(403).send(FINAL_DOCUMENT_FORBIDDEN)
 
     const instance = await app.prisma.checklistInstance.findUnique({
       where:  { documentId },

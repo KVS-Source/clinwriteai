@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { STATUS_META, type Section, type SignatureRecord } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
+import { ApiError } from '../../api/client'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import { useDocumentStore, useProjectStore } from '../../store'
 import { SectionNavigator } from '../clinical-writing/SectionNavigator'
@@ -95,10 +96,13 @@ export function FinalDocument() {
   const setActiveDocument         = useDocumentStore(s => s.setActiveDocument)
   const setActiveSection          = useDocumentStore(s => s.setActiveSection)
 
-  const { data: document } = useQuery({
-    queryKey: ['document', documentId],
-    queryFn:  () => documentsApi.get(documentId!),
+  // Read through the Final Document's own endpoint, which applies the same access rule
+  // on the server. Keyed under ['document', id] so the usual refreshes still reach it.
+  const { data: document, error: finalReadError } = useQuery({
+    queryKey: ['document', documentId, 'final'],
+    queryFn:  () => documentsApi.getFinal(documentId!),
     enabled:  !!documentId,
+    retry:    false,
   })
 
   const { data: project } = useQuery({
@@ -255,19 +259,24 @@ export function FinalDocument() {
     return () => style.remove()
   }, [document, project, isSigned, signatureGap, signedVersion])
 
-  if (!document) {
-    return (
-      <div className="flex h-full items-center justify-center">
-        <p className="font-mono text-sm text-slate-400">Loading document…</p>
-      </div>
-    )
-  }
-
-  if (access.ready && !access.canViewFinal) {
+  // Access first: a refused read never delivers the document, so checking for it
+  // first would leave "Loading document…" on screen for good. The API's 403 counts
+  // too, in case the server's rule and this screen's ever disagree.
+  const refused = (access.ready && !access.canViewFinal)
+    || (finalReadError instanceof ApiError && finalReadError.status === 403)
+  if (refused) {
     return (
       <div className="flex h-full flex-col items-center justify-center gap-1" data-final-access-denied>
         <p className="font-mono text-sm text-slate-600">You don't have access to this document's Final Document view.</p>
         <p className="max-w-md text-center text-xs text-slate-500">It is available to the people named on the document (except QC), project managers and auditors.</p>
+      </div>
+    )
+  }
+
+  if (!document) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="font-mono text-sm text-slate-400">Loading document…</p>
       </div>
     )
   }

@@ -20,7 +20,9 @@ async function build(items: Array<Record<string, unknown>> | null, opts: { type?
   const findInstance = vi.fn(async () => (items ? { templateVersion: 3, items } : null))
   const app = Fastify()
   app.decorate('prisma', {
-    document: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => (where.id === DOC ? { id: DOC, type: opts.type ?? 'dsur' } : null)) },
+    // u1 is the document's assignee, so may read its Final Document (who may read is
+    // covered by documents/final-document-read.test.ts; this file tests the content).
+    document: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => (where.id === DOC ? { id: DOC, type: opts.type ?? 'dsur', projectId: 'p-1', assigneeId: 'u1' } : null)) },
     ichSectionWaiver: { findMany: vi.fn(async () => opts.ichWaivers ?? []) },
     checklistInstance: { findUnique: findInstance, create: vi.fn() },
     user: { findMany: vi.fn(async () => [{ id: 'u-waiver', name: 'Dr Priya Nair' }]) },

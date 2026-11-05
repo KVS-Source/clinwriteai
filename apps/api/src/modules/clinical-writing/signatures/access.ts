@@ -67,6 +67,26 @@ export async function actorCanReadDocumentRecord(prisma: PrismaClient, actor: Au
 }
 
 /** Export the document's audit trail: a PM or an auditor who can read it. */
+// Final Document: the same people as the record (above), except QC (Q) on its own,
+// which has no access to the Final Document for now (pending the SME's answer).
+// Mirrors canViewFinal in apps/web/src/screens/output/useSignatureAccess.ts, so
+// the screen the UI hides is also refused by the API.
+export async function actorCanReadFinalDocument(prisma: PrismaClient, actor: AuthenticatedUser, doc: DocRef): Promise<boolean> {
+  if (!(await actorCanReadDocumentRecord(prisma, actor, doc))) return false
+  if (doc.assigneeId && doc.assigneeId === actor.id) return true
+  const rows = await prisma.documentRaci.findMany({
+    where: { documentId: doc.id, userId: actor.id, removedAt: null },
+    select: { letter: true },
+  })
+  const onlyQc = rows.length > 0 && rows.every(r => r.letter === 'Q')
+  return !onlyQc
+}
+
+export const FINAL_DOCUMENT_FORBIDDEN = {
+  error: 'final_document_forbidden',
+  message: "You don't have access to this document's Final Document.",
+} as const
+
 export async function actorCanExportDocumentAudit(prisma: PrismaClient, actor: AuthenticatedUser, doc: DocRef): Promise<boolean> {
   if (actor.role !== 'pm' && !AUDITOR_ROLES.has(actor.role)) return false
   return actorCanReadDocumentRecord(prisma, actor, doc)

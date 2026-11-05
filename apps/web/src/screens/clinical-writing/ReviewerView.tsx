@@ -7,6 +7,7 @@ import type { TFunction } from 'i18next'
 import type { CommentSeverity } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { MyRaciRole } from './MyRaciRole'
+import { ReturnToAuthoring } from './ReturnToAuthoring'
 import { useCurrentUser } from '../../hooks'
 import { useDocumentPresence } from '../../hooks/usePresence'
 import { withSectionMark } from '../../panels/CommentComposer'
@@ -385,6 +386,14 @@ export function ReviewerView() {
             >
               {requestChangesMut.isPending ? t('page.reviewer_view.returning') : t('page.reviewer_view.return_for_revision')}
             </button>
+            {/* Whole document back to authoring, with a required note (C / Q / A only). */}
+            {documentId && (
+              <ReturnToAuthoring
+                documentId={documentId}
+                status={document.status}
+                onReturned={version => setApproveNote(t('page.reviewer_view.return_doc_done_toast', { version }))}
+              />
+            )}
             </>)}
             {/* Review → Comments Resolution Meeting (PRD stage 5). */}
             {(document.status === 'in-review' || document.status === 'crm-in-progress') && (

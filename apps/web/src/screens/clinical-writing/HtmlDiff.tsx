@@ -29,12 +29,14 @@ const blockKey      = (el: Element) => `${isCell(el) ? 'cell' : 'text'}:${blockT
 // Tags rendered as themselves; anything else renders just its children.
 const ALLOWED_TAGS = new Set([
   'p', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
-  'table', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'colgroup', 'col',
+  'table', 'caption', 'thead', 'tbody', 'tfoot', 'tr', 'td', 'th', 'colgroup', 'col',
   'strong', 'b', 'em', 'i', 'u', 's', 'sub', 'sup', 'br', 'hr', 'span', 'mark', 'del', 'ins',
 ])
 const VOID_TAGS = new Set(['br', 'hr', 'col'])
 // Dropped with their contents — never rendered, not even as text.
 const DROP_TAGS = new Set(['script', 'style', 'template', 'iframe', 'object', 'embed', 'noscript'])
+// The browser rejects text directly inside these, even the whitespace between tags in stored HTML.
+const NO_TEXT_PARENTS = new Set(['table', 'thead', 'tbody', 'tfoot', 'tr', 'colgroup'])
 
 function parseBody(html: string): HTMLElement {
   const body = new DOMParser().parseFromString(html || '', 'text/html').body
@@ -187,7 +189,10 @@ export function buildHtmlDiff(fromHtml: string, toHtml: string): HTMLElement {
 }
 
 function toReact(node: Node, key: number): React.ReactNode {
-  if (node.nodeType === Node.TEXT_NODE) return node.textContent
+  if (node.nodeType === Node.TEXT_NODE) {
+    const parent = node.parentElement?.tagName.toLowerCase() ?? ''
+    return NO_TEXT_PARENTS.has(parent) && !node.textContent?.trim() ? null : node.textContent
+  }
   if (node.nodeType !== Node.ELEMENT_NODE) return null
   const el  = node as Element
   const tag = el.tagName.toLowerCase()

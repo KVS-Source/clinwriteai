@@ -325,7 +325,7 @@ export function ProjectDashboard() {
             <KpiCard
               label={t('page.project_dashboard.kpi_completed_docs')}
               value={String(stats.signed)}
-              sub={stats.inAuthoring > 0 ? t('page.project_dashboard.kpi_in_authoring', { count: stats.inAuthoring }) : t('page.project_dashboard.kpi_none_in_authoring')}
+              sub={t('page.project_dashboard.kpi_completed_docs_sub', { signed: stats.signed, total: documents.length })}
             />
             <KpiCard
               label={t('page.project_dashboard.kpi_days_to_cutoff')}

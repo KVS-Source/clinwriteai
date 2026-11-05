@@ -90,7 +90,7 @@ function auditDetail(row: AuditRow): string {
     if (d.outcome === 'quota_reached') parts.push('Quota reached')
     else if (d.outcome === 'failed') parts.push('Request failed')
   }
-  if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from)} → ${String(d.to)}`)
+  if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from ?? 'none')} → ${String(d.to ?? 'none')}`)
   if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
   return parts.length ? parts.join(' · ') : humanise(row.action)
 }

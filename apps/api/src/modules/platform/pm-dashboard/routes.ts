@@ -28,6 +28,7 @@ interface DocumentRow {
   status: string
   assigneeId: string
   targetCompletionDate: Date | null
+  reviewDueAt: Date | null
 }
 
 export const pmDashboardRoutes: FastifyPluginAsync = async (app) => {
@@ -60,7 +61,7 @@ export const pmDashboardRoutes: FastifyPluginAsync = async (app) => {
         where: { projectId, deletedAt: null },
         select: {
           id: true, title: true, type: true, status: true,
-          assigneeId: true, targetCompletionDate: true,
+          assigneeId: true, targetCompletionDate: true, reviewDueAt: true,
         },
         orderBy: { updatedAt: 'desc' },
       }) as Promise<DocumentRow[]>,
@@ -121,6 +122,7 @@ export const pmDashboardRoutes: FastifyPluginAsync = async (app) => {
         status: d.status,
         assigneeId: d.assigneeId,
         targetCompletionDate: d.targetCompletionDate?.toISOString() ?? null,
+        reviewDueAt: d.reviewDueAt?.toISOString() ?? null,
         isOverdue,
         raciProgress: {
           gatingLetter: evalResult.gatingLetter,

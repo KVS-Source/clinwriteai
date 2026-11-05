@@ -2788,6 +2788,20 @@
       "aria_progress": "コホート進捗: {{body}}{{suffix}}"
     },
 
+    "deadlines": {
+      "title": "期限",
+      "target": "目標日",
+      "review_due": "レビュー期限",
+      "overdue": "期限超過",
+      "edit": "編集",
+      "save": "保存",
+      "saving": "保存しています…",
+      "cancel": "キャンセル",
+      "clear": "日付をクリア",
+      "date_aria": "日付を選択",
+      "past": "今日以降の日付を選択してください。",
+      "save_failed": "日付を保存できませんでした。もう一度お試しください。"
+    },
     "project_status": {
       "status_initiated": "開始",
       "status_ongoing": "進行中",

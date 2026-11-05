@@ -185,6 +185,13 @@ export const documentsApi = {
       `/documents/${documentId}/sections/${encodeURIComponent(sectionId)}/ich-status`, { status },
     ),
   // Versions
+  // Deadlines after creation: the target date is the PM's, the review due date the authors'.
+  getDeadlineAccess: (documentId: string) =>
+    api.get<{ canEditTarget: boolean; canEditReviewDue: boolean }>(`/documents/${documentId}/deadlines/access`),
+  setTargetDate: (documentId: string, date: string | null) =>
+    api.patch<{ targetCompletionDate: string | null }>(`/documents/${documentId}/target-date`, { date }),
+  setReviewDueDate: (documentId: string, date: string) =>
+    api.patch<{ reviewDueAt: string | null }>(`/documents/${documentId}/review-due-date`, { date }),
   getVersionAccess: (documentId: string) =>
     api.get<{ canView: boolean }>(`/documents/${documentId}/versions/access`),
   getVersions: (documentId: string) =>

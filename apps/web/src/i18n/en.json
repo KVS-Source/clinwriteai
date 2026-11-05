@@ -2620,6 +2620,20 @@
       "next_label": "next: {{status}}",
       "aria_progress": "Cohort progress: {{body}}{{suffix}}"
     },
+    "deadlines": {
+      "title": "Deadlines",
+      "target": "Target",
+      "review_due": "Review due",
+      "overdue": "Overdue",
+      "edit": "Edit",
+      "save": "Save",
+      "saving": "Saving…",
+      "cancel": "Cancel",
+      "clear": "Clear date",
+      "date_aria": "Choose a date",
+      "past": "Choose today or a later date.",
+      "save_failed": "The date could not be saved. Please try again."
+    },
     "project_status": {
       "status_initiated": "Initiated",
       "status_ongoing": "Ongoing",

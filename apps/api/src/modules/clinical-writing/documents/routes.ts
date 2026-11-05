@@ -21,7 +21,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, resetAuthorSubmissions, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, resetAuthorSubmissions, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
@@ -224,6 +224,24 @@ const isMissingReviewDueColumn = (err: unknown) => {
   const msg = e?.message ?? ''
   return e?.code === 'P2022' || (msg.includes('reviewDueAt') && (msg.includes('Unknown argument') || msg.includes('does not exist')))
 }
+
+// A calendar day, 'YYYY-MM-DD'. The round trip refuses days that don't exist, such as 2026-02-31.
+const deadlineDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/).refine(v => {
+  const d = new Date(`${v}T00:00:00.000Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().startsWith(v)
+}, 'Not a real date')
+const targetDateSchema = z.object({ date: deadlineDate.nullable() })
+const reviewDueSchema = z.object({ date: deadlineDate })
+
+const dayOf = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null)
+// A day's grace, since the person setting the date may be ahead of UTC.
+const isPastDay = (day: string) => day < new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
+
+const DEADLINE_LOCKED = {
+  error: 'deadline_locked',
+  message: "This document's dates can't be changed because it is signed or its project is closed.",
+} as const
+const DEADLINE_IN_PAST = { error: 'deadline_in_past', message: 'Choose today or a later date.' } as const
 
 const restoreSchema = z.object({
   sections: z.array(z.object({
@@ -979,6 +997,105 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return updated
+  })
+
+  // Deadlines after creation and submit. The target completion date is the PM's, and can
+  // be cleared because it was optional at creation. The review due date is the authors',
+  // and only means something while the document is in review. Both stop once the document
+  // is signed or the project closed. Dates are calendar days, stored as UTC midnight.
+  const deadlineState = async (documentId: string, actor: AuthenticatedUser) => {
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { projectId: true, status: true, targetCompletionDate: true, reviewDueAt: true },
+    })
+    if (!doc) return null
+    const [project, visible, isAuthor] = await Promise.all([
+      app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { status: true } }),
+      visibleProjectIdsForUser(app.prisma, actor),
+      actorIsDocumentAuthor(app.prisma, actor, documentId),
+    ])
+    const open = project?.status !== 'closed' && doc.status !== 'signed'
+    const pmHere = actor.role === 'pm' && (visible === 'all' || visible.has(doc.projectId))
+    const inReview = doc.status === 'in_review' || doc.status === 'crm_in_progress'
+    return { doc, pmHere, isAuthor, open, inReview }
+  }
+
+  app.get('/:documentId/deadlines/access', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const state = await deadlineState(documentId, request.user!)
+    if (!state) return reply.code(404).send({ error: 'not_found' })
+    return {
+      canEditTarget:    state.pmHere && state.open,
+      canEditReviewDue: state.isAuthor && state.open && state.inReview,
+    }
+  })
+
+  app.patch('/:documentId/target-date', { preHandler: requireAuth({ roles: ['pm'], modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const parsed = targetDateSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const state = await deadlineState(documentId, request.user!)
+    if (!state || !state.pmHere) return reply.code(404).send({ error: 'not_found' })
+    if (!state.open) return reply.code(409).send(DEADLINE_LOCKED)
+
+    const from = dayOf(state.doc.targetCompletionDate)
+    const to = parsed.data.date
+    if (from === to) return { targetCompletionDate: state.doc.targetCompletionDate?.toISOString() ?? null }
+    if (to && isPastDay(to)) return reply.code(422).send(DEADLINE_IN_PAST)
+
+    const updated = await app.prisma.document.update({
+      where: { id: documentId },
+      data: { targetCompletionDate: to ? new Date(`${to}T00:00:00.000Z`) : null },
+      select: { targetCompletionDate: true },
+    })
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'document_target_date_changed',
+      entityType: 'document',
+      entityId: documentId,
+      details: { from, to },
+      ipAddress: request.ip ?? null,
+    })
+    return { targetCompletionDate: updated.targetCompletionDate?.toISOString() ?? null }
+  })
+
+  app.patch('/:documentId/review-due-date', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const parsed = reviewDueSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const state = await deadlineState(documentId, request.user!)
+    if (!state) return reply.code(404).send({ error: 'not_found' })
+    if (!state.isAuthor) {
+      return reply.code(403).send({ error: 'deadline_forbidden', message: 'Only an author (R) on this document can change the review due date.' })
+    }
+    if (!state.open) return reply.code(409).send(DEADLINE_LOCKED)
+    if (!state.inReview) {
+      return reply.code(409).send({ error: 'not_in_review', message: 'The review due date can only be changed while the document is in review.' })
+    }
+
+    const from = dayOf(state.doc.reviewDueAt)
+    const to = parsed.data.date
+    if (from === to) return { reviewDueAt: state.doc.reviewDueAt?.toISOString() ?? null }
+    if (isPastDay(to)) return reply.code(422).send(DEADLINE_IN_PAST)
+
+    const updated = await app.prisma.document.update({
+      where: { id: documentId },
+      data: { reviewDueAt: new Date(`${to}T00:00:00.000Z`) },
+      select: { reviewDueAt: true },
+    })
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'document_review_due_changed',
+      entityType: 'document',
+      entityId: documentId,
+      details: { from, to },
+      ipAddress: request.ip ?? null,
+    })
+    return { reviewDueAt: updated.reviewDueAt?.toISOString() ?? null }
   })
 
   // Generic status transition — the submit-for-review above is a convenience

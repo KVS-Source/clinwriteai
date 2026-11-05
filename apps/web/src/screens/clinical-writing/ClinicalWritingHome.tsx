@@ -731,7 +731,8 @@ export function ClinicalWritingHome() {
       {view === 'documents' && projectId && (
         <DocumentDetailPanel
           projectId={projectId}
-          doc={detailDoc}
+          // The latest copy from the list, so a change made in the panel shows straight away.
+          doc={detailDoc ? documents.find(d => d.id === detailDoc.id) ?? detailDoc : null}
           typeLabel={detailDoc ? TYPE_LABELS[detailDoc.type] : ''}
           stageLabel={detailDoc ? STAGE_LABELS[detailDoc.stage] : ''}
           assigneeName={detailDoc ? (teamById.get(detailDoc.assigneeId)?.name ?? '—') : ''}

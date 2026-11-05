@@ -10,6 +10,7 @@ import { usePlatformStore } from '../../platform/store'
 import { MODULE_KEY_TO_SLUG, type ModuleKey, type ModuleSlug } from '../../config/modules'
 import { isAdminRole } from '../../config/roles'
 import { ProjectStatusDialog, ProjectStatusHistory, ProjectStatusMenu, ProjectStatusSuggestion } from './ProjectStatusControl'
+import { deadlineDay, fmtDeadline, localToday } from '../clinical-writing/DeadlineField'
 
 // --- Module metadata for the "Available modules" grid (filtered against project.activeModules) ---
 const INACTIVE_MODULES = [
@@ -111,6 +112,27 @@ export function ProjectDashboard() {
     const lastActivity = documents.reduce<string | null>(
       (max, d) => (d.updatedAt && (!max || d.updatedAt > max) ? d.updatedAt : max), null)
     return { inFlight, inReview, awaitingSign, signed, inAuthoring, notStarted, inCrm, current, lastActivity }
+  }, [documents])
+
+  // Open documents with a date set. Review due only counts while the document is in review.
+  const deadlines = useMemo(() => {
+    const today = localToday()
+    return documents
+      .filter(d => d.status !== 'signed' && (d.targetCompletionDate || d.reviewDueAt))
+      .map(d => {
+        const inReview = d.status === 'in-review' || d.status === 'crm-in-progress'
+        const target = deadlineDay(d.targetCompletionDate)
+        const review = inReview ? deadlineDay(d.reviewDueAt) : ''
+        return {
+          ...d,
+          reviewDueAt: review ? d.reviewDueAt : null,
+          targetOverdue: !!target && target < today,
+          reviewOverdue: !!review && review < today,
+          soonest: [target, review].filter(Boolean).sort()[0] ?? '',
+        }
+      })
+      .filter(d => d.soonest)
+      .sort((a, b) => a.soonest.localeCompare(b.soonest))
   }, [documents])
 
   // Team role breakdown — real counts from project.team.raci instead
@@ -319,6 +341,29 @@ export function ProjectDashboard() {
               sub={teamBreakdown || t('page.project_dashboard.roster_pending')}
             />
           </div>
+
+          {/* Deadlines — the dates PMs and authors set, soonest first */}
+          {deadlines.length > 0 && (
+            <section className="rounded-lg border border-slate-200 bg-white" data-section="deadlines">
+              <h2 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">{t('component.deadlines.title')}</h2>
+              <div className="divide-y divide-slate-100">
+                {deadlines.map(d => (
+                  <button
+                    key={d.id}
+                    type="button"
+                    onClick={() => navigate(`/projects/${project.id}/clinical-writing/documents/${d.id}`)}
+                    className="flex w-full flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2.5 text-left text-[13px] hover:bg-slate-50"
+                    data-deadline-row={d.id}
+                  >
+                    <span className="min-w-0 flex-1 truncate font-semibold text-slate-900">{d.title}</span>
+                    <span className="flex-none text-slate-500">{STATUS_META[d.status]?.label ?? d.status}</span>
+                    <DeadlineCell label={t('component.deadlines.target')} iso={d.targetCompletionDate} overdue={d.targetOverdue} overdueLabel={t('component.deadlines.overdue')} field="target" />
+                    <DeadlineCell label={t('component.deadlines.review_due')} iso={d.reviewDueAt} overdue={d.reviewOverdue} overdueLabel={t('component.deadlines.overdue')} field="review" />
+                  </button>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Active module cards. project.activeModules comes from the
               API as ModuleKey[] (letters like 'A'); the UI meta map +
@@ -535,6 +580,15 @@ export function ProjectDashboard() {
 }
 
 // --- Small sub-components ---
+
+function DeadlineCell({ label, iso, overdue, overdueLabel, field }: { label: string; iso: string | null | undefined; overdue: boolean; overdueLabel: string; field: string }) {
+  return (
+    <span className="flex-none text-[12px] text-slate-500" data-deadline-cell={field} data-overdue={overdue || undefined}>
+      {label}: <span className={overdue ? 'font-semibold text-red-700' : 'font-medium text-slate-800'}>{fmtDeadline(iso)}</span>
+      {overdue && <span className="ml-1 font-semibold text-red-700">· {overdueLabel}</span>}
+    </span>
+  )
+}
 
 interface KpiProps {
   label:      string

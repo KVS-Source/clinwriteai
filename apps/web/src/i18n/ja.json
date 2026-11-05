@@ -2187,7 +2187,6 @@
       "discipline_label": "分野",
       "module_platform": "プラットフォーム",
       "export_csv": "CSV をエクスポート",
-      "export_ready": "エクスポート準備完了 · {{rows}} 行 · {{url}}",
       "col_timestamp_utc": "タイムスタンプ (UTC)",
       "col_user": "ユーザー",
       "col_action": "アクション",

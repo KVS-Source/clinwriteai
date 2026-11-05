@@ -2035,7 +2035,6 @@
       "discipline_label": "Discipline",
       "module_platform": "Platform",
       "export_csv": "Export CSV",
-      "export_ready": "Export ready · {{rows}} rows · {{url}}",
       "col_timestamp_utc": "Timestamp (UTC)",
       "col_user": "User",
       "col_action": "Action",

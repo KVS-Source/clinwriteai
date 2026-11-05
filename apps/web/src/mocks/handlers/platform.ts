@@ -189,9 +189,12 @@ export const platformHandlers = [
     await delay(30)
     return HttpResponse.json({ error: 'immutable', message: 'Audit records are immutable. This attempt has been logged.' }, { status: 403 })
   }),
-  http.get(`${BASE}/audit/export/csv`, async () => {
+  // Same as the live API: the response is the CSV file itself.
+  http.get(`${BASE}/admin/audit/export`, async () => {
     await delay(200)
-    return HttpResponse.json({ downloadUrl: `/downloads/audit-${Date.now()}.csv`, rowCount: auditTrailState.length })
+    const cell = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`
+    const csv = ['id,timestamp,action', ...auditTrailState.map(e => [e.id, e.timestamp, e.action].map(cell).join(','))].join('\n')
+    return new HttpResponse(csv, { headers: { 'Content-Type': 'text/csv', 'Content-Disposition': 'attachment; filename="audit.csv"' } })
   }),
 
   // --- sPM05 Super Admin — clients + analytics ---

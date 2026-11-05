@@ -31,6 +31,7 @@ async function build(setup: Setup = {}) {
     librarySection: { findMany, count, findFirst, create },
     user: { findMany: vi.fn(async () => [{ id: 'u1', name: 'Dr James Hartley' }]) },
     project: { findMany: vi.fn(async () => [{ id: 'p1', name: 'VELORA-301', status: 'closed' }]) },
+    document: { findMany: vi.fn(async () => []) },
     therapeuticArea: { findFirst: vi.fn(async () => (setup.ta === null ? null : { label: setup.ta ?? 'Oncology' })) },
   } as never)
   app.decorate('audit', { append } as never)

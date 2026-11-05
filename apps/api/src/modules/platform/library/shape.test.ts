@@ -37,6 +37,29 @@ describe('parseVersionLabel', () => {
   it('rejects non-versions', () => expect(parseVersionLabel('latest')).toBeNull())
 })
 
+describe('sectionToItem — source and authorship', () => {
+  const full: LibraryContext = {
+    ...ctx(),
+    userNames: new Map([['u1', 'Dr James Hartley'], ['u2', 'Raj']]),
+    documents: new Map([['doc-9', 'CSR Full']]),
+    firstVersions: new Map([['|CTD 2.5 Clinical Overview', { createdAt: new Date('2026-09-01T08:00:00Z'), by: 'u2' }]]),
+  }
+  it('names the source document instead of showing its id, and keeps the id when it is unknown', () => {
+    expect(sectionToItem(row({ tags: ['source:doc-9#sec-1', 'docversion:v1.0'] }), full).provenanceChain).toContain('Source: CSR Full (v1.0)')
+    expect(sectionToItem(row({ tags: ['source:gone'] }), full).provenanceChain).toContain('Source: gone')
+  })
+  it('reports who made this version, who made the first one, and when', () => {
+    const item = sectionToItem(row(), full)
+    expect(item).toMatchObject({
+      editedByName: 'Dr James Hartley', createdByName: 'Raj',
+      createdAt: '2026-09-01T08:00:00.000Z', updatedAt: '2026-10-17T00:00:00.000Z',
+    })
+  })
+  it('falls back to this row when no earlier version is known', () => {
+    expect(sectionToItem(row({ createdAt: new Date('2026-10-16T09:00:00Z') }), ctx())).toMatchObject({ createdByName: 'Dr James Hartley', createdAt: '2026-10-16T09:00:00.000Z' })
+  })
+})
+
 describe('sectionToItem', () => {
   it('maps a row to the MasterLibraryItem the page expects', () => {
     const item = sectionToItem(row(), ctx())

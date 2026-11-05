@@ -38,13 +38,22 @@ export interface SectionRow {
   approvedAt: Date
   retiredAt: Date | null
   tags: string[]
+  createdAt?: Date
   updatedAt: Date
 }
 
 export interface LibraryContext {
   userNames: Map<string, string>
   projects: Map<string, { name: string; status: string }>
+  /** Titles of the source documents a page of rows was pushed from, by document id. */
+  documents?: Map<string, string>
+  /** First version of each item (by tenant + title): who made it and when. */
+  firstVersions?: Map<string, { createdAt: Date; by: string }>
 }
+
+/** The source document id inside a `source:` tag value (`<docId>` or `<docId>#<sectionId>`). */
+export const sourceDocumentId = (sourceId: string) => sourceId.split('#')[0]!
+export const firstVersionKey = (row: Pick<SectionRow, 'tenantId' | 'title'>) => `${row.tenantId ?? ''}|${row.title}`
 
 export interface ParsedTags {
   module: LibModule
@@ -117,11 +126,12 @@ export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
   const closed = project?.status === 'closed'
   const archived = !!row.retiredAt || closed
   const version = versionLabel(row.version)
+  const first = ctx.firstVersions?.get(firstVersionKey(row))
 
   const provenanceChain = [
     ...(project ? [`Project: ${project.name}`] : []),
     `${t.module === 'platform' ? 'Platform' : `Module ${t.module} · ${MODULE_NAME[t.module]}`}`,
-    ...(t.sourceId ? [`Source: ${t.sourceId}${t.docVersion ? ` (${t.docVersion})` : ''}`] : []),
+    ...(t.sourceId ? [`Source: ${ctx.documents?.get(sourceDocumentId(t.sourceId)) ?? t.sourceId}${t.docVersion ? ` (${t.docVersion})` : ''}`] : []),
     `Master Library · ${version} · ${day(row.approvedAt)} by ${pushedByName}`,
   ]
 
@@ -145,6 +155,11 @@ export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
       archivedReason: row.retiredAt ? 'Withdrawn from the library' : 'Source project is closed',
     }),
     provenanceChain,
+    // The editor is whoever made this version; the creator is whoever made the first one.
+    editedByName: pushedByName,
+    createdAt: (first?.createdAt ?? row.createdAt ?? row.approvedAt).toISOString(),
+    createdByName: first ? (ctx.userNames.get(first.by) ?? 'Unknown user') : pushedByName,
+    updatedAt: row.updatedAt.toISOString(),
     body: row.body,
   }
 }

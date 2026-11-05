@@ -23,7 +23,7 @@ interface SlidePanelProps {
   open:         boolean
   onClose:      () => void
   title:        string
-  subtitle?:    string
+  subtitle?:    ReactNode
   children:     ReactNode
   // Width persisted under this key in localStorage. Omit to keep width
   // ephemeral.
@@ -166,7 +166,9 @@ export function SlidePanel({
       <div className="flex flex-none items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <div className="min-w-0 flex-1">
           <h2 className="truncate text-[16px] font-bold text-slate-900">{title}</h2>
-          {subtitle && <p className="mt-0.5 truncate text-[12px] text-slate-500">{subtitle}</p>}
+          {subtitle && (typeof subtitle === 'string'
+            ? <p className="mt-0.5 truncate text-[12px] text-slate-500">{subtitle}</p>
+            : <div className="mt-0.5 text-[12px] text-slate-500">{subtitle}</div>)}
         </div>
         {expandable && (
           <button

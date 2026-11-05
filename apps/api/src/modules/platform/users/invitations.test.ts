@@ -34,3 +34,21 @@ describe('checkInvitation', () => {
     expect(checkInvitation(inv, status)).toEqual({ valid: false, reason })
   })
 })
+
+describe('invitation link lifetime — 15 minutes', () => {
+  it('is 15 minutes', () => {
+    expect(INVITATION_TTL_MS).toBe(15 * 60 * 1000)
+  })
+
+  it('a link is live at 14 minutes and expired at 16', () => {
+    const issued = new Date('2026-11-05T10:00:00Z')
+    const { expiresAt } = (() => {
+      const realNow = Date.now
+      Date.now = () => issued.getTime()
+      try { return generateInvitationToken() } finally { Date.now = realNow }
+    })()
+    const inv = { expiresAt, acceptedAt: null, revokedAt: null }
+    expect(checkInvitation(inv, 'invited', new Date(issued.getTime() + 14 * 60 * 1000))).toEqual({ valid: true })
+    expect(checkInvitation(inv, 'invited', new Date(issued.getTime() + 16 * 60 * 1000))).toEqual({ valid: false, reason: 'expired' })
+  })
+})

@@ -2,7 +2,7 @@
 //
 // What's here:
 //   - Listing / lookup for users, scoped to the caller's tenant.
-//   - Invite (one-time 7-day link, AC-PM-007), resend (rotates the link).
+//   - Invite (one-time link valid for 15 minutes, AC-PM-007), resend (rotates the link).
 //   - Role + modules mutation and status transitions guarded by the pure
 //     state machine in ./status-machine.ts.
 //
@@ -451,7 +451,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // Resend invite — valid only for users still in 'invited' status. Rotates
-  // the token (old link stops working) and restarts the 7-day window.
+  // the token (old link stops working) and restarts the 15-minute window.
   app.post('/:id/resend-invite', { preHandler: adminGate }, async (request, reply) => {
     const actor = request.user!
     const { id } = request.params as { id: string }

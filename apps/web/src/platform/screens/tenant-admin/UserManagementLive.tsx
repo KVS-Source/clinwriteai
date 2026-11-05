@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next'
 import { describeApiError } from '../../../api'
 import { api } from '../../../api/client'
 import { SortIcon } from '../../../components/ui/SortIcon'
+import { maskEmail } from '../../../utils/maskEmail'
 
 type UserStatus = 'invited' | 'active' | 'suspended' | 'deprovisioned'
 
@@ -54,7 +55,7 @@ function formatLastActive(iso: string, t: (k: string, o?: Record<string, unknown
   return new Date(iso).toLocaleDateString()
 }
 
-// One-time sign-up link returned by invite / resend (valid 7 days). Shown to
+// One-time sign-up link returned by invite / resend (valid 15 minutes). Shown to
 // the admin to share until email dispatch is wired.
 interface InviteLink {
   inviteUrl: string
@@ -339,7 +340,7 @@ export function UserManagementLive() {
           <div ref={noticeRef} className="rounded-md border border-blue-200 bg-blue-50 p-3 text-[12px] text-blue-900" data-section="invite-link">
             <p className="font-semibold">
               {inviteLink.kind === 'resent'
-                ? t('page.user_management_live.invite_resent_notice', { email: inviteLink.email })
+                ? t('page.user_management_live.invite_resent_notice', { email: maskEmail(inviteLink.email) })
                 : t('page.user_management_live.invite_sent_notice')}
             </p>
             <div className="mt-2 flex gap-3">
@@ -410,7 +411,8 @@ export function UserManagementLive() {
                 <tr key={u.id} className="border-t border-slate-200" data-user-row={u.id}>
                   <td className="px-4 py-3">
                     <p className="font-semibold text-slate-900">{u.name}</p>
-                    <p className="mt-0.5 font-mono text-[10px] text-slate-500">{u.email}</p>
+                    {/* Masked for display: first character, then * for every letter / digit. */}
+                    <p className="mt-0.5 font-mono text-[10px] text-slate-500" data-user-email>{maskEmail(u.email)}</p>
                   </td>
                   <td className="px-4 py-3 text-slate-700">{u.role}</td>
                   <td className="px-4 py-3 text-[12px] text-slate-700" data-tenant-cell>
@@ -448,13 +450,13 @@ export function UserManagementLive() {
                         <button type="button" onClick={() => wrap(usersApi.suspend(u.id))} className="text-[11px] text-amber-700 hover:underline" data-action="suspend">{t('page.user_management_live.suspend')}</button>
                       )}
                       {u.status === 'suspended' && (
-                        <button type="button" onClick={() => wrap(usersApi.reactivate(u.id))} className="text-[11px] text-green-700 hover:underline" data-action="reactivate">{t('page.user_management_live.reactivate')}</button>
+                        <button type="button" onClick={() => wrap(usersApi.reactivate(u.id))} className="text-[11px] text-green-700 hover:underline" data-action="unsuspend">{t('page.user_management_live.reactivate')}</button>
                       )}
                       {u.status !== 'deprovisioned' && (
                         <button
                           type="button"
                           onClick={() => {
-                            if (confirm(t('page.user_management_live.confirm_deprovision', { email: u.email }))) {
+                            if (confirm(t('page.user_management_live.confirm_deprovision', { email: maskEmail(u.email) }))) {
                               wrap(usersApi.deprovision(u.id))
                             }
                           }}

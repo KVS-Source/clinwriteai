@@ -415,6 +415,8 @@ async function buildServer() {
 
   // ---------- Phase 4 shared platform services ----------
   await app.register(import('./modules/platform/notifications/plugin.js'))
+  // Warns, then suspends, accounts inactive for 30 days (needs notifications + audit).
+  await app.register(import('./modules/platform/users/inactivity-plugin.js'))
 
   const { libraryRoutes } = await import('./modules/platform/library/routes.js')
   await app.register(libraryRoutes, { prefix: '/library' })

@@ -240,11 +240,11 @@ export function RoleHome() {
               <Link
                 key={l.href}
                 to={l.href}
-                className="rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-slate-400"
+                className="min-w-0 rounded-lg border border-slate-200 bg-white p-3 transition-colors hover:border-slate-400"
                 data-quick-link={l.href}
               >
-                <p className="text-[13px] font-semibold text-slate-900">{t(l.labelKey)}</p>
-                <p className="mt-0.5 text-[11px] text-slate-500">{t(l.hintKey)}</p>
+                <p className="break-words text-[13px] font-semibold text-slate-900">{t(l.labelKey)}</p>
+                <p className="mt-0.5 break-words text-[11px] text-slate-500">{t(l.hintKey)}</p>
               </Link>
             ))}
           </div>

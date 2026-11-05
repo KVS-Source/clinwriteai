@@ -80,7 +80,7 @@ export function ReturnToAuthoring({ documentId, status, onReturned }: {
         className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
         style={{ backgroundColor: '#FEF2F2', color: '#B91C1C', borderColor: '#FECACA' }}
       >
-        {t('page.reviewer_view.return_doc_button')}
+        {t(row.letter === 'Q' ? 'page.reviewer_view.return_doc_button_q' : 'page.reviewer_view.return_doc_button')}
       </button>
 
       {open && (
@@ -120,7 +120,7 @@ export function ReturnToAuthoring({ documentId, status, onReturned }: {
                 className="rounded-md bg-red-600 px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 data-action="confirm-return"
               >
-                {returnMut.isPending ? t('page.reviewer_view.return_doc_returning') : t('page.reviewer_view.return_doc_confirm')}
+                {returnMut.isPending ? t('page.reviewer_view.return_doc_returning') : t(row.letter === 'Q' ? 'page.reviewer_view.return_doc_button_q' : 'page.reviewer_view.return_doc_confirm')}
               </button>
             </div>
           </div>

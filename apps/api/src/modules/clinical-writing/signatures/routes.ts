@@ -38,6 +38,7 @@ import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { initialStatuses, recordsToRelease, sortForChain, type ChainType, type SignatureStatus } from './chain-progress.js'
 import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain, requiredSigners } from './access.js'
 import { resetRaciRound } from '../../platform/document-raci/access.js'
+import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 
 const initiateSchema = z.object({
   chainType: z.enum(['sequential', 'parallel', 'grouped']).default('grouped'),
@@ -127,6 +128,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/documents/:documentId/signature-chains', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = initiateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -312,6 +314,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       include: { chain: true },
     })
     if (!record) return reply.code(404).send({ error: 'not_found' })
+    if (await documentProjectIsClosed(app.prisma, record.chain.documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // Only the designated signer can sign — no one, admins included, signs on
     // someone else's behalf (Part 11: signatures cannot be delegated, FR-A-063).
@@ -504,6 +507,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
 
     const chain = await app.prisma.signatureChain.findUnique({ where: { id: chainId } })
     if (!chain) return reply.code(404).send({ error: 'not_found' })
+    if (await documentProjectIsClosed(app.prisma, chain.documentId)) return reply.code(423).send(PROJECT_CLOSED)
     if (chain.status === 'complete' || chain.status === 'cancelled') {
       return reply.code(409).send({ error: 'chain_closed' })
     }

@@ -26,6 +26,8 @@ import {
   ICH_E3_SECTION_CODES,
   isIchE3Applicable,
 } from './catalog.js'
+import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
+import { canSeeDocument } from '../../projects/visibility.js'
 
 const waiveSchema = z.object({
   reason: z.string().min(10, 'Waiver reason must be at least 10 characters (Part 11 trail)').max(500),
@@ -50,6 +52,7 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
 
   app.get('/:documentId/ich-e3', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
 
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
@@ -168,6 +171,7 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
     { preHandler: requireAuth({ modules: ['A'] }) },
     async (request, reply) => {
       const { documentId, sectionCode } = request.params as { documentId: string; sectionCode: string }
+      if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
       if (!ICH_E3_SECTION_CODES.has(sectionCode)) {
         return reply.code(400).send({ error: 'unknown_section', message: `Unknown ICH E3 section '${sectionCode}'` })
@@ -233,6 +237,7 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
     { preHandler: requireAuth({ modules: ['A'] }) },
     async (request, reply) => {
       const { documentId, sectionCode } = request.params as { documentId: string; sectionCode: string }
+      if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
       const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { type: true, deletedAt: true } })
       if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })

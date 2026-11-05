@@ -1016,6 +1016,7 @@
       "parallel_subtitle":             "すべてのレビュアーに同時に送付",
       "sequential_title":              "順次レビュー",
       "sequential_subtitle":           "レビュアーに順番に通知",
+      "sequential_not_enforced":       "順次レビューの順序はまだ強制されません。選択内容は監査証跡に記録されますが、レビュアーはこの順序に拘束されません。",
       "assign_reviewers":              "レビュアーを割り当て",
       "reviewer_count_plus_author_one":"レビュアー {{count}} 名 + 著者",
       "reviewer_count_plus_author_other":"レビュアー {{count}} 名 + 著者",

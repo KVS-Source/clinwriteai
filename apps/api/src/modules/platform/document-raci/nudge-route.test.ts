@@ -31,7 +31,9 @@ async function build(actor: Partial<AuthenticatedUser>, opts: { rows?: Row[]; as
   const audit = vi.fn(async () => ({}))
   const app = Fastify()
   app.decorate('prisma', {
-    document: { findUnique: vi.fn(async () => ({ id: 'd-1', status: 'in_authoring', title: 'CSR', projectId: 'p-1', assigneeId: opts.assignee ?? 'u-ann' })) },
+    project: { findUnique: async () => ({ status: 'ongoing' }) },
+
+    document: { count: async () => 1,  findUnique: vi.fn(async () => ({ id: 'd-1', status: 'in_authoring', title: 'CSR', projectId: 'p-1', assigneeId: opts.assignee ?? 'u-ann' })) },
     documentRaci: {
       findMany: vi.fn(async ({ where }: { where: Row }) => rows.filter(r =>
         (where.letter === undefined || r.letter === where.letter) &&

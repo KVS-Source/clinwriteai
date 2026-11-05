@@ -24,7 +24,11 @@ async function build(opts: { seed?: Array<{ id: string; documentId: string; sect
   const key = (r: { documentId: string; sectionId: string }) => `${r.documentId}::${r.sectionId}`
 
   const prisma = {
+    project: { findUnique: async () => ({ status: 'ongoing' }) },
+
     document: {
+
+      count: async () => 1,
       findUnique: vi.fn(async () => {
         if (opts.documentExists === false) return null
         return { id: DOC_OK, deletedAt: opts.documentDeleted ? new Date() : null }

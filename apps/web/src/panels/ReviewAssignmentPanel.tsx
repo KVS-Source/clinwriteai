@@ -311,6 +311,9 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
             onClick={() => setReviewType('sequential')}
           />
         </div>
+        {reviewType === 'sequential' && (
+          <p className="text-[11px] leading-snug text-amber-700" data-sequential-note>{t('page.review_assignment_panel.sequential_not_enforced')}</p>
+        )}
       </div>
 
       {/* ===== Reviewers list ===== */}

@@ -35,6 +35,8 @@ async function build(who: Who = {}) {
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: P, status: 'ongoing', therapeuticArea: 'Oncology', submissionCountries: [] })) },
     document: {
+
+      count: async () => 1,
       findUnique: vi.fn(async () => ({ id: DOC, projectId: P, status: 'in_authoring', deletedAt: null, assigneeId: who.assignee ? ME : 'other', currentVersion: { sections: [] } })),
       findFirst: vi.fn(async () => (who.assignee ? { id: DOC } : null)),
       findMany: vi.fn(async () => []),

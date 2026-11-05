@@ -22,7 +22,11 @@ async function build(initial: DocRow) {
 
   const app = Fastify()
   app.decorate('prisma', {
+    project: { findUnique: async () => ({ status: 'ongoing' }) },
+
     document: {
+
+      count: async () => 1,
       findUnique: vi.fn(async ({ select }: { select?: Record<string, boolean> } = {}) => {
         if (select?.stage || select?.deletedAt) {
           return { id: doc.id, stage: doc.stage, deletedAt: doc.deletedAt }
@@ -43,7 +47,11 @@ async function build(initial: DocRow) {
     },
     documentRaci: { findMany: vi.fn(async () => []) },
     $transaction: async (fn: (t: unknown) => unknown) => fn({
+      project: { findUnique: async () => ({ status: 'ongoing' }) },
+
       document: {
+
+        count: async () => 1,
         findUnique: vi.fn(async () => ({ id: doc.id, stage: doc.stage, deletedAt: doc.deletedAt })),
         update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
           updates.push(data)

@@ -16,8 +16,9 @@ import PDFDocument from 'pdfkit'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
-import { documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
+import { documentVisibilityWhere, visibleProjectIdsForUser, canSeeDocument } from '../../projects/visibility.js'
 import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 
 // Document audit panel paging. The default limit keeps older callers that send
 // no parameters (the Audit Review screen) getting the same size as before.
@@ -266,6 +267,7 @@ export async function pendingRevision(
 export const commentsRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const parsed = listQuerySchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -297,6 +299,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = addSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -370,6 +373,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch('/:documentId/comments/:commentId/resolve', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, commentId } = request.params as { documentId: string; commentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = resolveSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -549,6 +553,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
   // default is 30 days; configurable per tenant in the future.
   app.get('/:documentId/qa-review', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
@@ -572,9 +577,11 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
   app.post('/:documentId/qa-review', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const body = (request.body ?? {}) as { reviewedBy?: string; notes?: string }
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
 
     const cadenceDays = 30
     const nextDue = new Date(Date.now() + cadenceDays * 86_400_000)

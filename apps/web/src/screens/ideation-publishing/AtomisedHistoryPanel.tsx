@@ -5,8 +5,8 @@
 // surface (added by the Module E UI when it chooses to adopt it).
 
 import { useTranslation } from 'react-i18next'
-import { ideationPublishingApi } from '../modules/ideation-publishing/api/ideationPublishing'
-import { EditHistoryPanel, type EditOrigin } from './EditHistoryPanel'
+import { ideationPublishingApi } from '../../modules/ideation-publishing/api/ideationPublishing'
+import { EditHistoryPanel, type EditOrigin } from '../../panels/EditHistoryPanel'
 
 interface Props {
   cardId:  string

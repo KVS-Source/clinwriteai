@@ -32,7 +32,7 @@ async function build(raci: Array<{ documentId: string; userId: string; letter: s
 
 describe('GET /projects/:projectId/documents assigneeRaci', () => {
   it("lists only the assignee's own letters, in R-A-C-I order, and [] when none or unassigned", async () => {
-    const { app, raciFind } = await build([
+    const { app } = await build([
       { documentId: 'd1', userId: 'u1', letter: 'C' },
       { documentId: 'd1', userId: 'u1', letter: 'R' },
       { documentId: 'd1', userId: 'someone-else', letter: 'A' },   // not the assignee

@@ -41,7 +41,7 @@ async function build(items: Array<Record<string, unknown>>, user: Partial<Authen
   app.decorate('audit', { append } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    ;(req as unknown as { user: AuthenticatedUser }).user = {
+    (req as unknown as { user: AuthenticatedUser }).user = {
       id: 'u-owner', email: 'u@x.io', role: 'contributor', capabilities: [], modules: ['A'], tenantId: null, ...user,
     } as AuthenticatedUser
   })

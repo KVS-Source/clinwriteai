@@ -15,6 +15,7 @@ import { UploadDocumentForm } from './UploadDocument'
 import { SourceDocumentsTab } from './SourceDocumentsTab'
 import { useSourceAccess } from '../../hooks/useSourceAccess'
 import { DocumentDetailPanel } from './DocumentDetailPanel'
+import { documentOpenPath } from './documentOpenPath'
 import { DocumentCommentsPanel } from './DocumentCommentsPanel'
 import { cleanSectionRef } from '../../panels/CommentComposer'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
@@ -317,17 +318,13 @@ export function ClinicalWritingHome() {
 
   const resetFilters = () => setParams({ q: null, stage: null, status: null, type: null })
 
-  // Context-aware Open: documents at the CRM stage open on the document's
-  // own CRM tab (comment-resolution meeting), keeping the Editor / Reviewer
-  // View / E-Signature tabs alongside. Everything else opens in the Editor.
-  // Writers were confused when a CRM-stage doc opened the editor with no
-  // meeting controls — QA caught it on the stage=crm filter view.
-  const handleDocClick = (doc: Document) => {
-    if (doc.stage === 'crm') {
-      navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}/crm`)
-      return
-    }
-    navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}`)
+  // Context-aware Open: a document opens on the tab for its next step, keeping
+  // the other tabs alongside. Writers were confused when a CRM-stage doc opened
+  // the editor with no meeting controls — QA caught it on the stage=crm filter view.
+  const handleDocClick = (doc: Document) => navigate(documentOpenPath(doc, projectId!))
+  const openById = (id: string) => {
+    const doc = documents.find(d => d.id === id)
+    navigate(doc ? documentOpenPath(doc, projectId!) : `/projects/${projectId}/clinical-writing/documents/${id}`)
   }
 
   // One project-wide comments call (not one per document). Comment mutations invalidate
@@ -376,7 +373,7 @@ export function ClinicalWritingHome() {
       <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-8 pt-5 pb-[22px]">
         {/* Breadcrumb moved to TopNav (Projects / Project / Clinical Writing). */}
 
-        <div className="flex items-start justify-between gap-8">
+        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
           {/* Left: title + meta + buttons */}
           <div className="flex flex-none flex-col gap-2">
             <div className="flex items-center gap-2.5">
@@ -417,7 +414,7 @@ export function ClinicalWritingHome() {
           </div>
 
           {/* Right: stage progress stepper */}
-          <div className="flex flex-1 flex-col gap-2" style={{ maxWidth: '660px' }}>
+          <div className="flex min-w-[520px] flex-1 flex-col gap-2" style={{ maxWidth: '660px' }}>
             <p className="text-xs font-semibold text-slate-500">{t('page.clinical_writing_home.stage_progress')}</p>
             <div className="flex items-start">
               {STAGES_ORDERED.map((stage, i) => {
@@ -740,7 +737,7 @@ export function ClinicalWritingHome() {
           stageLabel={detailDoc ? STAGE_LABELS[detailDoc.stage] : ''}
           assigneeName={detailDoc ? (teamById.get(detailDoc.assigneeId)?.name ?? '—') : ''}
           onClose={() => setDetailDoc(null)}
-          onOpen={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
+          onOpen={openById}
           onOpenRaci={id => {
             const d = documents.find(x => x.id === id) ?? null
             if (d) setRaciDoc(d)
@@ -855,7 +852,7 @@ export function ClinicalWritingHome() {
             <div className="flex flex-none items-center justify-end border-b border-slate-200 px-4 py-2">
               <button
                 type="button"
-                onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${auditDoc.id}`)}
+                onClick={() => openById(auditDoc.id)}
                 className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
               >{t('page.clinical_writing_home.open_doc_arrow')}</button>
             </div>

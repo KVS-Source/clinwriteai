@@ -12,6 +12,7 @@ import { invitationRoutes } from './invitation-routes.js'
 import { verifyPassword } from './password.js'
 import { generateInvitationToken } from '../modules/platform/users/invitations.js'
 
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose in-memory Prisma double
 type Row = Record<string, any>
 const STRONG = 'Str0ng!Passw0rd'
 

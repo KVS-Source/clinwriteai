@@ -80,7 +80,7 @@ export function ReviewerView() {
   // Side panel: drag the edge to resize, or expand it to the whole working area.
   const panel = useResizablePanel({ activePanel })
 
-  // A click outside the Audit Trail or Comments panel, or Esc, closes it. (Checklist stays open.)
+  // A click outside the Audit Trail, Comments or Checklist panel, or Esc, closes it.
   // Comments stays open while a resolution note is half-typed in it, so the draft isn't lost.
   // The toolbar buttons that open panels are marked [data-panel-trigger] and handle their own
   // toggle. Outside clicks are judged on mousedown + click so a press that starts inside the
@@ -108,7 +108,7 @@ export function ReviewerView() {
   }, [activePanel, panelRow])
 
   useEffect(() => {
-    if (activePanel !== 'audit' && activePanel !== 'comments') return
+    if (activePanel !== 'audit' && activePanel !== 'comments' && activePanel !== 'checklist') return
     const hasDraft = () => activePanel === 'comments' && Array.from(rightPanelRef.current?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea') ?? [])
       .some(el => el.value.trim() !== '')
     const close = () => { if (!hasDraft()) setActivePanel(null) }

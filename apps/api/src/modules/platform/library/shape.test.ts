@@ -71,9 +71,8 @@ describe('sectionToItem', () => {
     expect(item.pushedAt).toBe('2026-10-16T09:30:00.000Z')
     expect(item.provenanceChain).toEqual([
       'Project: VELORA-301 Efficacy Suite',
-      'Module D · Regulatory Writing',
+      'Module: D · Regulatory Writing',
       'Source: doc-9',
-      'Master Library · v2.0 · 2026-10-16 by Dr James Hartley',
     ])
   })
   it('marks items from a closed project as archived', () => {

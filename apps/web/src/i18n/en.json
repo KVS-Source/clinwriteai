@@ -2917,7 +2917,7 @@
       "load_more": "Load more ({{count}} remaining)",
       "select_hint": "Select an item to see its details.",
       "ta_prefix": "TA:",
-      "pushed_byline": "Pushed {{date}} · {{user}} · Project: {{project}}",
+      "pushed_byline": "Pushed {{date}} · {{user}}",
       "provenance_chain": "Provenance chain",
       "version_history": "Version history",
       "version_single": "{{version}} · Current · No previous versions.",

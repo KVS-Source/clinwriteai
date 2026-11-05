@@ -129,10 +129,9 @@ export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
   const first = ctx.firstVersions?.get(firstVersionKey(row))
 
   const provenanceChain = [
-    ...(project ? [`Project: ${project.name}`] : []),
-    `${t.module === 'platform' ? 'Platform' : `Module ${t.module} · ${MODULE_NAME[t.module]}`}`,
+    `Project: ${project?.name ?? 'Platform library'}`,
+    `Module: ${t.module === 'platform' ? 'Platform' : `${t.module} · ${MODULE_NAME[t.module]}`}`,
     ...(t.sourceId ? [`Source: ${ctx.documents?.get(sourceDocumentId(t.sourceId)) ?? t.sourceId}${t.docVersion ? ` (${t.docVersion})` : ''}`] : []),
-    `Master Library · ${version} · ${day(row.approvedAt)} by ${pushedByName}`,
   ]
 
   return {

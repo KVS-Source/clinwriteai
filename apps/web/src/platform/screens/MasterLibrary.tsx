@@ -1,5 +1,5 @@
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTaLabels } from '../../hooks'
@@ -365,31 +365,20 @@ export function MasterLibrary() {
       <SlidePanel open={!!active} onClose={() => setSelected(null)} title={active?.name ?? ''}
         subtitle={active && (
           <>
-            <span className="block truncate">{active.docType} · {active.version}</span>
-            <span className="block truncate font-mono text-[11px]" data-active-pushed>{t('page.master_library.pushed_byline', { date: formatDay(active.pushedAt), user: active.pushedByName, project: active.projectName })}</span>
+            <span className="mt-1 flex flex-wrap items-center gap-2" data-active-badges>
+              <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-mono font-semibold uppercase" style={{ backgroundColor: `${MODULE_COLOURS[active.module]}22`, color: MODULE_COLOURS[active.module] }} data-active-module>{active.module}</span>
+              <span className="font-mono text-[11px] text-slate-500" data-active-doctype>{active.docType}</span>
+              <span className="font-mono text-[11px] text-slate-500">{t('page.master_library.ta_prefix')} {active.ta.join(', ')}</span>
+              {active.isArchived && (
+                <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{t('page.master_library.archived_tag')}</span>
+              )}
+            </span>
+            <span className="mt-1 block truncate font-mono text-[11px]" data-active-pushed>{t('page.master_library.pushed_byline', { date: formatDay(active.pushedAt), user: active.pushedByName })}</span>
           </>
         )}
         storageKey="library-detail" defaultWidth={520} belowTopBar closeOnOutsideClick>
         {active && (
           <div className="flex flex-col gap-4 px-5 py-5" data-detail-panel>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-mono font-semibold uppercase" style={{ backgroundColor: `${MODULE_COLOURS[active.module]}22`, color: MODULE_COLOURS[active.module] }} data-active-module>{active.module}</span>
-              <span className="font-mono text-[11px] text-slate-500" data-active-doctype>{active.docType}</span>
-              <span className="font-mono text-[11px] text-slate-500">{t('page.master_library.ta_prefix')} {active.ta.join(', ')}</span>
-              <span className="font-mono text-[11px] text-slate-500" data-active-version>{active.version}</span>
-              {active.isArchived && (
-                <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{t('page.master_library.archived_tag')}</span>
-              )}
-            </div>
-
-
-            <dl className="grid grid-cols-[110px_1fr] gap-x-3 gap-y-1.5 rounded-md border border-slate-200 p-3 text-[12px]" data-active-meta>
-              <dt className={labelClass}>{t('page.master_library.meta_editor')}</dt><dd className="text-slate-800">{active.editedByName ?? active.pushedByName}</dd>
-              <dt className={labelClass}>{t('page.master_library.meta_created_by')}</dt><dd className="text-slate-800">{active.createdByName ?? active.pushedByName}</dd>
-              <dt className={labelClass}>{t('page.master_library.meta_created_at')}</dt><dd className="text-slate-800">{formatDateTime(active.createdAt ?? active.pushedAt)}</dd>
-              <dt className={labelClass}>{t('page.master_library.meta_updated')}</dt><dd className="text-slate-800">{formatDateTime(active.updatedAt ?? active.pushedAt)}</dd>
-            </dl>
-
             {active.tags.length > 0 && (
               <div className="flex flex-wrap gap-1" data-active-tags>
                 {active.tags.map(tg => <span key={tg} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{tg}</span>)}
@@ -398,14 +387,23 @@ export function MasterLibrary() {
 
             <div className="rounded-md border border-slate-200 p-3" data-provenance>
               <p className={labelClass}>{t('page.master_library.provenance_chain')}</p>
-              <ol className="mt-2 flex flex-col gap-2">
-                {active.provenanceChain.map((step, i) => (
-                  <li key={i} className="flex items-start gap-2 text-[12px] text-slate-800" data-provenance-step={i}>
-                    <span className="mt-0.5 inline-flex h-4 w-4 flex-none items-center justify-center rounded-full font-mono text-[9px] font-bold text-white" style={{ backgroundColor: PLATFORM_ACCENT.primary }}>{i + 1}</span>
-                    <span>{step}</span>
-                  </li>
-                ))}
-              </ol>
+              <dl className="mt-2 grid grid-cols-[100px_1fr] gap-x-3 gap-y-1.5 text-[12px]">
+                {active.provenanceChain.map((step, i) => {
+                  const cut = step.indexOf(': ')
+                  return (
+                    <Fragment key={i}>
+                      <dt className={labelClass} data-provenance-step={i}>{cut > 0 ? step.slice(0, cut) : step}</dt>
+                      <dd className="text-slate-800">{cut > 0 ? step.slice(cut + 2) : ''}</dd>
+                    </Fragment>
+                  )
+                })}
+              </dl>
+              <dl className="mt-1.5 grid grid-cols-[100px_1fr] gap-x-3 gap-y-1.5 text-[12px]" data-active-meta>
+                <dt className={labelClass}>{t('page.master_library.meta_editor')}</dt><dd className="text-slate-800">{active.editedByName ?? active.pushedByName}</dd>
+                <dt className={labelClass}>{t('page.master_library.meta_created_by')}</dt><dd className="text-slate-800">{active.createdByName ?? active.pushedByName}</dd>
+                <dt className={labelClass}>{t('page.master_library.meta_created_at')}</dt><dd className="text-slate-800">{formatDateTime(active.createdAt ?? active.pushedAt)}</dd>
+                <dt className={labelClass}>{t('page.master_library.meta_updated')}</dt><dd className="text-slate-800">{formatDateTime(active.updatedAt ?? active.pushedAt)}</dd>
+              </dl>
             </div>
 
             <div className="rounded-md border border-slate-200 p-3" data-version-history>

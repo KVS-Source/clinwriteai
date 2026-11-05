@@ -3091,7 +3091,7 @@
       "load_more": "さらに読み込む (残り {{count}} 件)",
       "select_hint": "項目を選択すると詳細が表示されます。",
       "ta_prefix": "TA:",
-      "pushed_byline": "プッシュ {{date}} · {{user}} · プロジェクト: {{project}}",
+      "pushed_byline": "プッシュ {{date}} · {{user}}",
       "provenance_chain": "プロベナンスチェーン",
       "version_history": "バージョン履歴",
       "version_single": "{{version}} · 現行 · 以前のバージョンはありません。",

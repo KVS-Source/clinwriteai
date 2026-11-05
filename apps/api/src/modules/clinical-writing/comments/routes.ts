@@ -17,7 +17,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
 
 // Document audit panel paging. The default limit keeps older callers that send
 // no parameters (the Audit Review screen) getting the same size as before.
@@ -66,6 +66,8 @@ const ACTION_TO_EVENT: Record<string, string> = {
   checklist_item_waived:     'checklist-waived',
   checklist_item_completed:  'checklist-completed',
   signature_initiated:       'document-signed',
+  signature_recorded:        'document-signed',
+  document_signed:           'document-signed',
   version_restore_initiated: 'version-restore',
   voice_note_added:          'voice-note-added',
   qa_review_logged:          'qa-review-completed',
@@ -92,6 +94,11 @@ function auditDetail(row: AuditRow): string {
   }
   if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from ?? 'none')} → ${String(d.to ?? 'none')}`)
   if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
+  // A recorded signature says what the person signed as, and which step it was.
+  if (row.action === 'signature_recorded' || row.action === 'document_signed') {
+    if (typeof d.meaning === 'string' && d.meaning) parts.push(`Meaning: ${d.meaning}`)
+    if (typeof d.step === 'number') parts.push(`Step ${d.step}`)
+  }
   if (row.action === 'final_document_exported') {
     parts.push(d.mode === 'signed' ? 'Signed copy' : 'Watermarked draft')
     if (typeof d.pages === 'number') parts.push(`${d.pages} pages`)
@@ -564,6 +571,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/qa-review', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
     const body = (request.body ?? {}) as { reviewedBy?: string; notes?: string }
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })

@@ -30,6 +30,7 @@ import { useCRMStore } from '../../store'
 import { CommentResolutionPanel } from '../../panels/CommentResolutionPanel'
 import { cleanSectionRef } from '../../panels/CommentComposer'
 import { CRMDocumentViewer } from './CRMDocumentViewer'
+import { useSignatureAccess } from '../output/useSignatureAccess'
 
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
   MW: { bg: '#DBEAFE', fg: '#1D4ED8' },
@@ -473,6 +474,8 @@ export function CRMModule() {
 
   useEffect(() => { if (meeting) setMeetingInStore(meeting) }, [meeting, setMeetingInStore])
 
+  const { data: me } = useCurrentUser()
+  const signatureAccess = useSignatureAccess(activeDocId ?? undefined)
   const { data: crmAccess } = useQuery({
     queryKey: ['crm-access', activeDocId],
     queryFn:  () => crmApi.getAccess(activeDocId!),
@@ -670,6 +673,9 @@ export function CRMModule() {
     )
   }
 
+  // Informed (I) changes nothing in a meeting they don't chair; the API refuses it too.
+  const informedNonChair = signatureAccess.isInformedOnly && meeting.chair.userId !== me?.id
+
   const statusPill =
     isComplete ? { label: t('page.crm_module.status_complete'), bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' }
     : inProgress ? { label: t('page.crm_module.status_in_progress'), bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' }
@@ -700,7 +706,7 @@ export function CRMModule() {
             {inProgress && <span className="h-2 w-2 rounded-full animate-pulse-green" style={{ backgroundColor: '#16A34A' }} />}
             <span className="whitespace-nowrap text-[13px] font-semibold" style={{ color: statusPill.fg }}>{statusPill.label}</span>
           </div>
-          {meeting.status === 'scheduled' && (
+          {meeting.status === 'scheduled' && !informedNonChair && (
             <button
               type="button"
               onClick={() => startMut.mutate()}
@@ -709,7 +715,7 @@ export function CRMModule() {
               data-crm-start
             >{startMut.isPending ? t('page.crm_module.starting') : t('page.crm_module.start_meeting')}</button>
           )}
-          {inProgress && (
+          {inProgress && !informedNonChair && (
             <button
               type="button"
               onClick={() => endMut.mutate()}
@@ -795,7 +801,7 @@ export function CRMModule() {
                 {t('page.crm_module.no_transcript')}
               </p>
             )}
-            <div className="mt-2.5 flex flex-wrap gap-1.5">
+            {!informedNonChair && <div className="mt-2.5 flex flex-wrap gap-1.5">
               <button
                 type="button"
                 onClick={() => setTranscriptModalOpen(true)}
@@ -814,7 +820,7 @@ export function CRMModule() {
               >
                 {minutesMut.isPending ? t('page.crm_module.generating') : t('page.crm_module.generate_minutes')}
               </button>
-            </div>
+            </div>}
             {minutesMut.isError && (
               <p className="mt-1.5 text-[10px] text-rose-600" role="alert">{t('page.crm_module.minutes_failed')}</p>
             )}

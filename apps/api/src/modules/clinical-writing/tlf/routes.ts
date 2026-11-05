@@ -14,6 +14,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { actorIsOnlyInformed, actorIsOnlyInformedOnProject, INFORMED_READ_ONLY } from '../../platform/document-raci/access.js'
 import { groupSectionsByItem } from './section-grouping.js'
 
 const createPackageSchema = z.object({
@@ -57,6 +58,7 @@ export const tlfRoutes: FastifyPluginAsync = async (app) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = createPackageSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (await actorIsOnlyInformedOnProject(app.prisma, request.user!, projectId)) return reply.code(403).send(INFORMED_READ_ONLY)
 
     // Unique(projectId, version) — explicit check for a friendlier 409.
     const dup = await app.prisma.tlfPackage.findUnique({
@@ -131,6 +133,7 @@ export const tlfRoutes: FastifyPluginAsync = async (app) => {
 
     const pkg = await app.prisma.tlfPackage.findUnique({ where: { id: packageId } })
     if (!pkg) return reply.code(404).send({ error: 'not_found' })
+    if (await actorIsOnlyInformedOnProject(app.prisma, request.user!, pkg.projectId)) return reply.code(403).send(INFORMED_READ_ONLY)
 
     // Unique(packageId, referenceId) — explicit check for a friendlier 409.
     const dup = await app.prisma.tlfItem.findUnique({
@@ -161,6 +164,7 @@ export const tlfRoutes: FastifyPluginAsync = async (app) => {
 
     const item = await app.prisma.tlfItem.findUnique({ where: { id: itemId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
+    if (await actorIsOnlyInformed(app.prisma, request.user!, parsed.data.documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
 
     // Upsert — repeated POST increments referenceCount if desired.
     const link = await app.prisma.tlfSectionLink.upsert({

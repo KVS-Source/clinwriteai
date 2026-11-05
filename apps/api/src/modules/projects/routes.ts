@@ -11,6 +11,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../auth/rbac.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../platform/taxonomy/validate.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser } from './visibility.js'
+import { actorManagesProject, addPmToProject, checkPmEmail, createInvitedPm, findSelectablePm, normaliseEmail, PM_EMAIL_TAKEN, PM_FORBIDDEN, PM_USER_NOT_ELIGIBLE } from './project-managers.js'
 import {
   canTransition,
   InvalidTransitionError,
@@ -35,6 +36,14 @@ const projectCreateSchema = z.object({
 })
 
 const projectUpdateSchema = projectCreateSchema.partial().omit({ id: true })
+
+// Other PMs to put on a new project: picked from the list, or invited by email. The creator is always one.
+const projectCreateBodySchema = projectCreateSchema.extend({
+  projectManagers: z.object({
+    userIds: z.array(z.string().min(1)).max(50).default([]),
+    inviteEmails: z.array(z.string().trim().email()).max(50).default([]),
+  }).optional(),
+})
 
 const transitionSchema = z.object({
   to: z.enum(PROJECT_STATUSES),
@@ -141,8 +150,10 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
   })
 
   app.post('/', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
-    const parsed = projectCreateSchema.safeParse(request.body)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const parsedBody = projectCreateBodySchema.safeParse(request.body)
+    if (!parsedBody.success) return reply.code(400).send({ error: 'validation', issues: parsedBody.error.issues })
+    const { projectManagers, ...fields } = parsedBody.data
+    const parsed = { data: fields }
 
     const existing = await app.prisma.project.findUnique({ where: { id: parsed.data.id } })
     if (existing) return reply.code(409).send({ error: 'conflict', message: 'Project id already exists' })
@@ -150,6 +161,23 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     // TA must come from the Admin-managed master list (PRD sPM17).
     const therapeuticArea = await findActiveTaLabel(app.prisma, parsed.data.therapeuticArea)
     if (!therapeuticArea) return reply.code(400).send(invalidTaBody(parsed.data.therapeuticArea))
+
+    // Check every PM before creating anything, so a bad entry doesn't leave a half-set-up project.
+    const actor = request.user!
+    const pmUsers = []
+    for (const userId of new Set(projectManagers?.userIds ?? [])) {
+      if (userId === actor.id) continue
+      const user = await findSelectablePm(app.prisma, actor, userId)
+      if (!user) return reply.code(422).send(PM_USER_NOT_ELIGIBLE)
+      pmUsers.push(user)
+    }
+    const newPmEmails: string[] = []
+    for (const email of new Set((projectManagers?.inviteEmails ?? []).map(normaliseEmail))) {
+      const found = await checkPmEmail(app.prisma, actor, email)
+      if (found === 'refused') return reply.code(422).send({ ...PM_EMAIL_TAKEN, email })
+      if (found === null) newPmEmails.push(email)
+      else if (found.id !== actor.id && !pmUsers.some(u => u.id === found.id)) pmUsers.push(found)
+    }
 
     const created = await app.prisma.project.create({
       data: {
@@ -175,7 +203,14 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    const pmInvites: Array<{ email: string; emailQueued: boolean }> = []
+    for (const email of newPmEmails) pmUsers.push(await createInvitedPm(app, request, email))
+    for (const user of pmUsers) {
+      const { emailQueued } = await addPmToProject(app, request, created, user)
+      if (emailQueued !== null) pmInvites.push({ email: user.email, emailQueued })
+    }
+
+    return reply.code(201).send({ ...created, pmInvites })
   })
 
   app.patch('/:id', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
@@ -185,6 +220,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
     const existing = await app.prisma.project.findUnique({ where: { id } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorManagesProject(app.prisma, request.user!, id))) return reply.code(403).send(PM_FORBIDDEN)
 
     // Only a *changed* TA is validated, so legacy labels on existing
     // projects don't block unrelated edits.

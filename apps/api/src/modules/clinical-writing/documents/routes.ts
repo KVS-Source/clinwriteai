@@ -22,7 +22,7 @@ import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatur
 import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService, hashSections } from './service.js'
@@ -1221,6 +1221,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // full state machine (bounces, approvals, etc.).
   app.post('/:documentId/transition', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
     const parsed = transitionSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -1328,6 +1329,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // milestones that don't flip the document's status).
   app.post('/:documentId/advance-stage', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
 
     // Gate B — all mandatory items for stages ≤ current must be complete
     // or waived before the stepper moves forward. 409 with the blocking

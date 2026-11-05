@@ -259,6 +259,10 @@ the screens hide what would be refused.
   signers. The chain needs **at least one Approver** (`approver_required` otherwise). Anyone named who is left
   off is recorded in the `signature_initiated` audit entry (`omittedNamedSigners`). Q (QC), Admin, PM,
   Auditor and Guest are never pre-filled.
+- **Informed (I) is otherwise read-only.** Someone whose only part on a document is I reads it and signs if
+  named. They can't start or cancel a chain, comment, resolve, or give a verdict, and the routes with no other
+  check refuse them too (`informed_read_only`): status change, stage advance, QA review, checklist autocheck and
+  TLF records. The one exception is the CRM: they may schedule a meeting, and in a meeting they chair may run it.
 - **Order.** The default is **by group**: all Authors sign at once, then all Reviewers at once, then all
   Approvers at once, then all Informed at once. A group is released only when the whole group before it has
   signed, and a group nobody is in is skipped. The starter may instead choose sequential (one after another, in
@@ -278,6 +282,14 @@ The PM role is new. These are the capabilities we're adding (not minor):
 - **Create / edit / archive** a project.
 - **Assign team** — add contributors, auditors, PMs to the project.
 - **Set project-level labels** (`project_members.project_role`).
+
+### 5.1a A project's managers
+A project's PMs are users with the platform role `pm` and an active `project_members` row on it. The creator is the first. Any PM on the project can add others on New Project or Project Settings: from the list of PMs in their tenant, or by inviting an email, which creates an invited `pm` account with the inviter's modules. All PMs on a project have the same powers.
+
+- An email belonging to anyone who isn't an available PM in the tenant is refused, not promoted. Changing a role stays with the tenant admin.
+- The invitation link goes only to the invited person's email, never to the inviting PM, so nobody can activate an account in another person's name.
+- A project keeps at least one active PM.
+- A PM edits, and changes the members of, only the projects they work on. See `projects/project-managers.ts`.
 
 ### 5.2 First-writer assignment (PM's only touch on RACI)
 

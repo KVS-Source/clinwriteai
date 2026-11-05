@@ -346,9 +346,9 @@ export function AllProjects() {
       >
         <NewProjectForm
           onCancel={() => setNewProjectOpen(false)}
-          onCreated={id => {
+          onCreated={(id, inviteNotSent) => {
             setNewProjectOpen(false)
-            navigate(`/projects/${id}`)
+            navigate(inviteNotSent ? `/projects/${id}/settings` : `/projects/${id}`)
           }}
         />
       </SlidePanel>

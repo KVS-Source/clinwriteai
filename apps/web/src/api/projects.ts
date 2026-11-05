@@ -1,6 +1,23 @@
 import { api } from './client'
 import type { Project, ProjectStatus, RACIRole, TeamMember } from '@platform/types'
 
+export interface PmDirectoryEntry { id: string; name: string; email: string; status: string }
+export interface ProjectManagerRow extends PmDirectoryEntry { addedBy: string; addedAt: string; isCreator: boolean }
+
+// A project's managers, and the PMs a PM can pick from.
+export const projectManagersApi = {
+  directory: () => api.get<PmDirectoryEntry[]>('/projects/pm-directory'),
+  list: (projectId: string) => api.get<ProjectManagerRow[]>(`/projects/${projectId}/managers`),
+  add: (projectId: string, userId: string) =>
+    api.post<{ managers: ProjectManagerRow[]; emailQueued: boolean | null }>(`/projects/${projectId}/managers`, { userId }),
+  invite: (projectId: string, email: string) =>
+    api.post<{ managers: ProjectManagerRow[]; emailQueued: boolean | null }>(`/projects/${projectId}/managers/invite`, { email }),
+  resend: (projectId: string, userId: string) =>
+    api.post<{ emailQueued: boolean }>(`/projects/${projectId}/managers/${encodeURIComponent(userId)}/resend`, {}),
+  remove: (projectId: string, userId: string) =>
+    api.delete<{ managers: ProjectManagerRow[] }>(`/projects/${projectId}/managers/${encodeURIComponent(userId)}`),
+}
+
 export const projectsApi = {
   list: (params?: { status?: string; ta?: string; search?: string }) => {
     const qs = new URLSearchParams(

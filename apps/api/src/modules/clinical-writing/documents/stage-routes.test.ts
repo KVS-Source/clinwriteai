@@ -41,6 +41,7 @@ async function build(initial: DocRow) {
     checklistInstanceItem: {
       findMany: vi.fn(async () => []),
     },
+    documentRaci: { findMany: vi.fn(async () => []) },
     $transaction: async (fn: (t: unknown) => unknown) => fn({
       document: {
         findUnique: vi.fn(async () => ({ id: doc.id, stage: doc.stage, deletedAt: doc.deletedAt })),

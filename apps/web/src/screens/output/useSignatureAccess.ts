@@ -27,6 +27,8 @@ export interface SignatureAccess {
   canViewFinal: boolean
   canExportAudit: boolean
   canGiveVerdict: boolean
+  /** Their only part on the document is Informed (I): they read it and sign it if named, and change nothing else. */
+  isInformedOnly: boolean
   /** The Author (R) may always cancel; anyone else only the chain they started. */
   canCancelChain: (chain: { initiatedBy: string } | undefined) => boolean
 }
@@ -75,5 +77,6 @@ export function useSignatureAccess(documentId: string | undefined): SignatureAcc
     canGiveVerdict: !isAdmin && !isPm && !isAuditor && !isGuest
                     && ['C', 'Q', 'A'].some(l => letters.has(l)),
     canCancelChain: chain => !!chain && !!me && (chain.initiatedBy === me.id || isAuthor),
+    isInformedOnly: !isAdmin && !isPm && !isAuditor && !isAssignee && letters.size > 0 && [...letters].every(l => l === 'I'),
   }
 }

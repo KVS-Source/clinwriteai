@@ -17,6 +17,7 @@ import { SourceViewer } from '../../panels/SourceReferencesPanel'
 import { EyeIcon, MetaRow, MetaSection, fmtDate } from './detailPanelParts'
 import { DeadlineField } from './DeadlineField'
 import { useSourceAccess } from '../../hooks/useSourceAccess'
+import { useSignatureAccess } from '../output/useSignatureAccess'
 import { LibraryPushedBadge, PushToLibraryButton } from '../../components/library/PushToLibraryButton'
 
 interface Props {
@@ -44,6 +45,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
   useEffect(() => { setViewing(null); setViewError(null); setStageError(null) }, [doc?.id])
 
   const canViewSources = useSourceAccess(projectId)?.canView === true
+  const informedOnly = useSignatureAccess(doc?.id).isInformedOnly
   const sources = useQuery({
     queryKey: ['document-sources', doc?.id],
     queryFn: () => documentsApi.listDocumentSources(doc!.id),
@@ -283,7 +285,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                 {/* Shows itself only to the Author (R) of a signed document not yet in the library. */}
                 {isSigned && fullDoc.data && <PushToLibraryButton document={fullDoc.data} sections={pushSections} />}
               </div>
-              {stage.data && !stage.data.terminal && (
+              {stage.data && !stage.data.terminal && !informedOnly && (
                 <button
                   type="button"
                   onClick={() => advance.mutate()}

@@ -16,7 +16,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { actorCanEditDocumentRaci, actorCanViewChecklist, CHECKLIST_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentRaci, actorCanViewChecklist, actorIsOnlyInformed, CHECKLIST_VIEW_FORBIDDEN, INFORMED_READ_ONLY } from '../../platform/document-raci/access.js'
 import { evaluateSubmitGate, type ChecklistItemForGate } from './submit-gate.js'
 import { AI_PASS_PROFILES, buildAiPassPrompt, parseAiPassResponse } from './autocheck/ai-pass-prompt.js'
 import { putAiPassResult } from './autocheck/ai-pass-cache.js'
@@ -247,6 +247,7 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
       select: { id: true },
     })
     if (!doc) return reply.code(404).send({ error: 'document_not_found' })
+    if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
 
     const result = await runAutocheckForDocument(app.prisma, {
       documentId,

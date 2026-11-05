@@ -40,7 +40,7 @@ async function open(page: Page, stub: Stub) {
       if (/\/auth\/me(\?.*)?$/.test(url)) return json(me)
       if (url.includes(`/documents/${doc}/final/pdf`)) {
         w.__pdf++
-        await new Promise(r => setTimeout(r, 150))
+        await new Promise(r => setTimeout(r, 1500))
         if (stub.refuse) return json(stub.refuse, 409)
         return new Response('%PDF-1.4 stub', { status: 200, headers: { 'Content-Type': 'application/pdf', 'Content-Disposition': 'attachment; filename="E2E_Final_v1.0_Final.pdf"' } })
       }

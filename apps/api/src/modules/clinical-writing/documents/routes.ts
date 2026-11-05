@@ -16,7 +16,7 @@
 // ai-suggest / ai-accept (needs Anthropic connector + prompt-cache service),
 // signature chain (Part 11 — compliance review).
 
-import { createHash } from 'node:crypto'
+import { createHash, randomUUID } from 'node:crypto'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
 import { z } from 'zod'
@@ -25,7 +25,11 @@ import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } fro
 import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
-import { DocumentService } from './service.js'
+import { DocumentService, hashSections } from './service.js'
+import { buildComplianceSummary } from '../checklist/compliance-summary.js'
+import { pdfFileName } from '../../platform/library/pdf-renderer.js'
+import { contentDisposition } from './source-routes.js'
+import { renderFinalDocumentPdf } from './final-pdf-renderer.js'
 import { chooseModel } from '../../platform/config/ai-engine-settings.js'
 import {
   authoringLockReason,
@@ -565,6 +569,99 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
     if (!(await actorCanReadFinalDocument(app.prisma, request.user!, doc))) return reply.code(403).send(FINAL_DOCUMENT_FORBIDDEN)
     return sendFullDocument(request, doc, 'final_document')
+  })
+
+  // The Final Document as a server-made PDF, for the same people who may read it. A signed copy
+  // needs a completed signature chain and content that still matches the hash every signer
+  // signed; otherwise it's refused, never printed as signed. Anything not signed is a watermarked
+  // draft. Each file gets an export id, printed on every page, and its own SHA-256 goes on the audit trail.
+  app.get('/:documentId/final/pdf', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await svc.getWithSections(documentId)
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    const actor = request.user!
+    if (!(await actorCanReadFinalDocument(app.prisma, actor, doc))) return reply.code(403).send(FINAL_DOCUMENT_FORBIDDEN)
+
+    const signed = doc.status === 'signed'
+    const sections = doc.currentVersion?.sections ?? []
+    const chain = signed
+      ? await app.prisma.signatureChain.findFirst({
+          where: { documentId, status: 'complete' },
+          orderBy: { completedAt: 'desc' },
+          include: { records: { where: { status: 'signed' }, orderBy: { step: 'asc' } } },
+        })
+      : null
+    const signatures = chain?.records ?? []
+    if (signed && signatures.length === 0) {
+      return reply.code(409).send({
+        error: 'signature_records_missing',
+        message: "This document is marked as signed, but no completed signature chain is on record, so it can't be exported as a signed document. Ask an administrator to check how its status was set.",
+      })
+    }
+    const documentHash = signatures[signatures.length - 1]?.documentHash ?? null
+    if (signed) {
+      const current = hashSections(sections.map(s => ({ sectionId: s.sectionId, contentHtml: s.contentHtml })))
+      if (signatures.some(s => s.documentHash !== current)) {
+        await app.audit.append({
+          timestamp: new Date().toISOString(),
+          actorId: actor.id,
+          action: 'final_document_export_refused',
+          entityType: 'document',
+          entityId: documentId,
+          details: { reason: 'signed_content_changed', currentHash: current, signedHashes: [...new Set(signatures.map(s => s.documentHash))] },
+          ipAddress: request.ip ?? null,
+        })
+        return reply.code(409).send({
+          error: 'signed_content_changed',
+          message: "This document's content no longer matches what was signed, so it can't be exported as a signed document. Ask an administrator to investigate.",
+        })
+      }
+    }
+
+    const [project, generatedBy, compliance] = await Promise.all([
+      app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { shortTitle: true, name: true, therapeuticArea: true, phase: true } }),
+      app.prisma.user.findUnique({ where: { id: actor.id }, select: { name: true } }),
+      buildComplianceSummary(app.prisma, doc),
+    ])
+    const version = doc.currentVersion?.versionNumber ?? 'v0.0'
+    const mode = signed ? 'signed' as const : 'draft' as const
+    const exportId = randomUUID()
+    const { pdf, pageCount, undrawableCharacters } = await renderFinalDocumentPdf({
+      exportId,
+      generatedAt: new Date(),
+      generatedBy: generatedBy?.name ?? actor.email,
+      mode,
+      document: { id: doc.id, title: doc.title, version, statusLabel: doc.status.replace(/_/g, ' '), signedAt: doc.signedAt ?? chain?.completedAt ?? null },
+      project,
+      sections: sections.map(s => ({ number: s.sectionNumber, title: s.sectionTitle, contentHtml: s.contentHtml })),
+      compliance,
+      signatures,
+      documentHash,
+    })
+
+    // Written before the file leaves: no audit entry, no copy.
+    const fileName = `${pdfFileName(doc.title).replace(/\.pdf$/, '')}_${version}_${signed ? 'Final' : 'DRAFT'}.pdf`
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: actor.id,
+      action: 'final_document_exported',
+      entityType: 'document',
+      entityId: documentId,
+      details: {
+        exportId, mode, format: 'pdf', fileName, versionNumber: version, documentHash, watermarked: !signed, pages: pageCount,
+        pdfSha256: createHash('sha256').update(pdf).digest('hex'), pdfBytes: pdf.length, undrawableCharacters,
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', contentDisposition(fileName))
+      .header('Content-Length', String(pdf.length))
+      .header('X-Content-Type-Options', 'nosniff')
+      .header('Cache-Control', 'private, no-store')
+      .header('X-Export-Id', exportId)
+      .send(pdf)
   })
 
   app.patch('/:documentId/sections/:sectionId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {

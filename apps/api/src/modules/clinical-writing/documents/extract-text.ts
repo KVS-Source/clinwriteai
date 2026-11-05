@@ -58,11 +58,16 @@ export async function extractTextFromBlob(
   // ---- PDF ----
   if (type === 'application/pdf' || type === 'application/x-pdf') {
     try {
-      const pdfParseMod = await import('pdf-parse') as unknown as {
-        default?: (b: Buffer) => Promise<{ text: string }>
-      } & ((b: Buffer) => Promise<{ text: string }>)
-      const pdfParse = pdfParseMod.default ?? pdfParseMod
-      const parsed = await pdfParse(buffer)
+      // Cast: the installed @types/pdf-parse describes the older v1 API.
+      const { PDFParse } = await import('pdf-parse') as unknown as {
+        PDFParse: new (opts: { data: Uint8Array }) => {
+          getText(opts: { pageJoiner: string }): Promise<{ text: string }>
+          destroy(): Promise<void>
+        }
+      }
+      const parser = new PDFParse({ data: new Uint8Array(buffer) })
+      // No page markers: they'd make a scan with no text look like it has some.
+      const parsed = await parser.getText({ pageJoiner: '' }).finally(() => parser.destroy())
       const text = (parsed.text ?? '').trim()
       if (text.length === 0) {
         return {

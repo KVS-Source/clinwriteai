@@ -92,6 +92,12 @@ function auditDetail(row: AuditRow): string {
   }
   if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from ?? 'none')} → ${String(d.to ?? 'none')}`)
   if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
+  if (row.action === 'final_document_exported') {
+    parts.push(d.mode === 'signed' ? 'Signed copy' : 'Watermarked draft')
+    if (typeof d.pages === 'number') parts.push(`${d.pages} pages`)
+    if (typeof d.exportId === 'string') parts.push(`Export ${d.exportId}`)
+    if (typeof d.pdfSha256 === 'string') parts.push(`SHA-256 ${d.pdfSha256}`)
+  }
   return parts.length ? parts.join(' · ') : humanise(row.action)
 }
 

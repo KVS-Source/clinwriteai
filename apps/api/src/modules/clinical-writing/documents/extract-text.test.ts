@@ -58,3 +58,56 @@ describe('extractTextFromBlob — unknown / unsupported', () => {
     expect(r.reason).toContain('PDF')
   })
 })
+
+describe('extractTextFromBlob — real PDFs', () => {
+  // A small PDF, with a text layer when given lines and blank (like a scan) when not.
+  function pdfOf(pages: string[][]): Buffer {
+    const content = (lines: string[]) => (lines.length ? `BT /F1 12 Tf 50 750 Td 14 TL ${lines.map(l => `(${l}) Tj T*`).join(' ')} ET` : '')
+    const pageIds = pages.map((_, i) => 3 + i * 2)
+    const objects = [
+      '<< /Type /Catalog /Pages 2 0 R >>',
+      `<< /Type /Pages /Kids [${pageIds.map(id => `${id} 0 R`).join(' ')}] /Count ${pages.length} >>`,
+      ...pages.flatMap((lines, i) => {
+        const stream = content(lines)
+        return [
+          `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Contents ${pageIds[i]! + 1} 0 R /Resources << /Font << /F1 ${3 + pages.length * 2} 0 R >> >> >>`,
+          `<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`,
+        ]
+      }),
+      '<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>',
+    ]
+    let body = '%PDF-1.4\n'
+    const offsets: number[] = []
+    objects.forEach((o, i) => { offsets.push(body.length); body += `${i + 1} 0 obj\n${o}\nendobj\n` })
+    const xref = body.length
+    body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n${offsets.map(o => `${String(o).padStart(10, '0')} 00000 n \n`).join('')}`
+    body += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
+    return Buffer.from(body, 'latin1')
+  }
+
+  it('reads the text of every page', async () => {
+    const r = await extractTextFromBlob(pdfOf([['Statistical Analysis Plan'], ['Version 2.1']]), 'application/pdf')
+    expect(r.reason).toBe('')
+    expect(r.ok).toBe(true)
+    expect(r.text).toContain('Statistical Analysis Plan')
+    expect(r.text).toContain('Version 2.1')
+  })
+
+  it('adds no page markers of its own', async () => {
+    const r = await extractTextFromBlob(pdfOf([['First'], ['Second']]), 'application/pdf')
+    expect(r.text).not.toMatch(/\d+ of \d+/)
+  })
+
+  it('caps long text', async () => {
+    const r = await extractTextFromBlob(pdfOf([['Statistical Analysis Plan']]), 'application/pdf', { maxChars: 11 })
+    expect(r.text).toBe('Statistical')
+    expect(r.reason).toContain('truncated')
+  })
+
+  it('reports a PDF with no text layer as such, which is what sends a scan to AI Chat as an attachment', async () => {
+    const r = await extractTextFromBlob(pdfOf([[], [], []]), 'application/pdf')
+    expect(r.ok).toBe(false)
+    expect(r.text).toBe('')
+    expect(r.reason).toContain('no extractable text')
+  })
+})

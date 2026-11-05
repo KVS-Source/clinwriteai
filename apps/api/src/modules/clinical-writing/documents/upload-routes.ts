@@ -1,18 +1,18 @@
 // Document upload + classification routes — Module A (API contract §3).
 //
 //   POST /projects/:projectId/documents/upload
-//     Accepts a multipart file, writes it to BlobStorage, creates a
-//     DocumentUpload row with status='pending_classification', returns
-//     the stubbed classification result.
+//     Accepts a multipart file, writes it to BlobStorage, asks the AI gateway
+//     for a suggested category + version (source-classifier.ts), creates a
+//     DocumentUpload row with status='pending_classification', returns the
+//     suggestion for the user to confirm.
 //
 //   POST /projects/:projectId/documents/confirm-classification
 //     Takes the uploadId + user overrides, creates the real Document via
 //     DocumentService, marks the upload row 'confirmed' and links documentId.
 //     Audits both the creation and any overrides.
 //
-// Classification is a stub — filename heuristic for documentType +
-// defaults for other fields. Real AI classification lands when the
-// Anthropic connector arrives (same procurement gate as other AI code).
+// classifyByFilename below is the fallback for the suggestion, and the only
+// source of documentType and the other fields the upload form doesn't show.
 
 import type { FastifyPluginAsync } from 'fastify'
 import type { MultipartFile } from '@fastify/multipart'
@@ -25,6 +25,7 @@ import { generateBlobKey } from '../../../modules/platform/blob/local-storage.js
 import { DocumentService } from './service.js'
 import { isSupportedSourceFile, SUPPORTED_SOURCE_LABEL } from '../../platform/uploads/source-files.js'
 import { SOURCE_CATEGORIES, suggestSourceCategory } from './source-categories.js'
+import { classifySourceUpload } from './source-classifier.js'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024   // 50 MB per API contract
 
@@ -46,8 +47,7 @@ const saveSchema = z.object({
   overrides: z.array(z.string()).default([]),
 })
 
-// Heuristic-based classification stub. Returns a reasonable guess based on
-// the filename until the real AI classifier lands.
+// Heuristic-based classification. Returns a reasonable guess based on the filename.
 // Exported for unit-test coverage; routes still call it via the local name.
 export function classifyByFilename(filename: string) {
   const lc = filename.toLowerCase()
@@ -75,7 +75,7 @@ export function classifyByFilename(filename: string) {
     therapeuticArea: '(inherit from project)',
     taConfidence: 0,
     frameworks: ['ICH E6(R3)'],
-    stub: true,                  // flagged so UI can show "AI classifier not yet live"
+    stub: true,                  // no AI involved; the upload form says so
   }
 }
 
@@ -115,7 +115,14 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
       metadata: { originalFilename: file.filename, projectId, uploadedBy: request.user!.id },
     })
 
-    const classification = classifyByFilename(file.filename)
+    const classification = await classifySourceUpload(app, classifyByFilename(file.filename), {
+      buffer: buf,
+      fileName: file.filename,
+      contentType: file.mimetype,
+      tenantId: request.user!.tenantId,
+      projectId,
+      actorId: request.user!.id,
+    })
 
     const row = await app.prisma.documentUpload.create({
       data: {
@@ -143,6 +150,12 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
         fileSizeBytes: buf.length,
         contentType: file.mimetype,
         detectedType: classification.documentType,
+        classifiedBy: classification.classifiedBy,
+        suggestedCategory: classification.sourceCategory,
+        suggestedCategoryConfidence: classification.sourceCategoryConfidence,
+        ...(classification.classifiedBy === 'ai'
+          ? { aiModel: classification.aiModel, aiCallRecordId: classification.aiCallRecordId }
+          : { fallbackReason: classification.fallbackReason }),
       },
       ipAddress: request.ip ?? null,
     })

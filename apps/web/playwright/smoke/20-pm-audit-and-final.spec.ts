@@ -68,13 +68,17 @@ test('the PM can open a signed document and download it', async ({ page }) => {
   await expect(page.locator('[data-signed-banner="signed"]')).toBeVisible()
   await expect(page.locator('[data-final-access-denied]')).toHaveCount(0)
 
-  // Download PDF is the browser's print dialog.
-  await page.evaluate(() => {
-    const w = window as unknown as { __printed?: boolean }
-    window.print = () => { w.__printed = true }
-  })
+  // Download PDF is a file from the server (spec 34 and final-pdf.test.ts cover it in full). Answered
+  // here so the test doesn't add an export to the real audit trail.
+  await page.route('**/final/pdf', route => route.fulfill({
+    status: 200,
+    contentType: 'application/pdf',
+    headers: { 'Content-Disposition': 'attachment; filename="stub.pdf"' },
+    body: '%PDF-1.4 stub',
+  }))
   const button = page.getByRole('button', { name: 'Download PDF' })
   await expect(button).toBeEnabled({ timeout: 30_000 })
+  const download = page.waitForEvent('download')
   await button.click()
-  expect(await page.evaluate(() => (window as unknown as { __printed?: boolean }).__printed)).toBe(true)
+  expect((await download).suggestedFilename()).toBe('stub.pdf')
 })

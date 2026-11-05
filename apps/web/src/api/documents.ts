@@ -167,6 +167,9 @@ export const documentsApi = {
   // read the Final Document (admin, guest, QC (Q) alone), as the screen does.
   getFinal: (documentId: string) =>
     api.get<Document>(`/documents/${documentId}/final`),
+  // The server-made PDF of the Final Document, as a Blob.
+  downloadFinalPdf: (documentId: string) =>
+    api.download(`/documents/${documentId}/final/pdf`),
   create: (projectId: string, body: CreateDocumentBody) =>
     api.post<Document>(`/projects/${projectId}/documents`, body),
   upload: (projectId: string, formData: FormData) =>

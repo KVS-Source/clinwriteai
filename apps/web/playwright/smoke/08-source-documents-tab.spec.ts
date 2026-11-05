@@ -17,6 +17,8 @@ const PROJECT_ID = process.env.E2E_PROJECT_ID ?? PROTOTYPE_PROJECT_ID
 test.setTimeout(120_000)
 
 async function openTab(page: Page) {
+  // Tenant admins can't see source documents, so this runs as a PM, who can view and upload.
+  await page.addInitScript((persona) => window.localStorage.setItem('clinwrite.demo.currentUserId', persona), process.env.E2E_PM_PERSONA ?? 'user-sa')
   await page.goto(`/projects/${PROJECT_ID}/clinical-writing`)
   const tab = page.getByRole('button', { name: /^Source Documents/ })
   await expect(tab).toBeVisible({ timeout: 60_000 })

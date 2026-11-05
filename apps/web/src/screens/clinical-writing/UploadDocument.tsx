@@ -12,8 +12,9 @@
 // API: POST /projects/:id/documents/upload                  (multipart)
 //      POST /projects/:id/source-documents/:uploadId/save
 //
-// The category suggestion is a filename heuristic in dev (`stub: true`); the
-// panel surfaces that so reviewers know to double-check the fields.
+// The API suggests the category and version with AI from the file's contents, and
+// nothing is kept until the user confirms with "Save to library". When the AI can't
+// answer the suggestion is a filename guess (`stub: true`), and the panel says so.
 
 import { SOURCE_FILE_ACCEPT, SOURCE_FILE_ERROR, SOURCE_FILE_EXT_RE, SOURCE_FILE_HINT } from '../../utils/sourceFileTypes'
 import { SOURCE_CATEGORIES } from '../../utils/sourceCategories'
@@ -42,6 +43,11 @@ interface Classification {
   version:                  string
   versionConfidence:        number
   stub:                     boolean
+  versionSource?:           'ai' | 'filename'
+  /** What in the file led the AI to this category. */
+  reason?:                  string
+  /** Why the suggestion is a filename guess. */
+  fallbackReason?:          'unreadable' | 'ai_unavailable'
 }
 
 interface UploadResponse {
@@ -270,8 +276,11 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
   }
 
   // State 3 — review + save to library
-  const catConf = upload.classification.sourceCategoryConfidence
-  const versionConf = upload.classification.versionConfidence
+  const { stub, reason, fallbackReason } = upload.classification
+  const versionByAi = !stub && upload.classification.versionSource !== 'filename'
+  // A filename guess has no real confidence, so it shows none.
+  const catConf = stub ? 0 : upload.classification.sourceCategoryConfidence
+  const versionConf = versionByAi ? upload.classification.versionConfidence : 0
 
   return (
     <form
@@ -283,9 +292,14 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
       className="flex flex-col gap-4 p-5"
       data-form="upload-document-review"
     >
-      {upload.classification.stub && (
-        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-800" role="status">
-          <strong>{t('page.upload_document.stub_warning_bold')}</strong>{t('page.upload_document.stub_warning_body')}
+      {stub ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-3 text-[12px] text-amber-800" role="status" data-classification-note="filename">
+          <strong>{t('page.upload_document.stub_warning_bold')}</strong>{' '}
+          {fallbackReason === 'unreadable' ? t('page.upload_document.stub_unreadable') : t('page.upload_document.stub_ai_unavailable')}
+        </div>
+      ) : (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-[12px] text-blue-900" role="status" data-classification-note="ai">
+          {t('page.upload_document.ai_suggestion_note')}
         </div>
       )}
 
@@ -299,7 +313,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
       <section className="rounded-lg border border-slate-200 bg-slate-50 p-4">
         <h3 className="text-[13px] font-semibold text-slate-900">{t('page.upload_document.source_details')}</h3>
         <div className="mt-3 flex flex-col gap-3">
-          <FieldLabel label={t('page.upload_document.category_label')} conf={catConf} touched={touched.has('category')}>
+          <FieldLabel label={t('page.upload_document.category_label')} conf={catConf} touched={touched.has('category')} byAi={!stub}>
             <select
               value={category}
               onChange={e => { setCategory(e.currentTarget.value); markTouched('category') }}
@@ -309,6 +323,9 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
             >
               {SOURCE_CATEGORIES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
+            {!stub && reason && !touched.has('category') && (
+              <span className="text-[11px] text-slate-500" data-classification-reason>{reason}</span>
+            )}
           </FieldLabel>
 
           <label className="flex flex-col gap-1">
@@ -331,7 +348,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
             />
           </label>
 
-          <FieldLabel label={t('page.upload_document.version_label')} conf={versionConf} touched={touched.has('version')}>
+          <FieldLabel label={t('page.upload_document.version_label')} conf={versionConf} touched={touched.has('version')} byAi={versionByAi}>
             <input
               value={version}
               onChange={e => { setVersion(e.currentTarget.value); markTouched('version') }}
@@ -364,10 +381,11 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
 
 // ---- Small presentational helpers ----
 
-function FieldLabel({ label, conf, touched, children }: {
+function FieldLabel({ label, conf, touched, byAi, children }: {
   label:   string
   conf:    number
   touched: boolean
+  byAi:    boolean
   children: React.ReactNode
 }) {
   return (
@@ -375,8 +393,8 @@ function FieldLabel({ label, conf, touched, children }: {
       <div className="flex items-center justify-between">
         <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
         <div className="flex items-center gap-1.5">
-          <AiChip touched={touched} />
-          {conf > 0 && <ConfidenceBadge pct={conf} />}
+          <AiChip touched={touched} byAi={byAi} />
+          {conf > 0 && !touched && <ConfidenceBadge pct={conf} />}
         </div>
       </div>
       {children}
@@ -393,12 +411,12 @@ function ConfidenceBadge({ pct, label }: { pct: number; label?: string }) {
   )
 }
 
-function AiChip({ touched }: { touched: boolean }) {
+function AiChip({ touched, byAi }: { touched: boolean; byAi: boolean }) {
   const { t } = useTranslation()
-  if (touched) {
+  if (touched || !byAi) {
     return (
       <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>
-        {t('page.upload_document.edited_chip')}
+        {touched ? t('page.upload_document.edited_chip') : t('page.upload_document.from_filename_chip')}
       </span>
     )
   }

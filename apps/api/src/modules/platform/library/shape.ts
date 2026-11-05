@@ -12,6 +12,7 @@
 //   category:<label>  best-practice category
 //   effective:<date>  best practice effective-from  (YYYY-MM-DD)
 //   valid-until:<d>   best practice valid-until     (YYYY-MM-DD)
+//   docversion:<v>    version of the source document when it was pushed (e.g. v0.3)
 //
 // Any other tag is a plain user tag. Once real columns exist this file is the
 // only place that has to change.
@@ -20,7 +21,7 @@ export const KNOWN_MODULES = ['A', 'B', 'C', 'D', 'E'] as const
 export type LibModule = (typeof KNOWN_MODULES)[number] | 'platform'
 export type LibItemType = 'document' | 'section' | 'best-practice'
 
-const META_KEYS = ['module', 'doctype', 'project', 'source', 'type', 'category', 'effective', 'valid-until'] as const
+const META_KEYS = ['module', 'doctype', 'project', 'source', 'type', 'category', 'effective', 'valid-until', 'docversion'] as const
 
 export interface SectionRow {
   id: string
@@ -53,13 +54,14 @@ export interface ParsedTags {
   category: string | null
   effective: string | null
   validUntil: string | null
+  docVersion: string | null
   plain: string[]
 }
 
 export function parseTags(tags: string[]): ParsedTags {
   const out: ParsedTags = {
     module: 'platform', docTypes: [], projectId: null, sourceId: null,
-    isDocument: false, category: null, effective: null, validUntil: null, plain: [],
+    isDocument: false, category: null, effective: null, validUntil: null, docVersion: null, plain: [],
   }
   for (const raw of tags) {
     const i = raw.indexOf(':')
@@ -80,6 +82,7 @@ export function parseTags(tags: string[]): ParsedTags {
       case 'category':    out.category = value; break
       case 'effective':   out.effective = value; break
       case 'valid-until': out.validUntil = value; break
+      case 'docversion':  out.docVersion = value; break
     }
   }
   return out
@@ -117,7 +120,7 @@ export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
   const provenanceChain = [
     ...(project ? [`Project: ${project.name}`] : []),
     `${t.module === 'platform' ? 'Platform' : `Module ${t.module} · ${MODULE_NAME[t.module]}`}`,
-    ...(t.sourceId ? [`Source: ${t.sourceId}`] : []),
+    ...(t.sourceId ? [`Source: ${t.sourceId}${t.docVersion ? ` (${t.docVersion})` : ''}`] : []),
     `Master Library · ${version} · ${day(row.approvedAt)} by ${pushedByName}`,
   ]
 
@@ -136,6 +139,7 @@ export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
     projectName: project?.name ?? 'Platform library',
     tags: t.plain,
     isArchived: archived,
+    isWithdrawn: !!row.retiredAt,
     ...(archived && {
       archivedReason: row.retiredAt ? 'Withdrawn from the library' : 'Source project is closed',
     }),

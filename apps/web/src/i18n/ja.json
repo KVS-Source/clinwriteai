@@ -3092,7 +3092,29 @@
       "pull_section_action": "セクションをプル",
       "pull_success": "{{title}} · セクション {{section}} にプルしました。プロベナンスを追加しました。",
       "pull_fallback_title": "文書",
-      "pull_failure": "プルできませんでした: {{message}}"
+      "pull_failure": "プルできませんでした: {{message}}",
+      "show_withdrawn": "取り下げ済みの項目を含める",
+      "pull_withdrawn": "取り下げ済みの項目は取り込めません",
+      "action_new_version": "新バージョン",
+      "action_withdraw": "取り下げ",
+      "version_panel_title": "新バージョン",
+      "version_panel_hint": "この項目の新しいバージョンを公開します。現在のバージョンは履歴に残り、以後ドキュメントに取り込めなくなります。",
+      "field_title": "タイトル",
+      "field_text": "本文",
+      "version_submit": "新バージョンを公開",
+      "version_saving": "公開中…",
+      "version_success": "「{{name}}」の新バージョンを公開しました。",
+      "withdraw_panel_title": "ライブラリから取り下げ",
+      "withdraw_panel_hint": "取り下げた項目は、以後ドキュメントに取り込めません。すでに使用しているドキュメントは変更されず、履歴は保持されます。",
+      "withdraw_reason_label": "理由（必須）",
+      "withdraw_submit": "取り下げ",
+      "withdrawing": "取り下げ中…",
+      "withdraw_success": "「{{name}}」をライブラリから取り下げました。",
+      "admin_failure": "保存できませんでした: {{message}}",
+      "pull_not_author": "このドキュメントにライブラリのテキストを追加できるのは、執筆者（R）のみです。",
+      "pull_doc_locked": "このドキュメントは執筆がロックされています（{{status}}）。ライブラリのテキストは編集可能な間のみ追加できます。",
+      "pull_adoption_failed": "使用状況を記録できませんでした。",
+      "pdf_failed": "PDFを準備できませんでした。もう一度お試しください。"
     },
 
     "best_practices_library": {
@@ -3489,6 +3511,26 @@
 
       "can_fallback_1": "割り当てられたモジュールでの作業",
       "cannot_fallback_1": "ロールに含まれない限り管理ページへのアクセス"
+    },
+    "library_push": {
+      "button": "マスターライブラリに登録",
+      "button_hint": "この署名済みドキュメント、またはそのセクションをマスターライブラリに追加します",
+      "title": "マスターライブラリに登録",
+      "hint": "登録できるのは署名済みの最終ドキュメントのみです。下記4つのタグが付いた状態で、他のプロジェクトやモジュールが再利用できるようライブラリに登録されます。",
+      "scope": "登録する対象",
+      "scope_document": "ドキュメント全体",
+      "scope_section": "1つのセクション",
+      "section": "セクション",
+      "choose_section": "セクションを選択",
+      "mandatory_tags": "必須タグ",
+      "tag_version": "バージョン",
+      "tag_module": "モジュール",
+      "tag_doc_type": "ドキュメント種別",
+      "choose_doc_type": "ドキュメント種別を選択",
+      "submit": "ライブラリに登録",
+      "pushing": "登録中…",
+      "success": "マスターライブラリに登録しました: {{name}}（{{version}}）",
+      "failure": "登録できませんでした: {{message}}"
     }
   },
 

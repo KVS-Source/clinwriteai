@@ -10,7 +10,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { documentsRoutes } from './routes.js'
 import { documentRaciRoutes } from '../../platform/document-raci/routes.js'
-import { resetAuthorSubmissions } from '../../platform/document-raci/access.js'
+import { resetRaciRound } from '../../platform/document-raci/access.js'
 
 type Row = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any -- loose in-memory Prisma stub
 const DOC = 'DOC-1'
@@ -161,20 +161,25 @@ describe('no side doors into review', () => {
 })
 
 describe('back to authoring starts a new round', () => {
-  it('resetAuthorSubmissions clears every active R submission on the document (and only R)', async () => {
+  it("resetRaciRound clears every active row's completion and rejection; removed rows keep their history", async () => {
+    const done = new Date()
     const rows: Row[] = [
-      rRow('r-a', 'u-a', { submittedAt: new Date() }),
-      rRow('r-old', 'u-b', { submittedAt: new Date(), removedAt: new Date() }),
-      { ...rRow('c-1', 'u-rev'), letter: 'C', reviewedAt: new Date() },
+      rRow('r-a', 'u-a', { submittedAt: done }),
+      { ...rRow('c-1', 'u-rev'), letter: 'C', reviewedAt: done },
+      { ...rRow('a-1', 'u-app'), letter: 'A', approvedAt: done, signatureId: 'sig-1' },
+      { ...rRow('q-1', 'u-qc'), letter: 'Q', rejectedAt: done, rejectionNote: 'Tables mismatch' },
+      rRow('r-old', 'u-b', { submittedAt: done, removedAt: done }),
     ]
     const updateMany = vi.fn(async ({ where, data }: Row) => {
-      const hit = rows.filter(r => r.documentId === where.documentId && r.letter === where.letter && (r.removedAt ?? null) === where.removedAt && r.submittedAt != null)
+      const hit = rows.filter(r => r.documentId === where.documentId && (r.removedAt ?? null) === where.removedAt)
       hit.forEach(r => Object.assign(r, data))
       return { count: hit.length }
     })
-    await resetAuthorSubmissions({ documentRaci: { updateMany } } as never, DOC)
-    expect(rows[0].submittedAt).toBeNull()
-    expect(rows[1].submittedAt).toBeInstanceOf(Date)        // a removed row keeps its history
-    expect(rows[2].reviewedAt).toBeInstanceOf(Date)         // reviewers untouched
+    await resetRaciRound({ documentRaci: { updateMany } } as never, DOC)
+    for (const r of rows.slice(0, 4)) {
+      expect(r).toMatchObject({ submittedAt: null, reviewedAt: null, approvedAt: null, signatureId: null, rejectedAt: null })
+    }
+    expect(rows[3].rejectionNote).toBe('Tables mismatch')      // the reason given is kept
+    expect(rows[4].submittedAt).toBe(done)                     // a removed row keeps its history
   })
 })

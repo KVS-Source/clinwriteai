@@ -1,13 +1,16 @@
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useEffect, useMemo, useState } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTaLabels } from '../../hooks'
 import type { MasterLibraryItem, MasterLibraryItemType, ModuleKey } from '@platform/types'
+import type { LibraryListParams } from '../api/platformApi'
 import { PLATFORM_ACCENT, PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store/platformStore'
 import { documentsApi, projectsApi, describeApiError } from '../../api'
+import { raciApi } from '../../api/raci'
+import { api } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 
 // Business-module display labels. Keyed only on A..E (the writing
@@ -35,6 +38,10 @@ const ITEM_TYPE_KEYS: Record<MasterLibraryItemType, string> = {
 const BASE_DOC_TYPES = ['NDA', 'CSR', 'SmPC', 'RMP', 'Blog Post', 'IND', 'KOL Summary', 'Manuscript', 'Clinical Brief', 'HA Response']
 
 const PAGE_SIZE = 20
+const SEARCH_DEBOUNCE_MS = 300
+// Mirrors the API's AUTHORING_LOCKED_STATUSES. The web sends statuses with hyphens (in-review), the API with underscores.
+const AUTHORING_LOCKED = ['in-review', 'pending-signature', 'signed']
+const isAuthoringLocked = (status: string | undefined) => !!status && AUTHORING_LOCKED.includes(status.replace(/_/g, '-'))
 
 type SortKey = 'recent' | 'oldest' | 'name-asc' | 'name-desc'
 const SORT_LABEL_KEYS: Record<SortKey, string> = {
@@ -61,10 +68,8 @@ export function MasterLibrary() {
   const currentUser = usePlatformStore(s => s.currentUser)
   const roleLabel = PLATFORM_USER_ROLE_LABEL[currentUser.role] ?? currentUser.role
 
-  const { data: items = [], isLoading, error, refetch, isFetching } = useQuery<MasterLibraryItem[]>({
-    queryKey: ['library'],
-    queryFn:  () => platformApi.listLibrary(),
-  })
+  const queryClient = useQueryClient()
+  const canManage = usePlatformStore(s => s.hasRole)(['tenant-admin', 'admin'])
 
   // Filters start empty — nothing is pre-applied.
   const [search,      setSearch]      = useState('')
@@ -77,11 +82,36 @@ export function MasterLibrary() {
   const [fromDay,     setFromDay]     = useState('')
   const [toDay,       setToDay]       = useState('')
   const [sort,        setSort]        = useState<SortKey>('recent')
-  const [visible,     setVisible]     = useState(PAGE_SIZE)
+  const [showWithdrawn, setShowWithdrawn] = useState(false)
   const { labels: taLabels } = useTaLabels()
+
+  // Filters, search, sort and paging all run on the server, so the library is
+  // not capped at the first page and the total is the real one (CW-061).
+  const [debouncedSearch, setDebouncedSearch] = useState('')
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS)
+    return () => clearTimeout(id)
+  }, [search])
+  const dateRangeInvalid = !!fromDay && !!toDay && fromDay > toDay
+  const listParams = useMemo<LibraryListParams>(() => ({
+    q: debouncedSearch, module: disciplines, itemType: itemTypes, docType: docTypes, ta: tas,
+    projectId: project, version, from: fromDay, to: toDay, sort, includeRetired: showWithdrawn, limit: PAGE_SIZE,
+  }), [debouncedSearch, disciplines, itemTypes, docTypes, tas, project, version, fromDay, toDay, sort, showWithdrawn])
+
+  const { data, isLoading, error, refetch, isFetching, isFetchingNextPage, fetchNextPage, hasNextPage } = useInfiniteQuery({
+    queryKey: ['library', listParams],
+    queryFn: ({ pageParam }) => platformApi.listLibraryPage(listParams, pageParam),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: last => last.nextCursor ?? undefined,
+    placeholderData: keepPreviousData,
+    enabled: !dateRangeInvalid,
+  })
+  const items = useMemo(() => data?.pages.flatMap(pg => pg.items) ?? [], [data])
+  const total = data?.pages[0]?.total ?? 0
 
   const [selectedId, setSelectedId] = useState<string>('')
   const [pullOpen,   setPullOpen]   = useState(false)
+  const [adminAction, setAdminAction] = useState<'version' | 'withdraw' | null>(null)
   const [toast,      setToast]      = useState<string | null>(null)
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3600) }
 
@@ -99,67 +129,33 @@ export function MasterLibrary() {
     setter(arr.includes(value) ? arr.filter(x => x !== value) : [...arr, value])
 
   const docTypeOptions = useMemo(
-    () => Array.from(new Set([...BASE_DOC_TYPES, ...items.map(i => i.docType)])).filter(Boolean),
-    [items],
+    () => Array.from(new Set([...BASE_DOC_TYPES, ...docTypes, ...items.map(i => i.docType)])).filter(Boolean),
+    [items, docTypes],
   )
+  // Every project the user can see, not just the ones on the loaded page.
+  const { data: projectList = [] } = useQuery({ queryKey: ['library-projects'], queryFn: () => projectsApi.list() })
   const projectOptions = useMemo(
-    () => Array.from(new Set(items.map(i => i.projectName))).filter(Boolean).sort(),
-    [items],
+    () => projectList.map(p => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name)),
+    [projectList],
   )
   const versionOptions = useMemo(
-    () => Array.from(new Set(items.map(i => i.version))).filter(Boolean).sort(),
-    [items],
+    () => Array.from(new Set([...(version ? [version] : []), ...items.map(i => i.version)])).filter(Boolean).sort(),
+    [items, version],
   )
 
   const activeFilterCount =
     (search.trim() ? 1 : 0) + (disciplines.length ? 1 : 0) + (itemTypes.length ? 1 : 0) +
     (docTypes.length ? 1 : 0) + (tas.length ? 1 : 0) + (project ? 1 : 0) + (version ? 1 : 0) +
-    (fromDay || toDay ? 1 : 0)
+    (fromDay || toDay ? 1 : 0) + (showWithdrawn ? 1 : 0)
   const filtersDirty = activeFilterCount > 0
 
   function resetFilters() {
     setSearch(''); setDisciplines([]); setItemTypes([]); setDocTypes([]); setTas([])
     setProject(''); setVersion(''); setFromDay(''); setToDay('')
-    setSort('recent'); setVisible(PAGE_SIZE)
+    setSort('recent'); setShowWithdrawn(false)
   }
 
-  const filtered = useMemo(() => {
-    const q = search.trim().toLowerCase()
-    const fromMs = fromDay ? new Date(`${fromDay}T00:00:00.000Z`).getTime() : null
-    const toMs   = toDay   ? new Date(`${toDay}T23:59:59.999Z`).getTime()   : null
-    const rows = items.filter(i => {
-      if (q) {
-        const hay = [i.name, i.docType, i.projectName, i.pushedByName, i.version, ...i.ta, ...i.tags].join(' ').toLowerCase()
-        if (!hay.includes(q)) return false
-      }
-      if (disciplines.length && !disciplines.includes(i.module as ModuleKey)) return false
-      if (itemTypes.length && !itemTypes.includes(i.itemType))               return false
-      if (docTypes.length && !docTypes.includes(i.docType))                  return false
-      if (tas.length && !i.ta.some(ta => tas.includes(ta)))                  return false
-      if (project && i.projectName !== project)                              return false
-      if (version && i.version !== version)                                  return false
-      const pushedMs = new Date(i.pushedAt).getTime()
-      if (fromMs !== null && pushedMs < fromMs)                              return false
-      if (toMs   !== null && pushedMs > toMs)                                return false
-      return true
-    })
-    rows.sort((a, b) => {
-      switch (sort) {
-        case 'oldest':    return new Date(a.pushedAt).getTime() - new Date(b.pushedAt).getTime()
-        case 'name-asc':  return a.name.localeCompare(b.name)
-        case 'name-desc': return b.name.localeCompare(a.name)
-        default:          return new Date(b.pushedAt).getTime() - new Date(a.pushedAt).getTime()
-      }
-    })
-    return rows
-  }, [items, search, disciplines, itemTypes, docTypes, tas, project, version, fromDay, toDay, sort])
-
-  // Any filter / sort change goes back to the first page of results.
-  useEffect(() => { setVisible(PAGE_SIZE) }, [search, disciplines, itemTypes, docTypes, tas, project, version, fromDay, toDay, sort])
-
-  const active = filtered.find(i => i.id === selectedId) ?? filtered[0]
-  const shown = filtered.slice(0, visible)
-  const dateRangeInvalid = !!fromDay && !!toDay && fromDay > toDay
+  const active = items.find(i => i.id === selectedId) ?? items[0]
 
   // Other versions of the same item (same name, different version) — newest first.
   const versionHistory = useMemo(() => {
@@ -169,43 +165,34 @@ export function MasterLibrary() {
       .sort((a, b) => new Date(b.pushedAt).getTime() - new Date(a.pushedAt).getTime())
   }, [items, active])
 
-  const canPull = !!active && active.itemType === 'section' && !!active.body
+  const canPull = !!active && active.itemType === 'section' && !!active.body && !active.isWithdrawn
+  const canAdminister = canManage && !!active && active.itemType !== 'best-practice' && !active.isWithdrawn
   const pullLabel = !active ? t('page.master_library.pull_default')
     : active.itemType !== 'section' ? t('page.master_library.pull_sections_only')
+    : active.isWithdrawn ? t('page.master_library.pull_withdrawn')
     : !active.body ? t('page.master_library.pull_no_text')
     : t('page.master_library.pull_default')
   const immutabilityNote = active?.isArchived
     ? t('page.master_library.immutability_archived')
     : t('page.master_library.immutability_default')
 
-  // Download PDF: a clean printable view of the item; the browser's
-  // "Save as PDF" does the rest.
-  function downloadPdf(item: MasterLibraryItem) {
-    const w = window.open('', '_blank', 'noopener=no,width=900,height=1000')
-    if (!w) { flash(t('page.master_library.popup_blocked')); return }
-    const rows: [string, string][] = [
-      [t('page.master_library.pdf_row_module'),        `${item.module} · ${DISCIPLINE_LABEL_KEYS[item.module as 'A' | 'B' | 'C' | 'D' | 'E'] ? t(DISCIPLINE_LABEL_KEYS[item.module as 'A' | 'B' | 'C' | 'D' | 'E']) : item.module}`],
-      [t('page.master_library.pdf_row_item_type'),     ITEM_TYPE_KEYS[item.itemType] ? t(ITEM_TYPE_KEYS[item.itemType]) : item.itemType],
-      [t('page.master_library.pdf_row_doc_type'),      item.docType],
-      [THERAPEUTIC_AREA_LABEL,                         item.ta.join(', ') || '—'],
-      [t('page.master_library.pdf_row_version'),       item.version],
-      [t('page.master_library.pdf_row_project'),       item.projectName],
-      [t('page.master_library.pdf_row_pushed'),        t('page.master_library.pdf_pushed_value', { date: formatDay(item.pushedAt), user: item.pushedByName })],
-      [t('page.master_library.pdf_row_tags'),          item.tags.join(', ') || '—'],
-      [t('page.master_library.pdf_row_status'),        item.isArchived ? t('page.master_library.pdf_status_archived', { reason: item.archivedReason ? ` — ${item.archivedReason}` : '' }) : t('page.master_library.pdf_status_current')],
-    ]
-    w.document.write(`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(item.name)}</title>
-      <style>body{font:14px/1.5 system-ui,sans-serif;color:#0f172a;max-width:760px;margin:32px auto;padding:0 24px}
-      h1{font-size:22px;margin:0 0 4px}h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:24px 0 6px}
-      table{border-collapse:collapse;width:100%}td{padding:4px 12px 4px 0;vertical-align:top}td:first-child{width:160px;color:#64748b}
-      ol{padding-left:20px}.body{white-space:pre-wrap}.foot{margin-top:32px;font-size:11px;color:#64748b}</style></head><body>
-      <h1>${escapeHtml(item.name)}</h1><p style="color:#64748b;margin:0">${escapeHtml(t('page.master_library.pdf_subtitle'))}</p>
-      <h2>${escapeHtml(t('page.master_library.pdf_details'))}</h2><table>${rows.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}</table>
-      <h2>${escapeHtml(t('page.master_library.pdf_provenance'))}</h2><ol>${item.provenanceChain.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol>
-      ${item.body ? `<h2>${escapeHtml(t('page.master_library.pdf_content'))}</h2><div class="body">${escapeHtml(item.body)}</div>` : ''}
-      <p class="foot">${escapeHtml(t('page.master_library.pdf_footer', { time: new Date().toUTCString(), note: immutabilityNote }))}</p>
-      <script>window.onload=function(){window.print()}</script></body></html>`)
-    w.document.close()
+  // Download PDF: the server builds a PDF of the item's own text (title + body, no app
+  // details) and the browser saves it as a file — no print dialog, no pop-up.
+  async function downloadPdf(item: MasterLibraryItem) {
+    if (!item.body) { flash(t('page.master_library.pdf_no_content')); return }
+    try {
+      const { blob, filename } = await api.download(`/library/${encodeURIComponent(item.id)}/pdf`)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename ?? `${item.name}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (err) {
+      flash(`${t('page.master_library.pdf_failed')} ${describeApiError(err).message}`)
+    }
   }
 
   return (
@@ -299,7 +286,7 @@ export function MasterLibrary() {
               <span className={labelClass}>{t('page.master_library.filter_project')}</span>
               <select className={selectClass} value={project} onChange={e => setProject(e.target.value)}>
                 <option value="">{t('page.master_library.all_projects')}</option>
-                {projectOptions.map(p => <option key={p} value={p}>{p}</option>)}
+                {projectOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
               </select>
             </label>
 
@@ -320,8 +307,13 @@ export function MasterLibrary() {
               {dateRangeInvalid && <p className="mt-1 text-[11px] text-red-700">{t('page.master_library.date_range_invalid')}</p>}
             </div>
 
+            <label className="flex items-center gap-2 text-[12px] text-slate-800" data-filter-withdrawn>
+              <input type="checkbox" checked={showWithdrawn} onChange={e => setShowWithdrawn(e.currentTarget.checked)} style={{ accentColor: PLATFORM_ACCENT.primary }} />
+              {t('page.master_library.show_withdrawn')}
+            </label>
+
             <p className="mt-1 rounded-md p-2 text-[12px]" style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }} data-results-count>
-              {isLoading ? t('page.master_library.loading_short') : t('page.master_library.results_count', { items: filtered.length, filters: activeFilterCount })}
+              {isLoading ? t('page.master_library.loading_short') : t('page.master_library.results_count', { items: total, filters: activeFilterCount })}
             </p>
 
             {filtersDirty && (
@@ -357,17 +349,17 @@ export function MasterLibrary() {
               </div>
             )}
 
-            {!isLoading && !error && filtered.length === 0 && (
+            {!isLoading && !error && items.length === 0 && (
               <div className="px-2 py-6 text-center text-[12px] text-slate-500" data-state="empty">
-                {items.length === 0 ? t('page.master_library.empty_library') : t('page.master_library.empty_filters')}
-                {items.length > 0 && filtersDirty && (
+                {!filtersDirty ? t('page.master_library.empty_library') : t('page.master_library.empty_filters')}
+                {filtersDirty && (
                   <div><button type="button" onClick={resetFilters} className="mt-2 font-semibold text-slate-700 underline">{t('page.master_library.reset_filters')}</button></div>
                 )}
               </div>
             )}
 
             <div className="flex flex-col divide-y divide-slate-200">
-              {shown.map(it => {
+              {items.map(it => {
                 const colour = MODULE_COLOURS[it.module]
                 const isActive = it.id === active?.id
                 return (
@@ -398,10 +390,10 @@ export function MasterLibrary() {
               })}
             </div>
 
-            {filtered.length > shown.length && (
-              <button type="button" onClick={() => setVisible(v => v + PAGE_SIZE)} data-action="load-more"
-                className="mt-1 h-8 rounded-md border border-slate-300 text-[12px] font-semibold text-slate-700 hover:bg-slate-50">
-                {t('page.master_library.load_more', { count: filtered.length - shown.length })}
+            {hasNextPage && (
+              <button type="button" onClick={() => void fetchNextPage()} disabled={isFetchingNextPage} data-action="load-more"
+                className="mt-1 h-8 rounded-md border border-slate-300 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50">
+                {isFetchingNextPage ? t('page.master_library.loading_short') : t('page.master_library.load_more', { count: Math.max(total - items.length, 0) })}
               </button>
             )}
           </section>
@@ -464,7 +456,7 @@ export function MasterLibrary() {
 
                 <div className="flex flex-wrap items-center gap-2">
                   <button type="button" disabled={!canPull} onClick={() => setPullOpen(true)}
-                    data-pull-button
+                    data-pull-button data-panel-trigger
                     className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ backgroundColor: PLATFORM_ACCENT.primary }}
                     title={pullLabel}
@@ -474,6 +466,18 @@ export function MasterLibrary() {
                     style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
                     data-download-pdf
                   >{t('page.master_library.download_pdf')}</button>
+                  {canAdminister && (
+                    <>
+                      <button type="button" onClick={() => setAdminAction('version')} data-action="new-version"
+                        className="h-9 rounded-md border border-slate-300 px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
+                        {t('page.master_library.action_new_version')}
+                      </button>
+                      <button type="button" onClick={() => setAdminAction('withdraw')} data-action="withdraw"
+                        className="h-9 rounded-md border border-red-300 px-4 text-[13px] font-semibold text-red-800 hover:bg-red-50">
+                        {t('page.master_library.action_withdraw')}
+                      </button>
+                    </>
+                  )}
                 </div>
 
                 <p className="rounded-md p-2 text-[12px]"
@@ -493,6 +497,15 @@ export function MasterLibrary() {
           onClose={() => setPullOpen(false)}
           onDone={(msg) => { setPullOpen(false); flash(msg) }}
           provenanceLine={provenanceLine}
+        />
+      )}
+
+      {active && canAdminister && (
+        <AdminActionPanel
+          mode={adminAction}
+          item={active}
+          onClose={() => setAdminAction(null)}
+          onDone={(msg) => { setAdminAction(null); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library'] }) }}
         />
       )}
 
@@ -539,19 +552,38 @@ function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
     enabled: open && !!documentId,
   })
 
+  // Pulling text is editing the document, so it follows the same rule: only the
+  // document's Author (R), and only while it is open for authoring (action table
+  // row 6). The API refuses anyone else; this just says so before the click.
+  const rights = useQuery({
+    queryKey: ['library-pull', 'can-edit', documentId],
+    queryFn: () => raciApi.canEdit(documentId),
+    enabled: open && !!documentId,
+  })
+  const notAuthor = !!documentId && rights.data?.canEdit === false
+  const lockedStatus = doc.data && isAuthoringLocked(doc.data.status) ? doc.data.status : null
+  const blocked = notAuthor || !!lockedStatus
+
   const sections = doc.data?.sections ?? []
-  const target = sections.find(s => s.id === sectionId)
+  const target = blocked ? undefined : sections.find(s => s.id === sectionId)
 
   async function confirm() {
     if (!target || !item.body) return
     setBusy(true); setFailure(null)
     try {
-      const addition = `<p>${escapeHtml(item.body).replace(/\n/g, '<br/>')}</p>` +
+      // Library text is plain text; keep its paragraphs and line breaks.
+      const paragraphs = item.body.split(/\n{2,}/).map(par => `<p>${escapeHtml(par.trim()).replace(/\n/g, '<br/>')}</p>`).join('')
+      const addition = paragraphs +
         `<p data-provenance="library" data-library-item="${escapeHtml(item.id)}"><em>${escapeHtml(provenanceLine(item))}</em></p>`
       await documentsApi.updateSection(documentId, sectionId, { contentHtml: `${target.contentHtml ?? ''}${addition}` })
-      // Recording the adoption is best-effort: the text is already in the document.
-      await platformApi.adoptLibrarySection(item.id, { adoptingModule: 'A', adoptingEntity: documentId }).catch(() => undefined)
-      onDone(t('page.master_library.pull_success', { title: doc.data?.title ?? t('page.master_library.pull_fallback_title'), section: target.number }))
+      // The text is already in the document, so a failure to record the adoption
+      // does not undo it — but it is no longer silent: the usage count would be
+      // short by one, so the author is told. The target is a Clinical Writing
+      // document, so the adopting module is A.
+      let adoptionRecorded = true
+      await platformApi.adoptLibrarySection(item.id, { adoptingModule: 'A', adoptingEntity: documentId }).catch(() => { adoptionRecorded = false })
+      onDone(t('page.master_library.pull_success', { title: doc.data?.title ?? t('page.master_library.pull_fallback_title'), section: target.number })
+        + (adoptionRecorded ? '' : ` ${t('page.master_library.pull_adoption_failed')}`))
     } catch (err) {
       setFailure(describeApiError(err).message)
     } finally {
@@ -560,7 +592,7 @@ function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
   }
 
   return (
-    <SlidePanel open={open} onClose={onClose} title={t('page.master_library.pull_panel_title')} subtitle={item.name} storageKey="library-pull" defaultWidth={420}>
+    <SlidePanel open={open} onClose={onClose} title={t('page.master_library.pull_panel_title')} subtitle={item.name} storageKey="library-pull" defaultWidth={420} belowTopBar closeOnOutsideClick>
       <div className="flex flex-col gap-3 p-1" data-pull-panel>
         <p className="text-[12px] text-slate-600">
           {t('page.master_library.pull_panel_hint')}
@@ -579,18 +611,25 @@ function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
           <select className={selectClass} value={documentId} disabled={!projectId}
             onChange={e => { setDocumentId(e.target.value); setSectionId('') }}>
             <option value="">{docs.isLoading ? t('page.master_library.loading_short') : docs.data && docs.data.length === 0 ? t('page.master_library.no_documents') : t('page.master_library.choose_document')}</option>
-            {(docs.data ?? []).map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
+            {(docs.data ?? []).map(d => (
+              <option key={d.id} value={d.id} disabled={isAuthoringLocked(d.status)}>
+                {d.title}{isAuthoringLocked(d.status) ? t('page.master_library.document_locked_suffix') : ''}
+              </option>
+            ))}
           </select>
         </label>
 
         <label className="flex flex-col gap-1">
           <span className={labelClass}>{t('page.master_library.pull_section')}</span>
-          <select className={selectClass} value={sectionId} disabled={!documentId}
+          <select className={selectClass} value={sectionId} disabled={!documentId || blocked}
             onChange={e => setSectionId(e.target.value)}>
             <option value="">{doc.isLoading ? t('page.master_library.loading_short') : t('page.master_library.choose_section')}</option>
             {sections.map(s => <option key={s.id} value={s.id} disabled={!!s.isLocked}>{s.number} {s.title}{s.isLocked ? t('page.master_library.section_locked_suffix') : ''}</option>)}
           </select>
         </label>
+
+        {notAuthor && <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-900" role="alert" data-pull-blocked="not-author">{t('page.master_library.pull_not_author')}</p>}
+        {lockedStatus && <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-900" role="alert" data-pull-blocked="locked">{t('page.master_library.pull_doc_locked', { status: lockedStatus.replace(/[_-]/g, ' ') })}</p>}
 
         {(projects.error || docs.error || doc.error) && (
           <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert">
@@ -604,6 +643,88 @@ function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
             className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             style={{ backgroundColor: PLATFORM_ACCENT.primary }}>
             {busy ? t('page.master_library.pulling') : t('page.master_library.pull_section_action')}
+          </button>
+          <button type="button" onClick={onClose} className="h-9 rounded-md px-3 text-[13px] text-slate-600 hover:bg-slate-100">{t('button.cancel')}</button>
+        </div>
+      </div>
+    </SlidePanel>
+  )
+}
+
+// Admin actions on a library item: publish a new version, or withdraw it.
+// The API checks the admin's tenant — a tenant admin can't change another
+// tenant's item or a platform-wide one.
+function AdminActionPanel({ mode, item, onClose, onDone }: {
+  mode: 'version' | 'withdraw' | null
+  item: MasterLibraryItem
+  onClose: () => void
+  onDone: (message: string) => void
+}) {
+  const { t } = useTranslation()
+  const [title,   setTitle]   = useState(item.name)
+  const [body,    setBody]    = useState(item.body ?? '')
+  const [reason,  setReason]  = useState('')
+  const [busy,    setBusy]    = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (mode) { setTitle(item.name); setBody(item.body ?? ''); setReason(''); setFailure(null) }
+  }, [mode, item.id, item.name, item.body])
+
+  const unchanged = title.trim() === item.name && body.trim() === (item.body ?? '').trim()
+  const canSubmit = mode === 'version' ? !!title.trim() && !!body.trim() && !unchanged : reason.trim().length >= 3
+
+  async function submit() {
+    if (!canSubmit || !mode) return
+    setBusy(true); setFailure(null)
+    try {
+      if (mode === 'version') {
+        await platformApi.versionLibrarySection(item.id, { title: title.trim(), body: body.trim() })
+        onDone(t('page.master_library.version_success', { name: title.trim() }))
+      } else {
+        await platformApi.withdrawLibrarySection(item.id, reason.trim())
+        onDone(t('page.master_library.withdraw_success', { name: item.name }))
+      }
+    } catch (err) {
+      setFailure(describeApiError(err).message)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <SlidePanel open={mode !== null} onClose={onClose} storageKey="library-admin" defaultWidth={460} belowTopBar
+      title={mode === 'withdraw' ? t('page.master_library.withdraw_panel_title') : t('page.master_library.version_panel_title')} subtitle={item.name}>
+      <div className="flex flex-col gap-3 p-1" data-admin-panel={mode ?? undefined}>
+        {mode === 'version' ? (
+          <>
+            <p className="text-[12px] text-slate-600">{t('page.master_library.version_panel_hint')}</p>
+            <label className="flex flex-col gap-1">
+              <span className={labelClass}>{t('page.master_library.field_title')}</span>
+              <input className={selectClass} value={title} onChange={e => setTitle(e.currentTarget.value)} />
+            </label>
+            <label className="flex flex-col gap-1">
+              <span className={labelClass}>{t('page.master_library.field_text')}</span>
+              <textarea className="min-h-[200px] rounded-md border border-slate-300 bg-white p-2 text-[12px]" value={body} onChange={e => setBody(e.currentTarget.value)} />
+            </label>
+          </>
+        ) : (
+          <>
+            <p className="text-[12px] text-slate-600">{t('page.master_library.withdraw_panel_hint')}</p>
+            <label className="flex flex-col gap-1">
+              <span className={labelClass}>{t('page.master_library.withdraw_reason_label')}</span>
+              <textarea className="min-h-[100px] rounded-md border border-slate-300 bg-white p-2 text-[12px]" value={reason} onChange={e => setReason(e.currentTarget.value)} />
+            </label>
+          </>
+        )}
+        {failure && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert">{t('page.master_library.admin_failure', { message: failure })}</p>}
+        <div className="mt-1 flex items-center gap-2">
+          <button type="button" onClick={submit} disabled={!canSubmit || busy} data-action="confirm-admin"
+            className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+            style={{ backgroundColor: mode === 'withdraw' ? '#B91C1C' : PLATFORM_ACCENT.primary }}>
+            {mode === 'withdraw'
+              ? (busy ? t('page.master_library.withdrawing') : t('page.master_library.withdraw_submit'))
+              : (busy ? t('page.master_library.version_saving') : t('page.master_library.version_submit'))}
           </button>
           <button type="button" onClick={onClose} className="h-9 rounded-md px-3 text-[13px] text-slate-600 hover:bg-slate-100">{t('button.cancel')}</button>
         </div>

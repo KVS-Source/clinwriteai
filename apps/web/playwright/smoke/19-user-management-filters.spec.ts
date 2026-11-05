@@ -1,4 +1,4 @@
-// QA regression — Admin > User Management filter bar (status, role, search by name / employee ID, clear)
+// QA regression — Admin > User Management filter bar (status, role, search by name / email, clear)
 // and sortable table columns.
 //
 //   E2E_BASE_URL=http://localhost:5173 npx playwright test playwright/smoke/19-user-management-filters.spec.ts
@@ -40,10 +40,20 @@ async function openUserManagement(page: Page) {
       const method = (init?.method ?? 'GET').toUpperCase()
       if (/\/auth\/me(\?.*)?$/.test(url) && method === 'GET') return json(me)
       if (/\/admin\/users(\?.*)?$/.test(url) && method === 'GET') return json(users)
+      const reactivate = url.match(/\/admin\/users\/([^/]+)\/reactivate$/)
+      if (reactivate && method === 'POST') {
+        const u = users.find(x => x.id === reactivate[1])!
+        u.status = 'active'
+        return json(u)
+      }
       if (/\/admin\/users(\?.*)?$/.test(url) && method === 'POST') {
         const body = JSON.parse(String(init?.body ?? '{}'))
         ;(window as unknown as { __invites: unknown[] }).__invites = [...((window as unknown as { __invites?: unknown[] }).__invites ?? []), body]
-        return json({ ...body, id: 'emp-new', status: 'invited', inviteUrl: 'http://x/accept-invitation?token=t', inviteExpiresAt: '2026-11-11T00:00:00Z' }, 201)
+        // Like the API: the new user joins the list, so the refetch shows the new record.
+        const created = { ...body, id: 'emp-new', initials: null, tenantId: null, lastActiveAt: null, status: 'invited',
+          createdAt: '2026-11-05T00:00:00Z', updatedAt: '2026-11-05T00:00:00Z' }
+        users.unshift(created)
+        return json({ ...created, inviteUrl: 'http://x/accept-invitation?token=t', inviteExpiresAt: '2026-11-11T00:00:00Z' }, 201)
       }
       const res = await real(input, init)
       return res.status === 401 ? json({ error: 'e2e_no_session' }, 503) : res
@@ -65,7 +75,7 @@ test('the filter bar shows All Status, All Roles, the search field and a disable
   await openUserManagement(page)
   await expect(status(page).locator('option:checked')).toHaveText('All Status')
   await expect(role(page).locator('option:checked')).toHaveText('All Roles')
-  await expect(search(page)).toHaveAttribute('placeholder', 'Search by name or employee ID...')
+  await expect(search(page)).toHaveAttribute('placeholder', 'Search by name or email...')
   await expect(clear(page)).toBeDisabled()
   await expect(page.getByText('5 users', { exact: true })).toBeVisible()
   // only the five standard roles are offered — no legacy roles such as clinical-writer
@@ -87,12 +97,12 @@ test('role filter narrows the rows', async ({ page }) => {
   expect(await rowIds(page)).toEqual(['emp-1001', 'emp-1004'])
 })
 
-test('search matches name, employee ID and email, case-insensitively', async ({ page }) => {
+test('search matches name and email, case-insensitively — not the internal user ID', async ({ page }) => {
   await openUserManagement(page)
   await search(page).fill('BRUNO')
   expect(await rowIds(page)).toEqual(['emp-1002'])
   await search(page).fill('emp-1003')
-  expect(await rowIds(page)).toEqual(['emp-1003'])
+  await expect(page.locator('[data-user-row]')).toHaveCount(0)
   await search(page).fill('esha.elango@')
   expect(await rowIds(page)).toEqual(['emp-1005'])
 })
@@ -177,4 +187,41 @@ test('Invite user asks only for email and role, and sends a name derived from th
   expect(sent).toHaveLength(1)
   expect(sent[0]).toMatchObject({ email: 'jane.doe@example.com', name: 'Jane Doe', role: 'auditor' })
   expect(sent[0]).not.toHaveProperty('tenantId')
+})
+
+test('emails are masked in the table: first character kept, the rest of the name is *, the domain stays', async ({ page }) => {
+  await openUserManagement(page)
+  const email = (id: string) => page.locator(`[data-user-row="${id}"] [data-user-email]`)
+  await expect(email('emp-1001')).toHaveText('a****.******@example.com')        // alice.archer@example.com
+  await expect(email('emp-1005')).toHaveText('e***.******@example.com')         // esha.elango@example.com
+  for (const u of USERS) await expect(page.locator(`[data-user-row="${u.id}"]`)).not.toContainText(u.email)
+})
+
+test('a newly invited user shows up with the email masked', async ({ page }) => {
+  await openUserManagement(page)
+  await page.locator('[data-action="toggle-invite"]').click()
+  await page.locator('[data-section="invite-user"] [data-input="email"]').fill('new.person@acme.io')
+  await page.locator('[data-section="invite-user"] [data-action="invite"]').click()
+
+  const row = page.locator('[data-user-row="emp-new"]')
+  await expect(row).toBeVisible({ timeout: 30_000 })
+  await expect(row.locator('[data-user-email]')).toHaveText('n**.******@acme.io')
+  await expect(row).not.toContainText('new.person@acme.io')
+})
+
+test('a suspended account shows Suspended with an Unsuspend button (not Suspend); Unsuspend makes it active again', async ({ page }) => {
+  await openUserManagement(page)
+  const suspendedRow = page.locator('[data-user-row="emp-1003"]')            // Chitra Chopra — suspended
+  await expect(suspendedRow).toContainText('Suspended')
+  await expect(suspendedRow.locator('[data-action="unsuspend"]')).toHaveText('Unsuspend')
+  await expect(suspendedRow.locator('[data-action="suspend"]')).toHaveCount(0)
+
+  const activeRow = page.locator('[data-user-row="emp-1001"]')               // Alice Archer — active
+  await expect(activeRow.locator('[data-action="suspend"]')).toHaveText('Suspend')
+  await expect(activeRow.locator('[data-action="unsuspend"]')).toHaveCount(0)
+
+  await suspendedRow.locator('[data-action="unsuspend"]').click()
+  await expect(suspendedRow).toContainText('Active')
+  await expect(suspendedRow.locator('[data-action="suspend"]')).toHaveText('Suspend')
+  await expect(suspendedRow.locator('[data-action="unsuspend"]')).toHaveCount(0)
 })

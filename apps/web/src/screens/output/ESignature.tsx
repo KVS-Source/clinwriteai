@@ -19,6 +19,7 @@ import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import { useCancelSignatureChain, useCurrentUser, useSignatureChains, useSignRecord } from '../../hooks'
 import { useDocumentStore } from '../../store'
 import { InitiateSignatureChain } from './InitiateSignatureChain'
+import { ReturnToAuthoring } from '../clinical-writing/ReturnToAuthoring'
 import { useSignatureAccess } from './useSignatureAccess'
 
 // Signer avatar palette (matches Pattern 7). A signer's colour comes from their initials, so it is stable.
@@ -489,11 +490,25 @@ export function ESignature() {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-red-600">{msg}</p></div>
   }
 
+  // An Approver (A) — or a Reviewer / QC — can send the document back to authoring from here
+  // while it awaits signature: the Reviewer View is unavailable at this stage. The document then
+  // edits on, so go to the editor.
+  const returnToAuthoring = access.canGiveVerdict && documentId && document ? (
+    <ReturnToAuthoring
+      documentId={documentId}
+      status={document.status}
+      onReturned={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)}
+    />
+  ) : null
+
   // No active chain → initiate (or explain why not yet).
   if (!chain || chain.status === 'cancelled') {
     return (
       <div className="flex h-full flex-col items-start gap-4 overflow-y-auto px-8 py-7" data-screen="e-signature">
-        <div className="flex w-full justify-start">{backToCrm}</div>
+        <div className="flex w-full justify-start gap-2">
+          {backToCrm}
+          {returnToAuthoring}
+        </div>
         {chain?.status === 'cancelled' && (
           <p className="text-[12px] text-amber-700" data-chain-cancelled>
             The previous signature chain was cancelled{chain.cancelReason ? ` — “${chain.cancelReason}”` : ''}.
@@ -540,6 +555,7 @@ export function ESignature() {
           </div>
           <div className="flex flex-none items-center gap-2">
             {backToCrm}
+            {returnToAuthoring}
             {chainActive && access.canCancelChain(chain) && (
               <button
                 type="button"

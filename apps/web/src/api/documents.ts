@@ -163,6 +163,10 @@ export const documentsApi = {
     api.get<Document[]>(`/projects/${projectId}/documents`),
   get: (documentId: string) =>
     api.get<Document>(`/documents/${documentId}`),
+  // The Final Document screen's read — same content, but the API refuses those who may not
+  // read the Final Document (admin, guest, QC (Q) alone), as the screen does.
+  getFinal: (documentId: string) =>
+    api.get<Document>(`/documents/${documentId}/final`),
   create: (projectId: string, body: CreateDocumentBody) =>
     api.post<Document>(`/projects/${projectId}/documents`, body),
   upload: (projectId: string, formData: FormData) =>
@@ -594,7 +598,7 @@ export const documentsApi = {
   // `tsc && vite build`. The panel consumes `code`, `sectionId`, `status`,
   // `inDocument`, `conditional` and the optional `waiver` payload directly
   // off this shape. `applicable` is false for anything but a full CSR;
-  // `canWaive` is the API's own role check for the current user.
+  // `canWaive` is the API's own check for the current user (R or Q on the document).
   getICHE3: (documentId: string) =>
     api.get<{
       applicable:        boolean

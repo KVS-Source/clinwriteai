@@ -196,6 +196,25 @@ const authPlugin: FastifyPluginAsync = async (app) => {
     }
   })
 
+  // Activity: any successful request by a signed-in person counts as using the
+  // app, so lastActiveAt follows use, not just sign-in (a session lasts 24h).
+  // The inactivity sweep reads it, so someone working in the app is never
+  // treated as inactive. Written at most once a minute per user; synthetic
+  // system callers (system:*) don't count.
+  const ACTIVITY_WRITE_EVERY_MS = 60_000
+  const lastActivityWrite = new Map<string, number>()
+  app.addHook('onResponse', async (request, reply) => {
+    const user = request.user
+    if (!user || user.id.startsWith('system:') || reply.statusCode >= 400) return
+    const now = Date.now()
+    if (now - (lastActivityWrite.get(user.id) ?? 0) < ACTIVITY_WRITE_EVERY_MS) return
+    lastActivityWrite.set(user.id, now)
+    await app.prisma.user.updateMany({
+      where: { id: user.id, OR: [{ lastActiveAt: null }, { lastActiveAt: { lt: new Date(now - ACTIVITY_WRITE_EVERY_MS) } }] },
+      data:  { lastActiveAt: new Date(now) },
+    }).catch(err => request.log.warn({ err }, 'could not record user activity'))
+  })
+
   // Mailer must be in place before password-auth routes (reset emails).
   // Safe to register at this scope: no routes outside this plugin reach
   // for app.mailer yet, and this plugin runs after env/secrets are ready.

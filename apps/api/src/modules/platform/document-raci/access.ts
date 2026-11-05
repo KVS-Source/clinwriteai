@@ -111,6 +111,32 @@ export async function actorCanGiveVerdict(
   return row !== null
 }
 
+// Who may waive an ICH E3 section or remove a waiver (action table row 21): the
+// document's Author (R) or QC (Q). The Reviewer (C), Approver (A) and everyone
+// else only view the checklist (row 20). The assignee is the first Author.
+const ICH_WAIVE_LETTERS = ['R', 'Q']
+
+export async function actorCanWaiveIchSection(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+): Promise<boolean> {
+  if (COMMENT_LOCKED_ROLES.has(actor.role)) return false
+  const [doc, row] = await Promise.all([
+    prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
+    prisma.documentRaci.findFirst({
+      where: { documentId, userId: actor.id, letter: { in: ICH_WAIVE_LETTERS }, removedAt: null },
+      select: { id: true },
+    }),
+  ])
+  return row !== null || (!!doc && doc.assigneeId === actor.id)
+}
+
+export const ICH_WAIVE_FORBIDDEN = {
+  error: 'ich_waive_forbidden',
+  message: 'Only the Author (R) or QC (Q) on this document can waive an ICH E3 section or remove a waiver.',
+} as const
+
 export const VERDICT_FORBIDDEN = {
   error: 'verdict_forbidden',
   message: 'Only the Reviewer (C), QC (Q) or Approver (A) on this document can approve or return a section.',
@@ -321,20 +347,20 @@ export const NUDGE_FORBIDDEN = {
   message: 'Only an author (R) on this document can nudge the people it is waiting on.',
 } as const
 
-// Back to authoring (reviewer / CRM bounce, signer refusal) starts a new round:
-// every author submits their part again, and every reviewer and QC reviews the
-// revised document again. Accepts the client or a transaction.
-export async function resetAuthorSubmissions(
+// Back to authoring (a C, Q or A returning it, a reviewer / CRM bounce, a signer
+// refusal) starts a new round on the new version: every author submits their part
+// again, and every reviewer, QC and approver reviews / approves the revised document
+// again. Clears each active row's completion (submittedAt / reviewedAt / approvedAt
+// and the completion signature) and any rejection, so no one is stuck as "rejected"
+// and no earlier verdict carries over. rejectionNote is kept as the reason last given.
+// Accepts the client or a transaction.
+export async function resetRaciRound(
   db: { documentRaci: Pick<PrismaClient['documentRaci'], 'updateMany'> },
   documentId: string,
 ): Promise<void> {
   await db.documentRaci.updateMany({
-    where: { documentId, letter: 'R', removedAt: null, submittedAt: { not: null } },
-    data: { submittedAt: null },
-  })
-  await db.documentRaci.updateMany({
-    where: { documentId, letter: { in: ['C', 'Q'] }, removedAt: null, reviewedAt: { not: null } },
-    data: { reviewedAt: null },
+    where: { documentId, removedAt: null },
+    data: { submittedAt: null, reviewedAt: null, approvedAt: null, signatureId: null, rejectedAt: null },
   })
 }
 

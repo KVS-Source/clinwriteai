@@ -1,10 +1,10 @@
-// Invitation tokens (AC-PM-007): 7-day one-time sign-up link.
+// Invitation tokens (AC-PM-007): one-time sign-up link, valid for 15 minutes.
 // Only the SHA-256 of the token is persisted; the raw token lives in the
 // link given to the admin.
 
 import { createHash, randomBytes } from 'node:crypto'
 
-export const INVITATION_TTL_MS = 7 * 24 * 60 * 60 * 1000
+export const INVITATION_TTL_MS = 15 * 60 * 1000   // 15 minutes
 export const TERMS_VERSION = '1.0'
 
 export function generateInvitationToken(): { token: string; tokenHash: string; expiresAt: Date } {

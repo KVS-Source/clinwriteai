@@ -5,7 +5,7 @@ import Fastify from 'fastify'
 import { describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { documentRaciRoutes } from './routes.js'
-import { resetAuthorSubmissions } from './access.js'
+import { resetRaciRound } from './access.js'
 
 const DOC = 'doc-1'
 type Row = Record<string, unknown> & { id: string; userId: string; letter: string }
@@ -124,11 +124,11 @@ describe('the last person finishing', () => {
 describe('going back to authoring', () => {
   it('clears review marks as well as submissions, so the revised document is reviewed again', async () => {
     const updateMany = vi.fn(async () => ({ count: 1 }))
-    await resetAuthorSubmissions({ documentRaci: { updateMany } } as never, DOC)
-    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({ data: { submittedAt: null } }))
+    await resetRaciRound({ documentRaci: { updateMany } } as never, DOC)
+    // One reset over every active row: submissions, C / Q review marks and approvals all cleared.
     expect(updateMany).toHaveBeenCalledWith({
-      where: { documentId: DOC, letter: { in: ['C', 'Q'] }, removedAt: null, reviewedAt: { not: null } },
-      data: { reviewedAt: null },
+      where: { documentId: DOC, removedAt: null },
+      data:  expect.objectContaining({ submittedAt: null, reviewedAt: null, approvedAt: null }),
     })
   })
 })

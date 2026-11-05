@@ -17,11 +17,12 @@
 // signature chain (Part 11 — compliance review).
 
 import { createHash } from 'node:crypto'
-import type { FastifyPluginAsync } from 'fastify'
+import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
+import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
 import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, resetAuthorSubmissions, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService } from './service.js'
@@ -514,13 +515,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     return null
   }
 
-  app.get('/:documentId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
-    const { documentId } = request.params as { documentId: string }
-    const doc = await svc.getWithSections(documentId)
-    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
-    // 404, not 403, so documents outside the caller's work don't leak.
-    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
-
+  // The full document (sections and their content), audited as a PHI read.
+  // Shared by GET /:documentId and GET /:documentId/final, which differ only in
+  // who may read. `view` tells the two apart in the audit trail.
+  async function sendFullDocument(request: FastifyRequest, doc: NonNullable<Awaited<ReturnType<DocumentService['getWithSections']>>>, view: 'document' | 'final_document') {
     // HIPAA minimum-necessary logging: tag every full-body document read
     // as PHI access. The list route (/projects/:id/documents) is NOT tagged
     // because it returns metadata only — no section content. Audit volume
@@ -531,9 +529,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       actorId: request.user!.id,
       action: 'phi_document_accessed',
       entityType: 'document',
-      entityId: documentId,
+      entityId: doc.id,
       details: {
         module: 'A',
+        view,
         documentType: doc.type,
         sectionCount: doc.currentVersion?.sections.length ?? 0,
       },
@@ -544,6 +543,28 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const editorIds = Array.from(new Set((doc.currentVersion?.sections ?? []).map(sec => sec.lastEditedBy).filter((v): v is string => !!v)))
     const editorUsers = editorIds.length ? await app.prisma.user.findMany({ where: { id: { in: editorIds } }, select: { id: true, name: true } }) : []
     return documentShapeFull(doc, new Map(editorUsers.map(u => [u.id, u.name])))
+  }
+
+  app.get('/:documentId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await svc.getWithSections(documentId)
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    // 404, not 403, so documents outside the caller's work don't leak.
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
+    return sendFullDocument(request, doc, 'document')
+  })
+
+  // The Final Document screen's read. Same content as GET /:documentId, but only
+  // for those who may read the Final Document: any RACI letter on the document,
+  // its assignee, a PM who can see the project, or an auditor — never an admin or
+  // a guest, and not QC (Q) on its own. The screen is hidden in the UI for the
+  // same people (useSignatureAccess.canViewFinal); this makes the API agree.
+  app.get('/:documentId/final', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await svc.getWithSections(documentId)
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanReadFinalDocument(app.prisma, request.user!, doc))) return reply.code(403).send(FINAL_DOCUMENT_FORBIDDEN)
+    return sendFullDocument(request, doc, 'final_document')
   })
 
   app.patch('/:documentId/sections/:sectionId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -1153,8 +1174,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // as its own row and the author edits a fresh in-place-mutable version.
     let snapshotVersion: Awaited<ReturnType<DocumentService['createVersionSnapshot']>>['version'] | null = null
     if (to === 'in_authoring' && from !== 'in_authoring' && from !== 'not_started') {
-      // A new authoring round: every author submits their part again.
-      await resetAuthorSubmissions(app.prisma, documentId)
+      // A new round: authors submit again, reviewers and approvers review / approve again.
+      await resetRaciRound(app.prisma, documentId)
       const reason =
         from === 'in_review'          ? 'review_bounce' :
         from === 'crm_in_progress'    ? 'crm_bounce' :

@@ -592,8 +592,8 @@ export function ICHValidatorPanel({ documentId }: Props) {
   const totalSections     = data?.totalSections     ?? sections.length
   const completionPercent = data?.completionPercent ?? 0
 
-  // The API runs the same role check as the waive route (tenant-admin, or
-  // a contributor with can-review) and tells us the result.
+  // The API runs the same check as the waive route (the document's Author or
+  // QC, action table row 21) and tells us the result.
   const canWaive = applicable && (data?.canWaive ?? false)
 
   // Keep the panel open: the editor shows the chosen section beside it.

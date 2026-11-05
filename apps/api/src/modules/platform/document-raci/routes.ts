@@ -16,7 +16,8 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
-import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES } from './access.js'
+import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, resetRaciRound } from './access.js'
+import { DocumentService } from '../../clinical-writing/documents/service.js'
 import { nudgePendingCohort } from './nudge.js'
 
 const nudgeSchema = z.object({
@@ -30,8 +31,11 @@ const completeSchema = z.object({
 })
 
 const rejectSchema = z.object({
-  note: z.string().min(1),
+  note: z.string().trim().min(1).max(2000),
 })
+
+// A document can be returned to authoring from any review stage.
+const REJECTABLE_STATUSES: ReadonlySet<string> = new Set(['in_review', 'crm_in_progress', 'pending_signature'])
 
 const signatureSchema = z.object({
   signatureRequired: z.boolean(),
@@ -63,6 +67,7 @@ type RaciAuditSnapshot = {
 }
 
 export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
+  const svc = new DocumentService(app.prisma)
   // While a signature chain is in progress the chain is fixed (who signs, and as what). Changing the
   // RACI underneath it would leave the chain out of step with the RACI, so assigning, removing others
   // and changing signature settings wait until the chain is cancelled or complete. A person can still
@@ -613,17 +618,23 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     return reply.send({ row: updated, transition: evaluation, transitioned })
   })
 
-  // --- Reject (bounce back a stage) ---------------------------------------
-  // Any single C or A rejecting pulls the doc back to the previous stage,
-  // per docs/roles-and-permissions.md §3.2 "Rejection at any gate…".
-  // This endpoint sets rejected_at + rejectionNote; the status rollback
-  // still goes through the existing state machine for now.
+  // --- Reject (return the document to authoring) -------------------------
+  // A Reviewer (C), QC (Q) or Approver (A) returns the document, with a required
+  // note, while it is in review, in a CRM or awaiting signature — per
+  // docs/roles-and-permissions.md §3.2 "Rejection at any gate…". In one go:
+  //   - the document goes back to in_authoring (the state machine's bounce edge);
+  //   - any open signature chain is cancelled (it was signing the old version);
+  //   - a new version snapshot is taken (review / CRM / signature bounce), so the
+  //     returned state is preserved and the authors edit a fresh version;
+  //   - a new round starts (resetRaciRound): authors submit again, C / Q / A
+  //     review and approve again. The note stays on the row as the reason given.
   app.post('/:documentId/raci/:raciId/reject', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId, raciId } = request.params as { documentId: string; raciId: string }
     const parsed = rejectSchema.safeParse(request.body)
     if (!parsed.success) {
-      return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+      return reply.code(400).send({ error: 'validation', message: 'A note explaining why the document is returned is required.', issues: parsed.error.issues })
     }
+    const note = parsed.data.note
 
     const row = await app.prisma.documentRaci.findUnique({ where: { id: raciId } })
     if (!row || row.documentId !== documentId) return reply.code(404).send({ error: 'not_found' })
@@ -639,11 +650,26 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(422).send({ error: 'only_reviewer_or_approver_or_qc_can_reject' })
     }
 
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { status: true } })
+    const from = (doc?.status ?? 'not_started') as DocumentStatus
+    if (!REJECTABLE_STATUSES.has(from) || !canTransitionDocument(from, 'in_authoring')) {
+      return reply.code(409).send({
+        error:   'not_returnable',
+        status:  from,
+        message: 'Only a document in review, in a CRM or awaiting signature can be returned to authoring.',
+      })
+    }
+
     const now = new Date()
-    const updated = await app.prisma.documentRaci.update({
-      where: { id: raciId },
-      data: { rejectedAt: now, rejectionNote: parsed.data.note },
+    await app.prisma.document.update({ where: { id: documentId }, data: { status: 'in_authoring' } })
+    const cancelledChains = await app.prisma.signatureChain.updateMany({
+      where: { documentId, status: { in: ['initiated', 'in_progress'] } },
+      data:  { status: 'cancelled', cancelledAt: now, cancelReason: `Returned to authoring: ${note}` },
     })
+    const reason = from === 'in_review' ? 'review_bounce' : from === 'crm_in_progress' ? 'crm_bounce' : 'signature_bounce'
+    const snap = await svc.createVersionSnapshot({ documentId, createdBy: actor.id, reason, note })
+    await resetRaciRound(app.prisma, documentId)
+    const updated = await app.prisma.documentRaci.update({ where: { id: raciId }, data: { rejectionNote: note } })
 
     await app.audit.append({
       timestamp: now.toISOString(),
@@ -651,16 +677,28 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       action: 'document_raci.rejected',
       entityType: 'document_raci',
       entityId: raciId,
+      details: { documentId, letter: row.letter, sectionId: row.sectionId, note },
+      ipAddress: request.ip ?? null,
+    })
+    await app.audit.append({
+      timestamp: now.toISOString(),
+      actorId: actor.id,
+      action: 'document_status_changed',
+      entityType: 'document',
+      entityId: documentId,
       details: {
-        documentId,
-        letter: row.letter,
-        sectionId: row.sectionId,
-        note: parsed.data.note,
+        from, to: 'in_authoring', trigger: 'raci_reject', raciId, letter: row.letter, note,
+        snapshotVersionId: snap.version.id, snapshotVersionNumber: snap.version.versionNumber,
+        cancelledSignatureChains: cancelledChains.count,
       },
       ipAddress: request.ip ?? null,
     })
 
-    return reply.send(updated)
+    return reply.send({
+      row:      updated,
+      document: { id: documentId, status: 'in_authoring' },
+      version:  { id: snap.version.id, versionNumber: snap.version.versionNumber },
+    })
   })
 
   // ---------------------------------------------------------------------

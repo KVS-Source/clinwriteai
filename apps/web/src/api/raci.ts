@@ -70,8 +70,14 @@ export const raciApi = {
       transitioned: boolean
     }>(`/documents/${documentId}/raci/${raciId}/complete`, body),
 
+  // A Reviewer (C), QC (Q) or Approver (A) returns the document to authoring, with a required
+  // note. The API moves it back to in_authoring, takes a new version snapshot and starts a new round.
   reject: (documentId: string, raciId: string, body: { note: string }) =>
-    api.post<DocumentRaciRow>(`/documents/${documentId}/raci/${raciId}/reject`, body),
+    api.post<{
+      row:      DocumentRaciRow
+      document: { id: string; status: string }
+      version:  { id: string; versionNumber: string }
+    }>(`/documents/${documentId}/raci/${raciId}/reject`, body),
 }
 
 // --- Assignable users (RACI picker) --------------------------------------

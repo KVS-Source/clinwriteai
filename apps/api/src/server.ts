@@ -106,6 +106,9 @@ async function buildServer() {
   await app.register(import('@fastify/cors'), {
     origin: env.CORS_ORIGIN,
     credentials: env.CORS_CREDENTIALS,
+    // Paged lists send their total and next-page cursor in headers; a cross-origin
+    // browser can only read them if they are exposed here (Master Library, CW-061).
+    exposedHeaders: ['X-Total-Count', 'X-Next-Cursor', 'Content-Disposition'],
   })
   await app.register(import('@fastify/helmet'), { contentSecurityPolicy: false })
   await app.register(import('@fastify/sensible'))
@@ -415,6 +418,8 @@ async function buildServer() {
 
   // ---------- Phase 4 shared platform services ----------
   await app.register(import('./modules/platform/notifications/plugin.js'))
+  // Warns, then suspends, accounts inactive for 30 days (needs notifications + audit).
+  await app.register(import('./modules/platform/users/inactivity-plugin.js'))
 
   const { libraryRoutes } = await import('./modules/platform/library/routes.js')
   await app.register(libraryRoutes, { prefix: '/library' })

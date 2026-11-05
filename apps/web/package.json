@@ -12,7 +12,8 @@
     "test:e2e": "playwright test",
     "test:e2e:install": "playwright install --with-deps chromium",
     "generate:api-types": "openapi-typescript ${API_SPEC_URL:-http://127.0.0.1:3001/docs/json} -o src/api/openapi-types.ts",
-    "translate": "tsx scripts/translate-missing-keys.ts"
+    "translate": "tsx scripts/translate-missing-keys.ts",
+    "check:i18n": "node scripts/check-i18n-keys.mjs"
   },
   "dependencies": {
     "@platform/types": "*",

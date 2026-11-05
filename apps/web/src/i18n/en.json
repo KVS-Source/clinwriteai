@@ -1710,6 +1710,18 @@
       "datetime_at": "{{date}} at {{time}}"
     },
     "auth_card": {
+      "policy_needs_symbol": "Must include a symbol.",
+      "policy_needs_digit": "Must include a digit.",
+      "policy_needs_lower": "Must include a lowercase letter.",
+      "policy_needs_upper": "Must include an uppercase letter.",
+      "policy_too_long": "Password must be at most 128 characters.",
+      "policy_too_short": "Password must be at least 12 characters.",
+      "err_password_unchanged": "New password must be different from the current password.",
+      "err_wrong_current_password": "The current password is not correct.",
+      "err_no_password_on_file": "This account does not have a password set. Use the forgot-password flow instead.",
+      "err_invalid_or_expired_token": "This password reset link has expired or already been used. Request a new link to continue.",
+      "err_account_disabled": "This account is not active. Contact your administrator.",
+      "err_invalid_credentials": "That email and password combination doesn't match our records. Try again or request access from your administrator.",
       "brand_tagline": "AI-Native Authoring for Life Sciences",
       "footer_part11": "Protected by 21 CFR Part 11 compliant authentication",
       "rule_min_length": "At least 12 characters",
@@ -1721,6 +1733,7 @@
       "err_network": "Could not reach the server. Check your connection and try again."
     },
     "forgot_password": {
+      "sent_notice": "If an account exists for {{email}}, a password reset link has been sent. The link expires in {{minutes}} minutes.",
       "title_first": "Set your password",
       "title_reset": "Reset your password",
       "subtitle_first": "Enter your work email and we’ll send you a link to choose your password.",

@@ -131,17 +131,47 @@ export function PasswordRules({ password }: { password: string }) {
   )
 }
 
-/** The message to show for a failed auth call — the server's own words when it sent some.
+// The API's refusals, in the reader's language. One it doesn't list here keeps the server's own words.
+const AUTH_ERROR_KEYS: Record<string, string> = {
+  invalid_credentials:      'page.auth_card.err_invalid_credentials',
+  account_disabled:         'page.auth_card.err_account_disabled',
+  invalid_or_expired_token: 'page.auth_card.err_invalid_or_expired_token',
+  no_password_on_file:      'page.auth_card.err_no_password_on_file',
+  wrong_current_password:   'page.auth_card.err_wrong_current_password',
+  password_unchanged:       'page.auth_card.err_password_unchanged',
+}
+const POLICY_ISSUE_KEYS: Record<string, string> = {
+  too_short:    'page.auth_card.policy_too_short',
+  too_long:     'page.auth_card.policy_too_long',
+  needs_upper:  'page.auth_card.policy_needs_upper',
+  needs_lower:  'page.auth_card.policy_needs_lower',
+  needs_digit:  'page.auth_card.policy_needs_digit',
+  needs_symbol: 'page.auth_card.policy_needs_symbol',
+}
+const INVITATION_REASON_KEYS: Record<string, string> = {
+  expired:          'page.accept_invitation.reason_expired',
+  revoked:          'page.accept_invitation.reason_revoked',
+  accepted:         'page.accept_invitation.reason_accepted',
+  user_not_invited: 'page.accept_invitation.reason_user_not_invited',
+  not_found:        'page.accept_invitation.reason_not_found',
+}
+
+/** The message to show for a failed auth call — translated by its error code, else the server's own words.
  *
  *  Note: this is a plain function, not a hook, so it can be called from
  *  catch blocks. It uses i18next's imperative `t` for the fallback copy.
  */
 export function authErrorMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
-    const body = err.body as { message?: string; issues?: Array<{ message: string }> } | null
-    if (body?.issues?.length) return body.issues.map(i => i.message).join(' ')
-    if (body?.message) return body.message
+    const body = err.body as { error?: string; reason?: string; message?: string; issues?: Array<{ code?: string; message: string }> } | null
     if (err.status === 429) return i18nFallback('page.auth_card.err_too_many_attempts', 'Too many attempts. Wait a minute and try again.')
+    if (body?.issues?.length) {
+      return body.issues.map(i => (i.code && POLICY_ISSUE_KEYS[i.code] ? i18nFallback(POLICY_ISSUE_KEYS[i.code]!, i.message) : i.message)).join(' ')
+    }
+    if (body?.error === 'invitation_invalid') return i18nFallback(INVITATION_REASON_KEYS[body.reason ?? ''] ?? fallback, fallback)
+    const key = body?.error ? AUTH_ERROR_KEYS[body.error] : undefined
+    if (key) return i18nFallback(key, body?.message ?? fallback)
+    if (body?.message) return body.message
   } else {
     return i18nFallback('page.auth_card.err_network', 'Could not reach the server. Check your connection and try again.')
   }

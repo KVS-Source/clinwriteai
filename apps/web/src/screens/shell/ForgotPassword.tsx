@@ -24,7 +24,9 @@ export function ForgotPassword() {
     setError(null)
     try {
       const res = await authApi.forgotPassword(email.trim())
-      setSent(res.message)
+      setSent(res.expiresInMinutes
+        ? t('page.forgot_password.sent_notice', { email: email.trim(), minutes: res.expiresInMinutes })
+        : res.message)
     } catch (err) {
       setError(authErrorMessage(err, t('page.forgot_password.err_generic')))
     } finally {

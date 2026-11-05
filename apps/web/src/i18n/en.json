@@ -519,6 +519,14 @@
       "adding": "Adding…",
       "add_reference_button": "Add reference",
       "audit_trail_hint": "Every reference you add or remove is recorded in the document’s audit trail.",
+      "insert_citation_title": "Insert citation",
+      "insert_citation_title_with_section": "Insert citation · {{section}}",
+      "insert_citation_hint": "The citation goes in at the cursor and is linked to the source document. Click in the section to move the cursor.",
+      "citation_preview_label": "Citation",
+      "insert_citation_button": "Insert citation",
+      "inserting_citation": "Inserting…",
+      "citation_needs_editing": "Open the section for editing to insert a citation.",
+      "citation_insert_failed": "The citation couldn’t be placed in the section.",
       "references_in_section": "References in this section",
       "load_references_failed": "Couldn’t load references.",
       "no_references_yet": "No references yet for this section.",
@@ -1381,7 +1389,8 @@
       "ai_chat_disabled_pm": "AI Chat isn't available to Project Managers",
       "ai_chat_label": "AI Chat",
       "insert_citation": "Insert citation",
-      "soon_badge": "SOON"
+      "insert_citation_tooltip": "Insert a citation linked to a source document at the cursor",
+      "insert_citation_disabled_tooltip": "Open the section for editing to insert a citation"
     },
     "html_diff": {},
     "my_raci_role": {

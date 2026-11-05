@@ -1,49 +1,46 @@
+// Notification Centre — the signed-in user's own in-app notifications (bell in the top bar).
+//
+// Reads GET /notifications/me (newest first, dismissed ones left out) and acts through
+// /notifications/me/mark-read, /me/mark-all-read and /me/:id/dismiss. Every call is the
+// signed-in user's own: the API scopes them to the session, so there is no user filter here.
+// Loading, a failed load (with a retry) and an empty inbox each have their own state, and a
+// failed action says so instead of being swallowed.
+//
+// There is no Preferences tab: the API has no notification-preferences endpoint, and delivery
+// doesn't consult per-user preferences yet, so toggles would change nothing.
+
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { PlatformNotification, NotificationPreference } from '@platform/types'
-import { PLATFORM_ACCENT } from '@platform/types'
-import { platformApi } from '../api/platformApi'
+import { PLATFORM_ACCENT, PLATFORM_USER_ROLE_LABEL } from '@platform/types'
+import { platformApi, type MyNotification } from '../api/platformApi'
+import { usePlatformStore } from '../store'
+import { describeApiError } from '../../api'
 
-const DEMO_USER_ID   = 'user-rw'
-const DEMO_USER_NAME = 'Dr Sarah Chen'
+const QUERY_KEY = ['notifications', 'me'] as const
 
-type FilterKey = 'all' | 'stage_advance' | 'review_assigned' | 'ma_advance_notice' | 'publishing_overdue' | 'system'
+type FilterKey = 'all' | 'unread'
 
-const FILTER_CHIPS: { key: FilterKey; labelKey: string; match: (n: PlatformNotification) => boolean }[] = [
-  { key: 'all',                 labelKey: 'page.notification_centre.filter_all',                match: () => true },
-  { key: 'stage_advance',       labelKey: 'page.notification_centre.filter_stage_advance',      match: n => n.eventType === 'stage_advance' },
-  { key: 'review_assigned',     labelKey: 'page.notification_centre.filter_review_assigned',    match: n => n.eventType === 'review_assigned' },
-  { key: 'publishing_overdue',  labelKey: 'page.notification_centre.filter_publishing_overdue', match: n => n.eventType === 'publishing_overdue' || n.eventType === 'ma_advance_notice' },
-  { key: 'system',              labelKey: 'page.notification_centre.filter_system',             match: n => n.eventType === 'system' },
-]
-
-const EVENT_TYPE_KEYS: Record<string, string> = {
-  stage_advance:      'page.notification_centre.event_stage_advance',
-  review_assigned:    'page.notification_centre.event_review_assigned',
-  ma_advance_notice:  'page.notification_centre.event_ma_advance_notice',
-  system:             'page.notification_centre.event_system',
-  comment:            'page.notification_centre.event_comment',
-  kol_reminder_1:     'page.notification_centre.event_kol_reminder',
-  kol_reminder_2:     'page.notification_centre.event_kol_reminder',
-  kol_invitation:     'page.notification_centre.event_kol_invitation',
-  publishing_overdue: 'page.notification_centre.event_publishing_overdue',
-  gate_failure:       'page.notification_centre.event_gate_failure',
+// Labels for the kinds the API sends; anything else reads "Notification".
+const KIND_KEYS: Record<string, string> = {
+  'user.invitation':               'page.notification_centre.kind_user_invitation',
+  'signature_requested':           'page.notification_centre.kind_signature_requested',
+  'document_nudge':                'page.notification_centre.kind_document_nudge',
+  'ai_quota_approaching':          'page.notification_centre.kind_ai_quota_approaching',
+  'account.inactivity_warning':    'page.notification_centre.kind_inactivity_warning',
+  'account.inactivity_suspended':  'page.notification_centre.kind_inactivity_suspended',
 }
 
-const MODULE_META: Record<string, { labelKey: string; colour: string }> = {
-  A: { labelKey: 'page.notification_centre.module_clinical_writing',     colour: '#2563EB' },
-  B: { labelKey: 'page.notification_centre.module_scientific_writing',   colour: '#0D9488' },
-  C: { labelKey: 'page.notification_centre.module_medical_writing',      colour: '#7C3AED' },
-  D: { labelKey: 'page.notification_centre.module_regulatory_writing',   colour: '#B0200D' },
-  E: { labelKey: 'page.notification_centre.module_ideation_publishing',  colour: '#0D9488' },
-  platform: { labelKey: 'page.notification_centre.module_platform',      colour: PLATFORM_ACCENT.primary },
+const SEVERITY_STYLE: Record<MyNotification['severity'], { bg: string; fg: string; labelKey?: string }> = {
+  info:     { bg: PLATFORM_ACCENT.bgTint, fg: PLATFORM_ACCENT.primary },
+  warning:  { bg: '#FEF3C7', fg: '#92400E', labelKey: 'page.notification_centre.severity_warning' },
+  critical: { bg: '#FEE2E2', fg: '#991B1B', labelKey: 'page.notification_centre.severity_critical' },
 }
 
 function formatDateTime(iso: string): string {
   const d = new Date(iso)
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
   const dd = String(d.getUTCDate()).padStart(2, '0')
   const hh = String(d.getUTCHours()).padStart(2, '0')
   const mm = String(d.getUTCMinutes()).padStart(2, '0')
@@ -54,80 +51,70 @@ export function NotificationCentre() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const qc = useQueryClient()
+  const currentUser = usePlatformStore(s => s.currentUser)
 
   const formatRelative = (iso: string): string => {
-    const then = new Date(iso).getTime()
-    const now  = new Date('2026-09-09T12:00:00Z').getTime()  // pinned demo now
-    const diffMs = now - then
-    const mins  = Math.round(diffMs / 60000)
+    const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
     if (mins < 1)  return t('page.notification_centre.rel_just_now')
     if (mins < 60) return t('page.notification_centre.rel_minutes', { count: mins })
     const hrs = Math.round(mins / 60)
     if (hrs < 24)  return t('page.notification_centre.rel_hours', { count: hrs })
-    const days = Math.round(hrs / 24)
-    return t('page.notification_centre.rel_days', { count: days })
+    return t('page.notification_centre.rel_days', { count: Math.round(hrs / 24) })
   }
+  const kindLabel = (kind: string) => t(KIND_KEYS[kind] ?? 'page.notification_centre.kind_other')
 
-  const { data: notifsAll = [] } = useQuery<PlatformNotification[]>({
-    queryKey: ['notifications'],
-    queryFn:  () => platformApi.listNotifications(),
+  const feed = useQuery({
+    queryKey: QUERY_KEY,
+    queryFn:  () => platformApi.listMyNotifications(),
+    retry: false,
   })
-  const { data: prefs = [] } = useQuery<NotificationPreference[]>({
-    queryKey: ['notification-prefs'],
-    queryFn:  () => platformApi.getNotificationPreferences(),
-  })
+  const inbox = useMemo(() => feed.data ?? [], [feed.data])
 
-  const [tab, setTab] = useState<'inbox' | 'preferences'>('inbox')
   const [filter, setFilter] = useState<FilterKey>('all')
-  const [selectedId, setSelectedId] = useState<string>('notif-001')
-  const [prefsLocal, setPrefsLocal] = useState<NotificationPreference[] | null>(null)
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [actionError, setActionError] = useState<string | null>(null)
 
-  // Filter to demo user (per brief §68)
-  const inbox = useMemo(
-    () => notifsAll.filter(n => n.targetUserId === DEMO_USER_ID),
-    [notifsAll],
-  )
+  const filtered = useMemo(() => (filter === 'unread' ? inbox.filter(n => !n.readAt) : inbox), [inbox, filter])
+  const unreadCount = inbox.filter(n => !n.readAt).length
+  // The chosen notification, else the first one in the list — never a fixed id.
+  const active = filtered.find(n => n.id === selectedId) ?? filtered[0] ?? null
 
-  const filtered = useMemo(() => {
-    const chip = FILTER_CHIPS.find(c => c.key === filter) ?? FILTER_CHIPS[0]
-    return inbox.filter(n => chip.match(n))
-  }, [inbox, filter])
+  // Changes are applied to the cached feed straight away; a failure says so and reloads it.
+  const patchCache = (fn: (list: MyNotification[]) => MyNotification[]) =>
+    qc.setQueryData<MyNotification[]>(QUERY_KEY, old => (old ? fn(old) : old))
+  const onActionError = (err: unknown) => {
+    setActionError(t('page.notification_centre.action_failed', { message: describeApiError(err).message }))
+    void qc.invalidateQueries({ queryKey: QUERY_KEY })
+  }
+  const now = () => new Date().toISOString()
 
-  const unreadCount = inbox.filter(n => !n.isRead).length
-  const active = inbox.find(n => n.id === selectedId) ?? inbox[0] ?? null
+  const markRead = useMutation({
+    mutationFn: (id: string) => platformApi.markNotificationsRead([id]),
+    onMutate: (id) => { setActionError(null); patchCache(list => list.map(n => (n.id === id && !n.readAt ? { ...n, readAt: now() } : n))) },
+    onError: onActionError,
+  })
+  const markAllRead = useMutation({
+    mutationFn: () => platformApi.markAllNotificationsRead(),
+    onMutate: () => { setActionError(null); patchCache(list => list.map(n => (n.readAt ? n : { ...n, readAt: now() }))) },
+    onError: onActionError,
+  })
+  const dismiss = useMutation({
+    mutationFn: (id: string) => platformApi.dismissNotification(id),
+    onMutate: (id) => { setActionError(null); setSelectedId(null); patchCache(list => list.filter(n => n.id !== id)) },
+    onError: onActionError,
+  })
 
-  const displayPrefs = prefsLocal ?? prefs
-
-  const handleClickRow = async (n: PlatformNotification) => {
+  const select = (n: MyNotification) => {
     setSelectedId(n.id)
-    if (!n.isRead) {
-      await platformApi.markNotificationRead(n.id).catch(() => {})
-      await qc.invalidateQueries({ queryKey: ['notifications'] })
-    }
+    if (!n.readAt) markRead.mutate(n.id)
   }
 
-  const markAllRead = async () => {
-    for (const n of inbox.filter(x => !x.isRead)) {
-      await platformApi.markNotificationRead(n.id).catch(() => {})
-    }
-    await qc.invalidateQueries({ queryKey: ['notifications'] })
+  const openLink = (path: string) => {
+    if (path.startsWith('/')) navigate(path)
+    else window.open(path, '_blank', 'noopener')
   }
 
-  const togglePref = (userId: string, eventType: string, channel: 'email' | 'inApp' | 'sms', next: boolean) => {
-    const base = displayPrefs
-    const nextPrefs = base.map(p => p.userId === userId && p.eventType === eventType ? { ...p, [channel]: next } : p)
-    setPrefsLocal(nextPrefs)
-    void platformApi.updateNotificationPreferences(nextPrefs).catch(() => {})
-  }
-
-  const eventLabel = (ev: string): string => {
-    const key = EVENT_TYPE_KEYS[ev]
-    return key ? t(key) : ev
-  }
-  const moduleLabel = (m: string): string => {
-    const meta = MODULE_META[m]
-    return meta ? t(meta.labelKey) : m
-  }
+  const roleLabel = PLATFORM_USER_ROLE_LABEL[currentUser.role] ?? currentUser.role
 
   return (
     <div className="bg-slate-50" data-screen="notification-centre">
@@ -142,107 +129,108 @@ export function NotificationCentre() {
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.notification_centre.title')}</h1>
-            <p className="mt-1 max-w-[720px] text-[13px] text-slate-600">
-              {t('page.notification_centre.subtitle')}
+            <p className="mt-1 max-w-[720px] text-[13px] text-slate-600">{t('page.notification_centre.subtitle')}</p>
+            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>
+              {t('page.notification_centre.user_byline', { name: currentUser.name, role: roleLabel })}
             </p>
-            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{t('page.notification_centre.user_byline', { name: DEMO_USER_NAME, role: t('page.notification_centre.role_regulatory_writer') })}</p>
           </div>
         </div>
 
-        {/* Tabs */}
         <div className="flex items-center gap-1 border-b border-slate-200" data-tabs>
-          <button
-            type="button" onClick={() => setTab('inbox')}
-            data-tab="inbox" data-active={tab === 'inbox' || undefined}
+          <span
+            data-tab="inbox" data-active
             className="flex items-center gap-2 px-3 py-2 text-[13px] font-semibold"
-            style={{
-              color: tab === 'inbox' ? PLATFORM_ACCENT.primary : '#64748B',
-              borderBottom: tab === 'inbox' ? `2px solid ${PLATFORM_ACCENT.primary}` : '2px solid transparent',
-            }}
+            style={{ color: PLATFORM_ACCENT.primary, borderBottom: `2px solid ${PLATFORM_ACCENT.primary}` }}
           >
             {t('page.notification_centre.tab_inbox')}
             {unreadCount > 0 && (
-              <span
-                className="inline-flex h-5 items-center rounded-full px-2 text-[11px] font-bold text-white"
-                style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-                data-unread-badge
-              >{t('page.notification_centre.unread_badge', { count: unreadCount })}</span>
+              <span className="inline-flex h-5 items-center rounded-full px-2 text-[11px] font-bold text-white"
+                style={{ backgroundColor: PLATFORM_ACCENT.primary }} data-unread-badge>
+                {t('page.notification_centre.unread_badge', { count: unreadCount })}
+              </span>
             )}
-          </button>
-          <button
-            type="button" onClick={() => setTab('preferences')}
-            data-tab="preferences" data-active={tab === 'preferences' || undefined}
-            className="px-3 py-2 text-[13px] font-semibold"
-            style={{
-              color: tab === 'preferences' ? PLATFORM_ACCENT.primary : '#64748B',
-              borderBottom: tab === 'preferences' ? `2px solid ${PLATFORM_ACCENT.primary}` : '2px solid transparent',
-            }}
-          >{t('page.notification_centre.tab_preferences')}</button>
+          </span>
         </div>
 
-        {/* Body */}
-        {tab === 'inbox' ? (
-          <div className="grid gap-4" style={{ gridTemplateColumns: '420px 1fr' }}>
+        {actionError && (
+          <p role="alert" className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[13px] text-red-800" data-action-error>
+            {actionError}
+          </p>
+        )}
+
+        {feed.isLoading ? (
+          <p className="rounded-lg border border-slate-200 bg-white p-6 text-[13px] text-slate-500" data-state="loading">
+            {t('page.notification_centre.loading')}
+          </p>
+        ) : feed.isError ? (
+          <div role="alert" className="flex flex-wrap items-center gap-3 rounded-lg border border-red-200 bg-red-50 p-4 text-[13px] text-red-800" data-state="error">
+            <span>{t('page.notification_centre.load_failed', { message: describeApiError(feed.error).message })}</span>
+            <button type="button" onClick={() => void feed.refetch()} data-action="retry"
+              className="rounded-md border border-red-300 bg-white px-3 py-1 text-[12px] font-semibold text-red-800 hover:bg-red-100">
+              {t('page.notification_centre.retry')}
+            </button>
+          </div>
+        ) : inbox.length === 0 ? (
+          <div className="rounded-lg border border-slate-200 bg-white p-8 text-center" data-state="empty">
+            <p className="text-[14px] font-semibold text-slate-800">{t('page.notification_centre.empty_inbox')}</p>
+            <p className="mt-1 text-[13px] text-slate-500">{t('page.notification_centre.empty_inbox_hint')}</p>
+          </div>
+        ) : (
+          <div className="grid gap-4" style={{ gridTemplateColumns: 'minmax(0, 420px) minmax(0, 1fr)' }}>
 
             {/* Left — list */}
             <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-3" data-inbox-list>
-
               <div className="flex flex-wrap items-center gap-2" data-filter-chips>
-                {FILTER_CHIPS.map(c => {
-                  const isActive = c.key === filter
+                {(['all', 'unread'] as const).map(key => {
+                  const isActive = key === filter
                   return (
-                    <button
-                      key={c.key}
-                      type="button"
-                      onClick={() => setFilter(c.key)}
-                      data-filter-chip={c.key}
-                      data-active={isActive || undefined}
+                    <button key={key} type="button" onClick={() => setFilter(key)}
+                      data-filter-chip={key} data-active={isActive || undefined}
                       className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-                      style={{
-                        backgroundColor: isActive ? PLATFORM_ACCENT.primary : '#F1F5F9',
-                        color:           isActive ? '#FFFFFF' : '#475569',
-                      }}
-                    >{t(c.labelKey)}</button>
-                  )
-                })}
-                <div className="flex-1" />
-                <button type="button" onClick={markAllRead} data-mark-all-read
-                  className="text-[11px] font-semibold text-slate-500 hover:underline">{t('page.notification_centre.mark_all_read')}</button>
-              </div>
-
-              <div className="flex flex-col divide-y divide-slate-200">
-                {filtered.map(n => {
-                  const mod = MODULE_META[n.module] ?? { labelKey: '', colour: PLATFORM_ACCENT.primary }
-                  const isActive = n.id === active?.id
-                  return (
-                    <button
-                      key={n.id}
-                      type="button"
-                      onClick={() => handleClickRow(n)}
-                      data-notif-row={n.id}
-                      data-notif-read={n.isRead || undefined}
-                      data-notif-active={isActive || undefined}
-                      className="flex flex-col items-start gap-1 px-3 py-2 text-left hover:bg-slate-50"
-                      style={{
-                        borderLeft: n.isRead ? '3px solid transparent' : `3px solid ${PLATFORM_ACCENT.primary}`,
-                        backgroundColor: isActive ? PLATFORM_ACCENT.bgTint : undefined,
-                      }}
-                    >
-                      <div className="flex w-full items-center justify-between gap-2">
-                        <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-mono font-semibold uppercase"
-                          style={{ backgroundColor: `${mod.colour}22`, color: mod.colour }}
-                          data-notif-type={n.eventType}
-                        >{eventLabel(n.eventType)}</span>
-                        <span className="font-mono text-[10px] text-slate-500" data-notif-time>{formatRelative(n.sentAt)}</span>
-                      </div>
-                      <p className="text-[13px] font-semibold text-slate-900" data-notif-title>{n.title}</p>
-                      <p className="font-mono text-[10px] text-slate-500" data-notif-context>
-                        {n.entityRef ?? '—'} · {moduleLabel(n.module)}
-                      </p>
+                      style={{ backgroundColor: isActive ? PLATFORM_ACCENT.primary : '#F1F5F9', color: isActive ? '#FFFFFF' : '#475569' }}>
+                      {t(key === 'all' ? 'page.notification_centre.filter_all' : 'page.notification_centre.filter_unread')}
                     </button>
                   )
                 })}
+                <div className="flex-1" />
+                <button type="button" onClick={() => markAllRead.mutate()} disabled={unreadCount === 0 || markAllRead.isPending} data-mark-all-read
+                  className="text-[11px] font-semibold text-slate-500 hover:underline disabled:cursor-default disabled:opacity-50 disabled:no-underline">
+                  {t('page.notification_centre.mark_all_read')}
+                </button>
               </div>
+
+              {filtered.length === 0 ? (
+                <p className="px-3 py-6 text-center text-[13px] text-slate-500" data-state="empty-filter">
+                  {t('page.notification_centre.empty_unread')}
+                </p>
+              ) : (
+                <div className="flex flex-col divide-y divide-slate-200">
+                  {filtered.map(n => {
+                    const isActive = n.id === active?.id
+                    const sev = SEVERITY_STYLE[n.severity] ?? SEVERITY_STYLE.info
+                    return (
+                      <button key={n.id} type="button" onClick={() => select(n)}
+                        data-notif-row={n.id} data-notif-read={!!n.readAt || undefined} data-notif-active={isActive || undefined}
+                        className="flex flex-col items-start gap-1 px-3 py-2 text-left hover:bg-slate-50"
+                        style={{
+                          borderLeft: n.readAt ? '3px solid transparent' : `3px solid ${PLATFORM_ACCENT.primary}`,
+                          backgroundColor: isActive ? PLATFORM_ACCENT.bgTint : undefined,
+                        }}>
+                        <div className="flex w-full items-center justify-between gap-2">
+                          <span className="inline-flex items-center rounded-md px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase"
+                            style={{ backgroundColor: sev.bg, color: sev.fg }} data-notif-type={n.kind}>
+                            {kindLabel(n.kind)}
+                          </span>
+                          <span className="font-mono text-[10px] text-slate-500" title={formatDateTime(n.createdAt)} data-notif-time>
+                            {formatRelative(n.createdAt)}
+                          </span>
+                        </div>
+                        <p className={`text-[13px] text-slate-900 ${n.readAt ? 'font-medium' : 'font-semibold'}`} data-notif-title>{n.title}</p>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
 
               <p className="pt-2 font-mono text-[11px] text-slate-500" data-count-label>
                 {t('page.notification_centre.count_label', { total: filtered.length, unread: unreadCount })}
@@ -250,98 +238,47 @@ export function NotificationCentre() {
             </section>
 
             {/* Right — detail */}
-            <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5" data-detail-panel>
+            <aside className="flex min-w-0 flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5" data-detail-panel>
               {active ? (
                 <>
                   <div className="flex flex-wrap items-center gap-2">
-                    <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-mono font-semibold uppercase"
-                      style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
-                      data-active-type>{eventLabel(active.eventType)}</span>
-                    <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[10px] font-mono font-semibold uppercase"
-                      style={{ backgroundColor: `${(MODULE_META[active.module]?.colour ?? PLATFORM_ACCENT.primary)}22`, color: MODULE_META[active.module]?.colour ?? PLATFORM_ACCENT.primary }}
-                      data-active-module>{moduleLabel(active.module)}</span>
+                    <span className="inline-flex items-center rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold uppercase"
+                      style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }} data-active-type>
+                      {kindLabel(active.kind)}
+                    </span>
+                    {SEVERITY_STYLE[active.severity]?.labelKey && (
+                      <span className="inline-flex items-center rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold uppercase"
+                        style={{ backgroundColor: SEVERITY_STYLE[active.severity].bg, color: SEVERITY_STYLE[active.severity].fg }} data-active-severity>
+                        {t(SEVERITY_STYLE[active.severity].labelKey!)}
+                      </span>
+                    )}
                   </div>
 
                   <h2 className="text-[16px] font-bold text-slate-900" data-active-title>{active.title}</h2>
-                  <p className="text-[13px] text-slate-700" data-active-body>{active.body}</p>
-                  <p className="font-mono text-[11px] text-slate-500" data-active-stamp>{t('page.notification_centre.raised_label', { time: formatDateTime(active.sentAt) })}</p>
+                  <p className="whitespace-pre-line break-words text-[13px] leading-relaxed text-slate-700" data-active-body>{active.body}</p>
+                  <p className="font-mono text-[11px] text-slate-500" data-active-stamp>
+                    {t('page.notification_centre.raised_label', { time: formatDateTime(active.createdAt) })}
+                  </p>
 
                   <div className="flex items-center gap-3">
-                    <button
-                      type="button"
-                      onClick={() => navigate(active.ctaRoute)}
-                      data-active-action
-                      className="h-9 rounded-md px-4 text-[13px] font-semibold text-white"
-                      style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-                    >{active.ctaLabel}</button>
-                    <button type="button" className="text-[12px] font-semibold text-slate-500 hover:underline" data-dismiss>{t('page.notification_centre.dismiss')}</button>
+                    {active.linkPath && (
+                      <button type="button" onClick={() => openLink(active.linkPath!)} data-active-action
+                        className="h-9 rounded-md px-4 text-[13px] font-semibold text-white" style={{ backgroundColor: PLATFORM_ACCENT.primary }}>
+                        {t('page.notification_centre.open_link')}
+                      </button>
+                    )}
+                    <button type="button" onClick={() => dismiss.mutate(active.id)} disabled={dismiss.isPending} data-dismiss
+                      className="text-[12px] font-semibold text-slate-500 hover:underline disabled:opacity-50">
+                      {t('page.notification_centre.dismiss')}
+                    </button>
                   </div>
-                  <p className="font-mono text-[11px] text-slate-500" data-dismiss-note>
-                    {t('page.notification_centre.dismiss_note')}
-                  </p>
+                  <p className="font-mono text-[11px] text-slate-500" data-dismiss-note>{t('page.notification_centre.dismiss_note')}</p>
                 </>
               ) : (
                 <p className="text-[13px] text-slate-500">{t('page.notification_centre.select_hint')}</p>
               )}
             </aside>
           </div>
-        ) : (
-          // Preferences tab
-          <section className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5" data-preferences-tab>
-            <p
-              className="rounded-md p-3 text-[12px]"
-              style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
-              data-prefs-note
-            >
-              {t('page.notification_centre.prefs_note')}
-            </p>
-
-            <div className="overflow-hidden rounded-lg border border-slate-200" data-prefs-table>
-              <table className="w-full text-[13px]">
-                <thead style={{ backgroundColor: '#F8FAFC' }}>
-                  <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                    <th className="px-4 py-2">{t('page.notification_centre.col_event_type')}</th>
-                    <th className="px-4 py-2 text-center">{t('page.notification_centre.col_email')}</th>
-                    <th className="px-4 py-2 text-center">{t('page.notification_centre.col_in_app')}</th>
-                    <th className="px-4 py-2 text-center">{t('page.notification_centre.col_sms')}</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {displayPrefs.map(p => {
-                    const isSystem = p.eventType === 'system'
-                    return (
-                      <tr key={`${p.userId}-${p.eventType}`} className="border-t border-slate-200" data-pref-row={p.eventType}>
-                        <td className="px-4 py-3 font-semibold text-slate-900">{eventLabel(p.eventType)}</td>
-                        <td className="px-4 py-3 text-center">
-                          <input type="checkbox" checked={p.email} onChange={(e) => togglePref(p.userId, p.eventType, 'email', e.currentTarget.checked)}
-                            data-pref-toggle={`${p.eventType}-email`} style={{ accentColor: PLATFORM_ACCENT.primary }} />
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <input
-                            type="checkbox"
-                            checked={p.inApp}
-                            disabled={isSystem}
-                            onChange={(e) => togglePref(p.userId, p.eventType, 'inApp', e.currentTarget.checked)}
-                            data-pref-toggle={`${p.eventType}-inApp`}
-                            data-pref-locked={isSystem || undefined}
-                            style={{ accentColor: PLATFORM_ACCENT.primary }}
-                          />
-                        </td>
-                        <td className="px-4 py-3 text-center">
-                          <input type="checkbox" checked={p.sms} onChange={(e) => togglePref(p.userId, p.eventType, 'sms', e.currentTarget.checked)}
-                            data-pref-toggle={`${p.eventType}-sms`} style={{ accentColor: PLATFORM_ACCENT.primary }} />
-                        </td>
-                      </tr>
-                    )
-                  })}
-                </tbody>
-              </table>
-            </div>
-
-            <p className="font-mono text-[11px] text-slate-500" data-audit-note>
-              {t('page.notification_centre.audit_note')}
-            </p>
-          </section>
         )}
       </div>
     </div>

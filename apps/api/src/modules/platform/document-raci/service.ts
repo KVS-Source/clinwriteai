@@ -85,14 +85,16 @@ export async function validateRaciInsert(
 
   // --- Entity existence ----------------------------------------------
   const [user, document] = await Promise.all([
-    prisma.user.findUnique({ where: { id: input.userId }, select: { id: true, capabilities: true, role: true } }),
+    prisma.user.findUnique({ where: { id: input.userId }, select: { id: true, capabilities: true, role: true, additionalRoles: true } }),
     prisma.document.findUnique({ where: { id: input.documentId }, select: { id: true } }),
   ])
 
   if (!user) return { ok: false, failure: { kind: 'user_not_found', userId: input.userId } }
   if (!document) return { ok: false, failure: { kind: 'document_not_found', documentId: input.documentId } }
 
-  if (input.letter === 'R' && NEVER_AUTHOR_ROLES.has(user.role)) {
+  // Two roles: barred from R only if every role is (an admin is never combined — role-combos.ts).
+  const userRoles = [user.role, ...(user.additionalRoles ?? [])]
+  if (input.letter === 'R' && userRoles.every(r => NEVER_AUTHOR_ROLES.has(r))) {
     return { ok: false, failure: { kind: 'role_cannot_author', role: user.role } }
   }
 
@@ -109,7 +111,7 @@ export async function validateRaciInsert(
       input.userId === input.assignedBy &&
       input.isActorTenantAdmin
     if (!hasCap && !isSelfAdminGrant) {
-      const assigneeIsAdmin = ['admin', 'tenant-admin', 'super-admin'].includes(user.role)
+      const assigneeIsAdmin = userRoles.some(r => ['admin', 'tenant-admin', 'super-admin'].includes(r))
       if (!input.autoGrantCapability || assigneeIsAdmin) {
         return { ok: false, failure: { kind: 'missing_capability', required: requiredCap, letter: input.letter } }
       }

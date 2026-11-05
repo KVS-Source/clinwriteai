@@ -9,6 +9,7 @@ import { Queue, Worker, type Job } from 'bullmq'
 import { Redis } from 'ioredis'
 import { PrismaClient } from '@prisma/client'
 import pino from 'pino'
+import { withPoolSettings } from './pool-url.js'
 import { handleMedContentExpiryCheck } from './jobs/med-content-expiry.js'
 import { handleKolReminder } from './jobs/kol-reminder.js'
 import { handleCalendarOverdue } from './jobs/calendar-overdue.js'
@@ -52,7 +53,9 @@ const connection = new Redis(process.env.REDIS_URL, {
   enableReadyCheck: true,
 })
 
-const prisma = new PrismaClient()
+// A bounded, named pool (see pool-url.ts): 3 connections per local worker unless set otherwise —
+// jobs hold a connection only briefly, so a burst of e-mails just queues for it.
+const prisma = new PrismaClient({ datasourceUrl: withPoolSettings(process.env.DATABASE_URL, { app: 'clinwrite-worker', devLimit: 3 }) })
 await prisma.$connect()
 log.info('Worker: Prisma connected')
 

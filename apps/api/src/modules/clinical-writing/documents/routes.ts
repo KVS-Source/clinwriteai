@@ -20,7 +20,7 @@ import { createHash, randomUUID } from 'node:crypto'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
 import { z } from 'zod'
-import { requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
+import { requireAuth, type AuthenticatedUser, hasAnyRole, onlyRolesIn } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
@@ -970,13 +970,13 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
     const actor = request.user!
     // Auditors are a view-only role, even if they were given an R row.
-    if (actor.role === 'auditor') return reply.code(403).send(SUBMIT_FORBIDDEN)
+    if (onlyRolesIn(actor, ['auditor', 'read-only'])) return reply.code(403).send(SUBMIT_FORBIDDEN)
     const authorRows = await app.prisma.documentRaci.findMany({
       where:  { documentId, letter: 'R', removedAt: null },
       select: { id: true, userId: true, sectionId: true, submittedAt: true, rejectedAt: true },
     })
     const ownRows = authorRows.filter(r => r.userId === actor.id)
-    const soleAssignee = authorRows.length === 0 && doc.assigneeId === actor.id && !NEVER_AUTHOR_ROLES.has(actor.role)
+    const soleAssignee = authorRows.length === 0 && doc.assigneeId === actor.id && !onlyRolesIn(actor, NEVER_AUTHOR_ROLES)
     if (ownRows.length === 0 && !soleAssignee) return reply.code(403).send(SUBMIT_FORBIDDEN)
 
     const from = doc.status as DocumentStatus
@@ -1133,7 +1133,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       actorIsDocumentAuthor(app.prisma, actor, documentId),
     ])
     const open = project?.status !== 'closed' && doc.status !== 'signed'
-    const pmHere = actor.role === 'pm' && (visible === 'all' || visible.has(doc.projectId))
+    const pmHere = hasAnyRole(actor, 'pm') && (visible === 'all' || visible.has(doc.projectId))
     const inReview = doc.status === 'in_review' || doc.status === 'crm_in_progress'
     return { doc, pmHere, isAuthor, open, inReview }
   }
@@ -2437,7 +2437,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // Edit scope: tenant-admin / admin bypass; otherwise the caller must
     // be the assignee or hold an R/A/Q letter on this document (same set
     // the editor allows to mutate section content).
-    const isAdmin = request.user!.role === 'tenant-admin' || request.user!.role === 'admin'
+    const isAdmin = hasAnyRole(request.user!, 'tenant-admin', 'admin')
     const isAssignee = doc.assigneeId === request.user!.id
     let canEdit = isAdmin || isAssignee
     if (!canEdit) {

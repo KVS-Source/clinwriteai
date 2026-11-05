@@ -8,7 +8,7 @@ import { ProjectStatusPill } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { usePlatformStore } from '../../platform/store'
 import { MODULE_KEY_TO_SLUG, type ModuleKey, type ModuleSlug } from '../../config/modules'
-import { isAdminRole } from '../../config/roles'
+import { isAdminRole, holdsRole } from '../../config/roles'
 import { ProjectStatusDialog, ProjectStatusHistory, ProjectStatusMenu, ProjectStatusSuggestion } from './ProjectStatusControl'
 import { deadlineDay, fmtDeadline, localToday } from '../clinical-writing/DeadlineField'
 
@@ -76,7 +76,7 @@ export function ProjectDashboard() {
   const currentUser = usePlatformStore(s => s.currentUser)
   const role    = currentUser.role
   const isAdmin = isAdminRole(role)
-  const isPm    = role === 'pm'
+  const isPm    = holdsRole(currentUser, 'pm')
   const [statusChange, setStatusChange] = useState<ProjectStatus | null>(null)
   const [historyOpen, setHistoryOpen] = useState(false)
 

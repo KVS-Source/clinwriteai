@@ -12,15 +12,39 @@
 //     row exists on a brand-new doc)
 
 import type { PrismaClient } from '@prisma/client'
-import type { AuthenticatedUser } from '../../../auth/rbac.js'
+import { hasAnyRole, onlyRolesIn, type AuthenticatedUser } from '../../../auth/rbac.js'
+// Multiple roles: a grant applies if any role grants it (hasAnyRole); a role restriction only if
+// every role the actor holds is restricted (onlyRolesIn). See auth/rbac.ts.
 import { visibleProjectIdsForUser } from '../../projects/visibility.js'
+
+// A fixed chain (docs/roles-and-permissions.md §4): while a signature chain is in progress
+// (initiated / in_progress) the people signing and the checklist the chain was opened against
+// stay as they are — RACI changes (except removing yourself) and checklist changes wait until
+// the chain is cancelled or complete.
+export async function signatureChainActive(prisma: PrismaClient, documentId: string): Promise<boolean> {
+  const chain = await prisma.signatureChain.findFirst({
+    where: { documentId, status: { in: ['initiated', 'in_progress'] } },
+    select: { id: true },
+  })
+  return chain !== null
+}
+
+export const RACI_CHAIN_ACTIVE = {
+  error: 'signature_chain_active',
+  message: "A signature chain is in progress for this document, so its RACI can't be changed. Cancel the chain first.",
+} as const
+
+export const CHECKLIST_CHAIN_ACTIVE = {
+  error: 'signature_chain_active',
+  message: "A signature chain is in progress for this document, so its checklist can't be changed. Cancel the chain first.",
+} as const
 
 export async function actorCanEditDocumentRaci(
   prisma: PrismaClient,
   actor: AuthenticatedUser,
   documentId: string,
 ): Promise<boolean> {
-  if (actor.role === 'tenant-admin' || actor.role === 'admin') return true
+  if (hasAnyRole(actor, 'tenant-admin', 'admin')) return true
 
   const [doc, existingR] = await Promise.all([
     prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
@@ -52,7 +76,7 @@ export async function actorCanEditRaciAssignments(
   actor: AuthenticatedUser,
   documentId: string,
 ): Promise<boolean> {
-  if (RACI_LOCKED_ROLES.has(actor.role)) return false
+  if (onlyRolesIn(actor, RACI_LOCKED_ROLES)) return false
   return actorCanEditDocumentRaci(prisma, actor, documentId)
 }
 
@@ -81,7 +105,7 @@ export async function actorCanAddComment(
   actor: AuthenticatedUser,
   documentId: string,
 ): Promise<boolean> {
-  if (COMMENT_LOCKED_ROLES.has(actor.role)) return false
+  if (onlyRolesIn(actor, COMMENT_LOCKED_ROLES)) return false
   const [doc, row] = await Promise.all([
     prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
     prisma.documentRaci.findFirst({
@@ -103,7 +127,7 @@ export async function actorCanGiveVerdict(
   actor: AuthenticatedUser,
   documentId: string,
 ): Promise<boolean> {
-  if (COMMENT_LOCKED_ROLES.has(actor.role)) return false
+  if (onlyRolesIn(actor, COMMENT_LOCKED_ROLES)) return false
   const row = await prisma.documentRaci.findFirst({
     where: { documentId, userId: actor.id, letter: { in: VERDICT_LETTERS }, removedAt: null },
     select: { id: true },
@@ -121,7 +145,7 @@ export async function actorCanWaiveIchSection(
   actor: AuthenticatedUser,
   documentId: string,
 ): Promise<boolean> {
-  if (COMMENT_LOCKED_ROLES.has(actor.role)) return false
+  if (onlyRolesIn(actor, COMMENT_LOCKED_ROLES)) return false
   const [doc, row] = await Promise.all([
     prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
     prisma.documentRaci.findFirst({
@@ -162,7 +186,7 @@ export async function actorIsProjectAuthor(
   actor: AuthenticatedUser,
   projectId: string,
 ): Promise<boolean> {
-  if (RACI_LOCKED_ROLES.has(actor.role) || actor.role === 'guest') return false
+  if (onlyRolesIn(actor, [...RACI_LOCKED_ROLES, 'guest'])) return false
   const [rRow, assigned] = await Promise.all([
     prisma.documentRaci.findFirst({
       where: { userId: actor.id, letter: 'R', removedAt: null, document: { projectId, deletedAt: null } },
@@ -185,7 +209,7 @@ const SOURCE_HIDDEN_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin
 const SOURCE_VIEW_LETTERS = ['R', 'C', 'Q', 'A']
 
 const pmOnProject = async (prisma: PrismaClient, actor: AuthenticatedUser, projectId: string) => {
-  if (actor.role !== 'pm') return false
+  if (!hasAnyRole(actor, 'pm')) return false
   const visible = await visibleProjectIdsForUser(prisma, actor)
   return visible === 'all' || visible.has(projectId)
 }
@@ -195,9 +219,9 @@ export async function actorCanViewSources(
   actor: AuthenticatedUser,
   projectId: string,
 ): Promise<boolean> {
-  if (SOURCE_HIDDEN_ROLES.has(actor.role)) return false
-  if (actor.role === 'auditor' || actor.role === 'read-only') return true
-  if (actor.role === 'pm') return pmOnProject(prisma, actor, projectId)
+  if (onlyRolesIn(actor, SOURCE_HIDDEN_ROLES)) return false
+  if (hasAnyRole(actor, 'auditor', 'read-only')) return true
+  if (await pmOnProject(prisma, actor, projectId)) return true
   const [row, assigned] = await Promise.all([
     prisma.documentRaci.findFirst({
       where: { userId: actor.id, letter: { in: SOURCE_VIEW_LETTERS }, removedAt: null, document: { projectId, deletedAt: null } },
@@ -238,7 +262,7 @@ export async function actorCanChangeSource(
 // AI Chat (and the inline section AI prompt) is for a document's authors only: the
 // routes also require actorCanEditDocumentContent. A PM is refused outright, even
 // holding R. The web disables the entry points; the API refuses so it can't be bypassed.
-export const actorCanUseAiChat = (actor: { role: string }): boolean => actor.role !== 'pm'
+export const actorCanUseAiChat = (actor: { role: string; roles?: readonly string[] }): boolean => !onlyRolesIn(actor, ['pm'])
 
 export const AI_CHAT_FORBIDDEN = {
   error: 'ai_chat_not_allowed',
@@ -254,8 +278,8 @@ export const NEVER_ASSIGNEE_ROLES: ReadonlySet<string> = new Set([...NEVER_AUTHO
 
 // An unknown id passes here and fails on the Document's foreign key as it always has.
 export async function userCanBeAssignee(prisma: PrismaClient, userId: string): Promise<boolean> {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true } })
-  return !user || !NEVER_ASSIGNEE_ROLES.has(user.role)
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { role: true, additionalRoles: true } })
+  return !user || !onlyRolesIn({ role: user.role, roles: [user.role, ...(user.additionalRoles ?? [])] }, NEVER_ASSIGNEE_ROLES)
 }
 
 export const ASSIGNEE_NOT_ELIGIBLE = {
@@ -275,8 +299,8 @@ export function actorCanViewChecklist(prisma: PrismaClient, actor: Authenticated
 }
 
 async function auditorPmOrLetters(prisma: PrismaClient, actor: AuthenticatedUser, documentId: string, letters: string[]): Promise<boolean> {
-  if (actor.role === 'auditor' || actor.role === 'read-only') return true
-  if (NEVER_AUTHOR_ROLES.has(actor.role) || actor.role === 'guest') return false
+  if (hasAnyRole(actor, 'auditor', 'read-only')) return true
+  if (onlyRolesIn(actor, [...NEVER_AUTHOR_ROLES, 'guest'])) return false
   const [doc, rows] = await Promise.all([
     prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true, projectId: true } }),
     prisma.documentRaci.findMany({
@@ -285,9 +309,9 @@ async function auditorPmOrLetters(prisma: PrismaClient, actor: AuthenticatedUser
     }),
   ])
   if (!doc) return false
-  if (actor.role === 'pm') {
+  if (hasAnyRole(actor, 'pm')) {
     const visible = await visibleProjectIdsForUser(prisma, actor)
-    return visible === 'all' || visible.has(doc.projectId)
+    if (visible === 'all' || visible.has(doc.projectId)) return true
   }
   return rows.length > 0 || doc.assigneeId === actor.id
 }
@@ -305,7 +329,7 @@ export const VERSION_VIEW_FORBIDDEN = {
 // Reading comment text, including CRM resolution notes, AI drafts and minutes. Tenant admins can't.
 // The permission matrix also leaves out auditors, but that is awaiting the product owner's confirmation.
 export function actorCanViewComments(actor: AuthenticatedUser): boolean {
-  return !NEVER_AUTHOR_ROLES.has(actor.role)
+  return !onlyRolesIn(actor, NEVER_AUTHOR_ROLES)
 }
 
 export const COMMENT_VIEW_FORBIDDEN = {
@@ -332,7 +356,7 @@ export async function actorIsDocumentAuthor(
   actor: AuthenticatedUser,
   documentId: string,
 ): Promise<boolean> {
-  if (actor.role === 'auditor' || NEVER_AUTHOR_ROLES.has(actor.role)) return false
+  if (onlyRolesIn(actor, [...NEVER_AUTHOR_ROLES, 'auditor'])) return false
   const [doc, rows] = await Promise.all([
     prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
     prisma.documentRaci.findMany({ where: { documentId, letter: 'R', removedAt: null }, select: { userId: true } }),
@@ -372,7 +396,7 @@ export async function documentsActorCanResolve(
   actor: AuthenticatedUser,
   documentIds: string[],
 ): Promise<Set<string>> {
-  if (COMMENT_LOCKED_ROLES.has(actor.role) || documentIds.length === 0) return new Set()
+  if (onlyRolesIn(actor, COMMENT_LOCKED_ROLES) || documentIds.length === 0) return new Set()
   const [rows, assigned] = await Promise.all([
     prisma.documentRaci.findMany({
       where: { documentId: { in: documentIds }, userId: actor.id, letter: { in: ['R', 'C', 'A'] }, removedAt: null },
@@ -395,15 +419,15 @@ export const COMMENT_RESOLVE_FORBIDDEN = {
 // Scheduling a CRM meeting: anyone working on the document (any RACI letter, or the assignee), and a PM
 // who can see the project. Never an admin, or someone whose only part on the document is QC (Q).
 export async function actorCanScheduleCrm(prisma: PrismaClient, actor: AuthenticatedUser, documentId: string): Promise<boolean> {
-  if (NEVER_AUTHOR_ROLES.has(actor.role)) return false
+  if (onlyRolesIn(actor, NEVER_AUTHOR_ROLES)) return false
   const [doc, rows] = await Promise.all([
     prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true, projectId: true } }),
     prisma.documentRaci.findMany({ where: { documentId, userId: actor.id, removedAt: null }, select: { letter: true } }),
   ])
   if (!doc) return false
   if (doc.assigneeId === actor.id) return true
-  if (rows.length > 0) return rows.some(r => r.letter !== 'Q')
-  if (actor.role !== 'pm') return false
+  if (rows.length > 0 && rows.some(r => r.letter !== 'Q')) return true
+  if (!hasAnyRole(actor, 'pm')) return false
   const visible = await visibleProjectIdsForUser(prisma, actor)
   return visible === 'all' || visible.has(doc.projectId)
 }

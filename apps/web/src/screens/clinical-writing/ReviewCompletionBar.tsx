@@ -8,7 +8,7 @@ import { useTranslation } from 'react-i18next'
 import { raciApi, type DocumentRaciRow } from '../../api/raci'
 import { ApiError } from '../../api/client'
 import { useCurrentUser } from '../../hooks'
-import { isReadOnlyRole } from '../../config/roles'
+import { isReadOnlyUser } from '../../config/roles'
 import { documentRaciKey } from './MyRaciRole'
 
 const REVIEW_LETTERS = new Set(['C', 'Q'])
@@ -30,7 +30,7 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
   // Someone reviewing section by section holds several rows, and finishes them together.
   const mine = cohort.filter(r => r.userId === me?.id)
   const myOpen = mine.filter(r => r.reviewedAt === null && r.rejectedAt === null)
-  const canAct = myOpen.length > 0 && !isReadOnlyRole(me?.role)
+  const canAct = myOpen.length > 0 && !isReadOnlyUser(me)
   const needsSignature = myOpen.some(r => r.signatureRequired)
   const isQc = myOpen.length > 0 && myOpen.every(r => r.letter === 'Q')
 

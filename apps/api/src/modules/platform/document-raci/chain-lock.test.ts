@@ -80,4 +80,13 @@ describe('RACI changes while a signature chain is in progress', () => {
     expect(res.statusCode).toBe(204)
     expect(raciUpdate).toHaveBeenCalledOnce()
   })
+
+  it('the can-edit probe reports the chain, so the editor can say why changes are refused', async () => {
+    for (const [chainStatus, chainActive] of [['in_progress', true], ['initiated', true], ['complete', false], [null, false]] as const) {
+      const { app } = await buildApp({ chainStatus })
+      const res = await app.inject({ method: 'GET', url: `/documents/${DOC_ID}/raci/can-edit` })
+      expect(res.json(), String(chainStatus)).toEqual({ canEdit: true, chainActive })
+      await app.close()
+    }
+  })
 })

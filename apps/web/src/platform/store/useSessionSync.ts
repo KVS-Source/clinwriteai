@@ -21,6 +21,7 @@ interface MeResponse {
   email: string
   name: string
   role: PlatformUserRole
+  roles?: PlatformUserRole[]
   modules: Array<'A' | 'B' | 'C' | 'D' | 'E'>
   status: PlatformUser['status']
   lastActiveAt: string | null
@@ -34,6 +35,7 @@ export function toPlatformUser(me: MeResponse): PlatformUser {
     name: me.name,
     email: me.email,
     role: me.role,
+    roles: me.roles ?? [me.role],
     modules: me.modules,
     status: me.status,
     lastActive: me.lastActiveAt,

@@ -410,6 +410,7 @@ function shapeUserForClient(user: User) {
     email: user.email,
     name: user.name,
     role: user.role,
+    roles: [user.role, ...user.additionalRoles.filter(r => r !== user.role)],
     modules: user.modules,
     tenantId: user.tenantId,
     status: user.status,

@@ -21,7 +21,7 @@
 // (because the guest-invite seed also writes a ProjectMember row).
 
 import type { Prisma, PrismaClient } from '@prisma/client'
-import type { AuthenticatedUser } from '../../auth/rbac.js'
+import { hasAnyRole, type AuthenticatedUser } from '../../auth/rbac.js'
 
 const SEE_ALL_ROLES: ReadonlySet<string> = new Set([
   'tenant-admin',
@@ -39,7 +39,7 @@ export async function visibleProjectIdsForUser(
   prisma: PrismaClient,
   user: AuthenticatedUser,
 ): Promise<'all' | Set<string>> {
-  if (SEE_ALL_ROLES.has(user.role)) return 'all'
+  if (hasAnyRole(user, ...SEE_ALL_ROLES)) return 'all'
 
   const [members, legacyTeam, raciDocs] = await Promise.all([
     prisma.projectMember.findMany({
@@ -84,7 +84,7 @@ const SEE_ALL_DOCUMENT_ROLES: ReadonlySet<string> = new Set([...SEE_ALL_ROLES, '
 
 /** Prisma filter limiting documents to the ones `user` works on, or null when they see all. */
 export function documentVisibilityWhere(user: AuthenticatedUser): Prisma.DocumentWhereInput | null {
-  if (SEE_ALL_DOCUMENT_ROLES.has(user.role)) return null
+  if (hasAnyRole(user, ...SEE_ALL_DOCUMENT_ROLES)) return null
   return {
     OR: [
       { assigneeId: user.id },

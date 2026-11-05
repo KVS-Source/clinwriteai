@@ -10,7 +10,8 @@ import { ProjectStatusPill, SlidePanel } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { usePlatformStore } from '../../platform/store'
 import { useTaLabels } from '../../hooks'
-import { NewProjectForm } from './NewProject'
+import { NewProjectForm } from './NewProject'
+import { holdsRole } from '../../config/roles'
 
 function SearchIcon() {
   return (
@@ -103,8 +104,7 @@ export function AllProjects() {
   // don't create projects — their domain is tenant admin / users / audit.
   // Contributors / reviewers / auditors / guests never see the button.
   // The API gate (POST /projects) now also requires role='pm'.
-  const currentRole = usePlatformStore(s => s.currentUser.role)
-  const isPm = currentRole === 'pm'
+  const isPm = holdsRole(usePlatformStore(s => s.currentUser), 'pm')
 
   const [search,       setSearch]       = useState('')
   const [statusFilter, setStatusFilter] = useState<ProjectStatus | 'all'>('all')

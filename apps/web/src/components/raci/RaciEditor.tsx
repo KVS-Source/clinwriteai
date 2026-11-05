@@ -28,6 +28,7 @@ import {
 } from '../../api/raci'
 import { ApiError } from '../../api/client'
 import { platformApi } from '../../platform/api/platformApi'
+import { usePlatformStore } from '../../platform/store'
 import { UserPicker } from './UserPicker'
 import { StatusStrip } from './StatusStrip'
 
@@ -93,6 +94,10 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
   })
   const noPermission = permission?.canEdit === false
   const editable = editableProp && !noPermission
+  // While a signature chain is in progress the RACI is fixed (server rule): no one can be added and
+  // only your own assignment can be removed. Said up front rather than as a refusal per click.
+  const chainActive = permission?.chainActive === true
+  const myId = usePlatformStore(s => s.currentUser.id)
 
   // Names for the assigned users (rows carry only the user id).
   const { data: users = [] } = useQuery<PlatformUser[]>({
@@ -159,6 +164,12 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
         <StatusStrip evaluation={transitionEval} showNextStatus />
       </header>
 
+      {chainActive && (
+        <div className="rounded border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900" role="status" data-raci-chain-locked>
+          {t('component.raci_editor.chain_locked')}
+        </div>
+      )}
+
       {error && (
         <div className="px-3 py-2 rounded border border-rose-200 bg-rose-50 text-xs text-rose-700">
           {error}
@@ -203,7 +214,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
                     {isNew && (
                       <span className="shrink-0 rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-800">✓ {t('component.user_picker.added')}</span>
                     )}
-                    {editable && (
+                    {editable && (!chainActive || row.userId === myId) && (
                       <span className="ml-auto flex items-center gap-2">
                         {confirmingRemove === row.id ? (
                           <>
@@ -263,7 +274,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
               letter={letter}
               value={selectedIds}
               onAdd={user => addUser(letter, user)}
-              disabled={!editable || busyLetter === letter}
+              disabled={!editable || chainActive || busyLetter === letter}
               heldElsewhere={heldElsewhere(letter)}
             />
           </section>

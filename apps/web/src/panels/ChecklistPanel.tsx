@@ -476,6 +476,8 @@ export function ChecklistPanel({ documentId }: Props) {
   const removedItems = useMemo(() => allItems.filter(i => i.status === 'removed'), [allItems])
   // The API says whether this caller may change the list; absent = yes.
   const canEdit = allItems[0]?.canEdit !== false
+  // A signature chain is in progress: the checklist is fixed until it is cancelled or complete.
+  const chainActive = allItems[0]?.chainActive === true
 
   const [actionError, setActionError] = useState<string | null>(null)
   const [filter,      setFilter]      = useState<'all' | 'pending' | 'mandatory' | 'waived'>('all')
@@ -750,9 +752,9 @@ export function ChecklistPanel({ documentId }: Props) {
       {!canEdit && allItems.length > 0 && (
         <p
           className="flex-none border-b border-slate-200 px-4 py-2 text-[11px] text-slate-500"
-          data-checklist-readonly
+          data-checklist-readonly={chainActive ? 'chain' : 'role'}
         >
-          {t('page.checklist_panel.readonly_note')}
+          {chainActive ? t('page.checklist_panel.chain_locked_note') : t('page.checklist_panel.readonly_note')}
         </p>
       )}
 

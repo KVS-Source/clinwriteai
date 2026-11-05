@@ -8,9 +8,15 @@
 import type { FastifyPluginAsync } from 'fastify'
 import fp from 'fastify-plugin'
 import { PrismaClient } from '@prisma/client'
+import { withPoolSettings } from './pool-url.js'
 
 const prismaPlugin: FastifyPluginAsync = async (app) => {
+  // A bounded, named pool (see pool-url.ts): 5 connections per local API unless set otherwise.
+  const datasourceUrl = process.env.DATABASE_URL
+    ? withPoolSettings(process.env.DATABASE_URL, { app: 'clinwrite-api', devLimit: 5 })
+    : undefined
   const prisma = new PrismaClient({
+    ...(datasourceUrl ? { datasourceUrl } : {}),
     log: app.env.NODE_ENV === 'development'
       ? [{ emit: 'event', level: 'query' }, 'warn', 'error']
       : ['warn', 'error'],
@@ -18,7 +24,8 @@ const prismaPlugin: FastifyPluginAsync = async (app) => {
 
   // Verify connectivity at boot — fail fast if the DB is unreachable
   await prisma.$connect()
-  app.log.info({ phase: 'startup' }, 'Prisma connected to Postgres')
+  const pool = datasourceUrl ? new URL(datasourceUrl).searchParams : null
+  app.log.info({ phase: 'startup', connectionLimit: pool?.get('connection_limit') ?? 'prisma default', applicationName: pool?.get('application_name') }, 'Prisma connected to Postgres')
 
   app.decorate('prisma', prisma)
 

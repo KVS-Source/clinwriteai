@@ -14,11 +14,13 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { describeApiError } from '../../../api'
-import { api } from '../../../api/client'
 import { SortIcon } from '../../../components/ui/SortIcon'
 import { maskEmail } from '../../../utils/maskEmail'
-
-type UserStatus = 'invited' | 'active' | 'suspended' | 'deprovisioned'
+import {
+  ROLE_OPTIONS, StatusChip, roleLabelOf, rolesOfUser, usersApi,
+  type AdminUser, type InviteLink, type UserStatus,
+} from './userAdminShared'
+import { UserDetailPanel } from './UserDetailPanel'
 
 // Filter / sort state for the table. Filtering and sorting run client-side
 // over the full /admin/users list (already scoped to the admin's tenant).
@@ -26,22 +28,6 @@ type SortKey = 'name' | 'role' | 'tenant' | 'status' | 'lastActive'
 type SortDir = 'asc' | 'desc'
 
 const STATUS_ORDER: UserStatus[] = ['active', 'invited', 'suspended', 'deprovisioned']
-
-interface AdminUser {
-  id: string
-  email: string
-  name: string
-  initials: string | null
-  role: string
-  modules: string[]
-  status: UserStatus
-  tenantId: string | null
-  tenantName?: string | null    // the real tenant's name (looked up by the API from tenantId)
-  tenantRef?: string | null     // Tenant ID the user typed when registering (free text)
-  lastActiveAt: string | null   // stamped on each sign-in (auth/routes.ts)
-  createdAt: string
-  updatedAt: string
-}
 
 // "Last active" cell: relative for the last week, a date after that.
 function formatLastActive(iso: string, t: (k: string, o?: Record<string, unknown>) => string): string {
@@ -55,66 +41,9 @@ function formatLastActive(iso: string, t: (k: string, o?: Record<string, unknown
   return new Date(iso).toLocaleDateString()
 }
 
-// One-time sign-up link returned by invite / resend (valid 15 minutes). Shown to
-// the admin to share until email dispatch is wired.
-interface InviteLink {
-  inviteUrl: string
-  inviteExpiresAt: string
-}
-
-// Role dropdown for the invite / edit forms.
-//
-// Canonical set after migration 48 (docs/roles-and-permissions.md §2):
-//   tenant-admin | pm | contributor | auditor | guest
-//
-// Legacy role names (admin, clinical-writer, …) are still accepted by
-// the API for existing users whose rows haven't been rewritten, but
-// new invites should always use the canonical names — hence the
-// dropdown is filtered down to the five.
-const ROLE_OPTIONS: { value: string; labelKey: string; descriptionKey: string }[] = [
-  { value: 'tenant-admin', labelKey: 'page.user_management_live.role_label_tenant_admin', descriptionKey: 'page.user_management_live.role_desc_tenant_admin' },
-  { value: 'pm',           labelKey: 'page.user_management_live.role_label_pm',           descriptionKey: 'page.user_management_live.role_desc_pm' },
-  { value: 'contributor',  labelKey: 'page.user_management_live.role_label_contributor',  descriptionKey: 'page.user_management_live.role_desc_contributor' },
-  { value: 'auditor',      labelKey: 'page.user_management_live.role_label_auditor',      descriptionKey: 'page.user_management_live.role_desc_auditor' },
-  { value: 'guest',        labelKey: 'page.user_management_live.role_label_guest',        descriptionKey: 'page.user_management_live.role_desc_guest' },
-]
-
 // Tenant column: the real tenant (CW-099). The Tenant ID typed at registration is free text
 // anyone can fill in, so it is only shown underneath, labelled as entered by the user.
 const tenantOf = (u: AdminUser) => u.tenantName || u.tenantId || null
-
-// Display label for a role: the canonical label when there is one, else the raw (legacy) name.
-function roleLabelOf(role: string, t: (k: string) => string): string {
-  const opt = ROLE_OPTIONS.find(r => r.value === role)
-  return opt ? t(opt.labelKey) : role
-}
-
-const usersApi = {
-  list:         () => api.get<AdminUser[]>('/admin/users'),
-  invite:       (body: { email: string; name: string; role: string; modules?: string[]; tenantId?: string }) =>
-    api.post<AdminUser & InviteLink>('/admin/users', body),
-  suspend:      (id: string) => api.post<AdminUser>(`/admin/users/${id}/suspend`, {}),
-  reactivate:   (id: string) => api.post<AdminUser>(`/admin/users/${id}/reactivate`, {}),
-  deprovision:  (id: string) => api.delete<{ ok: true }>(`/admin/users/${id}`),
-  resendInvite: (id: string) => api.post<{ ok: true; email: string; note: string } & InviteLink>(`/admin/users/${id}/resend-invite`, {}),
-}
-
-function StatusChip({ status }: { status: UserStatus }) {
-  const { t } = useTranslation()
-  const palette: Record<UserStatus, { bg: string; fg: string; border: string; label: string }> = {
-    active:        { bg: '#F0FDF4', fg: '#166534', border: '#BBF7D0', label: `✓ ${t('page.user_management_live.status_active')}` },
-    invited:       { bg: '#EFF6FF', fg: '#1D4ED8', border: '#BFDBFE', label: `📧 ${t('page.user_management_live.status_invited')}` },
-    suspended:     { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', label: `⚠ ${t('page.user_management_live.status_suspended')}` },
-    deprovisioned: { bg: '#F1F5F9', fg: '#475569', border: '#CBD5E1', label: `○ ${t('page.user_management_live.status_deprovisioned')}` },
-  }
-  const p = palette[status]
-  return (
-    <span
-      className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium"
-      style={{ backgroundColor: p.bg, color: p.fg, border: `1px solid ${p.border}` }}
-    >{p.label}</span>
-  )
-}
 
 // The invite form asks only for email + role. The API still needs a display
 // name, so derive one from the address: "jane.doe@acme.com" \u2192 "Jane Doe".
@@ -203,6 +132,9 @@ export function UserManagementLive() {
   // (the top banner can be off-screen, or already showing identical text).
   const [resendState, setResendState] = useState<{ id: string; phase: 'sending' | 'done' | 'failed'; message?: string } | null>(null)
   const noticeRef = useRef<HTMLDivElement>(null)
+  // The user whose details are open in the right-hand panel (always read from the fresh list).
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const selectedUser = users.find(u => u.id === selectedId) ?? null
 
   // --- filters + sort ---------------------------------------------------
   const [statusFilter, setStatusFilter] = useState<'all' | UserStatus>('all')
@@ -223,7 +155,7 @@ export function UserManagementLive() {
     const q = search.trim().toLowerCase()
     const filtered = users.filter(u =>
       (statusFilter === 'all' || u.status === statusFilter) &&
-      (roleFilter === 'all' || u.role === roleFilter) &&
+      (roleFilter === 'all' || rolesOfUser(u).includes(roleFilter)) &&
       (!q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)),
     )
     if (!sort) return filtered
@@ -408,13 +340,24 @@ export function UserManagementLive() {
             </thead>
             <tbody>
               {visibleUsers.map(u => (
-                <tr key={u.id} className="border-t border-slate-200" data-user-row={u.id}>
+                <tr
+                  key={u.id}
+                  className={`cursor-pointer border-t border-slate-200 hover:bg-slate-50 ${selectedId === u.id ? 'bg-indigo-50/60' : ''}`}
+                  data-user-row={u.id}
+                  // Opens the details panel; marked as a panel trigger so picking another row switches it.
+                  data-panel-trigger
+                  data-selected={selectedId === u.id || undefined}
+                  tabIndex={0}
+                  aria-label={t('page.user_management_live.open_details_aria', { name: u.name })}
+                  onClick={() => setSelectedId(u.id)}
+                  onKeyDown={e => { if (e.key === 'Enter' && e.target === e.currentTarget) setSelectedId(u.id) }}
+                >
                   <td className="px-4 py-3">
                     <p className="font-semibold text-slate-900">{u.name}</p>
                     {/* Masked for display: first character, then * for every letter / digit. */}
                     <p className="mt-0.5 font-mono text-[10px] text-slate-500" data-user-email>{maskEmail(u.email)}</p>
                   </td>
-                  <td className="px-4 py-3 text-slate-700">{u.role}</td>
+                  <td className="px-4 py-3 text-slate-700" data-user-roles>{rolesOfUser(u).map(r => roleLabelOf(r, t)).join(', ')}</td>
                   <td className="px-4 py-3 text-[12px] text-slate-700" data-tenant-cell>
                     <p>{tenantOf(u) ?? '—'}</p>
                     {u.tenantRef && (
@@ -429,7 +372,7 @@ export function UserManagementLive() {
                       ? <span title={new Date(u.lastActiveAt).toLocaleString()}>{formatLastActive(u.lastActiveAt, t)}</span>
                       : <span className="text-slate-400">{t('page.user_management_live.never_active')}</span>}
                   </td>
-                  <td className="px-4 py-3 text-right">
+                  <td className="px-4 py-3 text-right" onClick={e => e.stopPropagation()}>
                     <div className="inline-flex items-center gap-2">
                       {u.status === 'invited' && resendState?.id === u.id && resendState.phase === 'done' && (
                         <span className="text-[11px] font-semibold text-green-700" data-resend-done>{t('page.user_management_live.resent_marker')}</span>
@@ -483,6 +426,13 @@ export function UserManagementLive() {
           </table>
         </div>
       </div>
+
+      <UserDetailPanel
+        user={selectedUser}
+        onClose={() => setSelectedId(null)}
+        onSuspend={u => wrap(usersApi.suspend(u.id))}
+        onReactivate={u => wrap(usersApi.reactivate(u.id))}
+      />
     </div>
   )
 }

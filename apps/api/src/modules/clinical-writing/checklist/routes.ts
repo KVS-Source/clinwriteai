@@ -17,7 +17,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { actorCanEditDocumentRaci, actorCanViewChecklist, CHECKLIST_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentRaci, actorCanViewChecklist, CHECKLIST_CHAIN_ACTIVE, CHECKLIST_VIEW_FORBIDDEN, signatureChainActive } from '../../platform/document-raci/access.js'
 import { buildComplianceSummary } from './compliance-summary.js'
 import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
 import {
@@ -83,7 +83,13 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
       ? await app.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
       : []
     const nameOf = (id: string | null) => (id ? users.find(u => u.id === id)?.name ?? id : null)
-    const canEdit = await actorCanEditDocumentRaci(app.prisma, request.user!, documentId)
+    // While a signature chain is in progress the checklist is fixed (see signatureChainActive), so
+    // nobody may edit it; chainActive tells the panel why.
+    const [mayEdit, chainActive] = await Promise.all([
+      actorCanEditDocumentRaci(app.prisma, request.user!, documentId),
+      signatureChainActive(app.prisma, documentId),
+    ])
+    const canEdit = mayEdit && !chainActive
 
     return instance.items.map(i => {
       // A removed item keeps its actor / time / reason in the waiver columns.
@@ -96,6 +102,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
         waiverReason: removed ? null : i.waiverReason,
         ...(removed && { removal: { by: nameOf(i.waivedBy), at: i.waivedAt, reason: i.waiverReason } }),
         canEdit,
+        chainActive,
       }
     })
   })
@@ -125,6 +132,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
         message: 'Only an R on this document (or an admin) can mark checklist items complete.',
       })
     }
+    if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)
 
     const item = await loadItem(app.prisma, documentId, itemId)
     if (!item) return reply.code(404).send({ error: 'not_found' })
@@ -164,6 +172,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
         message: 'Only an R on this document (or an admin) can waive checklist items.',
       })
     }
+    if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)
 
     const parsed = waiveSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -214,6 +223,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
         message: 'Only an R on this document (or an admin) can reopen checklist items.',
       })
     }
+    if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)
 
     const parsed = reopenSchema.safeParse(request.body ?? {})
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -271,6 +281,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
         message: 'Only an R on this document (or an admin) can remove checklist items.',
       })
     }
+    if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)
 
     const parsed = removeSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -321,6 +332,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
         message: 'Only an R on this document (or an admin) can add checklist items.',
       })
     }
+    if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)
 
     const parsed = addCustomSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })

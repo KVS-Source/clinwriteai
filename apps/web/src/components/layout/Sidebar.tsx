@@ -4,7 +4,7 @@ import { useTranslation } from 'react-i18next'
 import { MonoLabel } from '../ui'
 import { usePlatformStore } from '../../platform/store'
 import { MODULE_LABELS, MODULE_SLUG_TO_KEY, isModuleEnabled, type ModuleSlug } from '../../config/modules'
-import { isAdminRole, isPlatformAdmin } from '../../config/roles'
+import { isAdminRole, isPlatformAdmin, holdsRole } from '../../config/roles'
 
 // Module accent colours — design-system.md Decision 10 (Platform = navy per PM00 §7 rule 1)
 const MODULE_COLOURS: Record<string, string> = {
@@ -206,7 +206,7 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
   const superAdminItems = isSuperAdmin ? SUPER_ADMIN_NAV : []
   const showPlatform   = platformItems.length   > 0
   const libraryItems   = showPlatform ? [] : LIBRARY_NAV
-  const pmItems        = currentUser.role === 'pm' ? PM_NAV : []
+  const pmItems        = holdsRole(currentUser, 'pm') ? PM_NAV : []
   const showSuperAdmin = superAdminItems.length > 0
 
   // Module access — admin/super-admin see all 5 modules; module users see only

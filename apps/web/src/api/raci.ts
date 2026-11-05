@@ -47,7 +47,8 @@ export const raciApi = {
     api.get<DocumentRaciRow[]>(`/documents/${documentId}/raci`),
 
   canEdit: (documentId: string) =>
-    api.get<{ canEdit: boolean }>(`/documents/${documentId}/raci/can-edit`),
+    // chainActive: a signature chain is in progress, so assignments are fixed (removing yourself aside).
+    api.get<{ canEdit: boolean; chainActive?: boolean }>(`/documents/${documentId}/raci/can-edit`),
 
   assign: (documentId: string, body: {
     userId: string

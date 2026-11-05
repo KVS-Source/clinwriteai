@@ -15,6 +15,20 @@ import { mailerPlugin } from '../mailer/mailer.js'
 import { SESSION_COOKIE_NAME, type SessionClaims } from './jwt.js'
 import type { AuthenticatedUser, Capability, ModuleKey, Role } from './rbac.js'
 
+// The signed-in identity from a User row: every role the user holds (primary first, then any
+// additional one — rights are the union, see rbac.ts), capabilities, modules and tenant.
+function toAuthUser(u: { id: string; email: string; role: string; additionalRoles?: string[] | null; capabilities: string[]; modules: string[]; tenantId: string | null }): AuthenticatedUser {
+  return {
+    id: u.id,
+    email: u.email,
+    role: u.role as Role,
+    roles: [u.role, ...(u.additionalRoles ?? []).filter(r => r !== u.role)] as Role[],
+    capabilities: u.capabilities as Capability[],
+    modules: u.modules as ModuleKey[],
+    tenantId: u.tenantId ?? null,
+  }
+}
+
 const authPlugin: FastifyPluginAsync = async (app) => {
   const jwtSecret = await app.secrets.getSecret('JWT_SECRET')
   if (jwtSecret.length < 32) {
@@ -80,14 +94,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
           if (actingId) {
             const acting = await app.prisma.user.findUnique({ where: { id: actingId } })
             if (acting && acting.status === 'active') {
-              request.user = {
-                id: acting.id,
-                email: acting.email,
-                role: acting.role as Role,
-                capabilities: acting.capabilities as Capability[],
-                modules: acting.modules as ModuleKey[],
-                tenantId: acting.tenantId ?? null,
-              }
+              request.user = toAuthUser(acting)
             }
             return
           }
@@ -117,14 +124,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
         if (personaId) {
           const persona = await app.prisma.user.findUnique({ where: { id: personaId } })
           if (persona && persona.status === 'active') {
-            request.user = {
-              id: persona.id,
-              email: persona.email,
-              role: persona.role as Role,
-              capabilities: persona.capabilities as Capability[],
-              modules: persona.modules as ModuleKey[],
-              tenantId: persona.tenantId ?? null,
-            }
+            request.user = toAuthUser(persona)
             return
           }
         }
@@ -146,14 +146,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
         if (session && !session.revokedAt && session.expiresAt >= new Date()) {
           const dbUser = await app.prisma.user.findUnique({ where: { id: claims.sub } })
           if (dbUser && dbUser.status === 'active') {
-            request.user = {
-              id: dbUser.id,
-              email: dbUser.email,
-              role: dbUser.role as Role,
-              capabilities: dbUser.capabilities as Capability[],
-              modules: dbUser.modules as ModuleKey[],
-              tenantId: dbUser.tenantId ?? null,
-            }
+            request.user = toAuthUser(dbUser)
             request.authClaims = claims
             return
           }
@@ -168,14 +161,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
       if (BYPASS_EMAIL && !request.user) {
         const dbUser = await app.prisma.user.findUnique({ where: { email: BYPASS_EMAIL } })
         if (dbUser && dbUser.status === 'active') {
-          request.user = {
-            id: dbUser.id,
-            email: dbUser.email,
-            role: dbUser.role as Role,
-            capabilities: dbUser.capabilities as Capability[],
-            modules: dbUser.modules as ModuleKey[],
-            tenantId: dbUser.tenantId ?? null,
-          }
+          request.user = toAuthUser(dbUser)
         }
       }
     } catch {
@@ -183,14 +169,7 @@ const authPlugin: FastifyPluginAsync = async (app) => {
       if (BYPASS_EMAIL && !request.user) {
         const dbUser = await app.prisma.user.findUnique({ where: { email: BYPASS_EMAIL } })
         if (dbUser && dbUser.status === 'active') {
-          request.user = {
-            id: dbUser.id,
-            email: dbUser.email,
-            role: dbUser.role as Role,
-            capabilities: dbUser.capabilities as Capability[],
-            modules: dbUser.modules as ModuleKey[],
-            tenantId: dbUser.tenantId ?? null,
-          }
+          request.user = toAuthUser(dbUser)
         }
       }
     }

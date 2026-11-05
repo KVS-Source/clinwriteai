@@ -10,7 +10,7 @@
 //          Snapshot of every live lock on the document.
 
 import type { FastifyPluginAsync } from 'fastify'
-import { requireAuth } from '../../../auth/rbac.js'
+import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
 import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import {
   acquireLock,
@@ -77,7 +77,7 @@ export const sectionLockRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/:documentId/sections/:sectionId/lock', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
     const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
-    const isAdmin = ['admin'].includes(request.user!.role)
+    const isAdmin = hasAnyRole(request.user!, 'admin')
     const existing = await getHolder(app.prisma, { documentId, sectionId })
 
     const released = await releaseLock(app.prisma, {

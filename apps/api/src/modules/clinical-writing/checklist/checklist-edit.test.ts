@@ -6,6 +6,7 @@ import Fastify from 'fastify'
 import { describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../../auth/rbac.js'
 import { checklistRoutes } from './routes.js'
+import { checklistRActionRoutes } from './r-actions.js'
 
 const DOC = 'DOC-1'
 
@@ -15,7 +16,7 @@ const row = (over: Record<string, unknown>) => ({
   completedBy: null, completedAt: null, waivedBy: null, waivedAt: null, waiverReason: null, sortOrder: 0, ...over,
 })
 
-async function build(items: Array<Record<string, unknown>>, user: Partial<AuthenticatedUser> = {}, letters: string[] = []) {
+async function build(items: Array<Record<string, unknown>>, user: Partial<AuthenticatedUser> = {}, letters: string[] = [], chainActive = false) {
   const update = vi.fn(async ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => ({ ...items.find(i => i.id === where.id), ...data }))
   const append = vi.fn()
   const instanceFindUnique = vi.fn(async () => ({ id: 'inst', documentId: DOC, templateVersion: 1, items }))
@@ -35,6 +36,7 @@ async function build(items: Array<Record<string, unknown>>, user: Partial<Authen
       update,
     },
     user: { findMany: vi.fn(async () => [{ id: 'u-owner', name: 'Dr Priya Nair' }]) },
+    signatureChain: { findFirst: vi.fn(async () => (chainActive ? { id: 'chain-1' } : null)) },
     regulatoryFramework: { findMany: vi.fn(async () => []) },
     ichSectionWaiver: { findMany: vi.fn(async () => []) },
   } as never)
@@ -175,6 +177,58 @@ describe('POST /documents/:id/checklist — add item', () => {
   it('rejects an unknown stage', async () => {
     const { app } = await build([row({})])
     expect((await app.inject({ method: 'POST', url: `/documents/${DOC}/checklist`, payload: { text: 'x', stage: 'whenever' } })).statusCode).toBe(400)
+  })
+})
+
+describe('while a signature chain is in progress the checklist is fixed', () => {
+  const items = [row({ id: 'i1', status: 'pending' }), row({ id: 'i2', status: 'complete', completedBy: 'u-owner', completedAt: new Date() })]
+  const refuse = async (method: 'PATCH' | 'POST', url: string, payload: Record<string, unknown> = {}) => {
+    const { app, update } = await build(items, {}, [], true)
+    const res = await app.inject({ method, url: `/documents/${DOC}/checklist${url}`, payload })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'signature_chain_active', message: expect.stringContaining('Cancel the chain first') })
+    expect(update).not.toHaveBeenCalled()
+  }
+
+  it('the author (R / assignee) cannot complete an item', () => refuse('PATCH', '/i1/complete'))
+  it('cannot waive an item', () => refuse('PATCH', '/i1/waive', { reason: 'Not applicable to this study' }))
+  it('cannot reopen an item', () => refuse('POST', '/i2/reopen'))
+  it('cannot remove an item', () => refuse('POST', '/i1/remove', { reason: 'Duplicate of another item' }))
+  it('cannot add an item', () => refuse('POST', '', { text: 'Extra check', stage: 'study_start_up' }))
+
+  it('cannot reorder the checklist', async () => {
+    const app = Fastify()
+    const update = vi.fn()
+    app.decorate('prisma', {
+      document: { findUnique: vi.fn(async () => ({ id: DOC, assigneeId: 'u-owner' })) },
+      documentRaci: { findFirst: vi.fn(async () => null) },
+      signatureChain: { findFirst: vi.fn(async () => ({ id: 'chain-1' })) },
+      checklistInstanceItem: { update },
+    } as never)
+    app.decorate('audit', { append: vi.fn() } as never)
+    app.decorateRequest('user', null)
+    app.addHook('onRequest', async (req) => {
+      (req as unknown as { user: AuthenticatedUser }).user = { id: 'u-owner', email: 'u@x.io', role: 'contributor', capabilities: [], modules: ['A'], tenantId: null }
+    })
+    await app.register(checklistRActionRoutes, { prefix: '/documents' })
+    const res = await app.inject({ method: 'PATCH', url: `/documents/${DOC}/checklist/reorder`, payload: { items: [{ itemId: 'i1', sortOrder: 3 }] } })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('signature_chain_active')
+    expect(update).not.toHaveBeenCalled()
+    await app.close()
+  })
+
+  it('the list says why: canEdit is false and chainActive is true', async () => {
+    const { app } = await build(items, {}, [], true)
+    const res = await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist` })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()[0]).toMatchObject({ canEdit: false, chainActive: true })
+  })
+
+  it('without a chain the author can still edit (chainActive false)', async () => {
+    const { app } = await build(items)
+    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist` })).json()[0]).toMatchObject({ canEdit: true, chainActive: false })
+    expect((await app.inject({ method: 'PATCH', url: `/documents/${DOC}/checklist/i1/complete` })).statusCode).toBe(200)
   })
 })
 

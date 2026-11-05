@@ -2,7 +2,8 @@
 // Holds the current-user context (used by role guards) and platform-wide config.
 import { create } from 'zustand'
 import type { PlatformConfig, PlatformUser, PlatformUserRole } from '@platform/types'
-import usersFixture from '../../data/users.json'
+import usersFixture from '../../data/users.json'
+import { holdsRole } from '../../config/roles'
 
 // Full demo persona roster — Alex Thornton is synthetic (not in the
 // users.json fixture) so prepend her so the switcher always has a PM
@@ -92,5 +93,5 @@ export const usePlatformStore = create<PlatformStore>((set, get) => ({
   setCurrentUser: (currentUser) => { persistUser(currentUser); set({ currentUser }) },
   setSessionUser: (currentUser) => set({ currentUser }),
   setConfig:      (config)      => set({ config }),
-  hasRole:        (roles)       => roles.includes(get().currentUser.role),
+  hasRole:        (roles)       => holdsRole(get().currentUser, ...roles),
 }))

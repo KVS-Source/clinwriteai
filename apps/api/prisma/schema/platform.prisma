@@ -20,6 +20,9 @@ model User {
   // Migration 47 only *adds* capabilities + legacy_role columns. Migration 48
   // (follow-up) rewrites values and the middleware simultaneously.
   role          String
+  // A second role held alongside `role` (at most 2 in all; rights are the union). Which pairs
+  // are allowed: src/auth/role-combos.ts. Migration 62.
+  additionalRoles String[] @default([]) @map("additional_roles")
   // Per-user capability flags (post migration 48). Governs which RACI letters
   // a PM can assign this user — see docs/roles-and-permissions.md §2.1.
   //   ['can-author','can-review','can-approve','can-publish']

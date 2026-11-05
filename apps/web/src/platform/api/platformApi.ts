@@ -3,12 +3,28 @@ import { api } from '../../api/client'
 import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
   PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, RaciMatrix, MasterLibraryItem,
-  BestPractice, PlatformNotification, NotificationPreference,
+  BestPractice,
   AuditTrailEntry, RateCard, Subscription, ReportDefinition,
   ModuleHealthScore, TATag, RegulatoryFramework, SlideDeckJob, Slide,
   PlatformClient, PlatformAnalytics,
   ProjectRaciAssignment, ProjectRaciAssignmentBody,
 } from '@platform/types'
+
+// One in-app notification as GET /notifications/me returns it (the Notification row).
+export interface MyNotification {
+  id: string
+  recipientId: string
+  kind: string                                   // e.g. 'signature_requested', 'user.invitation'
+  severity: 'info' | 'warning' | 'critical'
+  title: string
+  body: string
+  linkPath: string | null                        // where the notification points in the app
+  channels: string[]
+  payload: Record<string, unknown>
+  readAt: string | null
+  dismissedAt: string | null
+  createdAt: string
+}
 
 // --- Request bodies ---
 
@@ -214,15 +230,16 @@ export const platformApi = {
   createBestPractice: (body: Partial<BestPractice>) =>
     api.post<BestPractice>('/library/best-practices', body),
 
-  // sPM14 — Notifications
-  listNotifications: () =>
-    api.get<PlatformNotification[]>('/notifications'),
-  getNotificationPreferences: () =>
-    api.get<NotificationPreference[]>('/notifications/preferences'),
-  updateNotificationPreferences: (prefs: NotificationPreference[]) =>
-    api.patch<NotificationPreference[]>('/notifications/preferences', prefs),
-  markNotificationRead: (id: string) =>
-    api.patch<PlatformNotification>(`/notifications/${id}/mark-read`, {}),
+  // sPM14 — Notifications: the signed-in user's own feed (API: modules/platform/notifications/routes.ts).
+  // There is no preferences endpoint yet, so the screen has no Preferences tab.
+  listMyNotifications: () =>
+    api.get<MyNotification[]>('/notifications/me?limit=200'),
+  markNotificationsRead: (ids: string[]) =>
+    api.post<{ updated: number }>('/notifications/me/mark-read', { ids }),
+  markAllNotificationsRead: () =>
+    api.post<{ updated: number }>('/notifications/me/mark-all-read', {}),
+  dismissNotification: (id: string) =>
+    api.post<MyNotification>(`/notifications/me/${encodeURIComponent(id)}/dismiss`, {}),
 
   // sPM15 — Audit trail. API mounts the admin audit routes under
   // /admin/audit (see modules/platform/tenant-admin/audit/routes.ts). The

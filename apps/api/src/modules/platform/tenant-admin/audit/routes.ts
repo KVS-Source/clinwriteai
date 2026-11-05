@@ -20,7 +20,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { requireAuth } from '../../../../auth/rbac.js'
+import { requireAuth, hasAnyRole } from '../../../../auth/rbac.js'
 import { visibleProjectIdsForUser } from '../../../projects/visibility.js'
 
 // audit_events.id is a BIGSERIAL — ids/cursors travel as digit strings.
@@ -247,7 +247,7 @@ export const auditViewerRoutes: FastifyPluginAsync = async (app) => {
   const verifyGate = requireAuth({ roles: ['admin'] })
   const filterFor = async (request: import('fastify').FastifyRequest, q: Partial<z.infer<typeof queryBaseSchema>>) => {
     const user = request.user!
-    if (user.role !== 'pm') return buildFilter(q, tenantScopeFor(user))
+    if (!hasAnyRole(user, 'pm')) return buildFilter(q, tenantScopeFor(user))
     const visible = await visibleProjectIdsForUser(app.prisma, user)
     return buildFilter(q, undefined, visible === 'all' ? undefined : [...visible])
   }

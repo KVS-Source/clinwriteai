@@ -10,7 +10,7 @@ import { useEffect, useRef } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { presenceApi } from '../api'
 import { ApiError } from '../api/client'
-import { isReadOnlyRole } from '../config/roles'
+import { isReadOnlyUser } from '../config/roles'
 import { useCurrentUser } from './useCurrentUser'
 
 // Heartbeat cadence per API_Contracts §12 ("called every 15 seconds"). The
@@ -60,7 +60,7 @@ export function usePresenceHeartbeat(documentId: string, sessionId: string | und
 export function useDocumentPresence(documentId: string | undefined, sectionId: string | null | undefined) {
   const qc = useQueryClient()
   const { data: me } = useCurrentUser()
-  const canJoin = !!me && !isReadOnlyRole(me.role)
+  const canJoin = !!me && !isReadOnlyUser(me)
   const sessionRef = useRef<string | null>(null)
   const sectionRef = useRef(sectionId)
   sectionRef.current = sectionId

@@ -25,6 +25,7 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify'
 import type { Prisma, User } from '@prisma/client'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { ADDABLE_ROLES, roleSetProblem } from '../../../auth/role-combos.js'
 import { buildInviteUrl, generateInvitationToken } from './invitations.js'
 import { eventForTarget, isUserStatus, transition, type UserEvent, type UserStatus } from './status-machine.js'
 
@@ -42,6 +43,15 @@ const ROLES = [
   'medical-writer', 'regulatory-writer', 'ideation-lead', 'reviewer', 'read-only',
 ] as const
 const ADMIN_ROLES = new Set<string>(['admin', 'tenant-admin'])
+
+// Capabilities decide which RACI letters a contributor can be given (can-author → R,
+// can-review → C, can-approve → A, can-qc → Q; can-publish for Module D). User Management
+// shows them as the user's roles. Only contributors (and legacy writer / reviewer rows)
+// carry them: admins, PMs, auditors and guests never take a RACI letter.
+const CAPABILITIES = ['can-author', 'can-review', 'can-approve', 'can-qc', 'can-publish'] as const
+const CAPABILITY_ROLES = new Set<string>([
+  'contributor', 'clinical-writer', 'scientific-writer', 'medical-writer', 'regulatory-writer', 'ideation-lead', 'reviewer',
+])
 
 const inviteSchema = z.object({
   // Trim before validating: a pasted address often carries a trailing space.
@@ -62,6 +72,8 @@ const updateSchema = z.object({
   name: z.string().min(1).optional(),
   role: z.enum(ROLES).optional(),
   modules: z.array(z.enum(['A', 'B', 'C', 'D', 'E'])).optional(),
+  // The full new set (add or revoke = send the list without / with it); duplicates collapse.
+  capabilities: z.array(z.enum(CAPABILITIES)).transform(list => [...new Set(list)]).optional(),
   initials: z.string().max(5).optional(),
   tenantId: z.string().optional(),
   status: z.enum(['invited', 'active', 'suspended', 'deprovisioned']).optional(),
@@ -257,7 +269,8 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     // Tenant-scoped admins can't see platform admins; the scopeWhere
     // already pins tenantId, which is the only lever that matters now
     // that 'super-admin' is gone (platform admins have tenantId=null).
-    if (role) where.role = role
+    // A user matches a role they hold as their primary role or as their additional one.
+    if (role) where.AND = [{ OR: [{ role }, { additionalRoles: { has: role } }] }]
     if (status) where.status = status
     if (module) where.modules = { has: module }
     if (capability) where.capabilities = { has: capability }
@@ -356,6 +369,17 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       return reject(reply, 400, 'tenant_not_found', `Tenant '${fields.tenantId}' does not exist`)
     }
 
+    const heldRoles = [fields.role ?? existing.role, ...existing.additionalRoles]
+    if (fields.capabilities?.length && !heldRoles.some(r => CAPABILITY_ROLES.has(r))) {
+      return reject(reply, 400, 'capabilities_not_applicable',
+        'Only contributors hold roles such as Author or Reviewer — change the user to Contributor first.')
+    }
+
+    if (fields.role !== undefined) {
+      const problem = roleSetProblem([fields.role, ...existing.additionalRoles.filter(r => r !== fields.role)])
+      if (problem) return reject(reply, 409, problem.error, problem.message)
+    }
+
     // Demoting (or de-moduling is fine) an admin: same protections as losing access.
     const losesAdmin = fields.role !== undefined && ADMIN_ROLES.has(existing.role) && !ADMIN_ROLES.has(fields.role)
     if (losesAdmin && !(await guardAdminLoss(actor, existing, reply, 'demote'))) return reply
@@ -380,9 +404,67 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     await audit(request, 'user.update', id, {
       changedFields: Object.keys(fields),
       ...(fields.role !== undefined && { roleFrom: existing.role, roleTo: fields.role }),
+      ...(fields.capabilities !== undefined && { capabilitiesFrom: existing.capabilities, capabilitiesTo: fields.capabilities }),
       ...(event && { statusFrom: existing.status, statusTo: target }),
     })
 
+    return updated
+  })
+
+  // --- roles: add / revoke (a user holds one or two; rights are the union) -----
+  //
+  // POST   /admin/users/:id/roles          { role }  — adds a role alongside the current one
+  // DELETE /admin/users/:id/roles/:role               — revokes one; the last role stays
+  // Which pairs are allowed (and the cap of 2): auth/role-combos.ts. Active users only.
+
+  const addRoleSchema = z.object({ role: z.enum(ADDABLE_ROLES) })
+  const rolesOfUser = (u: User) => [u.role, ...u.additionalRoles.filter(r => r !== u.role)]
+
+  app.post('/:id/roles', { preHandler: adminGate }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const parsed = addRoleSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const existing = await loadTarget(request.user!, id)
+    if (!existing) return reply.code(404).send({ error: 'not_found' })
+    if (existing.status !== 'active') {
+      return reject(reply, 409, 'not_active', 'Roles can only be changed for active users.')
+    }
+    const current = rolesOfUser(existing)
+    const problem = roleSetProblem([...current, parsed.data.role])
+    if (problem) return reject(reply, 409, problem.error, problem.message)
+
+    const updated = await app.prisma.user.update({
+      where: { id },
+      data: { additionalRoles: [...existing.additionalRoles.filter(r => r !== existing.role), parsed.data.role] },
+    })
+    await audit(request, 'user.role_added', id, { email: existing.email, role: parsed.data.role, rolesFrom: current, rolesTo: rolesOfUser(updated) })
+    return updated
+  })
+
+  app.delete('/:id/roles/:role', { preHandler: adminGate }, async (request, reply) => {
+    const actor = request.user!
+    const { id, role } = request.params as { id: string; role: string }
+    const existing = await loadTarget(actor, id)
+    if (!existing) return reply.code(404).send({ error: 'not_found' })
+    if (existing.status !== 'active') {
+      return reject(reply, 409, 'not_active', 'Roles can only be changed for active users.')
+    }
+    const current = rolesOfUser(existing)
+    if (!current.includes(role)) return reject(reply, 404, 'role_not_held', 'The user does not hold this role.')
+    if (current.length === 1) {
+      return reject(reply, 409, 'last_role', 'A user must keep at least one role. Add another role before revoking this one.')
+    }
+    // Losing an admin role is guarded as everywhere else (an admin is never combined, so this is
+    // belt and braces).
+    const remaining = current.filter(r => r !== role)
+    if (ADMIN_ROLES.has(role) && !remaining.some(r => ADMIN_ROLES.has(r)) && !(await guardAdminLoss(actor, existing, reply, 'demote'))) return reply
+
+    // Revoking the primary role promotes the remaining one.
+    const updated = await app.prisma.user.update({
+      where: { id },
+      data: { role: remaining[0]!, additionalRoles: remaining.slice(1) },
+    })
+    await audit(request, 'user.role_revoked', id, { email: existing.email, role, rolesFrom: current, rolesTo: rolesOfUser(updated) })
     return updated
   })
 

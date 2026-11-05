@@ -21,7 +21,8 @@ import { platformApi } from '../../platform/api/platformApi'
 import { usePlatformStore } from '../../platform/store'
 import { ApiError } from '../../api/client'
 import { ProjectStatusPill } from '../../components/ui'
-import { ProjectStatusDialog, ProjectStatusHistory, ProjectStatusMenu } from './ProjectStatusControl'
+import { ProjectStatusDialog, ProjectStatusHistory, ProjectStatusMenu } from './ProjectStatusControl'
+import { holdsRole } from '../../config/roles'
 
 const RACI_LABEL_KEYS: Record<RACIRole, string> = {
   R: 'page.project_settings.raci_label_responsible',
@@ -65,7 +66,7 @@ export function ProjectSettings() {
   const [addOpen, setAddOpen] = useState(false)
   const [opError, setOpError] = useState<string | null>(null)
   const [statusChange, setStatusChange] = useState<ProjectStatus | null>(null)
-  const isPm = currentUser.role === 'pm'
+  const isPm = holdsRole(currentUser, 'pm')
 
   const { data: project, isLoading, isError } = useQuery({
     queryKey: ['project', projectId],

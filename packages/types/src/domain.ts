@@ -50,6 +50,7 @@ export interface User {
   name: string
   initials: string
   role: string
+  roles?: string[]           // every role held, primary first (GET /auth/me)
   email: string
   colourKey: keyof typeof USER_COLOURS
 }
@@ -188,6 +189,9 @@ export interface ChecklistItem {
   // Whether the caller may complete / waive / add / remove items (R on the
   // document, its assignee, or an admin). Absent = assume yes.
   canEdit?: boolean
+  // A signature chain is in progress, so nobody may change the checklist until it is
+  // cancelled or complete (canEdit is then false). Absent = no chain.
+  chainActive?: boolean
   // Phase 1+ fields — snapshotted from the template item at document
   // creation so a later template bump never retro-mutates an in-flight
   // document (PRD rule). Values match DbStage / RACI letter / trigger name.
@@ -1620,6 +1624,8 @@ export interface PlatformUser {
   name:       string
   email:      string
   role:       PlatformUserRole
+  // Every role held, primary first (a user may hold two — rights are the union). Absent = [role].
+  roles?:     PlatformUserRole[]
   modules:    Array<'A' | 'B' | 'C' | 'D' | 'E'>
   status:     PlatformUserStatus
   lastActive: string | null

@@ -19,7 +19,8 @@ import { documentOpenPath } from './documentOpenPath'
 import { DocumentCommentsPanel } from './DocumentCommentsPanel'
 import { cleanSectionRef } from '../../panels/CommentComposer'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
-import { ProtocolMetadataPanel } from '../../panels/ProtocolMetadataPanel'
+import { ProtocolMetadataPanel } from '../../panels/ProtocolMetadataPanel'
+import { holdsRole } from '../../config/roles'
 
 // --- Enum → display label maps ---
 
@@ -138,7 +139,7 @@ export function ClinicalWritingHome() {
   const currentUser      = usePlatformStore(s => s.currentUser)
   const isAdminViewer    = ADMIN_ROLES.has(currentUser.role)
   // New Document + Duplicate are PM-only (POST /projects/:id/documents requires role='pm').
-  const isPm             = currentUser.role === 'pm'
+  const isPm             = holdsRole(currentUser, 'pm')
   const setActiveProject = useProjectStore(s => s.setActiveProject)
 
   // Tab, filters and search live in the URL (?tab=sources&stage=…&status=…&type=…&q=…), so Back

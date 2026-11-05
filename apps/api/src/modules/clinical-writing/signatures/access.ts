@@ -7,11 +7,12 @@
 //   export audit trail  PM or auditor (reading is the same as "read the record").
 //   sign                only the person named on that step (checked in routes.ts, not here).
 //
-// Dual roles (one person holding two letters, e.g. a PM who is also an Author) are out of scope: the
-// RACI check below already treats a PM or admin as never an Author.
+// A person with two platform roles (Project manager + Contributor, or Project manager + Auditor —
+// auth/role-combos.ts) gets the union: a role restriction here applies only when every role they hold
+// is restricted. An admin role is never combined, so an admin never starts a chain or signs.
 
 import type { PrismaClient } from '@prisma/client'
-import type { AuthenticatedUser } from '../../../auth/rbac.js'
+import { hasAnyRole, onlyRolesIn, type AuthenticatedUser } from '../../../auth/rbac.js'
 import { actorCanEditRaciAssignments } from '../../platform/document-raci/access.js'
 import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 
@@ -32,7 +33,7 @@ type DocRef = { id: string; projectId: string; assigneeId?: string | null }
 
 /** Author (R) or Approver (A) on the document. */
 export async function actorCanStartChain(prisma: PrismaClient, actor: AuthenticatedUser, documentId: string): Promise<boolean> {
-  if (ADMIN_ROLES.has(actor.role) || AUDITOR_ROLES.has(actor.role) || actor.role === 'pm' || actor.role === 'guest') return false
+  if (onlyRolesIn(actor, [...ADMIN_ROLES, ...AUDITOR_ROLES, 'pm', 'guest'])) return false
   // R: an active R row, or the document's original assignee (excludes admins and PMs).
   if (await actorCanEditRaciAssignments(prisma, actor, documentId)) return true
   const approver = await prisma.documentRaci.findFirst({
@@ -52,11 +53,11 @@ export async function actorCanCancelChain(
 
 /** Read the signature record or the document's audit trail. */
 export async function actorCanReadDocumentRecord(prisma: PrismaClient, actor: AuthenticatedUser, doc: DocRef): Promise<boolean> {
-  if (ADMIN_ROLES.has(actor.role) || actor.role === 'guest') return false
-  if (AUDITOR_ROLES.has(actor.role)) return true
-  if (actor.role === 'pm') {
+  if (onlyRolesIn(actor, [...ADMIN_ROLES, 'guest'])) return false
+  if (hasAnyRole(actor, ...AUDITOR_ROLES)) return true
+  if (hasAnyRole(actor, 'pm')) {
     const visible = await visibleProjectIdsForUser(prisma, actor)
-    return visible === 'all' || visible.has(doc.projectId)
+    if (visible === 'all' || visible.has(doc.projectId)) return true
   }
   if (doc.assigneeId && doc.assigneeId === actor.id) return true
   const row = await prisma.documentRaci.findFirst({
@@ -88,7 +89,7 @@ export const FINAL_DOCUMENT_FORBIDDEN = {
 } as const
 
 export async function actorCanExportDocumentAudit(prisma: PrismaClient, actor: AuthenticatedUser, doc: DocRef): Promise<boolean> {
-  if (actor.role !== 'pm' && !AUDITOR_ROLES.has(actor.role)) return false
+  if (!hasAnyRole(actor, 'pm', ...AUDITOR_ROLES)) return false
   return actorCanReadDocumentRecord(prisma, actor, doc)
 }
 

@@ -24,7 +24,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { requireAuth } from '../../../auth/rbac.js'
+import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
 import { actorCanEditDocumentRaci } from '../document-raci/access.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -250,7 +250,7 @@ export const guestInvitationRoutes: FastifyPluginAsync = async (app) => {
     if (existing.revokedAt) return reply.code(409).send({ error: 'already_revoked' })
 
     const actor = request.user!
-    const isAdmin = actor.role === 'tenant-admin' || actor.role === 'admin'
+    const isAdmin = hasAnyRole(actor, 'tenant-admin', 'admin')
 
     let allowed = isAdmin
     if (!allowed && existing.scope === 'document' && existing.documentId) {

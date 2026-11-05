@@ -16,7 +16,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { actorCanEditDocumentRaci, actorCanViewChecklist, CHECKLIST_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentRaci, actorCanViewChecklist, CHECKLIST_CHAIN_ACTIVE, CHECKLIST_VIEW_FORBIDDEN, signatureChainActive } from '../../platform/document-raci/access.js'
 import { evaluateSubmitGate, type ChecklistItemForGate } from './submit-gate.js'
 import { AI_PASS_PROFILES, buildAiPassPrompt, parseAiPassResponse } from './autocheck/ai-pass-prompt.js'
 import { putAiPassResult } from './autocheck/ai-pass-cache.js'
@@ -58,6 +58,7 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
         message: 'Only an R on this document (or an admin) can reorder the checklist.',
       })
     }
+    if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)
 
     if (parsed.data.items.length === 0) {
       return reply.send({ updated: 0, items: [] })

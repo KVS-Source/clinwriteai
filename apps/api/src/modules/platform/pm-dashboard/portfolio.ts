@@ -24,12 +24,12 @@
 //   }
 
 import type { FastifyPluginAsync } from 'fastify'
-import { requireAuth } from '../../../auth/rbac.js'
+import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
 
 export const portfolioDashboardRoutes: FastifyPluginAsync = async (app) => {
   app.get('/portfolio', { preHandler: requireAuth() }, async (request) => {
     const actor = request.user!
-    const isAdmin = actor.role === 'tenant-admin' || actor.role === 'admin'
+    const isAdmin = hasAnyRole(actor, 'tenant-admin', 'admin')
 
     // Resolve the set of project ids the actor can see.
     let projectIds: string[] = []

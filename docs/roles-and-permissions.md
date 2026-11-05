@@ -265,9 +265,16 @@ the screens hide what would be refused.
   the order given) or parallel (everyone at once). A grouped chain stores the signers group by group, so step
   numbers follow the signing order (`chain-progress.ts`).
 - **A fixed chain.** While a chain is in progress the document's RACI can't be assigned, reassigned or have its
-  signature settings changed (a person may still remove their own assignment). Cancel the chain first.
-- **Dual roles** (one person holding two letters, e.g. a PM who is also an Author) are out of scope: admins and
-  PMs are never treated as Authors for these rules, and a person named twice appears once.
+  signature settings changed (a person may still remove their own assignment), and its checklist can't be
+  changed (no completing, waiving, reopening, removing, adding or reordering items) — the chain was opened
+  against a complete checklist (Gate A). Cancel the chain first. The RACI editor and the checklist panel say
+  so up front. Guest invitations are not affected: guests never sign, and they only read and comment.
+- **Two platform roles.** A user may hold two platform roles (User Management → User Detail → Add another
+  role; at most 2, never the last one revoked). Rights are the union: a grant applies if any role grants it,
+  a role restriction only if every role is restricted (`apps/api/src/auth/rbac.ts`). Allowed pairs are
+  Project manager + Contributor and Project manager + Auditor (`apps/api/src/auth/role-combos.ts`): an admin
+  role is never combined, so an admin still never authors, reviews or signs; Auditor + Contributor is refused.
+  So a PM who also holds Contributor can be an Author and sign as one. A person named twice appears once.
 - "If they started it": an Approver who started the chain may cancel it. The Author (R) may always cancel.
 
 ## 5. PM functions to build

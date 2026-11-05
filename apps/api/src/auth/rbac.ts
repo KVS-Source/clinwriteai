@@ -70,14 +70,40 @@ const ALL_MODULES: ReadonlyArray<ModuleKey> = ['A', 'B', 'C', 'D', 'E']
 export interface AuthenticatedUser {
   id: string
   email: string
+  // The primary role (User.role). A user may also hold one more (User.additionalRoles);
+  // `roles` lists them all, primary first. Absent = just `role`.
   role: Role
+  roles?: Role[]
   capabilities?: Capability[]
   modules: ModuleKey[]
   tenantId: string | null
 }
 
+// ---- Multiple roles (docs/roles-and-permissions.md §2) -----------------------------------
+// A user holds one or two roles and their rights are the union:
+//   - a grant ("PMs may create projects") applies if ANY role grants it  → hasAnyRole
+//   - a restriction tied to roles ("PMs never author") applies only if EVERY role the user
+//     holds is restricted — another role lifts it                       → onlyRolesIn
+// Which pairs are allowed at all is decided in auth/role-combos.ts (an admin role is never
+// combined, so an admin still never authors or signs).
+
+type HasRoles = { role: string; roles?: readonly string[] | null }
+
+export function rolesOf(user: HasRoles): string[] {
+  return user.roles && user.roles.length > 0 ? [...user.roles] : [user.role]
+}
+
+export function hasAnyRole(user: HasRoles, ...names: string[]): boolean {
+  return rolesOf(user).some(r => names.includes(r))
+}
+
+export function onlyRolesIn(user: HasRoles, set: ReadonlySet<string> | readonly string[]): boolean {
+  const has = (r: string) => ('has' in set ? (set as ReadonlySet<string>).has(r) : (set as readonly string[]).includes(r))
+  return rolesOf(user).every(has)
+}
+
 export function hasModuleAccess(user: AuthenticatedUser, required: ModuleKey[]): boolean {
-  if (ADMIN_ROLES.has(user.role)) return true
+  if (rolesOf(user).some(r => ADMIN_ROLES.has(r as Role))) return true
   if (required.length === 0) return true
   return required.some(m => user.modules.includes(m))
 }
@@ -96,18 +122,21 @@ export function hasCapability(user: AuthenticatedUser, cap: Capability): boolean
 // reviewer-only route.
 export function hasRole(user: AuthenticatedUser, roles: Role[]): boolean {
   if (roles.length === 0) return true
-  for (const required of roles) {
-    if (user.role === required) return true
-    // Legacy → canonical acceptance.
-    if (required === 'admin' && user.role === 'tenant-admin') return true
-    if (required === 'read-only' && user.role === 'auditor') return true
-    if (required === 'reviewer' && user.role === 'contributor' && hasCapability(user, 'can-review')) return true
-    // Canonical → legacy (if a route is already updated to use new
-    // names but the DB still has the legacy value during the cutover
-    // window).
-    if (required === 'tenant-admin' && user.role === 'admin') return true
-    if (required === 'auditor' && user.role === 'read-only') return true
-    if (required === 'contributor' && isLegacyWriterOrReviewer(user.role)) return true
+  // Any of the user's roles may satisfy the route (rights are the union).
+  for (const held of rolesOf(user) as Role[]) {
+    for (const required of roles) {
+      if (held === required) return true
+      // Legacy → canonical acceptance.
+      if (required === 'admin' && held === 'tenant-admin') return true
+      if (required === 'read-only' && held === 'auditor') return true
+      if (required === 'reviewer' && held === 'contributor' && hasCapability(user, 'can-review')) return true
+      // Canonical → legacy (if a route is already updated to use new
+      // names but the DB still has the legacy value during the cutover
+      // window).
+      if (required === 'tenant-admin' && held === 'admin') return true
+      if (required === 'auditor' && held === 'read-only') return true
+      if (required === 'contributor' && isLegacyWriterOrReviewer(held)) return true
+    }
   }
   return false
 }
@@ -202,7 +231,7 @@ export function requireAuth(opts: {
 
     // An auditor only ever reads Clinical Writing. Every route with this module
     // comes through here, so a new one can't forget the rule.
-    if (clinicalWriting && READ_ONLY_ROLES.has(user.role) && !READ_METHODS.has(request.method)) {
+    if (clinicalWriting && onlyRolesIn(user, READ_ONLY_ROLES) && !READ_METHODS.has(request.method)) {
       reply.code(403).send(AUDITOR_READ_ONLY)
       return reply
     }
@@ -210,7 +239,7 @@ export function requireAuth(opts: {
     if (!hasRole(user, requiredRoles)) {
       reply.code(403).send({
         error: 'forbidden',
-        message: `Role '${user.role}' lacks required role (needs one of: ${requiredRoles.join(', ')})`,
+        message: `Role '${rolesOf(user).join(', ')}' lacks required role (needs one of: ${requiredRoles.join(', ')})`,
       })
       return reply
     }

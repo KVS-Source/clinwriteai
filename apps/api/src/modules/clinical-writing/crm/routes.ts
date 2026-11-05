@@ -15,7 +15,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { requireAuth } from '../../../auth/rbac.js'
+import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
 import type { PrismaClient } from '@prisma/client'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { actorCanResolveComments, actorCanScheduleCrm, actorCanViewComments, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, CRM_SCHEDULE_FORBIDDEN } from '../../platform/document-raci/access.js'
@@ -267,7 +267,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const { meetingId } = request.params as { meetingId: string }
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
-    if (meeting.chairId !== request.user!.id && !['admin'].includes(request.user!.role)) {
+    if (meeting.chairId !== request.user!.id && !hasAnyRole(request.user!, 'admin')) {
       return reply.code(403).send({ error: 'only_chair', message: 'Only the chair (or admin) can start the meeting' })
     }
     if (meeting.status === 'in_progress') return meeting  // idempotent
@@ -311,7 +311,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       include: { resolutions: true },
     })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
-    if (meeting.chairId !== request.user!.id && !['admin'].includes(request.user!.role)) {
+    if (meeting.chairId !== request.user!.id && !hasAnyRole(request.user!, 'admin')) {
       return reply.code(403).send({ error: 'only_chair' })
     }
     if (meeting.status !== 'in_progress') {

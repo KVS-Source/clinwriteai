@@ -22,7 +22,11 @@
 //   - download the document
 //   - see prior versions
 //   - export anything
-//   - see projects or other docs
+//   - see projects or other docs: every endpoint serves only the invitation's own document
+//     (never an id from the request), and the token is not a session — the auth plugin
+//     looks its jti up as a Session and finds none, so the app's other routes stay 401
+//   - resolve comments (action table: R and A only; the resolve route needs a session)
+// A deleted document is not served, and takes no comments.
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
@@ -71,8 +75,9 @@ export const guestRedemptionRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const documentId = check.row.documentId!
-    const doc = await app.prisma.document.findUnique({
-      where: { id: documentId },
+    // A deleted document is gone for the guest too, whatever their link says.
+    const doc = await app.prisma.document.findFirst({
+      where: { id: documentId, deletedAt: null },
       select: {
         id: true,
         title: true,
@@ -139,6 +144,8 @@ export const guestRedemptionRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
     const documentId = check.row.documentId!
+    const live = await app.prisma.document.findFirst({ where: { id: documentId, deletedAt: null }, select: { id: true } })
+    if (!live) return reply.code(404).send({ error: 'document_not_found' })
 
     // Comment id is app-generated 'CMT-...' per the existing scheme.
     // Collision avoided by prefixing with 'G-' for guest comments.

@@ -6,8 +6,6 @@ import users           from '../../data/users.json'
 import raciMatrix      from '../../data/raciMatrix.json'
 import masterLibrary   from '../../data/masterLibraryItems.json'
 import bestPractices   from '../../data/bestPractices.json'
-import notifications   from '../../data/notifications.json'
-import notifPrefs      from '../../data/notificationPrefs.json'
 import auditTrail      from '../../data/auditTrail.json'
 import ratecards       from '../../data/ratecards.json'
 import subscription    from '../../data/subscription.json'
@@ -22,8 +20,6 @@ const BASE = import.meta.env.VITE_API_URL ?? '/api'
 // In-memory state so mutations (mark-read, invites, gate acknowledgements, etc.)
 // persist for the duration of a session.
 let usersState         = users            as Array<Record<string, unknown>>
-let notificationsState = notifications    as Array<Record<string, unknown>>
-let notifPrefsState    = notifPrefs       as Array<Record<string, unknown>>
 let ratecardsState     = ratecards        as Array<Record<string, unknown>>
 let taTagsState        = taTags           as Array<Record<string, unknown>>
 
@@ -143,29 +139,6 @@ export const platformHandlers = [
     return item
       ? HttpResponse.json(item)
       : HttpResponse.json({ error: 'not-found' }, { status: 404 })
-  }),
-
-  // --- sPM14 Notifications ---
-  http.get(`${BASE}/notifications`, async () => {
-    await delay(120)
-    return HttpResponse.json(notificationsState)
-  }),
-  http.get(`${BASE}/notifications/preferences`, async () => {
-    await delay(100)
-    return HttpResponse.json(notifPrefsState)
-  }),
-  http.patch(`${BASE}/notifications/preferences`, async ({ request }) => {
-    await delay(150)
-    const patch = await request.json() as Array<Record<string, unknown>>
-    notifPrefsState = patch
-    return HttpResponse.json(notifPrefsState)
-  }),
-  http.patch(`${BASE}/notifications/:id/mark-read`, async ({ params }) => {
-    await delay(80)
-    notificationsState = notificationsState.map(n =>
-      n.id === params.id ? { ...n, isRead: true } : n,
-    )
-    return HttpResponse.json(notificationsState.find(n => n.id === params.id))
   }),
 
   // --- sPM15 Audit Trail ---

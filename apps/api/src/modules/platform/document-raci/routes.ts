@@ -12,11 +12,11 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { requireAuth } from '../../../auth/rbac.js'
+import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
-import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, resetRaciRound } from './access.js'
+import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, resetRaciRound, RACI_CHAIN_ACTIVE, signatureChainActive } from './access.js'
 import { DocumentService } from '../../clinical-writing/documents/service.js'
 import { nudgePendingCohort } from './nudge.js'
 
@@ -68,19 +68,9 @@ type RaciAuditSnapshot = {
 
 export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   const svc = new DocumentService(app.prisma)
-  // While a signature chain is in progress the chain is fixed (who signs, and as what). Changing the
-  // RACI underneath it would leave the chain out of step with the RACI, so assigning, removing others
-  // and changing signature settings wait until the chain is cancelled or complete. A person can still
-  // remove their own assignment.
-  const activeChainBlocks = async (documentId: string) =>
-    (await app.prisma.signatureChain.findFirst({
-      where: { documentId, status: { in: ['initiated', 'in_progress'] } },
-      select: { id: true },
-    })) !== null
-  const CHAIN_ACTIVE = {
-    error: 'signature_chain_active',
-    message: "A signature chain is in progress for this document, so its RACI can't be changed. Cancel the chain first.",
-  }
+  // A fixed chain: see signatureChainActive (access.ts). A person can still remove their own assignment.
+  const activeChainBlocks = (documentId: string) => signatureChainActive(app.prisma, documentId)
+  const CHAIN_ACTIVE = RACI_CHAIN_ACTIVE
 
   app.get('/:documentId/raci', { preHandler: requireAuth() }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
@@ -106,7 +96,12 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   // read-only up front instead of failing every click with a 403.
   app.get('/:documentId/raci/can-edit', { preHandler: requireAuth() }, async (request) => {
     const { documentId } = request.params as { documentId: string }
-    return { canEdit: await actorCanEditRaciAssignments(app.prisma, request.user!, documentId) }
+    // chainActive: a signature chain is in progress, so assignments are fixed for now (the panel says why).
+    const [canEdit, chainActive] = await Promise.all([
+      actorCanEditRaciAssignments(app.prisma, request.user!, documentId),
+      signatureChainActive(app.prisma, documentId),
+    ])
+    return { canEdit, chainActive }
   })
 
   app.post('/:documentId/raci', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
@@ -117,7 +112,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     }
 
     const actor = request.user!
-    const isActorTenantAdmin = actor.role === 'tenant-admin' || actor.role === 'admin'
+    const isActorTenantAdmin = hasAnyRole(actor, 'tenant-admin', 'admin')
 
     // §5a: only R-on-this-doc can edit RACI on the doc (never admins / PMs).
     if (!(await actorCanEditRaciAssignments(app.prisma, actor, documentId))) {
@@ -385,7 +380,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     // Self-removal by a tenant-admin flagged with the same event as self-grant
     // per §4.2: "The same event fires if an admin self-removes a RACI row."
     const isSelfRemoval = existing.userId === actor.id
-    const isActorTenantAdmin = actor.role === 'tenant-admin' || actor.role === 'admin'
+    const isActorTenantAdmin = hasAnyRole(actor, 'tenant-admin', 'admin')
     if (isSelfRemoval && isActorTenantAdmin) {
       await app.audit.append({
         timestamp: new Date().toISOString(),

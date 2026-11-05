@@ -21,7 +21,8 @@ import {
 } from '../../../hooks'
 import { usePlatformStore } from '../../store'
 import { useQuery } from '@tanstack/react-query'
-import { auditApi, projectsApi, describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry, type AuditSortKey } from '../../../api'
+import { auditApi, projectsApi, describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry, type AuditSortKey } from '../../../api'
+import { holdsRole } from '../../../config/roles'
 
 const PAGE_SIZE = 25
 // Pause after the last keystroke before the search box applies itself.
@@ -425,7 +426,7 @@ function VerifyMenu({ busy, filtersReady, pageHasRows, onVerify }: {
 export function AuditTrailViewerLive() {
   const { t } = useTranslation()
   // A PM reads and exports their own projects' entries; verifying the chain stays with admins.
-  const isPm = usePlatformStore(s => s.currentUser.role) === 'pm'
+  const isPm = holdsRole(usePlatformStore(s => s.currentUser), 'pm')
   const [exporting, setExporting] = useState(false)
   const [exportFailed, setExportFailed] = useState(false)
   const [searchParams, setSearchParams] = useSearchParams()

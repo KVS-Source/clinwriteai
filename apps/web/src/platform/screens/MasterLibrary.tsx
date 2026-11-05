@@ -10,6 +10,7 @@ import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store/platformStore'
 import { documentsApi, projectsApi, describeApiError } from '../../api'
 import { raciApi } from '../../api/raci'
+import { api } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 
 // Business-module display labels. Keyed only on A..E (the writing
@@ -38,7 +39,9 @@ const BASE_DOC_TYPES = ['NDA', 'CSR', 'SmPC', 'RMP', 'Blog Post', 'IND', 'KOL Su
 
 const PAGE_SIZE = 20
 const SEARCH_DEBOUNCE_MS = 300
-const AUTHORING_LOCKED = ['in_review', 'pending_signature', 'signed']   // mirrors the API's AUTHORING_LOCKED_STATUSES
+// Mirrors the API's AUTHORING_LOCKED_STATUSES. The web sends statuses with hyphens (in-review), the API with underscores.
+const AUTHORING_LOCKED = ['in-review', 'pending-signature', 'signed']
+const isAuthoringLocked = (status: string | undefined) => !!status && AUTHORING_LOCKED.includes(status.replace(/_/g, '-'))
 
 type SortKey = 'recent' | 'oldest' | 'name-asc' | 'name-desc'
 const SORT_LABEL_KEYS: Record<SortKey, string> = {
@@ -173,45 +176,23 @@ export function MasterLibrary() {
     ? t('page.master_library.immutability_archived')
     : t('page.master_library.immutability_default')
 
-  // Download PDF: a clean printable view of the item; the browser's
-  // "Save as PDF" does the rest.
-  function downloadPdf(item: MasterLibraryItem) {
-    const rows: [string, string][] = [
-      [t('page.master_library.pdf_row_module'),        `${item.module} · ${DISCIPLINE_LABEL_KEYS[item.module as 'A' | 'B' | 'C' | 'D' | 'E'] ? t(DISCIPLINE_LABEL_KEYS[item.module as 'A' | 'B' | 'C' | 'D' | 'E']) : item.module}`],
-      [t('page.master_library.pdf_row_item_type'),     ITEM_TYPE_KEYS[item.itemType] ? t(ITEM_TYPE_KEYS[item.itemType]) : item.itemType],
-      [t('page.master_library.pdf_row_doc_type'),      item.docType],
-      [THERAPEUTIC_AREA_LABEL,                         item.ta.join(', ') || '—'],
-      [t('page.master_library.pdf_row_version'),       item.version],
-      [t('page.master_library.pdf_row_project'),       item.projectName],
-      [t('page.master_library.pdf_row_pushed'),        t('page.master_library.pdf_pushed_value', { date: formatDay(item.pushedAt), user: item.pushedByName })],
-      [t('page.master_library.pdf_row_tags'),          item.tags.join(', ') || '—'],
-      [t('page.master_library.pdf_row_status'),        item.isArchived ? t('page.master_library.pdf_status_archived', { reason: item.archivedReason ? ` — ${item.archivedReason}` : '' }) : t('page.master_library.pdf_status_current')],
-    ]
-    const html = (`<!doctype html><html><head><meta charset="utf-8"><title>${escapeHtml(item.name)}</title>
-      <style>body{font:14px/1.5 system-ui,sans-serif;color:#0f172a;max-width:760px;margin:32px auto;padding:0 24px}
-      h1{font-size:22px;margin:0 0 4px}h2{font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:#64748b;margin:24px 0 6px}
-      table{border-collapse:collapse;width:100%}td{padding:4px 12px 4px 0;vertical-align:top}td:first-child{width:160px;color:#64748b}
-      ol{padding-left:20px}.body{white-space:pre-wrap}.foot{margin-top:32px;font-size:11px;color:#64748b}</style></head><body>
-      <h1>${escapeHtml(item.name)}</h1><p style="color:#64748b;margin:0">${escapeHtml(t('page.master_library.pdf_subtitle'))}</p>
-      <h2>${escapeHtml(t('page.master_library.pdf_details'))}</h2><table>${rows.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${escapeHtml(v)}</td></tr>`).join('')}</table>
-      <h2>${escapeHtml(t('page.master_library.pdf_provenance'))}</h2><ol>${item.provenanceChain.map(s => `<li>${escapeHtml(s)}</li>`).join('')}</ol>
-      ${item.body ? `<h2>${escapeHtml(t('page.master_library.pdf_content'))}</h2><div class="body">${escapeHtml(item.body)}</div>` : ''}
-      <p class="foot">${escapeHtml(t('page.master_library.pdf_footer', { time: new Date().toUTCString(), note: immutabilityNote }))}</p>
-      </body></html>`)
-    // Print from a hidden frame on this page: no pop-up for a blocker to stop (CW-064).
-    const frame = document.createElement('iframe')
-    frame.setAttribute('aria-hidden', 'true')
-    frame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0'
-    frame.srcdoc = html
-    frame.onload = () => {
-      const win = frame.contentWindow
-      if (!win) { frame.remove(); flash(t('page.master_library.pdf_failed')); return }
-      win.onafterprint = () => frame.remove()
-      win.focus()
-      win.print()
-      setTimeout(() => frame.remove(), 60_000)   // some browsers never fire afterprint
+  // Download PDF: the server builds a PDF of the item's own text (title + body, no app
+  // details) and the browser saves it as a file — no print dialog, no pop-up.
+  async function downloadPdf(item: MasterLibraryItem) {
+    if (!item.body) { flash(t('page.master_library.pdf_no_content')); return }
+    try {
+      const { blob, filename } = await api.download(`/library/${encodeURIComponent(item.id)}/pdf`)
+      const url = URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.download = filename ?? `${item.name}.pdf`
+      document.body.appendChild(link)
+      link.click()
+      link.remove()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (err) {
+      flash(`${t('page.master_library.pdf_failed')} ${describeApiError(err).message}`)
     }
-    document.body.appendChild(frame)
   }
 
   return (
@@ -475,7 +456,7 @@ export function MasterLibrary() {
 
                 <div className="flex flex-wrap items-center gap-2">
                   <button type="button" disabled={!canPull} onClick={() => setPullOpen(true)}
-                    data-pull-button
+                    data-pull-button data-panel-trigger
                     className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ backgroundColor: PLATFORM_ACCENT.primary }}
                     title={pullLabel}
@@ -580,7 +561,7 @@ function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
     enabled: open && !!documentId,
   })
   const notAuthor = !!documentId && rights.data?.canEdit === false
-  const lockedStatus = doc.data && AUTHORING_LOCKED.includes(doc.data.status) ? doc.data.status : null
+  const lockedStatus = doc.data && isAuthoringLocked(doc.data.status) ? doc.data.status : null
   const blocked = notAuthor || !!lockedStatus
 
   const sections = doc.data?.sections ?? []
@@ -611,7 +592,7 @@ function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
   }
 
   return (
-    <SlidePanel open={open} onClose={onClose} title={t('page.master_library.pull_panel_title')} subtitle={item.name} storageKey="library-pull" defaultWidth={420}>
+    <SlidePanel open={open} onClose={onClose} title={t('page.master_library.pull_panel_title')} subtitle={item.name} storageKey="library-pull" defaultWidth={420} belowTopBar closeOnOutsideClick>
       <div className="flex flex-col gap-3 p-1" data-pull-panel>
         <p className="text-[12px] text-slate-600">
           {t('page.master_library.pull_panel_hint')}
@@ -630,7 +611,11 @@ function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
           <select className={selectClass} value={documentId} disabled={!projectId}
             onChange={e => { setDocumentId(e.target.value); setSectionId('') }}>
             <option value="">{docs.isLoading ? t('page.master_library.loading_short') : docs.data && docs.data.length === 0 ? t('page.master_library.no_documents') : t('page.master_library.choose_document')}</option>
-            {(docs.data ?? []).map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
+            {(docs.data ?? []).map(d => (
+              <option key={d.id} value={d.id} disabled={isAuthoringLocked(d.status)}>
+                {d.title}{isAuthoringLocked(d.status) ? t('page.master_library.document_locked_suffix') : ''}
+              </option>
+            ))}
           </select>
         </label>
 
@@ -644,7 +629,7 @@ function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
         </label>
 
         {notAuthor && <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-900" role="alert" data-pull-blocked="not-author">{t('page.master_library.pull_not_author')}</p>}
-        {lockedStatus && <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-900" role="alert" data-pull-blocked="locked">{t('page.master_library.pull_doc_locked', { status: lockedStatus.replace(/_/g, ' ') })}</p>}
+        {lockedStatus && <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-900" role="alert" data-pull-blocked="locked">{t('page.master_library.pull_doc_locked', { status: lockedStatus.replace(/[_-]/g, ' ') })}</p>}
 
         {(projects.error || docs.error || doc.error) && (
           <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert">
@@ -708,7 +693,7 @@ function AdminActionPanel({ mode, item, onClose, onDone }: {
   }
 
   return (
-    <SlidePanel open={mode !== null} onClose={onClose} storageKey="library-admin" defaultWidth={460}
+    <SlidePanel open={mode !== null} onClose={onClose} storageKey="library-admin" defaultWidth={460} belowTopBar
       title={mode === 'withdraw' ? t('page.master_library.withdraw_panel_title') : t('page.master_library.version_panel_title')} subtitle={item.name}>
       <div className="flex flex-col gap-3 p-1" data-admin-panel={mode ?? undefined}>
         {mode === 'version' ? (

@@ -3114,7 +3114,9 @@
       "pull_not_author": "このドキュメントにライブラリのテキストを追加できるのは、執筆者（R）のみです。",
       "pull_doc_locked": "このドキュメントは執筆がロックされています（{{status}}）。ライブラリのテキストは編集可能な間のみ追加できます。",
       "pull_adoption_failed": "使用状況を記録できませんでした。",
-      "pdf_failed": "PDFを準備できませんでした。もう一度お試しください。"
+      "pdf_failed": "PDFを準備できませんでした。もう一度お試しください。",
+      "document_locked_suffix": "（ロック中）",
+      "pdf_no_content": "ダウンロードできるテキストがありません。"
     },
 
     "best_practices_library": {
@@ -3530,7 +3532,12 @@
       "submit": "ライブラリに登録",
       "pushing": "登録中…",
       "success": "マスターライブラリに登録しました: {{name}}（{{version}}）",
-      "failure": "登録できませんでした: {{message}}"
+      "failure": "登録できませんでした: {{message}}",
+      "badge_document": "マスターライブラリ登録済み",
+      "badge_sections_one": "{{count}}セクションをマスターライブラリに登録済み",
+      "badge_sections_other": "{{count}}セクションをマスターライブラリに登録済み",
+      "badge_hint": "この署名済みドキュメントはマスターライブラリに登録されています",
+      "already_in_library": " — ライブラリに登録済み"
     }
   },
 

@@ -9,7 +9,7 @@ import { useDocumentStore, useProjectStore } from '../../store'
 import { SectionNavigator } from '../clinical-writing/SectionNavigator'
 import { EditorContent, useRichTextEditor } from '../clinical-writing/RichTextEditor'
 import { SlidePanel } from '../../components/ui/SlidePanel'
-import { PushToLibraryButton } from '../../components/library/PushToLibraryButton'
+import { LibraryPushedBadge, PushToLibraryButton } from '../../components/library/PushToLibraryButton'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
 import { useSignatureAccess } from './useSignatureAccess'
 
@@ -321,6 +321,7 @@ export function FinalDocument() {
                 {(STATUS_META[document.status] ?? STATUS_META['not-started']).label}
               </span>
             )}
+            <LibraryPushedBadge document={document} />
             {documentId && <MyRaciRole documentId={documentId} />}
           </div>
 

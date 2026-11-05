@@ -1,3 +1,20 @@
+import i18n from '../i18n'
+
+const isJapanese = () => (i18n.language ?? '').startsWith('ja')
+
+// Locale for a date shown to the user. In English the browser's own format is kept (undefined).
+export const uiLocale = (): string | undefined => (isJapanese() ? 'ja-JP' : undefined)
+// The same, for screens whose English format is day-month-year.
+export const dateLocale = (): string => uiLocale() ?? 'en-GB'
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+// The UTC date of a moment: '28 Oct 2026', or '2026年10月28日' in Japanese.
+export const formatDateUtc = (d: Date): string =>
+  isJapanese()
+    ? d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })
+    : `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+
 export const formatDate = (iso: string): string =>
   new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 

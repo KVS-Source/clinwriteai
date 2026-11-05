@@ -26,7 +26,7 @@ import type { Prisma, User } from '@prisma/client'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { ADDABLE_ROLES, roleSetProblem } from '../../../auth/role-combos.js'
-import { buildInviteUrl, generateInvitationToken } from './invitations.js'
+import { issueUserInvitation } from './issue-invitation.js'
 import { eventForTarget, isUserStatus, transition, type UserEvent, type UserStatus } from './status-machine.js'
 
 // Role whitelist for /admin/users invite + update endpoints. The canonical
@@ -193,51 +193,8 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     })
   }
 
-  // Rotate the invitation: revoke any live one, issue a fresh token, and
-  // queue the invitation email. Email failure never fails the invite — the
-  // admin still gets the link in the response and `emailQueued` says whether
-  // the message was handed to the delivery queue.
-  async function issueInvitation(user: User, invitedBy: string) {
-    const { token, tokenHash, expiresAt } = generateInvitationToken()
-    await app.prisma.$transaction([
-      app.prisma.userInvitation.updateMany({
-        where: { userId: user.id, acceptedAt: null, revokedAt: null },
-        data: { revokedAt: new Date() },
-      }),
-      app.prisma.userInvitation.create({ data: { userId: user.id, tokenHash, expiresAt, invitedBy } }),
-    ])
-    const inviteUrl = buildInviteUrl(app.env.CORS_ORIGIN, token)
-    const inviteExpiresAt = expiresAt.toISOString()
-
-    let emailQueued = false
-    try {
-      await app.notifications.send({
-        recipientId: user.id,
-        kind: 'user.invitation',
-        title: 'You have been invited to ClinWrite',
-        body:
-          `Hello ${user.name},
-
-` +
-          `You have been invited to ClinWrite as ${user.role}. ` +
-          `Open the link below, accept the Terms & Conditions, then sign in with ${user.email}.
-
-` +
-          `${inviteUrl}
-
-` +
-          `This link expires on ${expiresAt.toUTCString()}.`,
-        channels: ['email'],
-        // The raw link is deliberately kept out of `payload` (and so out of
-        // the persisted notification metadata); it travels only in the body.
-        payload: { userId: user.id, expiresAt: inviteExpiresAt },
-      })
-      emailQueued = true
-    } catch (err) {
-      app.log.error({ err, userId: user.id }, 'failed to queue invitation email')
-    }
-    return { inviteUrl, inviteExpiresAt, emailQueued }
-  }
+  // The admin still gets the link in the response, whether or not the email was queued.
+  const issueInvitation = (user: User, invitedBy: string) => issueUserInvitation(app, user, invitedBy)
 
   function illegalTransition(reply: FastifyReply, from: string, event: string) {
     return reject(reply, 409, 'invalid_transition', `User status is '${from}'; '${event}' is not allowed`)

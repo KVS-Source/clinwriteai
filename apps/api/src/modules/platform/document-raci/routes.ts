@@ -19,6 +19,8 @@ import { canTransitionDocument, type DocumentStatus } from '../../clinical-writi
 import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, resetRaciRound, RACI_CHAIN_ACTIVE, signatureChainActive } from './access.js'
 import { DocumentService } from '../../clinical-writing/documents/service.js'
 import { nudgePendingCohort } from './nudge.js'
+import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
+import { canSeeDocument } from '../../projects/visibility.js'
 
 const nudgeSchema = z.object({
   targetUserIds: z.array(z.string().min(1)).max(50).optional(),
@@ -74,6 +76,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/:documentId/raci', { preHandler: requireAuth() }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const document = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true } })
     if (!document) return reply.code(404).send({ error: 'document_not_found' })
 
@@ -106,6 +109,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/raci', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = insertSchema.safeParse(request.body)
     if (!parsed.success) {
       return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -289,6 +293,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/:documentId/raci/:raciId', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId, raciId } = request.params as { documentId: string; raciId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const existing = await app.prisma.documentRaci.findUnique({ where: { id: raciId } })
     if (!existing || existing.documentId !== documentId) {
       return reply.code(404).send({ error: 'not_found' })
@@ -411,6 +416,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   // terms it was completed under must not change afterwards.
   app.patch('/:documentId/raci/:raciId/signature', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId, raciId } = request.params as { documentId: string; raciId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = signatureSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const { signatureRequired } = parsed.data
@@ -474,6 +480,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   // stage-auto-transition is wired in Chunk 2.
   app.post('/:documentId/raci/:raciId/complete', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId, raciId } = request.params as { documentId: string; raciId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = completeSchema.safeParse(request.body ?? {})
     if (!parsed.success) {
       return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -625,6 +632,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   //     review and approve again. The note stays on the row as the reason given.
   app.post('/:documentId/raci/:raciId/reject', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId, raciId } = request.params as { documentId: string; raciId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = rejectSchema.safeParse(request.body)
     if (!parsed.success) {
       return reply.code(400).send({ error: 'validation', message: 'A note explaining why the document is returned is required.', issues: parsed.error.issues })
@@ -711,6 +719,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   app.post('/:documentId/nudge', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = nudgeSchema.safeParse(request.body ?? {})
     if (!parsed.success) {
       return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })

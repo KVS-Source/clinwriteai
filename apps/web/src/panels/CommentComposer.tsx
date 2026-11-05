@@ -1,9 +1,11 @@
 import { useEffect, useState } from 'react'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { Comment, CommentSeverity } from '@platform/types'
 import { PLATFORM_USER_ROLE_LABEL, type PlatformUserRole } from '@platform/types'
 import { documentsApi, describeApiError } from '../api'
+import type { MentionablePerson } from '../api/documents'
+import { MentionTextarea, mentionPattern } from './MentionTextarea'
 import { useCurrentUser } from '../hooks'
 
 // "Add comment" form for the Comments panel (PRD FR-A-052, AC-A-034/035):
@@ -60,6 +62,14 @@ export function CommentComposer({ documentId, sections, defaultSectionId, onClos
   const [severity,  setSeverity]  = useState<CommentSeverity | null>(null)
   const [text,      setText]      = useState('')
   const [touched,   setTouched]   = useState(false)
+  // People picked from the "@" list; only those still named in the final text are notified.
+  const [picked, setPicked] = useState<MentionablePerson[]>([])
+  const { data: people = [] } = useQuery({
+    queryKey: ['comment-mentionable', documentId],
+    queryFn:  () => documentsApi.getMentionable(documentId),
+    staleTime: 60_000,
+    retry: false,
+  })
 
   // Follow the editor's section until the user picks one themselves.
   const [pickedSection, setPickedSection] = useState(false)
@@ -68,11 +78,14 @@ export function CommentComposer({ documentId, sections, defaultSectionId, onClos
   const section = sections.find(s => s.id === sectionId)
   const roleLabel = me ? (PLATFORM_USER_ROLE_LABEL[me.role as PlatformUserRole] ?? me.role) : ''
 
+  const mentionedIds = [...new Set(picked.filter(p => mentionPattern(p.name).test(text)).map(p => p.id))]
+
   const post = useMutation({
     mutationFn: () => documentsApi.addComment(documentId, {
       sectionRef: sectionRefOf(section!),
       text:       text.trim(),
       severity:   severity!,
+      ...(mentionedIds.length > 0 && { mentionedUserIds: mentionedIds }),
     }),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
@@ -146,11 +159,13 @@ export function CommentComposer({ documentId, sections, defaultSectionId, onClos
 
       <label className="flex flex-col gap-1">
         <span className="text-[11px] font-semibold text-slate-700">{t('page.comment_composer.comment_label')}</span>
-        <textarea
+        <MentionTextarea
           rows={3}
           value={text}
           maxLength={COMMENT_MAX}
-          onChange={e => setText(e.target.value)}
+          onChange={setText}
+          people={people}
+          onMention={p => setPicked(prev => prev.some(x => x.id === p.id) ? prev : [...prev, p])}
           placeholder={section
             ? t('page.comment_composer.comment_placeholder_for_section', { section: sectionRefOf(section) })
             : t('page.comment_composer.comment_placeholder')}
@@ -159,6 +174,7 @@ export function CommentComposer({ documentId, sections, defaultSectionId, onClos
           autoFocus
         />
       </label>
+      {people.length > 0 && <p className="-mt-1 text-[11px] text-slate-500" data-mention-hint>{t('page.comment_composer.mention_hint')}</p>}
 
       {touched && missing && (
         <p className="text-[11px] font-semibold" style={{ color: '#DC2626' }} role="alert" data-composer-missing={missing}>

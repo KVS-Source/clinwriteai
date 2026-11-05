@@ -16,6 +16,7 @@ import { isPreviewable, stripExt } from './source-routes.js'
 import { suggestSourceCategory } from './source-categories.js'
 import { referencesLocked } from '../document-status.js'
 import { actorCanEditDocumentContent, actorCanViewSources, DOCUMENT_EDIT_FORBIDDEN, SOURCE_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { canSeeDocument } from '../../projects/visibility.js'
 
 const createSchema = z.object({
   sectionId: z.string().trim().min(1).max(200),
@@ -100,6 +101,7 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/:documentId/references', { preHandler: gate }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const q = listQuery.safeParse(request.query)
     if (!q.success) return reply.code(400).send({ error: 'validation', issues: q.error.issues })
 
@@ -153,6 +155,7 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
   // plus any cited from its text (source_references), each with the sections that cite it.
   app.get('/:documentId/sources', { preHandler: gate }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
       select: { id: true, projectId: true, deletedAt: true, currentVersion: { select: { sections: { select: { sectionId: true, sectionNumber: true, sectionTitle: true } } } } },

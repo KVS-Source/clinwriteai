@@ -28,7 +28,7 @@ export const authApi = {
   passwordLogin: (body: { email: string; password: string }) =>
     api.post<{ ok: true; user: PasswordLoginUser; mustChangePassword: boolean }>('/auth/password-login', body, NO_REDIRECT),
   forgotPassword: (email: string) =>
-    api.post<{ ok: true; message: string }>('/auth/forgot-password', { email }, NO_REDIRECT),
+    api.post<{ ok: true; message: string; expiresInMinutes?: number }>('/auth/forgot-password', { email }, NO_REDIRECT),
   resetPassword: (token: string, newPassword: string) =>
     api.post<{ ok: true }>('/auth/reset-password', { token, newPassword }, NO_REDIRECT),
   changePassword: (currentPassword: string, newPassword: string) =>

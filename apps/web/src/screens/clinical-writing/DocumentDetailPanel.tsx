@@ -11,11 +11,13 @@ import { SlidePanel, StatusPill } from '../../components/ui'
 import { documentsApi, type DocumentSourceLink } from '../../api/documents'
 import { ApiError } from '../../api/client'
 import { sourceCategoryLabel } from '../../utils/sourceCategories'
+import { documentStageLabel } from '../../utils/documentLabels'
 import { downloadSourceFile, sourceErrorMessage } from '../../utils/openSource'
 import { SourceViewer } from '../../panels/SourceReferencesPanel'
 import { EyeIcon, MetaRow, MetaSection, fmtDate } from './detailPanelParts'
 import { DeadlineField } from './DeadlineField'
 import { useSourceAccess } from '../../hooks/useSourceAccess'
+import { useSignatureAccess } from '../output/useSignatureAccess'
 import { LibraryPushedBadge, PushToLibraryButton } from '../../components/library/PushToLibraryButton'
 
 interface Props {
@@ -43,6 +45,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
   useEffect(() => { setViewing(null); setViewError(null); setStageError(null) }, [doc?.id])
 
   const canViewSources = useSourceAccess(projectId)?.canView === true
+  const informedOnly = useSignatureAccess(doc?.id).isInformedOnly
   const sources = useQuery({
     queryKey: ['document-sources', doc?.id],
     queryFn: () => documentsApi.listDocumentSources(doc!.id),
@@ -282,16 +285,16 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                 {/* Shows itself only to the Author (R) of a signed document not yet in the library. */}
                 {isSigned && fullDoc.data && <PushToLibraryButton document={fullDoc.data} sections={pushSections} />}
               </div>
-              {stage.data && !stage.data.terminal && (
+              {stage.data && !stage.data.terminal && !informedOnly && (
                 <button
                   type="button"
                   onClick={() => advance.mutate()}
                   disabled={advance.isPending}
                   className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
                   data-action="advance-stage"
-                  title={t('page.document_detail_panel.advance_tooltip', { currentLabel: stage.data.currentLabel, nextLabel: stage.data.nextLabel })}
+                  title={t('page.document_detail_panel.advance_tooltip', { currentLabel: documentStageLabel(stage.data.current, stage.data.currentLabel), nextLabel: documentStageLabel(stage.data.next, stage.data.nextLabel) })}
                 >
-                  {advance.isPending ? t('page.document_detail_panel.advancing') : t('page.document_detail_panel.advance_to', { nextLabel: stage.data.nextLabel })}
+                  {advance.isPending ? t('page.document_detail_panel.advancing') : t('page.document_detail_panel.advance_to', { nextLabel: documentStageLabel(stage.data.next, stage.data.nextLabel) })}
                 </button>
               )}
               {stage.data?.terminal && (

@@ -19,7 +19,9 @@ async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCr
   const append = vi.fn(async () => ({}))
   const app = Fastify()
   app.decorate('prisma', {
-    document: { findUnique: vi.fn(async () => (opts.docExists === false ? null : { id: 'doc-b' })) },
+    project: { findUnique: async () => ({ status: 'ongoing' }) },
+
+    document: { count: async () => 1,  findUnique: vi.fn(async () => (opts.docExists === false ? null : { id: 'doc-b' })) },
     comment: {
       create,
       findMany,

@@ -230,13 +230,16 @@ export const platformApi = {
   createBestPractice: (body: Partial<BestPractice>) =>
     api.post<BestPractice>('/library/best-practices', body),
 
-  // sPM14 — Notifications: the signed-in user's own feed (API: modules/platform/notifications/routes.ts).
-  // There is no preferences endpoint yet, so the screen has no Preferences tab.
+  // sPM14 — Notifications: the signed-in user's own feed (API: modules/platform/notifications/routes.ts),
+  // e.g. @mentions and signature requests. There is no preferences endpoint yet, so the screen has no
+  // Preferences tab.
   listMyNotifications: () =>
     api.get<MyNotification[]>('/notifications/me?limit=200'),
-  markNotificationsRead: (ids: string[]) =>
+  myUnreadNotificationCount: () =>
+    api.get<{ count: number }>('/notifications/me/unread-count'),
+  markMyNotificationsRead: (ids: string[]) =>
     api.post<{ updated: number }>('/notifications/me/mark-read', { ids }),
-  markAllNotificationsRead: () =>
+  markAllMyNotificationsRead: () =>
     api.post<{ updated: number }>('/notifications/me/mark-all-read', {}),
   dismissNotification: (id: string) =>
     api.post<MyNotification>(`/notifications/me/${encodeURIComponent(id)}/dismiss`, {}),

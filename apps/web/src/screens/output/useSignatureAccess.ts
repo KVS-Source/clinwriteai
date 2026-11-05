@@ -12,6 +12,7 @@ import { useQuery } from '@tanstack/react-query'
 import { raciApi } from '../../api/raci'
 import { documentsApi } from '../../api/documents'
 import { useCurrentUser } from '../../hooks'
+import { rolesOf } from '../../config/roles'
 
 const ADMIN_ROLES   = new Set(['tenant-admin', 'admin', 'super-admin'])
 const AUDITOR_ROLES = new Set(['auditor', 'read-only'])
@@ -27,6 +28,8 @@ export interface SignatureAccess {
   canViewFinal: boolean
   canExportAudit: boolean
   canGiveVerdict: boolean
+  /** Their only part on the document is Informed (I): they read it and sign it if named, and change nothing else. */
+  isInformedOnly: boolean
   /** The Author (R) may always cancel; anyone else only the chain they started. */
   canCancelChain: (chain: { initiatedBy: string } | undefined) => boolean
 }
@@ -45,22 +48,28 @@ export function useSignatureAccess(documentId: string | undefined): SignatureAcc
     enabled:  !!documentId,
   })
 
-  const role      = me?.role ?? ''
-  const isAdmin   = ADMIN_ROLES.has(role)
-  const isAuditor = AUDITOR_ROLES.has(role)
-  const isPm      = role === 'pm'
-  const isGuest   = role === 'guest'
+  // A user may hold two roles; rights are the union, as on the API (signatures/access.ts): holding
+  // a role grants what it grants, and a role restriction applies only if every role is restricted.
+  const roles     = rolesOf(me)
+  const isAdmin   = roles.some(r => ADMIN_ROLES.has(r))
+  const isAuditor = roles.some(r => AUDITOR_ROLES.has(r))
+  const isPm      = roles.includes('pm')
+  const only = (allowed: (r: string) => boolean) => roles.length > 0 && roles.every(allowed)
+  // Can't author (admin, PM, auditor) / can't act on the record at all (those, or a guest).
+  const cannotAuthor = only(r => ADMIN_ROLES.has(r) || AUDITOR_ROLES.has(r) || r === 'pm')
+  const cannotAct    = only(r => ADMIN_ROLES.has(r) || AUDITOR_ROLES.has(r) || r === 'pm' || r === 'guest')
+  const noRecord     = only(r => ADMIN_ROLES.has(r) || r === 'guest')
 
   // My active letters on this document (the list also carries removed rows).
   const letters = new Set(
     (raci.data ?? []).filter(r => r.userId === me?.id && !r.removedAt).map(r => r.letter as string),
   )
   const isAssignee = !!me && doc.data?.assigneeId === me.id
-  const isAuthor   = !isAdmin && !isPm && (letters.has('R') || isAssignee)
+  const isAuthor   = !cannotAuthor && (letters.has('R') || isAssignee)
   const isApprover = letters.has('A')
 
   const hasLetter     = letters.size > 0 || isAssignee
-  const canViewRecord = !isAdmin && !isGuest && (isAuditor || isPm || hasLetter)
+  const canViewRecord = !noRecord && (isAuditor || isPm || hasLetter)
   // QC (Q) on its own has no access to the Final Document yet (pending the SME's answer).
   const onlyQc        = hasLetter && [...letters].every(l => l === 'Q') && !isAssignee
   const canViewFinal  = canViewRecord && !onlyQc
@@ -68,12 +77,12 @@ export function useSignatureAccess(documentId: string | undefined): SignatureAcc
   return {
     ready: !!me && (!documentId || (!raci.isLoading && !doc.isLoading)),
     isAdmin, isPm, isAuditor,
-    canStartChain:  !isAdmin && !isPm && !isAuditor && !isGuest && (isAuthor || isApprover),
+    canStartChain:  !cannotAct && (isAuthor || isApprover),
     canViewRecord,
     canViewFinal,
     canExportAudit: isPm || isAuditor,
-    canGiveVerdict: !isAdmin && !isPm && !isAuditor && !isGuest
-                    && ['C', 'Q', 'A'].some(l => letters.has(l)),
+    canGiveVerdict: !cannotAct && ['C', 'Q', 'A'].some(l => letters.has(l)),
     canCancelChain: chain => !!chain && !!me && (chain.initiatedBy === me.id || isAuthor),
+    isInformedOnly: !cannotAuthor && !isAssignee && letters.size > 0 && [...letters].every(l => l === 'I'),
   }
 }

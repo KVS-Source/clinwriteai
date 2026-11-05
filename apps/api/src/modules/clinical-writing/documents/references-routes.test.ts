@@ -61,6 +61,8 @@ async function build(
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1' })) },
     document: {
+
+      count: async () => 1,
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) =>
         where.id === 'DOC-1' ? { id: 'DOC-1', projectId: 'proj-1', status: docStatus, deletedAt: null } : where.id === 'DOC-GONE' ? { id: 'DOC-GONE', projectId: 'proj-1', status: 'in_authoring', deletedAt: new Date() } : null),
       findMany: vi.fn(async () => []),

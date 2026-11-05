@@ -117,6 +117,44 @@ export async function actorCanAddComment(
   return row !== null || (!!doc && doc.assigneeId === actor.id)
 }
 
+// Informed (I) reads the document and signs it if named, and changes nothing else. True for someone
+// whose only part on the document is I. Holding any other letter, being the assignee, or a role with
+// its own rules (PM, admin, auditor) is decided elsewhere. Used on the routes that have no other check
+// on who may call them.
+export async function actorIsOnlyInformed(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+): Promise<boolean> {
+  if (onlyRolesIn(actor, RACI_LOCKED_ROLES)) return false
+  const [doc, rows] = await Promise.all([
+    prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
+    prisma.documentRaci.findMany({ where: { documentId, userId: actor.id, removedAt: null }, select: { letter: true } }),
+  ])
+  if (doc?.assigneeId === actor.id) return false
+  return rows.length > 0 && rows.every(r => r.letter === 'I')
+}
+
+// The same across a project, for project-level records (TLF packages): I on its documents and nothing else.
+export async function actorIsOnlyInformedOnProject(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  projectId: string,
+): Promise<boolean> {
+  if (onlyRolesIn(actor, RACI_LOCKED_ROLES)) return false
+  const [assigned, rows] = await Promise.all([
+    prisma.document.findFirst({ where: { projectId, deletedAt: null, assigneeId: actor.id }, select: { id: true } }),
+    prisma.documentRaci.findMany({ where: { userId: actor.id, removedAt: null, document: { projectId, deletedAt: null } }, select: { letter: true } }),
+  ])
+  if (assigned) return false
+  return rows.length > 0 && rows.every(r => r.letter === 'I')
+}
+
+export const INFORMED_READ_ONLY = {
+  error: 'informed_read_only',
+  message: 'Informed (I) people can read this document and sign it if named, but cannot change it.',
+} as const
+
 // Who may post a reviewer verdict (approve / return a section): Reviewer (C),
 // QC (Q) or Approver (A) — action table rows 12 and 14. The Author comments
 // but never approves or returns their own document.

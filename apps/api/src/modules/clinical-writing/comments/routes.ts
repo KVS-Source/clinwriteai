@@ -14,10 +14,12 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import PDFDocument from 'pdfkit'
 import { requireAuth } from '../../../auth/rbac.js'
+import { mentionableUsers, mentionNotification } from './mentions.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
-import { documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { documentVisibilityWhere, visibleProjectIdsForUser, canSeeDocument } from '../../projects/visibility.js'
+import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 
 // Document audit panel paging. The default limit keeps older callers that send
 // no parameters (the Audit Review screen) getting the same size as before.
@@ -66,6 +68,8 @@ const ACTION_TO_EVENT: Record<string, string> = {
   checklist_item_waived:     'checklist-waived',
   checklist_item_completed:  'checklist-completed',
   signature_initiated:       'document-signed',
+  signature_recorded:        'document-signed',
+  document_signed:           'document-signed',
   version_restore_initiated: 'version-restore',
   voice_note_added:          'voice-note-added',
   qa_review_logged:          'qa-review-completed',
@@ -92,6 +96,11 @@ function auditDetail(row: AuditRow): string {
   }
   if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from ?? 'none')} → ${String(d.to ?? 'none')}`)
   if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
+  // A recorded signature says what the person signed as, and which step it was.
+  if (row.action === 'signature_recorded' || row.action === 'document_signed') {
+    if (typeof d.meaning === 'string' && d.meaning) parts.push(`Meaning: ${d.meaning}`)
+    if (typeof d.step === 'number') parts.push(`Step ${d.step}`)
+  }
   if (row.action === 'final_document_exported') {
     parts.push(d.mode === 'signed' ? 'Signed copy' : 'Watermarked draft')
     if (typeof d.pages === 'number') parts.push(`${d.pages} pages`)
@@ -164,6 +173,8 @@ const addSchema = z.object({
   // Phase 2.2 — reviewer verdict. Null for plain comments. See
   // docs/decisions/module-a-defaults.md §3.
   verdict: z.enum(['approve', 'request_changes', 'block_approval']).optional(),
+  // People @mentioned in the text (from the project's mentionable list). Each gets a notification.
+  mentionedUserIds: z.array(z.string().min(1)).max(20).optional(),
 }).refine(
   v => v.verdict !== undefined || v.text.length > 0,
   { message: 'text is required unless a verdict is set' },
@@ -259,6 +270,7 @@ export async function pendingRevision(
 export const commentsRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const parsed = listQuerySchema.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -288,8 +300,20 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     return { canAdd: await actorCanAddComment(app.prisma, request.user!, documentId) }
   })
 
+  // Who the comment box offers after "@": the people involved in this document's project.
+  app.get('/:documentId/comments/mentionable', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, projectId: true } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanAddComment(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(COMMENT_ADD_FORBIDDEN)
+    }
+    return mentionableUsers(app.prisma, doc, request.user!.id)
+  })
+
   app.post('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = addSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -338,6 +362,11 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(503).send({ error: 'id_contention', message: 'Too many simultaneous comments; retry' })
     }
 
+    // Only people who can actually be mentioned here (project members / RACI on this document,
+    // not the author) are notified; anything else in the list is ignored.
+    const requested = [...new Set(parsed.data.mentionedUserIds ?? [])].filter(uid => uid !== request.user!.id)
+    const mentioned = requested.length === 0 ? [] : (await mentionableUsers(app.prisma, doc, request.user!.id)).filter(u => requested.includes(u.id))
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
@@ -351,6 +380,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
         sectionRef: parsed.data.sectionRef,
         severity: parsed.data.severity,
         verdict: parsed.data.verdict ?? null,
+        ...(mentioned.length > 0 && { mentionedUserIds: mentioned.map(u => u.id) }),
       },
       ipAddress: request.ip ?? null,
     })
@@ -358,11 +388,27 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     const [reviewer] = await Promise.all([
       app.prisma.user.findUnique({ where: { id: created.reviewerId }, select: { name: true, initials: true } }),
     ])
+
+    // The comment is saved; a failed notification must not undo or fail it.
+    for (const person of mentioned) {
+      try {
+        await app.notifications.send({
+          recipientId: person.id,
+          ...mentionNotification({
+            authorName: reviewer?.name ?? 'A colleague', documentTitle: doc.title, documentId, projectId: doc.projectId,
+            commentId: id, sectionRef: created.sectionRef, text: created.text,
+          }),
+        })
+      } catch (err) {
+        request.log.warn({ err, recipientId: person.id, commentId: id }, 'mention notification failed')
+      }
+    }
     return reply.code(201).send(commentShape(created, reviewer))
   })
 
   app.patch('/:documentId/comments/:commentId/resolve', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, commentId } = request.params as { documentId: string; commentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = resolveSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -542,6 +588,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
   // default is 30 days; configurable per tenant in the future.
   app.get('/:documentId/qa-review', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 
@@ -564,9 +611,12 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/qa-review', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const body = (request.body ?? {}) as { reviewedBy?: string; notes?: string }
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
 
     const cadenceDays = 30
     const nextDue = new Date(Date.now() + cadenceDays * 86_400_000)

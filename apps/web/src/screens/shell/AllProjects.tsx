@@ -10,7 +10,7 @@ import { ProjectStatusPill, SlidePanel } from '../../components/ui'
 import { useProjectStore } from '../../store'
 import { usePlatformStore } from '../../platform/store'
 import { useTaLabels } from '../../hooks'
-import { NewProjectForm } from './NewProject'
+import { NewProjectForm } from './NewProject'
 import { holdsRole } from '../../config/roles'
 
 function SearchIcon() {
@@ -346,9 +346,9 @@ export function AllProjects() {
       >
         <NewProjectForm
           onCancel={() => setNewProjectOpen(false)}
-          onCreated={id => {
+          onCreated={(id, inviteNotSent) => {
             setNewProjectOpen(false)
-            navigate(`/projects/${id}`)
+            navigate(inviteNotSent ? `/projects/${id}/settings` : `/projects/${id}`)
           }}
         />
       </SlidePanel>

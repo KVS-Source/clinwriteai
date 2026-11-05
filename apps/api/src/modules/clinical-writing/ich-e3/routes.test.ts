@@ -33,6 +33,8 @@ async function build(opts: Opts = {}) {
   const app = Fastify()
   app.decorate('prisma', {
     document: {
+
+      count: async () => 1,
       findUnique: vi.fn(async () => ({
         id: DOC, title: 'CSR Velora-301', type: opts.type ?? 'csr_full', status: opts.docStatus ?? 'in_authoring',
         projectId: 'proj-1', deletedAt: null, assigneeId: opts.assigneeId ?? 'someone-else',

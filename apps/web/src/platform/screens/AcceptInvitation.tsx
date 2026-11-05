@@ -10,6 +10,7 @@ import { useState, type FormEvent } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
+import i18n from '../../i18n'
 import { authApi } from '../../api'
 import { api } from '../../api/client'
 import {
@@ -27,8 +28,18 @@ interface InvitationPreview {
 }
 
 // "tenant-admin" → "Tenant Admin", "contributor" → "Contributor".
-const formatRole = (role?: string) =>
-  (role ?? '').split(/[-_\s]+/).filter(Boolean).map(w => w[0]!.toUpperCase() + w.slice(1)).join(' ')
+// A role's name, the same as on the user screens. A legacy role has no translation and shows its own words.
+const ROLE_LABEL_KEYS: Record<string, string> = {
+  'tenant-admin': 'page.user_management_live.role_label_tenant_admin',
+  pm:             'page.user_management_live.role_label_pm',
+  contributor:    'page.user_management_live.role_label_contributor',
+  auditor:        'page.user_management_live.role_label_auditor',
+  guest:          'page.user_management_live.role_label_guest',
+}
+const formatRole = (role?: string) => {
+  const key = role ? ROLE_LABEL_KEYS[role] : undefined
+  return key ? i18n.t(key) : (role ?? '').split(/[-_\s]+/).filter(Boolean).map(w => w[0]!.toUpperCase() + w.slice(1)).join(' ')
+}
 
 // A value fixed by the invitation, styled like the email box (grey, not editable).
 function ReadOnlyField({ label, value, attr }: { label: string; value: string; attr: string }) {

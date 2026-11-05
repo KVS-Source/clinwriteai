@@ -16,11 +16,13 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { actorCanEditDocumentRaci, actorCanViewChecklist, CHECKLIST_CHAIN_ACTIVE, CHECKLIST_VIEW_FORBIDDEN, signatureChainActive } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentRaci, actorCanViewChecklist, actorIsOnlyInformed, CHECKLIST_CHAIN_ACTIVE, CHECKLIST_VIEW_FORBIDDEN, INFORMED_READ_ONLY, signatureChainActive } from '../../platform/document-raci/access.js'
 import { evaluateSubmitGate, type ChecklistItemForGate } from './submit-gate.js'
 import { AI_PASS_PROFILES, buildAiPassPrompt, parseAiPassResponse } from './autocheck/ai-pass-prompt.js'
 import { putAiPassResult } from './autocheck/ai-pass-cache.js'
 import { runAutocheckForDocument } from './autocheck/runner.js'
+import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
+import { canSeeDocument } from '../../projects/visibility.js'
 
 const reorderSchema = z.object({
   // Compact body: list of {itemId, sortOrder}. Caller sends every item
@@ -46,6 +48,7 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   app.patch('/:documentId/checklist/reorder', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = reorderSchema.safeParse(request.body)
     if (!parsed.success) {
       return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -166,6 +169,7 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   app.post('/:documentId/checklist/submit-with-reason', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = submitWithReasonSchema.safeParse(request.body)
     if (!parsed.success) {
       return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -239,6 +243,7 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   app.post('/:documentId/checklist/autocheck/run', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // Verify the doc exists before delegating so we return 404 (not 200
     // with zeros) when the id is garbage. The runner itself returns zero
@@ -248,6 +253,8 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
       select: { id: true },
     })
     if (!doc) return reply.code(404).send({ error: 'document_not_found' })
+    if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
 
     const result = await runAutocheckForDocument(app.prisma, {
       documentId,
@@ -276,6 +283,7 @@ export const checklistRActionRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   app.post('/:documentId/checklist/autocheck/ai-pass/:profile', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, profile } = request.params as { documentId: string; profile: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const actor = request.user!
 
     if (!(await actorCanEditDocumentRaci(app.prisma, actor, documentId))) {

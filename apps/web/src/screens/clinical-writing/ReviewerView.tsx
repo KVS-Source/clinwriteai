@@ -13,6 +13,8 @@ import { useDocumentPresence } from '../../hooks/usePresence'
 import { useCanComment } from '../../hooks/useCanComment'
 import { useCanViewChecklist } from '../../hooks/useCanViewChecklist'
 import { withSectionMark } from '../../panels/CommentComposer'
+import { MentionTextarea, mentionPattern } from '../../panels/MentionTextarea'
+import type { MentionablePerson } from '../../api/documents'
 import { PLATFORM_USER_ROLE_LABEL, STATUS_META, type PlatformUserRole } from '@platform/types'
 import { EditorContent } from '@tiptap/react'
 import { useDocumentStore, useProjectStore } from '../../store'
@@ -80,7 +82,7 @@ export function ReviewerView() {
   // Side panel: drag the edge to resize, or expand it to the whole working area.
   const panel = useResizablePanel({ activePanel })
 
-  // A click outside the Audit Trail or Comments panel, or Esc, closes it. (Checklist stays open.)
+  // A click outside the Audit Trail, Comments or Checklist panel, or Esc, closes it.
   // Comments stays open while a resolution note is half-typed in it, so the draft isn't lost.
   // The toolbar buttons that open panels are marked [data-panel-trigger] and handle their own
   // toggle. Outside clicks are judged on mousedown + click so a press that starts inside the
@@ -108,7 +110,7 @@ export function ReviewerView() {
   }, [activePanel, panelRow])
 
   useEffect(() => {
-    if (activePanel !== 'audit' && activePanel !== 'comments') return
+    if (activePanel !== 'audit' && activePanel !== 'comments' && activePanel !== 'checklist') return
     const hasDraft = () => activePanel === 'comments' && Array.from(rightPanelRef.current?.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('input, textarea') ?? [])
       .some(el => el.value.trim() !== '')
     const close = () => { if (!hasDraft()) setActivePanel(null) }
@@ -139,6 +141,8 @@ export function ReviewerView() {
   }, [activePanel, setActivePanel])
 
   const [commentText,     setCommentText]     = useState('')
+  // People picked from the "@" list in the comment box; only those still named in the text are notified.
+  const [mentionPicked,   setMentionPicked]   = useState<MentionablePerson[]>([])
   const [severity,        setSeverity]        = useState<CommentSeverity>('minor')
   const [flagged,         setFlagged]         = useState(false)
   const [composerOpen,    setComposerOpen]    = useState(true)
@@ -254,14 +258,27 @@ export function ReviewerView() {
   // fallback for documents whose sections aren't loaded / don't exist.
   const commentRef = activeRef ?? '§11.4.1'
 
+  const { data: mentionable = [] } = useQuery({
+    queryKey: ['comment-mentionable', documentId],
+    queryFn:  () => documentsApi.getMentionable(documentId!),
+    enabled:  !!documentId && canComment === true,
+    staleTime: 60_000,
+    retry: false,
+  })
+
   const addCommentMut = useMutation({
-    mutationFn: () => documentsApi.addComment(documentId!, {
-      sectionRef: commentRef,
-      text:       commentText,
-      severity,
-    }),
+    mutationFn: () => {
+      const mentionedUserIds = [...new Set(mentionPicked.filter(p => mentionPattern(p.name).test(commentText)).map(p => p.id))]
+      return documentsApi.addComment(documentId!, {
+        sectionRef: commentRef,
+        text:       commentText,
+        severity,
+        ...(mentionedUserIds.length > 0 && { mentionedUserIds }),
+      })
+    },
     onSuccess: () => {
       setCommentText('')
+      setMentionPicked([])
       setComposerOpen(false)   // posted — close the box; the prompt below reopens it
       setActivePanel('comments')   // show the reviewer their comment in the drawer
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
@@ -331,6 +348,7 @@ export function ReviewerView() {
   // prompt that replaces it) brings back an empty box and puts the cursor in it.
   const cancelComposer = () => {
     setCommentText('')
+    setMentionPicked([])
     setSeverity('minor')
     addCommentMut.reset()
     setComposerOpen(false)
@@ -458,13 +476,6 @@ export function ReviewerView() {
         >
           <span className="font-semibold">{t('page.reviewer_view.not_submitted_heading')}</span>
           <span>{t('page.reviewer_view.not_submitted_body', { status: statusMeta.label })}</span>
-          <button
-            type="button"
-            onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}`)}
-            className="ml-auto font-semibold underline"
-          >
-            {t('page.reviewer_view.go_to_editor')}
-          </button>
         </div>
       )}
 
@@ -567,15 +578,18 @@ export function ReviewerView() {
                   <div className="flex-1" />
                   <p className="text-[11px] text-slate-500">{t('page.reviewer_view.draft_label')}</p>
                 </div>
-                <textarea
+                <MentionTextarea
                   id="reviewer-comment-textarea"
                   rows={3}
                   value={commentText}
-                  onChange={e => setCommentText(e.target.value)}
+                  onChange={setCommentText}
+                  people={mentionable}
+                  onMention={p => setMentionPicked(prev => prev.some(x => x.id === p.id) ? prev : [...prev, p])}
                   placeholder={t('page.reviewer_view.comment_placeholder', { section: commentRef })}
                   className="w-full rounded border p-2.5 text-sm outline-none focus:border-blue-600 focus:shadow-focus"
                   style={{ borderColor: '#E2E8F0', resize: 'vertical' }}
                 />
+                {mentionable.length > 0 && <p className="-mt-1 text-[11px] text-slate-500" data-mention-hint>{t('page.comment_composer.mention_hint')}</p>}
                 {/* Tag/Severity + actions share one row so the composer uses one less
                     line of vertical space. flex-1 spacer between them pushes
                     Cancel / Post comment to the right edge. */}

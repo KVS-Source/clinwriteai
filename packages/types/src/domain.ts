@@ -448,6 +448,8 @@ export interface AddCommentBody {
   // Phase 2.2 — reviewer verdict. See
   // docs/decisions/module-a-defaults.md §3.
   verdict?: ReviewerVerdict
+  // People @mentioned in `text`; each gets an in-app notification.
+  mentionedUserIds?: string[]
 }
 
 export interface ResolveCommentBody {
@@ -1776,6 +1778,11 @@ export interface MasterLibraryItem {
   archivedReason?:   string
   // Withdrawn from the library by an admin (as opposed to archived because its project closed).
   isWithdrawn?:      boolean
+  // Who made this version, who made the first one, and when (ISO).
+  editedByName?:     string
+  createdByName?:    string
+  createdAt?:        string
+  updatedAt?:        string
   provenanceChain:   string[]
   // Text of a pushed section — what "Pull into document" inserts. Absent for
   // whole documents and for items that carry no text.

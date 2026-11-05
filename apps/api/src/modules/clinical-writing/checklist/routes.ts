@@ -24,6 +24,7 @@ import {
   computeProjectChecklistSummary,
   ensureChecklistInstance,
 } from './service.js'
+import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 
 const waiveSchema = z.object({
   reason: z.string().min(3, 'A waiver reason is required (21 CFR Part 11)'),
@@ -124,6 +125,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch('/:documentId/checklist/:itemId/complete', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, itemId } = request.params as { documentId: string; itemId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // §11.1: only an R on this doc (or an admin) can tick items.
     if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
@@ -164,6 +166,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch('/:documentId/checklist/:itemId/waive', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, itemId } = request.params as { documentId: string; itemId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // §11.1: only an R on this doc (or an admin) can waive items.
     if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
@@ -216,6 +219,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
   // cleared (the audit trail keeps who did what before).
   app.post('/:documentId/checklist/:itemId/reopen', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, itemId } = request.params as { documentId: string; itemId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
       return reply.code(403).send({
@@ -274,6 +278,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
   // time and reason reuse the waiver columns.
   app.post('/:documentId/checklist/:itemId/remove', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, itemId } = request.params as { documentId: string; itemId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
       return reply.code(403).send({
@@ -324,6 +329,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/checklist', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // §11.1: only an R on this doc (or an admin) can add user items.
     if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {

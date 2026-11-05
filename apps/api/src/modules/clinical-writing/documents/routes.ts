@@ -22,7 +22,7 @@ import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatur
 import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser, hasAnyRole, onlyRolesIn } from '../../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections, templateSectionsFromRow } from './templates.js'
 import { DocumentService, hashSections } from './service.js'
@@ -62,6 +62,7 @@ import { runAutocheckForDocument } from '../checklist/autocheck/runner.js'
 import { extractTextFromBlob } from './extract-text.js'
 import { shrinkImage } from './shrink-image.js'
 import { chunkPdfToFit } from './chunk-pdf.js'
+import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -218,9 +219,15 @@ function documentShapeFull(d: { type?: string; status?: string; stage?: string; 
   }
 }
 
-// Submit-for-review body — only the due date is read here; the rest of the
-// panel's payload (reviewers, review type) isn't stored by this route.
-const submitBodySchema = z.object({ dueDate: z.string().trim().min(1).optional() }).passthrough()
+// Submit-for-review body. The due date is stored. The review type and the panel's
+// reviewer list have no column, so they are recorded on the audit trail only:
+// sequential order isn't enforced, and who reviews still comes from the RACI.
+// A malformed value is dropped, never a reason to refuse the submit.
+const submitBodySchema = z.object({
+  dueDate:    z.string().trim().min(1).optional(),
+  reviewType: z.enum(['parallel', 'sequential']).optional().catch(undefined),
+  reviewers:  z.array(z.object({ userId: z.string(), raci: z.string() }).strip()).max(200).optional().catch(undefined),
+}).passthrough()
 
 // documents.reviewDueAt unavailable: the column is missing (P2022, migration
 // 52 not applied) or the Prisma client predates it ("Unknown argument").
@@ -339,6 +346,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
 
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
+    if (project.status === 'closed') return reply.code(423).send(PROJECT_CLOSED)
     const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
     if (visible !== 'all' && !visible.has(projectId)) return reply.code(404).send({ error: 'project_not_found' })
     if (!(await userCanBeAssignee(app.prisma, parsed.data.assigneeId))) return reply.code(422).send(ASSIGNEE_NOT_ELIGIBLE)
@@ -830,6 +838,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // Section + pass arrays are always ordered by number ascending.
   app.get('/:documentId/ai-draft-status', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
 
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
@@ -1005,6 +1014,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // This author's part: every active R row they hold (whole document and/or
     // particular sections). Re-submitting an already-submitted part is a no-op.
     const now = new Date()
+    const submitBody = submitBodySchema.safeParse(request.body ?? {}).data
+    const reviewAssignment = { reviewType: submitBody?.reviewType ?? null, reviewers: submitBody?.reviewers ?? [] }
     const toMark = ownRows.filter(r => !r.submittedAt && !r.rejectedAt).map(r => r.id)
     if (toMark.length > 0) {
       await app.prisma.documentRaci.updateMany({ where: { id: { in: toMark } }, data: { submittedAt: now } })
@@ -1014,7 +1025,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         action: 'document_part_submitted',
         entityType: 'document',
         entityId: documentId,
-        details: { raciIds: toMark, sections: ownRows.map(r => r.sectionId ?? 'whole_document') },
+        details: { raciIds: toMark, sections: ownRows.map(r => r.sectionId ?? 'whole_document'), ...reviewAssignment },
         ipAddress: request.ip ?? null,
       })
     }
@@ -1057,7 +1068,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
     // Review due date from the Submit-for-review panel ('YYYY-MM-DD' or ISO).
     // Kept only when it parses; stored as UTC midnight of that day.
-    const dueRaw = submitBodySchema.safeParse(request.body ?? {}).data?.dueDate
+    const dueRaw = submitBody?.dueDate
     const dueDate = dueRaw ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(dueRaw) ? `${dueRaw}T00:00:00.000Z` : dueRaw) : null
     const reviewDueAt = dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate : null
 
@@ -1109,6 +1120,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         stageFrom: stageMove?.from ?? null,
         stageTo: stageMove?.to ?? null,
         reviewDueAt: reviewDueAt?.toISOString() ?? null,
+        ...reviewAssignment,
         autoCompletedCount: autoReport?.completedCount ?? 0,
       },
       ipAddress: request.ip ?? null,
@@ -1221,6 +1233,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // full state machine (bounces, approvals, etc.).
   app.post('/:documentId/transition', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = transitionSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -1328,6 +1342,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // milestones that don't flip the document's status).
   app.post('/:documentId/advance-stage', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // Gate B — all mandatory items for stages ≤ current must be complete
     // or waived before the stepper moves forward. 409 with the blocking
@@ -1387,6 +1403,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // with the right label without hard-coding the stage order on the client.
   app.get('/:documentId/stage', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
       select: { id: true, stage: true, deletedAt: true },
@@ -1410,6 +1427,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // this endpoint is how a user asks for a checkpoint.
   app.post('/:documentId/versions', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const bodySchema = z.object({
       label: z.enum(['Draft', 'For Review', 'Final']).optional(),
       note:  z.string().max(500).optional(),

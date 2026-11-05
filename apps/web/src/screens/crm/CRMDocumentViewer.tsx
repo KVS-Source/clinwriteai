@@ -13,6 +13,7 @@
 
 import { useEffect, useMemo, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { useTranslation } from 'react-i18next'
 import { documentsApi } from '../../api'
 import type { Document } from '@platform/types'
 
@@ -36,6 +37,7 @@ function normalizeRef(ref: string | null | undefined): string {
 }
 
 export function CRMDocumentViewer({ documentId, jumpToSectionRef, commentIndex, commentTotal, commentLabel, onClose }: Props) {
+  const { t } = useTranslation()
   const { data: document } = useQuery<Document>({
     queryKey: ['document', documentId],
     queryFn:  () => documentsApi.get(documentId),
@@ -83,7 +85,7 @@ export function CRMDocumentViewer({ documentId, jumpToSectionRef, commentIndex, 
       className="fixed inset-0 z-40 flex justify-end"
       role="dialog"
       aria-modal="true"
-      aria-label="Document viewer (read-only)"
+      aria-label={t('page.crm_document_viewer.dialog_aria')}
       data-crm-doc-viewer
     >
       {/* Backdrop — dims the CRM screen; click dismisses. */}
@@ -101,10 +103,10 @@ export function CRMDocumentViewer({ documentId, jumpToSectionRef, commentIndex, 
         <div className="flex flex-none items-center justify-between gap-4 border-b border-slate-200 px-6 py-3.5">
           <div className="flex min-w-0 items-center gap-3">
             <span className="rounded-full bg-blue-50 px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-wider text-blue-700">
-              Read-only
+              {t('page.crm_document_viewer.read_only')}
             </span>
             <h2 className="truncate text-base font-bold text-slate-900">
-              {document?.title ?? 'Loading…'}
+              {document?.title ?? t('page.crm_document_viewer.loading_title')}
             </h2>
             {document?.version && (
               <span className="flex-none font-mono text-[11px] font-medium text-slate-500">
@@ -115,7 +117,7 @@ export function CRMDocumentViewer({ documentId, jumpToSectionRef, commentIndex, 
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close viewer"
+            aria-label={t('page.crm_document_viewer.close_aria')}
             className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 hover:text-slate-900"
           >
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round">
@@ -135,14 +137,14 @@ export function CRMDocumentViewer({ documentId, jumpToSectionRef, commentIndex, 
             className="flex flex-none items-center gap-2 border-b border-amber-200 bg-amber-50/80 px-6 py-1.5 text-[11px] text-amber-900"
             data-crm-viewer-chrome
           >
-            <span className="font-mono font-semibold">Comment {commentIndex} of {commentTotal}</span>
+            <span className="font-mono font-semibold">{t('page.crm_document_viewer.comment_position', { index: commentIndex, total: commentTotal })}</span>
             {commentLabel && (
               <>
                 <span className="text-amber-400">·</span>
                 <span className="truncate">{commentLabel}</span>
               </>
             )}
-            <span className="ml-auto text-amber-700/70">Scrolled to the cited section</span>
+            <span className="ml-auto text-amber-700/70">{t('page.crm_document_viewer.scrolled')}</span>
           </div>
         )}
 
@@ -153,10 +155,10 @@ export function CRMDocumentViewer({ documentId, jumpToSectionRef, commentIndex, 
           className="flex-1 overflow-y-auto px-10 py-6"
         >
           {!document && (
-            <p className="text-sm text-slate-400">Loading document…</p>
+            <p className="text-sm text-slate-400">{t('page.crm_document_viewer.loading')}</p>
           )}
           {document && sections.length === 0 && (
-            <p className="text-sm italic text-slate-400">This document has no sections.</p>
+            <p className="text-sm italic text-slate-400">{t('page.crm_document_viewer.no_sections')}</p>
           )}
           {sections.map(s => (
             <section
@@ -175,7 +177,7 @@ export function CRMDocumentViewer({ documentId, jumpToSectionRef, commentIndex, 
                   />
                 )
                 : (
-                  <p className="text-[13px] italic text-slate-400">(Empty section)</p>
+                  <p className="text-[13px] italic text-slate-400">{t('page.crm_document_viewer.empty_section')}</p>
                 )}
             </section>
           ))}
@@ -183,8 +185,8 @@ export function CRMDocumentViewer({ documentId, jumpToSectionRef, commentIndex, 
 
         {/* Footer — compact reminder of why they can't edit here. */}
         <div className="flex flex-none items-center justify-between gap-4 border-t border-slate-200 bg-slate-50 px-6 py-2 text-[11px] text-slate-500">
-          <span>Read-only during meeting · edits go through the Editor tab after resolution</span>
-          <span className="font-mono">Esc to close</span>
+          <span>{t('page.crm_document_viewer.footer')}</span>
+          <span className="font-mono">{t('page.crm_document_viewer.esc_close')}</span>
         </div>
       </div>
 

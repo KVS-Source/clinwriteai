@@ -39,7 +39,11 @@ async function buildApp(opts: AppOpts) {
 
   const app = Fastify()
   app.decorate('prisma', {
+    project: { findUnique: async () => ({ status: 'ongoing' }) },
+
     document: {
+
+      count: async () => 1,
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ id: where.id, title: 'ICF', projectId: 'PROJ-1', assigneeId: null, createdAt: new Date('2026-09-01T00:00:00Z') })),
       findMany: vi.fn(async () => []),   // "documents I work on" lookup of the project-visibility rule
     },
@@ -227,7 +231,9 @@ describe('GET /documents/:id/audit — "AI suggestion requested" entries', () =>
     })
     const app = Fastify()
     app.decorate('prisma', {
-      document: { findUnique: vi.fn(async () => ({ id: DOC, title: 'ICF', projectId: 'PROJ-1', assigneeId: null, createdAt: new Date() })) },
+      project: { findUnique: async () => ({ status: 'ongoing' }) },
+
+      document: { count: async () => 1,  findUnique: vi.fn(async () => ({ id: DOC, title: 'ICF', projectId: 'PROJ-1', assigneeId: null, createdAt: new Date() })) },
       documentRaci: { findFirst: vi.fn(async () => ({ id: 'raci-1' })) },   // the caller holds a letter on the document
       user: { findMany: vi.fn(async () => [{ id: 'user-a', name: 'Alex' }]), findUnique: vi.fn(async () => null) },
     } as never)

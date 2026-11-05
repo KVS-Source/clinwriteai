@@ -1,6 +1,7 @@
 // Notification Centre — the signed-in user's own in-app notifications (bell in the top bar).
 //
-// Reads GET /notifications/me (newest first, dismissed ones left out) and acts through
+// Reads GET /notifications/me (newest first, dismissed ones left out; refreshed every 30 s so new
+// @mentions arrive) and acts through
 // /notifications/me/mark-read, /me/mark-all-read and /me/:id/dismiss. Every call is the
 // signed-in user's own: the API scopes them to the session, so there is no user filter here.
 // Loading, a failed load (with a retry) and an empty inbox each have their own state, and a
@@ -19,11 +20,13 @@ import { usePlatformStore } from '../store'
 import { describeApiError } from '../../api'
 
 const QUERY_KEY = ['notifications', 'me'] as const
+const UNREAD_KEY = ['notifications-unread'] as const     // the bell's badge (TopNav)
 
 type FilterKey = 'all' | 'unread'
 
 // Labels for the kinds the API sends; anything else reads "Notification".
 const KIND_KEYS: Record<string, string> = {
+  'comment.mention':               'page.notification_centre.kind_mention',
   'user.invitation':               'page.notification_centre.kind_user_invitation',
   'signature_requested':           'page.notification_centre.kind_signature_requested',
   'document_nudge':                'page.notification_centre.kind_document_nudge',
@@ -66,6 +69,7 @@ export function NotificationCentre() {
   const feed = useQuery({
     queryKey: QUERY_KEY,
     queryFn:  () => platformApi.listMyNotifications(),
+    refetchInterval: 30_000,
     retry: false,
   })
   const inbox = useMemo(() => feed.data ?? [], [feed.data])
@@ -82,6 +86,8 @@ export function NotificationCentre() {
   // Changes are applied to the cached feed straight away; a failure says so and reloads it.
   const patchCache = (fn: (list: MyNotification[]) => MyNotification[]) =>
     qc.setQueryData<MyNotification[]>(QUERY_KEY, old => (old ? fn(old) : old))
+  // Any change to read / dismissed state also changes the bell's unread count.
+  const refreshBadge = () => void qc.invalidateQueries({ queryKey: UNREAD_KEY })
   const onActionError = (err: unknown) => {
     setActionError(t('page.notification_centre.action_failed', { message: describeApiError(err).message }))
     void qc.invalidateQueries({ queryKey: QUERY_KEY })
@@ -89,19 +95,22 @@ export function NotificationCentre() {
   const now = () => new Date().toISOString()
 
   const markRead = useMutation({
-    mutationFn: (id: string) => platformApi.markNotificationsRead([id]),
+    mutationFn: (id: string) => platformApi.markMyNotificationsRead([id]),
     onMutate: (id) => { setActionError(null); patchCache(list => list.map(n => (n.id === id && !n.readAt ? { ...n, readAt: now() } : n))) },
     onError: onActionError,
+    onSettled: refreshBadge,
   })
   const markAllRead = useMutation({
-    mutationFn: () => platformApi.markAllNotificationsRead(),
+    mutationFn: () => platformApi.markAllMyNotificationsRead(),
     onMutate: () => { setActionError(null); patchCache(list => list.map(n => (n.readAt ? n : { ...n, readAt: now() }))) },
     onError: onActionError,
+    onSettled: refreshBadge,
   })
   const dismiss = useMutation({
     mutationFn: (id: string) => platformApi.dismissNotification(id),
     onMutate: (id) => { setActionError(null); setSelectedId(null); patchCache(list => list.filter(n => n.id !== id)) },
     onError: onActionError,
+    onSettled: refreshBadge,
   })
 
   const select = (n: MyNotification) => {

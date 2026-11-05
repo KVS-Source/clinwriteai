@@ -194,6 +194,15 @@ export function TopNav() {
   // fetch when the dropdown is actually opened. If that fails (e.g. an older
   // API without the route), fall back to the hardcoded PLATFORM_DEMO_USERS
   // fixture so the user still has a way to switch back to an admin persona.
+  // Unread count of real notifications (e.g. @mentions); the dot shows only when there are some.
+  const { data: unread } = useQuery({
+    queryKey: ['notifications-unread'],
+    queryFn:  () => platformApi.myUnreadNotificationCount(),
+    refetchInterval: 30_000,
+    refetchOnWindowFocus: true,
+    retry: false,
+  })
+  const unreadCount = unread?.count ?? 0
   const { data: liveUsers, isPending: usersPending, error: usersError } = useQuery({
     queryKey: ['demo-personas'],
     queryFn:  () => platformApi.listDemoPersonas(),
@@ -282,7 +291,11 @@ export function TopNav() {
           title={t('component.top_nav.notifications_title')}
         >
           <BellIcon />
-          <span className="absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-blue-600" />
+          {unreadCount > 0 && (
+            <span className="absolute -right-0.5 -top-0.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-blue-600 px-1 font-mono text-[9px] font-bold text-white" data-notif-count>
+              {unreadCount > 9 ? '9+' : unreadCount}
+            </span>
+          )}
         </button>
 
         <div className="h-6 w-px bg-slate-700" />

@@ -1,4 +1,6 @@
+import { useTranslation } from 'react-i18next'
 import { STATUS_META, type DocumentStatus, type ProjectStatus } from '@platform/types'
+import { DOCUMENT_STATUS_KEY } from '../../utils/documentLabels'
 
 interface Props {
   status: DocumentStatus
@@ -6,6 +8,7 @@ interface Props {
 }
 
 export function StatusPill({ status, size = 'md' }: Props) {
+  const { t } = useTranslation()
   const meta = STATUS_META[status]
   const padding = size === 'sm' ? 'px-2 py-0.5 text-[10px]' : 'px-2.5 py-1 text-xs'
   return (
@@ -13,7 +16,7 @@ export function StatusPill({ status, size = 'md' }: Props) {
       className={`${padding} inline-flex items-center rounded-full font-mono font-semibold`}
       style={{ backgroundColor: meta.bg, color: meta.fg }}
     >
-      {meta.label}
+      {t(DOCUMENT_STATUS_KEY[status])}
     </span>
   )
 }

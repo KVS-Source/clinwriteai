@@ -72,7 +72,7 @@ test('name sits above email; email and role are read-only; Tenant ID is a plain,
   const emailBox = (await page.locator('[data-invite-email]').boundingBox())!
   expect(nameBox.y).toBeLessThan(emailBox.y)
 
-  await expect(page.locator('[data-invite-role]')).toHaveText('Tenant Admin')
+  await expect(page.locator('[data-invite-role]')).toHaveText('Tenant admin')
   for (const sel of ['[data-invite-email]', '[data-invite-role]']) {
     expect(await page.locator(sel).evaluate(el => el.tagName)).toBe('DIV')   // read-only boxes, not inputs
   }

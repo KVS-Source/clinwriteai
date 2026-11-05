@@ -26,6 +26,7 @@ import { DocumentService } from './service.js'
 import { isSupportedSourceFile, SUPPORTED_SOURCE_LABEL } from '../../platform/uploads/source-files.js'
 import { SOURCE_CATEGORIES, suggestSourceCategory } from './source-categories.js'
 import { classifySourceUpload } from './source-classifier.js'
+import { PROJECT_CLOSED, projectIsClosed } from '../../projects/closed.js'
 
 const MAX_UPLOAD_BYTES = 50 * 1024 * 1024   // 50 MB per API contract
 
@@ -84,6 +85,7 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:projectId/documents/upload', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
+    if (await projectIsClosed(app.prisma, projectId)) return reply.code(423).send(PROJECT_CLOSED)
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
     if (!(await actorCanUploadSources(app.prisma, request.user!, projectId))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
@@ -173,6 +175,7 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
   // created: a source is evidence, linked to documents later (document_sources).
   app.post('/:projectId/source-documents/:uploadId/save', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { projectId, uploadId } = request.params as { projectId: string; uploadId: string }
+    if (await projectIsClosed(app.prisma, projectId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = saveSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -214,6 +217,7 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:projectId/documents/confirm-classification', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
+    if (await projectIsClosed(app.prisma, projectId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = confirmSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 

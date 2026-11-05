@@ -1,8 +1,9 @@
 // New Project form — rendered inside a right-edge SlidePanel from
 // AllProjects. API ready at POST /projects (apps/api/src/modules/
-// projects/routes.ts). super-admin + admin only; the server-side 403
+// projects/routes.ts). Project managers only; the server-side 403
 // is what the user sees if they lack the role — form shows a friendly
-// error in that case.
+// error in that case. The creator becomes the project's first PM and can
+// add others here: from the list of PMs, or invited by email.
 
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useMemo, useState } from 'react'
@@ -10,7 +11,10 @@ import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
-import { useTaLabels } from '../../hooks'
+import { useCurrentUser, useTaLabels } from '../../hooks'
+import type { PmDirectoryEntry } from '../../api/projects'
+import { ProjectManagerPicker, StatusChip } from './ProjectManagersField'
+import { projectManagerError } from './ProjectManagersSection'
 
 const PHASES  = ['Preclinical', 'Phase 1', 'Phase 1/2', 'Phase 2', 'Phase 2/3', 'Phase 3', 'Phase 4', 'Post-marketing']
 const MODULES = ['A', 'B', 'C', 'D', 'E'] as const
@@ -33,8 +37,10 @@ function slugifyToId(name: string): string {
 
 interface Props {
   // Called after a successful create (parent typically closes the panel
-  // + navigates to the new project).
-  onCreated?: (projectId: string) => void
+  // + navigates to the new project). `inviteNotSent`: an invitation email
+  // couldn't be queued, so the parent should open the project's settings,
+  // where it can be sent again.
+  onCreated?: (projectId: string, inviteNotSent: boolean) => void
   // Called when the user clicks Cancel.
   onCancel?:  () => void
 }
@@ -55,6 +61,9 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
   const [activeModules,   setActiveModules]   = useState<string[]>(['A'])
   const [countries,       setCountries]       = useState<string[]>([])
   const [referenceTrial,  setReferenceTrial]  = useState('')
+  const { data: me } = useCurrentUser()
+  const [pickedPms,       setPickedPms]       = useState<PmDirectoryEntry[]>([])
+  const [invitedEmails,   setInvitedEmails]   = useState<string[]>([])
 
   const derivedId = useMemo(() => idOverride.trim() || slugifyToId(name), [idOverride, name])
 
@@ -75,10 +84,12 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
         activeModules: activeModules as ('A'|'B'|'C'|'D'|'E')[],
         submissionCountries: countries,
         referenceTrial: referenceTrial || undefined,
+        projectManagers: { userIds: pickedPms.map(p => p.id), inviteEmails: invitedEmails },
       } as never),
     onSuccess: (created) => {
       qc.invalidateQueries({ queryKey: ['projects'] })
-      onCreated?.((created as { id: string }).id)
+      const { id, pmInvites } = created as unknown as { id: string; pmInvites?: Array<{ emailQueued: boolean }> }
+      onCreated?.(id, (pmInvites ?? []).some(i => !i.emailQueued))
     },
   })
 
@@ -89,8 +100,10 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
     phase.length > 0 &&
     activeModules.length > 0
 
+  const pmRefusal = create.error instanceof ApiError && ['pm_email_not_pm', 'pm_user_not_eligible'].includes((create.error.body as { error?: string } | null)?.error ?? '')
   const errorMsg = create.isError
-    ? create.error instanceof ApiError
+    ? pmRefusal ? projectManagerError(create.error)
+    : create.error instanceof ApiError
       ? create.error.status === 403
         ? t('page.new_project.err_forbidden')
         : create.error.status === 409
@@ -158,6 +171,39 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
           <input type="date" value={dataCutoff} onChange={e => setDataCutoff(e.currentTarget.value)}
             className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
         </Field>
+      </Section>
+
+      <Section title={t('page.project_managers.section_title')} hint={t('page.project_managers.create_hint')}>
+        <div className="flex flex-col gap-3 md:col-span-2" data-section="new-project-managers">
+          <ul className="flex flex-col divide-y divide-slate-100 rounded-md border border-slate-200 bg-white" data-pm-chosen>
+            {me && (
+              <li className="flex items-center gap-2 px-3 py-2" data-pm-row={me.id}>
+                <span className="min-w-0 flex-1 truncate text-[13px] font-semibold text-slate-900">{me.name} {t('page.project_managers.you_suffix')}</span>
+                <span className="flex-none rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600" data-pm-creator>{t('page.project_managers.creator')}</span>
+              </li>
+            )}
+            {pickedPms.map(pm => (
+              <li key={pm.id} className="flex items-center gap-2 px-3 py-2" data-pm-row={pm.id}>
+                <span className="min-w-0 flex-1 truncate text-[13px] text-slate-900">{pm.name} · <span className="text-slate-500">{pm.email}</span></span>
+                <StatusChip status={pm.status} />
+                <button type="button" onClick={() => setPickedPms(prev => prev.filter(p => p.id !== pm.id))} className="flex-none text-[12px] font-semibold text-slate-500 hover:text-red-700" data-pm-remove={pm.id}>{t('page.project_managers.remove')}</button>
+              </li>
+            ))}
+            {invitedEmails.map(email => (
+              <li key={email} className="flex items-center gap-2 px-3 py-2" data-pm-row={email}>
+                <span className="min-w-0 flex-1 truncate text-[13px] text-slate-900">{email}</span>
+                <span className="flex-none text-[11px] font-semibold text-amber-700">{t('page.project_managers.will_be_invited')}</span>
+                <button type="button" onClick={() => setInvitedEmails(prev => prev.filter(e => e !== email))} className="flex-none text-[12px] font-semibold text-slate-500 hover:text-red-700" data-pm-remove={email}>{t('page.project_managers.remove')}</button>
+              </li>
+            ))}
+          </ul>
+          <ProjectManagerPicker
+            excludedIds={new Set([...(me ? [me.id] : []), ...pickedPms.map(p => p.id)])}
+            excludedEmails={new Set([...(me?.email ? [me.email.toLowerCase()] : []), ...pickedPms.map(p => p.email.toLowerCase()), ...invitedEmails])}
+            onPick={pm => setPickedPms(prev => [...prev, pm])}
+            onInvite={email => setInvitedEmails(prev => [...prev, email])}
+          />
+        </div>
       </Section>
 
       <Section title={t('page.new_project.section_modules')} hint={t('page.new_project.section_modules_hint')}>

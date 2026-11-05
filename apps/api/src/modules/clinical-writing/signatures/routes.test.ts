@@ -52,7 +52,11 @@ function fakePrisma() {
   const withRecords = (c: Row | undefined) => c && { ...c, records: records.filter(r => r.chainId === c.id).sort((a, b) => a.step - b.step) }
 
   const prisma: Row = {
+    project: { findUnique: async () => ({ status: 'ongoing' }) },
+
     document: {
+
+      count: async () => 1,
       findUnique: async ({ where }: Row) => documents.find(d => d.id === where.id) ?? null,
       updateMany: async ({ where, data }: Row) => {
         const hit = documents.filter(d => matches(d, where)); hit.forEach(d => Object.assign(d, data)); return { count: hit.length }

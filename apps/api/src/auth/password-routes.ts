@@ -203,6 +203,7 @@ export const passwordAuthRoutes: FastifyPluginAsync = async (app) => {
     return {
       ok: true,
       message: `If an account exists for ${email}, a password reset link has been sent. The link expires in ${app.env.PASSWORD_RESET_TOKEN_TTL_MIN} minutes.`,
+      expiresInMinutes: app.env.PASSWORD_RESET_TOKEN_TTL_MIN,
     }
   })
 

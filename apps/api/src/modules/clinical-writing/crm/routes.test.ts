@@ -48,7 +48,11 @@ function fakePrisma() {
     },
     projectMember:     { findMany: async () => [{ projectId: 'P-1' }] },
     projectTeamMember: { findMany: async () => [] },
+    project: { findUnique: async () => ({ status: 'ongoing' }) },
+
     document: {
+
+      count: async () => 1,
       findUnique: async ({ where }: Row) => documents.find(d => d.id === where.id) ?? null,
       findMany: async () => [],
       updateMany: async ({ where, data }: Row) => {

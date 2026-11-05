@@ -8,6 +8,7 @@ import { useCanEditDocument } from '../hooks/useCanEditDocument'
 import type { DocumentStatus } from '@platform/types'
 import { useEditorStore } from '../store'
 import { normalizeSpan, spansOverlap } from '../screens/clinical-writing/referenceHighlights'
+import { dateLocale } from '../utils/formatDate'
 
 // Source references panel (FR-A-022). Two views in the right-hand panel:
 //   list   — reference links for the active section + "add a reference" from selected text
@@ -402,7 +403,7 @@ export function SourceReferencesPanel({ documentId, projectId, sectionId, sectio
               <p className="mt-1.5 text-xs font-semibold text-slate-900">{r.fileName ?? t('page.source_references_panel.source_no_longer_available')}</p>
               <p className="text-[11px] text-slate-500">
                 {[r.page ? t('page.source_references_panel.page_short', { page: r.page }) : null, r.locator].filter(Boolean).join(' · ') || t('page.source_references_panel.no_page_or_section')}
-                {' · '}{r.createdBy.name ?? t('page.source_references_panel.unknown_user')} · {new Date(r.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                {' · '}{r.createdBy.name ?? t('page.source_references_panel.unknown_user')} · {new Date(r.createdAt).toLocaleDateString(dateLocale(), { day: '2-digit', month: 'short', year: 'numeric' })}
               </p>
               {confirmingId === r.id ? (
                 <div className="mt-2 rounded-md border border-red-200 bg-red-50 p-2" data-remove-confirm>

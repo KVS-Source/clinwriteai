@@ -321,7 +321,7 @@ export function UploadDocumentForm({ projectId, onSaved, onCancel, onPendingChan
               data-source-category
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
             >
-              {SOURCE_CATEGORIES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              {SOURCE_CATEGORIES.map(o => <option key={o.value} value={o.value}>{t(o.labelKey)}</option>)}
             </select>
             {!stub && reason && !touched.has('category') && (
               <span className="text-[11px] text-slate-500" data-classification-reason>{reason}</span>

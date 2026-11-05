@@ -22,7 +22,9 @@ async function build(items: Array<Record<string, unknown>>, user: Partial<Authen
   const instanceFindUnique = vi.fn(async () => ({ id: 'inst', documentId: DOC, templateVersion: 1, items }))
   const app = Fastify()
   app.decorate('prisma', {
-    document: { findUnique: vi.fn(async () => ({ id: DOC, type: 'dsur', assigneeId: 'u-owner', projectId: 'p-1' })) },
+    project: { findUnique: async () => ({ status: 'ongoing' }) },
+
+    document: { count: async () => 1,  findUnique: vi.fn(async () => ({ id: DOC, type: 'dsur', assigneeId: 'u-owner', projectId: 'p-1' })) },
     documentRaci: {
       findFirst: vi.fn(async () => null),
       findMany: vi.fn(async ({ where }: { where: { letter: { in: string[] } } }) =>

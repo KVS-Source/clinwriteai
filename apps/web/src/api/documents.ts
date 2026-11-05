@@ -9,6 +9,8 @@ import type {
   RegulatoryRegion,
 } from '@platform/types'
 
+export interface MentionablePerson { id: string; name: string; initials: string | null; projectRole: string | null }
+
 // Submit for review, when other authors (R) still have to submit their part.
 export interface PartSubmittedResponse {
   id:             string
@@ -392,6 +394,9 @@ export const documentsApi = {
     api.get<Comment[]>(`/projects/${projectId}/comments`),
   getCommentAccess: (documentId: string) =>
     api.get<{ canAdd: boolean }>(`/documents/${documentId}/comments/access`),
+  // People who can be @mentioned in a comment on this document (its project's people, not you).
+  getMentionable: (documentId: string) =>
+    api.get<MentionablePerson[]>(`/documents/${documentId}/comments/mentionable`),
   addComment: (documentId: string, body: AddCommentBody) =>
     api.post<Comment>(`/documents/${documentId}/comments`, body),
   // The UI's ResolutionType is hyphenated ('accept-with-modification'); the API's

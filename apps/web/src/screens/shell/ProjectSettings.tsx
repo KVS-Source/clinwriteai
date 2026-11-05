@@ -17,11 +17,12 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { PlatformUser, ProjectStatus, RACIRole, TeamMember } from '@platform/types'
 import { projectsApi } from '../../api'
+import { ProjectManagersSection } from './ProjectManagersSection'
 import { platformApi } from '../../platform/api/platformApi'
 import { usePlatformStore } from '../../platform/store'
 import { ApiError } from '../../api/client'
 import { ProjectStatusPill } from '../../components/ui'
-import { ProjectStatusDialog, ProjectStatusHistory, ProjectStatusMenu } from './ProjectStatusControl'
+import { ProjectStatusDialog, ProjectStatusHistory, ProjectStatusMenu } from './ProjectStatusControl'
 import { holdsRole } from '../../config/roles'
 
 const RACI_LABEL_KEYS: Record<RACIRole, string> = {
@@ -143,6 +144,8 @@ export function ProjectSettings() {
             {opError}
           </div>
         )}
+
+        {isPm && <ProjectManagersSection projectId={project.id} currentUserId={currentUser.id} />}
 
         {isPm && (
           <section className="rounded-lg border border-slate-200 bg-white" data-section="project-status">

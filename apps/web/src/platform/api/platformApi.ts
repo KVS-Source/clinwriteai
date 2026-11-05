@@ -27,6 +27,17 @@ export interface LibraryListParams {
   limit?: number
 }
 
+export interface MyNotification {
+  id: string
+  kind: string
+  title: string
+  body: string
+  linkPath: string | null
+  payload: Record<string, unknown> | null
+  readAt: string | null
+  createdAt: string
+}
+
 export interface LibraryPage { items: MasterLibraryItem[]; total: number; nextCursor: string | null }
 
 export interface LibraryDocumentEntry {
@@ -213,6 +224,16 @@ export const platformApi = {
     api.get<BestPractice[]>('/library/best-practices'),
   createBestPractice: (body: Partial<BestPractice>) =>
     api.post<BestPractice>('/library/best-practices', body),
+
+  // Real in-app notifications for the signed-in user (GET /notifications/me), e.g. @mentions.
+  listMyNotifications: () =>
+    api.get<MyNotification[]>('/notifications/me'),
+  myUnreadNotificationCount: () =>
+    api.get<{ count: number }>('/notifications/me/unread-count'),
+  markMyNotificationsRead: (ids: string[]) =>
+    api.post<{ updated: number }>('/notifications/me/mark-read', { ids }),
+  markAllMyNotificationsRead: () =>
+    api.post<{ updated: number }>('/notifications/me/mark-all-read', {}),
 
   // sPM14 — Notifications
   listNotifications: () =>

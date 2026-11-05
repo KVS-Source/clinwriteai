@@ -14,6 +14,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import PDFDocument from 'pdfkit'
 import { requireAuth } from '../../../auth/rbac.js'
+import { mentionableUsers, mentionNotification } from './mentions.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser, canSeeDocument } from '../../projects/visibility.js'
@@ -172,6 +173,8 @@ const addSchema = z.object({
   // Phase 2.2 — reviewer verdict. Null for plain comments. See
   // docs/decisions/module-a-defaults.md §3.
   verdict: z.enum(['approve', 'request_changes', 'block_approval']).optional(),
+  // People @mentioned in the text (from the project's mentionable list). Each gets a notification.
+  mentionedUserIds: z.array(z.string().min(1)).max(20).optional(),
 }).refine(
   v => v.verdict !== undefined || v.text.length > 0,
   { message: 'text is required unless a verdict is set' },
@@ -297,6 +300,17 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     return { canAdd: await actorCanAddComment(app.prisma, request.user!, documentId) }
   })
 
+  // Who the comment box offers after "@": the people involved in this document's project.
+  app.get('/:documentId/comments/mentionable', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, projectId: true } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanAddComment(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send(COMMENT_ADD_FORBIDDEN)
+    }
+    return mentionableUsers(app.prisma, doc, request.user!.id)
+  })
+
   app.post('/:documentId/comments', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
@@ -348,6 +362,11 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(503).send({ error: 'id_contention', message: 'Too many simultaneous comments; retry' })
     }
 
+    // Only people who can actually be mentioned here (project members / RACI on this document,
+    // not the author) are notified; anything else in the list is ignored.
+    const requested = [...new Set(parsed.data.mentionedUserIds ?? [])].filter(uid => uid !== request.user!.id)
+    const mentioned = requested.length === 0 ? [] : (await mentionableUsers(app.prisma, doc, request.user!.id)).filter(u => requested.includes(u.id))
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
@@ -361,6 +380,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
         sectionRef: parsed.data.sectionRef,
         severity: parsed.data.severity,
         verdict: parsed.data.verdict ?? null,
+        ...(mentioned.length > 0 && { mentionedUserIds: mentioned.map(u => u.id) }),
       },
       ipAddress: request.ip ?? null,
     })
@@ -368,6 +388,21 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     const [reviewer] = await Promise.all([
       app.prisma.user.findUnique({ where: { id: created.reviewerId }, select: { name: true, initials: true } }),
     ])
+
+    // The comment is saved; a failed notification must not undo or fail it.
+    for (const person of mentioned) {
+      try {
+        await app.notifications.send({
+          recipientId: person.id,
+          ...mentionNotification({
+            authorName: reviewer?.name ?? 'A colleague', documentTitle: doc.title, documentId, projectId: doc.projectId,
+            commentId: id, sectionRef: created.sectionRef, text: created.text,
+          }),
+        })
+      } catch (err) {
+        request.log.warn({ err, recipientId: person.id, commentId: id }, 'mention notification failed')
+      }
+    }
     return reply.code(201).send(commentShape(created, reviewer))
   })
 

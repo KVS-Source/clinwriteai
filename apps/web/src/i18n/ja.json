@@ -352,6 +352,9 @@
 
     "comment_composer": {
       "draft_label":                 "ドラフト",
+      "mention_hint": "@を入力すると、このプロジェクトのメンバーにメンションできます。通知が送られます。",
+      "mention_none": "該当する人がいません",
+      "mention_list_aria": "メンション可能なメンバー",
       "section_tag_label":           "セクション タグ (必須)",
       "no_sections_available":       "利用可能なセクションがありません",
       "severity_label":              "重要度 (必須)",
@@ -3345,6 +3348,8 @@
     "notification_centre": {
       "crumb_platform": "プラットフォーム",
       "crumb_notifications": "通知",
+      "filter_comment": "コメントとメンション",
+      "cta_open_document": "ドキュメントを開く",
       "title": "通知",
       "subtitle": "担当する全分野にわたる割当、ステージ進行、システムイベント。",
       "user_byline": "{{name}} · {{role}}",

@@ -4,15 +4,16 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { PlatformNotification, NotificationPreference } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
-import { platformApi } from '../api/platformApi'
+import { platformApi, type MyNotification } from '../api/platformApi'
 
 const DEMO_USER_ID   = 'user-rw'
 const DEMO_USER_NAME = 'Dr Sarah Chen'
 
-type FilterKey = 'all' | 'stage_advance' | 'review_assigned' | 'ma_advance_notice' | 'publishing_overdue' | 'system'
+type FilterKey = 'all' | 'comment' | 'stage_advance' | 'review_assigned' | 'ma_advance_notice' | 'publishing_overdue' | 'system'
 
 const FILTER_CHIPS: { key: FilterKey; labelKey: string; match: (n: PlatformNotification) => boolean }[] = [
   { key: 'all',                 labelKey: 'page.notification_centre.filter_all',                match: () => true },
+  { key: 'comment',             labelKey: 'page.notification_centre.filter_comment',            match: n => n.eventType === 'comment' },
   { key: 'stage_advance',       labelKey: 'page.notification_centre.filter_stage_advance',      match: n => n.eventType === 'stage_advance' },
   { key: 'review_assigned',     labelKey: 'page.notification_centre.filter_review_assigned',    match: n => n.eventType === 'review_assigned' },
   { key: 'publishing_overdue',  labelKey: 'page.notification_centre.filter_publishing_overdue', match: n => n.eventType === 'publishing_overdue' || n.eventType === 'ma_advance_notice' },
@@ -50,14 +51,28 @@ function formatDateTime(iso: string): string {
   return `${dd} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()} ${hh}:${mm} UTC`
 }
 
+// A stored notification for the signed-in user (e.g. an @mention) in the shape the inbox shows.
+function fromStored(n: MyNotification, ctaLabel: string): PlatformNotification {
+  const p = (n.payload ?? {}) as { projectId?: string; commentId?: string }
+  return {
+    id: n.id,
+    eventType: n.kind === 'comment.mention' ? 'comment' : 'system',
+    title: n.title, body: n.body, module: 'A',
+    projectId: p.projectId ?? null, entityRef: p.commentId ?? null,
+    targetUserId: '', sentAt: n.createdAt, isRead: !!n.readAt,
+    ctaLabel, ctaRoute: n.linkPath ?? '/home',
+  }
+}
+
 export function NotificationCentre() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const qc = useQueryClient()
 
-  const formatRelative = (iso: string): string => {
+  const formatRelative = (iso: string, stored = false): string => {
     const then = new Date(iso).getTime()
-    const now  = new Date('2026-09-09T12:00:00Z').getTime()  // pinned demo now
+    // The sample notifications are dated against a pinned "now"; stored ones use the real clock.
+    const now  = stored ? Date.now() : new Date('2026-09-09T12:00:00Z').getTime()
     const diffMs = now - then
     const mins  = Math.round(diffMs / 60000)
     if (mins < 1)  return t('page.notification_centre.rel_just_now')
@@ -72,6 +87,14 @@ export function NotificationCentre() {
     queryKey: ['notifications'],
     queryFn:  () => platformApi.listNotifications(),
   })
+  const { data: stored = [] } = useQuery<MyNotification[]>({
+    queryKey: ['notifications', 'stored'],
+    queryFn:  () => platformApi.listMyNotifications(),
+    refetchInterval: 30_000,
+    retry: false,
+  })
+  const storedInbox = useMemo(() => stored.map(n => fromStored(n, t('page.notification_centre.cta_open_document'))), [stored, t])
+  const storedIds = useMemo(() => new Set(storedInbox.map(n => n.id)), [storedInbox])
   const { data: prefs = [] } = useQuery<NotificationPreference[]>({
     queryKey: ['notification-prefs'],
     queryFn:  () => platformApi.getNotificationPreferences(),
@@ -84,8 +107,8 @@ export function NotificationCentre() {
 
   // Filter to demo user (per brief §68)
   const inbox = useMemo(
-    () => notifsAll.filter(n => n.targetUserId === DEMO_USER_ID),
-    [notifsAll],
+    () => [...storedInbox, ...notifsAll.filter(n => n.targetUserId === DEMO_USER_ID)],
+    [storedInbox, notifsAll],
   )
 
   const filtered = useMemo(() => {
@@ -101,16 +124,20 @@ export function NotificationCentre() {
   const handleClickRow = async (n: PlatformNotification) => {
     setSelectedId(n.id)
     if (!n.isRead) {
-      await platformApi.markNotificationRead(n.id).catch(() => {})
+      if (storedIds.has(n.id)) await platformApi.markMyNotificationsRead([n.id]).catch(() => {})
+      else await platformApi.markNotificationRead(n.id).catch(() => {})
       await qc.invalidateQueries({ queryKey: ['notifications'] })
+      await qc.invalidateQueries({ queryKey: ['notifications-unread'] })
     }
   }
 
   const markAllRead = async () => {
-    for (const n of inbox.filter(x => !x.isRead)) {
+    if (storedInbox.some(x => !x.isRead)) await platformApi.markAllMyNotificationsRead().catch(() => {})
+    for (const n of inbox.filter(x => !x.isRead && !storedIds.has(x.id))) {
       await platformApi.markNotificationRead(n.id).catch(() => {})
     }
     await qc.invalidateQueries({ queryKey: ['notifications'] })
+    await qc.invalidateQueries({ queryKey: ['notifications-unread'] })
   }
 
   const togglePref = (userId: string, eventType: string, channel: 'email' | 'inApp' | 'sms', next: boolean) => {
@@ -233,7 +260,7 @@ export function NotificationCentre() {
                           style={{ backgroundColor: `${mod.colour}22`, color: mod.colour }}
                           data-notif-type={n.eventType}
                         >{eventLabel(n.eventType)}</span>
-                        <span className="font-mono text-[10px] text-slate-500" data-notif-time>{formatRelative(n.sentAt)}</span>
+                        <span className="font-mono text-[10px] text-slate-500" data-notif-time>{formatRelative(n.sentAt, storedIds.has(n.id))}</span>
                       </div>
                       <p className="text-[13px] font-semibold text-slate-900" data-notif-title>{n.title}</p>
                       <p className="font-mono text-[10px] text-slate-500" data-notif-context>

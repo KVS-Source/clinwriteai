@@ -309,6 +309,9 @@
     },
     "comment_composer": {
       "draft_label": "Draft",
+      "mention_hint": "Type @ to mention someone from this project. They will be notified.",
+      "mention_none": "No one found",
+      "mention_list_aria": "People you can mention",
       "section_tag_label": "Section tag (required)",
       "no_sections_available": "No sections available",
       "severity_label": "Severity (required)",
@@ -3166,6 +3169,8 @@
     "notification_centre": {
       "crumb_platform": "Platform",
       "crumb_notifications": "Notifications",
+      "filter_comment": "Comments & mentions",
+      "cta_open_document": "Open document",
       "title": "Notifications",
       "subtitle": "Assignments, stage advances and system events across every discipline you work in.",
       "user_byline": "{{name}} · {{role}}",

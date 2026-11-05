@@ -204,7 +204,14 @@ export function NewDocumentForm({
     retry: false,
   })
   const relevantBestPractices = useMemo(() => {
+    // Guidance that has run out (validUntil before today) or hasn't started yet
+    // (effectiveFrom after today) must not steer a new document. Items that are only
+    // close to expiry stay, flagged "review due". The Best Practices screen still
+    // lists everything so an admin can renew it. Dates are UTC calendar days, as the API sends them.
+    const today = new Date().toISOString().slice(0, 10)
     return allBestPractices.filter(bp => {
+      if (bp.validUntil && bp.validUntil < today) return false
+      if (bp.effectiveFrom && bp.effectiveFrom > today) return false
       // Module match: Module A (Clinical Writing) items + platform-wide.
       // (The screen is clinical-writing-only; other modules' items filter out.)
       const moduleOk = bp.module === 'A' || (bp.module as string) === 'platform'

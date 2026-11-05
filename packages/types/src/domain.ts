@@ -1768,6 +1768,8 @@ export interface MasterLibraryItem {
   tags:              string[]
   isArchived:        boolean
   archivedReason?:   string
+  // Withdrawn from the library by an admin (as opposed to archived because its project closed).
+  isWithdrawn?:      boolean
   provenanceChain:   string[]
   // Text of a pushed section — what "Pull into document" inserts. Absent for
   // whole documents and for items that carry no text.

@@ -61,6 +61,12 @@ function demoPersonaHeader(): Record<string, string> {
 }
 
 async function request<T>(endpoint: string, options?: RequestOptions): Promise<T> {
+  return (await requestWithHeaders<T>(endpoint, options)).data
+}
+
+// Same call, but also hands back the response headers — for paged lists that send
+// their total and next cursor in X-Total-Count / X-Next-Cursor.
+async function requestWithHeaders<T>(endpoint: string, options?: RequestOptions): Promise<{ data: T; headers: Headers }> {
   const { on401 = 'redirect', ...init } = options ?? {}
   const res = await fetch(`${API_BASE}${endpoint}`, {
     credentials: 'include',
@@ -88,8 +94,8 @@ async function request<T>(endpoint: string, options?: RequestOptions): Promise<T
   if (!res.ok) throw new ApiError(res.status, await res.json().catch(() => null))
 
   // 204 No Content paths skip the parse so TypeScript's `T` can be `void`.
-  if (res.status === 204) return undefined as T
-  return res.json() as Promise<T>
+  if (res.status === 204) return { data: undefined as T, headers: res.headers }
+  return { data: (await res.json()) as T, headers: res.headers }
 }
 
 // Multipart upload — identical auth path, but we must NOT set Content-Type
@@ -141,6 +147,7 @@ async function download(endpoint: string, options?: Pick<RequestOptions, 'on401'
 
 export const api = {
   get:    <T>(endpoint: string, options?: RequestOptions)                => request<T>(endpoint, options),
+  getWithHeaders: <T>(endpoint: string, options?: RequestOptions)        => requestWithHeaders<T>(endpoint, options),
   post:   <T>(endpoint: string, body: unknown, options?: RequestOptions) => request<T>(endpoint, { ...options, method: 'POST',  body: JSON.stringify(body) }),
   patch:  <T>(endpoint: string, body: unknown, options?: RequestOptions) => request<T>(endpoint, { ...options, method: 'PATCH', body: JSON.stringify(body) }),
   put:    <T>(endpoint: string, body: unknown, options?: RequestOptions) => request<T>(endpoint, { ...options, method: 'PUT',   body: JSON.stringify(body) }),

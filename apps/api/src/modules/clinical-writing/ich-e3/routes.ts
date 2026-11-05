@@ -7,19 +7,19 @@
 //
 // Routes:
 //   GET   /documents/:documentId/ich-e3                        â€” compute report
-//   POST  /documents/:documentId/ich-e3/:code/waive            â€” admin / reviewer
-//   DELETE /documents/:documentId/ich-e3/:code/waive           â€” admin / reviewer
+//   POST  /documents/:documentId/ich-e3/:code/waive            â€” the document's R or Q
+//   DELETE /documents/:documentId/ich-e3/:code/waive           â€” the document's R or Q
 //   PATCH /documents/:documentId/sections/:sectionId/ich-status â€” mark complete / reopen
 //
-// All routes module-gate on 'A'. Waive is additionally role-gated to
-// 'admin' or 'reviewer' per the "designated role" clause of FR-A-026, and
-// only applies to full CSRs (the only document type ICH E3 governs).
+// All routes module-gate on 'A'. Waive additionally needs an R or Q letter on
+// the document (action table row 21), and only applies to full CSRs (the only
+// document type ICH E3 governs).
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { hasRole, requireAuth, type Role } from '../../../auth/rbac.js'
+import { requireAuth } from '../../../auth/rbac.js'
 import { authoringLockReason } from '../document-status.js'
-import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanWaiveIchSection, DOCUMENT_EDIT_FORBIDDEN, ICH_WAIVE_FORBIDDEN } from '../../platform/document-raci/access.js'
 import {
   buildIchE3Report,
   hasSectionContent,
@@ -36,11 +36,6 @@ const ichStatusSchema = z.object({
 })
 
 const NOT_APPLICABLE = { error: 'not_applicable', message: 'ICH E3 applies to full Clinical Study Reports only.' } as const
-
-// Who may waive / un-waive. The report echoes the caller's result as
-// `canWaive` so the panel shows the button to exactly these users
-// (tenant-admin, or a contributor with can-review, via the legacy aliases).
-const WAIVE_ROLES: Role[] = ['admin', 'reviewer']
 
 export const ichE3Routes: FastifyPluginAsync = async (app) => {
   // Batched user-id â†’ display-name lookup for waiver rows.
@@ -97,7 +92,8 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
       openComments,
       sourceReferences: references.filter(r => !removedIds.has(r.id)),
     })
-    return { ...report, canWaive: applicable && hasRole(request.user!, WAIVE_ROLES) }
+    // The same check as the waive routes, so the panel shows the button to exactly these users.
+    return { ...report, canWaive: applicable && await actorCanWaiveIchSection(app.prisma, request.user!, documentId) }
   })
 
   // --- Section status: mark complete / reopen ----------------------------
@@ -169,7 +165,7 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
 
   app.post(
     '/:documentId/ich-e3/:sectionCode/waive',
-    { preHandler: requireAuth({ modules: ['A'], roles: WAIVE_ROLES }) },
+    { preHandler: requireAuth({ modules: ['A'] }) },
     async (request, reply) => {
       const { documentId, sectionCode } = request.params as { documentId: string; sectionCode: string }
 
@@ -186,6 +182,7 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
       })
       if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
       if (!isIchE3Applicable(doc.type)) return reply.code(400).send(NOT_APPLICABLE)
+      if (!(await actorCanWaiveIchSection(app.prisma, request.user!, documentId))) return reply.code(403).send(ICH_WAIVE_FORBIDDEN)
 
       const versionAtWaiver = doc.currentVersion?.versionNumber ?? 'v0.0'
 
@@ -233,13 +230,14 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
 
   app.delete(
     '/:documentId/ich-e3/:sectionCode/waive',
-    { preHandler: requireAuth({ modules: ['A'], roles: WAIVE_ROLES }) },
+    { preHandler: requireAuth({ modules: ['A'] }) },
     async (request, reply) => {
       const { documentId, sectionCode } = request.params as { documentId: string; sectionCode: string }
 
       const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { type: true, deletedAt: true } })
       if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
       if (!isIchE3Applicable(doc.type)) return reply.code(400).send(NOT_APPLICABLE)
+      if (!(await actorCanWaiveIchSection(app.prisma, request.user!, documentId))) return reply.code(403).send(ICH_WAIVE_FORBIDDEN)
 
       const existing = await app.prisma.ichSectionWaiver.findUnique({
         where: { documentId_sectionCode: { documentId, sectionCode } },

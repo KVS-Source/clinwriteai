@@ -111,6 +111,32 @@ export async function actorCanGiveVerdict(
   return row !== null
 }
 
+// Who may waive an ICH E3 section or remove a waiver (action table row 21): the
+// document's Author (R) or QC (Q). The Reviewer (C), Approver (A) and everyone
+// else only view the checklist (row 20). The assignee is the first Author.
+const ICH_WAIVE_LETTERS = ['R', 'Q']
+
+export async function actorCanWaiveIchSection(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+): Promise<boolean> {
+  if (COMMENT_LOCKED_ROLES.has(actor.role)) return false
+  const [doc, row] = await Promise.all([
+    prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }),
+    prisma.documentRaci.findFirst({
+      where: { documentId, userId: actor.id, letter: { in: ICH_WAIVE_LETTERS }, removedAt: null },
+      select: { id: true },
+    }),
+  ])
+  return row !== null || (!!doc && doc.assigneeId === actor.id)
+}
+
+export const ICH_WAIVE_FORBIDDEN = {
+  error: 'ich_waive_forbidden',
+  message: 'Only the Author (R) or QC (Q) on this document can waive an ICH E3 section or remove a waiver.',
+} as const
+
 export const VERDICT_FORBIDDEN = {
   error: 'verdict_forbidden',
   message: 'Only the Reviewer (C), QC (Q) or Approver (A) on this document can approve or return a section.',

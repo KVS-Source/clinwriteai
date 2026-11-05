@@ -12,6 +12,32 @@ import type {
 
 // --- Request bodies ---
 
+export interface LibraryListParams {
+  q?: string
+  module?: string[]
+  itemType?: string[]
+  docType?: string[]
+  ta?: string[]
+  projectId?: string
+  version?: string
+  from?: string
+  to?: string
+  sort?: 'recent' | 'oldest' | 'name-asc' | 'name-desc'
+  includeRetired?: boolean
+  limit?: number
+}
+
+export interface LibraryPage { items: MasterLibraryItem[]; total: number; nextCursor: string | null }
+
+export interface LibraryPushBody {
+  documentId: string
+  sectionId?: string
+  taTag: string
+  module: 'A' | 'B' | 'C' | 'D' | 'E'
+  docType: string
+  version: string
+}
+
 export interface InviteUserBody {
   name:     string
   email:    string
@@ -144,6 +170,27 @@ export const platformApi = {
   // sPM08 — Master Library
   listLibrary: () =>
     api.get<MasterLibraryItem[]>('/library'),
+  // One page of the Master Library. Filters, search and sort run on the server;
+  // the total and the next-page cursor come back in headers.
+  listLibraryPage: async (params: LibraryListParams, cursor?: string): Promise<LibraryPage> => {
+    const qs = new URLSearchParams()
+    for (const [k, v] of Object.entries(params)) {
+      const value = Array.isArray(v) ? v.join(',') : v
+      if (value !== undefined && value !== '' && value !== false) qs.set(k, String(value))
+    }
+    if (cursor) qs.set('cursor', cursor)
+    const { data, headers } = await api.getWithHeaders<MasterLibraryItem[]>(`/library${qs.size ? `?${qs}` : ''}`)
+    const total = Number(headers.get('X-Total-Count'))
+    return { items: data, total: Number.isFinite(total) && headers.has('X-Total-Count') ? total : data.length, nextCursor: headers.get('X-Next-Cursor') || null }
+  },
+  // FR-A-080: push a signed, final document (or one of its sections) into the library.
+  pushToLibrary: (body: LibraryPushBody) =>
+    api.post<MasterLibraryItem>('/library/push', body),
+  // Admin: a new version of a library section, and withdrawing it.
+  versionLibrarySection: (itemId: string, body: { title?: string; body?: string }) =>
+    api.post<unknown>(`/library/sections/${itemId}/versions`, body),
+  withdrawLibrarySection: (itemId: string, reason?: string) =>
+    api.post<unknown>(`/library/sections/${itemId}/retire`, reason ? { reason } : {}),
   getLibraryItem: (itemId: string) =>
     api.get<MasterLibraryItem>(`/library/${itemId}`),
   // Records that a section was pulled into a document (usage count + audit).

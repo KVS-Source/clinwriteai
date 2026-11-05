@@ -21,6 +21,10 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
 import type { Prisma } from '@prisma/client'
+import { visibleProjectIdsForUser } from '../../projects/visibility.js'
+import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../document-raci/access.js'
+import { compareSections } from '../../clinical-writing/documents/service.js'
+import { htmlToPlainText } from './plain-text.js'
 import {
   BEST_PRACTICE_NAME, parseVersionLabel, sectionToBestPractice, sectionToItem,
   type LibraryContext, type SectionRow,
@@ -46,6 +50,19 @@ const listQuery = z.object({
   includeRetired: z.coerce.boolean().default(false),
   search: z.string().optional(),
 })
+
+// FR-A-080 / AC-A-054: the four mandatory tags are therapeutic area, module,
+// document type and version. None may be omitted.
+const pushSchema = z.object({
+  documentId: z.string().min(1),
+  sectionId:  z.string().min(1).optional(),            // omitted → the whole document
+  taTag:      z.string().trim().min(1),
+  module:     z.enum(['A', 'B', 'C', 'D', 'E']),
+  docType:    z.string().trim().min(1).max(80),
+  version:    z.string().trim().min(1).max(20),
+})
+
+const retireSchema = z.object({ reason: z.string().trim().min(1).max(500).optional() }).default({})
 
 const adoptSchema = z.object({
   adoptingModule: z.enum(['A', 'B', 'C', 'D', 'E']),
@@ -110,6 +127,16 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       ? {}
       : { OR: [{ tenantId: null }, { tenantId: user.tenantId }] }
 
+  const isPlatformAdmin = (user: { tenantId: string | null }) => user.tenantId == null
+
+  // Change rights on a visible row: a platform admin may change any row, a tenant
+  // admin only their own tenant's. Platform-wide rows (tenantId null, e.g. best
+  // practices) are platform-admin only.
+  const canChange = (user: { tenantId: string | null }, row: { tenantId: string | null }) =>
+    isPlatformAdmin(user) || (row.tenantId != null && row.tenantId === user.tenantId)
+
+  const NOT_YOURS = { error: 'forbidden', message: 'Platform-wide library items can only be changed by a platform admin.' } as const
+
   // One batched lookup for the names/projects a page of rows refers to.
   async function fetchContext(rows: SectionRow[]): Promise<LibraryContext> {
     const userIds = [...new Set(rows.map(r => r.approvedBy))]
@@ -158,9 +185,12 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       ...(q.from && { gte: new Date(`${q.from}T00:00:00.000Z`) }),
       ...(q.to   && { lte: new Date(`${q.to}T23:59:59.999Z`) }),
     } })
+    // A withdrawn item is no longer "current", so showing withdrawn items means
+    // current rows plus retired ones (CW-062).
     const where: Prisma.LibrarySectionWhereInput = {
-      isCurrent: true,
-      ...(q.includeRetired === 'false' && { retiredAt: null }),
+      ...(q.includeRetired === 'false'
+        ? { isCurrent: true, retiredAt: null }
+        : { OR: [{ isCurrent: true }, { retiredAt: { not: null } }] }),
       AND: and,
     }
 
@@ -264,6 +294,103 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(sectionToBestPractice(created))
   })
 
+  // POST /library/push — FR-A-080 / AC-A-054. The Author (R) of a SIGNED (final)
+  // document pushes the whole document or one of its sections into the library with
+  // the four mandatory tags (therapeutic area, module, document type, version).
+  // Approval is the document's own e-signature chain: nothing that is not signed can
+  // enter the library, and the push does not bypass it. Admins, PMs and every other
+  // letter only read (action table row 6 — the same gate as editing content).
+  // Pushing a later version of the same source supersedes the earlier library entry.
+  app.post('/push', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const parsed = pushSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
+    const b = parsed.data
+    const user = request.user!
+
+    const doc = await app.prisma.document.findFirst({
+      where: { id: b.documentId, deletedAt: null },
+      include: { currentVersion: { include: { sections: true } } },
+    })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    const visibleProjects = await visibleProjectIdsForUser(app.prisma, user)
+    if (visibleProjects !== 'all' && !visibleProjects.has(doc.projectId)) return reply.code(404).send({ error: 'not_found' })
+
+    if (!(await actorCanEditDocumentContent(app.prisma, user, doc.id))) {
+      return reply.code(403).send({ ...DOCUMENT_EDIT_FORBIDDEN, error: 'push_forbidden', message: 'Only the Author (R) of this document can push it to the Master Library.' })
+    }
+    // "Final" means signed: completing the e-signature chain is what makes a document
+    // final (it sets status=signed and unlocks Final Document). It does not move the
+    // stepper to Final Output, so the stage is not part of the test.
+    if (doc.status !== 'signed') {
+      return reply.code(409).send({ error: 'not_final', message: 'Only a signed (final) document can be pushed to the Master Library.' })
+    }
+
+    const taTag = await resolveTa(app.prisma, b.taTag)
+    if (!taTag) return reply.code(400).send(invalidTaBody(b.taTag))
+    if (taTag !== doc.therapeuticArea) {
+      return reply.code(400).send({ error: 'ta_mismatch', message: `The therapeutic area must match the document's (${doc.therapeuticArea}).` })
+    }
+
+    const sections = [...(doc.currentVersion?.sections ?? [])].sort(compareSections)
+    const docVersion = doc.currentVersion?.versionNumber ?? b.version
+    const section = b.sectionId ? sections.find(s => s.sectionId === b.sectionId) : undefined
+    if (b.sectionId && !section) return reply.code(404).send({ error: 'section_not_found' })
+
+    const body = section
+      ? htmlToPlainText(section.contentHtml)
+      : sections.filter(s => htmlToPlainText(s.contentHtml)).map(s => `${s.sectionNumber} ${s.sectionTitle}\n${htmlToPlainText(s.contentHtml)}`).join('\n\n')
+    if (!body) return reply.code(422).send({ error: 'empty', message: `This ${section ? 'section' : 'document'} has no content to push.` })
+
+    const sourceTag = `source:${doc.id}${section ? `#${section.sectionId}` : ''}`
+    const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { tenantId: true } })
+    const tenantId = project?.tenantId ?? user.tenantId
+    const tags = [
+      `module:${b.module}`, `doctype:${b.docType}`, `project:${doc.projectId}`, sourceTag, `docversion:${docVersion}`,
+      ...(section ? [] : ['type:document']),
+    ]
+
+    const earlier = await app.prisma.librarySection.findFirst({
+      where: { tenantId, isCurrent: true, retiredAt: null, tags: { has: sourceTag } },
+    })
+    if (earlier?.tags.includes(`docversion:${docVersion}`)) {
+      return reply.code(409).send({ error: 'already_pushed', message: `${docVersion} of this ${section ? 'section' : 'document'} is already in the Master Library.` })
+    }
+
+    const created = await app.prisma.$transaction(async (tx) => {
+      const next = await tx.librarySection.create({
+        data: {
+          tenantId, taTag, tags, body,
+          title: section ? `${doc.title} — ${section.sectionNumber} ${section.sectionTitle}` : doc.title,
+          framework: b.docType,
+          category: section ? 'boilerplate' : 'claim',
+          version: (earlier?.version ?? 0) + 1,
+          approvedBy: user.id,
+        },
+      })
+      if (earlier) {
+        await tx.librarySection.update({ where: { id: earlier.id }, data: { isCurrent: false, supersededBy: next.id } })
+      }
+      return next
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: user.id,
+      action: 'library_pushed',
+      entityType: 'library_section',
+      entityId: created.id,
+      details: {
+        documentId: doc.id, sectionId: section?.sectionId ?? null, documentVersion: docVersion,
+        taTag, module: b.module, docType: b.docType, libraryVersion: created.version,
+        ...(earlier && { supersedes: earlier.id }),
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    const ctx = await fetchContext([created])
+    return reply.code(201).send(sectionToItem(created, ctx))
+  })
+
   // GET /library/:id — one item for the detail panel.
   app.get('/:id', { preHandler: requireAuth() }, async (request, reply) => {
     const { id } = request.params as { id: string }
@@ -278,6 +405,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return app.prisma.librarySection.findMany({
       where: {
         isCurrent: true,
+        AND: [visibleTo(request.user!)],
         ...(parsed.data.taTag && { taTag: parsed.data.taTag }),
         ...(parsed.data.framework && { framework: parsed.data.framework }),
         ...(parsed.data.category && { category: parsed.data.category }),
@@ -296,7 +424,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/sections/:id', { preHandler: requireAuth() }, async (request, reply) => {
     const { id } = request.params as { id: string }
-    const row = await app.prisma.librarySection.findUnique({ where: { id } })
+    const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
     return row
   })
@@ -312,7 +440,9 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
     const created = await app.prisma.librarySection.create({
       data: {
-        tenantId: parsed.data.tenantId ?? request.user!.tenantId,
+        // A tenant admin can only add to their own tenant; a body tenantId is honoured
+        // for platform admins only (CW-059).
+        tenantId: isPlatformAdmin(request.user!) ? (parsed.data.tenantId ?? null) : request.user!.tenantId,
         title: parsed.data.title,
         body: parsed.data.body,
         taTag,
@@ -342,8 +472,9 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const parsed = updateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
-    const existing = await app.prisma.librarySection.findUnique({ where: { id } })
+    const existing = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
+    if (!canChange(request.user!, existing)) return reply.code(403).send(NOT_YOURS)
     if (!existing.isCurrent) {
       return reply.code(409).send({ error: 'not_current', message: 'Can only version the current section' })
     }
@@ -395,9 +526,13 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/sections/:id/retire', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
-    const existing = await app.prisma.librarySection.findUnique({ where: { id } })
+    const parsed = retireSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const existing = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
+    if (!canChange(request.user!, existing)) return reply.code(403).send(NOT_YOURS)
     if (existing.retiredAt) return reply.code(409).send({ error: 'already_retired' })
+    if (!existing.isCurrent) return reply.code(409).send({ error: 'not_current', message: 'Only the current version can be withdrawn' })
 
     const updated = await app.prisma.librarySection.update({
       where: { id },
@@ -410,7 +545,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       action: 'library_section_retired',
       entityType: 'library_section',
       entityId: id,
-      details: { title: existing.title, version: existing.version },
+      details: { title: existing.title, version: existing.version, ...(parsed.data.reason && { reason: parsed.data.reason }) },
       ipAddress: request.ip ?? null,
     })
 
@@ -424,7 +559,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const parsed = adoptSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
-    const section = await app.prisma.librarySection.findUnique({ where: { id } })
+    const section = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!section) return reply.code(404).send({ error: 'not_found' })
     if (section.retiredAt) {
       return reply.code(422).send({ error: 'retired', message: 'Cannot adopt a retired section' })
@@ -468,8 +603,10 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(record)
   })
 
-  app.get('/sections/:id/adoptions', { preHandler: requireAuth() }, async (request) => {
+  app.get('/sections/:id/adoptions', { preHandler: requireAuth() }, async (request, reply) => {
     const { id } = request.params as { id: string }
+    const visible = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] }, select: { id: true } })
+    if (!visible) return reply.code(404).send({ error: 'not_found' })
     return app.prisma.libraryAdoptionRecord.findMany({
       where: { libraryId: id },
       orderBy: { adoptedAt: 'desc' },

@@ -235,8 +235,6 @@ export const platformApi = {
   },
   getAudit: (id: string) =>
     api.get<AuditTrailEntry>(`/admin/audit/${id}`),
-  exportAuditCsv: () =>
-    api.get<{ downloadUrl: string; rowCount: number }>('/admin/audit/export'),
 
   // sPM05 — Super Admin clients + analytics
   listPlatformClients: () =>

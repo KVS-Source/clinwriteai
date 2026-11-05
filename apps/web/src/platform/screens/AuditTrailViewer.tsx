@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 import type { AuditTrailEntry, AuditActionType, ModuleKey } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
+import { auditExportCsv } from '../../hooks'
 import { usePlatformStore } from '../store'
 
 const ACTION_CYCLE: (AuditActionType | 'All')[] = [
@@ -63,7 +64,7 @@ export function AuditTrailViewer() {
   const [moduleIdx,    setModuleIdx]    = useState(0)
 
   const [selectedId, setSelectedId] = useState<string>('aud-001')
-  const [exportResult, setExportResult] = useState<{ url: string; rows: number } | null>(null)
+  const [exportFailed, setExportFailed] = useState(false)
 
   // Default active on first load
   useEffect(() => { if (entries.length && !entries.some(e => e.id === selectedId)) setSelectedId(entries[0].id) }, [entries, selectedId])
@@ -118,10 +119,20 @@ export function AuditTrailViewer() {
   }, [activeEntry, t])
 
   const handleExport = async () => {
+    setExportFailed(false)
     try {
-      const res = await platformApi.exportAuditCsv()
-      setExportResult({ url: res.downloadUrl, rows: res.rowCount })
-    } catch { /* prototype */ }
+      const { blob, filename } = await auditExportCsv()
+      const url = URL.createObjectURL(blob)
+      const a = window.document.createElement('a')
+      a.href = url
+      a.download = filename ?? 'audit.csv'
+      window.document.body.appendChild(a)
+      a.click()
+      a.remove()
+      URL.revokeObjectURL(url)
+    } catch {
+      setExportFailed(true)
+    }
   }
 
   return (
@@ -201,9 +212,9 @@ export function AuditTrailViewer() {
           >{t('page.audit_trail_viewer.export_csv')}</button>
         </div>
 
-        {exportResult && (
-          <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-export-result>
-            {t('page.audit_trail_viewer.export_ready', { rows: exportResult.rows, url: exportResult.url })}
+        {exportFailed && (
+          <p role="alert" className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" data-export-error>
+            {t('page.audit_trail_viewer_live.export_failed')}
           </p>
         )}
 

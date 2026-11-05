@@ -12,6 +12,7 @@
 //   category:<label>  best-practice category
 //   effective:<date>  best practice effective-from  (YYYY-MM-DD)
 //   valid-until:<d>   best practice valid-until     (YYYY-MM-DD)
+//   fromdoc:<id>      the source document, on document AND section pushes (lookup key)
 //   docversion:<v>    version of the source document when it was pushed (e.g. v0.3)
 //
 // Any other tag is a plain user tag. Once real columns exist this file is the
@@ -21,7 +22,7 @@ export const KNOWN_MODULES = ['A', 'B', 'C', 'D', 'E'] as const
 export type LibModule = (typeof KNOWN_MODULES)[number] | 'platform'
 export type LibItemType = 'document' | 'section' | 'best-practice'
 
-const META_KEYS = ['module', 'doctype', 'project', 'source', 'type', 'category', 'effective', 'valid-until', 'docversion'] as const
+const META_KEYS = ['module', 'doctype', 'project', 'source', 'type', 'category', 'effective', 'valid-until', 'docversion', 'fromdoc'] as const
 
 export interface SectionRow {
   id: string

@@ -29,6 +29,14 @@ export interface LibraryListParams {
 
 export interface LibraryPage { items: MasterLibraryItem[]; total: number; nextCursor: string | null }
 
+export interface LibraryDocumentEntry {
+  id: string
+  name: string
+  sectionId: string | null          // null = the whole document
+  documentVersion: string | null
+  libraryVersion: string
+}
+
 export interface LibraryPushBody {
   documentId: string
   sectionId?: string
@@ -186,6 +194,9 @@ export const platformApi = {
   // FR-A-080: push a signed, final document (or one of its sections) into the library.
   pushToLibrary: (body: LibraryPushBody) =>
     api.post<MasterLibraryItem>('/library/push', body),
+  // What of a document is already in the library (whole document and/or single sections).
+  libraryEntriesForDocument: (documentId: string) =>
+    api.get<LibraryDocumentEntry[]>(`/library/by-document/${encodeURIComponent(documentId)}`),
   // Admin: a new version of a library section, and withdrawing it.
   versionLibrarySection: (itemId: string, body: { title?: string; body?: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/versions`, body),

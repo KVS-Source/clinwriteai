@@ -37,6 +37,9 @@ interface SlidePanelProps {
   expandable?: boolean
   // Show a Refresh button next to the close button.
   onRefresh?: () => void
+  // Start under the 56 px top bar instead of covering it, so the signed-in user and the
+  // notification bell stay visible.
+  belowTopBar?: boolean
 }
 
 export function SlidePanel({
@@ -53,6 +56,7 @@ export function SlidePanel({
   expandedWidth,
   expandable = false,
   onRefresh,
+  belowTopBar = false,
 }: SlidePanelProps) {
   const [expanded, setExpanded] = useState(false)
   const [width, setWidth] = useState<number>(() => {
@@ -134,7 +138,7 @@ export function SlidePanel({
       aria-modal="false"
       aria-label={title}
       data-slide-panel
-      className="fixed right-0 top-0 z-30 flex h-full flex-col bg-white shadow-xl"
+      className={`fixed right-0 z-30 flex flex-col bg-white shadow-xl ${belowTopBar ? 'bottom-0 top-14' : 'top-0 h-full'}`}
       style={{
         width: shownWidth,
         borderLeft: '1px solid #E2E8F0',
@@ -142,7 +146,7 @@ export function SlidePanel({
         transition: dragging ? 'none' : 'transform 180ms ease-out',
       }}
     >
-      {/* Drag handle — left edge, 6 px wide */}
+      {/* Drag handle — left edge, 8 px wide, with a visible grip so it can be found */}
       <div
         role="separator"
         aria-orientation="vertical"
@@ -150,9 +154,11 @@ export function SlidePanel({
         onMouseDown={beginResize}
         onDoubleClick={() => setWidth(defaultWidth)}
         title="Drag to resize · double-click to reset"
-        className="absolute inset-y-0 left-0 w-1.5 cursor-ew-resize bg-transparent hover:bg-blue-200 active:bg-blue-400"
+        className="group absolute inset-y-0 left-0 z-10 w-2 cursor-ew-resize bg-transparent hover:bg-blue-100 active:bg-blue-300"
         style={{ transition: dragging ? 'none' : 'background-color 120ms' }}
-      />
+      >
+        <span aria-hidden="true" className="pointer-events-none absolute left-0.5 top-1/2 h-12 w-1 -translate-y-1/2 rounded-full bg-slate-300 group-hover:bg-blue-400" />
+      </div>
 
       {/* Header */}
       <div className="flex flex-none items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">

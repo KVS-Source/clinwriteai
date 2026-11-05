@@ -158,7 +158,7 @@ describe('POST /library/push (CW-058, FR-A-080)', () => {
     expect(res.statusCode).toBe(201)
     const data = create.mock.calls[0]![0].data
     expect(data).toMatchObject({ tenantId: 't1', taTag: 'Oncology', framework: 'CSR', version: 1, title: 'CSR Study 1' })
-    expect(data.tags).toEqual(expect.arrayContaining(['module:A', 'doctype:CSR', 'project:p1', 'source:d1', 'docversion:v1.0', 'type:document']))
+    expect(data.tags).toEqual(expect.arrayContaining(['module:A', 'doctype:CSR', 'project:p1', 'source:d1', 'fromdoc:d1', 'docversion:v1.0', 'type:document']))
     expect(data.body).toBe('1 Title Page\nTitle text\n\n2 Synopsis\nSynopsis text')   // natural section order
     expect(append).toHaveBeenCalledWith(expect.objectContaining({ action: 'library_pushed', details: expect.objectContaining({ documentId: 'd1', documentVersion: 'v1.0' }) }))
     expect(res.json()).toMatchObject({ itemType: 'document', version: 'v1.0' })
@@ -234,5 +234,62 @@ describe('POST /library/push (CW-058, FR-A-080)', () => {
     expect(res.statusCode).toBe(201)
     expect(newer.create.mock.calls[0]![0].data.version).toBe(3)
     expect(newer.update.mock.calls[0]![0]).toMatchObject({ where: { id: 'old' }, data: { isCurrent: false, supersededBy: 'new-1' } })
+  })
+})
+
+describe('GET /library/by-document/:documentId', () => {
+  it('lists what of the document is already in the library, whole document and sections', async () => {
+    const { app, findMany } = await setup()
+    findMany.mockResolvedValueOnce([
+      row('x1', { title: 'CSR Study 1', tags: ['source:d1', 'fromdoc:d1', 'docversion:v1.0', 'type:document'] }),
+      row('x2', { title: 'CSR Study 1 — 2 Synopsis', version: 2, tags: ['source:d1#s2', 'fromdoc:d1', 'docversion:v1.0'] }),
+    ] as never)
+    const res = await app.inject({ method: 'GET', url: '/library/by-document/d1' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([
+      { id: 'x1', name: 'CSR Study 1', sectionId: null, documentVersion: 'v1.0', libraryVersion: 'v1.0' },
+      { id: 'x2', name: 'CSR Study 1 — 2 Synopsis', sectionId: 's2', documentVersion: 'v1.0', libraryVersion: 'v2.0' },
+    ])
+    const where = (findMany.mock.calls[0] as unknown as [{ where: Record<string, unknown> }])[0].where
+    expect(where).toMatchObject({ isCurrent: true, retiredAt: null, tags: { has: 'fromdoc:d1' } })
+  })
+
+  it('404s a document the caller cannot see', async () => {
+    visibility.projects = new Set(['other'])
+    const { app } = await setup({ role: 'contributor' })
+    expect((await app.inject({ method: 'GET', url: '/library/by-document/d1' })).statusCode).toBe(404)
+  })
+})
+
+describe('GET /library/:id/pdf', () => {
+  it('returns the item as a PDF file with only its title and text', async () => {
+    const { app } = await setup({ found: row('a', { title: 'CSR Full — §5 Ethics', body: 'Ethics text ≥ 18 years' }) })
+    const res = await app.inject({ method: 'GET', url: '/library/a/pdf' })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+    expect(res.headers['content-disposition']).toContain('attachment; filename="CSR_Full_5_Ethics.pdf"')
+    expect(res.rawPayload.subarray(0, 5).toString()).toBe('%PDF-')
+  })
+
+  it('404s an item the caller cannot see, and 422s one with no text', async () => {
+    const hidden = await setup({ found: null })
+    expect((await hidden.app.inject({ method: 'GET', url: '/library/a/pdf' })).statusCode).toBe(404)
+    await current?.close()
+    const empty = await setup({ found: row('a', { body: '  ' }) })
+    expect((await empty.app.inject({ method: 'GET', url: '/library/a/pdf' })).statusCode).toBe(422)
+  })
+
+  it('looks the item up through the tenant filter', async () => {
+    const { app, findFirst } = await setup()
+    await app.inject({ method: 'GET', url: '/library/a/pdf' })
+    expect(JSON.stringify(findFirst.mock.calls[0])).toContain('"tenantId":"t1"')
+  })
+})
+
+describe('pdfSafeText', () => {
+  it('spells out common symbols and replaces what the PDF font cannot print', async () => {
+    const { pdfSafeText } = await import('./pdf-renderer.js')
+    expect(pdfSafeText('age ≥ 18 → yes — “ok” é')).toBe('age >= 18 -> yes — “ok” é')
+    expect(pdfSafeText('日本')).toBe('??')
   })
 })

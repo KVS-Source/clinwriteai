@@ -25,8 +25,9 @@ import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../document-raci/access.js'
 import { compareSections } from '../../clinical-writing/documents/service.js'
 import { htmlToPlainText } from './plain-text.js'
+import { pdfFileName, renderLibraryItemPdf } from './pdf-renderer.js'
 import {
-  BEST_PRACTICE_NAME, parseVersionLabel, sectionToBestPractice, sectionToItem,
+  BEST_PRACTICE_NAME, parseTags, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
   type LibraryContext, type SectionRow,
 } from './shape.js'
 
@@ -345,7 +346,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { tenantId: true } })
     const tenantId = project?.tenantId ?? user.tenantId
     const tags = [
-      `module:${b.module}`, `doctype:${b.docType}`, `project:${doc.projectId}`, sourceTag, `docversion:${docVersion}`,
+      `module:${b.module}`, `doctype:${b.docType}`, `project:${doc.projectId}`, sourceTag, `fromdoc:${doc.id}`, `docversion:${docVersion}`,
       ...(section ? [] : ['type:document']),
     ]
 
@@ -389,6 +390,41 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
     const ctx = await fetchContext([created])
     return reply.code(201).send(sectionToItem(created, ctx))
+  })
+
+  // GET /library/by-document/:documentId — what of this document is already in the
+  // library (the whole document and/or single sections, current entries only). The Final
+  // Document screen uses it to show "In Master Library" and to hide the push button.
+  app.get('/by-document/:documentId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findFirst({ where: { id: documentId, deletedAt: null }, select: { projectId: true } })
+    if (!doc) return reply.code(404).send({ error: 'not_found' })
+    const visibleProjects = await visibleProjectIdsForUser(app.prisma, request.user!)
+    if (visibleProjects !== 'all' && !visibleProjects.has(doc.projectId)) return reply.code(404).send({ error: 'not_found' })
+    const rows = await app.prisma.librarySection.findMany({
+      where: { isCurrent: true, retiredAt: null, tags: { has: `fromdoc:${documentId}` }, AND: [visibleTo(request.user!)] },
+      orderBy: { approvedAt: 'desc' },
+    })
+    return rows.map(r => {
+      const t = parseTags(r.tags)
+      return { id: r.id, name: r.title, sectionId: t.sourceId?.split('#')[1] ?? null, documentVersion: t.docVersion, libraryVersion: versionLabel(r.version) }
+    })
+  })
+
+  // GET /library/:id/pdf — the item's title and text as a PDF file (Master Library
+  // "Download PDF"). Same visibility as reading the item.
+  app.get('/:id/pdf', { preHandler: requireAuth() }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    if (!row.body.trim()) return reply.code(422).send({ error: 'empty', message: 'This item has no text to download.' })
+    const pdf = await renderLibraryItemPdf({ title: row.title, body: row.body })
+    const name = pdfFileName(row.title)
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`)
+      .header('Cache-Control', 'no-store')
+      .send(pdf)
   })
 
   // GET /library/:id — one item for the detail panel.

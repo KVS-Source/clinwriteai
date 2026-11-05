@@ -6,7 +6,6 @@ import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, Pl
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { usePlatformStore } from '../../platform/store'
-import { isReadOnlyRole } from '../../config/roles'
 import { StatusPill, SlidePanel } from '../../components/ui'
 import { RaciEditor } from '../../components/raci/RaciEditor'
 import { documentRaciKey } from './MyRaciRole'
@@ -14,6 +13,7 @@ import { useProjectStore } from '../../store'
 import { NewDocumentForm } from './NewDocument'
 import { UploadDocumentForm } from './UploadDocument'
 import { SourceDocumentsTab } from './SourceDocumentsTab'
+import { useSourceAccess } from '../../hooks/useSourceAccess'
 import { DocumentDetailPanel } from './DocumentDetailPanel'
 import { DocumentCommentsPanel } from './DocumentCommentsPanel'
 import { cleanSectionRef } from '../../panels/CommentComposer'
@@ -160,7 +160,8 @@ export function ClinicalWritingHome() {
   const selectedStage  = pick<DocumentStage>('stage', Object.keys(STAGE_LABELS))
   const selectedStatus = pick<DocumentStatus>('status', Object.keys(STATUS_LABELS))
   const selectedType   = pick<DocumentType>('type', Object.keys(TYPE_LABELS))
-  const view: 'documents' | 'sources' = searchParams.get('tab') === 'sources' ? 'sources' : 'documents'
+  const sourceAccess = useSourceAccess(projectId)
+  const view: 'documents' | 'sources' = searchParams.get('tab') === 'sources' && sourceAccess?.canView !== false ? 'sources' : 'documents'
   const setSearch         = (v: string) => setParams({ q: v })
   const setSelectedStatus = (v: DocumentStatus | 'all') => setParams({ status: v })
   const setSelectedType   = (v: DocumentType | 'all') => setParams({ type: v })
@@ -213,7 +214,7 @@ export function ClinicalWritingHome() {
   const { data: sourceSummary } = useQuery({
     queryKey: ['source-documents', projectId, 'summary'],
     queryFn:  () => documentsApi.listSources(projectId!, { pageSize: 10 }),
-    enabled:  !!projectId,
+    enabled:  !!projectId && sourceAccess?.canView === true,
     staleTime: 30_000,
   })
   const sourceCount = sourceSummary?.summary.files
@@ -402,7 +403,7 @@ export function ClinicalWritingHome() {
                   + {t('page.clinical_writing_home.new_document')}
                 </button>
               )}
-              {!isReadOnlyRole(currentUser.role) && (
+              {sourceAccess?.canUpload && (
                 <button
                   type="button"
                   onClick={() => setUploadOpen(true)}
@@ -474,13 +475,15 @@ export function ClinicalWritingHome() {
       {/* ============ Stage Tabs ============ */}
       <div className="flex flex-none gap-6 overflow-x-auto whitespace-nowrap border-b border-slate-200 bg-white px-8">
         <TabButton label={t('page.clinical_writing_home.tab_all_stages', { count: documents.length })}  active={view === 'documents' && selectedStage === 'all'} onClick={() => showStage('all')} />
-        <TabButton
-          label={sourceCount !== undefined
-            ? t('page.clinical_writing_home.tab_source_documents_with_count', { count: sourceCount })
-            : t('page.clinical_writing_home.tab_source_documents')}
-          active={view === 'sources'}
-          onClick={showSources}
-        />
+        {sourceAccess?.canView && (
+          <TabButton
+            label={sourceCount !== undefined
+              ? t('page.clinical_writing_home.tab_source_documents_with_count', { count: sourceCount })
+              : t('page.clinical_writing_home.tab_source_documents')}
+            active={view === 'sources'}
+            onClick={showSources}
+          />
+        )}
         <span aria-hidden="true" className="my-3.5 w-px flex-none bg-slate-200" />
         {STAGES_ORDERED.map(stage => (
           <TabButton
@@ -507,7 +510,7 @@ export function ClinicalWritingHome() {
             )}
             <SourceDocumentsTab
               projectId={projectId}
-              onUpload={isReadOnlyRole(currentUser.role) ? undefined : () => setUploadOpen(true)}
+              onUpload={sourceAccess?.canUpload ? () => setUploadOpen(true) : undefined}
             />
           </div>
         ) : (

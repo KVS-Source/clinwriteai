@@ -3,8 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { TopNav }  from './TopNav'
 import { Sidebar } from './Sidebar'
 import { useDocumentStore } from '../../store'
-import { usePlatformStore } from '../../platform/store'
-import { canUseAiChat } from '../../config/roles'
+import { useCanEditDocument } from '../../hooks/useCanEditDocument'
 
 const MODULES = ['clinical-writing', 'scientific-writing', 'medical-writing', 'regulatory-writing', 'ideation-publishing']
 const PLATFORM_ROUTES = ['/admin', '/super-admin', '/library', '/notifications', '/reports', '/services']
@@ -59,7 +58,7 @@ export function AppShell() {
   // layouts. preventDefault blocks Chrome's Downloads-panel binding.
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
-  const aiChatAllowed  = canUseAiChat(usePlatformStore(s => s.currentUser.role))
+  const aiChatAllowed  = useCanEditDocument(pathname.match(/\/documents\/([^/]+)/)?.[1]) === true
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey) || e.shiftKey || e.altKey) return
@@ -69,7 +68,7 @@ export function AppShell() {
       // instead of fighting the browser's Downloads shortcut for nothing.
       if (!/\/documents\/[^/]+/.test(pathname)) return
       e.preventDefault()
-      // AI Chat is off for Project Managers — the shortcut does nothing.
+      // AI Chat is for the document's authors — for anyone else the shortcut does nothing.
       if (!aiChatAllowed) return
       setActivePanel(activePanel === 'ai' ? null : 'ai')
     }

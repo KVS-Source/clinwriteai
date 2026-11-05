@@ -1513,6 +1513,7 @@
       "comments_tooltip": "コメント",
       "comments_label": "コメント",
       "ai_chat_tooltip": "AI チャットを開く (⌘J)",
+      "ai_chat_authors_only": "AI チャットを利用できるのは、このドキュメントの作成者 (Responsible, R) のみです",
       "ai_chat_label": "AI チャット",
       "insert_citation": "引用を挿入",
       "soon_badge": "SOON"

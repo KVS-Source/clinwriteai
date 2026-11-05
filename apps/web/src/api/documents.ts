@@ -145,6 +145,8 @@ export const documentsApi = {
     api.download(`/projects/${projectId}/source-documents/${encodeURIComponent(uploadId)}/preview${fromDocumentId ? `?documentId=${encodeURIComponent(fromDocumentId)}` : ''}`),
 
   // Source documents
+  getSourceAccess: (projectId: string) =>
+    api.get<{ canView: boolean; canUpload: boolean }>(`/projects/${projectId}/source-documents/access`),
   listSources: (projectId: string, query: SourceDocumentQuery = {}) => {
     const qs = new URLSearchParams()
     for (const [k, v] of Object.entries(query)) if (v !== undefined && v !== '' && v !== 'all') qs.set(k, String(v))

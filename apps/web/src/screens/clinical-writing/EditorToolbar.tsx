@@ -3,8 +3,6 @@ import { useEditorState } from '@tiptap/react'
 import { useTranslation } from 'react-i18next'
 import { useDocumentStore } from '../../store'
 import { ReferenceDropdown } from '../../components/ui'
-import { usePlatformStore } from '../../platform/store'
-import { canUseAiChat } from '../../config/roles'
 
 // --- Icons ---
 
@@ -143,6 +141,10 @@ interface EditorToolbarProps {
   documentType?: DocumentType
   // The Checklist button is left out once this is known to be false.
   canViewChecklist?: boolean
+  // AI Chat is for this document's authors; the button stays disabled until that's known.
+  aiChatAllowed?: boolean
+  // The Source References option is left out once this is known to be false.
+  canViewSources?: boolean
 }
 
 // Document types where the Protocol metadata panel is reachable. Non-
@@ -150,13 +152,12 @@ interface EditorToolbarProps {
 // belong on a CSR / IB / DSUR row.
 const PROTOCOL_DOC_TYPES: ReadonlySet<DocumentType> = new Set(['protocol', 'protocol-amendment'])
 
-export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist }: EditorToolbarProps = {}) {
+export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist, aiChatAllowed = false, canViewSources }: EditorToolbarProps = {}) {
   const { t } = useTranslation()
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
 
   const toggle = (mode: NonNullable<PanelMode>) => setActivePanel(activePanel === mode ? null : mode)
-  const aiChatAllowed = canUseAiChat(usePlatformStore(s => s.currentUser.role))
 
   // Formatting command shortcuts — null-safe so toolbar can mount
   // before the editor is ready.
@@ -232,7 +233,7 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
 
       <Divider />
 
-      <ReferenceDropdown showIch={ichApplicable} />
+      <ReferenceDropdown showIch={ichApplicable} showSources={canViewSources !== false} />
 
       <Divider />
 
@@ -280,10 +281,10 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
           pill next to the section title (SectionAutosaveStatus). */}
 
       {/* AI Chat — accent button (label matches the panel header). Disabled for
-          Project Managers (canUseAiChat); the API refuses their AI calls too. */}
+          everyone but the document's authors; the API refuses their AI calls too. */}
       <button
         type="button"
-        title={aiChatAllowed ? t('page.editor_toolbar.ai_chat_tooltip') : t('page.editor_toolbar.ai_chat_disabled_pm')}
+        title={aiChatAllowed ? t('page.editor_toolbar.ai_chat_tooltip') : t('page.editor_toolbar.ai_chat_authors_only')}
         onClick={() => { if (aiChatAllowed) toggle('ai') }}
         disabled={!aiChatAllowed}
         data-panel-trigger

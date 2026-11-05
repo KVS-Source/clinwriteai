@@ -59,6 +59,7 @@ export const documentHandlers = [
     }] : []
     return HttpResponse.json({ documentId: params.documentId, items })
   }),
+  http.get(`${BASE}/projects/:projectId/source-documents/access`, () => HttpResponse.json({ canView: true, canUpload: true })),
   http.get(`${BASE}/projects/:projectId/source-documents`, async ({ request }) => {
     await delay(150)
     return HttpResponse.json(sourceDocumentPage(new URL(request.url)))

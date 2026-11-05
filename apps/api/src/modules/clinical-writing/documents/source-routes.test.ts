@@ -41,7 +41,12 @@ async function build(blob: { get: ReturnType<typeof vi.fn>; del?: ReturnType<typ
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => (where.id === 'proj-1' ? { id: 'proj-1', status: caller.projectStatus ?? 'ongoing' } : null)) },
-    documentRaci: { findFirst: vi.fn(async ({ where }: { where: { letter: string } }) => (letters.includes(where.letter) ? { id: 'raci-1' } : null)) },
+    documentRaci: {
+      findFirst: vi.fn(async ({ where }: { where: { letter: string | { in: string[] } } }) => {
+        const asked = typeof where.letter === 'string' ? [where.letter] : where.letter.in
+        return asked.some(l => letters.includes(l)) ? { id: 'raci-1' } : null
+      }),
+    },
     documentUpload: {
       findMany: vi.fn(async ({ where }: { where: { projectId: string; status?: { in: string[] } } }) =>
         ROWS.filter(r => r.projectId === where.projectId && (!where.status || where.status.in.includes(r.status)))),

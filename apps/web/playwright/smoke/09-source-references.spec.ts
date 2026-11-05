@@ -19,7 +19,9 @@ const SENTENCE = 'Median progression-free survival was 11.2 months in the treatm
 test.setTimeout(120_000)
 
 test.beforeEach(async ({ page }) => {
-  await page.addInitScript(({ docId, projectId, sentence }) => {
+  await page.addInitScript(({ docId, projectId, sentence, persona }) => {
+    // Admins are sent home by the router, so this runs as an author.
+    window.localStorage.setItem('clinwrite.demo.currentUserId', persona)
     const refs: Array<Record<string, unknown>> = []
     const w = window as unknown as { __refPosts: Array<Record<string, unknown>>; __refRemovals: Array<Record<string, unknown>>; __aiEdits: Array<Record<string, unknown>>; __sectionSaves: Array<Record<string, unknown>> }
     w.__refPosts = []
@@ -35,6 +37,9 @@ test.beforeEach(async ({ page }) => {
       const m = new RegExp(`/documents/${docId}(/[^?]*)?(\\?.*)?$`).exec(url)
       if (!m) return realFetch(input, init)
       const sub = m[1] ?? ''
+      if (sub === '/raci/can-edit') return json({ canEdit: true })
+      if (sub === '/ai-draft-status') return json({ state: null, sections: [] })
+      if (sub === '/raci') return json([])
       if (sub === '' && method === 'GET') {
         return json({
           id: docId, projectId, type: 'csr-full', title: 'E2E Reference Test CSR', stage: 'post-study',
@@ -79,7 +84,7 @@ test.beforeEach(async ({ page }) => {
       if (sub.includes('presence')) return json({ documentId: docId, sections: [] })
       return json(sub === '/versions' || sub.endsWith('s') ? [] : {})
     }
-  }, { docId: DOC_ID, projectId: PROJECT_ID, sentence: SENTENCE })
+  }, { docId: DOC_ID, projectId: PROJECT_ID, sentence: SENTENCE, persona: process.env.E2E_CONTRIBUTOR_PERSONA ?? 'user-cw' })
 })
 
 async function openEditor(page: Page) {

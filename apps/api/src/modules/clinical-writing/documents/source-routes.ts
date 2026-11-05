@@ -19,7 +19,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { actorIsProjectAuthor, SOURCE_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanChangeSource, actorCanUploadSources, actorCanViewSources, SOURCE_EDIT_FORBIDDEN, SOURCE_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { SOURCE_CATEGORY_LABEL, suggestSourceCategory, type SourceCategory } from './source-categories.js'
 
 const SORT_KEYS = ['title', 'file', 'category', 'state', 'scan', 'usedIn', 'size', 'uploaded'] as const
@@ -125,6 +125,16 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     return doc?.id ?? null
   }
 
+  // What the signed-in user may do with this project's source documents, for the screens.
+  app.get('/:projectId/source-documents/access', { preHandler: gate }, async (request) => {
+    const { projectId } = request.params as { projectId: string }
+    const [canView, canUpload] = await Promise.all([
+      actorCanViewSources(app.prisma, request.user!, projectId),
+      actorCanUploadSources(app.prisma, request.user!, projectId),
+    ])
+    return { canView, canUpload }
+  })
+
   app.get('/:projectId/source-documents', { preHandler: gate }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = listQuery.safeParse(request.query)
@@ -133,6 +143,7 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
 
     const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { id: true } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
+    if (!(await actorCanViewSources(app.prisma, request.user!, projectId))) return reply.code(403).send(SOURCE_VIEW_FORBIDDEN)
 
     const rows = (await app.prisma.documentUpload.findMany({
       where: { projectId, status: { in: ['confirmed', 'rejected'] } },
@@ -230,9 +241,9 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
     const { projectId, uploadId } = request.params as { projectId: string; uploadId: string }
     const row = await app.prisma.documentUpload.findFirst({ where: { id: uploadId, projectId } }) as UploadRow | null
     if (!row) return reply.code(404).send({ error: 'not_found' })
-    // Removing a source file is for authors (R) on the project's documents;
-    // C, Q, A, I, auditors, PMs and admins are view-only.
-    if (!(await actorIsProjectAuthor(app.prisma, request.user!, projectId))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
+    // Removing a source file is for authors (R) on the project's documents; a PM can
+    // only cancel their own upload. C, Q, A, auditors and everyone else can't.
+    if (!(await actorCanChangeSource(app.prisma, request.user!, row))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
     // Status lock: a closed project is read-only.
     const project = await app.prisma.project.findUnique({ where: { id: projectId }, select: { status: true } })
     if (project?.status === 'closed') {
@@ -260,6 +271,7 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/:projectId/source-documents/:uploadId/download', { preHandler: gate }, async (request, reply) => {
     const { projectId, uploadId } = request.params as { projectId: string; uploadId: string }
+    if (!(await actorCanViewSources(app.prisma, request.user!, projectId))) return reply.code(403).send(SOURCE_VIEW_FORBIDDEN)
     // Scope by project so one project's upload id can't be fetched through another's URL.
     const row = await app.prisma.documentUpload.findFirst({ where: { id: uploadId, projectId } }) as UploadRow | null
     if (!row) return reply.code(404).send({ error: 'not_found' })
@@ -305,6 +317,7 @@ export const documentsSourceRoutes: FastifyPluginAsync = async (app) => {
   // allow-listed PDF / image types; the type is the one recorded at upload, never sniffed.
   app.get('/:projectId/source-documents/:uploadId/preview', { preHandler: gate }, async (request, reply) => {
     const { projectId, uploadId } = request.params as { projectId: string; uploadId: string }
+    if (!(await actorCanViewSources(app.prisma, request.user!, projectId))) return reply.code(403).send(SOURCE_VIEW_FORBIDDEN)
     const row = await app.prisma.documentUpload.findFirst({ where: { id: uploadId, projectId } }) as UploadRow | null
     if (!row) return reply.code(404).send({ error: 'not_found' })
     if (row.virusScanStatus === 'failed') {

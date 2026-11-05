@@ -56,7 +56,7 @@ function Pill({ bg, fg, children, title }: { bg: string; fg: string; children: R
 
 interface Props {
   projectId: string
-  /** Left out for someone who can't upload (an auditor): the empty state then offers no button. */
+  /** Left out for someone who can't upload (view only): the empty state then offers no button. */
   onUpload?: () => void
   /** Open New Document with this source preselected */
 }

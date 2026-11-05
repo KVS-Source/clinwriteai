@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import type { DocumentStatus, PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { useCanEditDocument } from '../../hooks/useCanEditDocument'
+import { useSourceAccess } from '../../hooks/useSourceAccess'
 import { useCanViewVersions } from '../../hooks/useCanViewVersions'
 import { useCanViewChecklist } from '../../hooks/useCanViewChecklist'
 import { ApiError } from '../../api/client'
@@ -18,8 +19,6 @@ import { SectionAutosaveStatus } from './SectionAutosaveStatus'
 import { platformApi } from '../../platform/api/platformApi'
 import { StatusPill } from '../../components/ui'
 import { useDocumentStore, useProjectStore, useEditorStore } from '../../store'
-import { usePlatformStore } from '../../platform/store'
-import { canUseAiChat } from '../../config/roles'
 import { SectionAIPrompt } from './SectionAIPrompt'
 import { SourceReferencesPanel } from '../../panels/SourceReferencesPanel'
 import {
@@ -136,12 +135,13 @@ export function DocumentEditor() {
   // sign-in screen, so it can be empty or a different person than the one signed in.
   const { data: currentUser } = useCurrentUser()
 
-  // AI Chat and the inline section AI prompt are off for Project Managers.
-  // Close the panel if it was left open (e.g. from a previous persona).
-  const aiChatAllowed = canUseAiChat(usePlatformStore(s => s.currentUser.role))
+  // AI Chat and the inline section AI prompt are for this document's authors only.
+  // Close the panel if it was left open (e.g. from another document or persona).
+  const canEditDocument = useCanEditDocument(documentId)
+  const aiChatAllowed = canEditDocument === true
   useEffect(() => {
-    if (!aiChatAllowed && activePanel === 'ai') setActivePanel(null)
-  }, [aiChatAllowed, activePanel, setActivePanel])
+    if (canEditDocument === false && activePanel === 'ai') setActivePanel(null)
+  }, [canEditDocument, activePanel, setActivePanel])
 
   // Resolve user id → PlatformUser so avatars can show initials + full
   // name tooltip without the presence payload having to carry them.
@@ -203,7 +203,6 @@ export function DocumentEditor() {
   // heartbeats every 30s, releases on unmount / section switch. Editor
   // becomes editable only when we own the live lock.
   // The whole document locked for authoring — no section lock is taken then.
-  const canEditDocument = useCanEditDocument(documentId)
   const authoringLockKey: DocumentStatus | 'project-closed' | 'view-only' | null = project?.status === 'closed'
     ? 'project-closed'
     : document && AUTHORING_LOCK_KEYS[document.status] ? document.status
@@ -507,10 +506,12 @@ export function DocumentEditor() {
   const setTraceabilityTarget = useEditorStore(s => s.setTraceabilityTarget)
   const setLinkedSpans = useEditorStore(s => s.setLinkedSpans)
   const setSourceViewer = useEditorStore(s => s.setSourceViewer)
+  // Admins, Informed and guests can't see source documents, so nothing is marked in the text for them.
+  const canViewSources = useSourceAccess(projectId)?.canView
   const { data: referencesData } = useQuery({
     queryKey: ['references', documentId],
     queryFn:  () => documentsApi.listReferences(documentId!),
-    enabled:  !!documentId,
+    enabled:  !!documentId && canViewSources === true,
   })
   const sectionReferences = useMemo(
     () => (referencesData?.items ?? []).filter(r => r.sectionId === activeSection),
@@ -941,7 +942,7 @@ export function DocumentEditor() {
             band so content narrows (text wraps) instead of being hidden
             when the panel opens. */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} canViewChecklist={canViewChecklist} />
+          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} canViewChecklist={canViewChecklist} aiChatAllowed={aiChatAllowed} canViewSources={canViewSources} />
 
           {/* Split row — content column (scrollable + AI prompt dock
               stacked) + optional right panel column (fixed width,
@@ -1352,7 +1353,7 @@ export function DocumentEditor() {
                 }}
               />
             )}
-            {activePanel === 'traceability' && documentId && projectId && (
+            {activePanel === 'traceability' && canViewSources === true && documentId && projectId && (
               <SourceReferencesPanel
                 documentId={documentId}
                 projectId={projectId}

@@ -20,6 +20,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { Document, DocumentType, RegulatoryRegion } from '@platform/types'
 import { documentsApi, type ProtocolMetadataPatch } from '../api/documents'
+import { useSourceAccess } from '../hooks/useSourceAccess'
 import { projectsApi } from '../api/projects'
 import { ApiError } from '../api/client'
 import { useDocumentStore } from '../store'
@@ -66,9 +67,11 @@ export function ProtocolMetadataPanel({ documentId, onOpenSources }: Props) {
   })
 
   // Sources count for the "Source Documents" link row.
+  const canViewSources = useSourceAccess(doc?.projectId)?.canView === true
   const { data: sources } = useQuery({
     queryKey: ['document-sources', documentId],
     queryFn: () => documentsApi.listDocumentSources(documentId),
+    enabled: canViewSources,
   })
   const sourceCount = sources?.items.length ?? 0
 
@@ -299,6 +302,7 @@ export function ProtocolMetadataPanel({ documentId, onOpenSources }: Props) {
           </Field>
         </Section>
 
+        {canViewSources && (
         <Section title={t('page.protocol_metadata_panel.section_sources')}>
           <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2.5 text-sm">
             <span className="text-slate-700">
@@ -314,6 +318,7 @@ export function ProtocolMetadataPanel({ documentId, onOpenSources }: Props) {
             </button>
           </div>
         </Section>
+        )}
 
       </div>
     </div>

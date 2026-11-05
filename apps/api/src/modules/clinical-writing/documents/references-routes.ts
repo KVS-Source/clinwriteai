@@ -15,7 +15,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { isPreviewable, stripExt } from './source-routes.js'
 import { suggestSourceCategory } from './source-categories.js'
 import { referencesLocked } from '../document-status.js'
-import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanEditDocumentContent, actorCanViewSources, DOCUMENT_EDIT_FORBIDDEN, SOURCE_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 
 const createSchema = z.object({
   sectionId: z.string().trim().min(1).max(200),
@@ -105,6 +105,7 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
 
     const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, projectId: true, deletedAt: true } })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanViewSources(app.prisma, request.user!, doc.projectId))) return reply.code(403).send(SOURCE_VIEW_FORBIDDEN)
 
     const [all, removed] = await Promise.all([
       withRefColumns(select => app.prisma.sourceReference.findMany({
@@ -157,6 +158,7 @@ export const documentsReferencesRoutes: FastifyPluginAsync = async (app) => {
       select: { id: true, projectId: true, deletedAt: true, currentVersion: { select: { sections: { select: { sectionId: true, sectionNumber: true, sectionTitle: true } } } } },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanViewSources(app.prisma, request.user!, doc.projectId))) return reply.code(403).send(SOURCE_VIEW_FORBIDDEN)
 
     const [links, allRefs, removed] = await Promise.all([
       app.prisma.documentSource.findMany({ where: { documentId }, orderBy: { createdAt: 'asc' } }),

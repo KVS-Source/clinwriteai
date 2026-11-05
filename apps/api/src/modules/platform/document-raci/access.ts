@@ -136,7 +136,7 @@ export async function actorIsProjectAuthor(
   actor: AuthenticatedUser,
   projectId: string,
 ): Promise<boolean> {
-  if (RACI_LOCKED_ROLES.has(actor.role)) return false
+  if (RACI_LOCKED_ROLES.has(actor.role) || actor.role === 'guest') return false
   const [rRow, assigned] = await Promise.all([
     prisma.documentRaci.findFirst({
       where: { userId: actor.id, letter: 'R', removedAt: null, document: { projectId, deletedAt: null } },
@@ -149,16 +149,74 @@ export async function actorIsProjectAuthor(
 
 export const SOURCE_EDIT_FORBIDDEN = {
   error: 'source_edit_forbidden',
-  message: "Only an author (R) on this project's documents can remove its source documents.",
+  message: "Only an author (R) on this project's documents can change its source documents.",
 } as const
 
-// AI Chat (and the inline section AI prompt) is turned off for Project Managers.
-// The web hides the entry points; the API refuses the calls so it can't be bypassed.
+// Who may see a project's source documents (list, open, download, and the references
+// to them): R, C, Q or A on any of its documents (or a document's assignee), its PMs and
+// auditors. Admins, Informed and guests never, whatever letters they hold.
+const SOURCE_HIDDEN_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin', 'guest'])
+const SOURCE_VIEW_LETTERS = ['R', 'C', 'Q', 'A']
+
+const pmOnProject = async (prisma: PrismaClient, actor: AuthenticatedUser, projectId: string) => {
+  if (actor.role !== 'pm') return false
+  const visible = await visibleProjectIdsForUser(prisma, actor)
+  return visible === 'all' || visible.has(projectId)
+}
+
+export async function actorCanViewSources(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  projectId: string,
+): Promise<boolean> {
+  if (SOURCE_HIDDEN_ROLES.has(actor.role)) return false
+  if (actor.role === 'auditor' || actor.role === 'read-only') return true
+  if (actor.role === 'pm') return pmOnProject(prisma, actor, projectId)
+  const [row, assigned] = await Promise.all([
+    prisma.documentRaci.findFirst({
+      where: { userId: actor.id, letter: { in: SOURCE_VIEW_LETTERS }, removedAt: null, document: { projectId, deletedAt: null } },
+      select: { id: true },
+    }),
+    prisma.document.findFirst({ where: { projectId, deletedAt: null, assigneeId: actor.id }, select: { id: true } }),
+  ])
+  return !!(row || assigned)
+}
+
+export const SOURCE_VIEW_FORBIDDEN = {
+  error: 'source_view_forbidden',
+  message: "You don't have access to this project's source documents.",
+} as const
+
+// Who may add a file to the library: authors, and for now the project's PMs too, who
+// need it when creating a document (the source picker and the AI first draft).
+export async function actorCanUploadSources(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  projectId: string,
+): Promise<boolean> {
+  return (await pmOnProject(prisma, actor, projectId)) || actorIsProjectAuthor(prisma, actor, projectId)
+}
+
+// Saving or discarding an existing upload is for authors. A PM only gets to finish
+// or cancel their own upload; a file already saved to the library is out of their reach.
+export async function actorCanChangeSource(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  upload: { projectId: string; status: string; uploadedBy: string },
+): Promise<boolean> {
+  if (await actorIsProjectAuthor(prisma, actor, upload.projectId)) return true
+  return upload.status === 'pending_classification' && upload.uploadedBy === actor.id
+    && pmOnProject(prisma, actor, upload.projectId)
+}
+
+// AI Chat (and the inline section AI prompt) is for a document's authors only: the
+// routes also require actorCanEditDocumentContent. A PM is refused outright, even
+// holding R. The web disables the entry points; the API refuses so it can't be bypassed.
 export const actorCanUseAiChat = (actor: { role: string }): boolean => actor.role !== 'pm'
 
 export const AI_CHAT_FORBIDDEN = {
   error: 'ai_chat_not_allowed',
-  message: 'AI Chat is not available to Project Managers.',
+  message: "AI Chat is only available to this document's authors.",
 } as const
 
 // Admins can never hold R or be a document's assignee. A PM can, so that they sign the document as

@@ -21,6 +21,8 @@ interface Opts {
   projectStatus?: string
   role?:          string
   capabilities?:  string[]
+  letter?:        string
+  assigneeId?:    string
   section?:       { contentHtml: string; ichStatus: string } | null
 }
 
@@ -33,12 +35,16 @@ async function build(opts: Opts = {}) {
     document: {
       findUnique: vi.fn(async () => ({
         id: DOC, title: 'CSR Velora-301', type: opts.type ?? 'csr_full', status: opts.docStatus ?? 'in_authoring',
-        projectId: 'proj-1', deletedAt: null,
+        projectId: 'proj-1', deletedAt: null, assigneeId: opts.assigneeId ?? 'someone-else',
         currentVersion: {
           versionNumber: 'v0.3',
           sections: section ? [{ id: 'row-1', sectionId: 's5', sectionNumber: '§5', lastEditedBy: 'u-9', lastEditedAt: new Date('2026-11-01T09:00:00Z'), ...section }] : [],
         },
       })),
+    },
+    documentRaci: {
+      findFirst: vi.fn(async ({ where }: { where: { letter: { in: string[] } } }) =>
+        (opts.letter && where.letter.in.includes(opts.letter) ? { id: 'raci-1' } : null)),
     },
     project:          { findUnique: vi.fn(async () => ({ status: opts.projectStatus ?? 'ongoing' })) },
     user:             { findMany: vi.fn(async () => [{ id: 'u-9', name: 'Dr A Rao' }]) },
@@ -98,15 +104,24 @@ describe('GET /documents/:id/ich-e3', () => {
   })
 
   it.each([
-    ['tenant-admin', [], true],
-    ['admin',        [], true],
-    ['contributor',  ['can-review'], true],
-    ['contributor',  ['can-author'], false],
-    ['pm',           [], false],
-  ])('canWaive for %s %j is %s — same check as the waive route', async (role, capabilities, expected) => {
-    const { app } = await build({ role, capabilities })
+    ['contributor',  'R', true],
+    ['contributor',  'Q', true],
+    ['contributor',  'C', false],
+    ['contributor',  'A', false],
+    ['contributor',  'I', false],
+    ['tenant-admin', 'R', false],
+    ['pm',           'R', false],
+  ])('canWaive for %s holding %s is %s — same check as the waive route', async (role, letter, expected) => {
+    const { app } = await build({ role, letter })
     const body = (await app.inject({ method: 'GET', url: `/documents/${DOC}/ich-e3` })).json()
     expect(body.canWaive).toBe(expected)
+  })
+
+  it('canWaive is true for the assignee, the first Author, and ignores the can-review capability', async () => {
+    const assignee = await build({ role: 'contributor', assigneeId: 'u1' })
+    expect((await assignee.app.inject({ method: 'GET', url: `/documents/${DOC}/ich-e3` })).json().canWaive).toBe(true)
+    const reviewer = await build({ role: 'contributor', capabilities: ['can-review'], letter: 'C' })
+    expect((await reviewer.app.inject({ method: 'GET', url: `/documents/${DOC}/ich-e3` })).json().canWaive).toBe(false)
   })
 })
 
@@ -120,11 +135,28 @@ describe('waive / un-waive — CSR only', () => {
     expect(append).not.toHaveBeenCalled()
   })
 
-  it('accepts §16.4 as a waivable section on a CSR', async () => {
-    const { app, append } = await build()
+  it.each(['R', 'Q'])('accepts §16.4 as a waivable section on a CSR from %s', async (letter) => {
+    const { app, append } = await build({ role: 'contributor', letter })
     const res = await app.inject({ method: 'POST', url: `/documents/${DOC}/ich-e3/${encodeURIComponent('§16.4')}/waive`, payload: { reason: 'Not a US submission' } })
     expect(res.statusCode).toBe(201)
     expect(append.mock.calls[0]![0]).toMatchObject({ action: 'ich_section_waived', details: { sectionCode: '§16.4' } })
+  })
+
+  it.each([
+    ['contributor',  'C'],
+    ['contributor',  'A'],
+    ['tenant-admin', 'R'],
+    ['pm',           'R'],
+  ])('403 for %s holding %s: no waiver is written or removed', async (role, letter) => {
+    const { app, waiverUpserts, append } = await build({ role, letter, capabilities: ['can-review'] })
+    const url = `/documents/${DOC}/ich-e3/${encodeURIComponent('§15')}/waive`
+    const waive = await app.inject({ method: 'POST', url, payload: { reason: 'Not required here at all' } })
+    expect(waive.statusCode).toBe(403)
+    expect(waive.json()).toMatchObject({ error: 'ich_waive_forbidden' })
+    const clear = await app.inject({ method: 'DELETE', url })
+    expect(clear.statusCode).toBe(403)
+    expect(waiverUpserts).toHaveLength(0)
+    expect(append).not.toHaveBeenCalled()
   })
 
   it('400 not_applicable when un-waiving on a non-CSR document', async () => {

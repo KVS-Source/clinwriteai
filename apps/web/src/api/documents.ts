@@ -596,7 +596,7 @@ export const documentsApi = {
   // `tsc && vite build`. The panel consumes `code`, `sectionId`, `status`,
   // `inDocument`, `conditional` and the optional `waiver` payload directly
   // off this shape. `applicable` is false for anything but a full CSR;
-  // `canWaive` is the API's own role check for the current user.
+  // `canWaive` is the API's own check for the current user (R or Q on the document).
   getICHE3: (documentId: string) =>
     api.get<{
       applicable:        boolean

@@ -1,16 +1,21 @@
-// Inactivity sweep — warn, then suspend, accounts nobody has signed in to.
+// Inactivity sweep — warn, then suspend, accounts nobody is using.
 //
-//   day 25 of inactivity  → one warning (in-app + email): sign in by <date> or
-//                           the account is suspended on <date>.
-//   day 30 of inactivity  → the account is suspended (status 'suspended',
-//                           sessions revoked, audited as user.suspend with
-//                           reason 'inactivity'), and the user is told by email.
+//   warning time (default day 25)    → one warning (in-app + email): sign in by
+//                                      <time> or the account is suspended then.
+//   suspension time (default day 30) → the account is suspended (status
+//                                      'suspended', sessions revoked, audited as
+//                                      user.suspend with reason 'inactivity'),
+//                                      and the user is told by email.
 //
-// Suspension never comes sooner than 5 days after the warning, so an account
-// that was already long inactive when this shipped still gets the full notice.
+// Both times come from settings (INACTIVITY_WARNING_MINUTES /
+// INACTIVITY_SUSPEND_MINUTES; defaults 25 and 30 days). The warning lead is the
+// gap between them, and suspension never comes sooner than that lead after the
+// warning — so an account already long inactive when this shipped still gets
+// the full notice.
 //
-// The inactivity clock starts at the latest of: the last sign-in (lastActiveAt,
-// stamped by password and SSO sign-in), registration (termsAcceptedAt),
+// The inactivity clock starts at the latest of: the last use of the app
+// (lastActiveAt — any signed-in request, at most once a minute, plus every
+// sign-in; see auth/plugin.ts), registration (termsAcceptedAt),
 // account creation, and the last time an admin unsuspended the account — so an
 // unsuspended user isn't suspended again the next night. Signing in resets it,
 // which also voids an earlier warning (only warnings after the clock started count).
@@ -21,13 +26,28 @@
 
 import type { PrismaClient } from '@prisma/client'
 
-export const INACTIVITY_SUSPEND_DAYS = 30
-export const INACTIVITY_WARNING_LEAD_DAYS = 5
+export interface InactivityConfig {
+  warningAfterMs: number     // idle this long → warning
+  suspendAfterMs: number     // idle this long → suspension (and ≥ the lead after the warning)
+}
+
+const MINUTE = 60_000
+const DAY = 86_400_000
+export const DEFAULT_INACTIVITY_CONFIG: InactivityConfig = { warningAfterMs: 25 * DAY, suspendAfterMs: 30 * DAY }
+
+// From INACTIVITY_WARNING_MINUTES / INACTIVITY_SUSPEND_MINUTES. Missing or
+// invalid values (or a warning not before the suspension) fall back to 25 / 30 days.
+export function inactivityConfigFromEnv(env: NodeJS.ProcessEnv = process.env): InactivityConfig {
+  const minutes = (v: string | undefined) => (v && Number(v) > 0 ? Number(v) * MINUTE : undefined)
+  const warningAfterMs = minutes(env.INACTIVITY_WARNING_MINUTES) ?? DEFAULT_INACTIVITY_CONFIG.warningAfterMs
+  const suspendAfterMs = minutes(env.INACTIVITY_SUSPEND_MINUTES) ?? DEFAULT_INACTIVITY_CONFIG.suspendAfterMs
+  return suspendAfterMs > warningAfterMs ? { warningAfterMs, suspendAfterMs } : DEFAULT_INACTIVITY_CONFIG
+}
+
 export const INACTIVITY_WARNING_KIND = 'account.inactivity_warning'
 export const INACTIVITY_SUSPENDED_KIND = 'account.inactivity_suspended'
 export const INACTIVITY_ACTOR = 'system:inactivity'
 
-const DAY = 86_400_000
 const EXEMPT_ROLES = ['tenant-admin', 'admin', 'super-admin']
 
 export interface InactivityDeps {
@@ -42,13 +62,19 @@ export interface InactivityDeps {
   }) => Promise<unknown> }
 }
 
-const day = (d: Date) => d.toISOString().slice(0, 10)
+// "2026-11-05 14:32 UTC" — the minutes matter when the window is short.
+const when = (d: Date) => `${d.toISOString().slice(0, 16).replace('T', ' ')} UTC`
 const maxDate = (...ds: Array<Date | null | undefined>) =>
   new Date(Math.max(...ds.filter((d): d is Date => !!d).map(d => d.getTime())))
 
-export async function runInactivitySweep(deps: InactivityDeps, now: Date = new Date()): Promise<{ warned: string[]; suspended: string[] }> {
+export async function runInactivitySweep(
+  deps: InactivityDeps,
+  now: Date = new Date(),
+  config: InactivityConfig = DEFAULT_INACTIVITY_CONFIG,
+): Promise<{ warned: string[]; suspended: string[] }> {
   const { prisma } = deps
-  const warnAfter = (INACTIVITY_SUSPEND_DAYS - INACTIVITY_WARNING_LEAD_DAYS) * DAY
+  const warnAfter = config.warningAfterMs
+  const lead = config.suspendAfterMs - config.warningAfterMs
 
   const users = await prisma.user.findMany({
     where: { status: 'active', role: { notIn: EXEMPT_ROLES } },
@@ -80,7 +106,7 @@ export async function runInactivitySweep(deps: InactivityDeps, now: Date = new D
     })
 
     if (!warning) {
-      const suspendOn = maxDate(new Date(clockStart.getTime() + INACTIVITY_SUSPEND_DAYS * DAY), new Date(now.getTime() + INACTIVITY_WARNING_LEAD_DAYS * DAY))
+      const suspendOn = maxDate(new Date(clockStart.getTime() + config.suspendAfterMs), new Date(now.getTime() + lead))
       await deps.notifications.send({
         recipientId: u.id,
         kind:        INACTIVITY_WARNING_KIND,
@@ -88,8 +114,8 @@ export async function runInactivitySweep(deps: InactivityDeps, now: Date = new D
         title:       'Sign in to keep your ClinWrite.AI account active',
         body:
           `Hello ${u.name},\n\n` +
-          `You haven't signed in to ClinWrite.AI since ${day(clockStart)}. ` +
-          `Please sign in before ${day(suspendOn)}, or your account will be suspended on that date.\n\n` +
+          `Your ClinWrite.AI account hasn't been used since ${when(clockStart)}. ` +
+          `Please sign in before ${when(suspendOn)}, or your account will be suspended at that time.\n\n` +
           `Signing in keeps your account active. If it is suspended, contact your administrator to restore access.`,
         linkPath:    '/sign-in',
         channels:    ['in_app', 'email'],
@@ -105,7 +131,7 @@ export async function runInactivitySweep(deps: InactivityDeps, now: Date = new D
       continue
     }
 
-    const suspendAt = maxDate(new Date(clockStart.getTime() + INACTIVITY_SUSPEND_DAYS * DAY), new Date(warning.createdAt.getTime() + INACTIVITY_WARNING_LEAD_DAYS * DAY))
+    const suspendAt = maxDate(new Date(clockStart.getTime() + config.suspendAfterMs), new Date(warning.createdAt.getTime() + lead))
     if (now < suspendAt) continue
 
     // Same effect as an admin's Suspend: status + every live session revoked.
@@ -128,7 +154,7 @@ export async function runInactivitySweep(deps: InactivityDeps, now: Date = new D
       title:       'Your ClinWrite.AI account has been suspended',
       body:
         `Hello ${u.name},\n\n` +
-        `Your ClinWrite.AI account was suspended on ${day(now)} because nobody had signed in to it since ${day(clockStart)}. ` +
+        `Your ClinWrite.AI account was suspended at ${when(now)} because it hadn't been used since ${when(clockStart)}. ` +
         `Contact your administrator to have it restored.`,
       channels:    ['in_app', 'email'],
       payload:     { inactiveSince: clockStart.toISOString() },

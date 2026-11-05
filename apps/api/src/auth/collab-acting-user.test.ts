@@ -25,7 +25,10 @@ async function build() {
   app.decorate('secrets', { getSecret: async () => 'x'.repeat(40) } as never)
   app.decorate('env', { JWT_EXPIRY: '1h', SSO_PROVIDER: 'mock', NODE_ENV: 'test', EMAIL_FROM: 'n@x', CORS_ORIGIN: 'http://x', SESSION_COOKIE_DOMAIN: '' } as never)
   await app.register(fp(async (a) => {
-    a.decorate('prisma', { user: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => USERS[where.id] ?? null) } } as never)
+    a.decorate('prisma', { user: {
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => USERS[where.id] ?? null),
+      updateMany: vi.fn(async () => ({ count: 1 })),     // activity stamp (activity.test.ts)
+    } } as never)
   }, { name: 'prisma' }))
   await app.register(fp(async (a) => { a.decorate('audit', { append: vi.fn(async () => ({})) } as never) }, { name: 'audit' }))
   await app.register(authPlugin)

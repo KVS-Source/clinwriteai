@@ -1,9 +1,10 @@
-// Inactivity sweep: warn at 25 days without a sign-in, suspend at 30 — never
+// Inactivity sweep: by default warn at 25 days unused, suspend at 30 — never
 // sooner than 5 days after the warning. Signing in or being unsuspended resets
 // the clock; admins are left out; repeated runs don't double-warn or re-suspend.
+// The times come from settings (e.g. 10 / 15 minutes for testing).
 
 import { describe, expect, it, vi } from 'vitest'
-import { INACTIVITY_SUSPENDED_KIND, INACTIVITY_WARNING_KIND, runInactivitySweep } from './inactivity.js'
+import { INACTIVITY_SUSPENDED_KIND, INACTIVITY_WARNING_KIND, inactivityConfigFromEnv, runInactivitySweep } from './inactivity.js'
 
 type Row = Record<string, any> // eslint-disable-line @typescript-eslint/no-explicit-any -- loose in-memory Prisma stub
 const NOW = new Date('2026-11-05T12:00:00Z')
@@ -111,5 +112,59 @@ describe('inactivity sweep', () => {
   it('only looks at active accounts (invited / suspended / deprovisioned are skipped)', async () => {
     const t = setup({ users: ['invited', 'suspended', 'deprovisioned'].map((status, i) => ({ id: `u${i}`, email: `${i}@x.io`, status, lastActiveAt: daysAgo(120) })) })
     expect(await t.run()).toEqual({ warned: [], suspended: [] })
+  })
+
+  it('messages name the time as well as the date', async () => {
+    const t = setup({ users: [{ id: 'u1', email: 'a@x.io', lastActiveAt: daysAgo(25) }] })
+    await t.run()
+    expect(t.notifications.send.mock.calls[0][0].body).toContain('2026-11-10 12:00 UTC')
+  })
+})
+
+describe('inactivity sweep with short (testing) times: warn at 10 min, suspend at 15', () => {
+  const MIN = 60_000
+  const config = { warningAfterMs: 10 * MIN, suspendAfterMs: 15 * MIN }
+  const minsAgo = (n: number) => new Date(NOW.getTime() - n * MIN)
+  const runShort = (t: ReturnType<typeof setup>) => runInactivitySweep(t.deps, NOW, config)
+
+  it('9 minutes unused → nothing', async () => {
+    const t = setup({ users: [{ id: 'u1', email: 'a@x.io', lastActiveAt: minsAgo(9) }] })
+    expect(await runShort(t)).toEqual({ warned: [], suspended: [] })
+  })
+
+  it('10 minutes unused → warning by email, naming suspension at minute 15', async () => {
+    const t = setup({ users: [{ id: 'u1', email: 'a@x.io', lastActiveAt: minsAgo(10) }] })
+    expect(await runShort(t)).toEqual({ warned: ['u1'], suspended: [] })
+    const sent = t.notifications.send.mock.calls[0][0]
+    expect(sent).toMatchObject({ kind: INACTIVITY_WARNING_KIND, channels: ['in_app', 'email'] })
+    expect(sent.payload.suspendOn).toBe(new Date(NOW.getTime() + 5 * MIN).toISOString())
+    expect(sent.body).toContain('2026-11-05 12:05 UTC')
+  })
+
+  it('15 minutes unused, warned 5 minutes ago → suspended', async () => {
+    const t = setup({ users: [{ id: 'u1', email: 'a@x.io', lastActiveAt: minsAgo(15) }], notes: [{ recipientId: 'u1', kind: INACTIVITY_WARNING_KIND, createdAt: minsAgo(5) }] })
+    expect(await runShort(t)).toEqual({ warned: [], suspended: ['u1'] })
+    expect(t.users[0].status).toBe('suspended')
+  })
+
+  it('still gives the full 5 minutes after a late warning', async () => {
+    const t = setup({ users: [{ id: 'u1', email: 'a@x.io', lastActiveAt: minsAgo(16) }], notes: [{ recipientId: 'u1', kind: INACTIVITY_WARNING_KIND, createdAt: minsAgo(3) }] })
+    expect(await runShort(t)).toEqual({ warned: [], suspended: [] })
+  })
+})
+
+describe('inactivityConfigFromEnv', () => {
+  const D = 86_400_000
+  it('defaults to 25 / 30 days', () => {
+    expect(inactivityConfigFromEnv({})).toEqual({ warningAfterMs: 25 * D, suspendAfterMs: 30 * D })
+  })
+  it('reads minutes from the settings', () => {
+    expect(inactivityConfigFromEnv({ INACTIVITY_WARNING_MINUTES: '10', INACTIVITY_SUSPEND_MINUTES: '15' })).toEqual({ warningAfterMs: 600_000, suspendAfterMs: 900_000 })
+  })
+  it.each([
+    ['a warning not before the suspension', { INACTIVITY_WARNING_MINUTES: '15', INACTIVITY_SUSPEND_MINUTES: '15' }],
+    ['non-numbers', { INACTIVITY_WARNING_MINUTES: 'ten', INACTIVITY_SUSPEND_MINUTES: 'x' }],
+  ])('falls back to the defaults for %s', (_l, env) => {
+    expect(inactivityConfigFromEnv(env)).toEqual({ warningAfterMs: 25 * D, suspendAfterMs: 30 * D })
   })
 })

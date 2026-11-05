@@ -18,7 +18,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import type { MultipartFile } from '@fastify/multipart'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { ASSIGNEE_NOT_ELIGIBLE, userCanBeAssignee } from '../../platform/document-raci/access.js'
+import { actorCanChangeSource, actorCanUploadSources, ASSIGNEE_NOT_ELIGIBLE, SOURCE_EDIT_FORBIDDEN, userCanBeAssignee } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { templateSections } from './templates.js'
 import { generateBlobKey } from '../../../modules/platform/blob/local-storage.js'
@@ -86,6 +86,7 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
     const { projectId } = request.params as { projectId: string }
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
+    if (!(await actorCanUploadSources(app.prisma, request.user!, projectId))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
 
     const file: MultipartFile | undefined = await request.file().catch(() => undefined)
     if (!file) return reply.code(400).send({ error: 'no_file', message: 'multipart file part is required' })
@@ -164,6 +165,7 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
 
     const upload = await app.prisma.documentUpload.findFirst({ where: { id: uploadId, projectId } })
     if (!upload) return reply.code(404).send({ error: 'upload_not_found' })
+    if (!(await actorCanChangeSource(app.prisma, request.user!, upload))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
     if (upload.status === 'rejected') return reply.code(409).send({ error: 'already_rejected' })
 
     const saved = await app.prisma.documentUpload.update({
@@ -206,6 +208,7 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
       where: { id: parsed.data.uploadId, projectId },
     })
     if (!upload) return reply.code(404).send({ error: 'upload_not_found' })
+    if (!(await actorCanChangeSource(app.prisma, request.user!, upload))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
     if (upload.status === 'confirmed') {
       return reply.code(409).send({ error: 'already_confirmed', documentId: upload.documentId })
     }

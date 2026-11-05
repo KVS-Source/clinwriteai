@@ -6,8 +6,8 @@
 // creates a new version with the restored text.
 
 import { useTranslation } from 'react-i18next'
-import { regulatoryWritingApi } from '../modules/regulatory-writing/api/regulatoryWriting'
-import { EditHistoryPanel, type EditOrigin } from './EditHistoryPanel'
+import { regulatoryWritingApi } from '../../modules/regulatory-writing/api/regulatoryWriting'
+import { EditHistoryPanel, type EditOrigin } from '../../panels/EditHistoryPanel'
 
 interface Props {
   questionId: string

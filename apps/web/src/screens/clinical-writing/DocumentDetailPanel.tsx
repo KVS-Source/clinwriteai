@@ -13,6 +13,7 @@ import { downloadSourceFile, sourceErrorMessage } from '../../utils/openSource'
 import { SourceViewer } from '../../panels/SourceReferencesPanel'
 import { EyeIcon, MetaRow, MetaSection, fmtDate } from './detailPanelParts'
 import { DeadlineField } from './DeadlineField'
+import { useSourceAccess } from '../../hooks/useSourceAccess'
 
 interface Props {
   projectId: string
@@ -38,10 +39,11 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
   const [stageError, setStageError] = useState<string | null>(null)
   useEffect(() => { setViewing(null); setViewError(null); setStageError(null) }, [doc?.id])
 
+  const canViewSources = useSourceAccess(projectId)?.canView === true
   const sources = useQuery({
     queryKey: ['document-sources', doc?.id],
     queryFn: () => documentsApi.listDocumentSources(doc!.id),
-    enabled: !!doc,
+    enabled: !!doc && canViewSources,
   })
 
   // Stage context — tells us what the next stage would be, so the button
@@ -177,6 +179,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
               </MetaRow>
             </MetaSection>
 
+            {canViewSources && (
             <MetaSection label={sources.data ? t('page.document_detail_panel.source_documents_with_count', { count: items.length }) : t('page.document_detail_panel.source_documents')}>
               {sources.isLoading && <p className="text-[13px] text-slate-400">{t('page.document_detail_panel.loading')}</p>}
               {sources.isError && <p className="text-[13px] text-red-700" role="alert">{t('page.document_detail_panel.sources_load_failed')}</p>}
@@ -222,6 +225,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
               </ul>
               {viewError && <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-[12px] text-amber-900" role="alert">{viewError}</div>}
             </MetaSection>
+            )}
           </div>
 
           <div className="sticky bottom-0 flex flex-col gap-2 border-t border-slate-200 bg-white px-5 py-3">

@@ -6,7 +6,6 @@ import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, Pl
 import { documentsApi, projectsApi } from '../../api'
 import { platformApi } from '../../platform/api/platformApi'
 import { usePlatformStore } from '../../platform/store'
-import { isReadOnlyRole } from '../../config/roles'
 import { StatusPill, SlidePanel } from '../../components/ui'
 import { RaciEditor } from '../../components/raci/RaciEditor'
 import { documentRaciKey } from './MyRaciRole'
@@ -14,7 +13,9 @@ import { useProjectStore } from '../../store'
 import { NewDocumentForm } from './NewDocument'
 import { UploadDocumentForm } from './UploadDocument'
 import { SourceDocumentsTab } from './SourceDocumentsTab'
+import { useSourceAccess } from '../../hooks/useSourceAccess'
 import { DocumentDetailPanel } from './DocumentDetailPanel'
+import { documentOpenPath } from './documentOpenPath'
 import { DocumentCommentsPanel } from './DocumentCommentsPanel'
 import { cleanSectionRef } from '../../panels/CommentComposer'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
@@ -160,7 +161,8 @@ export function ClinicalWritingHome() {
   const selectedStage  = pick<DocumentStage>('stage', Object.keys(STAGE_LABELS))
   const selectedStatus = pick<DocumentStatus>('status', Object.keys(STATUS_LABELS))
   const selectedType   = pick<DocumentType>('type', Object.keys(TYPE_LABELS))
-  const view: 'documents' | 'sources' = searchParams.get('tab') === 'sources' ? 'sources' : 'documents'
+  const sourceAccess = useSourceAccess(projectId)
+  const view: 'documents' | 'sources' = searchParams.get('tab') === 'sources' && sourceAccess?.canView !== false ? 'sources' : 'documents'
   const setSearch         = (v: string) => setParams({ q: v })
   const setSelectedStatus = (v: DocumentStatus | 'all') => setParams({ status: v })
   const setSelectedType   = (v: DocumentType | 'all') => setParams({ type: v })
@@ -213,7 +215,7 @@ export function ClinicalWritingHome() {
   const { data: sourceSummary } = useQuery({
     queryKey: ['source-documents', projectId, 'summary'],
     queryFn:  () => documentsApi.listSources(projectId!, { pageSize: 10 }),
-    enabled:  !!projectId,
+    enabled:  !!projectId && sourceAccess?.canView === true,
     staleTime: 30_000,
   })
   const sourceCount = sourceSummary?.summary.files
@@ -316,17 +318,13 @@ export function ClinicalWritingHome() {
 
   const resetFilters = () => setParams({ q: null, stage: null, status: null, type: null })
 
-  // Context-aware Open: documents at the CRM stage open on the document's
-  // own CRM tab (comment-resolution meeting), keeping the Editor / Reviewer
-  // View / E-Signature tabs alongside. Everything else opens in the Editor.
-  // Writers were confused when a CRM-stage doc opened the editor with no
-  // meeting controls — QA caught it on the stage=crm filter view.
-  const handleDocClick = (doc: Document) => {
-    if (doc.stage === 'crm') {
-      navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}/crm`)
-      return
-    }
-    navigate(`/projects/${projectId}/clinical-writing/documents/${doc.id}`)
+  // Context-aware Open: a document opens on the tab for its next step, keeping
+  // the other tabs alongside. Writers were confused when a CRM-stage doc opened
+  // the editor with no meeting controls — QA caught it on the stage=crm filter view.
+  const handleDocClick = (doc: Document) => navigate(documentOpenPath(doc, projectId!))
+  const openById = (id: string) => {
+    const doc = documents.find(d => d.id === id)
+    navigate(doc ? documentOpenPath(doc, projectId!) : `/projects/${projectId}/clinical-writing/documents/${id}`)
   }
 
   // One project-wide comments call (not one per document). Comment mutations invalidate
@@ -375,7 +373,7 @@ export function ClinicalWritingHome() {
       <div className="flex flex-col gap-4 border-b border-slate-200 bg-white px-8 pt-5 pb-[22px]">
         {/* Breadcrumb moved to TopNav (Projects / Project / Clinical Writing). */}
 
-        <div className="flex items-start justify-between gap-8">
+        <div className="flex flex-wrap items-start justify-between gap-x-8 gap-y-4">
           {/* Left: title + meta + buttons */}
           <div className="flex flex-none flex-col gap-2">
             <div className="flex items-center gap-2.5">
@@ -402,7 +400,7 @@ export function ClinicalWritingHome() {
                   + {t('page.clinical_writing_home.new_document')}
                 </button>
               )}
-              {!isReadOnlyRole(currentUser.role) && (
+              {sourceAccess?.canUpload && (
                 <button
                   type="button"
                   onClick={() => setUploadOpen(true)}
@@ -416,7 +414,7 @@ export function ClinicalWritingHome() {
           </div>
 
           {/* Right: stage progress stepper */}
-          <div className="flex flex-1 flex-col gap-2" style={{ maxWidth: '660px' }}>
+          <div className="flex min-w-[520px] flex-1 flex-col gap-2" style={{ maxWidth: '660px' }}>
             <p className="text-xs font-semibold text-slate-500">{t('page.clinical_writing_home.stage_progress')}</p>
             <div className="flex items-start">
               {STAGES_ORDERED.map((stage, i) => {
@@ -474,13 +472,15 @@ export function ClinicalWritingHome() {
       {/* ============ Stage Tabs ============ */}
       <div className="flex flex-none gap-6 overflow-x-auto whitespace-nowrap border-b border-slate-200 bg-white px-8">
         <TabButton label={t('page.clinical_writing_home.tab_all_stages', { count: documents.length })}  active={view === 'documents' && selectedStage === 'all'} onClick={() => showStage('all')} />
-        <TabButton
-          label={sourceCount !== undefined
-            ? t('page.clinical_writing_home.tab_source_documents_with_count', { count: sourceCount })
-            : t('page.clinical_writing_home.tab_source_documents')}
-          active={view === 'sources'}
-          onClick={showSources}
-        />
+        {sourceAccess?.canView && (
+          <TabButton
+            label={sourceCount !== undefined
+              ? t('page.clinical_writing_home.tab_source_documents_with_count', { count: sourceCount })
+              : t('page.clinical_writing_home.tab_source_documents')}
+            active={view === 'sources'}
+            onClick={showSources}
+          />
+        )}
         <span aria-hidden="true" className="my-3.5 w-px flex-none bg-slate-200" />
         {STAGES_ORDERED.map(stage => (
           <TabButton
@@ -507,7 +507,7 @@ export function ClinicalWritingHome() {
             )}
             <SourceDocumentsTab
               projectId={projectId}
-              onUpload={isReadOnlyRole(currentUser.role) ? undefined : () => setUploadOpen(true)}
+              onUpload={sourceAccess?.canUpload ? () => setUploadOpen(true) : undefined}
             />
           </div>
         ) : (
@@ -737,7 +737,7 @@ export function ClinicalWritingHome() {
           stageLabel={detailDoc ? STAGE_LABELS[detailDoc.stage] : ''}
           assigneeName={detailDoc ? (teamById.get(detailDoc.assigneeId)?.name ?? '—') : ''}
           onClose={() => setDetailDoc(null)}
-          onOpen={id => navigate(`/projects/${projectId}/clinical-writing/documents/${id}`)}
+          onOpen={openById}
           onOpenRaci={id => {
             const d = documents.find(x => x.id === id) ?? null
             if (d) setRaciDoc(d)
@@ -852,7 +852,7 @@ export function ClinicalWritingHome() {
             <div className="flex flex-none items-center justify-end border-b border-slate-200 px-4 py-2">
               <button
                 type="button"
-                onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${auditDoc.id}`)}
+                onClick={() => openById(auditDoc.id)}
                 className="text-[11px] font-semibold text-blue-600 hover:text-blue-700"
               >{t('page.clinical_writing_home.open_doc_arrow')}</button>
             </div>

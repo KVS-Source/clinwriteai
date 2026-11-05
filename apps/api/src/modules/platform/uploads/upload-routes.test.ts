@@ -28,6 +28,9 @@ async function build() {
   await app.register(multipart, { limits: { fileSize: 50 * 1024 * 1024, files: 1 } })
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1' })) },
+    // The caller is an author on the project; who may upload is in source-access.test.ts.
+    documentRaci: { findFirst: vi.fn(async () => ({ id: 'raci-r' })) },
+    document: { findFirst: vi.fn(async () => null) },
     documentUpload: { create },
     contentUpload: { create },
   } as never)
@@ -35,7 +38,7 @@ async function build() {
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    const user: AuthenticatedUser = { id: 'u1', email: 'a@b.c', role: 'admin', modules: ['A', 'C'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'u1', email: 'a@b.c', role: 'contributor', modules: ['A', 'C'], tenantId: null }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
   })
   // enabledModules() reads FEATURE_MODULES_ENABLED lazily; both modules on.

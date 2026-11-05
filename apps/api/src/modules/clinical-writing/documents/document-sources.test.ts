@@ -28,7 +28,9 @@ async function build() {
               { sectionId: 's9', sectionNumber: '9', sectionTitle: 'Study Design' },
             ] } }
           : null,
+      findFirst: async () => null,
     },
+    documentRaci: { findFirst: async () => ({ id: 'raci-c' }) },
     documentSource: {
       findMany: async () => [
         { documentId: 'DOC-1', uploadId: 'prot', linkedBy: 'u1', createdAt: new Date('2026-10-02T00:00:00Z') },

@@ -69,7 +69,7 @@ function CaretDownIcon() {
 
 const REFERENCE_MODES: ReferenceMode[] = ['traceability', 'ich-e3', 'meddra', 'tlf']
 
-export function ReferenceDropdown({ showIch = true }: { showIch?: boolean } = {}) {
+export function ReferenceDropdown({ showIch = true, showSources = true }: { showIch?: boolean; showSources?: boolean } = {}) {
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
   const [open, setOpen] = useState(false)
@@ -126,7 +126,7 @@ export function ReferenceDropdown({ showIch = true }: { showIch?: boolean } = {}
           }}
           data-reference-menu
         >
-          {OPTIONS.filter(o => showIch || o.mode !== 'ich-e3').map(({ mode, label, Icon }) => {
+          {OPTIONS.filter(o => (showIch || o.mode !== 'ich-e3') && (showSources || o.mode !== 'traceability')).map(({ mode, label, Icon }) => {
             const isActive = activePanel === mode
             return (
               <button

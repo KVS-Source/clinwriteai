@@ -23,8 +23,8 @@ test.setTimeout(120_000)
 
 type W = { __refPosts: Array<Record<string, unknown>>; __sectionSaves: Array<{ contentHtml?: string }>; __refStatus?: number }
 
-async function open(page: Page, opts: { canEdit?: boolean; refStatus?: number } = {}) {
-  await page.addInitScript(({ docId, projectId, sentence, sources, canEdit, refStatus }) => {
+async function open(page: Page, opts: { canEdit?: boolean; refStatus?: number; canViewSources?: boolean } = {}) {
+  await page.addInitScript(({ docId, projectId, sentence, sources, canEdit, refStatus, canViewSources }) => {
     const w = window as unknown as W
     w.__refPosts = []
     w.__sectionSaves = []
@@ -37,6 +37,7 @@ async function open(page: Page, opts: { canEdit?: boolean; refStatus?: number } 
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
       const method = (init?.method ?? (typeof input === 'object' && 'method' in input ? input.method : 'GET')).toUpperCase()
       if (/\/auth\/me(\?.*)?$/.test(url) && method === 'GET') return json(me)
+      if (url.includes(`/projects/${projectId}/source-documents/access`)) return json({ canView: canViewSources, canUpload: false })
       if (url.includes(`/projects/${projectId}/source-documents`)) {
         return json({ items: sources.map(s => ({ ...s, contentType: 'application/pdf', previewable: true, state: 'accepted', virusScanStatus: 'clean' })), total: sources.length, page: 1, pageSize: 100 })
       }
@@ -80,7 +81,7 @@ async function open(page: Page, opts: { canEdit?: boolean; refStatus?: number } 
       if (sub === '/ai-draft-status') return json({ state: 'idle', confidenceOverall: null, sections: [], lastPassNumber: 0 })
       return json(sub === '/versions' || sub.endsWith('s') ? [] : {})
     }
-  }, { docId: DOC_ID, projectId: PROJECT_ID, sentence: SENTENCE, sources: SOURCES, canEdit: opts.canEdit ?? true, refStatus: opts.refStatus ?? 0 })
+  }, { docId: DOC_ID, projectId: PROJECT_ID, sentence: SENTENCE, sources: SOURCES, canEdit: opts.canEdit ?? true, refStatus: opts.refStatus ?? 0, canViewSources: opts.canViewSources ?? true })
   await page.goto(`/projects/${PROJECT_ID}/clinical-writing/documents/${DOC_ID}`, { waitUntil: 'domcontentloaded' })
   await expect(page.locator('[data-section-content]')).toContainText(SENTENCE, { timeout: 60_000 })
 }
@@ -193,4 +194,10 @@ test('someone who may not edit the document gets a disabled button', async ({ pa
   await open(page, { canEdit: false })
   await expect(button(page)).toBeDisabled()
   await expect(button(page)).toHaveAttribute('title', 'Open the section for editing to insert a citation')
+})
+
+test('someone who may not view the project’s sources does not get the button', async ({ page }) => {
+  await open(page, { canViewSources: false })
+  await expect(page.locator('[data-reference-toggle]')).toBeVisible({ timeout: 30_000 })
+  await expect(button(page)).toHaveCount(0)
 })

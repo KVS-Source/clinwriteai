@@ -1868,6 +1868,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       include: { currentVersion: { include: { sections: { where: { OR: [{ sectionId }, { id: sectionId }] } } } } },
     })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(AI_CHAT_FORBIDDEN)
     const section = doc.currentVersion?.sections[0]
     if (!section) return reply.code(404).send({ error: 'section_not_found' })
 

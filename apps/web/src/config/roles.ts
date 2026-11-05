@@ -14,7 +14,3 @@ export const isPlatformAdmin = (user: { role: string; tenantId?: string | null }
 /** Auditors only read Clinical Writing. The API refuses their writes (AUDITOR_READ_ONLY);
  *  this keeps screens from offering, or quietly attempting, what would be refused. */
 export const isReadOnlyRole = (role: string | null | undefined): boolean => role === 'auditor' || role === 'read-only'
-
-/** AI Chat (and the inline section AI prompt) is turned off for Project Managers.
- *  The API enforces the same rule (AI_CHAT_FORBIDDEN); this only hides the entry points. */
-export const canUseAiChat = (role: string | null | undefined): boolean => role !== 'pm'

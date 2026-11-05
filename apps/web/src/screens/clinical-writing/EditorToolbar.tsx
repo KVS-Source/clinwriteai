@@ -3,8 +3,6 @@ import { useEditorState } from '@tiptap/react'
 import { useTranslation } from 'react-i18next'
 import { useDocumentStore, useEditorStore } from '../../store'
 import { ReferenceDropdown } from '../../components/ui'
-import { usePlatformStore } from '../../platform/store'
-import { canUseAiChat } from '../../config/roles'
 
 // --- Icons ---
 
@@ -155,6 +153,10 @@ interface EditorToolbarProps {
   // this flips, and useEditorState only re-reads on the next transaction, so without it the
   // buttons stayed grey until the first click in the text.
   editable?: boolean
+  // AI Chat is for this document's authors; the button stays disabled until that's known.
+  aiChatAllowed?: boolean
+  // The Source References option is left out once this is known to be false.
+  canViewSources?: boolean
 }
 
 // Document types where the Protocol metadata panel is reachable. Non-
@@ -162,7 +164,7 @@ interface EditorToolbarProps {
 // belong on a CSR / IB / DSUR row.
 const PROTOCOL_DOC_TYPES: ReadonlySet<DocumentType> = new Set(['protocol', 'protocol-amendment'])
 
-export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist, editable }: EditorToolbarProps = {}) {
+export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist, aiChatAllowed = false, canViewSources, editable }: EditorToolbarProps = {}) {
   const { t } = useTranslation()
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
@@ -172,7 +174,6 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
   const setCitationMode = useEditorStore(s => s.setCitationMode)
   const setSourceViewer = useEditorStore(s => s.setSourceViewer)
   const citationOpen = citationMode && activePanel === 'traceability'
-  const aiChatAllowed = canUseAiChat(usePlatformStore(s => s.currentUser.role))
 
   // Formatting command shortcuts — null-safe so toolbar can mount
   // before the editor is ready.
@@ -248,7 +249,7 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
 
       <Divider />
 
-      <ReferenceDropdown showIch={ichApplicable} />
+      <ReferenceDropdown showIch={ichApplicable} showSources={canViewSources !== false} />
 
       <Divider />
 
@@ -296,10 +297,10 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
           pill next to the section title (SectionAutosaveStatus). */}
 
       {/* AI Chat — accent button (label matches the panel header). Disabled for
-          Project Managers (canUseAiChat); the API refuses their AI calls too. */}
+          everyone but the document's authors; the API refuses their AI calls too. */}
       <button
         type="button"
-        title={aiChatAllowed ? t('page.editor_toolbar.ai_chat_tooltip') : t('page.editor_toolbar.ai_chat_disabled_pm')}
+        title={aiChatAllowed ? t('page.editor_toolbar.ai_chat_tooltip') : t('page.editor_toolbar.ai_chat_authors_only')}
         onClick={() => { if (aiChatAllowed) toggle('ai') }}
         disabled={!aiChatAllowed}
         data-panel-trigger
@@ -320,7 +321,9 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
 
       {/* Insert citation (FR-A-022) — opens the Source References panel with the citation form:
           pick a source document, and a citation linked to it goes in at the cursor. Needs the
-          section open for editing (this user holds its lock). */}
+          section open for editing (this user holds its lock); left out, like the Source References
+          option, for someone who may not view the project's sources. */}
+      {canViewSources !== false && (
       <button
         type="button"
         title={formatDisabled ? t('page.editor_toolbar.insert_citation_disabled_tooltip') : t('page.editor_toolbar.insert_citation_tooltip')}
@@ -341,6 +344,7 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
         <CiteIcon />
         {t('page.editor_toolbar.insert_citation')}
       </button>
+      )}
     </div>
   )
 }

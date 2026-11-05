@@ -72,7 +72,10 @@ async function build(actor: Partial<AuthenticatedUser>, opts: BuildOpts = {}) {
       findMany:   vi.fn(async () => [{ id: 'call-1', actorId: 'u-author', createdAt: now, model: 'claude', intent: 'edit', promptText: null,
         preCallSectionHtml: '<p>a</p>', postCallDocumentVersionId: 'v1', documentVersionId: 'v1', undoneAt: null, undoneBy: null }]),
     },
-    aiConversationMessage: { findUnique: vi.fn(async () => ({ id: 'msg-1', documentId: DOC, sectionId: 's1', actorId: userId, role: 'assistant' })) },
+    aiConversationMessage: {
+      findUnique: vi.fn(async () => ({ id: 'msg-1', documentId: DOC, sectionId: 's1', actorId: userId, role: 'assistant' })),
+      findMany:   vi.fn(async () => []),
+    },
     sectionLock: { findUnique: vi.fn(async () => (opts.lockHolder
       ? { documentId: DOC, sectionId: 's1', userId: opts.lockHolder, acquiredAt: now, lastHeartbeatAt: now }
       : null)) },
@@ -156,7 +159,7 @@ describe('AI Chat is turned off for Project Managers', () => {
     const app = await build({ id: 'u-pm', role: 'pm' }, { rRow: true, assignee: 'u-pm' })
     const res = await app.inject({ method, url, payload })
     expect(res.statusCode).toBe(403)
-    expect(res.json()).toMatchObject({ error: 'ai_chat_not_allowed', message: 'AI Chat is not available to Project Managers.' })
+    expect(res.json()).toMatchObject({ error: 'ai_chat_not_allowed', message: "AI Chat is only available to this document's authors." })
     await app.close()
   })
 
@@ -164,6 +167,35 @@ describe('AI Chat is turned off for Project Managers', () => {
     const app = await build({ id: 'u-w', role: 'contributor' }, { rRow: true, assignee: 'u-w' })
     const res = await app.inject({ method, url, payload })
     expect(res.json().error).not.toBe('ai_chat_not_allowed')
+    await app.close()
+  })
+})
+
+describe('reading an AI Chat thread is for authors only', () => {
+  const read = (app: Awaited<ReturnType<typeof build>>) => app.inject({ method: 'GET', url: `/documents/${DOC}/sections/s1/ai-chat` })
+
+  it.each([
+    ['an author (R)', { role: 'contributor' as const }, { rRow: true }],
+    ['the assignee', { id: 'u-w', role: 'contributor' as const }, { assignee: 'u-w' }],
+  ])('%s can', async (_label, actor, opts) => {
+    const app = await build(actor, { ...opts, withSection: true })
+    expect((await read(app)).statusCode).toBe(200)
+    await app.close()
+  })
+
+  it.each([
+    ['a reviewer (C)', { role: 'contributor' as const }, { letters: ['C'] }],
+    ['QC (Q)', { role: 'contributor' as const }, { letters: ['Q'] }],
+    ['an approver (A)', { role: 'contributor' as const }, { letters: ['A'] }],
+    ['Informed (I)', { role: 'contributor' as const }, { letters: ['I'] }],
+    ['a PM, even holding R', { role: 'pm' as const }, { rRow: true }],
+    ['a tenant admin, even holding R', { role: 'tenant-admin' as const }, { rRow: true }],
+    ['an auditor, even holding R', { role: 'auditor' as const }, { rRow: true }],
+  ])('%s cannot', async (_label, actor, opts) => {
+    const app = await build(actor, { ...opts, withSection: true })
+    const res = await read(app)
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error).toBe('ai_chat_not_allowed')
     await app.close()
   })
 })

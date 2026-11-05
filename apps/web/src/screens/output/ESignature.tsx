@@ -9,7 +9,7 @@
 // shown read-only here. The step the signed-in user may sign is the record
 // that is `awaiting` AND has their signerId (no delegation).
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { documentsApi, type SignatureChain, type SignatureRecord as ChainRecord } from '../../api'
@@ -671,16 +671,29 @@ export function ESignature() {
                 <MonoLabel>Signature chain · {CHAIN_LABEL[chain.chainType] ?? chain.chainType}</MonoLabel>
                 <p className="text-xs text-slate-500">Select a signatory to inspect its record.</p>
               </div>
-              {records.map((record, i) => (
-                <SignerRow
-                  grouped={chain.chainType === 'grouped'}
-                  key={record.id}
-                  record={record}
-                  state={states[i]}
-                  isSelected={selectedIndex === i}
-                  onSelect={() => { setSelectedIndex(i); signMut.reset() }}
-                />
-              ))}
+              {/* A grouped chain shows each role in its own labelled section; other chains keep their signing order. */}
+              {(chain.chainType === 'grouped'
+                ? GROUP_ORDER.map(meaning => ({ meaning: meaning as ChainRecord['meaning'] | null, rows: records.map((record, i) => ({ record, i })).filter(r => r.record.meaning === meaning) }))
+                : [{ meaning: null, rows: records.map((record, i) => ({ record, i })) }]
+              ).filter(group => group.rows.length > 0).map(group => {
+                const rows = group.rows.map(({ record, i }) => (
+                  <SignerRow
+                    grouped={chain.chainType === 'grouped'}
+                    key={record.id}
+                    record={record}
+                    state={states[i]}
+                    isSelected={selectedIndex === i}
+                    onSelect={() => { setSelectedIndex(i); signMut.reset() }}
+                  />
+                ))
+                if (!group.meaning) return <Fragment key="all">{rows}</Fragment>
+                return (
+                  <fieldset key={group.meaning} className="flex min-w-0 flex-col gap-2.5 rounded-lg border border-slate-200 px-3 pb-3 pt-1" data-signer-group={group.meaning}>
+                    <legend className="px-2 text-left text-[13px] font-bold text-slate-900">{GROUP_NAME[group.meaning]}</legend>
+                    {rows}
+                  </fieldset>
+                )
+              })}
             </div>
 
             <div className="flex items-start gap-2.5 rounded-lg border border-slate-200 px-4 py-3" style={{ backgroundColor: '#F8FAFC' }}>

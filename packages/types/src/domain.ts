@@ -444,6 +444,8 @@ export interface AddCommentBody {
   // Phase 2.2 — reviewer verdict. See
   // docs/decisions/module-a-defaults.md §3.
   verdict?: ReviewerVerdict
+  // People @mentioned in `text`; each gets an in-app notification.
+  mentionedUserIds?: string[]
 }
 
 export interface ResolveCommentBody {

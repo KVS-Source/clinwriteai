@@ -65,6 +65,23 @@ describe('submit-for-review — review due date', () => {
     expect(audit?.details).toMatchObject({ reviewDueAt: '2026-11-05T00:00:00.000Z' })
   })
 
+  it('records the review type and reviewers on the audit trail', async () => {
+    const { app, append } = await build()
+    const reviewers = [{ userId: 'u2', raci: 'C' }, { userId: 'u3', raci: 'A' }]
+    await submit(app, { reviewType: 'sequential', reviewers, dueDate: '2026-11-05' })
+    const audit = append.mock.calls.map(c => c[0]).find(e => e.action === 'document_submitted_for_review')
+    expect(audit?.details).toMatchObject({ reviewType: 'sequential', reviewers })
+  })
+
+  it('still submits, and keeps the due date, when the review type or reviewers are malformed', async () => {
+    const { app, updates, append } = await build()
+    const res = await submit(app, { reviewType: 'whenever', reviewers: 'everyone', dueDate: '2026-11-05' })
+    expect(res.statusCode).toBe(200)
+    expect(updates[0]).toMatchObject({ reviewDueAt: new Date('2026-11-05T00:00:00.000Z') })
+    const audit = append.mock.calls.map(c => c[0]).find(e => e.action === 'document_submitted_for_review')
+    expect(audit?.details).toMatchObject({ reviewType: null, reviewers: [] })
+  })
+
   it('stores null when no valid due date is sent', async () => {
     const { app, updates } = await build()
     await submit(app, { dueDate: 'not-a-date' })

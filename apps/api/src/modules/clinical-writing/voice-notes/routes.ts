@@ -17,6 +17,8 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { generateBlobKey } from '../../../modules/platform/blob/local-storage.js'
+import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
+import { canSeeDocument } from '../../projects/visibility.js'
 
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024   // 25 MB — ~5min of mp3
 
@@ -61,6 +63,7 @@ async function fetchVoiceAuthors(prisma: import('@prisma/client').PrismaClient, 
 export const voiceNotesRoutes: FastifyPluginAsync = async (app) => {
   app.get('/:documentId/voice-notes', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
     const rows = await app.prisma.voiceNote.findMany({
@@ -73,6 +76,7 @@ export const voiceNotesRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/voice-notes', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     // sectionRef + optional durationSeconds come as query params so the
     // multipart body can be pure audio (simplifies client code).
     const parsed = uploadQuerySchema.safeParse(request.query)
@@ -159,6 +163,7 @@ export const voiceNotesRoutes: FastifyPluginAsync = async (app) => {
   // playback — never embed the URL in long-lived storage.
   app.get('/:documentId/voice-notes/:noteId/audio', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId, noteId } = request.params as { documentId: string; noteId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const note = await app.prisma.voiceNote.findFirst({ where: { id: noteId, documentId } })
     if (!note) return reply.code(404).send({ error: 'not_found' })
 

@@ -12,6 +12,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { canSeeDocument } from '../../projects/visibility.js'
 
 const PRESENCE_STALE_SECONDS = 90
 
@@ -30,6 +31,7 @@ export const presenceRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/presence', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const parsed = joinSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -135,6 +137,7 @@ export const presenceRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/:documentId/presence', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 

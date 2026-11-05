@@ -19,6 +19,8 @@ import { requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 import type { PrismaClient } from '@prisma/client'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { actorCanResolveComments, actorCanScheduleCrm, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, CRM_SCHEDULE_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
+import { canSeeDocument } from '../../projects/visibility.js'
 
 const scheduleSchema = z.object({
   chairId: z.string().min(1),
@@ -137,6 +139,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/documents/:documentId/crm', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { id: true, status: true } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
     const [meetings, ctx] = await Promise.all([
@@ -180,6 +183,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/documents/:documentId/crm',{ preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = scheduleSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -250,6 +254,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
     if (await refusedAsInformed(request.user!, meeting)) return reply.code(403).send(INFORMED_READ_ONLY)
+    if (await documentProjectIsClosed(app.prisma, meeting.documentId)) return reply.code(423).send(PROJECT_CLOSED)
     if (meeting.status === 'complete' || meeting.status === 'cancelled') {
       return reply.code(409).send({ error: 'meeting_closed', message: `Cannot modify attendees on ${meeting.status} meeting` })
     }
@@ -273,6 +278,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const { meetingId } = request.params as { meetingId: string }
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
+    if (await documentProjectIsClosed(app.prisma, meeting.documentId)) return reply.code(423).send(PROJECT_CLOSED)
     if (meeting.chairId !== request.user!.id && !['admin'].includes(request.user!.role)) {
       return reply.code(403).send({ error: 'only_chair', message: 'Only the chair (or admin) can start the meeting' })
     }
@@ -317,6 +323,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       include: { resolutions: true },
     })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
+    if (await documentProjectIsClosed(app.prisma, meeting.documentId)) return reply.code(423).send(PROJECT_CLOSED)
     if (meeting.chairId !== request.user!.id && !['admin'].includes(request.user!.role)) {
       return reply.code(403).send({ error: 'only_chair' })
     }
@@ -402,6 +409,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
     if (await refusedAsInformed(request.user!, meeting)) return reply.code(403).send(INFORMED_READ_ONLY)
+    if (await documentProjectIsClosed(app.prisma, meeting.documentId)) return reply.code(423).send(PROJECT_CLOSED)
     if (meeting.status === 'complete' || meeting.status === 'cancelled') {
       return reply.code(409).send({ error: 'already_closed' })
     }
@@ -449,6 +457,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
 
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
+    if (await documentProjectIsClosed(app.prisma, meeting.documentId)) return reply.code(423).send(PROJECT_CLOSED)
     if (meeting.status !== 'in_progress') {
       return reply.code(409).send({ error: 'wrong_status', message: `Resolutions only accepted when meeting is in_progress (current: ${meeting.status})` })
     }
@@ -510,6 +519,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const { meetingId } = request.params as { meetingId: string }
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
+    if (!(await canSeeDocument(app.prisma, request.user!, meeting.documentId))) return reply.code(404).send({ error: 'not_found' })
     if (!actorCanViewComments(request.user!)) return reply.code(403).send(COMMENT_VIEW_FORBIDDEN)
     return app.prisma.crmResolution.findMany({
       where: { meetingId },
@@ -542,6 +552,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
     if (await refusedAsInformed(request.user!, meeting)) return reply.code(403).send(INFORMED_READ_ONLY)
+    if (await documentProjectIsClosed(app.prisma, meeting.documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     const rawText = parsed.data.rawText.trim()
     const wordCount = rawText.split(/\s+/).filter(Boolean).length
@@ -633,8 +644,9 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
   /** GET /crm/:meetingId/ai-drafts — list current per-comment drafts. */
   app.get('/crm/:meetingId/ai-drafts', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { meetingId } = request.params as { meetingId: string }
-    const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId }, select: { id: true } })
+    const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId }, select: { id: true, documentId: true } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
+    if (!(await canSeeDocument(app.prisma, request.user!, meeting.documentId))) return reply.code(404).send({ error: 'not_found' })
     if (!actorCanViewComments(request.user!)) return reply.code(403).send(COMMENT_VIEW_FORBIDDEN)
 
     const [drafts, transcript] = await Promise.all([
@@ -675,6 +687,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       },
     })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
+    if (await documentProjectIsClosed(app.prisma, meeting.documentId)) return reply.code(423).send(PROJECT_CLOSED)
     if (!actorCanViewComments(request.user!)) return reply.code(403).send(COMMENT_VIEW_FORBIDDEN)
     if (await refusedAsInformed(request.user!, meeting)) return reply.code(403).send(INFORMED_READ_ONLY)
 

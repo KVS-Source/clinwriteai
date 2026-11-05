@@ -26,6 +26,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorCanEditDocumentRaci } from '../document-raci/access.js'
+import { PROJECT_CLOSED, documentProjectIsClosed, projectIsClosed } from '../../projects/closed.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
 const DEFAULT_DOCUMENT_EXPIRY_DAYS = 14
@@ -65,6 +66,7 @@ export const guestInvitationRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   app.post('/documents/:documentId/guest-invitations', { preHandler: requireAuth({ clinicalWriting: true }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = documentInviteSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -141,6 +143,7 @@ export const guestInvitationRoutes: FastifyPluginAsync = async (app) => {
   // ---------------------------------------------------------------------
   app.post('/projects/:projectId/guest-invitations', { preHandler: requireAuth({ roles: ['admin'], clinicalWriting: true }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
+    if (await projectIsClosed(app.prisma, projectId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = projectInviteSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 

@@ -145,9 +145,7 @@
       "kpi_docs_in_flight":        "進行中のドキュメント",
       "kpi_docs_in_flight_sub":    "レビュー中 {{review}} · CRM 中 {{crm}} · 署名待ち {{sign}}",
       "kpi_completed_docs":        "完了ドキュメント",
-      "kpi_in_authoring_one":      "作成中 {{count}} 件",
-      "kpi_in_authoring_other":    "作成中 {{count}} 件",
-      "kpi_none_in_authoring":     "作成中のドキュメントはありません",
+      "kpi_completed_docs_sub":    "{{total}} 件中 {{signed}} 件署名済み",
       "kpi_days_to_cutoff":        "データカットまでの日数",
       "kpi_team_members":          "チーム メンバー",
       "roster_pending":            "チーム構成は未確定です",
@@ -354,6 +352,9 @@
 
     "comment_composer": {
       "draft_label":                 "ドラフト",
+      "mention_hint": "@を入力すると、このプロジェクトのメンバーにメンションできます。通知が送られます。",
+      "mention_none": "該当する人がいません",
+      "mention_list_aria": "メンション可能なメンバー",
       "section_tag_label":           "セクション タグ (必須)",
       "no_sections_available":       "利用可能なセクションがありません",
       "severity_label":              "重要度 (必須)",
@@ -1018,6 +1019,7 @@
       "parallel_subtitle":             "すべてのレビュアーに同時に送付",
       "sequential_title":              "順次レビュー",
       "sequential_subtitle":           "レビュアーに順番に通知",
+      "sequential_not_enforced":       "順次レビューの順序はまだ強制されません。選択内容は監査証跡に記録されますが、レビュアーはこの順序に拘束されません。",
       "assign_reviewers":              "レビュアーを割り当て",
       "reviewer_count_plus_author_one":"レビュアー {{count}} 名 + 著者",
       "reviewer_count_plus_author_other":"レビュアー {{count}} 名 + 著者",
@@ -3373,6 +3375,8 @@
     "notification_centre": {
       "crumb_platform": "プラットフォーム",
       "crumb_notifications": "通知",
+      "filter_comment": "コメントとメンション",
+      "cta_open_document": "ドキュメントを開く",
       "title": "通知",
       "subtitle": "担当する全分野にわたる割当、ステージ進行、システムイベント。",
       "user_byline": "{{name}} · {{role}}",

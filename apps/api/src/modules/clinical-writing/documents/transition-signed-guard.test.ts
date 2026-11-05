@@ -13,7 +13,9 @@ async function build(opts: { completeChain: boolean }) {
   const update = vi.fn(async () => ({ id: DOC, status: 'signed' }))
   const app = Fastify()
   app.decorate('prisma', {
+    project: { findUnique: async () => ({ status: 'ongoing' }) },
     document: {
+      count: async () => 1,
       findUnique: vi.fn(async () => ({ id: DOC, projectId: 'p1', status: 'pending_signature', stage: 'final_output' })),
       update,
     },

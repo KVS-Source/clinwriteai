@@ -16,6 +16,8 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { actorIsOnlyInformed, actorIsOnlyInformedOnProject, INFORMED_READ_ONLY } from '../../platform/document-raci/access.js'
 import { groupSectionsByItem } from './section-grouping.js'
+import { PROJECT_CLOSED, projectIsClosed } from '../../projects/closed.js'
+import { canSeeDocument } from '../../projects/visibility.js'
 
 const createPackageSchema = z.object({
   version: z.string().min(1).max(32),
@@ -56,6 +58,7 @@ export const tlfRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/projects/:projectId/tlf-packages', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
+    if (await projectIsClosed(app.prisma, projectId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = createPackageSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     if (await actorIsOnlyInformedOnProject(app.prisma, request.user!, projectId)) return reply.code(403).send(INFORMED_READ_ONLY)
@@ -134,6 +137,7 @@ export const tlfRoutes: FastifyPluginAsync = async (app) => {
     const pkg = await app.prisma.tlfPackage.findUnique({ where: { id: packageId } })
     if (!pkg) return reply.code(404).send({ error: 'not_found' })
     if (await actorIsOnlyInformedOnProject(app.prisma, request.user!, pkg.projectId)) return reply.code(403).send(INFORMED_READ_ONLY)
+    if (await projectIsClosed(app.prisma, pkg.projectId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // Unique(packageId, referenceId) — explicit check for a friendlier 409.
     const dup = await app.prisma.tlfItem.findUnique({
@@ -190,6 +194,7 @@ export const tlfRoutes: FastifyPluginAsync = async (app) => {
 
   app.get('/documents/:documentId/tlf', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
     const doc = await app.prisma.document.findUnique({ where: { id: documentId } })
     if (!doc) return reply.code(404).send({ error: 'not_found' })
 

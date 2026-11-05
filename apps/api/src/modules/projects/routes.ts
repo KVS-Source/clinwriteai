@@ -19,6 +19,7 @@ import {
   PROJECT_STATUSES,
   type ProjectStatus,
 } from './state-machine.js'
+import { PROJECT_CLOSED, projectIsClosed } from './closed.js'
 
 const projectCreateSchema = z.object({
   id: z.string().min(3),            // human-friendly id (e.g. 'PROJ-VELORA')
@@ -221,6 +222,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     const existing = await app.prisma.project.findUnique({ where: { id } })
     if (!existing) return reply.code(404).send({ error: 'not_found' })
     if (!(await actorManagesProject(app.prisma, request.user!, id))) return reply.code(403).send(PM_FORBIDDEN)
+    if (existing.status === 'closed') return reply.code(423).send(PROJECT_CLOSED)
 
     // Only a *changed* TA is validated, so legacy labels on existing
     // projects don't block unrelated edits.
@@ -384,6 +386,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:projectId/team', { preHandler: requireAuth() }, async (request, reply) => {
     const { projectId } = request.params as { projectId: string }
+    if (await projectIsClosed(app.prisma, projectId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = addTeamSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -432,6 +435,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
   app.patch('/:projectId/team/:userId', { preHandler: requireAuth() }, async (request, reply) => {
     const { projectId, userId } = request.params as { projectId: string; userId: string }
+    if (await projectIsClosed(app.prisma, projectId)) return reply.code(423).send(PROJECT_CLOSED)
     const parsed = patchTeamSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -476,6 +480,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
 
   app.delete('/:projectId/team/:userId', { preHandler: requireAuth() }, async (request, reply) => {
     const { projectId, userId } = request.params as { projectId: string; userId: string }
+    if (await projectIsClosed(app.prisma, projectId)) return reply.code(423).send(PROJECT_CLOSED)
 
     if (!(await isProjectAuthor(projectId, request.user!.id))) {
       return reply.code(403).send({ error: 'forbidden', message: 'Only an Author on this project can change the team.' })

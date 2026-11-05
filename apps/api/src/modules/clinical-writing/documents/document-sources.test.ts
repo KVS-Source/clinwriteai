@@ -20,7 +20,11 @@ const UPLOADS = [
 async function build() {
   const app = Fastify()
   app.decorate('prisma', {
+    project: { findUnique: async () => ({ status: 'ongoing' }) },
+
     document: {
+
+      count: async () => 1,
       findUnique: async ({ where }: { where: { id: string } }) =>
         where.id === 'DOC-1'
           ? { id: 'DOC-1', projectId: 'proj-1', deletedAt: null, currentVersion: { sections: [

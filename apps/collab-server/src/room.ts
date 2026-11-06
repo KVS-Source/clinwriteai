@@ -15,6 +15,7 @@ import { encoding, decoding } from 'lib0'
 import { WebSocket } from 'ws'
 import type { Logger } from 'pino'
 import type { SessionIdentity } from './auth.js'
+import { htmlHasContent, xmlFragmentToHtml } from './html.js'
 
 // Message types per the y-protocols convention.
 const MESSAGE_SYNC      = 0
@@ -55,6 +56,9 @@ export class Room {
   private lastPersistedHtml: string = ''
   // Who made the most recent change applied to the room (always an author).
   private lastWriter: string | null = null
+  // The section this room saves to. Kept here because the final save happens after
+  // the last connection has gone.
+  private target: { documentId: string; sectionId: string } | null = null
 
   constructor(private readonly roomId: string, private readonly opts: RoomOpts) {
     this.awareness.setLocalState(null)
@@ -67,6 +71,7 @@ export class Room {
   addConnection(ws: WebSocket, identity: SessionIdentity, meta: { documentId: string; sectionId: string; canEdit: boolean }): void {
     const conn: Conn = { ws, identity, documentId: meta.documentId, sectionId: meta.sectionId, canEdit: meta.canEdit }
     this.conns.add(conn)
+    this.target = { documentId: meta.documentId, sectionId: meta.sectionId }
     this.opts.log.info({ user: identity.userId, size: this.conns.size }, 'client joined')
 
     ws.binaryType = 'arraybuffer'
@@ -155,9 +160,7 @@ export class Room {
   /**
    * Read the current doc's HTML representation. The client-side
    * TipTap/Yjs binding writes to a Y.XmlFragment named 'default'
-   * (TipTap's default). We serialise that back to HTML via a simple
-   * walker — adequate for the Phase 2.1 extensions (headings, bold,
-   * italic, underline, lists, blockquote, link, placeholder).
+   * (TipTap's default); see html.ts for the conversion.
    */
   private getHtml(): string {
     const fragment = this.doc.getXmlFragment('default')
@@ -176,14 +179,18 @@ export class Room {
     const html = this.getHtml()
     if (html === this.lastPersistedHtml) return
     // Nothing an author changed → nothing to save on anyone's behalf.
-    if (!this.lastWriter) return
-    // All conns share the same (documentId, sectionId); pull from any.
-    const anyConn = this.conns.values().next().value
-    if (!anyConn) return
+    if (!this.lastWriter || !this.target) return
+    // A room starts empty and the first client's sync counts as a change, so an author
+    // who only opened the section would otherwise blank it. It also means a section
+    // can't be cleared through collab.
+    if (!htmlHasContent(html)) {
+      this.opts.log.warn({ reason, ...this.target }, 'not saving a blank room')
+      return
+    }
     try {
       await this.opts.persist({
-        documentId: anyConn.documentId,
-        sectionId:  anyConn.sectionId,
+        documentId: this.target.documentId,
+        sectionId:  this.target.sectionId,
         html,
         reason,
         actingUserId: this.lastWriter,
@@ -200,61 +207,12 @@ export class Room {
       clearTimeout(this.persistTimer)
       this.persistTimer = null
     }
-    if (this.conns.size === 0 && this.lastPersistedHtml !== this.getHtml()) {
-      await this.persistNow('last_client_leaves')
-    }
+    // Also on shutdown, when clients are still connected: the timer just cancelled may
+    // have held their latest edits.
+    await this.persistNow('last_client_leaves')
     for (const c of this.conns) {
       if (c.ws.readyState === WebSocket.OPEN) c.ws.close()
     }
     this.conns.clear()
   }
-}
-
-// --- Y.XmlFragment → HTML serialiser --------------------------------------
-
-/**
- * Walks a Y.XmlFragment and returns an HTML string. Minimal but covers
- * every node TipTap's StarterKit + extensions emit for Module A today:
- * paragraph, heading (2-4), bold/italic/underline marks, bulletList /
- * orderedList / listItem, blockquote, link, hardBreak.
- *
- * For richer nodes later (tables, custom provenance spans) extend
- * nodeToHtml below.
- */
-function xmlFragmentToHtml(fragment: Y.XmlFragment): string {
-  let out = ''
-  fragment.forEach(child => {
-    out += nodeToHtml(child)
-  })
-  return out
-}
-
-function nodeToHtml(node: Y.XmlElement | Y.XmlText | Y.XmlHook): string {
-  if (node instanceof Y.XmlText) {
-    return escapeHtml(node.toString())
-  }
-  if (node instanceof Y.XmlHook) return ''
-
-  const el = node as Y.XmlElement
-  const tag = el.nodeName
-  const attrs = el.getAttributes()
-
-  let inner = ''
-  el.forEach(child => { inner += nodeToHtml(child as Y.XmlElement | Y.XmlText | Y.XmlHook) })
-
-  const attrString = Object.entries(attrs)
-    .map(([k, v]) => ` ${k}="${escapeAttr(String(v))}"`)
-    .join('')
-
-  // Void elements (TipTap's hardBreak)
-  if (tag === 'hardBreak' || tag === 'br') return '<br/>'
-
-  return `<${tag}${attrString}>${inner}</${tag}>`
-}
-
-function escapeHtml(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
-}
-function escapeAttr(s: string): string {
-  return s.replace(/&/g, '&amp;').replace(/"/g, '&quot;')
 }

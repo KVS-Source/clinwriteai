@@ -136,12 +136,12 @@ export function DocumentEditor() {
   // sign-in screen, so it can be empty or a different person than the one signed in.
   const { data: currentUser } = useCurrentUser()
 
-  // AI Chat and the inline section AI prompt are for this document's authors only.
+  // AI Chat, the inline section AI prompt and voice notes are for this document's authors only.
   // Close the panel if it was left open (e.g. from another document or persona).
   const canEditDocument = useCanEditDocument(documentId)
   const aiChatAllowed = canEditDocument === true
   useEffect(() => {
-    if (canEditDocument === false && activePanel === 'ai') setActivePanel(null)
+    if (canEditDocument === false && (activePanel === 'ai' || activePanel === 'voice')) setActivePanel(null)
   }, [canEditDocument, activePanel, setActivePanel])
 
   // Resolve user id → PlatformUser so avatars can show initials + full
@@ -978,7 +978,7 @@ export function DocumentEditor() {
             band so content narrows (text wraps) instead of being hidden
             when the panel opens. */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} canViewChecklist={canViewChecklist} aiChatAllowed={aiChatAllowed} canViewSources={canViewSources} editable={canEditSection} />
+          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} canViewChecklist={canViewChecklist} aiChatAllowed={aiChatAllowed} voiceNotesAllowed={aiChatAllowed} canViewSources={canViewSources} editable={canEditSection} />
 
           {/* Split row — content column (scrollable + AI prompt dock
               stacked) + optional right panel column (fixed width,

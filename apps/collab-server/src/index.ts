@@ -66,7 +66,8 @@ function getOrCreateRoom(roomId: string): Room {
       onEmpty: () => {
         // Last client left — flush any pending persistence, then evict.
         void room!.flushAndClose().then(() => {
-          rooms.delete(roomId)
+          // The save can take a moment; someone rejoining meanwhile may have a newer room.
+          if (rooms.get(roomId) === room) rooms.delete(roomId)
           log.info({ room: roomId }, 'room evicted')
         })
       },

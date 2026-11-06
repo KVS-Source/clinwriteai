@@ -1540,6 +1540,7 @@
       "comments_label": "コメント",
       "ai_chat_tooltip": "AI チャットを開く (⌘J)",
       "ai_chat_authors_only": "AI チャットを利用できるのは、このドキュメントの作成者 (Responsible, R) のみです",
+      "voice_note_authors_only": "音声メモを利用できるのは、このドキュメントの作成者 (Responsible, R) のみです",
       "ai_chat_label": "AI チャット",
       "insert_citation": "引用を挿入",
       "insert_citation_tooltip": "ソース文書にリンクした引用をカーソル位置に挿入",
@@ -1586,6 +1587,7 @@
     "reviewer_view": {
       "return_doc_button_q": "作成者に差し戻す",
       "return_doc_button": "作成段階に差し戻す",
+      "return_doc_button_q": "作成者に差し戻す",
       "return_doc_title": "ドキュメントを作成段階に差し戻す",
       "return_doc_explainer": "ドキュメントは新しいバージョンとして作成中に戻り、作成者が修正します。進行中の署名チェーンはキャンセルされ、全員が新しいバージョンを改めてレビューおよび承認します。",
       "return_doc_note_label": "差し戻しの理由",

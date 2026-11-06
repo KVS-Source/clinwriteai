@@ -25,7 +25,8 @@ import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
-import { templateSections, templateSectionsFromRow } from './templates.js'
+import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES } from './template-sections.js'
+import { actorManagesProject } from '../../projects/project-managers.js'
 import { DocumentService, hashSections } from './service.js'
 import { buildComplianceSummary } from '../checklist/compliance-summary.js'
 import { pdfFileName } from '../../platform/library/pdf-renderer.js'
@@ -382,21 +383,9 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     // predating the migration-53 seed. Section-level usOnly filtering stays
     // in templateSections() for the DB path so §16.4 only appears on US
     // submissions regardless of where the skeleton came from.
-    // A failed lookup (Prisma client generated before migration 53, or a DB
-    // without the table) falls back to the built-in skeleton instead of
-    // 500-ing the whole create.
-    let dbTemplate: { sections: unknown } | null = null
-    try {
-      dbTemplate = await app.prisma.documentTemplate.findFirst({
-        where: { type: parsed.data.type, isCurrent: true, retiredAt: null },
-        select: { sections: true },
-      })
-    } catch (err) {
-      app.log.warn({ err, type: parsed.data.type }, 'document template lookup failed — using built-in sections (run `npm --workspace=apps/api run db:generate`)')
-    }
-    const sections = dbTemplate
-      ? templateSectionsFromRow(dbTemplate.sections, project.submissionCountries)
-      : templateSections(parsed.data.type, project.submissionCountries)
+    const sections = await resolveTemplateSections(app.prisma, parsed.data.type, project.submissionCountries, (err) => {
+      app.log.warn({ err, type: parsed.data.type }, 'document template lookup failed — using built-in sections (run `npm --workspace=apps/api run db:migrate`)')
+    })
 
     const { document, version } = await svc.create({
       projectId,
@@ -1342,6 +1331,49 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
   // for stage moves that don't line up with a status change (e.g.
   // Study Start-Up → During Study → Post-Study are authoring-time
   // milestones that don't flip the document's status).
+  // Adds the template's empty headings to a document created without any. For its authors and the project's
+  // PMs: it adds no content, and a PM gets the same headings when creating a document. Not for a document
+  // whose hash is bound to signatures, or in a closed project. A document in review is allowed, since
+  // nothing written is touched and otherwise it can't be reviewed by section.
+  app.post('/:documentId/apply-template', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { id: true, type: true, status: true, projectId: true, deletedAt: true, currentVersionId: true, currentVersion: { select: { versionNumber: true, contentHash: true } } },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    const allowed = await actorCanEditDocumentContent(app.prisma, request.user!, documentId)
+      || await actorManagesProject(app.prisma, request.user!, doc.projectId)
+    if (!allowed) {
+      return reply.code(403).send({ error: 'template_apply_forbidden', message: "Only this document's authors or a project manager on its project can apply the template." })
+    }
+    if (SIGNATURE_BOUND_STATUSES.has(doc.status)) {
+      return reply.code(409).send({ error: 'signature_bound', message: 'This document is awaiting signature or signed, so its sections cannot change.' })
+    }
+    const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { status: true, submissionCountries: true } })
+    if (project?.status === 'closed') return reply.code(409).send(authoringLockReason(doc.status, project.status))
+    if (!doc.currentVersionId || !doc.currentVersion) return reply.code(409).send({ error: 'no_current_version', message: 'This document has no current version.' })
+
+    const sections = await resolveTemplateSections(app.prisma, doc.type, project?.submissionCountries ?? [], (err) => {
+      app.log.warn({ err, type: doc.type }, 'document template lookup failed — using built-in sections')
+    })
+    if (sections.length === 0) return reply.code(422).send({ error: 'no_template', message: 'There is no template for this document type.' })
+
+    const added = await addTemplateSections(app.prisma, doc.currentVersionId, sections)
+    if (!added) return reply.code(409).send({ error: 'already_has_sections', message: 'This document already has sections.' })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'document_template_applied',
+      entityType: 'document',
+      entityId: documentId,
+      details: { source: 'action', versionNumber: doc.currentVersion.versionNumber, sectionCount: added.sectionCount, hashBefore: doc.currentVersion.contentHash, hashAfter: added.contentHash },
+      ipAddress: request.ip ?? null,
+    })
+    return reply.code(201).send({ sectionCount: added.sectionCount })
+  })
+
   app.post('/:documentId/advance-stage', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)

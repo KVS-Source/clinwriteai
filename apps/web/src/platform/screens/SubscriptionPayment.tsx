@@ -6,6 +6,7 @@ import type { Subscription, RateCard, PlatformConfig } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
+import { formatNumber } from '../../utils/formatNumber'
 
 // Midnight UTC today: card validity and renewal are calendar days (this used to be pinned to 9 Sep 2026).
 function startOfTodayUTC(): Date {
@@ -138,9 +139,9 @@ export function SubscriptionPayment() {
                 <tbody>
                   <tr className="border-t border-slate-200" data-scope-row="all">
                     <td className="px-4 py-3 font-semibold text-slate-900">{t('page.subscription_payment.scope_all')}</td>
-                    <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-included>{sub.contractedTokensPerMonth.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-used>{sub.currentPeriod.tokensConsumed.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-remaining>{sub.currentPeriod.tokensRemaining.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-included>{formatNumber(sub.contractedTokensPerMonth)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-used>{formatNumber(sub.currentPeriod.tokensConsumed)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-remaining>{formatNumber(sub.currentPeriod.tokensRemaining)}</td>
                   </tr>
                 </tbody>
               </table>
@@ -149,6 +150,8 @@ export function SubscriptionPayment() {
               </p>
             </div>
 
+            {/* Only with a connected gateway and a real payment method: without them nothing can be auto-charged. */}
+            {gateways.length > 0 && sub.paymentMethod && (
             <div className="rounded-lg border border-slate-200 p-4" data-next-invoice>
               <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.next_invoice_eyebrow')}</p>
               <p className="mt-1 text-[15px] font-semibold text-slate-900">
@@ -161,6 +164,7 @@ export function SubscriptionPayment() {
               </p>
               <button type="button" className="mt-2 text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-update-payment>{t('page.subscription_payment.update_payment_method')}</button>
             </div>
+            )}
 
             <div data-invoice-history>
               <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.invoice_history_eyebrow')}</p>
@@ -176,6 +180,13 @@ export function SubscriptionPayment() {
                     </tr>
                   </thead>
                   <tbody>
+                    {sub.invoices.length === 0 && (
+                      <tr className="border-t border-slate-200">
+                        <td colSpan={5} className="px-4 py-6 text-center text-[13px] text-slate-500" data-invoices-empty>
+                          {t('page.subscription_payment.invoices_empty')}
+                        </td>
+                      </tr>
+                    )}
                     {sub.invoices.map(inv => (
                       <tr key={inv.id} className="border-t border-slate-200" data-invoice-row={inv.id}>
                         <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{formatDay(inv.date)}</td>
@@ -200,7 +211,7 @@ export function SubscriptionPayment() {
           {/* RIGHT — top-up */}
           <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5" data-topup-panel>
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.topup_eyebrow')}</p>
-            <p className="text-[12px] text-slate-600">{t('page.subscription_payment.topup_blurb')}</p>
+            {gateways.length > 0 && <p className="text-[12px] text-slate-600">{t('page.subscription_payment.topup_blurb')}</p>}
 
             <label className="flex flex-col gap-1">
               <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.service_label')}</span>
@@ -259,7 +270,7 @@ export function SubscriptionPayment() {
               data-proceed-payment
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >{topUp.isPending ? t('page.subscription_payment.submitting') : t('page.subscription_payment.proceed_to_payment')}</button>
+            >{topUp.isPending ? t('page.subscription_payment.submitting') : gateways.length > 0 ? t('page.subscription_payment.proceed_to_payment') : t('page.subscription_payment.request_topup')}</button>
 
             {topUp.isSuccess && (
               <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-topup-success>
@@ -272,9 +283,11 @@ export function SubscriptionPayment() {
               </p>
             )}
 
-            <p className="font-mono text-[11px] text-slate-500" data-no-card-storage-note>
-              {t('page.subscription_payment.no_card_storage_note')}
-            </p>
+            {gateways.length > 0 && (
+              <p className="font-mono text-[11px] text-slate-500" data-no-card-storage-note>
+                {t('page.subscription_payment.no_card_storage_note')}
+              </p>
+            )}
           </aside>
         </div>
       </div>

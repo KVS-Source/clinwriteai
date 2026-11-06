@@ -108,7 +108,7 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
       renewalDate:              renewal.toISOString().slice(0, 10),
       autoRenew:                true,
       currentMonthRunningTotal: 12_430,
-      paymentMethod: { type: 'card', brand: 'Visa', last4: '4242', expiryMonth: 12, expiryYear: 2028 },
+      paymentMethod: null,   // none until a payment gateway is connected
       activeGateways: ['Anthropic'],
       currentPeriod: {
         month: now.toISOString().slice(0, 7),

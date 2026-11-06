@@ -60,6 +60,24 @@ function demoPersonaHeader(): Record<string, string> {
   } catch { return {} }
 }
 
+// 429 means "slow down", not "you're signed out" and not "this failed". A read waits as long as the API
+// asks and goes again, so the page carries on by itself. Anything that changes data isn't retried here:
+// the user is told, and decides. RateLimitNotice shows both.
+export const RATE_LIMIT_EVENT = 'clinwrite:rate-limited'
+export interface RateLimitDetail { retrying: boolean; seconds: number }
+const READ_RETRIES_ON_429 = 3
+const DEFAULT_WAIT_SECONDS = 5
+const MAX_WAIT_SECONDS = 60
+
+function waitSeconds(res: Response): number {
+  const asked = Number(res.headers.get('Retry-After'))
+  return Math.min(asked > 0 ? asked : DEFAULT_WAIT_SECONDS, MAX_WAIT_SECONDS)
+}
+
+function announceRateLimit(detail: RateLimitDetail) {
+  if (typeof window !== 'undefined') window.dispatchEvent(new CustomEvent(RATE_LIMIT_EVENT, { detail }))
+}
+
 async function request<T>(endpoint: string, options?: RequestOptions): Promise<T> {
   return (await requestWithHeaders<T>(endpoint, options)).data
 }
@@ -68,7 +86,8 @@ async function request<T>(endpoint: string, options?: RequestOptions): Promise<T
 // their total and next cursor in X-Total-Count / X-Next-Cursor.
 async function requestWithHeaders<T>(endpoint: string, options?: RequestOptions): Promise<{ data: T; headers: Headers }> {
   const { on401 = 'redirect', ...init } = options ?? {}
-  const res = await fetch(`${API_BASE}${endpoint}`, {
+  const isRead = (init.method ?? 'GET').toUpperCase() === 'GET'
+  const send = () => fetch(`${API_BASE}${endpoint}`, {
     credentials: 'include',
     ...init,
     headers: {
@@ -80,6 +99,18 @@ async function requestWithHeaders<T>(endpoint: string, options?: RequestOptions)
       ...(init.headers ?? {}),
     },
   })
+  let res = await send()
+  let retried = false
+  for (let tries = 0; res.status === 429 && isRead && tries < READ_RETRIES_ON_429; tries++) {
+    const seconds = waitSeconds(res)
+    announceRateLimit({ retrying: true, seconds })
+    retried = true
+    // A little spread, so a page's calls don't all come back in the same instant.
+    await new Promise(resolve => setTimeout(resolve, seconds * 1000 + Math.random() * 500))
+    res = await send()
+  }
+  if (res.status === 429) announceRateLimit({ retrying: false, seconds: waitSeconds(res) })
+  else if (retried && typeof window !== 'undefined') window.dispatchEvent(new Event(`${RATE_LIMIT_EVENT}:cleared`))
 
   if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined' && !onPublicAuthPage()) {
     // Preserve where the user was heading so we can bounce them back post-login.

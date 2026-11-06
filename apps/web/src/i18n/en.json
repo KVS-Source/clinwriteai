@@ -90,6 +90,7 @@
       "registered_notice": "Your account is ready. Sign in with your email and new password."
     },
     "section_navigator": {
+      "no_sections": "This document has no sections yet.",
       "header": "Sections",
       "filter_count": "{{visible}} of {{total}}",
       "search_placeholder": "Search sections…",
@@ -175,6 +176,15 @@
       "of_total": "of {{total}}"
     },
     "document_editor": {
+      "apply_template_err_generic": "The template could not be applied. Please try again.",
+      "apply_template_err_signature": "This document is awaiting signature or signed, so its sections cannot change.",
+      "apply_template_err_forbidden": "Only this document's authors or a project manager on its project can apply the template.",
+      "apply_template_err_no_template": "There is no template for this document type.",
+      "apply_template_ask": "Ask this document's author or a project manager to apply the template sections.",
+      "apply_template_applying": "Applying…",
+      "apply_template_action": "Apply template sections",
+      "apply_template_body": "Add the standard sections for this document type. They start empty, and nothing else in the document changes.",
+      "apply_template_title": "This document has no sections yet.",
       "loading_document": "Loading document…",
       "switch_revision_tooltip": "Switch revision / compare",
       "create_new_version": "+ Create new version",
@@ -2144,6 +2154,8 @@
       "stage_e_approved": "Approved"
     },
     "subscription_payment": {
+      "request_topup": "Submit top-up request",
+      "invoices_empty": "No invoices yet.",
       "status_paid": "Paid",
       "status_pending": "Pending",
       "status_failed": "Failed",
@@ -4224,6 +4236,10 @@
     },
     "auth_guard": {
       "loading_workspace": "Loading your workspace…"
+    },
+    "rate_limit": {
+      "retrying": "The server is busy. Please wait, retrying…",
+      "try_again": "Too many requests. Please wait {{seconds}} seconds and try again."
     },
     "document_labels": {
       "status_not_started": "Not Started",

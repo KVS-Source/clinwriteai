@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import type { DocumentStatus, PanelMode, PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { useCanEditDocument } from '../../hooks/useCanEditDocument'
+import { ApplyTemplateSections } from './ApplyTemplateSections'
 import { useSourceAccess } from '../../hooks/useSourceAccess'
 import { useCanViewVersions } from '../../hooks/useCanViewVersions'
 import { useCanViewChecklist } from '../../hooks/useCanViewChecklist'
@@ -1131,6 +1132,12 @@ export function DocumentEditor() {
                     </p>
                   )}
                 </>
+              ) : document.sections.length === 0 ? (
+                <ApplyTemplateSections
+                  documentId={document.id}
+                  status={document.status}
+                  canApply={canEditDocument === true || currentUser?.role === 'pm'}
+                />
               ) : (
                 <p className="mt-4 text-[14px] text-slate-400">
                   {t('page.document_editor.select_section_prompt')}

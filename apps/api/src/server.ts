@@ -108,7 +108,7 @@ async function buildServer() {
     credentials: env.CORS_CREDENTIALS,
     // Paged lists send their total and next-page cursor in headers; a cross-origin
     // browser can only read them if they are exposed here (Master Library, CW-061).
-    exposedHeaders: ['X-Total-Count', 'X-Next-Cursor', 'Content-Disposition'],
+    exposedHeaders: ['X-Total-Count', 'X-Next-Cursor', 'Content-Disposition', 'Retry-After'],
   })
   await app.register(import('@fastify/helmet'), { contentSecurityPolicy: false })
   await app.register(import('@fastify/sensible'))
@@ -160,21 +160,18 @@ async function buildServer() {
   await app.register(import('./modules/platform/queue/plugin.js'))
 
   // ---------- Rate limit (Redis-backed) ----------
+  const { rateLimitCounting } = await import('./modules/platform/rate-limit.js')
   // Shares the queue plugin's ioredis connection via app.redis so multi-
   // instance deployments converge on a single counter per key. Without
   // this, running N replicas effectively lets a client make N*100 req/min
   // because each instance tracks its own counter.
   await app.register(import('@fastify/rate-limit'), {
-    max: 100,
-    timeWindow: '1 minute',
+    // Who is counted and how much they may do: see rate-limit.ts.
+    ...rateLimitCounting,
     redis: app.redis,
     // Namespace in Redis so the counter keys are distinguishable from
     // BullMQ job keys (both use the same connection).
     nameSpace: 'ratelimit:',
-    // SSO callback is exempt — being redirected from the IdP shouldn't ever
-    // produce enough traffic to trip the limit, and users getting rate-limited
-    // mid-login is a bad experience worth avoiding.
-    allowList: (req) => req.url.startsWith('/auth/callback'),
     // If Redis is unreachable at request time, don't 500 — let the request
     // through. Alert fires via BullMQ queue-depth metric which proxies for
     // Redis liveness.

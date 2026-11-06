@@ -12,7 +12,7 @@
 
 import { useEffect, useState } from 'react'
 import type { PlatformUser, PlatformUserRole } from '@platform/types'
-import { api } from '../../api/client'
+import { api, ApiError } from '../../api/client'
 import { AUTH_BYPASS } from '../../config/auth'
 import { hasPersonaOverride, usePlatformStore } from './platformStore'
 
@@ -72,11 +72,18 @@ function syncOnce(): Promise<void> {
         status = AUTH_BYPASS ? 'signed-in' : 'signed-out'
       }
     })
-    .catch(() => {
+    .catch(async (err: unknown) => {
+      // Being told to slow down says nothing about who this is: ask again rather than treat them as
+      // signed out, or (with the bypass) as the default demo admin, who gets sent to /home.
+      if (err instanceof ApiError && err.status === 429) {
+        await new Promise(resolve => setTimeout(resolve, 5_000))
+        inflight = null
+        return syncOnce()
+      }
       // No session / API down — bypass keeps the demo persona.
       status = AUTH_BYPASS ? 'signed-in' : 'signed-out'
     })
-    .finally(() => { settled = true })
+    .finally(() => { if (status !== 'pending') settled = true })
   return inflight
 }
 

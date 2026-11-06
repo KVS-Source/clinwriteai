@@ -97,6 +97,7 @@
     },
 
     "section_navigator": {
+      "no_sections": "このドキュメントにはまだセクションがありません。",
       "header": "セクション",
       "filter_count": "{{total}} 件中 {{visible}} 件",
       "search_placeholder": "セクションを検索…",
@@ -196,6 +197,15 @@
     },
 
     "document_editor": {
+      "apply_template_err_generic": "テンプレートを適用できませんでした。もう一度お試しください。",
+      "apply_template_err_signature": "このドキュメントは署名待ちまたは署名済みのため、セクションを変更できません。",
+      "apply_template_err_forbidden": "テンプレートを適用できるのは、このドキュメントの作成者またはプロジェクトのプロジェクト マネージャーのみです。",
+      "apply_template_err_no_template": "このドキュメント種別のテンプレートはありません。",
+      "apply_template_ask": "このドキュメントの作成者またはプロジェクト マネージャーに、テンプレートのセクションの適用を依頼してください。",
+      "apply_template_applying": "適用中…",
+      "apply_template_action": "テンプレートのセクションを適用",
+      "apply_template_body": "このドキュメント種別の標準セクションを追加します。セクションは空の状態で追加され、ドキュメントの他の内容は変更されません。",
+      "apply_template_title": "このドキュメントにはまだセクションがありません。",
       "loading_document": "ドキュメントを読み込み中…",
 
       "switch_revision_tooltip":   "リビジョン切り替え / 比較",
@@ -2314,6 +2324,8 @@
     },
 
     "subscription_payment": {
+      "request_topup": "トップアップをリクエスト",
+      "invoices_empty": "請求書はまだありません。",
       "status_paid": "支払済み",
       "status_pending": "保留中",
       "status_failed": "失敗",
@@ -4452,6 +4464,10 @@
 
     "auth_guard": {
       "loading_workspace": "ワークスペースを読み込んでいます…"
+    },
+    "rate_limit": {
+      "retrying": "サーバーが混み合っています。しばらくお待ちください。再試行しています…",
+      "try_again": "リクエストが多すぎます。{{seconds}} 秒ほど待ってから、もう一度お試しください。"
     },
     "document_labels": {
       "status_not_started": "未着手",

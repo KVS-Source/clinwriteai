@@ -1,3 +1,4 @@
+import { formatNumber } from '../../utils/formatNumber'
 import { useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
@@ -214,7 +215,7 @@ export function ServicesDashboard() {
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }} data-stat-cards>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="tokens-consumed">
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_tokens_consumed')}</p>
-            <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{period.tokensConsumed.toLocaleString()}</p>
+            <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{formatNumber(period.tokensConsumed)}</p>
             <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.period_to_date', { period: periodName })}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="remaining-balance">
@@ -264,7 +265,7 @@ export function ServicesDashboard() {
               {sub.moduleBreakdown.map(r => (
                 <tr key={r.module} className="border-t border-slate-200" data-breakdown-row={r.module} data-breakdown-status={r.status}>
                   <td className="px-4 py-3 font-semibold text-slate-900">{r.label}</td>
-                  <td className="px-4 py-3 text-right font-mono text-slate-700">{r.tokensConsumed.toLocaleString()}</td>
+                  <td className="px-4 py-3 text-right font-mono text-slate-700">{formatNumber(r.tokensConsumed)}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{formatUSD(r.cost)}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{r.pctOfTotal}%</td>
                   <td className="px-4 py-3 font-mono text-[11px] text-slate-500 capitalize">{r.burnRate.replace('-', ' ')}</td>
@@ -273,7 +274,7 @@ export function ServicesDashboard() {
               ))}
               <tr className="border-t border-slate-200 font-semibold" style={{ backgroundColor: '#F8FAFC' }} data-breakdown-total>
                 <td className="px-4 py-3">{t('page.services_dashboard.total')}</td>
-                <td className="px-4 py-3 text-right font-mono">{period.tokensConsumed.toLocaleString()}</td>
+                <td className="px-4 py-3 text-right font-mono">{formatNumber(period.tokensConsumed)}</td>
                 <td className="px-4 py-3 text-right font-mono">{formatUSD(period.estimatedSpend)}</td>
                 <td className="px-4 py-3 text-right font-mono">100%</td>
                 <td className="px-4 py-3 font-mono text-[11px] text-slate-500">—</td>
@@ -308,8 +309,8 @@ export function ServicesDashboard() {
               <h2 className="text-sm font-semibold text-slate-900">{t('page.services_dashboard.usage_analytics')}</h2>
               <p className="font-mono text-[11px] text-slate-500">
                 {t('page.services_dashboard.usage_summary', {
-                  calls:  analytics.totals.calls.toLocaleString(),
-                  tokens: analytics.totals.tokens.toLocaleString(),
+                  calls:  formatNumber(analytics.totals.calls),
+                  tokens: formatNumber(analytics.totals.tokens),
                   cost:   analytics.totals.costUsd.toFixed(2),
                   days:   analytics.windowDays,
                 })}
@@ -330,8 +331,8 @@ export function ServicesDashboard() {
                     </p>
                     <p className="font-mono text-[11px] text-slate-500">
                       {t('page.services_dashboard.avg_peak', {
-                        avg:  Math.round(analytics.dailyTokens.reduce((a, r) => a + r.tokens, 0) / Math.max(1, analytics.dailyTokens.length)).toLocaleString(),
-                        peak: Math.max(0, ...analytics.dailyTokens.map(r => r.tokens)).toLocaleString(),
+                        avg:  formatNumber(Math.round(analytics.dailyTokens.reduce((a, r) => a + r.tokens, 0) / Math.max(1, analytics.dailyTokens.length))),
+                        peak: formatNumber(Math.max(0, ...analytics.dailyTokens.map(r => r.tokens))),
                       })}
                     </p>
                   </div>
@@ -415,7 +416,7 @@ function DailyBars({ values }: { values: number[] }) {
             fill={PLATFORM_ACCENT.primary}
             opacity={0.85}
           >
-            <title>{t('page.services_dashboard.day_bar_tooltip', { day: i + 1, tokens: v.toLocaleString() })}</title>
+            <title>{t('page.services_dashboard.day_bar_tooltip', { day: i + 1, tokens: formatNumber(v) })}</title>
           </rect>
         )
       })}

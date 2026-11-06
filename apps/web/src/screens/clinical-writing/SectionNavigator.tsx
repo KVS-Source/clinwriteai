@@ -147,7 +147,7 @@ export function SectionNavigator({
       <div className="flex-1 overflow-y-auto">
         {visibleSections.length === 0 && (
           <p className="px-5 py-6 text-center text-[12px] italic text-slate-400">
-            {t('page.section_navigator.no_matches', { query })}
+            {sections.length === 0 ? t('page.section_navigator.no_sections') : t('page.section_navigator.no_matches', { query })}
           </p>
         )}
         {visibleSections.map(section => {

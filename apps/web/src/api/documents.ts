@@ -240,6 +240,9 @@ export const documentsApi = {
       nextLabel:    string | null
       terminal:     boolean
     }>(`/documents/${documentId}/stage`),
+  // Adds the template's empty headings to a document that has no sections.
+  applyTemplateSections: (documentId: string) =>
+    api.post<{ sectionCount: number }>(`/documents/${documentId}/apply-template`, {}),
   advanceStage: (documentId: string) =>
     api.post<Document>(`/documents/${documentId}/advance-stage`, {}),
   // Section locks (sPM-autosave). Lease-based advisory lock on

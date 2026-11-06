@@ -1913,13 +1913,14 @@ export interface Subscription {
   renewalDate:              string
   autoRenew:                boolean
   currentMonthRunningTotal?: number
+  // null until a payment gateway is connected and a method is on file.
   paymentMethod: {
     type:         PaymentMethodType
     brand:        string
     last4:        string
     expiryMonth:  number
     expiryYear:   number
-  }
+  } | null
   activeGateways: string[]
   currentPeriod: {
     month:                string

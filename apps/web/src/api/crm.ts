@@ -24,7 +24,12 @@ export interface CRMResolutionRow {
   resolvedAt: string
 }
 
+/** Someone who can attend a meeting on this document; `canChair` for a PM, Author (R), Reviewer (C) or Approver (A). */
+export interface CrmPerson { id: string; name: string; initials: string | null; letters: string[]; isPm: boolean; canChair: boolean }
+
 export const crmApi = {
+  people: (documentId: string) =>
+    api.get<CrmPerson[]>(`/documents/${documentId}/crm/people`),
   getMeetings: (documentId: string) =>
     api.get<CRMMeeting[]>(`/documents/${documentId}/crm`),
   getAccess: (documentId: string) =>

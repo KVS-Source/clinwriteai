@@ -16,7 +16,7 @@ async function build(opts: { project?: boolean; docs?: string[]; role?: Authenti
     project: { findUnique: vi.fn(async () => (opts.project === false ? null : { id: 'p1' })) },
     document: { findMany: docFindMany },
     comment: { findMany: commentFindMany },
-    user: { findMany: vi.fn(async () => [{ id: 'u1', name: 'Ann Lee', initials: 'AL' }, { id: 'u2', name: 'Bo Chen', initials: 'BC' }]) },
+    user: { findMany: vi.fn(async () => [{ id: 'u1', name: 'Ann Lee', initials: 'AL', role: 'contributor' }, { id: 'u2', name: 'Bo Chen', initials: 'BC', role: 'tenant-admin' }]) },
   } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (r) => {
@@ -38,6 +38,17 @@ describe('GET /projects/:projectId/comments', () => {
     expect(rows[0].reviewerName).toBe('Ann Lee')
     expect(docFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { projectId: 'p1', deletedAt: null } }))
     expect(commentFindMany).toHaveBeenCalledWith(expect.objectContaining({ where: { documentId: { in: ['d1', 'd2'] } } }))
+    await app.close()
+  })
+
+  it('marks a comment by someone who cannot comment (an admin: old data) so the dashboard leaves them out of reviewer lists', async () => {
+    const { app, commentFindMany } = await build()
+    commentFindMany.mockResolvedValueOnce([
+      { id: 'CMT-009', documentId: 'd1', reviewerId: 'u2', status: 'open', createdAt: new Date('2026-10-03T00:00:00Z') },
+      { id: 'CMT-001', documentId: 'd1', reviewerId: 'u1', status: 'open', createdAt: new Date('2026-10-01T00:00:00Z') },
+    ] as never)
+    const rows = (await app.inject({ method: 'GET', url: '/projects/p1/comments' })).json()
+    expect(rows.map((r: { id: string; reviewerCanComment: boolean }) => [r.id, r.reviewerCanComment])).toEqual([['CMT-009', false], ['CMT-001', true]])
     await app.close()
   })
 

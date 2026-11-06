@@ -26,7 +26,10 @@ async function build(items: Array<Record<string, unknown>>, user: Partial<Authen
 
     document: { count: async () => 1,  findUnique: vi.fn(async () => ({ id: DOC, type: 'dsur', assigneeId: 'u-owner', projectId: 'p-1' })) },
     documentRaci: {
-      findFirst: vi.fn(async () => null),
+      findFirst: vi.fn(async ({ where }: { where: { letter?: string | { in: string[] } } }) => {
+        const wanted = typeof where.letter === 'string' ? [where.letter] : (where.letter?.in ?? [])
+        return letters.some(l => wanted.includes(l)) ? { id: 'raci-row' } : null
+      }),
       findMany: vi.fn(async ({ where }: { where: { letter: { in: string[] } } }) =>
         letters.filter(l => where.letter.in.includes(l)).map(() => ({ documentId: DOC }))),
     },
@@ -94,6 +97,29 @@ describe('GET /documents/:id/checklist', () => {
     const { app } = await build([row({ status: 'removed', waivedBy: 'u-owner', waivedAt: new Date('2026-10-30T10:00:00Z'), waiverReason: 'Not applicable to DSUR' })])
     const [item] = (await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist` })).json()
     expect(item).toMatchObject({ status: 'removed', waivedBy: null, waiverReason: null, removal: { by: 'Dr Priya Nair', reason: 'Not applicable to DSUR' } })
+  })
+})
+
+describe('QC (Q) edits the checklist (action table row 21, CW-012)', () => {
+  it('canEdit is true for QC, and QC can complete, waive, reopen, add and remove', async () => {
+    const q = { id: 'u-qc' }
+    const { app, update } = await build([row({ id: 'i1' }), row({ id: 'i2', status: 'complete' })], q, ['Q'])
+    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist` })).json()[0].canEdit).toBe(true)
+    expect((await app.inject({ method: 'PATCH', url: `/documents/${DOC}/checklist/i1/complete` })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'PATCH', url: `/documents/${DOC}/checklist/i1/waive`, payload: { reason: 'Not applicable to this study' } })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'POST', url: `/documents/${DOC}/checklist/i2/reopen` })).statusCode).toBe(200)
+    expect((await app.inject({ method: 'POST', url: `/documents/${DOC}/checklist`, payload: { text: 'Extra check', stage: 'study_start_up' } })).statusCode).not.toBe(403)   // past the role gate (the stub has no create)
+    expect((await remove(app, { reason: 'Duplicate of another item' })).statusCode).toBe(200)
+    expect(update).toHaveBeenCalled()
+  })
+
+  it('a PM, auditor or Informed person holding no R/Q row still cannot, and Reviewer (C) stays view-only', async () => {
+    for (const [user, letters] of [[{ id: 'u-pm', role: 'pm' }, ['Q']], [{ id: 'u-aud', role: 'auditor' }, ['Q']], [{ id: 'u-c' }, ['C']], [{ id: 'u-i' }, ['I']]] as const) {
+      const { app } = await build([row({})], user as Partial<AuthenticatedUser>, [...letters])
+      const res = await app.inject({ method: 'PATCH', url: `/documents/${DOC}/checklist/i1/complete` })
+      expect(res.statusCode).toBe(403)
+      await app.close()
+    }
   })
 })
 

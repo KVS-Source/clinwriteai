@@ -23,7 +23,8 @@ import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser, hasAnyRole, onlyRolesIn } from '../../../auth/rbac.js'
 import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
-import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { lettersForTransition, transitionForbidden } from './transition-roles.js'
+import { actorCanEditDocumentContent, actorHoldsLetter, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
 import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES } from './template-sections.js'
 import { actorManagesProject } from '../../projects/project-managers.js'
@@ -1246,6 +1247,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       const err = new InvalidDocumentTransitionError(from, to)
       return reply.code(409).send({ error: 'invalid_transition', message: err.message })
     }
+    // Each move belongs to one role (action table rows 11, 12, 14, 18, 27, 28; CW-006): the generic route
+    // is no way around the dedicated routes' own checks. Admins, PMs and auditors never move a document.
+    const allowedLetters = lettersForTransition(from, to)
+    if (!(await actorHoldsLetter(app.prisma, request.user!, documentId, allowedLetters))) {
+      return reply.code(403).send(transitionForbidden(allowedLetters))
+    }
 
     // A document becomes Signed only through a completed e-signature chain
     // (AC-A-045 / AC-A-046) — the last signature sets it. A status change can't
@@ -1376,7 +1383,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
   app.post('/:documentId/advance-stage', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
+    // Moving the stepper forward is the Author's act, like submitting for review (action table rows 6
+    // and 11; CW-006): admins, PMs and every other letter only read. Informed gets its own message.
     if (await actorIsOnlyInformed(app.prisma, request.user!, documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
+    if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) {
+      return reply.code(403).send({ error: 'advance_stage_forbidden', message: 'Only the Author (R) on this document can move it to the next stage.' })
+    }
     if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // Gate B — all mandatory items for stages ≤ current must be complete

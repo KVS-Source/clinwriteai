@@ -15,7 +15,7 @@ type DocRow = {
   status?: string
 }
 
-async function build(initial: DocRow) {
+async function build(initial: DocRow, opts: { author?: boolean; role?: string } = {}) {
   const doc: DocRow = { ...initial, currentVersion: initial.currentVersion ?? { versionNumber: 'v0.1' } }
   const updates: Array<Record<string, unknown>> = []
   const audit = vi.fn(async () => undefined)
@@ -45,7 +45,8 @@ async function build(initial: DocRow) {
     checklistInstanceItem: {
       findMany: vi.fn(async () => []),
     },
-    documentRaci: { findMany: vi.fn(async () => []) },
+    // The caller is the document's Author (R), the only role that may move the stepper.
+    documentRaci: { findMany: vi.fn(async () => []), findFirst: vi.fn(async () => (opts.author === false ? null : { id: 'raci-r' })) },
     $transaction: async (fn: (t: unknown) => unknown) => fn({
       project: { findUnique: async () => ({ status: 'ongoing' }) },
 
@@ -64,7 +65,7 @@ async function build(initial: DocRow) {
   app.decorate('audit', { append: audit } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    const user: AuthenticatedUser = { id: 'writer-1', email: 'w@x.io', role: 'clinical-writer', modules: ['A'], tenantId: null }
+    const user: AuthenticatedUser = { id: 'writer-1', email: 'w@x.io', role: opts.role ?? 'clinical-writer', modules: ['A'], tenantId: null }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
   })
   await app.register(documentsRoutes, { prefix: '/documents' })
@@ -107,6 +108,22 @@ describe('GET /documents/:id/stage', () => {
     expect(body.current).toBeNull()
     expect(body.next).toBeNull()
     expect(body.terminal).toBe(true)
+  })
+})
+
+describe('POST /documents/:id/advance-stage — who may', () => {
+  it.each([
+    ['a Reviewer, QC or Approver (no Author row)', { author: false }],
+    ['a PM', { author: true, role: 'pm' }],
+    ['an admin', { author: true, role: 'admin' }],
+    ['an auditor', { author: true, role: 'auditor' }],
+  ])('403s %s and moves nothing', async (_who, opts) => {
+    const { app, audit, updates } = await build({ id: 'DOC-1', stage: 'study_start_up', deletedAt: null }, opts)
+    const res = await app.inject({ method: 'POST', url: '/documents/DOC-1/advance-stage' })
+    expect(res.statusCode).toBe(403)
+    expect(res.json().error).toBe(opts.role === 'auditor' ? 'auditor_read_only' : 'advance_stage_forbidden')
+    expect(updates).toEqual([])
+    expect(audit).not.toHaveBeenCalled()
   })
 })
 

@@ -12,6 +12,7 @@ import { useCurrentUser } from '../../hooks'
 import { useDocumentPresence } from '../../hooks/usePresence'
 import { useCanComment } from '../../hooks/useCanComment'
 import { useCanViewChecklist } from '../../hooks/useCanViewChecklist'
+import { useMyRaciLetters } from '../../hooks/useMyRaciLetters'
 import { withSectionMark } from '../../panels/CommentComposer'
 import { MentionTextarea, mentionPattern } from '../../panels/MentionTextarea'
 import type { MentionablePerson } from '../../api/documents'
@@ -193,6 +194,9 @@ export function ReviewerView() {
   // Comments and the Approve / Return verdicts share one server rule: R, C, Q or A on this document.
   const canComment = useCanComment(documentId)
   const canViewChecklist = useCanViewChecklist(documentId)
+  // Starting the signature chain belongs to the Author (R) and the Approver (A) (action table row 27).
+  const myLetters = useMyRaciLetters(documentId)
+  const canStartSignatureChain = !!myLetters && (myLetters.has('R') || myLetters.has('A'))
 
   // Who is acting — the same identity the server records the comment under.
   const { data: me } = useCurrentUser()
@@ -453,7 +457,7 @@ export function ReviewerView() {
               </button>
             )}
             {/* Review + CRM done → the owner starts the Part 11 chain (FR-A-066). */}
-            {document.status === 'pending-signature' && (
+            {document.status === 'pending-signature' && canStartSignatureChain && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/sign`)}

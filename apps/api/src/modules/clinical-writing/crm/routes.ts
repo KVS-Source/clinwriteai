@@ -19,7 +19,8 @@ import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
 import { requireAuth, hasAnyRole, type AuthenticatedUser } from '../../../auth/rbac.js'
 import type { PrismaClient } from '@prisma/client'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
-import { actorCanResolveComments, actorCanScheduleCrm, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, CRM_SCHEDULE_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { actorCanResolveComments, actorHoldsLetter, actorCanScheduleCrm, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, CRM_SCHEDULE_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { crmPeople, CRM_PEOPLE_INVALID } from './people.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 import { canSeeDocument } from '../../projects/visibility.js'
 
@@ -79,12 +80,19 @@ async function fetchCrmContext(
   }
 }
 
-function toTeamMember(userId: string, u: { name: string; initials: string | null; role: string } | null, raci: string) {
+// Initials for an avatar when the user has none stored: first letters of the first two words of the name.
+const initialsFromName = (name: string) =>
+  name.split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0]!.toUpperCase()).join('')
+
+// `role` is the person's part in the meeting (Chair, Author, Reviewer, Observer), not their platform
+// role: a platform role such as "tenant-admin" says nothing about this meeting (CW-085).
+function toTeamMember(userId: string, u: { name: string; initials: string | null } | null, raci: string, role: string) {
+  const name = u?.name ?? userId
   return {
     userId,
-    name: u?.name ?? userId,
-    initials: u?.initials ?? '',
-    role: u?.role ?? '',
+    name,
+    initials: u?.initials || initialsFromName(name),
+    role,
     raci,
   }
 }
@@ -121,8 +129,8 @@ async function crmMeetingShape(
     startedAt: meeting.startedAt?.toISOString(),
     endedAt: meeting.endedAt?.toISOString(),
     status: meeting.status,             // scheduled | in_progress | complete | cancelled
-    chair: toTeamMember(meeting.chairId, byId.get(meeting.chairId) ?? null, 'A'),
-    attendees: meeting.attendees.map(a => toTeamMember(a.userId, byId.get(a.userId) ?? null, a.roleInCrm === 'Chair' ? 'A' : a.roleInCrm === 'Author' ? 'R' : 'C')),
+    chair: toTeamMember(meeting.chairId, byId.get(meeting.chairId) ?? null, 'A', 'Chair'),
+    attendees: meeting.attendees.map(a => toTeamMember(a.userId, byId.get(a.userId) ?? null, a.roleInCrm === 'Chair' ? 'A' : a.roleInCrm === 'Author' ? 'R' : 'C', a.roleInCrm)),
     commentIds: ctx.allCommentIds,
     resolvedIds,
     activeId: null as string | null,
@@ -131,10 +139,19 @@ async function crmMeetingShape(
 }
 
 export const crmRoutes: FastifyPluginAsync = async (app) => {
-  // Informed (I) may schedule a meeting and so chair it (row in the action table); short of that, they
-  // don't change one.
+  // Informed (I) are participants only (action table row 18): they don't schedule, add people or change a
+  // meeting — unless they chair one they were somehow given.
   const refusedAsInformed = async (user: AuthenticatedUser, meeting: { chairId: string; documentId: string }) =>
     meeting.chairId !== user.id && actorIsOnlyInformed(app.prisma, user, meeting.documentId)
+
+  // An Informed (I) person who was invited to this meeting: a participant (row 19), and nothing more.
+  const informedParticipant = async (user: AuthenticatedUser, meeting: { id: string; documentId: string }) => {
+    const [attendee, onlyI] = await Promise.all([
+      app.prisma.crmAttendee.findFirst({ where: { meetingId: meeting.id, userId: user.id }, select: { id: true } }),
+      actorHoldsLetter(app.prisma, user, meeting.documentId, ['I']),
+    ])
+    return attendee !== null && onlyI
+  }
 
   // --- Meetings -----------------------------------------------------------
 
@@ -182,6 +199,15 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     return { canSchedule: await actorCanScheduleCrm(app.prisma, request.user!, documentId) }
   })
 
+  // Who can be chair or attend: the document's own people and the project's PM (CW-098).
+  app.get('/documents/:documentId/crm/people', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorCanScheduleCrm(app.prisma, request.user!, documentId))) return reply.code(403).send(CRM_SCHEDULE_FORBIDDEN)
+    const people = await crmPeople(app.prisma, documentId, hasAnyRole(request.user!, 'pm') ? request.user!.id : undefined)
+    if (!people) return reply.code(404).send({ error: 'not_found' })
+    return people
+  })
+
   app.post('/documents/:documentId/crm',{ preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
@@ -193,6 +219,11 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     if (!(await actorCanScheduleCrm(app.prisma, request.user!, documentId))) {
       return reply.code(403).send(CRM_SCHEDULE_FORBIDDEN)
     }
+    // The chair and the attendees must be the document's own people (CW-098; action table row 18).
+    const people = (await crmPeople(app.prisma, documentId, hasAnyRole(request.user!, 'pm') ? request.user!.id : undefined)) ?? []
+    const byId = new Map(people.map(p => [p.id, p]))
+    if (!byId.get(parsed.data.chairId)?.canChair) return reply.code(400).send(CRM_PEOPLE_INVALID('chair'))
+    if (parsed.data.attendees.some(a => !byId.has(a.userId))) return reply.code(400).send(CRM_PEOPLE_INVALID('attendee'))
     if (isPastDay(parsed.data.scheduledDate)) return reply.code(422).send(DATE_IN_PAST)
     if (doc.status !== 'in_review' && doc.status !== 'crm_in_progress') {
       return reply.code(422).send({
@@ -256,9 +287,17 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const meeting = await app.prisma.crmMeeting.findUnique({ where: { id: meetingId } })
     if (!meeting) return reply.code(404).send({ error: 'not_found' })
     if (await refusedAsInformed(request.user!, meeting)) return reply.code(403).send(INFORMED_READ_ONLY)
+    // Adding people is part of scheduling: the chair, or whoever may schedule (action table row 18; CW-014).
+    if (meeting.chairId !== request.user!.id && !(await actorCanScheduleCrm(app.prisma, request.user!, meeting.documentId))) {
+      return reply.code(403).send(CRM_SCHEDULE_FORBIDDEN)
+    }
     if (await documentProjectIsClosed(app.prisma, meeting.documentId)) return reply.code(423).send(PROJECT_CLOSED)
     if (meeting.status === 'complete' || meeting.status === 'cancelled') {
       return reply.code(409).send({ error: 'meeting_closed', message: `Cannot modify attendees on ${meeting.status} meeting` })
+    }
+    const eligible = ((await crmPeople(app.prisma, meeting.documentId, hasAnyRole(request.user!, 'pm') ? request.user!.id : undefined)) ?? []).find(p => p.id === parsed.data.userId)
+    if (!eligible || (parsed.data.roleInCrm === 'Chair' && !eligible.canChair)) {
+      return reply.code(400).send(CRM_PEOPLE_INVALID(parsed.data.roleInCrm === 'Chair' ? 'chair' : 'attendee'))
     }
 
     const created = await app.prisma.crmAttendee.upsert({
@@ -463,7 +502,9 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     if (meeting.status !== 'in_progress') {
       return reply.code(409).send({ error: 'wrong_status', message: `Resolutions only accepted when meeting is in_progress (current: ${meeting.status})` })
     }
-    if (!(await actorCanResolveComments(app.prisma, request.user!, meeting.documentId))) {
+    // Log a resolution: the Author (R), Reviewer (C) or Approver (A), and an Informed (I) person who is
+    // a participant in this meeting (action table row 19; CW-014).
+    if (!(await actorCanResolveComments(app.prisma, request.user!, meeting.documentId)) && !(await informedParticipant(request.user!, meeting))) {
       return reply.code(403).send(COMMENT_RESOLVE_FORBIDDEN)
     }
 

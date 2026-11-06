@@ -42,6 +42,8 @@ export interface RaciTransitionEvaluation {
   rejectedRows: number
 }
 
+export interface PendingPerson { userId: string; name: string; letter: RaciLetter; remindedAt: string | null }
+
 export const raciApi = {
   list: (documentId: string) =>
     api.get<DocumentRaciRow[]>(`/documents/${documentId}/raci`),
@@ -49,6 +51,14 @@ export const raciApi = {
   canEdit: (documentId: string) =>
     // chainActive: a signature chain is in progress, so assignments are fixed (removing yourself aside).
     api.get<{ canEdit: boolean; chainActive?: boolean }>(`/documents/${documentId}/raci/can-edit`),
+
+  /** Who the document is waiting on, and who was reminded in the last 24 hours. Authors (R) only: others get 403. */
+  pending: (documentId: string) =>
+    api.get<{ gatingLetters: RaciLetter[]; pending: PendingPerson[] }>(`/documents/${documentId}/pending`),
+
+  /** Remind the people the document is waiting on. A person reminded in the last 24 hours is skipped (throttled). */
+  nudge: (documentId: string, body: { targetUserIds?: string[]; message?: string } = {}) =>
+    api.post<{ decisions: Array<{ targetUserId: string; status: 'nudged' | 'throttled' | 'not_in_cohort' | 'already_done' }> }>(`/documents/${documentId}/nudge`, body),
 
   assign: (documentId: string, body: {
     userId: string

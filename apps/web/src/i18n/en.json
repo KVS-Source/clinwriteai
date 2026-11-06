@@ -1393,6 +1393,7 @@
       "comments_label": "Comments",
       "ai_chat_tooltip": "Open AI Chat (⌘J)",
       "ai_chat_authors_only": "AI Chat is only available to this document's authors",
+      "voice_note_authors_only": "Voice notes are only available to this document's authors",
       "ai_chat_label": "AI Chat",
       "insert_citation": "Insert citation",
       "insert_citation_tooltip": "Insert a citation linked to a source document at the cursor",

@@ -155,6 +155,8 @@ interface EditorToolbarProps {
   editable?: boolean
   // AI Chat is for this document's authors; the button stays disabled until that's known.
   aiChatAllowed?: boolean
+  // Voice notes are for this document's authors too; the button stays disabled until that's known.
+  voiceNotesAllowed?: boolean
   // The Source References option is left out once this is known to be false.
   canViewSources?: boolean
 }
@@ -164,7 +166,7 @@ interface EditorToolbarProps {
 // belong on a CSR / IB / DSUR row.
 const PROTOCOL_DOC_TYPES: ReadonlySet<DocumentType> = new Set(['protocol', 'protocol-amendment'])
 
-export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist, aiChatAllowed = false, canViewSources, editable }: EditorToolbarProps = {}) {
+export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist, aiChatAllowed = false, voiceNotesAllowed = false, canViewSources, editable }: EditorToolbarProps = {}) {
   const { t } = useTranslation()
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
@@ -254,7 +256,7 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
       <Divider />
 
       {/* Panel triggers */}
-      <IconButton title={t('page.editor_toolbar.voice_note_tooltip')} active={activePanel === 'voice'}     panelTrigger onClick={() => toggle('voice')}><VoiceIcon /></IconButton>
+      <IconButton title={voiceNotesAllowed ? t('page.editor_toolbar.voice_note_tooltip') : t('page.editor_toolbar.voice_note_authors_only')} active={activePanel === 'voice'} disabled={!voiceNotesAllowed} panelTrigger onClick={() => toggle('voice')}><VoiceIcon /></IconButton>
       {canViewChecklist !== false && (
         <IconButton title={t('page.editor_toolbar.checklist_tooltip')} active={activePanel === 'checklist'} panelTrigger onClick={() => toggle('checklist')}><ChecklistIcon /></IconButton>
       )}

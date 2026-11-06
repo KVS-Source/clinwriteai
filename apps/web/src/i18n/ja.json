@@ -150,6 +150,7 @@
       "kpi_days_to_cutoff":        "データカットまでの日数",
       "kpi_team_members":          "チーム メンバー",
       "roster_pending":            "チーム構成は未確定です",
+      "team_assigned": "このプロジェクトに割り当て済み",
 
       "active_badge":           "アクティブ",
       "kv_documents":           "ドキュメント",
@@ -4274,6 +4275,17 @@
 
     "deadlines": {
       "title": "期限",
+      "on_track": "順調",
+      "none_set": "期限は未設定です",
+      "document": "ドキュメント",
+      "status": "ステータス",
+      "overdue_count_one": "期限超過 {{count}} 件",
+      "overdue_count_other": "期限超過 {{count}} 件",
+      "days_overdue_one": "{{count}} 日超過",
+      "days_overdue_other": "{{count}} 日超過",
+      "due_today": "本日期限",
+      "due_in_one": "あと {{count}} 日",
+      "due_in_other": "あと {{count}} 日",
       "target": "目標日",
       "review_due": "レビュー期限",
       "overdue": "期限超過",

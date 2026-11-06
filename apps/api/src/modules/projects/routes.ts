@@ -151,6 +151,36 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     return projectShape(project)
   })
 
+  // Everyone who works on the project, each counted once: its members (project managers included), its
+  // team roster, and anyone holding a RACI letter on, assigned to, or who created one of its documents.
+  // Only real accounts count (roster placeholders with no account are left out), and so does nobody who
+  // has been deprovisioned. Same visibility rule as the project itself.
+  app.get('/:id/people', { preHandler: requireAuth() }, async (request, reply) => {
+    const { id } = request.params as { id: string }
+    const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+    if (visible !== 'all' && !visible.has(id)) return reply.code(404).send({ error: 'not_found' })
+    const project = await app.prisma.project.findUnique({ where: { id }, select: { id: true } })
+    if (!project) return reply.code(404).send({ error: 'not_found' })
+
+    const [members, team, documents, raci] = await Promise.all([
+      app.prisma.projectMember.findMany({ where: { projectId: id, removedAt: null }, select: { userId: true } }),
+      app.prisma.projectTeamMember.findMany({ where: { projectId: id }, select: { userId: true } }),
+      app.prisma.document.findMany({ where: { projectId: id, deletedAt: null }, select: { assigneeId: true, createdBy: true } }),
+      app.prisma.documentRaci.findMany({ where: { removedAt: null, document: { projectId: id, deletedAt: null } }, select: { userId: true } }),
+    ])
+    const ids = new Set<string>()
+    for (const r of members) ids.add(r.userId)
+    for (const r of team) ids.add(r.userId)
+    for (const d of documents) { if (d.assigneeId) ids.add(d.assigneeId); if (d.createdBy) ids.add(d.createdBy) }
+    for (const r of raci) ids.add(r.userId)
+
+    const accounts = ids.size === 0 ? [] : await app.prisma.user.findMany({
+      where: { id: { in: [...ids] }, status: { not: 'deprovisioned' } },
+      select: { id: true },
+    })
+    return { count: accounts.length, userIds: accounts.map(a => a.id) }
+  })
+
   app.post('/', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     const parsedBody = projectCreateBodySchema.safeParse(request.body)
     if (!parsedBody.success) return reply.code(400).send({ error: 'validation', issues: parsedBody.error.issues })

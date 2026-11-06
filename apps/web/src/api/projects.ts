@@ -19,6 +19,9 @@ export const projectManagersApi = {
 }
 
 export const projectsApi = {
+  /** Everyone working on the project (members, PMs, RACI holders, assignees), each once. */
+  people: (projectId: string) =>
+    api.get<{ count: number; userIds: string[] }>(`/projects/${encodeURIComponent(projectId)}/people`),
   list: (params?: { status?: string; ta?: string; search?: string }) => {
     const qs = new URLSearchParams(
       Object.entries(params ?? {}).filter(([, v]) => v) as [string, string][],

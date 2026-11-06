@@ -139,7 +139,14 @@ test('the project dashboard lists deadlines, soonest first, and flags overdue on
     ],
   })
   await page.goto(`/projects/${PROJECT_ID}`, { waitUntil: 'domcontentloaded' })
-  await expect(page.locator('[data-section="deadlines"]')).toBeVisible({ timeout: 60_000 })
+  // The Deadlines card sits in the row of KPI cards: it shows the overdue count and the most urgent date, and
+  // opens the full list when clicked.
+  const card = page.locator('[data-deadlines-card]')
+  await expect(card).toBeVisible({ timeout: 60_000 })
+  await expect(card.locator('[data-deadlines-overdue]')).toHaveText('1')
+  await expect(card.locator('[data-deadlines-next]')).toContainText('Dates test')
+  await card.click()
+  await expect(page.locator('[data-section="deadlines"]')).toBeVisible()
 
   const rows = page.locator('[data-deadline-row]')
   await expect(rows).toHaveCount(2)

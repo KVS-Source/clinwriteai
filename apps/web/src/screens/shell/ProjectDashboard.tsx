@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -54,6 +54,17 @@ export function ProjectDashboard() {
     queryFn:  () => documentsApi.list(projectId!),
     enabled:  !!projectId,
   })
+
+  // Everyone on the project, each counted once: members (PMs included), the team roster, RACI holders on any
+  // of its documents, document assignees and creators. Counted by the API.
+  const { data: people } = useQuery({
+    queryKey: ['project-people', projectId],
+    queryFn:  () => projectsApi.people(projectId!),
+    enabled:  !!projectId,
+    retry: false,
+  })
+  // While the count loads (or if it can't), fall back to the roster so the card is never empty.
+  const teamCount = people?.count ?? project?.team.length ?? 0
 
   // TLF packages decide whether the data-cut banner may say final TLFs are available.
   const { data: tlfPackages } = useQuery({
@@ -134,6 +145,9 @@ export function ProjectDashboard() {
       .filter(d => d.soonest)
       .sort((a, b) => a.soonest.localeCompare(b.soonest))
   }, [documents])
+
+  // Documents with a date that has passed (either one).
+  const overdueCount = useMemo(() => deadlines.filter(d => d.targetOverdue || d.reviewOverdue).length, [deadlines])
 
   // Team role breakdown — real counts from project.team.raci instead
   // of the hardcoded "3 writers · 2 stats · 3 reviewers" string.
@@ -315,8 +329,8 @@ export function ProjectDashboard() {
             </div>
           )}
 
-          {/* 4 KPI cards — real per-project values */}
-          <div className="grid grid-cols-4 gap-4">
+          {/* KPI cards in a single row — real per-project values. Deadlines is the last card. */}
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
             <KpiCard
               label={t('page.project_dashboard.kpi_docs_in_flight')}
               value={String(stats.inFlight)}
@@ -337,33 +351,16 @@ export function ProjectDashboard() {
             />
             <KpiCard
               label={t('page.project_dashboard.kpi_team_members')}
-              value={String(project.team.length)}
-              sub={teamBreakdown || t('page.project_dashboard.roster_pending')}
+              value={String(teamCount)}
+              sub={teamBreakdown || undefined}
+            />
+            <DeadlinesCard
+              projectId={project.id}
+              deadlines={deadlines}
+              overdueCount={overdueCount}
+              onOpenDocument={id => navigate(`/projects/${project.id}/clinical-writing/documents/${id}`)}
             />
           </div>
-
-          {/* Deadlines — the dates PMs and authors set, soonest first */}
-          {deadlines.length > 0 && (
-            <section className="rounded-lg border border-slate-200 bg-white" data-section="deadlines">
-              <h2 className="border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-900">{t('component.deadlines.title')}</h2>
-              <div className="divide-y divide-slate-100">
-                {deadlines.map(d => (
-                  <button
-                    key={d.id}
-                    type="button"
-                    onClick={() => navigate(`/projects/${project.id}/clinical-writing/documents/${d.id}`)}
-                    className="flex w-full flex-wrap items-center gap-x-6 gap-y-1 px-4 py-2.5 text-left text-[13px] hover:bg-slate-50"
-                    data-deadline-row={d.id}
-                  >
-                    <span className="min-w-0 flex-1 truncate font-semibold text-slate-900">{d.title}</span>
-                    <span className="flex-none text-slate-500">{STATUS_META[d.status]?.label ?? d.status}</span>
-                    <DeadlineCell label={t('component.deadlines.target')} iso={d.targetCompletionDate} overdue={d.targetOverdue} overdueLabel={t('component.deadlines.overdue')} field="target" />
-                    <DeadlineCell label={t('component.deadlines.review_due')} iso={d.reviewDueAt} overdue={d.reviewOverdue} overdueLabel={t('component.deadlines.overdue')} field="review" />
-                  </button>
-                ))}
-              </div>
-            </section>
-          )}
 
           {/* Active module cards. project.activeModules comes from the
               API as ModuleKey[] (letters like 'A'); the UI meta map +
@@ -581,12 +578,130 @@ export function ProjectDashboard() {
 
 // --- Small sub-components ---
 
-function DeadlineCell({ label, iso, overdue, overdueLabel, field }: { label: string; iso: string | null | undefined; overdue: boolean; overdueLabel: string; field: string }) {
+// Whole days from today to a date (negative = in the past). Both are yyyy-mm-dd, so there is no time-zone drift.
+function daysFromToday(day: string): number {
+  const [y, m, dd] = day.split('-').map(Number)
+  const [ty, tm, td] = localToday().split('-').map(Number)
+  return Math.round((Date.UTC(y!, m! - 1, dd!) - Date.UTC(ty!, tm! - 1, td!)) / 86_400_000)
+}
+
+function DeadlineCell({ label, iso, overdue, field, compact }: { label: string; iso: string | null | undefined; overdue: boolean; field: string; compact?: boolean }) {
+  const { t } = useTranslation()
+  const day = deadlineDay(iso)
+  const diff = day ? daysFromToday(day) : null
+  const note = diff === null ? null
+    : diff < 0 ? { text: t('component.deadlines.days_overdue', { count: -diff, defaultValue_one: '{{count}} day overdue', defaultValue_other: '{{count}} days overdue' }), tone: 'text-red-700' }
+    : diff === 0 ? { text: t('component.deadlines.due_today', { defaultValue: 'Due today' }), tone: 'text-amber-700' }
+    : { text: t('component.deadlines.due_in', { count: diff, defaultValue_one: 'in {{count}} day', defaultValue_other: 'in {{count}} days' }), tone: diff <= 3 ? 'text-amber-700' : 'text-slate-500' }
   return (
-    <span className="flex-none text-[12px] text-slate-500" data-deadline-cell={field} data-overdue={overdue || undefined}>
-      {label}: <span className={overdue ? 'font-semibold text-red-700' : 'font-medium text-slate-800'}>{fmtDeadline(iso)}</span>
-      {overdue && <span className="ml-1 font-semibold text-red-700">· {overdueLabel}</span>}
+    <span className={compact ? 'flex flex-col sm:flex-row sm:items-baseline sm:gap-2' : 'flex flex-col'} data-deadline-cell={field} data-overdue={overdue || undefined}>
+      <span className={`text-[10px] font-semibold uppercase tracking-wider text-slate-400 ${compact ? '' : 'md:hidden'}`}>{label}</span>
+      <span className={`text-[13px] ${overdue ? 'font-semibold text-red-700' : day ? 'font-medium text-slate-800' : 'text-slate-400'}`}>{fmtDeadline(iso)}</span>
+      {note && <span className={`text-[11px] font-medium ${note.tone}`}>{note.text}</span>}
     </span>
+  )
+}
+
+type DeadlineRow = Document & { targetOverdue: boolean; reviewOverdue: boolean; soonest: string }
+
+// A Deadlines card for the row of KPI cards: how many are overdue, and the most urgent date. Clicking it
+// opens the full list (every open document with a date, soonest first) just below the card.
+function DeadlinesCard({ projectId, deadlines, overdueCount, onOpenDocument }: {
+  projectId: string
+  deadlines: DeadlineRow[]
+  overdueCount: number
+  onOpenDocument: (documentId: string) => void
+}) {
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLDivElement>(null)
+
+  useEffect(() => { setOpen(false) }, [projectId])
+  useEffect(() => {
+    if (!open) return
+    const onDown = (e: MouseEvent) => { if (box.current && !box.current.contains(e.target as Node)) setOpen(false) }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', onDown)
+    window.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('mousedown', onDown); window.removeEventListener('keydown', onKey) }
+  }, [open])
+
+  // The most urgent: the soonest date (overdue ones sort first).
+  const top = deadlines[0]
+  const topDay = top ? top.soonest : ''
+  const topDiff = topDay ? daysFromToday(topDay) : null
+  const topNote = topDiff === null ? ''
+    : topDiff < 0 ? t('component.deadlines.days_overdue', { count: -topDiff, defaultValue_one: '{{count}} day overdue', defaultValue_other: '{{count}} days overdue' })
+    : topDiff === 0 ? t('component.deadlines.due_today', { defaultValue: 'Due today' })
+    : t('component.deadlines.due_in', { count: topDiff, defaultValue_one: 'in {{count}} day', defaultValue_other: 'in {{count}} days' })
+  const late = overdueCount > 0
+
+  return (
+    <div ref={box} className="relative min-w-0">
+      <button
+        type="button"
+        onClick={() => setOpen(v => !v)}
+        aria-expanded={open}
+        className={`flex h-full w-full min-w-0 flex-col gap-1.5 rounded-lg border bg-white px-4 py-3.5 text-left transition-colors hover:bg-slate-50 ${late ? 'border-red-200' : 'border-slate-200'}`}
+        data-deadlines-card
+      >
+        <span className="flex items-center justify-between gap-2">
+          <span className="truncate text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('component.deadlines.title')}</span>
+          <span className={`text-slate-400 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden="true">›</span>
+        </span>
+        <span className="flex items-baseline gap-2">
+          {deadlines.length === 0 ? (
+            <span className="text-2xl font-bold leading-none tracking-tight text-slate-400">—</span>
+          ) : late ? (
+            <>
+              <span className="text-2xl font-bold leading-none tracking-tight text-red-700" data-deadlines-overdue>{overdueCount}</span>
+              <span className="text-xs font-semibold text-red-700">{t('component.deadlines.overdue')}</span>
+            </>
+          ) : (
+            <span className="text-2xl font-bold leading-none tracking-tight text-emerald-700">{t('component.deadlines.on_track', { defaultValue: 'On track' })}</span>
+          )}
+        </span>
+        <span className="line-clamp-2 text-[11px] leading-snug text-slate-500" data-deadlines-next>
+          {top ? `${top.title} · ${topNote}` : t('component.deadlines.none_set', { defaultValue: 'No dates set' })}
+        </span>
+      </button>
+
+      {open && deadlines.length > 0 && (
+        <div className="absolute right-0 top-full z-30 mt-2 w-[min(560px,calc(100vw-2rem))] overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg" data-section="deadlines">
+          <div className="flex items-center gap-2 border-b border-slate-200 px-4 py-2.5">
+            <h2 className="text-[13px] font-semibold text-slate-900">{t('component.deadlines.title')}</h2>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-600" data-deadlines-count>{deadlines.length}</span>
+          </div>
+          <div className="max-h-[320px] overflow-y-auto">
+            {deadlines.map(d => {
+              const meta = STATUS_META[d.status]
+              return (
+                <button
+                  key={d.id}
+                  type="button"
+                  onClick={() => onOpenDocument(d.id)}
+                  className="relative grid w-full grid-cols-1 gap-y-1 border-b border-slate-100 px-4 py-2.5 text-left last:border-b-0 hover:bg-slate-50"
+                  data-deadline-row={d.id}
+                >
+                  {(d.targetOverdue || d.reviewOverdue) && <span className="absolute inset-y-0 left-0 w-[3px] bg-red-500" aria-hidden="true" />}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 truncate text-[13px] font-semibold text-slate-900">{d.title}</span>
+                    <span
+                      className="flex-none rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                      style={{ backgroundColor: meta?.bg ?? '#F1F5F9', color: meta?.fg ?? '#475569' }}
+                    >{meta?.label ?? d.status}</span>
+                  </span>
+                  <span className="flex flex-wrap gap-x-5 gap-y-1">
+                    <DeadlineCell compact label={t('component.deadlines.target')} iso={d.targetCompletionDate} overdue={d.targetOverdue} field="target" />
+                    <DeadlineCell compact label={t('component.deadlines.review_due')} iso={d.reviewDueAt} overdue={d.reviewOverdue} field="review" />
+                  </span>
+                </button>
+              )
+            })}
+          </div>
+        </div>
+      )}
+    </div>
   )
 }
 
@@ -598,13 +713,13 @@ interface KpiProps {
 }
 function KpiCard({ label, value, sub, valueRight }: KpiProps) {
   return (
-    <div className="flex flex-col gap-2 rounded-lg border border-slate-200 bg-white p-[18px]">
-      <p className="text-xs font-semibold text-slate-500">{label}</p>
-      <div className="flex items-baseline gap-2.5">
-        <p className="text-[28px] font-bold leading-none tracking-tight text-slate-900">{value}</p>
+    <div className="flex min-w-0 flex-col gap-1.5 rounded-lg border border-slate-200 bg-white px-4 py-3.5">
+      <p className="truncate text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</p>
+      <div className="flex items-baseline gap-2">
+        <p className="text-2xl font-bold leading-none tracking-tight text-slate-900">{value}</p>
         {valueRight}
       </div>
-      {sub && <p className="text-xs text-slate-500">{sub}</p>}
+      {sub && <p className="line-clamp-2 text-[11px] leading-snug text-slate-500">{sub}</p>}
     </div>
   )
 }

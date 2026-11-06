@@ -1,9 +1,10 @@
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTaLabels } from '../../hooks'
-import type { MasterLibraryItem, MasterLibraryItemType, ModuleKey } from '@platform/types'
+import type { MasterLibraryItem, ModuleKey } from '@platform/types'
 import type { LibraryListParams } from '../api/platformApi'
 import { PLATFORM_ACCENT, PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -13,21 +14,19 @@ import { raciApi } from '../../api/raci'
 import { api } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 import { SortIcon } from '../../components/ui/SortIcon'
+import { DateTimeRangeFilter, rangeToIso, toInputValue, type TimeZoneMode } from '../../components/ui/DateTimeRangeFilter'
 
 const MODULE_COLOURS: Record<ModuleKey, string> = {
   A: '#2563EB', B: '#0D9488', C: '#7C3AED', D: '#B0200D', E: '#0D9488', platform: PLATFORM_ACCENT.primary,
-}
-
-const ITEM_TYPE_KEYS: Record<MasterLibraryItemType, string> = {
-  'document':      'page.master_library.item_type_document',
-  'section':       'page.master_library.item_type_section',
-  'best-practice': 'page.master_library.item_type_best_practice',
 }
 
 // Document types always offered as filters, merged with whatever the library holds.
 const BASE_DOC_TYPES = ['NDA', 'CSR', 'SmPC', 'RMP', 'Blog Post', 'IND', 'KOL Summary', 'Manuscript', 'Clinical Brief', 'HA Response']
 
 const PAGE_SIZES = [10, 20, 50]
+// Whole documents only. Best practices have their own page, and single sections can no longer be
+// pushed, so the section entries from earlier pushes are kept in the database but not listed here.
+const LIST_ITEM_TYPES = ['document']
 const SEARCH_DEBOUNCE_MS = 300
 // Mirrors the API's AUTHORING_LOCKED_STATUSES. The web sends statuses with hyphens (in-review), the API with underscores.
 const AUTHORING_LOCKED = ['in-review', 'pending-signature', 'signed']
@@ -62,13 +61,13 @@ export function MasterLibrary() {
 
   // Filters start empty — nothing is pre-applied.
   const [search,      setSearch]      = useState('')
-  const [itemTypes,   setItemTypes]   = useState<MasterLibraryItemType[]>([])
   const [docTypes,    setDocTypes]    = useState<string[]>([])
   const [tas,         setTas]         = useState<string[]>([])
   const [project,     setProject]     = useState('')
-  const [version,     setVersion]     = useState('')
-  const [fromDay,     setFromDay]     = useState('')
-  const [toDay,       setToDay]       = useState('')
+  // "Pushed" date-and-time range, the same picker as the Audit Trail: values are YYYY-MM-DDTHH:mm in `tz`.
+  const [rangeFrom,   setRangeFrom]   = useState('')
+  const [rangeTo,     setRangeTo]     = useState('')
+  const [tz,          setTz]          = useState<TimeZoneMode>('local')
   const [sort,        setSort]        = useState<SortKey>('recent')
   const [showWithdrawn, setShowWithdrawn] = useState(false)
   const [page,        setPage]        = useState(1)
@@ -82,11 +81,11 @@ export function MasterLibrary() {
     const id = setTimeout(() => setDebouncedSearch(search.trim()), SEARCH_DEBOUNCE_MS)
     return () => clearTimeout(id)
   }, [search])
-  const dateRangeInvalid = !!fromDay && !!toDay && fromDay > toDay
+  const dateRangeInvalid = !!rangeFrom && !!rangeTo && rangeFrom > rangeTo
   const listParams = useMemo<LibraryListParams>(() => ({
-    q: debouncedSearch, itemType: itemTypes, docType: docTypes, ta: tas,
-    projectId: project, version, from: fromDay, to: toDay, sort, includeRetired: showWithdrawn, limit: pageSize,
-  }), [debouncedSearch, itemTypes, docTypes, tas, project, version, fromDay, toDay, sort, showWithdrawn])
+    q: debouncedSearch, itemType: LIST_ITEM_TYPES, docType: docTypes, ta: tas,
+    projectId: project, from: rangeToIso(rangeFrom, 'start', tz), to: rangeToIso(rangeTo, 'end', tz), sort, includeRetired: showWithdrawn, limit: pageSize,
+  }), [debouncedSearch, docTypes, tas, project, rangeFrom, rangeTo, tz, sort, showWithdrawn])
 
   // Any change to a filter, the sort or the page size starts again from page 1.
   useEffect(() => { setPage(1) }, [listParams])
@@ -122,26 +121,22 @@ export function MasterLibrary() {
     () => Array.from(new Set([...BASE_DOC_TYPES, ...docTypes, ...items.map(i => i.docType)])).filter(Boolean),
     [items, docTypes],
   )
-  // Every project the user can see, not just the ones on the loaded page.
-  const { data: projectList = [] } = useQuery({ queryKey: ['library-projects'], queryFn: () => projectsApi.list() })
+  // Every project that has something in the library, whoever is signed in (not just the user's own projects).
+  const { data: projectList = [] } = useQuery({ queryKey: ['library-projects'], queryFn: () => platformApi.listLibraryProjects() })
   const projectOptions = useMemo(
     () => projectList.map(p => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name)),
     [projectList],
   )
-  const versionOptions = useMemo(
-    () => Array.from(new Set([...(version ? [version] : []), ...items.map(i => i.version)])).filter(Boolean).sort(),
-    [items, version],
-  )
 
   const activeFilterCount =
-    (search.trim() ? 1 : 0) + (itemTypes.length ? 1 : 0) +
-    (docTypes.length ? 1 : 0) + (tas.length ? 1 : 0) + (project ? 1 : 0) + (version ? 1 : 0) +
-    (fromDay || toDay ? 1 : 0) + (showWithdrawn ? 1 : 0)
+    (search.trim() ? 1 : 0) +
+    (docTypes.length ? 1 : 0) + (tas.length ? 1 : 0) + (project ? 1 : 0) +
+    (rangeFrom || rangeTo ? 1 : 0) + (showWithdrawn ? 1 : 0)
   const filtersDirty = activeFilterCount > 0
 
   function resetFilters() {
-    setSearch(''); setItemTypes([]); setDocTypes([]); setTas([])
-    setProject(''); setVersion(''); setFromDay(''); setToDay('')
+    setSearch(''); setDocTypes([]); setTas([])
+    setProject(''); setRangeFrom(''); setRangeTo('')
     setSort('recent'); setShowWithdrawn(false)
   }
 
@@ -185,6 +180,12 @@ export function MasterLibrary() {
     }
   }
 
+  // Switching the timezone keeps the range pointing at the same moments (as on the Audit Trail).
+  function changeTz(next: TimeZoneMode) {
+    const convert = (v: string) => (v ? toInputValue(new Date(rangeToIso(v, 'start', tz)!), next) : '')
+    setRangeFrom(convert(rangeFrom)); setRangeTo(convert(rangeTo)); setTz(next)
+  }
+
   const sortFor = (asc: SortKey, desc: SortKey): 'asc' | 'desc' | null => sort === asc ? 'asc' : sort === desc ? 'desc' : null
   const toggleSort = (asc: SortKey, desc: SortKey) => setSort(sort === asc ? desc : asc)
   const SortHead = ({ label, asc, desc }: { label: string; asc: SortKey; desc: SortKey }) => (
@@ -197,8 +198,7 @@ export function MasterLibrary() {
   )
   const PlainHead = ({ label }: { label: string }) => <th className="px-4 py-3 text-left uppercase tracking-widest">{label}</th>
 
-  const itemTypeOptions = (['document', 'section', 'best-practice'] as MasterLibraryItemType[]).map(ty => ({ value: ty, label: t(ITEM_TYPE_KEYS[ty]) }))
-  const filterControl = 'h-10 w-44 rounded-md border border-slate-300 bg-white px-3 text-[13px] text-slate-800'
+  const filterControl = 'h-10 w-full rounded-md border border-slate-300 bg-white px-2.5 text-[12px] text-slate-800'
 
   return (
     <div className="bg-slate-50" data-screen="master-library">
@@ -221,58 +221,59 @@ export function MasterLibrary() {
           </span>
         </div>
 
-        {/* Filters — one row, wrapping on narrow screens */}
-        <div className="flex flex-wrap items-center gap-3" data-filter-panel>
-          <input
-            type="search" placeholder={t('page.master_library.search_placeholder')} value={search}
-            onChange={(e) => setSearch(e.currentTarget.value)}
-            data-filter-search aria-label={t('page.master_library.search_aria')}
-            className={`${filterControl} min-w-[260px] !w-auto flex-1`}
-          />
+        {/* Filters — fill the card's width. At 1100px of content width and up it is one row (search
+            twice as wide as each dropdown); narrower, it wraps: search on its own first row, the rest below. */}
+        <div className="[container-type:inline-size]" data-filter-panel>
+          <div className={`flex flex-wrap items-center gap-3 [@container_(min-width:1100px)]:flex-nowrap`}>
+            <input
+              type="search" placeholder={t('page.master_library.search_placeholder')} value={search}
+              onChange={(e) => setSearch(e.currentTarget.value)}
+              data-filter-search aria-label={t('page.master_library.search_aria')}
+              className={`${filterControl} basis-full min-w-0 [@container_(min-width:1100px)]:min-w-[180px] [@container_(min-width:1100px)]:flex-[2_1_0%]`}
+            />
 
-          <div data-filter-item-type>
-            <MultiSelect label={t('page.master_library.filter_item_type')} allLabel={t('page.master_library.all_item_types')}
-              options={itemTypeOptions} value={itemTypes} onChange={v => setItemTypes(v as MasterLibraryItemType[])}
-              optionAttr="data-item-type" className={filterControl} />
-          </div>
-          <div data-filter-doctype>
-            <MultiSelect label={t('page.master_library.filter_doc_type')} allLabel={t('page.master_library.all_doc_types')}
-              options={docTypeOptions.map(d => ({ value: d, label: d }))} value={docTypes} onChange={setDocTypes}
-              optionAttr="data-doctype-chip" className={filterControl} />
-          </div>
-          <div data-filter-ta>
-            <MultiSelect label={THERAPEUTIC_AREA_LABEL} allLabel={t('page.master_library.all_ta')}
-              options={taLabels.map(ta => ({ value: ta, label: ta }))} value={tas} onChange={setTas}
-              optionAttr="data-ta-chip" className={filterControl} />
-          </div>
+            <div data-filter-doctype className="min-w-[130px] flex-[1_1_130px] [@container_(min-width:1100px)]:flex-[1_1_0%]">
+              <MultiSelect label={t('page.master_library.filter_doc_type')} allLabel={t('page.master_library.all_doc_types')}
+                options={docTypeOptions.map(d => ({ value: d, label: d }))} value={docTypes} onChange={setDocTypes}
+                optionAttr="data-doctype-chip" className={filterControl} />
+            </div>
+            <div data-filter-ta className="min-w-[130px] flex-[1_1_130px] [@container_(min-width:1100px)]:flex-[1_1_0%]">
+              <MultiSelect label={THERAPEUTIC_AREA_LABEL} allLabel={t('page.master_library.all_ta')}
+                options={taLabels.map(ta => ({ value: ta, label: ta }))} value={tas} onChange={setTas}
+                optionAttr="data-ta-chip" className={filterControl} />
+            </div>
+            <div data-filter-project className="min-w-[130px] flex-[1_1_130px] [@container_(min-width:1100px)]:flex-[1_1_0%]">
+              <MultiSelect single label={t('page.master_library.filter_project')} allLabel={t('page.master_library.all_projects')}
+                options={projectOptions.map(p => ({ value: p.id, label: p.name }))} value={project ? [project] : []} onChange={v => setProject(v[0] ?? '')}
+                optionAttr="data-project-option" className={filterControl} />
+            </div>
 
-          <select className={filterControl} value={project} onChange={e => setProject(e.target.value)} data-filter-project aria-label={t('page.master_library.filter_project')}>
-            <option value="">{t('page.master_library.all_projects')}</option>
-            {projectOptions.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
+            <div className="flex flex-none items-center gap-1.5" data-filter-dates>
+              <DateTimeRangeFilter from={rangeFrom} to={rangeTo} tz={tz} invalid={dateRangeInvalid}
+                onChange={r => { setRangeFrom(r.from); setRangeTo(r.to) }} onTzChange={changeTz}
+                align="left" buttonClassName="h-10 w-[220px]" />
+            </div>
 
-          <select className={filterControl} value={version} onChange={e => setVersion(e.target.value)} data-filter-version aria-label={t('page.master_library.filter_version')}>
-            <option value="">{t('page.master_library.all_versions')}</option>
-            {versionOptions.map(v => <option key={v} value={v}>{v}</option>)}
-          </select>
+            <label className="flex flex-none items-center gap-1.5 whitespace-nowrap text-[12px] text-slate-700" data-filter-withdrawn>
+              <input type="checkbox" checked={showWithdrawn} onChange={e => setShowWithdrawn(e.currentTarget.checked)} style={{ accentColor: PLATFORM_ACCENT.primary }} />
+              {t('page.master_library.show_withdrawn')}
+            </label>
 
-          <div className="flex items-center gap-2" data-filter-dates>
-            <span className="text-[12px] text-slate-500">{t('page.master_library.pushed_between')}</span>
-            <input type="date" aria-label={t("page.master_library.from_date_aria")} className={`${filterControl} !w-40`} value={fromDay} onChange={e => setFromDay(e.target.value)} />
-            <input type="date" aria-label={t("page.master_library.to_date_aria")} className={`${filterControl} !w-40`} value={toDay} onChange={e => setToDay(e.target.value)} />
-          </div>
-
-          <label className="flex items-center gap-2 text-[13px] text-slate-700" data-filter-withdrawn>
-            <input type="checkbox" checked={showWithdrawn} onChange={e => setShowWithdrawn(e.currentTarget.checked)} style={{ accentColor: PLATFORM_ACCENT.primary }} />
-            {t('page.master_library.show_withdrawn')}
-          </label>
-
-          {filtersDirty && (
-            <button type="button" onClick={resetFilters} data-action="reset-filters"
-              className="h-10 px-2 text-[13px] font-semibold text-slate-600 hover:text-slate-900">
-              ✕ {t('page.master_library.reset_filters')}
+            <button
+              type="button"
+              onClick={resetFilters}
+              disabled={!filtersDirty}
+              title={filtersDirty ? t('page.master_library.reset_filters') : t('page.master_library.filters_at_defaults')}
+              aria-label={t('page.master_library.reset_filters')}
+              className="flex h-10 w-10 flex-none items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white"
+              data-action="reset-filters"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" />
+                <path d="M2.5 2.5v2.8h2.8" />
+              </svg>
             </button>
-          )}
+          </div>
         </div>
         {dateRangeInvalid && <p className="-mt-2 text-[12px] text-red-700">{t('page.master_library.date_range_invalid')}</p>}
 
@@ -293,7 +294,6 @@ export function MasterLibrary() {
             <thead className="border-b border-slate-200 bg-slate-50 font-mono text-[10px] font-semibold text-slate-500">
               <tr>
                 <SortHead label={t('page.master_library.col_title')} asc="name-asc" desc="name-desc" />
-                <PlainHead label={t('page.master_library.col_type')} />
                 <PlainHead label={t('page.master_library.filter_doc_type')} />
                 <PlainHead label={THERAPEUTIC_AREA_LABEL} />
                 <PlainHead label={t('page.master_library.col_version')} />
@@ -304,10 +304,10 @@ export function MasterLibrary() {
             </thead>
             <tbody>
               {isLoading && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_library')}</td></tr>
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_library')}</td></tr>
               )}
               {!isLoading && !error && items.length === 0 && (
-                <tr><td colSpan={8} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
                   {!filtersDirty ? t('page.master_library.empty_library') : t('page.master_library.empty_filters')}
                   {filtersDirty && (
                     <div><button type="button" onClick={resetFilters} className="mt-2 font-semibold text-slate-700 underline">{t('page.master_library.reset_filters')}</button></div>
@@ -328,7 +328,6 @@ export function MasterLibrary() {
                       {it.isWithdrawn && <span className="ml-2 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">{t('page.master_library.withdrawn_tag')}</span>}
                       {it.isArchived && <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600" data-archived-tag>{t('page.master_library.archived_tag')}</span>}
                     </td>
-                    <td className="px-4 py-3"><span className="rounded-full bg-slate-100 px-2.5 py-0.5 font-mono text-[11px] text-slate-700">{ITEM_TYPE_KEYS[it.itemType] ? t(ITEM_TYPE_KEYS[it.itemType]) : it.itemType}</span></td>
                     <td className="px-4 py-3 text-slate-700">{it.docType || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{it.ta.join(', ') || '—'}</td>
                     <td className="px-4 py-3 font-mono text-[12px] text-slate-700">{it.version}</td>
@@ -489,8 +488,10 @@ export function MasterLibrary() {
   )
 }
 
-// A dropdown of checkboxes: nothing ticked means "all". Closes on an outside click or Esc.
-function MultiSelect({ label, allLabel, options, value, onChange, optionAttr, className }: {
+// A dropdown of checkboxes: nothing ticked means "all". The list is drawn on the page itself (not inside
+// the filter row) so the row cannot clip it. Closes on an outside click, Esc, scroll or resize.
+function MultiSelect({ label, allLabel, options, value, onChange, optionAttr, className, single = false }: {
+  single?: boolean
   label: string
   allLabel: string
   options: { value: string; label: string }[]
@@ -500,29 +501,58 @@ function MultiSelect({ label, allLabel, options, value, onChange, optionAttr, cl
   className: string
 }) {
   const { t } = useTranslation()
-  const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [pos, setPos] = useState<{ left: number; top: number; minWidth: number } | null>(null)
+  const open = pos !== null
+  const btnRef = useRef<HTMLButtonElement>(null)
+  const popRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!open) return
-    const onDown = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    const close = () => setPos(null)
+    const inside = (e: Event) => !!e.target && (btnRef.current?.contains(e.target as Node) || popRef.current?.contains(e.target as Node))
+    const onDown = (e: MouseEvent) => { if (!inside(e)) close() }
+    const onScroll = (e: Event) => { if (!inside(e)) close() }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close() }
     document.addEventListener('mousedown', onDown)
     document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey) }
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', close)
+    return () => {
+      document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey)
+      window.removeEventListener('scroll', onScroll, true); window.removeEventListener('resize', close)
+    }
   }, [open])
+  const toggle = () => {
+    if (open) { setPos(null); return }
+    const r = btnRef.current?.getBoundingClientRect()
+    if (r) setPos({ left: r.left, top: r.bottom + 4, minWidth: Math.max(r.width, 190) })
+  }
   const summary = value.length === 0 ? allLabel : value.length === 1 ? (options.find(o => o.value === value[0])?.label ?? value[0]) : t('page.master_library.n_selected', { label, count: value.length })
   return (
-    <div ref={ref} className="relative w-44">
-      <button type="button" onClick={() => setOpen(o => !o)} aria-haspopup="listbox" aria-expanded={open} aria-label={label}
-        className={`${className} inline-flex items-center justify-between gap-2 text-left`}>
+    <div className="relative w-full">
+      <button ref={btnRef} type="button" onClick={toggle} aria-haspopup="listbox" aria-expanded={open} aria-label={label}
+        className={`${className} !w-full inline-flex items-center justify-between gap-2 text-left`}>
         <span className="truncate">{summary}</span>
         <span aria-hidden="true" className="text-[10px] text-slate-500">▾</span>
       </button>
-      {open && (
-        <div className="absolute left-0 top-11 z-20 max-h-72 min-w-full overflow-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg" role="listbox" aria-multiselectable="true">
+      {pos && createPortal(
+        <div ref={popRef} role="listbox" aria-multiselectable="true"
+          style={{ position: 'fixed', left: pos.left, top: pos.top, minWidth: pos.minWidth, zIndex: 60 }}
+          className="max-h-72 overflow-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg" data-multiselect-list>
+          {single && (
+            <button type="button" role="option" aria-selected={value.length === 0} onClick={() => { onChange([]); setPos(null) }}
+              className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-left text-[13px] text-slate-800 hover:bg-slate-50">
+              <span className="w-4 text-[12px] text-blue-600">{value.length === 0 ? '✓' : ''}</span>{allLabel}
+            </button>
+          )}
           {options.map(o => {
             const on = value.includes(o.value)
-            return (
+            return single ? (
+              <button key={o.value} type="button" role="option" aria-selected={on} {...{ [optionAttr]: o.value }}
+                onClick={() => { onChange([o.value]); setPos(null) }}
+                className="flex w-full items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-left text-[13px] text-slate-800 hover:bg-slate-50">
+                <span className="w-4 text-[12px] text-blue-600">{on ? '✓' : ''}</span>{o.label}
+              </button>
+            ) : (
               <label key={o.value} className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded px-2 py-1.5 text-[13px] text-slate-800 hover:bg-slate-50">
                 <input type="checkbox" checked={on} {...{ [optionAttr]: o.value }}
                   onChange={() => onChange(on ? value.filter(v => v !== o.value) : [...value, o.value])}
@@ -531,12 +561,13 @@ function MultiSelect({ label, allLabel, options, value, onChange, optionAttr, cl
               </label>
             )
           })}
-          {value.length > 0 && (
+          {!single && value.length > 0 && (
             <button type="button" onClick={() => onChange([])} className="mt-1 w-full rounded px-2 py-1.5 text-left text-[12px] font-semibold text-slate-600 hover:bg-slate-50">
               {t('page.master_library.clear_selection')}
             </button>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

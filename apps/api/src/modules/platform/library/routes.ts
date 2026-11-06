@@ -57,7 +57,6 @@ const listQuery = z.object({
 // document type and version. None may be omitted.
 const pushSchema = z.object({
   documentId: z.string().min(1),
-  sectionId:  z.string().min(1).optional(),            // omitted → the whole document
   taTag:      z.string().trim().min(1),
   module:     z.enum(['A', 'B', 'C', 'D', 'E']),
   docType:    z.string().trim().min(1).max(80),
@@ -82,6 +81,13 @@ const isoDay = z.string()
     return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === s
   }, 'not a real calendar date')
 
+// A "pushed between" bound: a calendar day (the whole day, UTC) or an exact moment (ISO 8601 with
+// Z or an offset, e.g. from the date-and-time picker).
+const isoDayOrInstant = z.union([isoDay, z.string().datetime({ offset: true })])
+const DAY_ONLY = /^\d{4}-\d{2}-\d{2}$/
+const rangeEdge = (v: string, edge: 'start' | 'end') =>
+  new Date(DAY_ONLY.test(v) ? `${v}T${edge === 'start' ? '00:00:00.000' : '23:59:59.999'}Z` : v)
+
 const SORTS = ['recent', 'oldest', 'name-asc', 'name-desc'] as const
 const LIST_MAX = 200
 
@@ -93,8 +99,8 @@ const uiListQuery = z.object({
   ta:         csv,
   projectId:  z.string().optional(),
   version:    z.string().optional(),                 // "v2.0" / "2"
-  from:       isoDay.optional(),                     // pushed on/after
-  to:         isoDay.optional(),                     // pushed on/before
+  from:       isoDayOrInstant.optional(),            // pushed on/after
+  to:         isoDayOrInstant.optional(),            // pushed on/before
   sort:       z.enum(SORTS).default('recent'),
   limit:      z.coerce.number().int().min(1).max(LIST_MAX).default(LIST_MAX),
   cursor:     z.string().regex(/^\d{1,7}$/).optional(),   // row offset
@@ -196,8 +202,8 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       and.push({ version: n })
     }
     if (q.from || q.to) and.push({ approvedAt: {
-      ...(q.from && { gte: new Date(`${q.from}T00:00:00.000Z`) }),
-      ...(q.to   && { lte: new Date(`${q.to}T23:59:59.999Z`) }),
+      ...(q.from && { gte: rangeEdge(q.from, 'start') }),
+      ...(q.to   && { lte: rangeEdge(q.to, 'end') }),
     } })
     // A withdrawn item is no longer "current", so showing withdrawn items means
     // current rows plus retired ones (CW-062).
@@ -227,6 +233,20 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // GET /library/best-practices (registered before /:id so it isn't read as an id)
+  // The projects that have documents in the library the caller can see — what the Master
+  // Library's Projects filter offers (the list shows whole documents only). It follows the library's own visibility (tenant),
+  // not the caller's project membership, so every role sees the same list as the table.
+  app.get('/projects', { preHandler: requireAuth() }, async (request) => {
+    const rows = await app.prisma.librarySection.findMany({
+      where: { AND: [visibleTo(request.user!), { category: { not: 'best_practice' }, tags: { has: 'type:document' } }] },
+      select: { tags: true },
+    })
+    const ids = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('project:')).map(t => t.slice(8))))]
+    if (ids.length === 0) return []
+    const projects = await app.prisma.project.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
+    return projects.map(p => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name))
+  })
+
   app.get('/best-practices', { preHandler: requireAuth() }, async (request, reply) => {
     const parsed = bestPracticeQuery.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -310,13 +330,20 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // POST /library/push — FR-A-080 / AC-A-054. The Author (R) of a SIGNED (final)
-  // document pushes the whole document or one of its sections into the library with
-  // the four mandatory tags (therapeutic area, module, document type, version).
+  // document pushes the WHOLE document into the library with the four mandatory tags
+  // (therapeutic area, module, document type, version). Pushing a single section is not
+  // supported (400); section entries from earlier pushes stay readable.
   // Approval is the document's own e-signature chain: nothing that is not signed can
   // enter the library, and the push does not bypass it. Admins, PMs and every other
   // letter only read (action table row 6 — the same gate as editing content).
   // Pushing a later version of the same source supersedes the earlier library entry.
   app.post('/push', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    // The schema drops unknown keys, so a section scope has to be caught before it: a request that
+    // names a section must fail loudly, not quietly turn into a whole-document push.
+    const raw = (request.body && typeof request.body === 'object' ? request.body : {}) as Record<string, unknown>
+    if (raw.sectionId != null || (raw.scope != null && raw.scope !== 'document')) {
+      return reply.code(400).send({ error: 'section_push_not_supported', message: 'Only a whole document can be pushed to the Master Library. Pushing a single section is not supported.' })
+    }
     const parsed = pushSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
     const b = parsed.data
@@ -348,36 +375,31 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
     const sections = [...(doc.currentVersion?.sections ?? [])].sort(compareSections)
     const docVersion = doc.currentVersion?.versionNumber ?? b.version
-    const section = b.sectionId ? sections.find(s => s.sectionId === b.sectionId) : undefined
-    if (b.sectionId && !section) return reply.code(404).send({ error: 'section_not_found' })
+    const body = sections.filter(s => htmlToPlainText(s.contentHtml)).map(s => `${s.sectionNumber} ${s.sectionTitle}\n${htmlToPlainText(s.contentHtml)}`).join('\n\n')
+    if (!body) return reply.code(422).send({ error: 'empty', message: 'This document has no content to push.' })
 
-    const body = section
-      ? htmlToPlainText(section.contentHtml)
-      : sections.filter(s => htmlToPlainText(s.contentHtml)).map(s => `${s.sectionNumber} ${s.sectionTitle}\n${htmlToPlainText(s.contentHtml)}`).join('\n\n')
-    if (!body) return reply.code(422).send({ error: 'empty', message: `This ${section ? 'section' : 'document'} has no content to push.` })
-
-    const sourceTag = `source:${doc.id}${section ? `#${section.sectionId}` : ''}`
+    const sourceTag = `source:${doc.id}`
     const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { tenantId: true } })
     const tenantId = project?.tenantId ?? user.tenantId
     const tags = [
       `module:${b.module}`, `doctype:${b.docType}`, `project:${doc.projectId}`, sourceTag, `fromdoc:${doc.id}`, `docversion:${docVersion}`,
-      ...(section ? [] : ['type:document']),
+      'type:document',
     ]
 
     const earlier = await app.prisma.librarySection.findFirst({
       where: { tenantId, isCurrent: true, retiredAt: null, tags: { has: sourceTag } },
     })
     if (earlier?.tags.includes(`docversion:${docVersion}`)) {
-      return reply.code(409).send({ error: 'already_pushed', message: `${docVersion} of this ${section ? 'section' : 'document'} is already in the Master Library.` })
+      return reply.code(409).send({ error: 'already_pushed', message: `${docVersion} of this document is already in the Master Library.` })
     }
 
     const created = await app.prisma.$transaction(async (tx) => {
       const next = await tx.librarySection.create({
         data: {
           tenantId, taTag, tags, body,
-          title: section ? `${doc.title} — ${section.sectionNumber} ${section.sectionTitle}` : doc.title,
+          title: doc.title,
           framework: b.docType,
-          category: section ? 'boilerplate' : 'claim',
+          category: 'claim',
           version: (earlier?.version ?? 0) + 1,
           approvedBy: user.id,
         },
@@ -395,7 +417,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       entityType: 'library_section',
       entityId: created.id,
       details: {
-        documentId: doc.id, sectionId: section?.sectionId ?? null, documentVersion: docVersion,
+        documentId: doc.id, scope: 'document', documentVersion: docVersion,
         taTag, module: b.module, docType: b.docType, libraryVersion: created.version,
         ...(earlier && { supersedes: earlier.id }),
       },
@@ -407,7 +429,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // GET /library/by-document/:documentId — what of this document is already in the
-  // library (the whole document and/or single sections, current entries only). The Final
+  // library (the whole document and, from earlier pushes, single sections; current entries only). The Final
   // Document screen uses it to show "In Master Library" and to hide the push button.
   app.get('/by-document/:documentId', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }

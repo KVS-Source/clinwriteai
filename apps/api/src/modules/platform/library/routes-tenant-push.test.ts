@@ -205,23 +205,34 @@ describe('POST /library/push (CW-058, FR-A-080)', () => {
     expect(res.json().error).toBe('ta_mismatch')
   })
 
-  it('pushes a single section as a section entry', async () => {
-    const { app, create } = await setup()
-    const res = await push(app, { ...body, sectionId: 's2' })
-    expect(res.statusCode).toBe(201)
-    const data = create.mock.calls[0]![0].data
-    expect(data.title).toBe('CSR Study 1 — 2 Synopsis')
-    expect(data.body).toBe('Synopsis text')
-    expect(data.tags).toContain('source:d1#s2')
-    expect(data.tags).not.toContain('type:document')
-    expect((await push(app, { ...body, sectionId: 'missing' })).statusCode).toBe(404)
+  it('refuses to push a single section, however the request names it, and writes nothing', async () => {
+    for (const extra of [{ sectionId: 's2' }, { sectionId: '' }, { scope: 'section' }, { scope: 'section', sectionId: 's2' }]) {
+      const { app, create, update, append } = await setup()
+      const res = await push(app, { ...body, ...extra })
+      expect(res.statusCode).toBe(400)
+      expect(res.json().error).toBe('section_push_not_supported')
+      expect(res.json().message).toMatch(/whole document/i)
+      expect(create).not.toHaveBeenCalled()
+      expect(update).not.toHaveBeenCalled()
+      expect(append).not.toHaveBeenCalled()
+      await current?.close()
+    }
   })
 
-  it('refuses an empty section', async () => {
+  it('still pushes the whole document when the request says scope: document, and logs it as a whole-document push', async () => {
+    const { app, create, append } = await setup()
+    const res = await push(app, { ...body, scope: 'document' })
+    expect(res.statusCode).toBe(201)
+    expect(create.mock.calls[0]![0].data.tags).toEqual(expect.arrayContaining(['source:d1', 'type:document']))
+    expect(create.mock.calls[0]![0].data.tags.some((t: string) => t.includes('#'))).toBe(false)
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ action: 'library_pushed', details: expect.objectContaining({ scope: 'document', documentId: 'd1' }) }))
+  })
+
+  it('refuses a document with no content', async () => {
     const empty = finalDoc()
-    empty.currentVersion.sections[0]!.contentHtml = '<p> </p>'
+    for (const sec of empty.currentVersion.sections) sec.contentHtml = '<p> </p>'
     const { app } = await setup({ doc: empty })
-    expect((await push(app, { ...body, sectionId: 's2' })).statusCode).toBe(422)
+    expect((await push(app)).statusCode).toBe(422)
   })
 
   it('refuses the same document version twice, but supersedes the entry for a newer version', async () => {

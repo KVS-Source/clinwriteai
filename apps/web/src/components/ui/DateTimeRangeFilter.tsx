@@ -73,12 +73,14 @@ function presetRange(p: RangePreset, tz: TimeZoneMode): { from: string; to: stri
 // One "Date & time" filter: a button showing the current range that opens a popover
 // with From / To (date + time, to the minute), quick presets and Clear. Values are in
 // the "Times in" timezone the viewer picked.
-export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChange, align = 'right' }: {
+export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChange, align = 'right', buttonClassName = 'min-w-[220px]' }: {
   from: string; to: string; tz: TimeZoneMode; invalid: boolean
   onChange: (range: { from: string; to: string }) => void
   onTzChange: (tz: TimeZoneMode) => void
   /** Which edge of the button the popover lines up with (use 'left' when the button sits on the left of a narrow panel). */
   align?: 'left' | 'right'
+  /** Size classes for the button that opens the popover (default: the Audit Trail's). */
+  buttonClassName?: string
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -121,7 +123,7 @@ export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChang
         onClick={() => setOpen(o => !o)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`${inputClass} flex min-w-[220px] items-center justify-between gap-2 bg-white text-left ${from || to ? 'text-slate-900' : 'text-slate-500'} ${invalid ? 'border-red-400' : ''}`}
+        className={`${inputClass} flex ${buttonClassName} items-center justify-between gap-2 bg-white text-left ${from || to ? 'text-slate-900' : 'text-slate-500'} ${invalid ? 'border-red-400' : ''}`}
       >
         <span className="truncate">{label}</span>
         <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="flex-none text-slate-500" aria-hidden>
@@ -185,4 +187,4 @@ export function DateTimeRangeFilter({ from, to, tz, invalid, onChange, onTzChang
     </div>
   )
 }
-
+

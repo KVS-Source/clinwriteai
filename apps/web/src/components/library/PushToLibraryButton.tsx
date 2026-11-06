@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { Document, Section } from '@platform/types'
+import type { Document } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../../platform/api/platformApi'
 import { describeApiError } from '../../api'
@@ -73,7 +73,7 @@ export function LibraryPushedBadge({ document }: { document: Document }) {
   )
 }
 
-export function PushToLibraryButton({ document, sections }: { document: Document; sections: Section[] }) {
+export function PushToLibraryButton({ document }: { document: Document }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
   const isSigned = document.status === 'signed'
@@ -82,11 +82,9 @@ export function PushToLibraryButton({ document, sections }: { document: Document
     queryFn: () => raciApi.canEdit(document.id),
     enabled: isSigned,
   })
-  const { wholePushed, pushedSectionIds } = useLibraryEntries(document)
+  const { wholePushed } = useLibraryEntries(document)
 
   const [open,      setOpen]      = useState(false)
-  const [scope,     setScope]     = useState<'document' | 'section'>('document')
-  const [sectionId, setSectionId] = useState('')
   const [module,    setModule]    = useState<(typeof MODULES)[number]>('A')
   const [docType,   setDocType]   = useState(() => guessDocType(document.type))
   const [busy,      setBusy]      = useState(false)
@@ -94,20 +92,18 @@ export function PushToLibraryButton({ document, sections }: { document: Document
 
   if (!isSigned || rights.data?.canEdit !== true || wholePushed) return null
 
-  const canSubmit = !!docType && (scope === 'document' || !!sectionId) && !busy
+  const canSubmit = !!docType && !busy
 
   async function submit() {
     setBusy(true); setFailure(null)
     try {
       await platformApi.pushToLibrary({
         documentId: document.id,
-        ...(scope === 'section' ? { sectionId } : {}),
         taTag: document.therapeuticArea, module, docType, version: document.version,
       })
       await queryClient.invalidateQueries({ queryKey: ['library'] })
       await queryClient.invalidateQueries({ queryKey: ['library-push', 'entries', document.id] })
-      setSectionId('')
-      setOpen(false)   // the button turns into the "In Master Library" badge once the whole document is in
+      setOpen(false)   // the button turns into the "In Master Library" badge
     } catch (err) {
       setFailure(describeApiError(err).message)
     } finally {
@@ -127,32 +123,6 @@ export function PushToLibraryButton({ document, sections }: { document: Document
         storageKey="library-push" defaultWidth={440} belowTopBar closeOnOutsideClick>
         <div className="flex flex-col gap-6 px-6 py-6" data-push-panel>
           <p className="text-[13px] leading-relaxed text-slate-600">{t('page.library_push.hint')}</p>
-
-          <fieldset className="flex flex-col gap-3">
-            <legend className={`${labelClass} mb-1`}>{t('page.library_push.scope')}</legend>
-            <label className="flex items-center gap-2.5 text-[13px] text-slate-800">
-              <input type="radio" name="push-scope" checked={scope === 'document'} onChange={() => setScope('document')} style={{ accentColor: PLATFORM_ACCENT.primary }} />
-              {t('page.library_push.scope_document')}
-            </label>
-            <label className="flex items-center gap-2.5 text-[13px] text-slate-800">
-              <input type="radio" name="push-scope" checked={scope === 'section'} onChange={() => setScope('section')} style={{ accentColor: PLATFORM_ACCENT.primary }} />
-              {t('page.library_push.scope_section')}
-            </label>
-          </fieldset>
-
-          {scope === 'section' && (
-            <label className="flex flex-col gap-2">
-              <span className={labelClass}>{t('page.library_push.section')}</span>
-              <select className={fieldClass} value={sectionId} onChange={e => setSectionId(e.currentTarget.value)} data-push-section>
-                <option value="">{t('page.library_push.choose_section')}</option>
-                {sections.map(s => (
-                  <option key={s.id} value={s.id} disabled={pushedSectionIds.has(s.id)}>
-                    {s.number} {s.title}{pushedSectionIds.has(s.id) ? t('page.library_push.already_in_library') : ''}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
 
           <div className="flex flex-col gap-3">
             <p className={labelClass}>{t('page.library_push.mandatory_tags')}</p>

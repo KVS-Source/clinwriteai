@@ -494,14 +494,16 @@ function SubscriptionTab({ config, subscription }: { config: PlatformConfig; sub
     <div className="flex flex-col gap-5" data-tab-panel="subscription">
       <SectionHeader
         eyebrow={t('page.admin_panel.tab_subscription')}
-        title={t('page.admin_panel.plan_section_title', { plan: config.plan, client: config.clientName })}
-        subtitle={t('page.admin_panel.plan_section_subtitle', { tokens: formatTokens(config.contractedTokensPerMonth), date: formatDay(config.renewalDate) })}
+        title={t('page.admin_panel.plan_section_title', { plan: config.plan ?? t('page.admin_panel.plan_none'), client: config.clientName })}
+        subtitle={config.contractedTokensPerMonth != null && config.renewalDate
+          ? t('page.admin_panel.plan_section_subtitle', { tokens: formatTokens(config.contractedTokensPerMonth), date: formatDay(config.renewalDate) })
+          : t('page.admin_panel.plan_section_subtitle_none')}
       />
 
       <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }} data-subscription-stats>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_plan')}</p>
-          <p className="mt-1 text-[18px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-plan-value>{config.plan}</p>
+          <p className="mt-1 text-[18px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-plan-value>{config.plan ?? '—'}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_seats')}</p>
@@ -517,7 +519,7 @@ function SubscriptionTab({ config, subscription }: { config: PlatformConfig; sub
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_renews')}</p>
-          <p className="mt-1 text-[18px] font-bold text-slate-900">{formatDay(config.renewalDate)}</p>
+          <p className="mt-1 text-[18px] font-bold text-slate-900">{config.renewalDate ? formatDay(config.renewalDate) : '—'}</p>
         </div>
         <div className="rounded-lg border border-slate-200 bg-white p-4">
           <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.admin_panel.kpi_currency')}</p>

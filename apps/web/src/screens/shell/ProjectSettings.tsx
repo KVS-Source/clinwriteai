@@ -15,10 +15,10 @@ import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { PlatformUser, ProjectStatus, RACIRole, TeamMember } from '@platform/types'
+import type { ProjectStatus, RACIRole, TeamMember } from '@platform/types'
 import { projectsApi } from '../../api'
 import { ProjectManagersSection } from './ProjectManagersSection'
-import { platformApi } from '../../platform/api/platformApi'
+import { assignableUsersApi } from '../../api/raci'
 import { usePlatformStore } from '../../platform/store'
 import { ApiError } from '../../api/client'
 import { ProjectStatusPill } from '../../components/ui'
@@ -352,18 +352,14 @@ function AddMemberModal({ projectId, existingUserIds, onCancel, onSave, submitti
   error: string | null
 }) {
   const { t } = useTranslation()
-  void projectId
   const [userId, setUserId] = useState<string>('')
   const [role, setRole]     = useState<string>('')
   const [raci, setRaci]     = useState<RACIRole>('R')
 
-  // Reuses the admin user directory. Non-admin callers will 403 against
-  // the API if their role doesn't have read access — in which case we'd
-  // show a prompt to enter userId manually; for the common case (Authors
-  // in tenants where the directory is readable) this is clean.
-  const usersQ = useQuery<PlatformUser[]>({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
+  // The project's candidates: its members and the tenant's active Clinical Writing users.
+  const usersQ = useQuery({
+    queryKey: ['assignable-users', projectId, 'all'],
+    queryFn:  () => assignableUsersApi.list(projectId),
     staleTime: 60_000,
     retry: false,
   })

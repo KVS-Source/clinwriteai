@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { chooseModel } from '../config/ai-engine-settings.js'
 import { requireAuth } from '../../../auth/rbac.js'
+import { aiUsageScope } from '../subscriptions/usage.js'
 import { RateLimitedError } from './service.js'
 import { invalidateRateCardCache } from './rate-card.js'
 
@@ -146,7 +147,7 @@ export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
     const since      = new Date(now.getTime() - windowDays * 86_400_000)
 
     const actor = request.user!
-    const tenantScope = actor.tenantId == null ? {} : { tenantId: actor.tenantId }
+    const tenantScope = await aiUsageScope(app.prisma, actor.tenantId ?? null)
     const where = { createdAt: { gte: since }, ...tenantScope }
 
     // One raw pull drives daily + hourly aggregates; the groupBys handle

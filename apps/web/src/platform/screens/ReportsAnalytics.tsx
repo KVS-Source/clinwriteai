@@ -56,8 +56,9 @@ export function ReportsAnalytics() {
 
   const heading = navItems.find(n => n.id === activeNav)?.label ?? t('page.reports_analytics.nav_dashboard')
 
-  const effectiveMultiple = sub
-    ? (sub.marketValueSavings.total / sub.currentPeriod.estimatedSpend).toFixed(1) + '×'
+  const savings = sub?.marketValueSavings ?? null
+  const effectiveMultiple = savings && sub && sub.currentPeriod.estimatedSpend > 0
+    ? (savings.total / sub.currentPeriod.estimatedSpend).toFixed(1) + '×'
     : '—'
 
   const [generateError, setGenerateError] = useState<string | null>(null)
@@ -156,7 +157,7 @@ export function ReportsAnalytics() {
                   </div>
                   <div>
                     <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.market_value_saving')}</p>
-                    <p className="mt-1 text-[20px] font-bold text-slate-900" data-saving>{formatUSD(sub.marketValueSavings.total)}</p>
+                    <p className="mt-1 text-[20px] font-bold text-slate-900" data-saving>{savings ? formatUSD(savings.total) : '—'}</p>
                   </div>
                   <div>
                     <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.reports_analytics.effective_multiple')}</p>
@@ -164,20 +165,26 @@ export function ReportsAnalytics() {
                   </div>
                 </div>
 
-                <p className="mt-3 font-mono text-[11px] text-slate-500" data-rate-attribution>
-                  {t('page.reports_analytics.rate_attribution', {
-                    version: sub.marketValueSavings.rateCardVersion,
-                    setBy:   sub.marketValueSavings.rateCardSetBy,
-                    date:    formatDay(sub.marketValueSavings.rateCardEffectiveDate),
-                  })}
-                </p>
-                <p className="mt-1 rounded-md p-2 text-[12px]" style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }} data-savings-footnote>
-                  {t('page.reports_analytics.savings_footnote', {
-                    version: sub.marketValueSavings.rateCardVersion,
-                    setBy:   sub.marketValueSavings.rateCardSetBy,
-                    date:    formatDay(sub.marketValueSavings.rateCardEffectiveDate),
-                  })}
-                </p>
+                {savings ? (
+                  <>
+                    <p className="mt-3 font-mono text-[11px] text-slate-500" data-rate-attribution>
+                      {t('page.reports_analytics.rate_attribution', {
+                        version: savings.rateCardVersion,
+                        setBy:   savings.rateCardSetBy,
+                        date:    formatDay(savings.rateCardEffectiveDate),
+                      })}
+                    </p>
+                    <p className="mt-1 rounded-md p-2 text-[12px]" style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }} data-savings-footnote>
+                      {t('page.reports_analytics.savings_footnote', {
+                        version: savings.rateCardVersion,
+                        setBy:   savings.rateCardSetBy,
+                        date:    formatDay(savings.rateCardEffectiveDate),
+                      })}
+                    </p>
+                  </>
+                ) : (
+                  <p className="mt-3 font-mono text-[11px] text-slate-500" data-savings-not-calculated>{t('page.reports_analytics.savings_not_calculated')}</p>
+                )}
               </div>
             )}
 

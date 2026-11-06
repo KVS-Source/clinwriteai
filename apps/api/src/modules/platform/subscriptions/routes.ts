@@ -11,6 +11,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { buildSubscriptionView, platformAiTokens } from './usage.js'
 
 const PLANS = ['trial', 'starter', 'growth', 'enterprise'] as const
 
@@ -87,59 +88,12 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  // --- UI-shape stubs ---------------------------------------------------
-  // ServicesDashboard + SubscriptionPayment screens call
-  //   GET /services/dashboard  → full Subscription shape
-  //   GET /admin/subscription  → full Subscription shape
-  // Both are derived from the first active Subscription row (or a
-  // deterministic placeholder if no row exists). This keeps the screens
-  // out of the "Loading…" infinite state while the real billing pipeline
-  // + rate-card wiring is deferred (project_phase_4_deferrals).
-  const stubSubscription = (plan = 'growth', monthlyCapUsd = 50000) => {
-    const now = new Date()
-    const renewal = new Date(now)
-    renewal.setMonth(renewal.getMonth() + 1)
-    return {
-      clientId:                 'client-default',
-      planName:                 plan,
-      contractedTokensPerMonth: 50_000_000,
-      currency:                 'USD',
-      monthlyFee:               monthlyCapUsd,
-      renewalDate:              renewal.toISOString().slice(0, 10),
-      autoRenew:                true,
-      currentMonthRunningTotal: 12_430,
-      paymentMethod: { type: 'card', brand: 'Visa', last4: '4242', expiryMonth: 12, expiryYear: 2028 },
-      activeGateways: ['Anthropic'],
-      currentPeriod: {
-        month: now.toISOString().slice(0, 7),
-        tokensConsumed:  13_200_000,
-        tokensRemaining: 36_800_000,
-        estimatedSpend:  12_430,
-        burnRatePerDay:  420,
-        projectedEndOfMonth: 24_000,
-      },
-      moduleBreakdown: [],
-      invoices: [],
-      marketValueSavings: {
-        total: 0,
-        calculatedAt: now.toISOString(),
-        rateCardVersion: 'v1.0',
-        rateCardSetBy: 'platform',
-        rateCardEffectiveDate: now.toISOString().slice(0, 10),
-        breakdown: [],
-      },
-      stub: true,
-    }
-  }
+  // --- The signed-in tenant's view -----------------------------------------
+  // ServicesDashboard, SubscriptionPayment, AdminPanel and Reports read their plan and usage from
+  // here: the caller's own tenant, real figures, and null where nothing is recorded (usage.ts).
+  const subscriptionView: import('fastify').RouteHandlerMethod = async (request) =>
+    buildSubscriptionView(app.prisma, request.user!.tenantId ?? null)
 
-  const subStubHandler: import('fastify').RouteHandlerMethod = async () => {
-    const active = await app.prisma.subscription.findFirst({
-      where: { endedAt: null },
-      orderBy: { startedAt: 'desc' },
-    })
-    if (!active) return stubSubscription()
-    return stubSubscription(active.plan, Number(active.monthlyCapUsd ?? 50000))
-  }
   // Token top-up request (Subscription screen "Proceed to payment").
   // No payment gateway is integrated yet, so nothing is charged: the request
   // is recorded as pending on the audit chain for collection once a gateway
@@ -153,7 +107,12 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
     const parsed = topUpSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
-    const active = await app.prisma.subscription.findFirst({ where: { endedAt: null }, orderBy: { startedAt: 'desc' } })
+    // The caller's own tenant's subscription; without one there is nothing to top up.
+    const tenantId = request.user!.tenantId ?? null
+    const active = tenantId
+      ? await app.prisma.subscription.findFirst({ where: { tenantId, endedAt: null }, orderBy: { startedAt: 'desc' } })
+      : null
+    if (!active) return reply.code(409).send({ error: 'no_active_subscription', message: 'Top-ups need an active subscription.' })
     const requestId = `topup-${Date.now().toString(36)}`
     const requestedAt = new Date().toISOString()
 
@@ -162,16 +121,16 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
       actorId: request.user!.id,
       action: 'subscription_topup_requested',
       entityType: 'subscription',
-      entityId: active?.id ?? 'none',
-      details: { requestId, ...parsed.data, gateway: parsed.data.gateway ?? null, status: 'pending_payment' },
+      entityId: active.id,
+      details: { tenantId, requestId, ...parsed.data, gateway: parsed.data.gateway ?? null, status: 'pending_payment' },
       ipAddress: request.ip ?? null,
     })
 
     return reply.code(201).send({ requestId, status: 'pending_payment', requestedAt, ...parsed.data })
   })
 
-  app.get('/services/dashboard',  { preHandler: requireAuth({ roles: ['admin'] }) }, subStubHandler)
-  app.get('/admin/subscription',  { preHandler: requireAuth({ roles: ['admin'] }) }, subStubHandler)
+  app.get('/services/dashboard',  { preHandler: requireAuth({ roles: ['admin'] }) }, subscriptionView)
+  app.get('/admin/subscription',  { preHandler: requireAuth({ roles: ['admin'] }) }, subscriptionView)
 
   // --- Super-admin dashboard stubs ------------------------------------
   // sPM05: PlatformClient[] + PlatformAnalytics. Both are derived from
@@ -179,8 +138,7 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
   // real DB state (not fake fixtures). Not blocked on external vendors.
   app.get('/super-admin/clients', { preHandler: superAdmin }, async () => {
     const tenants = await app.prisma.tenant.findMany({ orderBy: { createdAt: 'asc' } })
-    // Pull all active subs so we can tag each tenant with its plan + a
-    // revenue estimate (monthlyCapUsd × months-since-start, capped).
+    // Each tenant's active plan. Revenue isn't recorded: monthlyCapUsd is the AI spending cap, not a fee.
     const subs = await app.prisma.subscription.findMany({ where: { endedAt: null } })
     const subByTenant = new Map(subs.map(s => [s.tenantId, s]))
     const owners = await app.prisma.membership.findMany({
@@ -188,48 +146,51 @@ export const subscriptionRoutes: FastifyPluginAsync = async (app) => {
       include: { user: { select: { name: true } } },
     })
     const ownerByTenant = new Map(owners.map(o => [o.tenantId, o.user.name]))
-    const now = Date.now()
     return tenants.map(t => {
       const s = subByTenant.get(t.id)
-      const months = s ? Math.max(1, Math.round((now - s.startedAt.getTime()) / (30 * 86_400_000))) : 0
-      const revenue = s ? Number(s.monthlyCapUsd ?? 0) * months * 0.78 : 0  // USD→GBP approx
       return {
         id:               t.id,
         name:             t.name,
-        plan:             s?.plan ?? 'trial',
+        plan:             s?.plan ?? null,
         status:           t.status === 'active' ? 'active' : t.status === 'suspended' ? 'suspended' : 'churned',
         adminContactName: ownerByTenant.get(t.id) ?? null,
         createdAt:        t.createdAt.toISOString(),
-        revenueToDateGBP: Math.round(revenue),
+        revenueToDateGBP: null,
       }
     })
   })
 
   app.get('/super-admin/analytics', { preHandler: superAdmin }, async () => {
-    const [users, projects, docs, tenants, subs] = await Promise.all([
+    const now = new Date()
+    const since = new Date(now.getTime() - 30 * 86_400_000)
+    const quarterStart = new Date(Date.UTC(now.getUTCFullYear(), Math.floor(now.getUTCMonth() / 3) * 3, 1))
+    const [users, projects, docs, tenants, activeSubscriptions, tokens] = await Promise.all([
       app.prisma.user.count({ where: { status: 'active' } }),
-      app.prisma.project.count(),
-      app.prisma.document.count({
-        where: { createdAt: { gte: new Date(Date.now() - 30 * 86_400_000) } },
-      }),
-      app.prisma.tenant.findMany({ select: { status: true } }),
-      app.prisma.subscription.findMany({ where: { endedAt: null }, select: { monthlyCapUsd: true } }),
+      app.prisma.project.count({ where: { status: { not: 'closed' } } }),
+      app.prisma.document.count({ where: { createdAt: { gte: since } } }),
+      app.prisma.tenant.findMany({ select: { status: true, archivedAt: true } }),
+      app.prisma.subscription.count({ where: { endedAt: null } }),
+      platformAiTokens(app.prisma, since),
     ])
     const clientCounts = {
       active:    tenants.filter(t => t.status === 'active').length,
       suspended: tenants.filter(t => t.status === 'suspended').length,
       churned:   tenants.filter(t => t.status === 'archived').length,
     }
-    const monthlyGBP = subs.reduce((sum, s) => sum + Number(s.monthlyCapUsd ?? 0) * 0.78, 0)
     return {
       totalActiveUsers:          users,
       activeProjects:            projects,
       documentsCreatedRolling30: docs,
-      aiTokensRolling30:         0,                     // real token metric lands with Arc 8.1 AI gateway
-      mrrGBP:                    Math.round(monthlyGBP),
-      arrGBP:                    Math.round(monthlyGBP * 12),
-      churnThisQuarter:          0,
-      avgTokensPerClientMonth:   0,
+      aiTokensRolling30:         tokens.total,
+      // Not all AI use can be tied to a client: a platform admin working outside a client's project.
+      aiTokensUnattributedRolling30: tokens.unattributed,
+      // Billing isn't connected and no fee is stored (monthlyCapUsd is the AI spending cap), so
+      // recurring revenue is unknown rather than estimated.
+      mrrGBP:                    null,
+      arrGBP:                    null,
+      activeSubscriptions,
+      churnThisQuarter:          tenants.filter(t => t.archivedAt && t.archivedAt >= quarterStart).length,
+      avgTokensPerClientMonth:   clientCounts.active > 0 ? Math.round(tokens.attributed / clientCounts.active) : 0,
       clientCounts,
     }
   })

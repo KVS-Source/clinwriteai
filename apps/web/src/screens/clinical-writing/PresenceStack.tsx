@@ -3,12 +3,11 @@
 // (GET /documents/:id/presence, refreshed on Socket.io presence:changed and a
 // 15s poll); each screen keeps its own session live via useDocumentPresence.
 
+import { useParams } from 'react-router-dom'
 import { useMemo } from 'react'
-import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { PlatformUser } from '@platform/types'
 import { usePresenceSnapshot } from '../../hooks/usePresence'
-import { platformApi } from '../../platform/api/platformApi'
+import { useProjectPeople } from '../../hooks/useProjectPeople'
 
 // Deterministic colour for a user's presence avatar — hashed from userId
 // so the same user always gets the same colour across sessions.
@@ -41,20 +40,16 @@ function initialsFromName(name: string | null | undefined, fallback = '?'): stri
 export function PresenceStack({ documentId, currentUserId, currentUserName }: {
   documentId: string
   currentUserId?: string | null
-  /** Fallback for the viewer's own avatar — non-admins can't read /admin/users. */
+  /** Fallback for the viewer's own avatar. */
   currentUserName?: string | null
 }) {
   const { t } = useTranslation()
+  const { projectId } = useParams()
   const { data: presenceSnapshot } = usePresenceSnapshot(documentId, { pollMs: 15_000 })
 
-  // Resolve user id → PlatformUser so avatars can show initials + full
+  // Resolve user id → person so avatars can show initials + full
   // name tooltip without the presence payload having to carry them.
-  const { data: platformUsers = [] } = useQuery<PlatformUser[]>({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
-    staleTime: 60_000,
-  })
-  const usersById = useMemo(() => new Map(platformUsers.map(u => [u.id, u])), [platformUsers])
+  const { usersById } = useProjectPeople(projectId)
 
   const stack = useMemo(() => {
     if (!presenceSnapshot) return []

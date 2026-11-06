@@ -2,7 +2,7 @@
 import { api } from '../../api/client'
 import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
-  PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, RaciMatrix, MasterLibraryItem,
+  PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, MasterLibraryItem,
   BestPractice,
   AuditTrailEntry, RateCard, Subscription, ReportDefinition,
   ModuleHealthScore, TATag, RegulatoryFramework, SlideDeckJob, Slide,
@@ -182,8 +182,6 @@ export const platformApi = {
     api.patch<PlatformUser>(`/admin/users/${userId}`, patch),
 
   // sPM07 — RACI
-  getRaci: (projectId: string) =>
-    api.get<RaciMatrix>(`/raci/${projectId}`),
   listProjectRaci: (projectId: string) =>
     api.get<ProjectRaciAssignment[]>(`/projects/${projectId}/raci`),
   setProjectRaci: (projectId: string, body: ProjectRaciAssignmentBody) =>

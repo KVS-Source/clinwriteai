@@ -3,7 +3,6 @@
 import { http, HttpResponse, delay } from 'msw'
 import platformConfig  from '../../data/platformConfig.json'
 import users           from '../../data/users.json'
-import raciMatrix      from '../../data/raciMatrix.json'
 import masterLibrary   from '../../data/masterLibraryItems.json'
 import bestPractices   from '../../data/bestPractices.json'
 import auditTrail      from '../../data/auditTrail.json'
@@ -44,6 +43,15 @@ let slidedeckJobState  = slidedeckJob     as Record<string, unknown>
 const AI_ENGINE_KEY = 'clinwrite.mock.aiEngine.v1'
 function loadAiEngine(): { default: string; fallback: string; perModuleOverrideEnabled: boolean } | null {
   try { const raw = localStorage.getItem(AI_ENGINE_KEY); return raw ? JSON.parse(raw) : null } catch { return null }
+}
+
+// Mock mode only: the fixture, in the shape the API returns (usage.ts).
+const mockSubscriptionView = {
+  ...subscription,
+  clientName: 'Sample client (mock data)',
+  scope: 'tenant',
+  hasSubscription: true,
+  monthlyCapUsd: subscription.monthlyFee,
 }
 
 export const platformHandlers = [
@@ -107,11 +115,6 @@ export const platformHandlers = [
     return HttpResponse.json(usersState.find(u => u.id === params.userId))
   }),
 
-  // --- sPM07 RACI Matrix ---
-  http.get(`${BASE}/raci/:projectId`, async () => {
-    await delay(100)
-    return HttpResponse.json(raciMatrix)
-  }),
 
   // --- sPM08 Master Library ---
   http.get(`${BASE}/library`, async () => {
@@ -234,11 +237,11 @@ export const platformHandlers = [
   // --- sPM11 Services Dashboard + sPM13 Subscription & Payment ---
   http.get(`${BASE}/services/dashboard`, async () => {
     await delay(150)
-    return HttpResponse.json(subscription)
+    return HttpResponse.json(mockSubscriptionView)
   }),
   http.get(`${BASE}/admin/subscription`, async () => {
     await delay(120)
-    return HttpResponse.json(subscription)
+    return HttpResponse.json(mockSubscriptionView)
   }),
 
   // --- sPM16 Reports & Analytics ---

@@ -90,10 +90,11 @@ export function SubscriptionPayment() {
 
   if (!sub) return <div className="p-8 text-center text-sm text-slate-500" data-screen="subscription-payment">{t('status.loading')}</div>
 
-  const usedPct = Math.round((sub.currentPeriod.tokensConsumed / sub.contractedTokensPerMonth) * 100)
+  const client = sub.clientName ?? t('page.subscription_payment.all_tenants')
+  const usedPct = sub.contractedTokensPerMonth ? Math.round((sub.currentPeriod.tokensConsumed / sub.contractedTokensPerMonth) * 100) : null
   const periodName = billingPeriodName(sub.currentPeriod.month, i18n.language)
   // Whole days from today to the renewal date (was a fixed 22).
-  const daysToRenewal = Math.max(0, Math.round((new Date(sub.renewalDate).getTime() - today.getTime()) / 86_400_000))
+  const daysToRenewal = sub.renewalDate ? Math.max(0, Math.round((new Date(sub.renewalDate).getTime() - today.getTime()) / 86_400_000)) : null
 
   return (
     <div className="bg-slate-50" data-screen="subscription-payment">
@@ -117,11 +118,17 @@ export function SubscriptionPayment() {
           {/* LEFT — current plan */}
           <section className="flex flex-col gap-4 rounded-lg border border-slate-200 bg-white p-5" data-current-plan>
             <div>
-              <p className="text-[13px] text-slate-600" data-scope-blurb>{t('page.subscription_payment.plan_blurb')}</p>
+              <p className="text-[13px] text-slate-600" data-scope-blurb>{t('page.subscription_payment.plan_blurb', { client })}</p>
               <p className="mt-2 text-[16px] font-bold text-slate-900" data-plan-name>
-                <strong>{sub.planName}</strong>
-                {' · '}{t('page.subscription_payment.plan_meta_renews', { date: formatDay(sub.renewalDate) })}
-                {' · '}<span style={{ color: '#166534' }}>{t('page.subscription_payment.plan_active_marker')}</span>
+                {sub.hasSubscription ? (
+                  <>
+                    <strong>{sub.planName}</strong>
+                    {sub.renewalDate && <>{' · '}{t('page.subscription_payment.plan_meta_renews', { client, date: formatDay(sub.renewalDate) })}</>}
+                    {' · '}<span style={{ color: '#166534' }}>{t('page.subscription_payment.plan_active_marker')}</span>
+                  </>
+                ) : (
+                  <span data-no-plan>{t('page.subscription_payment.plan_none')}</span>
+                )}
               </p>
             </div>
 
@@ -138,28 +145,34 @@ export function SubscriptionPayment() {
                 <tbody>
                   <tr className="border-t border-slate-200" data-scope-row="all">
                     <td className="px-4 py-3 font-semibold text-slate-900">{t('page.subscription_payment.scope_all')}</td>
-                    <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-included>{sub.contractedTokensPerMonth.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-included>{sub.contractedTokensPerMonth?.toLocaleString() ?? '—'}</td>
                     <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-used>{sub.currentPeriod.tokensConsumed.toLocaleString()}</td>
-                    <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-remaining>{sub.currentPeriod.tokensRemaining.toLocaleString()}</td>
+                    <td className="px-4 py-3 text-right font-mono text-slate-800" data-scope-remaining>{sub.currentPeriod.tokensRemaining?.toLocaleString() ?? '—'}</td>
                   </tr>
                 </tbody>
               </table>
-              <p className="border-t border-slate-200 p-2 font-mono text-[11px] text-slate-500" data-usage-note>
-                {t('page.subscription_payment.usage_note', { pct: usedPct, days: daysToRenewal })}
-              </p>
+              {usedPct != null && daysToRenewal != null && (
+                <p className="border-t border-slate-200 p-2 font-mono text-[11px] text-slate-500" data-usage-note>
+                  {t('page.subscription_payment.usage_note', { pct: usedPct, days: daysToRenewal })}
+                </p>
+              )}
             </div>
 
             <div className="rounded-lg border border-slate-200 p-4" data-next-invoice>
               <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.subscription_payment.next_invoice_eyebrow')}</p>
-              <p className="mt-1 text-[15px] font-semibold text-slate-900">
-                {t('page.subscription_payment.next_invoice_line', {
-                  amount: formatUSD(sub.monthlyFee),
-                  date: formatDay(sub.renewalDate),
-                  brand: sub.paymentMethod.brand,
-                  last4: sub.paymentMethod.last4,
-                })}
-              </p>
-              <button type="button" className="mt-2 text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-update-payment>{t('page.subscription_payment.update_payment_method')}</button>
+              {sub.monthlyFee != null && sub.renewalDate && sub.paymentMethod ? (
+                <p className="mt-1 text-[15px] font-semibold text-slate-900">
+                  {t('page.subscription_payment.next_invoice_line', {
+                    amount: formatUSD(sub.monthlyFee),
+                    date: formatDay(sub.renewalDate),
+                    brand: sub.paymentMethod.brand,
+                    last4: sub.paymentMethod.last4,
+                  })}
+                </p>
+              ) : (
+                <p className="mt-1 text-[13px] text-slate-600" data-no-invoice>{t('page.subscription_payment.next_invoice_none')}</p>
+              )}
+              {sub.paymentMethod && <button type="button" className="mt-2 text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }} data-update-payment>{t('page.subscription_payment.update_payment_method')}</button>}
             </div>
 
             <div data-invoice-history>
@@ -176,6 +189,11 @@ export function SubscriptionPayment() {
                     </tr>
                   </thead>
                   <tbody>
+                    {sub.invoices.length === 0 && (
+                      <tr className="border-t border-slate-200" data-no-invoices>
+                        <td colSpan={5} className="px-4 py-3 text-center text-[12px] text-slate-500">{t('page.subscription_payment.invoices_none')}</td>
+                      </tr>
+                    )}
                     {sub.invoices.map(inv => (
                       <tr key={inv.id} className="border-t border-slate-200" data-invoice-row={inv.id}>
                         <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{formatDay(inv.date)}</td>
@@ -254,12 +272,16 @@ export function SubscriptionPayment() {
             )}
 
             <button
-              type="button" disabled={isExpired || topUp.isPending}
+              type="button" disabled={isExpired || topUp.isPending || !sub.hasSubscription}
               onClick={() => topUp.mutate()}
               data-proceed-payment
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
             >{topUp.isPending ? t('page.subscription_payment.submitting') : t('page.subscription_payment.proceed_to_payment')}</button>
+
+            {!sub.hasSubscription && (
+              <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-900" data-topup-needs-plan>{t('page.subscription_payment.topup_needs_plan')}</p>
+            )}
 
             {topUp.isSuccess && (
               <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-topup-success>

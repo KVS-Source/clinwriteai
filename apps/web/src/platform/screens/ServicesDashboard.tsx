@@ -43,7 +43,8 @@ function startOfTodayUTC(): Date {
 // Tokens still needed to reach renewal at the current daily consumption rate,
 // beyond what is left — the "deficit" sPM11 asks Top up to pre-fill. Zero when
 // the remaining balance is projected to last until renewal.
-function projectedShortfall(period: Subscription['currentPeriod'], today: Date, renewalDays: number): number {
+function projectedShortfall(period: Subscription['currentPeriod'], today: Date, renewalDays: number | null): number {
+  if (period.tokensRemaining == null || renewalDays == null) return 0     // no allowance to run short of
   const periodStart = new Date(`${period.month}-01T00:00:00Z`)
   const daysElapsed = Math.max(1, daysBetween(periodStart, today) + 1)
   const tokensPerDay = period.tokensConsumed / daysElapsed
@@ -56,7 +57,7 @@ function csvCell(v: string | number): string {
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
 }
 
-function buildServicesCsv(sub: Subscription, today: Date): string {
+function buildServicesCsv(sub: Subscription): string {
   // CSV content is machine data, not UI chrome — keep headers in English for
   // interop with downstream tools. Only the alert "Note" line is prose.
   const p = sub.currentPeriod
@@ -64,25 +65,19 @@ function buildServicesCsv(sub: Subscription, today: Date): string {
     ['ClinWrite.AI services consumption'],
     ['Generated (UTC)', new Date().toISOString()],
     ['Period', p.month],
-    ['Plan', sub.planName],
+    ['Client', sub.clientName ?? 'All tenants'],
+    ['Plan', sub.planName ?? 'None'],
     ['Currency', sub.currency],
-    ['Renewal date', sub.renewalDate],
-    ['Days to renewal', daysBetween(today, new Date(sub.renewalDate))],
-    ['Contracted tokens per month', sub.contractedTokensPerMonth],
-    ['Contracted amount per month', sub.monthlyFee],
+    ['Renewal date', sub.renewalDate ?? 'Not recorded'],
+    ['Monthly AI cost cap', sub.monthlyCapUsd ?? 'Not recorded'],
+    ['Contracted tokens per month', sub.contractedTokensPerMonth ?? 'Not recorded'],
     ['Tokens consumed', p.tokensConsumed],
-    ['Tokens remaining', p.tokensRemaining],
-    ['Estimated spend', p.estimatedSpend],
+    ['AI cost', p.estimatedSpend],
   ]
-  // The API currently serves placeholder figures (billing pipeline deferred);
-  // say so in the file rather than let it pass as real consumption data.
-  if ((sub as Subscription & { stub?: boolean }).stub) {
-    rows.push(['Note', 'Placeholder figures - billing pipeline not yet connected'])
-  }
   rows.push([])
   rows.push(['Discipline', 'Tokens consumed', `Cost (${sub.currency})`, '% of total', 'Burn rate', 'Status'])
   for (const r of sub.moduleBreakdown) {
-    rows.push([r.label, r.tokensConsumed, r.cost, r.pctOfTotal, r.burnRate, r.status])
+    rows.push([r.label, r.tokensConsumed, r.cost, r.pctOfTotal, r.burnRate ?? '', r.status ?? ''])
   }
   rows.push(['Total', p.tokensConsumed, p.estimatedSpend, 100, '', ''])
   return rows.map(r => r.map(csvCell).join(',')).join('\n')
@@ -157,19 +152,22 @@ export function ServicesDashboard() {
 
   const period = sub.currentPeriod
   const periodName = billingPeriodName(period.month, i18n.language)
-  const remainingPct = Math.round((period.tokensRemaining / sub.contractedTokensPerMonth) * 100)
-  const renewalDays = daysBetween(today, new Date(sub.renewalDate))
+  const client = sub.clientName ?? t('page.services_dashboard.all_tenants')
+  const remainingPct = sub.contractedTokensPerMonth && period.tokensRemaining != null
+    ? Math.round((period.tokensRemaining / sub.contractedTokensPerMonth) * 100)
+    : null
+  const renewalDays = sub.renewalDate ? daysBetween(today, new Date(sub.renewalDate)) : null
   const alert = sub.burnRateAlert
   const shortfall = projectedShortfall(period, today, renewalDays)
 
   const handleTopUp = () => {
-    if (rateCardExpired) return
+    if (rateCardExpired || !sub.hasSubscription) return
     navigate(shortfall > 0 ? `/admin/subscription?prefill=${shortfall}` : '/admin/subscription')
   }
 
   const handleExportCsv = () => {
     const filename = `services-${period.month}.csv`
-    downloadFile(filename, buildServicesCsv(sub, today), 'text/csv;charset=utf-8')
+    downloadFile(filename, buildServicesCsv(sub), 'text/csv;charset=utf-8')
     setExportResult(filename)
   }
 
@@ -187,7 +185,7 @@ export function ServicesDashboard() {
           <div>
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.services_dashboard.title', { period: periodName })}</h1>
             <p className="mt-1 text-[13px] text-slate-600" data-header-blurb>
-              {t('page.services_dashboard.header_blurb', { date: formatDay(sub.renewalDate) })}
+              {t('page.services_dashboard.header_blurb', { client })}
             </p>
             <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{t('page.services_dashboard.user_byline', { name: currentUser.name })}</p>
           </div>
@@ -196,7 +194,8 @@ export function ServicesDashboard() {
               data-export-csv
               className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
             >{t('page.services_dashboard.export_csv')}</button>
-            <button type="button" onClick={handleTopUp} disabled={rateCardExpired}
+            <button type="button" onClick={handleTopUp} disabled={rateCardExpired || !sub.hasSubscription}
+              title={sub.hasSubscription ? undefined : t('page.services_dashboard.top_up_needs_plan')}
               data-top-up
               className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
@@ -210,6 +209,15 @@ export function ServicesDashboard() {
           </p>
         )}
 
+        {/* Whose figures these are, and what isn't connected yet. */}
+        {!sub.hasSubscription && (
+          <p className="rounded-md border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-900" data-no-plan-notice={sub.scope}>
+            {sub.scope === 'platform'
+              ? t('page.services_dashboard.platform_notice')
+              : t('page.services_dashboard.no_plan_notice', { client })}
+          </p>
+        )}
+
         {/* 5 stat cards */}
         <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))' }} data-stat-cards>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="tokens-consumed">
@@ -219,8 +227,8 @@ export function ServicesDashboard() {
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="remaining-balance">
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_remaining_balance')}</p>
-            <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{remainingPct}%</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.tokens_count', { count: period.tokensRemaining })}</p>
+            <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{remainingPct == null ? '—' : `${remainingPct}%`}</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-500">{period.tokensRemaining == null ? t('page.services_dashboard.not_recorded') : t('page.services_dashboard.tokens_count', { count: period.tokensRemaining })}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="estimated-spend">
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_estimated_spend')}</p>
@@ -229,13 +237,13 @@ export function ServicesDashboard() {
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="contracted">
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_contracted')}</p>
-            <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{formatUSD(sub.monthlyFee)}</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.per_month')}</p>
+            <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{sub.monthlyCapUsd == null ? '—' : formatUSD(sub.monthlyCapUsd)}</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-500">{sub.monthlyCapUsd == null ? t('page.services_dashboard.not_recorded') : t('page.services_dashboard.per_month')}</p>
           </div>
           <div className="rounded-lg border border-slate-200 bg-white p-4" data-stat="renewal">
             <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.services_dashboard.stat_renewal')}</p>
-            <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{formatDay(sub.renewalDate)}</p>
-            <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.services_dashboard.days_from_today', { count: renewalDays })}</p>
+            <p className="mt-1 text-[22px] font-bold" style={{ color: PLATFORM_ACCENT.primary }}>{sub.renewalDate ? formatDay(sub.renewalDate) : '—'}</p>
+            <p className="mt-1 font-mono text-[10px] text-slate-500">{renewalDays == null ? t('page.services_dashboard.not_recorded') : t('page.services_dashboard.days_from_today', { count: renewalDays })}</p>
           </div>
         </div>
 
@@ -262,20 +270,20 @@ export function ServicesDashboard() {
             </thead>
             <tbody>
               {sub.moduleBreakdown.map(r => (
-                <tr key={r.module} className="border-t border-slate-200" data-breakdown-row={r.module} data-breakdown-status={r.status}>
+                <tr key={r.module} className="border-t border-slate-200" data-breakdown-row={r.module} data-breakdown-status={r.status ?? undefined}>
                   <td className="px-4 py-3 font-semibold text-slate-900">{r.label}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{r.tokensConsumed.toLocaleString()}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{formatUSD(r.cost)}</td>
                   <td className="px-4 py-3 text-right font-mono text-slate-700">{r.pctOfTotal}%</td>
-                  <td className="px-4 py-3 font-mono text-[11px] text-slate-500 capitalize">{r.burnRate.replace('-', ' ')}</td>
-                  <td className="px-4 py-3"><StatusChip status={r.status} /></td>
+                  <td className="px-4 py-3 font-mono text-[11px] text-slate-500 capitalize">{r.burnRate ? r.burnRate.replace('-', ' ') : '—'}</td>
+                  <td className="px-4 py-3">{r.status ? <StatusChip status={r.status} /> : '—'}</td>
                 </tr>
               ))}
               <tr className="border-t border-slate-200 font-semibold" style={{ backgroundColor: '#F8FAFC' }} data-breakdown-total>
                 <td className="px-4 py-3">{t('page.services_dashboard.total')}</td>
                 <td className="px-4 py-3 text-right font-mono">{period.tokensConsumed.toLocaleString()}</td>
                 <td className="px-4 py-3 text-right font-mono">{formatUSD(period.estimatedSpend)}</td>
-                <td className="px-4 py-3 text-right font-mono">100%</td>
+                <td className="px-4 py-3 text-right font-mono">{period.tokensConsumed > 0 ? '100%' : '—'}</td>
                 <td className="px-4 py-3 font-mono text-[11px] text-slate-500">—</td>
                 <td className="px-4 py-3">—</td>
               </tr>

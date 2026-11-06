@@ -110,6 +110,14 @@ export function capabilityForLetter(letter: RaciLetter): Capability | null {
   }
 }
 
+/** Someone on a project, for showing their name (see useProjectPeople). */
+export interface ProjectPerson {
+  id: string
+  name: string
+  initials: string | null
+  status: string
+}
+
 export const assignableUsersApi = {
   list: (projectId: string, capability?: Capability) =>
     api.get<AssignableUser[]>(
@@ -118,6 +126,9 @@ export const assignableUsersApi = {
   /** RACI picker candidates — every active or invited non-admin, whatever their capabilities. */
   listForRaci: (projectId: string) =>
     api.get<AssignableUser[]>(`/projects/${projectId}/assignable-users?scope=raci`),
+  /** Everyone on the project, whatever their status: names to display, not a list to pick from. */
+  listPeople: (projectId: string) =>
+    api.get<ProjectPerson[]>(`/projects/${projectId}/assignable-users?scope=people`),
   /** New Document assignee candidates — active users, without admins. */
   listForAssignee: (projectId: string) =>
     api.get<AssignableUser[]>(`/projects/${projectId}/assignable-users?scope=assignee`),

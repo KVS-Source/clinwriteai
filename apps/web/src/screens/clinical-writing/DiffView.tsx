@@ -2,11 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import type { PlatformUser } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { useCanEditDocument } from '../../hooks/useCanEditDocument'
 import { MyRaciRole } from './MyRaciRole'
-import { platformApi } from '../../platform/api/platformApi'
+import { useProjectPeople } from '../../hooks/useProjectPeople'
 import { usePresenceSnapshot } from '../../hooks/usePresence'
 import { StatusPill } from '../../components/ui'
 import { useAuthStore, useDocumentStore, useProjectStore } from '../../store'
@@ -123,12 +122,7 @@ export function DiffView() {
   // Real presence on this document (same snapshot the Editor shows).
   const { data: presenceSnapshot } = usePresenceSnapshot(documentId ?? '', { pollMs: 15_000 })
   const currentUser = useAuthStore(s => s.user)
-  const { data: platformUsers = [] } = useQuery<PlatformUser[]>({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
-    staleTime: 60_000,
-  })
-  const usersById = useMemo(() => new Map(platformUsers.map(u => [u.id, u])), [platformUsers])
+  const { usersById } = useProjectPeople(projectId)
 
   const presenceStack = useMemo(() => {
     if (!presenceSnapshot) return []

@@ -14,6 +14,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { requireAuth } from '../../../auth/rbac.js'
+import { billingPeriod } from '../subscriptions/usage.js'
 import { createAnthropicClientFromEnv } from '../ai-gateway/anthropic-client.js'
 import { runConnectionTest } from './test-connection.js'
 import {
@@ -94,14 +95,16 @@ export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
       app.prisma.user.count({
         where: { status: 'active', ...(user.tenantId ? { tenantId: user.tenantId } : {}) },
       }),
-      app.prisma.subscription.findFirst({ where: { endedAt: null }, orderBy: { startedAt: 'desc' } }),
+      // This tenant's own plan; a platform admin has none.
+      user.tenantId
+        ? app.prisma.subscription.findFirst({ where: { tenantId: user.tenantId, endedAt: null }, orderBy: { startedAt: 'desc' } })
+        : null,
       lastConnectionTest(),
       resolveAiEngineSettings(app.prisma),
     ])
 
     const now = new Date()
-    const renewal = new Date(now)
-    renewal.setMonth(renewal.getMonth() + 1)
+    const renewalDate = subscription ? billingPeriod(subscription.rolloverDay, now).next.toISOString().slice(0, 10) : null
 
     const aiConnected   = !!env.ANTHROPIC_API_KEY
     const smtpConnected = (env.EMAIL_PROVIDER ?? '').toLowerCase() === 'smtp' && !!env.SMTP_HOST
@@ -112,10 +115,10 @@ export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
     return {
       clientId:                 tenant?.id ?? 'platform',
       clientName:               tenant?.name ?? 'ClinWrite Platform',
-      plan:                     subscription?.plan ?? 'Professional',
-      planStartDate:            (subscription?.startedAt ?? now).toISOString().slice(0, 10),
-      renewalDate:              renewal.toISOString().slice(0, 10),
-      contractedTokensPerMonth: 4_000_000,
+      plan:                     subscription?.plan ?? null,
+      planStartDate:            subscription?.startedAt.toISOString().slice(0, 10) ?? null,
+      renewalDate,
+      contractedTokensPerMonth: null,      // not stored anywhere yet
       currency:                 'USD',
       aiEngine: {
         default:                  engine.default,

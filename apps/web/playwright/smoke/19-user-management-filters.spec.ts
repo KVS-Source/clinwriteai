@@ -75,7 +75,7 @@ test('the filter bar shows All Status, All Roles, the search field and a disable
   await openUserManagement(page)
   await expect(status(page).locator('option:checked')).toHaveText('All Status')
   await expect(role(page).locator('option:checked')).toHaveText('All Roles')
-  await expect(search(page)).toHaveAttribute('placeholder', 'Search by name or email...')
+  await expect(search(page)).toHaveAttribute('placeholder', 'Search by name...')
   await expect(clear(page)).toBeDisabled()
   await expect(page.getByText('5 users', { exact: true })).toBeVisible()
   // only the five standard roles are offered — no legacy roles such as clinical-writer

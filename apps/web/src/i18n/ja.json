@@ -240,7 +240,6 @@
       "read_only_prefix":              "読み取り専用 — {{short}}。",
       "submitted_for_review_heading":  "レビューに提出しました。",
       "submitted_for_review_body":     "レビュアーが対応している間、ドキュメントは編集ロックされています。",
-      "open_reviewer_view":            "レビュアー ビューを開く →",
 
       "lock_short_in_review":           "レビュー中",
       "lock_note_in_review":            "レビュアーが対応している間、ドキュメントは編集ロックされています。",

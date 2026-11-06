@@ -963,13 +963,6 @@ export function DocumentEditor() {
           <span aria-hidden="true" className="font-bold">✓</span>
           <span className="font-semibold">{t('page.document_editor.submitted_for_review_heading')}</span>
           <span>{t('page.document_editor.submitted_for_review_body')}</span>
-          <button
-            type="button"
-            onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/review`)}
-            className="ml-auto font-semibold underline"
-          >
-            {t('page.document_editor.open_reviewer_view')}
-          </button>
         </div>
       )}
 

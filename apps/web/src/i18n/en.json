@@ -216,7 +216,6 @@
       "read_only_prefix": "Read-only — {{short}}.",
       "submitted_for_review_heading": "Submitted for review.",
       "submitted_for_review_body": "The document is locked for authoring while reviewers respond.",
-      "open_reviewer_view": "Open Reviewer View →",
       "lock_short_in_review": "in review",
       "lock_note_in_review": "The document is locked for authoring while reviewers respond.",
       "lock_short_pending_signature": "awaiting signature",

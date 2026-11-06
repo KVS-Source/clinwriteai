@@ -1585,7 +1585,6 @@
     },
 
     "reviewer_view": {
-      "return_doc_button_q": "作成者に差し戻す",
       "return_doc_button": "作成段階に差し戻す",
       "return_doc_button_q": "作成者に差し戻す",
       "return_doc_title": "ドキュメントを作成段階に差し戻す",

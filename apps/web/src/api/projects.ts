@@ -32,7 +32,7 @@ export const projectsApi = {
   getStatus: (projectId: string) => api.get<{
     status: ProjectStatus
     next: ProjectStatus[]
-    history: Array<{ id: string; at: string; by: string; from: string | null; to: string | null; reason: string | null }>
+    history: Array<{ id: string; at: string; by: string; from: string | null; to: string | null; reason: string | null; automatic: string | null; document: string | null }>
   }>(`/projects/${projectId}/status`),
   transition: (projectId: string, body: { to: ProjectStatus; reason: string }) =>
     api.post<Project>(`/projects/${projectId}/transition`, body),

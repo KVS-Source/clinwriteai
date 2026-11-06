@@ -15,6 +15,7 @@ import { z } from 'zod'
 import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
+import { noteAuthoringStarted } from '../../projects/auto-status.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
 import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, resetRaciRound, RACI_CHAIN_ACTIVE, signatureChainActive } from './access.js'
 import { DocumentService } from '../../clinical-writing/documents/service.js'
@@ -615,6 +616,9 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
         },
         ipAddress: request.ip ?? null,
       })
+      if (currentStatus === 'not_started') {
+        await noteAuthoringStarted(app, { documentId, actorId: actor.id, ipAddress: request.ip ?? null })
+      }
     }
 
     return reply.send({ row: updated, transition: evaluation, transitioned })

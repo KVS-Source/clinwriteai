@@ -19,6 +19,7 @@ import {
   nextStates,
   PROJECT_STATUSES,
   type ProjectStatus,
+  PROJECT_STATE_CHANGED,
 } from './state-machine.js'
 import { PROJECT_CLOSED, projectIsClosed } from './closed.js'
 
@@ -52,7 +53,6 @@ const transitionSchema = z.object({
   reason: z.string().trim().min(3, 'A reason is required to change the project status').max(500),
 })
 
-const STATE_CHANGED = 'project.state_changed'
 
 // Shape rows for the UI's `Project` interface in packages/types. Flattens
 // the Prisma teamMembers relation into the `team` array the UI consumes.
@@ -307,7 +307,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
-      action: STATE_CHANGED,
+      action: PROJECT_STATE_CHANGED,
       entityType: 'project',
       entityId: id,
       details: { from, to, reason: parsed.data.reason },
@@ -328,7 +328,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     const project = await app.prisma.project.findUnique({ where: { id }, select: { status: true } })
     if (!project) return reply.code(404).send({ error: 'not_found' })
 
-    const { rows } = await app.audit.pageForEntity('project', id, { action: STATE_CHANGED, limit: 100 })
+    const { rows } = await app.audit.pageForEntity('project', id, { action: PROJECT_STATE_CHANGED, limit: 100 })
     const actorIds = [...new Set(rows.map(r => r.actorId))]
     const actors = actorIds.length
       ? await app.prisma.user.findMany({ where: { id: { in: actorIds } }, select: { id: true, name: true } })
@@ -339,7 +339,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
       status: project.status,
       next: nextStates(project.status as ProjectStatus),
       history: rows.map(r => {
-        const details = r.details as { from?: string; to?: string; reason?: string | null }
+        const details = r.details as { from?: string; to?: string; reason?: string | null; automatic?: string; document?: string }
         return {
           id: r.id,
           at: r.timestamp,
@@ -347,6 +347,9 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
           from: details.from ?? null,
           to: details.to ?? null,
           reason: details.reason ?? null,
+          // Set on a move nobody asked for by hand: which kind, and the document behind it.
+          automatic: details.automatic ?? null,
+          document: details.document ?? null,
         }
       }),
     }

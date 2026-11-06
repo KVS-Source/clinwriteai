@@ -1,6 +1,7 @@
 // Project status control, for the PM: the valid next moves (the API decides them), a required reason,
 // a stronger confirm for Close and Re-open, the history from the audit trail, and an optional suggestion
-// that only ever opens the same dialog. Nothing here changes a status without the PM confirming it.
+// that only ever opens the same dialog. Nothing here changes a status without the PM confirming it; the one
+// automatic move, Initiated to Ongoing when authoring starts, is in the API (projects/auto-status.ts).
 
 import { useEffect, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -235,10 +236,14 @@ export function ProjectStatusHistory({ projectId }: { projectId: string }) {
       {data.history.map(entry => (
         <li key={entry.id} className="px-4 py-2.5 text-[13px]" data-status-history-entry={entry.id}>
           <p className="font-semibold text-slate-900">{label(entry.from)} → {label(entry.to)}</p>
-          <p className="mt-0.5 text-slate-700">{entry.reason ?? t('component.project_status.no_reason')}</p>
+          <p className="mt-0.5 text-slate-700" data-status-history-automatic={entry.automatic ?? undefined}>
+            {entry.automatic === 'authoring_started' || entry.automatic === 'work_already_started'
+              ? t(`component.project_status.automatic_${entry.automatic}`, { document: entry.document ?? '' })
+              : entry.reason ?? t('component.project_status.no_reason')}
+          </p>
           <p className="mt-0.5 text-[11px] text-slate-500">
             {t('component.project_status.history_by', {
-              name: entry.by,
+              name: entry.automatic === 'work_already_started' ? t('component.project_status.by_system') : entry.by,
               when: new Date(entry.at).toLocaleString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
             })}
           </p>

@@ -24,6 +24,7 @@ async function build(opts: { raci?: Row[]; status?: string; stage?: string; assi
     assigneeId: opts.assignee ?? 'u-a', currentVersionId: 'v1', deletedAt: null }
   const raci: Row[] = opts.raci ?? []
   const audit: Row[] = []
+  const projectUpdateMany = vi.fn(async () => ({ count: 1 }))
   let current: AuthenticatedUser = { id: 'u-a', email: 'a@x', role: 'contributor', modules: ['A'], tenantId: null }
 
   const raciWhere = (r: Row, where: Row) =>
@@ -45,7 +46,7 @@ async function build(opts: { raci?: Row[]; status?: string; stage?: string; assi
       updateMany: vi.fn(async ({ where, data }: Row) => { const hit = raci.filter(r => raciWhere(r, where)); hit.forEach(r => Object.assign(r, data)); return { count: hit.length } }),
     },
     checklistInstanceItem: { findMany: vi.fn(async () => opts.blocking ?? []) },
-    project: { findUnique: vi.fn(async () => ({ id: 'p-1', status: 'initiated' })) },
+    project: { findUnique: vi.fn(async () => ({ id: 'p-1', status: 'initiated' })), updateMany: projectUpdateMany },
     user:    { findMany: vi.fn(async ({ where }: Row) => (where.id.in as string[]).map(id => ({ id, name: NAMES[id] ?? id }))) },
   } as never)
   app.decorate('audit', { append: vi.fn(async (e: Row) => { audit.push(e); return {} }) } as never)
@@ -57,7 +58,7 @@ async function build(opts: { raci?: Row[]; status?: string; stage?: string; assi
 
   const as = (id: string, role: AuthenticatedUser['role'] = 'contributor') => { current = { ...current, id, role } }
   const submit = () => app.inject({ method: 'POST', url: `/documents/${DOC}/submit-for-review`, payload: { dueDate: '2099-11-20' } })
-  return { app, doc, raci, audit, as, submit }
+  return { app, doc, raci, audit, as, submit, projectUpdateMany }
 }
 
 process.env.FEATURE_MODULES_ENABLED = 'A,B,C,D,E'
@@ -181,5 +182,20 @@ describe('back to authoring starts a new round', () => {
     }
     expect(rows[3].rejectionNote).toBe('Tables mismatch')      // the reason given is kept
     expect(rows[4].submittedAt).toBe(done)                     // a removed row keeps its history
+  })
+})
+
+describe('submit for review — starting the project', () => {
+  it('a document submitted with no earlier edit counts as authoring started', async () => {
+    const t = await build({ raci: [rRow('r-a', 'u-a')], status: 'not_started' })
+    expect((await t.submit()).statusCode).toBe(200)
+    expect(t.projectUpdateMany).toHaveBeenCalledWith({ where: { id: 'p-1', status: 'initiated' }, data: { status: 'ongoing' } })
+    expect(t.audit.some(e => e.action === 'project.state_changed' && e.details.automatic === 'authoring_started')).toBe(true)
+  })
+
+  it('a document already in authoring does not set it off', async () => {
+    const t = await build({ raci: [rRow('r-a', 'u-a')] })
+    expect((await t.submit()).statusCode).toBe(200)
+    expect(t.projectUpdateMany).not.toHaveBeenCalled()
   })
 })

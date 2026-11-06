@@ -18,6 +18,7 @@
 
 import { createHash, randomUUID } from 'node:crypto'
 import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
+import { noteAuthoringStarted } from '../../projects/auto-status.js'
 import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
 import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser, hasAnyRole, onlyRolesIn } from '../../../auth/rbac.js'
@@ -761,6 +762,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    if (result.created || result.mutated) {
+      await noteAuthoringStarted(app, { documentId, actorId: request.user!.id, ipAddress: request.ip ?? null })
+    }
+
     return svc.getWithSections(documentId)
   })
 
@@ -1039,6 +1044,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         details: { from: 'not_started', to: 'in_authoring', implicit: true },
         ipAddress: request.ip ?? null,
       })
+      await noteAuthoringStarted(app, { documentId, actorId: actor.id, ipAddress: request.ip ?? null })
     }
 
     // Other authors who still have to submit their part → stay in authoring.
@@ -1267,6 +1273,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       where: { id: documentId },
       data: { status: to },
     })
+    if (from === 'not_started') {
+      await noteAuthoringStarted(app, { documentId, actorId: request.user!.id, ipAddress: request.ip ?? null })
+    }
 
     // Review-bounce auto-snapshot: any transition from a non-authoring state
     // *into* in_authoring means the document is "coming back for edits" —

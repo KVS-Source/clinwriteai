@@ -20,9 +20,10 @@ const SEC = 'sec-a'
 async function build(opts: { lock?: { userId: string; lastHeartbeatAt: Date }; callerId?: string; docStatus?: string; projectStatus?: string } = {}) {
   const updates: Array<Record<string, unknown>> = []
   const chat = vi.fn()
+  const projectUpdateMany = vi.fn(async () => ({ count: 0 }))
   const app = Fastify()
   app.decorate('prisma', {
-    project: { findUnique: vi.fn(async () => ({ status: opts.projectStatus ?? 'ongoing' })) },
+    project: { findUnique: vi.fn(async () => ({ status: opts.projectStatus ?? 'ongoing' })), updateMany: projectUpdateMany },
     document: {
       findUnique: vi.fn(async () => ({
         id: DOC, projectId: 'proj-1', type: 'dsur', status: opts.docStatus ?? 'in_authoring',
@@ -76,7 +77,7 @@ async function build(opts: { lock?: { userId: string; lastHeartbeatAt: Date }; c
   })
   await app.register(documentsRoutes, { prefix: '/documents' })
   await app.ready()
-  return { app, updates, append }
+  return { app, updates, append, projectUpdateMany }
 }
 
 const patch = (app: Awaited<ReturnType<typeof build>>['app']) =>
@@ -162,5 +163,36 @@ describe('PATCH /documents/:docId/sections/:secId — document locked for author
     const res = await patch(app)
     expect(res.statusCode).toBe(409)
     expect(res.json()).toMatchObject({ error: 'document_locked', message: 'The project is closed and read-only.' })
+  })
+})
+
+// What the move itself does is in projects/auto-status.test.ts; here, what sets it off.
+describe('PATCH /documents/:docId/sections/:secId — authoring starts the project', () => {
+  const moveFromInitiated = { where: { id: 'proj-1', status: 'initiated' }, data: { status: 'ongoing' } }
+
+  it('a saved edit moves an Initiated project on', async () => {
+    const { app, projectUpdateMany } = await build({ docStatus: 'not_started' })
+    expect((await patch(app)).statusCode).toBeLessThan(400)
+    expect(projectUpdateMany).toHaveBeenCalledWith(moveFromInitiated)
+  })
+
+  it('a save with nothing new (an autosave after only opening it) does not', async () => {
+    const { app, projectUpdateMany } = await build({ docStatus: 'not_started' })
+    const res = await app.inject({ method: 'PATCH', url: `/documents/${DOC}/sections/${SEC}`, payload: { contentHtml: '<p>old</p>' } })
+    expect(res.statusCode).toBeLessThan(400)
+    expect(projectUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('a refused save does not', async () => {
+    const { app, projectUpdateMany } = await build({ callerId: 'u2', lock: { userId: 'u1', lastHeartbeatAt: new Date() } })
+    expect((await patch(app)).statusCode).toBe(423)
+    expect(projectUpdateMany).not.toHaveBeenCalled()
+  })
+
+  it('the save still succeeds when the status could not be moved', async () => {
+    const { app, projectUpdateMany } = await build({ docStatus: 'not_started' })
+    projectUpdateMany.mockRejectedValueOnce(new Error('db down'))
+    expect((await patch(app)).statusCode).toBeLessThan(400)
+    expect(projectUpdateMany).toHaveBeenCalled()
   })
 })

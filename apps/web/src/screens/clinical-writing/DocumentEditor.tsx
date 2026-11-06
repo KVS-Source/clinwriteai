@@ -254,8 +254,14 @@ export function DocumentEditor() {
       qc.invalidateQueries({ queryKey: ['versions', documentId] })
       // A save changes the section's words and status — keep the ICH E3 checklist current.
       qc.invalidateQueries({ queryKey: ['ich-e3', documentId] })
+      // The first real edit moves an Initiated project to Ongoing, so don't keep showing the old status.
+      if (project?.status === 'initiated') {
+        qc.invalidateQueries({ queryKey: ['project', projectId] })
+        qc.invalidateQueries({ queryKey: ['project-status', projectId] })
+        qc.invalidateQueries({ queryKey: ['projects'] })
+      }
       return result
-    }, [documentId, activeSectionData, qc]),
+    }, [documentId, activeSectionData, qc, project?.status, projectId]),
   })
 
   // Mark complete / Reopen. Any pending typing is saved first — a save moves

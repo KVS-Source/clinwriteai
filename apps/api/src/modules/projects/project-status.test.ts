@@ -106,8 +106,8 @@ describe('GET /projects/:id/status', () => {
     const body = (await t.status()).json()
     expect(t.pageForEntity).toHaveBeenCalledWith('project', 'p-1', expect.objectContaining({ action: 'project.state_changed' }))
     expect(body.history).toEqual([
-      { id: '9', at: '2026-11-04T10:00:00.000Z', by: 'Alex Thornton', from: 'ongoing', to: 'on-hold', reason: 'Paused' },
-      { id: '8', at: '2026-11-03T10:00:00.000Z', by: 'u-gone', from: 'initiated', to: 'ongoing', reason: null },
+      { id: '9', at: '2026-11-04T10:00:00.000Z', by: 'Alex Thornton', from: 'ongoing', to: 'on-hold', reason: 'Paused', automatic: null, document: null },
+      { id: '8', at: '2026-11-03T10:00:00.000Z', by: 'u-gone', from: 'initiated', to: 'ongoing', reason: null, automatic: null, document: null },
     ])
     await t.app.close()
   })

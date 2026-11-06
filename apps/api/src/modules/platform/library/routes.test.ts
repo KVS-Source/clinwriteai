@@ -92,6 +92,15 @@ describe('GET /library', () => {
     expect(flat).toContain('type:document')
   })
 
+  it('takes an exact date-and-time range as well as whole days', async () => {
+    const { app, count } = await setup()
+    const res = await app.inject({ method: 'GET', url: `/library?from=${encodeURIComponent('2026-11-05T05:30:00.000Z')}&to=${encodeURIComponent('2026-11-05T18:29:59.999+05:30')}` })
+    expect(res.statusCode).toBe(200)
+    const flat = JSON.stringify(lastWhere(count).AND)
+    expect(flat).toContain('2026-11-05T05:30:00.000Z')
+    expect(flat).toContain('2026-11-05T12:59:59.999Z')   // the offset is honoured
+  })
+
   it.each([
     ['recent',    [{ approvedAt: 'desc' }, { id: 'asc' }]],
     ['oldest',    [{ approvedAt: 'asc' }, { id: 'asc' }]],
@@ -118,6 +127,27 @@ describe('GET /library', () => {
   it.each(['sort=bogus', 'limit=0', 'limit=999', 'from=yesterday', 'from=2026-13-01', 'to=2026-02-30', 'cursor=abc', 'version=latest'])('rejects %s', async (qs) => {
     const { app } = await setup()
     expect((await app.inject({ method: 'GET', url: `/library?${qs}` })).statusCode).toBe(400)
+  })
+})
+
+describe('GET /library/projects', () => {
+  it('lists the projects that have library items, for any signed-in role', async () => {
+    const { app } = await setup({ role: 'contributor', rows: [section('a', { tags: ['project:p1', 'type:document'] }), section('b', { tags: ['project:p1', 'type:document'] }), section('c', { tags: ['module:A', 'type:document'] })] })
+    const res = await app.inject({ method: 'GET', url: '/library/projects' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([{ id: 'p1', name: 'VELORA-301' }])
+  })
+
+  it('stays within the library\'s own visibility and lists whole documents only', async () => {
+    const { app, findMany } = await setup({ tenantId: 't1', rows: [] })
+    expect((await app.inject({ method: 'GET', url: '/library/projects' })).json()).toEqual([])
+    const where = (findMany.mock.calls.at(-1)![0] as { where: { AND: unknown[] } }).where
+    expect(JSON.stringify(where.AND)).toBe('[{"OR":[{"tenantId":null},{"tenantId":"t1"}]},{"category":{"not":"best_practice"},"tags":{"has":"type:document"}}]')
+  })
+
+  it('requires a signed-in user', async () => {
+    const { app } = await setup({ role: null })
+    expect((await app.inject({ method: 'GET', url: '/library/projects' })).statusCode).toBe(401)
   })
 })
 

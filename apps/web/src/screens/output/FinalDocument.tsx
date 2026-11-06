@@ -343,7 +343,7 @@ export function FinalDocument() {
                 {t('page.final_document.signed_at', { when: signedAtText.replace(/ (\d\d:\d\d UTC)$/, ' · $1') })}
               </div>
             )}
-            <PushToLibraryButton document={document} sections={orderedSections} />
+            <PushToLibraryButton document={document} />
             <button
               type="button"
               disabled={signatureGap || pdfBusy}

@@ -3,7 +3,7 @@
 // document's Author (R) can also push it, or one section, to the Master Library from here with
 // the four mandatory tags (FR-A-080) — the same push as on the Final Document screen.
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { Document } from '@platform/types'
@@ -70,8 +70,8 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
     retry: false,
   })
 
-  // Master Library push: only a signed document can go in. The list row has no section
-  // content, so the full document is read for the "one section" choice.
+  // Master Library push: only a signed document can go in. The list row lacks some fields
+  // the push drawer needs (version, therapeutic area), so the full document is read.
   const isSigned = doc?.status === 'signed'
   const fullDoc = useQuery({
     queryKey: ['document', doc?.id],
@@ -79,10 +79,6 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
     enabled: !!doc && isSigned,
     retry: false,
   })
-  const pushSections = useMemo(
-    () => [...(fullDoc.data?.sections ?? [])].sort((a, b) => a.number.localeCompare(b.number, undefined, { numeric: true })),
-    [fullDoc.data],
-  )
 
   const qc = useQueryClient()
   const advance = useMutation({
@@ -283,7 +279,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                   </button>
                 )}
                 {/* Shows itself only to the Author (R) of a signed document not yet in the library. */}
-                {isSigned && fullDoc.data && <PushToLibraryButton document={fullDoc.data} sections={pushSections} />}
+                {isSigned && fullDoc.data && <PushToLibraryButton document={fullDoc.data} />}
               </div>
               {stage.data && !stage.data.terminal && !informedOnly && (
                 <button

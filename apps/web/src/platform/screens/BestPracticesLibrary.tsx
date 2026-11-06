@@ -6,6 +6,8 @@ import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
 import { isPlatformAdmin } from '../../config/roles'
+import { PastDateError } from '../../components/ui/PastDateError'
+import { isPastDate, localToday } from '../../utils/formatDate'
 
 type TabKey = 'all' | 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
 
@@ -108,7 +110,7 @@ export function BestPracticesLibrary() {
   const moduleMatches = parsedName !== null && parsedName.module === module_
   // Both are yyyy-mm-dd from <input type="date">, so string order is date order.
   const datesInOrder = !effFrom || !validUntil || validUntil >= effFrom
-  const canPublish = nameValid && moduleMatches && !!category.trim() && !!guidance.trim() && !!effFrom && !!validUntil && datesInOrder
+  const canPublish = nameValid && moduleMatches && !!category.trim() && !!guidance.trim() && !!effFrom && !!validUntil && datesInOrder && !isPastDate(effFrom) && !isPastDate(validUntil)
 
   const publish = async () => {
     if (!canPublish || publishing) return
@@ -325,16 +327,18 @@ export function BestPracticesLibrary() {
               <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
                 <label className="flex flex-col gap-1">
                   <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_effective_from')}</span>
-                  <input type="date" value={effFrom} onChange={(e) => setEffFrom(e.currentTarget.value)}
+                  <input type="date" value={effFrom} min={localToday()} onChange={(e) => setEffFrom(e.currentTarget.value)}
                     data-input-effective
                     className={`h-9 ${FIELD_CLS}`} />
+                  <PastDateError value={effFrom} />
                 </label>
                 <label className="flex flex-col gap-1">
                   <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_valid_until')}</span>
                   <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.currentTarget.value)}
-                    min={effFrom || undefined}
+                    min={effFrom || localToday()}
                     data-input-valid-until
                     className={`h-9 ${FIELD_CLS}`} />
+                  <PastDateError value={validUntil} />
                 </label>
               </div>
               {!datesInOrder && (

@@ -244,7 +244,7 @@ describe('removing a PM', () => {
 describe('creating a project', () => {
   const body = (projectManagers?: Row) => ({
     id: 'PROJ-NEW', name: 'New', shortTitle: 'New', therapeuticArea: 'Oncology', phase: 'Phase 1',
-    startDate: '2026-11-01T00:00:00.000Z', ...(projectManagers && { projectManagers }),
+    startDate: '2099-11-01T00:00:00.000Z', ...(projectManagers && { projectManagers }),
   })
   const onNew = (t: Awaited<ReturnType<typeof build>>) => t.members.filter(m => m.projectId === 'PROJ-NEW').map(m => m.userId)
 
@@ -297,5 +297,44 @@ describe('a PM only changes their own projects', () => {
     expect((await post(outsider.app, `/projects/${P}/members`, { userId: 'u-boss' })).statusCode).toBe(403)
     const admin = await build({ role: 'tenant-admin' }, { onProject: false })
     expect((await post(admin.app, `/projects/${P}/members`, { userId: 'u-boss' })).statusCode).toBe(201)
+  })
+})
+
+describe('an invited person is only ever a PM', () => {
+  const newProject = { id: 'PROJ-ROLE', name: 'Role', shortTitle: 'Role', therapeuticArea: 'Oncology', phase: 'Phase 1', startDate: '2099-11-01T00:00:00.000Z' }
+
+  it('invited on a project: the role is pm, even if the request asks for another', async () => {
+    const t = await build()
+    const res = await post(t.app, `/projects/${P}/managers/invite`, { email: 'boss@x.test', role: 'tenant-admin', additionalRoles: ['tenant-admin'], tenantId: 'T-2' })
+    expect(res.statusCode).toBe(201)
+    const boss = t.users.find(u => u.email === 'boss@x.test')!
+    expect(boss.role).toBe('pm')
+    expect(boss.additionalRoles).toBeUndefined()
+    expect(boss.tenantId).toBe('T-1')
+  })
+
+  it('invited while creating a project: the role is pm', async () => {
+    const t = await build()
+    const res = await post(t.app, '/projects', { ...newProject, projectManagers: { inviteEmails: ['boss2@x.test'], role: 'tenant-admin' } })
+    expect(res.statusCode).toBe(201)
+    expect(t.users.find(u => u.email === 'boss2@x.test')).toMatchObject({ role: 'pm', status: 'invited' })
+  })
+
+  it('the invitation email offers the PM role', async () => {
+    const t = await build()
+    await post(t.app, `/projects/${P}/managers/invite`, { email: 'boss3@x.test' })
+    expect(t.send.mock.calls[0]![0].body).toContain('as pm')
+  })
+})
+
+describe('the list of PMs', () => {
+  it('has someone holding PM as an additional role, and nobody who holds no PM role', async () => {
+    const t = await build()
+    t.users.push(user('u-both', { role: 'contributor', additionalRoles: ['pm'] }))
+    const res = await t.app.inject({ method: 'GET', url: '/projects/pm-directory' })
+    const ids = res.json().map((u: Row) => u.id)
+    expect(ids).toContain('u-both')
+    expect(ids).toContain('u-boss')
+    expect(ids).not.toContain('u-writer')
   })
 })

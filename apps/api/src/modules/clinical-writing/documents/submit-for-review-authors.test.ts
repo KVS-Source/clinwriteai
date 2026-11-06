@@ -56,7 +56,7 @@ async function build(opts: { raci?: Row[]; status?: string; stage?: string; assi
   await app.ready()
 
   const as = (id: string, role: AuthenticatedUser['role'] = 'contributor') => { current = { ...current, id, role } }
-  const submit = () => app.inject({ method: 'POST', url: `/documents/${DOC}/submit-for-review`, payload: { dueDate: '2026-11-20' } })
+  const submit = () => app.inject({ method: 'POST', url: `/documents/${DOC}/submit-for-review`, payload: { dueDate: '2099-11-20' } })
   return { app, doc, raci, audit, as, submit }
 }
 

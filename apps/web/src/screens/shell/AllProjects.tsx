@@ -79,9 +79,11 @@ function SortIcon({ state }: { state: 'asc' | 'desc' | null }) {
 
 const STATUS_FILTERS: { labelKey: string; value: ProjectStatus | 'all' }[] = [
   { labelKey: 'page.all_projects.filter_all',       value: 'all' },
-  { labelKey: 'page.all_projects.filter_ongoing',   value: 'ongoing' },
-  { labelKey: 'page.all_projects.filter_initiated', value: 'initiated' },
-  { labelKey: 'page.all_projects.filter_on_hold',   value: 'on-hold' },
+  { labelKey: 'component.project_status.status_ongoing',   value: 'ongoing' },
+  { labelKey: 'component.project_status.status_initiated', value: 'initiated' },
+  { labelKey: 'component.project_status.status_on_hold',   value: 'on-hold' },
+  { labelKey: 'component.project_status.status_re_open',   value: 're-open' },
+  { labelKey: 'component.project_status.status_closed',    value: 'closed' },
 ]
 
 /** Human label for a project status — translated per status. */
@@ -228,6 +230,7 @@ export function AllProjects() {
             <button
               key={f.value}
               onClick={() => setStatusFilter(f.value)}
+              data-status-filter={f.value}
               className="h-8 rounded-md px-3 text-xs font-medium transition-colors"
               style={statusFilter === f.value ? {
                 backgroundColor: '#EFF6FF',
@@ -325,7 +328,7 @@ export function AllProjects() {
                         : <span className="text-[13px] text-slate-400">—</span>}
                     </span>
                     <span className="text-[13px] text-slate-500">{t('page.all_projects.document_count', { count: docs })}</span>
-                    <span><ProjectStatusPill status={project.status} /></span>
+                    <span data-project-status={project.status}><ProjectStatusPill status={project.status} /></span>
                     <ChevronRightIcon />
                   </div>
                 )

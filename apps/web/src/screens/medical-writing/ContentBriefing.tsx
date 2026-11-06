@@ -1,6 +1,8 @@
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { useMemo, useState, useEffect } from 'react'
 import { useTaLabels } from '../../hooks'
+import { PastDateError } from '../../components/ui/PastDateError'
+import { isPastDate, localToday } from '../../utils/formatDate'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { ComplianceTrack, MedContentItem, MedContentType } from '@platform/types'
@@ -148,7 +150,7 @@ export function ContentBriefing() {
     { label: 'Compliance track confirmed', passed: !!track },
     { label: 'Content title set',          passed: title.trim().length > 0 },
   ]
-  const ready = checks.every(c => c.passed)
+  const ready = checks.every(c => c.passed) && !isPastDate(targetDate)
 
   const saveMutation = useMutation({
     mutationFn: () => {
@@ -297,10 +299,12 @@ export function ContentBriefing() {
                 <input
                   type="date"
                   value={targetDate}
+                  min={localToday()}
                   onChange={(e) => setTargetDate(e.target.value)}
                   data-input-target-date
                   className="rounded-md border border-slate-300 px-3 py-2 text-[13px] outline-none focus:border-violet-500"
                 />
+                <span className="mt-1 block"><PastDateError value={targetDate} /></span>
               </label>
 
               <div className="flex items-center justify-between rounded-md px-3 py-2" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }} data-map-link>

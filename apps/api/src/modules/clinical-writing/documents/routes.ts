@@ -21,6 +21,7 @@ import type { FastifyPluginAsync, FastifyRequest } from 'fastify'
 import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
 import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser, hasAnyRole, onlyRolesIn } from '../../../auth/rbac.js'
+import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { actorCanEditDocumentContent, actorCanUseAiChat, actorCanViewVersions, actorIsDocumentAuthor, actorIsOnlyInformed, INFORMED_READ_ONLY, resetRaciRound, userCanBeAssignee, AI_CHAT_FORBIDDEN, ASSIGNEE_NOT_ELIGIBLE, DOCUMENT_EDIT_FORBIDDEN, NEVER_AUTHOR_ROLES, SUBMIT_FORBIDDEN, VERSION_VIEW_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonomy/validate.js'
@@ -247,7 +248,6 @@ const reviewDueSchema = z.object({ date: deadlineDate })
 
 const dayOf = (d: Date | null) => (d ? d.toISOString().slice(0, 10) : null)
 // A day's grace, since the person setting the date may be ahead of UTC.
-const isPastDay = (day: string) => day < new Date(Date.now() - 86_400_000).toISOString().slice(0, 10)
 
 const DEADLINE_LOCKED = {
   error: 'deadline_locked',
@@ -343,6 +343,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     const { projectId } = request.params as { projectId: string }
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    if (parsed.data.targetCompletionDate && isPastDay(parsed.data.targetCompletionDate)) return reply.code(422).send(DATE_IN_PAST)
 
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
@@ -1071,6 +1072,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const dueRaw = submitBody?.dueDate
     const dueDate = dueRaw ? new Date(/^\d{4}-\d{2}-\d{2}$/.test(dueRaw) ? `${dueRaw}T00:00:00.000Z` : dueRaw) : null
     const reviewDueAt = dueDate && !Number.isNaN(dueDate.getTime()) ? dueDate : null
+    if (reviewDueAt && isPastDay(reviewDueAt.toISOString())) return reply.code(422).send(DATE_IN_PAST)
 
     const submitData = { status: 'in_review', submittedForReviewAt: new Date() }
     const updated = await app.prisma.document.update({

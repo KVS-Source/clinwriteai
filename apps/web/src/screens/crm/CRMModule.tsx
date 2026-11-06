@@ -18,7 +18,8 @@ import { useTranslation } from 'react-i18next'
 import type { CRMMeeting, CRMResolution, Comment, ResolutionType } from '@platform/types'
 import i18n from '../../i18n'
 import { documentStatusLabel } from '../../utils/documentLabels'
-import { dateLocale } from '../../utils/formatDate'
+import { dateLocale, isPastDate, localToday } from '../../utils/formatDate'
+import { PastDateError } from '../../components/ui/PastDateError'
 import { crmApi, documentsApi, projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
@@ -76,6 +77,7 @@ function apiMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
     const body = err.body as { error?: string; message?: string; issues?: Array<{ message: string }>; unresolvedCommentIds?: string[] } | null
     if (body?.error === 'comments_unresolved') return i18n.t('page.crm_module.err_unresolved', { count: body.unresolvedCommentIds?.length ?? 0 })
+    if (body?.error === 'date_in_past') return i18n.t('component.deadlines.past')
     if (body?.error === 'only_chair') return i18n.t('page.crm_module.err_only_chair')
     if (body?.error === 'wrong_status') return i18n.t('page.crm_module.err_wrong_status')
     if (body?.error === 'meeting_closed' || body?.error === 'already_closed') return i18n.t('page.crm_module.err_meeting_closed')
@@ -380,7 +382,8 @@ function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentI
       </label>
       <div className="grid grid-cols-3 gap-3">
         <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">{t('page.crm_module.date')}
-          <input type="date" value={date} onChange={e => setDate(e.currentTarget.value)} className="h-9 rounded-md border border-slate-300 px-2 text-[13px] font-normal" />
+          <input type="date" value={date} min={localToday()} onChange={e => setDate(e.currentTarget.value)} className="h-9 rounded-md border border-slate-300 px-2 text-[13px] font-normal" data-crm-date />
+          <PastDateError value={date} />
         </label>
         <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">{t('page.crm_module.start_time')}
           <input type="time" value={startTime} onChange={e => setStartTime(e.currentTarget.value)} className="h-9 rounded-md border border-slate-300 px-2 text-[13px] font-normal" />
@@ -414,7 +417,7 @@ function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentI
         <button
           type="button"
           onClick={() => schedule.mutate()}
-          disabled={!chair || !date || schedule.isPending}
+          disabled={!chair || !date || isPastDate(date) || schedule.isPending}
           className="rounded-md bg-blue-600 px-4 py-2 text-[13px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           data-crm-schedule-submit
         >{schedule.isPending ? t('page.crm_module.scheduling') : t('page.crm_module.schedule')}</button>

@@ -12,6 +12,8 @@ import { useTranslation } from 'react-i18next'
 import { projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { useCurrentUser, useTaLabels } from '../../hooks'
+import { PastDateError } from '../../components/ui/PastDateError'
+import { isPastDate, localToday } from '../../utils/formatDate'
 import type { PmDirectoryEntry } from '../../api/projects'
 import { ProjectManagerPicker, StatusChip } from './ProjectManagersField'
 import { projectManagerError } from './ProjectManagersSection'
@@ -93,7 +95,11 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
     },
   })
 
+  const today = localToday()
+
   const canSubmit =
+    !isPastDate(startDate) &&
+    !isPastDate(dataCutoff) &&
     derivedId.length >= 3 &&
     name.trim().length > 0 &&
     therapeuticArea.length > 0 &&
@@ -103,6 +109,7 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
   const pmRefusal = create.error instanceof ApiError && ['pm_email_not_pm', 'pm_user_not_eligible'].includes((create.error.body as { error?: string } | null)?.error ?? '')
   const errorMsg = create.isError
     ? pmRefusal ? projectManagerError(create.error)
+    : create.error instanceof ApiError && (create.error.body as { error?: string } | null)?.error === 'date_in_past' ? t('component.deadlines.past')
     : create.error instanceof ApiError
       ? create.error.status === 403
         ? t('page.new_project.err_forbidden')
@@ -164,12 +171,16 @@ export function NewProjectForm({ onCreated, onCancel }: Props) {
             className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
         </Field>
         <Field label={t('page.new_project.start_date_label')}>
-          <input type="date" value={startDate} onChange={e => setStartDate(e.currentTarget.value)} required
-            className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
+          <input type="date" value={startDate} min={today} onChange={e => setStartDate(e.currentTarget.value)} required
+            className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
+            data-field="start-date" />
+          <PastDateError value={startDate} />
         </Field>
         <Field label={t('page.new_project.data_cutoff_label')}>
-          <input type="date" value={dataCutoff} onChange={e => setDataCutoff(e.currentTarget.value)}
-            className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
+          <input type="date" value={dataCutoff} min={today} onChange={e => setDataCutoff(e.currentTarget.value)}
+            className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]"
+            data-field="data-cutoff" />
+          <PastDateError value={dataCutoff} />
         </Field>
       </Section>
 

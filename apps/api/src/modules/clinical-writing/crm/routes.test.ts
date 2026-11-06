@@ -134,7 +134,7 @@ describe('comment text in a CRM meeting', () => {
 describe('who may schedule and resolve', () => {
   const schedule = (app: Awaited<ReturnType<typeof build>>['app']) => app.inject({
     method: 'POST', url: '/documents/DOC-1/crm',
-    payload: { chairId: 'u-pm', scheduledDate: '2026-11-10T09:00:00.000Z', startTime: '09:00', endTime: '10:00', attendees: [] },
+    payload: { chairId: 'u-pm', scheduledDate: '2099-11-10T09:00:00.000Z', startTime: '09:00', endTime: '10:00', attendees: [] },
   })
 
   it('refuses QC and an admin, and says so on the access probe', async () => {
@@ -199,7 +199,7 @@ describe('a project manager running a CRM', () => {
 
     const scheduled = await app.inject({
       method: 'POST', url: '/documents/DOC-1/crm',
-      payload: { chairId: 'u-pm', scheduledDate: '2026-11-10T09:00:00.000Z', startTime: '09:00', endTime: '10:00', attendees: [] },
+      payload: { chairId: 'u-pm', scheduledDate: '2099-11-10T09:00:00.000Z', startTime: '09:00', endTime: '10:00', attendees: [] },
     })
     expect(scheduled.statusCode).toBe(201)
     const id = scheduled.json().id
@@ -223,5 +223,21 @@ describe('a project manager running a CRM', () => {
     expect(started.statusCode).toBe(403)
     expect(started.json().error).toBe('only_chair')
     expect(db.meetings[0]!.status).toBe('scheduled')
+  })
+})
+
+describe('scheduling a CRM meeting', () => {
+  it('refuses a date already passed, and schedules nothing', async () => {
+    const { app, db } = await build({ id: 'u-pm', role: 'pm' })
+    db.documents[0]!.status = 'in_review'
+    db.raci.push({ documentId: 'DOC-1', userId: 'u-pm', letter: 'R' })
+    const before = db.meetings.length
+    const res = await app.inject({
+      method: 'POST', url: '/documents/DOC-1/crm',
+      payload: { chairId: 'u-pm', scheduledDate: '2025-01-01T09:00:00.000Z', startTime: '09:00', endTime: '10:00', attendees: [] },
+    })
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('date_in_past')
+    expect(db.meetings).toHaveLength(before)
   })
 })

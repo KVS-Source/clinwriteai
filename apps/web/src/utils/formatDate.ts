@@ -15,6 +15,15 @@ export const formatDateUtc = (d: Date): string =>
     ? d.toLocaleDateString('ja-JP', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' })
     : `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 
+/** Today on the viewer's own calendar, as 'YYYY-MM-DD'. */
+export function localToday(): string {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+/** A 'YYYY-MM-DD' from a date picker that has already passed. An empty one hasn't. */
+export const isPastDate = (day: string | null | undefined): boolean => !!day && day < localToday()
+
 export const formatDate = (iso: string): string =>
   new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })
 

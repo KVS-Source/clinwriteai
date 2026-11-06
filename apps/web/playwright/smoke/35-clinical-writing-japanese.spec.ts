@@ -238,6 +238,14 @@ test('CRM: no meeting yet, schedule form and the blocked state', async ({ page }
   await expectNoEnglish(page, '[data-screen="crm-module"]')
 })
 
+test('CRM: a meeting date already passed is explained in Japanese and blocks scheduling', async ({ page }) => {
+  await open(page, `${base}/crm`, { status: 'in-review', meeting: 'none' })
+  await page.locator('[data-crm-date]').fill('2025-01-01', { timeout: 60_000 })
+  await expect(page.locator('[data-date-past]')).toBeVisible()
+  await expect(page.locator('[data-crm-schedule-submit]')).toBeDisabled()
+  await expectNoEnglish(page, '[data-screen="crm-module"]')
+})
+
 test('CRM: blocked until the document is in review', async ({ page }) => {
   await open(page, `${base}/crm`, { status: 'in-authoring', meeting: 'none' })
   await expect(page.locator('[data-screen="crm-module"]')).toContainText('作成中', { timeout: 60_000 })

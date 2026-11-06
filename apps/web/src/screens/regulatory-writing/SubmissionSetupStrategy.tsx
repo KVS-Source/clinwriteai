@@ -5,6 +5,8 @@ import type { RegSubmissionType, GatewayTarget, RegulatorySubmission } from '@pl
 import { GATEWAY_PRIORITY } from '@platform/types'
 import { regulatoryWritingApi } from '../../modules/regulatory-writing/api/regulatoryWriting'
 import { ECTDStatusDot } from '../../components/ui'
+import { PastDateError } from '../../components/ui/PastDateError'
+import { isPastDate, localToday } from '../../utils/formatDate'
 
 // --- Static config ---
 
@@ -105,7 +107,7 @@ export function SubmissionSetupStrategy() {
     { label: 'CMC Readiness Report acknowledged',      passed: cmcAcknowledged },
   ]), [currentSub, selectedType, selectedHAs, taTag, cmcAcknowledged])
 
-  const allReady = checks.every(c => c.passed)
+  const allReady = checks.every(c => c.passed) && !isPastDate(targetDate)
 
   const toggleHA = (id: GatewayTarget) => {
     if (!GATEWAY_PRIORITY[id].apiReady) {
@@ -277,10 +279,12 @@ export function SubmissionSetupStrategy() {
                   <input
                     type="date"
                     value={targetDate}
+                    min={localToday()}
                     onChange={(e) => setTargetDate(e.target.value)}
                     data-input-timeline
                     className="w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-[13px]"
                   />
+                  <span className="mt-1 block"><PastDateError value={targetDate} /></span>
                 </label>
               </div>
             </section>

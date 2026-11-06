@@ -33,14 +33,15 @@ export function ProjectManagerPicker({ excludedIds, excludedEmails, busy, onPick
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
   const [email, setEmail] = useState('')
-  const directory = useQuery({ queryKey: ['pm-directory'], queryFn: () => projectManagersApi.directory(), retry: false })
+  // Nobody is listed until a search is typed: there can be many PMs, so the list isn't even fetched before then.
+  const q = query.trim().toLowerCase()
+  const searching = q.length > 0
+  const directory = useQuery({ queryKey: ['pm-directory'], queryFn: () => projectManagersApi.directory(), retry: false, enabled: searching })
 
-  const available = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    return (directory.data ?? [])
-      .filter(pm => !excludedIds.has(pm.id))
-      .filter(pm => !q || `${pm.name} ${pm.email}`.toLowerCase().includes(q))
-  }, [directory.data, excludedIds, query])
+  const available = useMemo(() => (directory.data ?? [])
+    .filter(pm => !excludedIds.has(pm.id))
+    .filter(pm => `${pm.name} ${pm.email}`.toLowerCase().includes(q)),
+  [directory.data, excludedIds, q])
 
   const trimmed = email.trim().toLowerCase()
   const invite = () => {
@@ -61,7 +62,7 @@ export function ProjectManagerPicker({ excludedIds, excludedEmails, busy, onPick
           className="h-9 w-full rounded-md border border-slate-300 bg-white px-3 text-[13px]"
           data-pm-search
         />
-        <div className="max-h-44 overflow-y-auto rounded-md border border-slate-200 bg-white" data-pm-list>
+        {searching && <div className="max-h-44 overflow-y-auto rounded-md border border-slate-200 bg-white" data-pm-list>
           {directory.isLoading && <p className="px-3 py-2 text-[12px] text-slate-400">{t('page.project_managers.loading')}</p>}
           {directory.isError && <p className="px-3 py-2 text-[12px] text-red-700" role="alert">{t('page.project_managers.list_failed')}</p>}
           {directory.isSuccess && available.length === 0 && (
@@ -80,7 +81,7 @@ export function ProjectManagerPicker({ excludedIds, excludedEmails, busy, onPick
               <button
                 type="button"
                 disabled={busy}
-                onClick={() => onPick(pm)}
+                onClick={() => { onPick(pm); setQuery('') }}
                 aria-label={`${t('page.project_managers.add')}: ${pm.name}`}
                 className="inline-flex h-8 flex-none items-center gap-1 rounded-md border border-blue-200 bg-blue-50 px-3 text-[12px] font-semibold text-blue-700 transition-colors hover:border-blue-600 hover:bg-blue-600 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
                 data-pm-add={pm.id}
@@ -92,7 +93,7 @@ export function ProjectManagerPicker({ excludedIds, excludedEmails, busy, onPick
               </button>
             </div>
           ))}
-        </div>
+        </div>}
       </div>
 
       <div className="flex flex-col gap-1.5">

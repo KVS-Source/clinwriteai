@@ -97,6 +97,8 @@ test.describe('New Project', () => {
     await expect(chosen.locator('[data-pm-row="user-sa"]')).toContainText('Mia Manager (you)')
     await expect(chosen.locator('[data-pm-creator]')).toHaveText('Creator')
     await expect(page.locator('[data-pm-remove="user-sa"]')).toHaveCount(0)
+    await expect(page.locator('[data-pm-list]')).toHaveCount(0) // nobody is listed before a search
+    await page.locator('[data-pm-search]').fill('x.test')
     await expect(page.locator('[data-pm-option="u-boss"]')).toContainText('bo@x.test')
     await expect(page.locator('[data-pm-option="u-new"] [data-pm-invited]')).toHaveText('Invited')
     await expect(page.locator('[data-pm-option="user-sa"]')).toHaveCount(0)
@@ -110,6 +112,9 @@ test.describe('New Project', () => {
     await expect(page.locator('[data-pm-option="u-boss"]')).toHaveCount(0)
     await page.locator('[data-pm-add="u-new"]').click()
     await expect(page.locator('[data-pm-chosen] [data-pm-row="u-new"]')).toBeVisible()
+    await expect(page.locator('[data-pm-search]')).toHaveValue('')
+    await expect(page.locator('[data-pm-list]')).toHaveCount(0)
+    await page.locator('[data-pm-search]').fill('nia')
     await expect(page.locator('[data-pm-option="u-new"]')).toHaveCount(0)
     await expect(page.locator('[data-pm-list-empty]')).toBeVisible()
     await page.locator('[data-pm-remove="u-new"]').click()
@@ -148,6 +153,7 @@ test.describe('New Project', () => {
   test('creating sends the PMs with the project', async ({ page }) => {
     await openNewProject(page)
     await fillBasics(page)
+    await page.locator('[data-pm-search]').fill('bo')
     await page.locator('[data-pm-add="u-boss"]').click()
     await page.locator('[data-pm-invite-email]').fill('new.boss@company.com')
     await page.locator('[data-pm-invite-email]').press('Enter')
@@ -186,9 +192,11 @@ test.describe('Project Settings', () => {
     await open(page, settings)
     const section = page.locator('[data-section="project-managers"]')
     await expect(section.locator('[data-pm-row="user-sa"] [data-pm-creator]')).toBeVisible({ timeout: 60_000 })
+    await expect(section.locator('[data-pm-list]')).toHaveCount(0)
+    await section.locator('[data-pm-search]').fill('bo')
     await section.locator('[data-pm-add="u-boss"]').click()
     await expect(section.locator('[data-pm-row="u-boss"]')).toBeVisible()
-    await expect(section.locator('[data-pm-option="u-boss"]')).toHaveCount(0)
+    await expect(section.locator('[data-pm-list]')).toHaveCount(0)
     expect((await sent(page)).added).toEqual(['u-boss'])
     await shot(page, 'pm-settings')
   })
@@ -234,6 +242,7 @@ test.describe('Project Settings', () => {
     await open(page, settings, { noManagers: true })
     const section = page.locator('[data-section="project-managers"]')
     await expect(section.locator('[data-pm-none]')).toBeVisible({ timeout: 60_000 })
+    await section.locator('[data-pm-search]').fill('mia')
     await section.locator('[data-pm-add="user-sa"]').click()
     await expect(section.locator('[data-pm-row="user-sa"]')).toBeVisible()
     await expect(section.locator('[data-pm-none]')).toHaveCount(0)
@@ -251,5 +260,63 @@ test.describe('Project Settings', () => {
     await expect(section.locator('[data-pm-creator]')).toHaveText('作成者', { timeout: 60_000 })
     await expect(section).toContainText('プロジェクト マネージャー')
     await expect(section.locator('[data-pm-invite-submit]')).toHaveText('招待')
+  })
+})
+
+test.describe('New Project: dates', () => {
+  const isoDay = (offset: number) => {
+    const d = new Date(Date.now() + offset * 86_400_000)
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+  }
+  const cutoff = (page: Page) => page.locator('[data-field="data-cutoff"]')
+  const submit = (page: Page) => page.locator('[data-form="new-project"] button[type="submit"]')
+
+  async function ready(page: Page, language?: string) {
+    await openNewProject(page, { language })
+    const form = page.locator('[data-form="new-project"]')
+    await form.locator('input').first().fill('Velora Study')
+    await form.locator('select').first().selectOption({ index: 1 })
+    await expect(submit(page)).toBeEnabled()
+  }
+
+  test('the label reads Date cut off', async ({ page }) => {
+    await ready(page)
+    await expect(page.locator('[data-form="new-project"]')).toContainText(/date cut off/i)
+  })
+
+  test('a past date is explained and blocks Create; fixing it clears both', async ({ page }) => {
+    await ready(page)
+    await cutoff(page).fill('2025-01-01')
+    await expect(page.locator('[data-date-past]')).toContainText('Choose today or a later date')
+    await expect(submit(page)).toBeDisabled()
+    await cutoff(page).fill(isoDay(0))
+    await expect(page.locator('[data-date-past]')).toHaveCount(0)
+    await expect(submit(page)).toBeEnabled()
+    await cutoff(page).fill(isoDay(30))
+    await expect(submit(page)).toBeEnabled()
+    await cutoff(page).fill('')
+    await expect(submit(page)).toBeEnabled()
+  })
+
+  test('the start date refuses a past date too', async ({ page }) => {
+    await ready(page)
+    await page.locator('[data-field="start-date"]').fill('2025-01-01')
+    await expect(page.locator('[data-date-past]')).toBeVisible()
+    await expect(submit(page)).toBeDisabled()
+    await page.locator('[data-field="start-date"]').fill(isoDay(0))
+    await expect(submit(page)).toBeEnabled()
+  })
+
+  test('both pickers offer nothing before today', async ({ page }) => {
+    await ready(page)
+    await expect(page.locator('[data-field="start-date"]')).toHaveAttribute('min', isoDay(0))
+    await expect(cutoff(page)).toHaveAttribute('min', isoDay(0))
+  })
+
+  test('the message is Japanese in Japanese', async ({ page }) => {
+    await ready(page, 'ja')
+    await cutoff(page).fill('2025-01-01')
+    await expect(page.locator('[data-date-past]')).toBeVisible()
+    await expect(page.locator('[data-date-past]')).not.toContainText('Choose')
   })
 })

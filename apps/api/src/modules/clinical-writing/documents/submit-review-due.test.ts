@@ -58,26 +58,26 @@ beforeEach(() => { process.env.FEATURE_MODULES_ENABLED = 'A' })
 describe('submit-for-review — review due date', () => {
   it('stores the due date as UTC midnight of the chosen day and audits it', async () => {
     const { app, updates, append } = await build()
-    const res = await submit(app, { reviewType: 'parallel', reviewers: [], dueDate: '2026-11-05' })
+    const res = await submit(app, { reviewType: 'parallel', reviewers: [], dueDate: '2099-11-05' })
     expect(res.statusCode).toBe(200)
-    expect(updates[0]).toMatchObject({ status: 'in_review', reviewDueAt: new Date('2026-11-05T00:00:00.000Z') })
+    expect(updates[0]).toMatchObject({ status: 'in_review', reviewDueAt: new Date('2099-11-05T00:00:00.000Z') })
     const audit = append.mock.calls.map(c => c[0]).find(e => e.action === 'document_submitted_for_review')
-    expect(audit?.details).toMatchObject({ reviewDueAt: '2026-11-05T00:00:00.000Z' })
+    expect(audit?.details).toMatchObject({ reviewDueAt: '2099-11-05T00:00:00.000Z' })
   })
 
   it('records the review type and reviewers on the audit trail', async () => {
     const { app, append } = await build()
     const reviewers = [{ userId: 'u2', raci: 'C' }, { userId: 'u3', raci: 'A' }]
-    await submit(app, { reviewType: 'sequential', reviewers, dueDate: '2026-11-05' })
+    await submit(app, { reviewType: 'sequential', reviewers, dueDate: '2099-11-05' })
     const audit = append.mock.calls.map(c => c[0]).find(e => e.action === 'document_submitted_for_review')
     expect(audit?.details).toMatchObject({ reviewType: 'sequential', reviewers })
   })
 
   it('still submits, and keeps the due date, when the review type or reviewers are malformed', async () => {
     const { app, updates, append } = await build()
-    const res = await submit(app, { reviewType: 'whenever', reviewers: 'everyone', dueDate: '2026-11-05' })
+    const res = await submit(app, { reviewType: 'whenever', reviewers: 'everyone', dueDate: '2099-11-05' })
     expect(res.statusCode).toBe(200)
-    expect(updates[0]).toMatchObject({ reviewDueAt: new Date('2026-11-05T00:00:00.000Z') })
+    expect(updates[0]).toMatchObject({ reviewDueAt: new Date('2099-11-05T00:00:00.000Z') })
     const audit = append.mock.calls.map(c => c[0]).find(e => e.action === 'document_submitted_for_review')
     expect(audit?.details).toMatchObject({ reviewType: null, reviewers: [] })
   })
@@ -90,9 +90,19 @@ describe('submit-for-review — review due date', () => {
 
   it('still submits without the due date when the column is missing', async () => {
     const { app, updates } = await build({ columnMissing: true })
-    const res = await submit(app, { dueDate: '2026-11-05' })
+    const res = await submit(app, { dueDate: '2099-11-05' })
     expect(res.statusCode).toBe(200)
     expect(updates[0]).toMatchObject({ status: 'in_review' })
     expect(updates[0]).not.toHaveProperty('reviewDueAt')
+  })
+})
+
+describe('submit-for-review — a due date already passed', () => {
+  it('is refused, and the document is not submitted', async () => {
+    const { app, updates } = await build()
+    const res = await submit(app, { reviewType: 'parallel', reviewers: [], dueDate: '2025-01-01' })
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('date_in_past')
+    expect(updates).toEqual([])
   })
 })

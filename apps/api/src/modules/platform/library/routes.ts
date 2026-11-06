@@ -18,6 +18,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
+import { DATE_IN_PAST, isPastDay } from '../past-date.js'
 import { requireAuth } from '../../../auth/rbac.js'
 import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
 import type { Prisma } from '@prisma/client'
@@ -257,6 +258,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const parsed = bestPracticeCreate.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request body', issues: parsed.error.issues })
     const b = parsed.data
+    if (isPastDay(b.effectiveFrom) || isPastDay(b.validUntil)) return reply.code(422).send(DATE_IN_PAST)
 
     const dup = await app.prisma.librarySection.findFirst({
       where: { title: b.name, category: 'best_practice', isCurrent: true },

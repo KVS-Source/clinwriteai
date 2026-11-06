@@ -160,3 +160,13 @@ describe('POST /projects/:id/documents — PM-only', () => {
     expect(documentsCreated).toHaveLength(0)
   })
 })
+
+describe('POST /projects/:id/documents — target date', () => {
+  it('refuses a target date already passed, and creates nothing', async () => {
+    const { post, documentsCreated } = await build()
+    const res = await post({ targetCompletionDate: '2025-01-01T00:00:00.000Z' })
+    expect(res.statusCode).toBe(422)
+    expect(res.json().error).toBe('date_in_past')
+    expect(documentsCreated).toEqual([])
+  })
+})

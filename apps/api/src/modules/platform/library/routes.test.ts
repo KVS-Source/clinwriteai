@@ -141,7 +141,7 @@ describe('GET /library/:id', () => {
 describe('best practices', () => {
   const body = {
     name: 'Module-D-CTD-Authoring-v1.2-2026-01', module: 'D', category: 'CTD Authoring', guidance: 'Use the data layer.',
-    effectiveFrom: '2026-01-01', validUntil: '2026-12-31', applicableDocTypes: ['NDA'], frameworkRefs: ['ICH E3'],
+    effectiveFrom: '2099-01-01', validUntil: '2099-12-31', applicableDocTypes: ['NDA'], frameworkRefs: ['ICH E3'],
   }
 
   it('lists best practices in the UI shape', async () => {
@@ -158,7 +158,7 @@ describe('best practices', () => {
     expect(res.statusCode).toBe(201)
     expect(create.mock.calls[0]![0].data).toMatchObject({
       title: body.name, category: 'best_practice', taTag: 'Platform-wide', framework: 'ICH E3', version: 1, tenantId: null,
-      tags: ['module:D', 'category:CTD Authoring', 'effective:2026-01-01', 'valid-until:2026-12-31', 'doctype:NDA'],
+      tags: ['module:D', 'category:CTD Authoring', 'effective:2099-01-01', 'valid-until:2099-12-31', 'doctype:NDA'],
     })
     expect(append).toHaveBeenCalledWith(expect.objectContaining({ action: 'best_practice_created', entityType: 'library_section' }))
     expect(res.json()).toMatchObject({ name: body.name, module: 'D' })
@@ -179,6 +179,7 @@ describe('best practices', () => {
     expect(badName.statusCode).toBe(400)
     expect(badName.json().message).toContain('[Module]-[Category]-[Version]-[Date]')
     expect((await post({ ...body, validUntil: '2025-01-01' })).statusCode).toBe(400)
+    expect((await post({ ...body, effectiveFrom: '2025-01-01' })).statusCode).toBe(422)
     await current?.close()
     const dup = await setup({ role: 'admin', dup: true })
     expect((await dup.app.inject({ method: 'POST', url: '/library/best-practices', payload: body })).statusCode).toBe(409)

@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { ApiError } from '../../api/client'
+import { localToday } from '../../utils/formatDate'
 
 export const deadlineDay = (iso: string | null | undefined): string => iso?.slice(0, 10) ?? ''
 
@@ -13,11 +14,7 @@ export function fmtDeadline(iso: string | null | undefined): string {
   return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric', timeZone: 'UTC' })
 }
 
-/** Today on the viewer's own calendar, as 'YYYY-MM-DD'. */
-export function localToday(): string {
-  const now = new Date()
-  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
-}
+export { localToday }
 
 export function DeadlineField({ field, value, canEdit, canClear, projectId, documentId, onSave }: {
   /** Names the field in the page, e.g. "target-date". */

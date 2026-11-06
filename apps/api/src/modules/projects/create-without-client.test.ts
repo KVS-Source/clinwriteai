@@ -6,7 +6,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser } from '../../auth/rbac.js'
 import { projectRoutes } from './routes.js'
 
-const body = { id: 'PROJ-NOCLIENT', name: 'No client', shortTitle: 'No client', therapeuticArea: 'Oncology', phase: 'Phase 1', startDate: '2026-10-30T00:00:00.000Z', activeModules: ['A'] }
+const body = { id: 'PROJ-NOCLIENT', name: 'No client', shortTitle: 'No client', therapeuticArea: 'Oncology', phase: 'Phase 1', startDate: '2099-10-30T00:00:00.000Z', activeModules: ['A'] }
 
 async function build() {
   const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...data }))

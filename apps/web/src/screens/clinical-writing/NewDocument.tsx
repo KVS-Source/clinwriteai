@@ -21,6 +21,8 @@
 //
 // M3+ will add a 4th step for AI drafting opt-in.
 
+import { PastDateError } from '../../components/ui/PastDateError'
+import { isPastDate, localToday } from '../../utils/formatDate'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Trans, useTranslation } from 'react-i18next'
@@ -286,7 +288,7 @@ export function NewDocumentForm({
   const canAdvanceFromStep1 = true
   const canAdvanceFromStep2 = sourceIds.length > 0
   // Must be someone on the list: a duplicated document can carry over an assignee who no longer qualifies.
-  const canAdvanceFromStep3 = title.trim().length > 0 && assigneeOptions.some(o => o.id === assigneeId)
+  const canAdvanceFromStep3 = title.trim().length > 0 && assigneeOptions.some(o => o.id === assigneeId) && !isPastDate(targetCompletionDate)
   const canSubmit           = canAdvanceFromStep3 && canAdvanceFromStep2 && !create.isPending
 
   const next = () => {
@@ -532,8 +534,9 @@ export function NewDocumentForm({
 
             <label className="flex flex-col gap-1">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{t('page.new_document.target_date_label')}</span>
-              <input type="date" value={targetCompletionDate} onChange={e => setTargetCompletionDate(e.currentTarget.value)}
-                className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
+              <input type="date" value={targetCompletionDate} min={localToday()} onChange={e => setTargetCompletionDate(e.currentTarget.value)}
+                className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" data-field="target-date" />
+              <PastDateError value={targetCompletionDate} />
             </label>
 
             <label className="flex flex-col gap-1">

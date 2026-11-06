@@ -11,6 +11,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../auth/rbac.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../platform/taxonomy/validate.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser } from './visibility.js'
+import { DATE_IN_PAST, isPastDay } from '../platform/past-date.js'
 import { actorManagesProject, addPmToProject, checkPmEmail, createInvitedPm, findSelectablePm, normaliseEmail, PM_EMAIL_TAKEN, PM_FORBIDDEN, PM_USER_NOT_ELIGIBLE } from './project-managers.js'
 import {
   canTransition,
@@ -155,6 +156,9 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     if (!parsedBody.success) return reply.code(400).send({ error: 'validation', issues: parsedBody.error.issues })
     const { projectManagers, ...fields } = parsedBody.data
     const parsed = { data: fields }
+    if (isPastDay(parsed.data.startDate) || (parsed.data.dataCutoff && isPastDay(parsed.data.dataCutoff))) {
+      return reply.code(422).send(DATE_IN_PAST)
+    }
 
     const existing = await app.prisma.project.findUnique({ where: { id: parsed.data.id } })
     if (existing) return reply.code(409).send({ error: 'conflict', message: 'Project id already exists' })
@@ -223,6 +227,13 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     if (!existing) return reply.code(404).send({ error: 'not_found' })
     if (!(await actorManagesProject(app.prisma, request.user!, id))) return reply.code(403).send(PM_FORBIDDEN)
     if (existing.status === 'closed') return reply.code(423).send(PROJECT_CLOSED)
+
+    // Only a changed date is checked: a project whose dates have already passed can still be edited.
+    const changedToPast = (next: string | undefined, current: Date | null) =>
+      !!next && next.slice(0, 10) !== current?.toISOString().slice(0, 10) && isPastDay(next)
+    if (changedToPast(parsed.data.startDate, existing.startDate) || changedToPast(parsed.data.dataCutoff, existing.dataCutoff)) {
+      return reply.code(422).send(DATE_IN_PAST)
+    }
 
     // Only a *changed* TA is validated, so legacy labels on existing
     // projects don't block unrelated edits.

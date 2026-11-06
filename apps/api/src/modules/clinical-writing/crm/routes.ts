@@ -15,6 +15,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
+import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
 import { requireAuth, hasAnyRole, type AuthenticatedUser } from '../../../auth/rbac.js'
 import type { PrismaClient } from '@prisma/client'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
@@ -192,6 +193,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     if (!(await actorCanScheduleCrm(app.prisma, request.user!, documentId))) {
       return reply.code(403).send(CRM_SCHEDULE_FORBIDDEN)
     }
+    if (isPastDay(parsed.data.scheduledDate)) return reply.code(422).send(DATE_IN_PAST)
     if (doc.status !== 'in_review' && doc.status !== 'crm_in_progress') {
       return reply.code(422).send({
         error: 'wrong_status',

@@ -1,3 +1,4 @@
+import { isPastDate, localToday } from '../utils/formatDate'
 import { useEffect, useMemo, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
@@ -216,6 +217,10 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
       setDateError(t('page.review_assignment_panel.err_due_date_required'))
       return
     }
+    if (isPastDate(dueDate)) {
+      setDateError(t('component.deadlines.past'))
+      return
+    }
     setDateError(null)
     submitMut.mutate()
   }
@@ -284,7 +289,8 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
             required
             aria-required="true"
             value={dueDate}
-            onChange={e => { setDueDate(e.target.value); if (dateError) setDateError(null) }}
+            min={localToday()}
+            onChange={e => { setDueDate(e.target.value); setDateError(isPastDate(e.target.value) ? t('component.deadlines.past') : null) }}
             className="min-w-0 flex-1 rounded-md border px-2.5 py-1.5 text-[13px] outline-none focus:border-blue-600 focus:shadow-focus"
             style={{ borderColor: dateError ? '#DC2626' : '#E2E8F0' }}
           />
@@ -437,7 +443,7 @@ export function ReviewAssignmentPanel({ documentId, projectId, onClose }: Props)
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitMut.isPending || !dueDate || !!waitingFor}
+            disabled={submitMut.isPending || !dueDate || isPastDate(dueDate) || !!waitingFor}
             title={!dueDate ? t('page.review_assignment_panel.pick_due_first_title') : undefined}
             className="flex-1 rounded-md bg-blue-600 py-2.5 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors disabled:cursor-not-allowed disabled:bg-slate-300 disabled:hover:bg-slate-300"
           >

@@ -27,6 +27,7 @@ type FilterKey = 'all' | 'unread'
 // Labels for the kinds the API sends; anything else reads "Notification".
 const KIND_KEYS: Record<string, string> = {
   'comment.mention':               'page.notification_centre.kind_mention',
+  'document.returned_to_authoring': 'page.notification_centre.kind_returned_to_authoring',
   'user.invitation':               'page.notification_centre.kind_user_invitation',
   'signature_requested':           'page.notification_centre.kind_signature_requested',
   'document_nudge':                'page.notification_centre.kind_document_nudge',

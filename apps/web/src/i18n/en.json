@@ -3299,6 +3299,7 @@
       "kind_inactivity_warning": "Account inactivity",
       "kind_inactivity_suspended": "Account suspended",
       "kind_mention": "Mention",
+      "kind_returned_to_authoring": "Returned to authoring",
       "kind_other": "Notification",
       "severity_warning": "Warning",
       "severity_critical": "Important",

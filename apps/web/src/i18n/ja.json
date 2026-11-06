@@ -3496,6 +3496,7 @@
       "kind_inactivity_warning": "アカウントの非アクティブ",
       "kind_inactivity_suspended": "アカウント停止",
       "kind_mention": "メンション",
+      "kind_returned_to_authoring": "作成者に差し戻し",
       "kind_other": "通知",
       "severity_warning": "警告",
       "severity_critical": "重要",

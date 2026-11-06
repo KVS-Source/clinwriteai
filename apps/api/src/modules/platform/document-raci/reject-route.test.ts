@@ -21,7 +21,7 @@ const done = new Date('2026-11-01T00:00:00Z')
 
 async function build(status: string, me = 'u-rev') {
   snapshot.mockClear()
-  const doc: Row = { id: DOC, status }
+  const doc: Row = { id: DOC, status, title: 'Protocol v2', projectId: 'PROJ-1', assigneeId: 'u-assignee' }
   const rows: Row[] = [
     { id: 'r-1', documentId: DOC, userId: 'u-author', letter: 'R', sectionId: null, submittedAt: done, reviewedAt: null, approvedAt: null, signatureId: null, rejectedAt: null, rejectionNote: null, removedAt: null },
     { id: 'c-1', documentId: DOC, userId: 'u-rev',    letter: 'C', sectionId: null, submittedAt: null, reviewedAt: null, approvedAt: null, signatureId: null, rejectedAt: null, rejectionNote: null, removedAt: null },
@@ -41,6 +41,7 @@ async function build(status: string, me = 'u-rev') {
     },
     documentRaci: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) => rows.find(r => r.id === where.id) ?? null),
+      findMany:   vi.fn(async ({ where }: { where: { letter: string } }) => rows.filter(r => r.letter === where.letter && !r.removedAt)),
       update:     vi.fn(async ({ where, data }: { where: { id: string }; data: Row }) => Object.assign(rows.find(r => r.id === where.id)!, data)),
       updateMany: vi.fn(async ({ where, data }: { where: Row; data: Row }) => {
         const hit = rows.filter(r => r.documentId === where.documentId && r.removedAt === where.removedAt)
@@ -55,8 +56,12 @@ async function build(status: string, me = 'u-rev') {
         return { count: hit.length }
       }),
     },
+    project: { findUnique: vi.fn(async () => ({ status: 'ongoing' })) },
+    user: { findUnique: vi.fn(async () => ({ name: 'Rita Reviewer' })) },
   } as never)
   app.decorate('audit', { append: vi.fn(async (e: { action: string; details: Row }) => { audit.push(e); return {} }) } as never)
+  const notify = vi.fn(async (_n: Row) => ({}))
+  app.decorate('notifications', { send: notify } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
     const user: AuthenticatedUser = { id: me, email: `${me}@x`, role: 'contributor', modules: ['A'], tenantId: null }
@@ -66,7 +71,7 @@ async function build(status: string, me = 'u-rev') {
   await app.ready()
   const reject = (raciId: string, body: unknown) =>
     app.inject({ method: 'POST', url: `/documents/${DOC}/raci/${raciId}/reject`, payload: body as never })
-  return { doc, rows, chains, audit, reject }
+  return { doc, rows, chains, audit, reject, notify }
 }
 
 describe('returning a document to authoring', () => {
@@ -120,6 +125,45 @@ describe('returning a document to authoring', () => {
     const other = await build('in_review', 'u-qc')
     expect((await other.reject('c-1', { note: 'x' })).statusCode).toBe(403)
     expect(other.doc.status).toBe('in_review')
+  })
+
+  it('notifies every author, with the reason and a link to the document', async () => {
+    const t = await build('in_review', 'u-rev')
+    t.rows.push({ ...t.rows[0], id: 'r-2', userId: 'u-author-2' })
+    await t.reject('c-1', { note: 'Section 9 contradicts the SAP.' })
+
+    expect(t.notify.mock.calls.map(([n]) => n.recipientId)).toEqual(['u-author', 'u-author-2'])
+    expect(t.notify.mock.calls[0][0]).toMatchObject({
+      kind:     'document.returned_to_authoring',
+      title:    'Rita Reviewer returned "Protocol v2" to authoring',
+      body:     'Now v0.3. Reason: Section 9 contradicts the SAP.',
+      linkPath: `/projects/PROJ-1/clinical-writing/documents/${DOC}`,
+    })
+  })
+
+  it('notifies the assignee when there are no R rows, and never the person returning it', async () => {
+    const noAuthors = await build('in_review', 'u-rev')
+    noAuthors.rows.find(r => r.id === 'r-1')!.removedAt = done
+    await noAuthors.reject('c-1', { note: 'x' })
+    expect(noAuthors.notify.mock.calls.map(([n]) => n.recipientId)).toEqual(['u-assignee'])
+
+    const alsoAuthor = await build('in_review', 'u-rev')
+    alsoAuthor.rows.find(r => r.id === 'r-1')!.userId = 'u-rev'
+    await alsoAuthor.reject('c-1', { note: 'x' })
+    expect(alsoAuthor.notify).not.toHaveBeenCalled()
+  })
+
+  it('a failed notification does not fail the return', async () => {
+    const t = await build('in_review', 'u-rev')
+    t.notify.mockRejectedValue(new Error('down'))
+    expect((await t.reject('c-1', { note: 'x' })).statusCode).toBe(200)
+    expect(t.doc.status).toBe('in_authoring')
+  })
+
+  it('a refused return notifies nobody', async () => {
+    const t = await build('in_authoring', 'u-rev')
+    await t.reject('c-1', { note: 'x' })
+    expect(t.notify).not.toHaveBeenCalled()
   })
 
   it.each(['in_authoring', 'not_started', 'signed'])('a document that is %s cannot be returned (409) and no snapshot is taken', async (status) => {

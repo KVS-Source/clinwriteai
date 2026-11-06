@@ -149,8 +149,13 @@ describe('resolving comments', () => {
 })
 
 describe('scheduling a CRM meeting', () => {
-  it.each(['R', 'A', 'C', 'I'])('is open to a holder of %s', async (letter) => {
+  it.each(['R', 'A', 'C'])('is open to a holder of %s', async (letter) => {
     expect(await actorCanScheduleCrm(prisma({ rows: holds(letter) }), user(), DOC)).toBe(true)
+  })
+
+  it('is closed to Informed (I) alone: participant only (action table row 18, CW-014)', async () => {
+    expect(await actorCanScheduleCrm(prisma({ rows: holds('I') }), user(), DOC)).toBe(false)
+    expect(await actorCanScheduleCrm(prisma({ rows: holds('I', 'C') }), user(), DOC)).toBe(true)
   })
 
   it('is open to the assignee', async () => {

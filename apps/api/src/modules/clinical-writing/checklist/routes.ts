@@ -17,7 +17,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
-import { actorCanEditDocumentRaci, actorCanViewChecklist, CHECKLIST_CHAIN_ACTIVE, CHECKLIST_VIEW_FORBIDDEN, signatureChainActive } from '../../platform/document-raci/access.js'
+import { actorCanEditChecklist, actorCanViewChecklist, CHECKLIST_CHAIN_ACTIVE, CHECKLIST_VIEW_FORBIDDEN, signatureChainActive } from '../../platform/document-raci/access.js'
 import { buildComplianceSummary } from './compliance-summary.js'
 import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
 import {
@@ -87,7 +87,7 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
     // While a signature chain is in progress the checklist is fixed (see signatureChainActive), so
     // nobody may edit it; chainActive tells the panel why.
     const [mayEdit, chainActive] = await Promise.all([
-      actorCanEditDocumentRaci(app.prisma, request.user!, documentId),
+      actorCanEditChecklist(app.prisma, request.user!, documentId),
       signatureChainActive(app.prisma, documentId),
     ])
     const canEdit = mayEdit && !chainActive
@@ -128,10 +128,10 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
     if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // §11.1: only an R on this doc (or an admin) can tick items.
-    if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
+    if (!(await actorCanEditChecklist(app.prisma, request.user!, documentId))) {
       return reply.code(403).send({
         error: 'checklist_edit_forbidden',
-        message: 'Only an R on this document (or an admin) can mark checklist items complete.',
+        message: 'Only the Author (R) or QC (Q) on this document (or an admin) can mark checklist items complete.',
       })
     }
     if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)
@@ -169,10 +169,10 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
     if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // §11.1: only an R on this doc (or an admin) can waive items.
-    if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
+    if (!(await actorCanEditChecklist(app.prisma, request.user!, documentId))) {
       return reply.code(403).send({
         error: 'checklist_edit_forbidden',
-        message: 'Only an R on this document (or an admin) can waive checklist items.',
+        message: 'Only the Author (R) or QC (Q) on this document (or an admin) can waive checklist items.',
       })
     }
     if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)
@@ -221,10 +221,10 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
     const { documentId, itemId } = request.params as { documentId: string; itemId: string }
     if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
-    if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
+    if (!(await actorCanEditChecklist(app.prisma, request.user!, documentId))) {
       return reply.code(403).send({
         error: 'checklist_edit_forbidden',
-        message: 'Only an R on this document (or an admin) can reopen checklist items.',
+        message: 'Only the Author (R) or QC (Q) on this document (or an admin) can reopen checklist items.',
       })
     }
     if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)
@@ -280,10 +280,10 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
     const { documentId, itemId } = request.params as { documentId: string; itemId: string }
     if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
-    if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
+    if (!(await actorCanEditChecklist(app.prisma, request.user!, documentId))) {
       return reply.code(403).send({
         error: 'checklist_edit_forbidden',
-        message: 'Only an R on this document (or an admin) can remove checklist items.',
+        message: 'Only the Author (R) or QC (Q) on this document (or an admin) can remove checklist items.',
       })
     }
     if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)
@@ -332,10 +332,10 @@ export const checklistRoutes: FastifyPluginAsync = async (app) => {
     if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)
 
     // §11.1: only an R on this doc (or an admin) can add user items.
-    if (!(await actorCanEditDocumentRaci(app.prisma, request.user!, documentId))) {
+    if (!(await actorCanEditChecklist(app.prisma, request.user!, documentId))) {
       return reply.code(403).send({
         error: 'checklist_edit_forbidden',
-        message: 'Only an R on this document (or an admin) can add checklist items.',
+        message: 'Only the Author (R) or QC (Q) on this document (or an admin) can add checklist items.',
       })
     }
     if (await signatureChainActive(app.prisma, documentId)) return reply.code(409).send(CHECKLIST_CHAIN_ACTIVE)

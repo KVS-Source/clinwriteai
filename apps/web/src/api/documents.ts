@@ -614,6 +614,7 @@ export const documentsApi = {
     api.get<{
       applicable:        boolean
       canWaive:          boolean
+      canMarkComplete?:  boolean   // the Author, while the document is open for authoring (CW-039)
       documentTitle:     string
       completionPercent: number
       completeSections:  number
@@ -655,6 +656,9 @@ export const documentsApi = {
         }
       }>
     }>(`/documents/${documentId}/ich-e3`),
+  // The ICH E3 report as a formatted PDF (CW-040).
+  downloadICHE3Pdf: (documentId: string) =>
+    api.download(`/documents/${documentId}/ich-e3/pdf`),
   waiveICHE3Section: (documentId: string, sectionCode: string, reason: string) =>
     api.post<unknown>(`/documents/${documentId}/ich-e3/${encodeURIComponent(sectionCode)}/waive`, { reason }),
   unwaiveICHE3Section: (documentId: string, sectionCode: string) =>

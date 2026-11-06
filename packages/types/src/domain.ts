@@ -152,6 +152,8 @@ export interface Comment {
   id: string // CMT-###
   documentId: string
   canResolve?: boolean // the signed-in user may resolve it; only the comment list routes send this
+  // False when the author is an admin, PM or auditor (they cannot comment; old data): kept out of reviewer lists. Project list only.
+  reviewerCanComment?: boolean
   sectionRef: string
   reviewerId: string
   reviewerName: string

@@ -15,9 +15,10 @@ import { documentStageLabel } from '../../utils/documentLabels'
 import { downloadSourceFile, sourceErrorMessage } from '../../utils/openSource'
 import { SourceViewer } from '../../panels/SourceReferencesPanel'
 import { EyeIcon, MetaRow, MetaSection, fmtDate } from './detailPanelParts'
+import { PendingReminder } from './PendingReminder'
 import { DeadlineField } from './DeadlineField'
 import { useSourceAccess } from '../../hooks/useSourceAccess'
-import { useSignatureAccess } from '../output/useSignatureAccess'
+import { useCanEditDocument } from '../../hooks/useCanEditDocument'
 import { LibraryPushedBadge, PushToLibraryButton } from '../../components/library/PushToLibraryButton'
 
 interface Props {
@@ -45,7 +46,8 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
   useEffect(() => { setViewing(null); setViewError(null); setStageError(null) }, [doc?.id])
 
   const canViewSources = useSourceAccess(projectId)?.canView === true
-  const informedOnly = useSignatureAccess(doc?.id).isInformedOnly
+  // Moving the stepper forward is the Author's (R); everyone else reads (CW-006).
+  const canAdvance = useCanEditDocument(doc?.id) === true
   const sources = useQuery({
     queryKey: ['document-sources', doc?.id],
     queryFn: () => documentsApi.listDocumentSources(doc!.id),
@@ -198,6 +200,8 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
               </MetaRow>
             </MetaSection>
 
+            <PendingReminder documentId={doc.id} status={doc.status} />
+
             {canViewSources && (
             <MetaSection label={sources.data ? t('page.document_detail_panel.source_documents_with_count', { count: items.length }) : t('page.document_detail_panel.source_documents')}>
               {sources.isLoading && <p className="text-[13px] text-slate-400">{t('page.document_detail_panel.loading')}</p>}
@@ -281,7 +285,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                 {/* Shows itself only to the Author (R) of a signed document not yet in the library. */}
                 {isSigned && fullDoc.data && <PushToLibraryButton document={fullDoc.data} />}
               </div>
-              {stage.data && !stage.data.terminal && !informedOnly && (
+              {stage.data && !stage.data.terminal && canAdvance && (
                 <button
                   type="button"
                   onClick={() => advance.mutate()}

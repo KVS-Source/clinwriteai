@@ -97,7 +97,7 @@ export async function actorCanEditDocumentContent(
 // Reviewer (C), QC (Q) or Approver (A). Admins, PMs, auditors and Informed (I)
 // only read comments. External guests comment through their magic link
 // (guest-invitations/redemption.ts), which doesn't use this gate.
-const COMMENT_LOCKED_ROLES: ReadonlySet<string> = new Set([...RACI_LOCKED_ROLES, 'auditor', 'read-only', 'guest'])
+export const COMMENT_LOCKED_ROLES: ReadonlySet<string> = new Set([...RACI_LOCKED_ROLES, 'auditor', 'read-only', 'guest'])
 const COMMENT_LETTERS = ['R', 'C', 'Q', 'A']
 
 export async function actorCanAddComment(
@@ -192,6 +192,38 @@ export async function actorCanWaiveIchSection(
     }),
   ])
   return row !== null || (!!doc && doc.assigneeId === actor.id)
+}
+
+// Does the actor hold one of these letters on the document (an active row, whole-document or
+// section)? The assignee counts as an Author (R) before any R row exists. Admins, PMs, auditors and
+// guests never do: they hold no part on a document's workflow (action table, N/A columns).
+export async function actorHoldsLetter(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+  letters: readonly string[],
+): Promise<boolean> {
+  if (onlyRolesIn(actor, COMMENT_LOCKED_ROLES)) return false
+  const [doc, row] = await Promise.all([
+    letters.includes('R') ? prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true } }) : Promise.resolve(null),
+    prisma.documentRaci.findFirst({
+      where: { documentId, userId: actor.id, letter: { in: [...letters] }, removedAt: null },
+      select: { id: true },
+    }),
+  ])
+  return row !== null || (!!doc && doc.assigneeId === actor.id)
+}
+
+// Who may complete, waive, reopen, add or remove a checklist item (action table row 21; CW-012): the
+// document's Author (R) and QC (Q). Whether a Tenant Admin keeps this is Decision 3, still open, so the
+// admin and assignee paths of actorCanEditDocumentRaci stay as they were.
+export async function actorCanEditChecklist(
+  prisma: PrismaClient,
+  actor: AuthenticatedUser,
+  documentId: string,
+): Promise<boolean> {
+  if (await actorCanEditDocumentRaci(prisma, actor, documentId)) return true
+  return actorHoldsLetter(prisma, actor, documentId, ['Q'])
 }
 
 export const ICH_WAIVE_FORBIDDEN = {
@@ -454,23 +486,22 @@ export const COMMENT_RESOLVE_FORBIDDEN = {
   message: "Only this document's author, reviewer or approver can resolve its comments.",
 } as const
 
-// Scheduling a CRM meeting: anyone working on the document (any RACI letter, or the assignee), and a PM
-// who can see the project. Never an admin, or someone whose only part on the document is QC (Q).
+// Scheduling a CRM meeting, or adding people to one (action table row 18; CW-014): a PM who can see the
+// project, or the document's Author (R), Reviewer (C) or Approver (A) — the assignee is the first Author.
+// Never an admin, an auditor, QC (Q) or Informed (I): Informed attend as participants only.
+const CRM_SCHEDULE_LETTERS = ['R', 'C', 'A']
+
 export async function actorCanScheduleCrm(prisma: PrismaClient, actor: AuthenticatedUser, documentId: string): Promise<boolean> {
-  if (onlyRolesIn(actor, NEVER_AUTHOR_ROLES)) return false
-  const [doc, rows] = await Promise.all([
-    prisma.document.findUnique({ where: { id: documentId }, select: { assigneeId: true, projectId: true } }),
-    prisma.documentRaci.findMany({ where: { documentId, userId: actor.id, removedAt: null }, select: { letter: true } }),
-  ])
-  if (!doc) return false
-  if (doc.assigneeId === actor.id) return true
-  if (rows.length > 0 && rows.some(r => r.letter !== 'Q')) return true
+  if (onlyRolesIn(actor, [...NEVER_AUTHOR_ROLES, 'auditor', 'read-only', 'guest'])) return false
+  if (await actorHoldsLetter(prisma, actor, documentId, CRM_SCHEDULE_LETTERS)) return true
   if (!hasAnyRole(actor, 'pm')) return false
+  const doc = await prisma.document.findUnique({ where: { id: documentId }, select: { projectId: true } })
+  if (!doc) return false
   const visible = await visibleProjectIdsForUser(prisma, actor)
   return visible === 'all' || visible.has(doc.projectId)
 }
 
 export const CRM_SCHEDULE_FORBIDDEN = {
   error: 'crm_schedule_forbidden',
-  message: "Only the document's participants or a project manager can schedule this meeting. Admins and QC cannot.",
+  message: "Only a project manager or the document's Author (R), Reviewer (C) or Approver (A) can schedule this meeting. Admins, QC and Informed cannot.",
 } as const

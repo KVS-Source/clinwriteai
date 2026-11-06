@@ -26,6 +26,8 @@ import {
   ICH_E3_SECTION_CODES,
   isIchE3Applicable,
 } from './catalog.js'
+import { renderIchE3Pdf } from './pdf-renderer.js'
+import { pdfFileName } from '../../platform/library/pdf-renderer.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 import { canSeeDocument } from '../../projects/visibility.js'
 
@@ -50,10 +52,8 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
 
   // --- Report ------------------------------------------------------------
 
-  app.get('/:documentId/ich-e3', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
-    const { documentId } = request.params as { documentId: string }
-    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
-
+  // The report for one document, built the same way for the screen and the PDF.
+  async function loadReport(documentId: string) {
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
       include: {
@@ -64,7 +64,7 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
         },
       },
     })
-    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!doc || doc.deletedAt) return null
 
     const sections = doc.currentVersion?.sections ?? []
     const [waivers, openComments, references, removals] = await Promise.all([
@@ -83,7 +83,7 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
       ...waivers.map(w => w.waivedBy),
       ...sections.flatMap(s => s.lastEditedBy ? [s.lastEditedBy] : []),
     ])
-    const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { submissionCountries: true } })
+    const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { submissionCountries: true, status: true } })
 
     const applicable = isIchE3Applicable(doc.type)
     const report = buildIchE3Report({
@@ -95,8 +95,47 @@ export const ichE3Routes: FastifyPluginAsync = async (app) => {
       openComments,
       sourceReferences: references.filter(r => !removedIds.has(r.id)),
     })
-    // The same check as the waive routes, so the panel shows the button to exactly these users.
-    return { ...report, canWaive: applicable && await actorCanWaiveIchSection(app.prisma, request.user!, documentId) }
+    return { doc, report, applicable, projectStatus: project?.status }
+  }
+
+  app.get('/:documentId/ich-e3', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
+    const loaded = await loadReport(documentId)
+    if (!loaded) return reply.code(404).send({ error: 'not_found' })
+    const { doc, report, applicable, projectStatus } = loaded
+    // The same checks as the waive and mark-complete routes, so the panel shows each button to exactly these users.
+    const [canWaive, canEdit] = await Promise.all([
+      applicable ? actorCanWaiveIchSection(app.prisma, request.user!, documentId) : false,
+      applicable ? actorCanEditDocumentContent(app.prisma, request.user!, documentId) : false,
+    ])
+    return { ...report, canWaive, canMarkComplete: canEdit && !authoringLockReason(doc.status, projectStatus) }
+  })
+
+  // The report as a formatted PDF an auditor can keep (CW-040). Same visibility as the report; each
+  // export is audited.
+  app.get('/:documentId/ich-e3/pdf', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
+    const loaded = await loadReport(documentId)
+    if (!loaded) return reply.code(404).send({ error: 'not_found' })
+    if (!loaded.applicable) return reply.code(400).send(NOT_APPLICABLE)
+    const generatedBy = (await fetchUserNames([request.user!.id])).get(request.user!.id) ?? request.user!.email
+    const pdf = await renderIchE3Pdf({ report: loaded.report, generatedBy, generatedAt: new Date() })
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'ich_e3_report_exported',
+      entityType: 'document',
+      entityId: documentId,
+      details: { format: 'pdf', completionPercent: loaded.report.completionPercent, waivedCount: loaded.report.waivedCount },
+      ipAddress: request.ip ?? null,
+    })
+    const file = `ich-e3-${pdfFileName(loaded.doc.title).replace(/\.pdf$/, '')}-${new Date().toISOString().slice(0, 10)}.pdf`
+    return reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', `attachment; filename="${file}"`)
+      .send(pdf)
   })
 
   // --- Section status: mark complete / reopen ----------------------------

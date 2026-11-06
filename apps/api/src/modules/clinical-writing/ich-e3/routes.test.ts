@@ -127,6 +127,44 @@ describe('GET /documents/:id/ich-e3', () => {
   })
 })
 
+describe('GET /documents/:id/ich-e3 — canMarkComplete (CW-039)', () => {
+  const get = async (opts: Opts) => (await (await build(opts)).app.inject({ method: 'GET', url: `/documents/${DOC}/ich-e3` })).json()
+
+  it('is true for an author while the document is open for authoring', async () => {
+    expect((await get({})).canMarkComplete).toBe(true)
+  })
+
+  it.each([['in_review'], ['pending_signature'], ['signed']])('is false once the document is %s (locked for authoring)', async (docStatus) => {
+    expect((await get({ docStatus })).canMarkComplete).toBe(false)
+  })
+
+  it('is false when the project is closed, and for a non-CSR document', async () => {
+    expect((await get({ projectStatus: 'closed' })).canMarkComplete).toBe(false)
+    expect((await get({ type: 'protocol' })).canMarkComplete).toBe(false)
+  })
+})
+
+describe('GET /documents/:id/ich-e3/pdf — formatted report (CW-040)', () => {
+  it('returns a PDF with a file name, and records the export in the audit trail', async () => {
+    const { app, append } = await build()
+    const res = await app.inject({ method: 'GET', url: `/documents/${DOC}/ich-e3/pdf` })
+    expect(res.statusCode).toBe(200)
+    expect(res.headers['content-type']).toBe('application/pdf')
+    expect(res.headers['content-disposition']).toMatch(/^attachment; filename="ich-e3-CSR_Velora-301-\d{4}-\d{2}-\d{2}\.pdf"$/)
+    expect(res.rawPayload.subarray(0, 5).toString()).toBe('%PDF-')
+    expect(res.rawPayload.length).toBeGreaterThan(1500)
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ action: 'ich_e3_report_exported', details: expect.objectContaining({ format: 'pdf', waivedCount: 1 }) }))
+  })
+
+  it('refuses a document the ICH E3 checklist does not govern', async () => {
+    const { app, append } = await build({ type: 'protocol' })
+    const res = await app.inject({ method: 'GET', url: `/documents/${DOC}/ich-e3/pdf` })
+    expect(res.statusCode).toBe(400)
+    expect(res.json().error).toBe('not_applicable')
+    expect(append).not.toHaveBeenCalled()
+  })
+})
+
 describe('waive / un-waive — CSR only', () => {
   it('400 not_applicable when waiving on a non-CSR document', async () => {
     const { app, waiverUpserts, append } = await build({ type: 'protocol' })

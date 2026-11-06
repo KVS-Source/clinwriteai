@@ -115,7 +115,7 @@ export async function nudgePendingCohort(
 
   const explicit = args.targetUserIds && args.targetUserIds.length > 0
     ? Array.from(new Set(args.targetUserIds))
-    : Array.from(pendingByUser.keys())
+    : Array.from(pendingByUser.keys()).filter(id => id !== args.actor.id)   // never remind yourself
 
   const channels = args.channels ?? ['in_app']
   const decisions: NudgeDecision[] = []
@@ -187,6 +187,64 @@ export async function nudgePendingCohort(
   }
 
   return { decisions, gatingLetters: evalResult.gatingLetters }
+}
+
+export interface PendingPerson {
+  userId:      string
+  name:        string
+  letter:      RaciLetter
+  /** When someone last reminded this person about this document (within the last 24h), else null. */
+  remindedAt:  string | null
+}
+
+// Who the document is waiting on right now, and who was reminded in the last 24 hours (CW-027). The
+// reminders come from the stored notifications, so this survives a restart, unlike the send throttle.
+export async function listPendingCohort(
+  prisma: PrismaClient,
+  documentId: string,
+  now: Date = new Date(),
+  exceptUserId?: string,
+): Promise<{ gatingLetters: RaciLetter[]; pending: PendingPerson[] }> {
+  const doc = await prisma.document.findUnique({ where: { id: documentId }, select: { id: true, status: true } })
+  if (!doc) return { gatingLetters: [], pending: [] }
+  const rows = await prisma.documentRaci.findMany({
+    where: { documentId },
+    select: {
+      userId: true, letter: true, signatureRequired: true,
+      submittedAt: true, reviewedAt: true, approvedAt: true,
+      signatureId: true, rejectedAt: true, removedAt: true,
+    },
+  })
+  const evalResult = evaluateStageTransition(doc.status as DocumentStatus, rows as RaciRowForEval[])
+  const gating = new Set<RaciLetter>(evalResult.gatingLetters)
+  const pendingByUser = new Map<string, RaciLetter>()
+  for (const r of rows) {
+    if (r.userId !== exceptUserId && gating.has(r.letter as RaciLetter) && !r.removedAt && !r.rejectedAt && !hasCompleted(r as RaciRowForEval) && !pendingByUser.has(r.userId)) {
+      pendingByUser.set(r.userId, r.letter as RaciLetter)
+    }
+  }
+  if (pendingByUser.size === 0) return { gatingLetters: evalResult.gatingLetters, pending: [] }
+
+  const ids = [...pendingByUser.keys()]
+  const [users, reminders] = await Promise.all([
+    prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }),
+    prisma.notification.findMany({
+      where: {
+        kind: 'document_nudge', recipientId: { in: ids },
+        createdAt: { gte: new Date(now.getTime() - NUDGE_COOLDOWN_MS) },
+        payload: { path: ['documentId'], equals: documentId },
+      },
+      select: { recipientId: true, createdAt: true },
+      orderBy: { createdAt: 'desc' },
+    }),
+  ])
+  const names = new Map(users.map(u => [u.id, u.name]))
+  const reminded = new Map<string, Date>()
+  for (const n of reminders) if (!reminded.has(n.recipientId)) reminded.set(n.recipientId, n.createdAt)
+  return {
+    gatingLetters: evalResult.gatingLetters,
+    pending: ids.map(id => ({ userId: id, name: names.get(id) ?? id, letter: pendingByUser.get(id)!, remindedAt: reminded.get(id)?.toISOString() ?? null })),
+  }
 }
 
 function hasCompleted(row: RaciRowForEval): boolean {

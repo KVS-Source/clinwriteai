@@ -14,7 +14,7 @@ import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { documentsApi } from '../api'
-import { useDocumentStore, useAuthStore } from '../store'
+import { useDocumentStore } from '../store'
 import { ApiError } from '../api/client'
 
 type IchStatus = 'complete' | 'in_progress' | 'not_started' | 'waived' | 'warning'
@@ -380,6 +380,9 @@ interface RowProps {
   onWaive:       (reason: string) => void
   onClearWaiver: () => void
   isMutating:    boolean
+  canMarkComplete: boolean
+  isMarking:     boolean
+  onSetComplete: (complete: boolean) => void
   error:         string | null
 }
 
@@ -404,10 +407,10 @@ function ICHRow(p: RowProps) {
       data-ich-status={section.status}
       data-active={p.isActive || undefined}
     >
-      <div className="flex items-start gap-2.5">
+      <div className="flex flex-wrap items-start gap-x-2.5 gap-y-1">
         <StatusWithTip section={section} />
         <span
-          className="min-w-0 flex-1 break-words text-[13px] leading-snug"
+          className="min-w-[9rem] flex-1 break-words text-[13px] leading-snug"
           style={{ color: isNotStarted ? '#64748B' : '#1E293B' }}
           title={fullTitle}
         >
@@ -486,6 +489,31 @@ function ICHRow(p: RowProps) {
             {t('page.ich_validator_panel.unwaive_action')}
           </button>
         )}
+
+        {/* Mark complete / Reopen from the panel, for the Author (CW-039): the same action as the button on the
+            section title in the editor, so this list can be worked through without leaving it. */}
+        {p.canMarkComplete && section.inDocument && !isWaived && (section.status === 'complete' || section.status === 'warning') && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); p.onSetComplete(false) }}
+            disabled={p.isMarking}
+            className="flex-none whitespace-nowrap text-[11px] font-semibold text-slate-600 hover:text-slate-900 disabled:opacity-50"
+            data-action="reopen-section"
+          >
+            {t('page.ich_validator_panel.reopen_action')}
+          </button>
+        )}
+        {p.canMarkComplete && section.inDocument && section.status === 'in_progress' && section.hasContent && (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); p.onSetComplete(true) }}
+            disabled={p.isMarking}
+            className="flex-none whitespace-nowrap text-[11px] font-semibold text-green-700 hover:text-green-800 disabled:opacity-50"
+            data-action="mark-section-complete"
+          >
+            {t('page.ich_validator_panel.mark_complete_action')}
+          </button>
+        )}
       </div>
 
       {isWaived && section.hasContent && (
@@ -556,7 +584,6 @@ export function ICHValidatorPanel({ documentId }: Props) {
   const qc = useQueryClient()
   const activeSection    = useDocumentStore(s => s.activeSection)
   const setActiveSection = useDocumentStore(s => s.setActiveSection)
-  const currentUser      = useAuthStore(s => s.user)
 
   // One inline action open at a time: waiving or clearing a waiver on a row.
   const [pending, setPending]       = useState<{ code: string; action: 'waive' | 'clear' } | null>(null)
@@ -583,6 +610,18 @@ export function ICHValidatorPanel({ documentId }: Props) {
     mutationFn: (code: string) => documentsApi.unwaiveICHE3Section(documentId, code),
     onSuccess:  () => { closeAction(); invalidate() },
     onError:    (err: unknown) => setActionError(errorMessage(err, t('page.ich_validator_panel.err_could_not_clear'), t)),
+  })
+
+  // Mark complete / Reopen a section from its row (the Author, while the document is open for authoring).
+  const statusMut = useMutation({
+    mutationFn: (args: { sectionId: string; complete: boolean }) =>
+      documentsApi.setSectionIchStatus(documentId, args.sectionId, args.complete ? 'complete' : 'in_progress'),
+    onSuccess: () => {
+      setActionError(null)
+      invalidate()
+      void qc.invalidateQueries({ queryKey: ['document', documentId] })
+    },
+    onError: (err: unknown) => setActionError(errorMessage(err, t('page.ich_validator_panel.err_could_not_mark_complete'), t)),
   })
 
   const applicable        = data?.applicable ?? true
@@ -640,34 +679,24 @@ export function ICHValidatorPanel({ documentId }: Props) {
     URL.revokeObjectURL(url)
   }
 
-  const handleExport = () => {
-    // Build a plain-text report in-browser so admins can hand it to a
-    // reviewer without a round-trip. A PDF variant via pdfkit can swap in
-    // here later without touching the panel.
-    const title = data?.documentTitle || `Document ${documentId}`
-    const lines: string[] = [
-      t('page.ich_validator_panel.report_title'),
-      t('page.ich_validator_panel.report_document', { title }),
-      t('page.ich_validator_panel.report_generated_by', { name: currentUser?.name ?? t('page.ich_validator_panel.unknown_user') }),
-      t('page.ich_validator_panel.report_generated_at', { time: new Date().toISOString().replace('T', ' ').slice(0, 19) }),
-      t('page.ich_validator_panel.report_completion', { pct: completionPercent, complete: completeCount, waived: waivedCount, total: totalSections }),
-      '',
-      ...sections.map(s => {
-        const status = s.status.toUpperCase().replace('_', ' ')
-        const tag    = s.conditional ? ' ' + t('page.ich_validator_panel.report_tag_us_only') : ''
-        const where  = s.inDocument ? '' : ' ' + t('page.ich_validator_panel.report_tag_not_in_doc')
-        const waiver = s.waiver ? '  — ' + t('page.ich_validator_panel.report_waived_by', { name: s.waiver.waivedByName ?? t('page.ich_validator_panel.unknown_user_lc'), reason: s.waiver.reason }) : ''
-        return `${s.code.padEnd(7)} ${status.padEnd(13)} ${s.title}${tag}${where}${waiver}`
-      }),
-    ]
-    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || documentId
-    const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `ich-e3-${slug}-${new Date().toISOString().slice(0, 10)}.txt`
-    a.click()
-    URL.revokeObjectURL(url)
+  // The formatted PDF report, built by the server (CW-040). The CSV stays for spreadsheets.
+  const [exportError, setExportError] = useState<string | null>(null)
+  const [exporting, setExporting] = useState(false)
+  const handleExport = async () => {
+    setExporting(true); setExportError(null)
+    try {
+      const { blob, filename } = await documentsApi.downloadICHE3Pdf(documentId)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename ?? `ich-e3-${fileSlug()}-${new Date().toISOString().slice(0, 10)}.pdf`
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(url), 10_000)
+    } catch (err) {
+      setExportError(errorMessage(err, t('page.ich_validator_panel.err_could_not_export'), t))
+    } finally {
+      setExporting(false)
+    }
   }
 
   if (data && !applicable) {
@@ -771,7 +800,10 @@ export function ICHValidatorPanel({ documentId }: Props) {
                 onWaive={(reason) => waiveMut.mutate({ code: section.code, reason })}
                 onClearWaiver={() => clearMut.mutate(section.code)}
                 isMutating={waiveMut.isPending || clearMut.isPending}
-                error={pending?.code === section.code ? actionError : null}
+                canMarkComplete={applicable && (data?.canMarkComplete ?? false)}
+                isMarking={statusMut.isPending}
+                onSetComplete={(complete) => { setPending(null); statusMut.mutate({ sectionId: section.sectionId, complete }) }}
+                error={pending?.code === section.code || (statusMut.variables?.sectionId === section.sectionId && statusMut.isError) ? actionError : null}
               />
             ))}
           </>
@@ -785,15 +817,16 @@ export function ICHValidatorPanel({ documentId }: Props) {
             {t('page.ich_validator_panel.compliance_disclosure_note')}
           </p>
         )}
+        {exportError && <p className="mb-2 text-[11px] font-semibold text-red-700" role="alert" data-ich-export-error>{exportError}</p>}
         <div className="flex gap-2">
           <button
             type="button"
-            onClick={handleExport}
-            disabled={sections.length === 0}
+            onClick={() => void handleExport()}
+            disabled={sections.length === 0 || exporting}
             data-ich-export
             className="flex-1 rounded-md border border-slate-200 bg-white py-2 text-xs font-semibold text-slate-900 hover:bg-slate-100 disabled:text-slate-400"
           >
-            {t('page.ich_validator_panel.export_report_txt')}
+            {exporting ? t('page.ich_validator_panel.exporting') : t('page.ich_validator_panel.export_report_pdf')}
           </button>
           <button
             type="button"

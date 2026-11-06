@@ -19,7 +19,7 @@ import { noteAuthoringStarted } from '../../projects/auto-status.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
 import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, resetRaciRound, RACI_CHAIN_ACTIVE, signatureChainActive } from './access.js'
 import { DocumentService } from '../../clinical-writing/documents/service.js'
-import { nudgePendingCohort } from './nudge.js'
+import { listPendingCohort, nudgePendingCohort } from './nudge.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 import { canSeeDocument } from '../../projects/visibility.js'
 
@@ -721,6 +721,14 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   // per-target decision + the current gating letters so the UI can
   // render "3 nudged, 1 throttled, 1 not in cohort".
   // ---------------------------------------------------------------------
+  // GET /:documentId/pending — who the document is waiting on, and who was reminded in the last 24 hours.
+  // For the same people who may send the reminder (authors), so the button and its list agree.
+  app.get('/:documentId/pending', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId } = request.params as { documentId: string }
+    if (!(await actorIsDocumentAuthor(app.prisma, request.user!, documentId))) return reply.code(403).send(NUDGE_FORBIDDEN)
+    return listPendingCohort(app.prisma, documentId, new Date(), request.user!.id)   // not the caller: nobody reminds themselves
+  })
+
   app.post('/:documentId/nudge', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
     const { documentId } = request.params as { documentId: string }
     if (await documentProjectIsClosed(app.prisma, documentId)) return reply.code(423).send(PROJECT_CLOSED)

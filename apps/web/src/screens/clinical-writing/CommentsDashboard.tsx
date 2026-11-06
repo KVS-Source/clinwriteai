@@ -361,7 +361,8 @@ export function CommentsDashboard() {
   const docOptions = [...new Set(comments.map(c => c.documentId))]
     .map(id => ({ value: id, label: docTitleById.get(id) ?? id }))
     .sort((a, b) => a.label.localeCompare(b.label))
-  const reviewerOptions = [...new Set(comments.map(c => c.reviewerName).filter(Boolean))].sort()
+  // Authors who cannot comment (an admin, PM or auditor: old data) stay out of the reviewer lists (CW-086).
+  const reviewerOptions = [...new Set(comments.filter(c => c.reviewerCanComment !== false).map(c => c.reviewerName).filter(Boolean))].sort()
   const sectionOptions  = [...new Set(comments.map(c => c.sectionRef).filter(Boolean))]
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
 
@@ -403,6 +404,7 @@ export function CommentsDashboard() {
   const byReviewer = (() => {
     const map = new Map<string, { name: string; count: number; open: number }>()
     for (const c of comments) {
+      if (c.reviewerCanComment === false) continue
       const cur = map.get(c.reviewerName) ?? { name: c.reviewerName, count: 0, open: 0 }
       cur.count += 1
       if (c.status === 'open') cur.open += 1

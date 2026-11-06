@@ -18,7 +18,7 @@ import { mentionableUsers, mentionNotification } from './mentions.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser, canSeeDocument } from '../../projects/visibility.js'
-import { actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
+import { COMMENT_LOCKED_ROLES, actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 
 // Document audit panel paging. The default limit keeps older callers that send
@@ -213,7 +213,7 @@ function formatAge(createdAt: Date): string {
 // "Last edited" is the latest change made to a comment. Comments can't be edited after posting; the
 // only change they ever get is being resolved (here or in a CRM meeting), and both paths record who
 // and when. So last-edited = the resolver + resolvedAt, and null while the comment is untouched.
-type CommentPerson = { name: string; initials: string | null }
+type CommentPerson = { name: string; initials: string | null; role?: string }
 
 function commentShape(
   c: { reviewerId: string; createdAt: Date; resolvedBy?: string | null; resolvedAt?: Date | null } & Record<string, unknown>,
@@ -236,8 +236,8 @@ function commentShape(
 async function fetchCommentReviewers(prisma: import('@prisma/client').PrismaClient, rows: Array<{ reviewerId: string; resolvedBy?: string | null }>) {
   if (rows.length === 0) return new Map<string, CommentPerson>()
   const ids = Array.from(new Set(rows.flatMap(r => [r.reviewerId, r.resolvedBy ?? null]).filter((v): v is string => !!v)))
-  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, initials: true } })
-  return new Map(users.map(u => [u.id, { name: u.name, initials: u.initials }]))
+  const users = await prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true, initials: true, role: true } })
+  return new Map(users.map(u => [u.id, { name: u.name, initials: u.initials, role: u.role }]))
 }
 
 // A section returned for revision (request_changes / block_approval verdict)
@@ -675,9 +675,15 @@ export const projectCommentsRoutes: FastifyPluginAsync = async (app) => {
       fetchCommentReviewers(app.prisma, rows),
       documentsActorCanResolve(app.prisma, request.user!, docs.map(d => d.id)),
     ])
-    return rows.map(r => ({
-      ...commentShape(r, reviewers.get(r.reviewerId) ?? null, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null),
-      canResolve: canResolve.has(r.documentId),
-    }))
+    return rows.map(r => {
+      const author = reviewers.get(r.reviewerId) ?? null
+      return {
+        ...commentShape(r, author, r.resolvedBy ? reviewers.get(r.resolvedBy) ?? null : null),
+        canResolve: canResolve.has(r.documentId),
+        // Admins, PMs and auditors cannot comment (action table row 15); a comment from one is old data.
+        // The dashboard keeps the comment but leaves its author out of the reviewer lists (CW-086).
+        reviewerCanComment: !(author?.role && COMMENT_LOCKED_ROLES.has(author.role)),
+      }
+    })
   })
 }

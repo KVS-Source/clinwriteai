@@ -20,11 +20,10 @@ import i18n from '../../i18n'
 import { documentStatusLabel } from '../../utils/documentLabels'
 import { dateLocale, isPastDate, localToday } from '../../utils/formatDate'
 import { PastDateError } from '../../components/ui/PastDateError'
-import { crmApi, documentsApi, projectsApi } from '../../api'
+import { crmApi, documentsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import type { CRMResolutionRow, ScheduleMeetingBody } from '../../api/crm'
-import { assignableUsersApi } from '../../api/raci'
 import { useProjectPeople } from '../../hooks/useProjectPeople'
 import { useCurrentUser } from '../../hooks'
 import { useCRMStore } from '../../store'
@@ -60,7 +59,9 @@ const severityLabel = (severity: string) => (SEVERITY_KEY[severity] ? i18n.t(SEV
 // A meeting attendee's role as the API stores it; shown translated.
 const ATTENDEE_ROLE_KEY: Record<string, string> = {
   Chair: 'page.crm_module.role_chair',
+  Author: 'page.crm_module.role_author',
   Reviewer: 'page.crm_module.role_reviewer',
+  Observer: 'page.crm_module.role_observer',
 }
 
 const TRANSCRIPT_SOURCE_KEY: Record<string, string> = {
@@ -69,6 +70,9 @@ const TRANSCRIPT_SOURCE_KEY: Record<string, string> = {
   teams_export: 'page.crm_module.source_teams_export',
   otter: 'page.crm_module.source_otter',
 }
+
+// A meeting that has been "in progress" this long is probably over (CW-085).
+const STALE_MEETING_MS = 24 * 60 * 60 * 1000
 
 // Document statuses (UI hyphen-case) in which a CRM meeting may be scheduled.
 const SCHEDULABLE = new Set(['in-review', 'crm-in-progress'])
@@ -152,9 +156,10 @@ function ResolvedCard({ comment, resolution, resolverName }: { comment: Comment;
   )
 }
 
-function ActiveCard({ comment, meetingRunning, onResolve, aiDraftNote }: { comment: Comment; meetingRunning: boolean; onResolve: (type: ResolutionType) => void; aiDraftNote?: string | null }) {
+function ActiveCard({ comment, meetingRunning, onResolve, aiDraftNote, informedParticipant = false }: { comment: Comment; meetingRunning: boolean; onResolve: (type: ResolutionType) => void; aiDraftNote?: string | null; informedParticipant?: boolean }) {
   const { t } = useTranslation()
-  const allowed = comment.canResolve !== false
+  // The Author, Reviewer and Approver (the API's canResolve), and an Informed person invited to this meeting.
+  const allowed = comment.canResolve !== false || informedParticipant
   const canResolve = meetingRunning && allowed
   const btn = 'rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-40'
   return (
@@ -330,17 +335,14 @@ function TranscriptUploadModal({
 
 // --- Schedule form (no active meeting yet) ---
 
-function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentId: string; projectId: string; onScheduled: () => void }) {
+function ScheduleMeetingForm({ documentId, onScheduled }: { documentId: string; onScheduled: () => void }) {
   const { t } = useTranslation()
   const { data: me } = useCurrentUser()
-  const project = useQuery({ queryKey: ['project', projectId], queryFn: () => projectsApi.get(projectId), enabled: !!projectId })
-  const assignable = useQuery({ queryKey: ['assignable-users', projectId, 'assignee'], queryFn: () => assignableUsersApi.listForAssignee(projectId), enabled: !!projectId, retry: false })
-  const people = useMemo(() => {
-    const candidates = (assignable.data ?? []).map(u => ({ id: u.id, name: u.name }))
-    const list = candidates.length ? candidates
-      : (project.data?.team ?? []).map(t => ({ id: t.userId, name: t.name }))
-    return list.sort((a, b) => a.name.localeCompare(b.name))
-  }, [assignable.data, project.data])
+  // The document's own people and the project's PM (not every user): the chair is a PM, Author, Reviewer
+  // or Approver; anyone on the document can attend (CW-098).
+  const peopleQuery = useQuery({ queryKey: ['crm-people', documentId], queryFn: () => crmApi.people(documentId), retry: false })
+  const people = peopleQuery.data ?? []
+  const chairChoices = people.filter(p => p.canChair)
 
   const today = new Date().toISOString().slice(0, 10)
   const [chairId, setChairId] = useState('')
@@ -348,7 +350,7 @@ function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentI
   const [startTime, setStartTime] = useState('15:00')
   const [endTime, setEndTime] = useState('16:00')
   const [attendees, setAttendees] = useState<string[]>([])
-  const chair = chairId || me?.id || ''
+  const chair = chairId || chairChoices.find(p => p.id === me?.id)?.id || chairChoices[0]?.id || ''
 
   const schedule = useMutation({
     mutationFn: () => {
@@ -376,8 +378,7 @@ function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentI
       <label className="flex flex-col gap-1 text-[12px] font-semibold text-slate-600">
         {t('page.crm_module.chair')}
         <select value={chair} onChange={e => setChairId(e.currentTarget.value)} className="h-9 rounded-md border border-slate-300 px-2 text-[13px] font-normal" data-crm-chair>
-          {people.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          {me && !people.some(p => p.id === me.id) && <option value={me.id}>{me.name}</option>}
+          {chairChoices.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
         </select>
       </label>
       <div className="grid grid-cols-3 gap-3">
@@ -659,7 +660,7 @@ export function CRMModule() {
             </p>
           </div>
         ) : canSchedule ? (
-          <ScheduleMeetingForm documentId={activeDocId} projectId={projectId!} onScheduled={refresh} />
+          <ScheduleMeetingForm documentId={activeDocId} onScheduled={refresh} />
         ) : (
           <div className="flex flex-col items-center gap-2">
             <p className="font-mono text-sm text-slate-500">{t('page.crm_module.no_meeting')}</p>
@@ -673,7 +674,9 @@ export function CRMModule() {
   }
 
   // Informed (I) changes nothing in a meeting they don't chair; the API refuses it too.
-  const informedNonChair = signatureAccess.isInformedOnly && meeting.chair.userId !== me?.id
+  // Starting, ending and the note-taker belong to the chair (action table row 18: Close only if chair); the
+  // API also lets an admin, so the screen does too. Everyone else watches and, where allowed, logs resolutions.
+  const informedNonChair = !(meeting.chair.userId === me?.id || (!!me && ['admin', 'tenant-admin', 'super-admin'].includes(me.role)))
 
   const statusPill =
     isComplete ? { label: t('page.crm_module.status_complete'), bg: '#F0FDF4', fg: '#15803D', border: '#BBF7D0' }
@@ -748,6 +751,13 @@ export function CRMModule() {
           </p>
         ))}
       </div>
+
+      {/* A meeting left "in progress" for more than a day is probably finished: say so. */}
+      {inProgress && meeting.startedAt && Date.now() - new Date(meeting.startedAt).getTime() > STALE_MEETING_MS && (
+        <div role="status" className="flex-none border-b border-amber-200 bg-amber-50 px-8 py-2 text-[13px] text-amber-900" data-crm-stale>
+          {t('page.crm_module.stale_warning', { days: Math.max(1, Math.floor((Date.now() - new Date(meeting.startedAt).getTime()) / 86_400_000)), chair: meeting.chair.name })}
+        </div>
+      )}
 
       {/* 3-panel row */}
       <div className="flex flex-1 min-h-0 overflow-hidden">
@@ -879,6 +889,7 @@ export function CRMModule() {
                     meetingRunning={inProgress}
                     aiDraftNote={aiDraft}
                     onResolve={type => setResolutionDraft({ commentId: cid, type, note: aiDraft ?? '' })}
+                    informedParticipant={signatureAccess.isInformedOnly && meeting.attendees.some(a => a.userId === me?.id)}
                   />
                 )
               }

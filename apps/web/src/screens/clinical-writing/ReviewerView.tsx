@@ -320,19 +320,19 @@ export function ReviewerView() {
     },
   })
 
-  const requestChangesMut = useMutation({
-    mutationFn: () => documentsApi.addComment(documentId!, {
-      sectionRef: sectionRefFor(activeSection),
-      text:       '',
-      severity:   'major',
-      verdict:    'request_changes',
-    }),
-    onSuccess: () => {
-      setApproveNote(t('page.reviewer_view.section_returned_toast', { section: sectionRefFor(activeSection) }))
-      qc.invalidateQueries({ queryKey: ['comments', documentId] })
-      qc.invalidateQueries({ queryKey: ['project-comments'] })
-    },
-  })
+  // const requestChangesMut = useMutation({
+  //   mutationFn: () => documentsApi.addComment(documentId!, {
+  //     sectionRef: sectionRefFor(activeSection),
+  //     text:       '',
+  //     severity:   'major',
+  //     verdict:    'request_changes',
+  //   }),
+  //   onSuccess: () => {
+  //     setApproveNote(t('page.reviewer_view.section_returned_toast', { section: sectionRefFor(activeSection) }))
+  //     qc.invalidateQueries({ queryKey: ['comments', documentId] })
+  //     qc.invalidateQueries({ queryKey: ['project-comments'] })
+  //   },
+  // })
 
   const handleApproveSection = () => {
     // No approvals against "§?" (document without sections) and no duplicate
@@ -341,10 +341,10 @@ export function ReviewerView() {
     approveMut.mutate()
   }
 
-  const handleReturnForRevision = () => {
-    if (!documentId || verdictBlockedReason) return
-    requestChangesMut.mutate()
-  }
+  // const handleReturnForRevision = () => {
+  //   if (!documentId || verdictBlockedReason) return
+  //   requestChangesMut.mutate()
+  // }
 
   const handleFlagSection = () => setFlagged(v => !v)
 
@@ -425,6 +425,7 @@ export function ReviewerView() {
             >
               {approveMut.isPending ? t('page.reviewer_view.approving') : alreadyApproved ? t('page.reviewer_view.approved_by_you') : awaitingRevision ? t('page.reviewer_view.awaiting_revision') : t('page.reviewer_view.approve_section')}
             </button>
+            {/* Return for revision (per-section verdict) is hidden; the action table's Return / reject is the button below.
             <button
               type="button"
               onClick={handleReturnForRevision}
@@ -436,6 +437,7 @@ export function ReviewerView() {
             >
               {requestChangesMut.isPending ? t('page.reviewer_view.returning') : t('page.reviewer_view.return_for_revision')}
             </button>
+            */}
             {/* Whole document back to authoring, with a required note (C / Q / A only). */}
             {documentId && (
               <ReturnToAuthoring
@@ -505,11 +507,11 @@ export function ReviewerView() {
           {t('page.reviewer_view.approval_err_prefix', { reason: (approveMut.error as { body?: { message?: string } } | null)?.body?.message ?? (approveMut.error as Error | null)?.message ?? t('page.reviewer_view.approval_err_fallback') })}
         </div>
       )}
-      {requestChangesMut.isError && (
+      {/* {requestChangesMut.isError && (
         <div className="flex-none border-b border-red-200 px-6 py-2 text-[12px] text-red-700" style={{ backgroundColor: '#FEE2E2' }}>
           {t('page.reviewer_view.return_err_prefix', { reason: (requestChangesMut.error as { body?: { message?: string } } | null)?.body?.message ?? (requestChangesMut.error as Error | null)?.message ?? t('page.reviewer_view.approval_err_fallback') })}
         </div>
-      )}
+      )} */}
       {/* ============ Three-panel row ============ */}
       <div ref={setPanelRow} className="flex flex-1 min-h-0">
 

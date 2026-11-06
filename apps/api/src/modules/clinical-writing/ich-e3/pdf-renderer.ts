@@ -71,10 +71,11 @@ export function renderIchE3Pdf(args: { report: IchE3Report; generatedBy: string;
       doc.moveDown(0.5)
     }
 
-    // Page numbers
+    // Page numbers. They sit below the bottom margin, where text would otherwise start a new page.
     const range = doc.bufferedPageRange()
     for (let i = range.start; i < range.start + range.count; i++) {
       doc.switchToPage(i)
+      doc.page.margins = { ...doc.page.margins, bottom: 0 }
       doc.font('Helvetica').fontSize(8).fillColor('#94A3B8')
         .text(`Page ${i + 1} of ${range.count}`, doc.page.margins.left, doc.page.height - 40, { width, align: 'center' })
     }

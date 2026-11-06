@@ -6,6 +6,9 @@
 // strict on the terminal side (closed is a one-way street, reopen requires
 // going through 're-open' explicitly).
 
+/** The audit action of every project status change, by a person or automatic. Status history reads these. */
+export const PROJECT_STATE_CHANGED = 'project.state_changed'
+
 export type ProjectStatus =
   | 'initiated'
   | 'ongoing'

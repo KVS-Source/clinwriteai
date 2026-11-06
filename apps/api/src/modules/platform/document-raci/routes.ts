@@ -15,6 +15,7 @@ import { z } from 'zod'
 import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
 import { validateRaciInsert, VALID_LETTERS, type RaciLetter } from './service.js'
 import { evaluateStageTransition, type RaciRowForEval } from './transition-engine.js'
+import { noteAuthoringStarted } from '../../projects/auto-status.js'
 import { canTransitionDocument, type DocumentStatus } from '../../clinical-writing/document-status.js'
 import { actorCanEditRaciAssignments, actorIsDocumentAuthor, NUDGE_FORBIDDEN, RACI_LOCKED_ROLES, resetRaciRound, RACI_CHAIN_ACTIVE, signatureChainActive } from './access.js'
 import { DocumentService } from '../../clinical-writing/documents/service.js'
@@ -615,6 +616,9 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
         },
         ipAddress: request.ip ?? null,
       })
+      if (currentStatus === 'not_started') {
+        await noteAuthoringStarted(app, { documentId, actorId: actor.id, ipAddress: request.ip ?? null })
+      }
     }
 
     return reply.send({ row: updated, transition: evaluation, transitioned })
@@ -653,7 +657,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(422).send({ error: 'only_reviewer_or_approver_or_qc_can_reject' })
     }
 
-    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { status: true } })
+    const doc = await app.prisma.document.findUnique({ where: { id: documentId }, select: { status: true, title: true, projectId: true, assigneeId: true } })
     const from = (doc?.status ?? 'not_started') as DocumentStatus
     if (!REJECTABLE_STATUSES.has(from) || !canTransitionDocument(from, 'in_authoring')) {
       return reply.code(409).send({
@@ -696,6 +700,40 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       },
       ipAddress: request.ip ?? null,
     })
+
+    // Tell the authors: every active R, or the assignee on a document with no R rows yet.
+    // The return is already saved, so a failed notification must not fail it.
+    if (doc && app.hasDecorator('notifications')) {
+      try {
+        const authorRows = await app.prisma.documentRaci.findMany({
+          where:  { documentId, letter: 'R', removedAt: null },
+          select: { userId: true },
+        })
+        const authorIds = authorRows.length > 0 ? authorRows.map(r => r.userId) : [doc.assigneeId]
+        const recipients = [...new Set(authorIds)].filter(id => id !== actor.id)
+        if (recipients.length > 0) {
+          const returnedBy = await app.prisma.user.findUnique({ where: { id: actor.id }, select: { name: true } })
+          const reasonText = note.length > 200 ? `${note.slice(0, 200)}…` : note
+          for (const recipientId of recipients) {
+            try {
+              await app.notifications.send({
+                recipientId,
+                kind:     'document.returned_to_authoring',
+                severity: 'warning',
+                title:    `${returnedBy?.name ?? 'A colleague'} returned "${doc.title}" to authoring`,
+                body:     `Now ${snap.version.versionNumber}. Reason: ${reasonText}`,
+                linkPath: `/projects/${doc.projectId}/clinical-writing/documents/${documentId}`,
+                payload:  { documentId, projectId: doc.projectId, versionNumber: snap.version.versionNumber, letter: row.letter },
+              })
+            } catch (err) {
+              request.log.warn({ err, documentId, recipientId }, 'returned_to_authoring notification failed')
+            }
+          }
+        }
+      } catch (err) {
+        request.log.warn({ err, documentId }, 'returned_to_authoring notifications failed')
+      }
+    }
 
     return reply.send({
       row:      updated,

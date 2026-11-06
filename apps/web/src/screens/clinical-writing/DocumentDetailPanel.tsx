@@ -285,7 +285,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                 {/* Shows itself only to the Author (R) of a signed document not yet in the library. */}
                 {isSigned && fullDoc.data && <PushToLibraryButton document={fullDoc.data} />}
               </div>
-              {stage.data && !stage.data.terminal && canAdvance && (
+              {stage.data && !stage.data.terminal && canAdvance && !isSigned && (
                 <button
                   type="button"
                   onClick={() => advance.mutate()}

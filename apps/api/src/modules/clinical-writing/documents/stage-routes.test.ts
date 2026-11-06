@@ -29,7 +29,7 @@ async function build(initial: DocRow, opts: { author?: boolean; role?: string } 
       count: async () => 1,
       findUnique: vi.fn(async ({ select }: { select?: Record<string, boolean> } = {}) => {
         if (select?.stage || select?.deletedAt) {
-          return { id: doc.id, stage: doc.stage, deletedAt: doc.deletedAt }
+          return { id: doc.id, stage: doc.stage, status: doc.status ?? 'in_authoring', deletedAt: doc.deletedAt }
         }
         return { ...doc, type: doc.type ?? 'csr_full', status: doc.status ?? 'in_authoring' }
       }),
@@ -149,6 +149,15 @@ describe('POST /documents/:id/advance-stage', () => {
     const res = await app.inject({ method: 'POST', url: '/documents/DOC-1/advance-stage' })
     expect(res.statusCode).toBe(422)
     expect(res.json().error).toBe('terminal')
+    expect(updates).toEqual([])
+    expect(audit).not.toHaveBeenCalled()
+  })
+
+  it('409s a signed document and moves nothing, even for its Author', async () => {
+    const { app, audit, updates } = await build({ id: 'DOC-1', stage: 'crm', status: 'signed', deletedAt: null })
+    const res = await app.inject({ method: 'POST', url: '/documents/DOC-1/advance-stage' })
+    expect(res.statusCode).toBe(409)
+    expect(res.json().error).toBe('document_signed')
     expect(updates).toEqual([])
     expect(audit).not.toHaveBeenCalled()
   })

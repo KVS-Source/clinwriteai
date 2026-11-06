@@ -1406,9 +1406,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // + terminal checks after this.
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
-      select: { stage: true, deletedAt: true },
+      select: { stage: true, status: true, deletedAt: true },
     })
     if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (doc.status === 'signed') {
+      return reply.code(409).send({ error: 'document_signed', message: 'This document is signed, so its stage can no longer be moved.' })
+    }
     if (isDbStage(doc.stage)) {
       const gate = await checkStageAdvanceGate(app.prisma, documentId, doc.stage)
       if (!gate.ok) {

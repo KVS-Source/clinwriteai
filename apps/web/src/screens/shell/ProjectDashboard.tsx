@@ -58,7 +58,7 @@ export function ProjectDashboard() {
   // Everyone on the project, each counted once: members (PMs included), the team roster, RACI holders on any
   // of its documents, document assignees and creators. Counted by the API.
   const { data: people } = useQuery({
-    queryKey: ['project-people', projectId],
+    queryKey: ['project-people-count', projectId],
     queryFn:  () => projectsApi.people(projectId!),
     enabled:  !!projectId,
     retry: false,

@@ -200,17 +200,23 @@ function AnalyticsTab({ analytics }: { analytics: PlatformAnalytics }) {
           <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_ai_tokens')}</p>
           <p className="mt-1 text-[24px] font-bold" style={{ color: PLATFORM_ACCENT.primary }} data-stat="aiTokens">{formatCompactNumber(analytics.aiTokensRolling30)}</p>
           <p className="mt-1 font-mono text-[10px] text-slate-500">{t('page.super_admin_panel.rolling_30')}</p>
+          {!!analytics.aiTokensUnattributedRolling30 && (
+            <p className="mt-0.5 font-mono text-[10px] text-slate-500" data-unattributed-tokens>
+              {t('page.super_admin_panel.tokens_unattributed', { tokens: formatCompactNumber(analytics.aiTokensUnattributedRolling30) })}
+            </p>
+          )}
         </div>
       </div>
 
       <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }} data-revenue-strip>
         <div>
           <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_mrr')}</p>
-          <p className="mt-1 text-[18px] font-bold text-slate-900" data-revenue="mrr">{formatGBP(analytics.mrrGBP)}</p>
+          <p className="mt-1 text-[18px] font-bold text-slate-900" data-revenue="mrr">{analytics.mrrGBP == null ? '—' : formatGBP(analytics.mrrGBP)}</p>
+          {analytics.mrrGBP == null && <p className="mt-0.5 font-mono text-[10px] text-slate-500" data-revenue-note>{t('page.super_admin_panel.billing_not_connected', { count: analytics.activeSubscriptions ?? 0 })}</p>}
         </div>
         <div>
           <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_arr')}</p>
-          <p className="mt-1 text-[18px] font-bold text-slate-900" data-revenue="arr">{formatGBP(analytics.arrGBP)}</p>
+          <p className="mt-1 text-[18px] font-bold text-slate-900" data-revenue="arr">{analytics.arrGBP == null ? '—' : formatGBP(analytics.arrGBP)}</p>
         </div>
         <div>
           <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.super_admin_panel.stat_churn')}</p>

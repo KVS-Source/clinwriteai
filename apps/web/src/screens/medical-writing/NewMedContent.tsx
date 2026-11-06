@@ -12,12 +12,12 @@
 //     later.
 
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { MedContentType, PlatformUser } from '@platform/types'
+import type { MedContentType } from '@platform/types'
 import { ApiError } from '../../api/client'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
-import { platformApi } from '../../platform/api/platformApi'
+import { assignableUsersApi } from '../../api/raci'
 
 const MED_TYPE_OPTIONS: { value: MedContentType; label: string; description: string }[] = [
   { value: 'hcp-slide-deck',   label: 'HCP Slide Deck',        description: 'Scientific/promotional deck for HCPs — MLR gated.' },
@@ -57,9 +57,11 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
     if (projectTA && !taTag) setTaTag(projectTA)
   }, [projectTA])
 
-  const { data: users = [] } = useQuery<PlatformUser[]>({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
+  // Who can own it: the project's candidates (the tenant user directory is admin-only).
+  const { data: ownerOptions = [] } = useQuery({
+    queryKey: ['assignable-users', projectId],
+    queryFn:  () => assignableUsersApi.listForAssignee(projectId),
+    retry: false,
   })
 
   const { data: sourceContent } = useQuery({
@@ -74,11 +76,6 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
     setTaTag(sourceContent.taTag)
     setOwnerId(sourceContent.ownerId)
   }, [sourceContent])
-
-  const ownerOptions = useMemo(
-    () => users.filter(u => ['medical-writer', 'scientific-writer', 'clinical-writer', 'admin'].includes(u.role)),
-    [users],
-  )
 
   const create = useMutation({
     mutationFn: () => medContentApi.create(projectId, {
@@ -187,7 +184,7 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
               className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
               <option value="">You (default — reassign later)</option>
               {ownerOptions.map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                <option key={u.id} value={u.id}>{u.name}</option>
               ))}
             </select>
           </label>

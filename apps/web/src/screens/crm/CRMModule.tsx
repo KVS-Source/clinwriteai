@@ -25,7 +25,7 @@ import { ApiError } from '../../api/client'
 import { MyRaciRole } from '../clinical-writing/MyRaciRole'
 import type { CRMResolutionRow, ScheduleMeetingBody } from '../../api/crm'
 import { assignableUsersApi } from '../../api/raci'
-import { platformApi } from '../../platform/api/platformApi'
+import { useProjectPeople } from '../../hooks/useProjectPeople'
 import { useCurrentUser } from '../../hooks'
 import { useCRMStore } from '../../store'
 import { CommentResolutionPanel } from '../../panels/CommentResolutionPanel'
@@ -333,18 +333,14 @@ function TranscriptUploadModal({
 function ScheduleMeetingForm({ documentId, projectId, onScheduled }: { documentId: string; projectId: string; onScheduled: () => void }) {
   const { t } = useTranslation()
   const { data: me } = useCurrentUser()
-  const users = useQuery({ queryKey: ['platform-users'], queryFn: () => platformApi.listUsers(), retry: false })
   const project = useQuery({ queryKey: ['project', projectId], queryFn: () => projectsApi.get(projectId), enabled: !!projectId })
-  // The user list above is admin-only, so a PM or contributor scheduling a meeting gets the project's candidates.
   const assignable = useQuery({ queryKey: ['assignable-users', projectId, 'assignee'], queryFn: () => assignableUsersApi.listForAssignee(projectId), enabled: !!projectId, retry: false })
   const people = useMemo(() => {
-    const active = (users.data ?? []).filter(u => u.status === 'active').map(u => ({ id: u.id, name: u.name }))
     const candidates = (assignable.data ?? []).map(u => ({ id: u.id, name: u.name }))
-    const list = active.length ? active
-      : candidates.length ? candidates
+    const list = candidates.length ? candidates
       : (project.data?.team ?? []).map(t => ({ id: t.userId, name: t.name }))
     return list.sort((a, b) => a.name.localeCompare(b.name))
-  }, [users.data, assignable.data, project.data])
+  }, [assignable.data, project.data])
 
   const today = new Date().toISOString().slice(0, 10)
   const [chairId, setChairId] = useState('')
@@ -517,8 +513,8 @@ export function CRMModule() {
     () => new Map((aiNoteTaker?.drafts ?? []).map(d => [d.commentId, d.draftText])),
     [aiNoteTaker],
   )
-  const users = useQuery({ queryKey: ['platform-users'], queryFn: () => platformApi.listUsers(), retry: false })
-  const nameOf = (id: string) => users.data?.find(u => u.id === id)?.name
+  const { usersById } = useProjectPeople(projectId)
+  const nameOf = (id: string) => usersById.get(id)?.name
 
   const commentsById = useMemo(() => new Map(comments.map((c: Comment) => [c.id, c])), [comments])
   const resolutionByComment = useMemo(() => new Map(resolutions.map(r => [r.commentId, r])), [resolutions])

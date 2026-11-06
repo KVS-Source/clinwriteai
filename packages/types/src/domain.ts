@@ -1725,10 +1725,10 @@ export interface AiConnectionTestResult {
 export interface PlatformConfig {
   clientId:                 string
   clientName:               string
-  plan:                     string
-  planStartDate:            string
-  renewalDate:              string
-  contractedTokensPerMonth: number
+  plan:                     string | null
+  planStartDate:            string | null
+  renewalDate:              string | null
+  contractedTokensPerMonth: number | null
   currency:                 string
   aiEngine: {
     default:                    string
@@ -1884,8 +1884,9 @@ export interface ModuleBreakdown {
   tokensConsumed:  number
   cost:            number
   pctOfTotal:      number
-  burnRate:        'low' | 'on-track' | 'high'
-  status:          'healthy' | 'monitor' | 'over'
+  // Measured against an allowance, which isn't recorded per module yet: null until it is.
+  burnRate:        'low' | 'on-track' | 'high' | null
+  status:          'healthy' | 'monitor' | 'over' | null
 }
 
 export interface Invoice {
@@ -1904,13 +1905,19 @@ export interface MarketValueSavingsRow {
   savings:          number
 }
 
+// The signed-in tenant's plan and AI usage (GET /services/dashboard, /admin/subscription). Usage is real;
+// whatever nothing records yet (allowance, fee, payment method, savings) is null rather than made up.
 export interface Subscription {
   clientId:                 string
-  planName:                 string
-  contractedTokensPerMonth: number
+  clientName:               string | null        // null for a platform admin (all tenants)
+  scope:                    'tenant' | 'platform'
+  hasSubscription:          boolean
+  planName:                 string | null
+  monthlyCapUsd:            number | null        // the AI spending cap, not a fee
+  contractedTokensPerMonth: number | null
   currency:                 string
-  monthlyFee:               number
-  renewalDate:              string
+  monthlyFee:               number | null
+  renewalDate:              string | null
   autoRenew:                boolean
   currentMonthRunningTotal?: number
   // null until a payment gateway is connected and a method is on file.
@@ -1925,7 +1932,7 @@ export interface Subscription {
   currentPeriod: {
     month:                string
     tokensConsumed:       number
-    tokensRemaining:      number
+    tokensRemaining:      number | null
     estimatedSpend:       number
     burnRatePerDay:       number
     projectedEndOfMonth:  number
@@ -1939,7 +1946,7 @@ export interface Subscription {
     rateCardSetBy:         string
     rateCardEffectiveDate: string
     breakdown:             MarketValueSavingsRow[]
-  }
+  } | null
   burnRateAlert?: {
     active:                    boolean
     affectedModules:           string[]
@@ -2078,11 +2085,11 @@ export interface PlatformClient {
   id:               string
   name:             string
   note?:            string
-  plan:             string
+  plan:             string | null                // null: no active subscription
   status:           PlatformClientStatus
   adminContactName: string | null
   createdAt:        string
-  revenueToDateGBP: number
+  revenueToDateGBP: number | null                // null: billing isn't connected
 }
 
 export interface PlatformAnalytics {
@@ -2090,8 +2097,11 @@ export interface PlatformAnalytics {
   activeProjects:            number
   documentsCreatedRolling30: number
   aiTokensRolling30:         number
-  mrrGBP:                    number
-  arrGBP:                    number
+  aiTokensUnattributedRolling30?: number         // AI use that can't be tied to a client
+  // null: billing isn't connected and no fee is stored, so revenue is unknown.
+  mrrGBP:                    number | null
+  arrGBP:                    number | null
+  activeSubscriptions?:      number
   churnThisQuarter:          number
   avgTokensPerClientMonth:   number
   clientCounts: {

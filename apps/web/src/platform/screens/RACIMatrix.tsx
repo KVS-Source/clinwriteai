@@ -4,34 +4,21 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useBlocker, useLocation, useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type {
-  RaciMatrix as RaciMatrixData, RaciTask, PlatformUser, RACIRole, AuditTrailEntry, PlatformUserRole,
+  RaciTask, PlatformUser, RACIRole, AuditTrailEntry, PlatformUserRole,
   ProjectRaciAssignment, ProjectRaciAssignmentBody,
 } from '@platform/types'
 import { PLATFORM_ACCENT, PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import { projectsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui'
-import raciTemplate from '../../data/raciMatrix.json'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
-import { PLATFORM_DEMO_USERS } from '../store/platformStore'
+import { DEFAULT_RACI_TEMPLATE as DEFAULT_TEMPLATE, raciActivityKey as activityKey, raciRoleOf } from '../raciTemplate'
 import { isAdminRole } from '../../config/roles'
-
-// The role-based default template ships with the web bundle — the API only
-// stores per-project overrides (one row per `${module}:${taskId}` activity).
-const DEFAULT_TEMPLATE = raciTemplate as RaciMatrixData
 
 type ModuleKey = 'A' | 'B' | 'C' | 'D' | 'E'
 
-const activityKey = (module: ModuleKey, taskId: string) => `${module}:${taskId}`
-
 const INACTIVE_STATUSES: string[] = ['suspended', 'deprovisioned']
-
-// The API's user-role enum (clinical-writer, reviewer, …) has no RACI roles
-// (clinical-lead, qc-checker, e-signatory, …). Until it does, the demo persona
-// roster — which shares user ids with the API seed — supplies them.
-const DEMO_ROLE_BY_ID = new Map(PLATFORM_DEMO_USERS.map(u => [u.id, u.role]))
-const raciRoleOf = (u: PlatformUser): string => DEMO_ROLE_BY_ID.get(u.id) ?? u.role
 
 const RACI_COLOURS: Record<RACIRole, { bg: string; fg: string }> = {
   R: { bg: '#FEF2F2', fg: '#B0200D' },

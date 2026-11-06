@@ -14,6 +14,9 @@
 //   scope=raci (optional) — active + invited non-admins, capability filter
 //                           off (POST …/raci grants a missing capability)
 //   scope=assignee (optional) — active users, without admins, auditors or guests
+//   scope=people (optional) — names for showing who did what: everyone on the project, whatever
+//                           their status or role, as { id, name, initials, status }. Only for
+//                           someone who can see the project. Not a list to pick from.
 //
 // Response is a minimal shape — the picker only needs name/email/
 // capabilities to render a chip + capability-match check:
@@ -31,6 +34,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type Capability } from '../../../auth/rbac.js'
 import { NEVER_ASSIGNEE_ROLES } from '../document-raci/access.js'
+import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 
 const CAPABILITY_VALUES = ['can-author', 'can-review', 'can-approve', 'can-qc', 'can-publish'] as const
 const querySchema = z.object({
@@ -38,7 +42,8 @@ const querySchema = z.object({
   // scope=raci — the RACI picker: every active or invited non-admin candidate,
   // whatever their capabilities (assigning a letter grants the missing one).
   // scope=assignee — the New Document assignee: active users, without admins.
-  scope: z.enum(['raci', 'assignee']).optional(),
+  // scope=people — names to display: see the header.
+  scope: z.enum(['raci', 'assignee', 'people']).optional(),
 })
 const ADMIN_ROLES = ['admin', 'tenant-admin', 'super-admin']
 // The New Document assignee becomes the Author (R): never an admin, an auditor (read-only) or a guest.
@@ -79,6 +84,33 @@ export const assignableUsersRoutes: FastifyPluginAsync = async (app) => {
     // project's tenant (users with no tenant recorded included). RACI assignment itself only checks the
     // capability, so a writer doesn't have to be added to the project first to be picked.
     const userIds = Array.from(projectRoleByUser.keys())
+
+    if (parsed.data.scope === 'people') {
+      const visible = await visibleProjectIdsForUser(app.prisma, request.user!)
+      if (visible !== 'all' && !visible.has(projectId)) return reply.code(404).send({ error: 'project_not_found' })
+      // Also whoever holds a RACI letter or is assigned on its documents, members or not.
+      const [raciRows, documents] = await Promise.all([
+        app.prisma.documentRaci.findMany({ where: { document: { projectId } }, select: { userId: true }, distinct: ['userId'] }),
+        app.prisma.document.findMany({ where: { projectId }, select: { assigneeId: true } }),
+      ])
+      const ids = [...new Set([
+        ...userIds,
+        ...raciRows.map(r => r.userId),
+        ...documents.map(d => d.assigneeId).filter((id): id is string => !!id),
+      ])]
+      const people = await app.prisma.user.findMany({
+        where: {
+          OR: [
+            { id: { in: ids } },
+            { modules: { has: 'A' }, ...(project.tenantId ? { OR: [{ tenantId: project.tenantId }, { tenantId: null }] } : {}) },
+          ],
+        },
+        select: { id: true, name: true, initials: true, status: true },
+        orderBy: { name: 'asc' },
+      })
+      return reply.send(people)
+    }
+
     const forRaci = parsed.data.scope === 'raci'
     const forAssignee = parsed.data.scope === 'assignee'
     const users = await app.prisma.user.findMany({

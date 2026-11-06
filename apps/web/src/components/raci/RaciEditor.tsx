@@ -19,7 +19,6 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import type { PlatformUser } from '@platform/types'
 import {
   raciApi,
   type AssignableUser,
@@ -27,7 +26,7 @@ import {
   type RaciLetter,
 } from '../../api/raci'
 import { ApiError } from '../../api/client'
-import { platformApi } from '../../platform/api/platformApi'
+import { useProjectPeople } from '../../hooks/useProjectPeople'
 import { usePlatformStore } from '../../platform/store'
 import { UserPicker } from './UserPicker'
 import { StatusStrip } from './StatusStrip'
@@ -100,11 +99,7 @@ export function RaciEditor({ projectId, documentId, documentStatus, editable: ed
   const myId = usePlatformStore(s => s.currentUser.id)
 
   // Names for the assigned users (rows carry only the user id).
-  const { data: users = [] } = useQuery<PlatformUser[]>({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
-    staleTime: 60_000,
-  })
+  const { people: users } = useProjectPeople(projectId)
   const nameOf = useCallback(
     (userId: string) => rows?.find(r => r.userId === userId && r.userName)?.userName ?? users.find(u => u.id === userId)?.name ?? userId,
     [rows, users],

@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { DocumentStatus, PanelMode, PlatformUser } from '@platform/types'
+import type { DocumentStatus, PanelMode } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { useCanEditDocument } from '../../hooks/useCanEditDocument'
 import { ApplyTemplateSections } from './ApplyTemplateSections'
@@ -17,7 +17,7 @@ import { useSectionLock } from '../../hooks/useSectionLock'
 import { useAutosave }     from '../../hooks/useAutosave'
 import { useDocumentSocket } from '../../hooks/useDocumentSocket'
 import { SectionAutosaveStatus } from './SectionAutosaveStatus'
-import { platformApi } from '../../platform/api/platformApi'
+import { useProjectPeople } from '../../hooks/useProjectPeople'
 import { StatusPill } from '../../components/ui'
 import { useDocumentStore, useProjectStore, useEditorStore } from '../../store'
 import { SectionAIPrompt } from './SectionAIPrompt'
@@ -146,12 +146,7 @@ export function DocumentEditor() {
 
   // Resolve user id → PlatformUser so avatars can show initials + full
   // name tooltip without the presence payload having to carry them.
-  const { data: platformUsers = [] } = useQuery<PlatformUser[]>({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
-    staleTime: 60_000,
-  })
-  const usersById = useMemo(() => new Map(platformUsers.map(u => [u.id, u])), [platformUsers])
+  const { usersById } = useProjectPeople(projectId)
 
   // ------- Section draft + save (Arc A3-mvp) -------
   // Local draft content for the active section. Hydrated from the

@@ -27,7 +27,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Trans, useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import type { BestPractice, CreateDocumentBody, DocumentType, PlatformUser } from '@platform/types'
+import type { BestPractice, CreateDocumentBody, DocumentType } from '@platform/types'
 import { documentsApi, type DocumentTemplate } from '../../api'
 import { ApiError } from '../../api/client'
 import { assignableUsersApi } from '../../api/raci'
@@ -182,13 +182,7 @@ export function NewDocumentForm({
     }).length
   }, [sourceIds, sources, recommendedCategories, recommendedSet])
 
-  // The tenant user list is admin-only (403 for everyone else), so it can't be the only source of
-  // assignees: project members are listed by an endpoint any signed-in user can read.
-  const { data: users = [] } = useQuery<PlatformUser[]>({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
-    retry: false,
-  })
+  // Assignees come from the project's candidates, which any signed-in user can read.
   const { data: members = [] } = useQuery({
     queryKey: ['assignable-users', projectId],
     queryFn:  () => assignableUsersApi.listForAssignee(projectId),
@@ -246,17 +240,8 @@ export function NewDocumentForm({
     const fromMembers = members
       .filter(m => m.capabilities.length === 0 || m.capabilities.includes('can-author'))
       .map(m => ({ id: m.id, name: m.name, email: m.email, role: m.projectRole }))
-    if (fromMembers.length > 0) return fromMembers
-    return users.filter(u => {
-      const status = u.status as string   // the API also returns 'deprovisioned'
-      if (status === 'suspended' || status === 'deprovisioned') return false
-      const role = u.role as string
-      if (['clinical-writer', 'scientific-writer', 'medical-writer', 'regulatory-writer', 'pm'].includes(role)) return true
-      if (role !== 'contributor') return false
-      const capabilities = (u as { capabilities?: string[] }).capabilities
-      return !capabilities || capabilities.includes('can-author')
-    }).map(u => ({ id: u.id, name: u.name, email: u.email, role: null }))
-  }, [users, members])
+    return fromMembers
+  }, [members])
 
   const create = useMutation({
     mutationFn: () => {

@@ -1,11 +1,14 @@
-import { useMemo, useState, useEffect } from 'react'
+import { useMemo, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { RaciMatrix as RaciMatrixData, RACIRole, PlatformUserRole } from '@platform/types'
+import type { ProjectRaciAssignment, RACIRole, PlatformUserRole } from '@platform/types'
 import { PLATFORM_USER_ROLE_LABEL } from '@platform/types'
+import { projectsApi } from '../../api'
 import { platformApi } from '../api/platformApi'
-import { usePlatformStore, PLATFORM_DEMO_USERS } from '../store'
+import { usePlatformStore } from '../store'
+import { myRaciRows } from '../raciTemplate'
+import { rolesOf } from '../../config/roles'
 
 type ModuleKey = 'A' | 'B' | 'C' | 'D' | 'E'
 
@@ -38,41 +41,37 @@ const RACI_WORD_KEYS: Record<RACIRole, string> = {
   I: 'page.onboarding_wizard.raci_word_i',
 }
 
-// Demo mapping: choose the current user based on module route param
-function demoUserFor(module: ModuleKey) {
-  if (module === 'E') return PLATFORM_DEMO_USERS.find(u => u.role === 'ideation-lead')
-  if (module === 'D') return PLATFORM_DEMO_USERS.find(u => u.role === 'admin')
-  return PLATFORM_DEMO_USERS.find(u => u.role === 'admin')
-}
-
 export function OnboardingWizard() {
   const { t } = useTranslation()
   const { module } = useParams<{ module: string }>()
   const navigate   = useNavigate()
-  const setCurrentUser = usePlatformStore(s => s.setCurrentUser)
+  const currentUser = usePlatformStore(s => s.currentUser)
 
   const moduleKey: ModuleKey = (module?.toUpperCase() as ModuleKey) || 'E'
   const meta = MODULE_META[moduleKey] ?? MODULE_META.E
-  const demoUser = demoUserFor(moduleKey)
+  const roleLabels = rolesOf(currentUser).map(r => PLATFORM_USER_ROLE_LABEL[r as PlatformUserRole] ?? r).join(', ')
 
-  useEffect(() => {
-    // Set the demo current-user based on module so RACI filter has data
-    if (demoUser) setCurrentUser(demoUser)
-  }, [demoUser, setCurrentUser])
+  // Step 2 (FR-PM-019): the signed-in user's RACI for this module on one of their projects — the
+  // project's saved assignments where it has them, the role template otherwise (raciTemplate.ts).
+  // The API only lists projects this user can see; with no project there is only the template.
+  const projectsQ = useQuery({ queryKey: ['projects'], queryFn: () => projectsApi.list(), retry: false })
+  const projects = useMemo(() => projectsQ.data ?? [], [projectsQ.data])
+  const [chosenProjectId, setChosenProjectId] = useState('')
+  const projectId = projects.some(p => p.id === chosenProjectId) ? chosenProjectId : projects[0]?.id ?? ''
 
-  const currentRole = (demoUser?.role ?? 'admin') as PlatformUserRole
-
-  const { data: raci } = useQuery<RaciMatrixData>({
-    queryKey: ['raci', 'proj-velora-301'],
-    queryFn:  () => platformApi.getRaci('proj-velora-301'),
+  const overridesQ = useQuery<ProjectRaciAssignment[]>({
+    queryKey: ['project-raci', projectId],
+    queryFn:  () => platformApi.listProjectRaci(projectId),
+    enabled:  !!projectId,
+    retry: false,
   })
-
-  const raciRows = useMemo(() => {
-    const tasks = raci?.modules[moduleKey]?.tasks ?? []
-    return tasks
-      .map(t => ({ task: t.label, mark: (t.assignments as Record<string, RACIRole | undefined>)[currentRole] }))
-      .filter(row => !!row.mark) as { task: string; mark: RACIRole }[]
-  }, [raci, moduleKey, currentRole])
+  const raciRows = useMemo(
+    () => myRaciRows(currentUser, moduleKey, overridesQ.data ?? []),
+    [currentUser, moduleKey, overridesQ.data],
+  )
+  const raciLoading = projectsQ.isLoading || overridesQ.isLoading
+  const raciFailed  = projectsQ.isError || overridesQ.isError
+  const retryRaci = () => { void (projectsQ.isError ? projectsQ.refetch() : overridesQ.refetch()) }
 
   const [stepIdx, setStepIdx] = useState(1) // 0-indexed → step 2 active by default
   const [completed, setCompleted] = useState<Set<number>>(new Set([0])) // step 1 completed
@@ -110,7 +109,7 @@ export function OnboardingWizard() {
           <span className="text-[14px] font-bold text-slate-900">ClinWrite.AI</span>
         </div>
         <p className="font-mono text-[11px] text-slate-500">
-          <span data-user-name>{demoUser?.name ?? '—'}</span> · <span data-role-label>{PLATFORM_USER_ROLE_LABEL[currentRole]}</span>
+          <span data-user-name>{currentUser.name}</span> · <span data-role-label>{roleLabels}</span>
         </p>
       </header>
 
@@ -166,12 +165,37 @@ export function OnboardingWizard() {
               <section data-step-body="your-role">
                 <p className="font-mono text-[10px] font-semibold uppercase tracking-widest" style={{ color: meta.colour }}>{t('page.onboarding_wizard.step_2_eyebrow')}</p>
                 <h2 className="mt-1 text-[20px] font-bold text-slate-900">
-                  {t('page.onboarding_wizard.your_role_prefix')} <span data-role-heading>{PLATFORM_USER_ROLE_LABEL[currentRole]}</span>
+                  {t('page.onboarding_wizard.your_role_prefix')} <span data-role-heading>{roleLabels}</span>
                 </h2>
                 <p className="mt-2 text-[13px] text-slate-700">
                   {t('page.onboarding_wizard.your_role_body')}
                 </p>
 
+                {projects.length > 1 && (
+                  <label className="mt-4 flex items-center gap-2 text-[12px] font-semibold text-slate-600">
+                    {t('page.onboarding_wizard.raci_project_label')}
+                    <select value={projectId} onChange={e => setChosenProjectId(e.currentTarget.value)} data-raci-project
+                      className="h-8 rounded-md border border-slate-300 bg-white px-2 text-[12px] font-normal text-slate-900">
+                      {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                    </select>
+                  </label>
+                )}
+
+                {raciLoading ? (
+                  <p className="mt-4 text-[13px] text-slate-500" data-raci-state="loading">{t('page.onboarding_wizard.raci_loading')}</p>
+                ) : raciFailed ? (
+                  <div role="alert" className="mt-4 flex flex-wrap items-center gap-3 rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-800" data-raci-state="error">
+                    <span>{t('page.onboarding_wizard.raci_load_failed')}</span>
+                    <button type="button" onClick={retryRaci} data-action="retry-raci"
+                      className="rounded-md border border-red-300 bg-white px-3 py-1 text-[12px] font-semibold text-red-800 hover:bg-red-100">
+                      {t('page.onboarding_wizard.raci_retry')}
+                    </button>
+                  </div>
+                ) : raciRows.length === 0 ? (
+                  <p className="mt-4 rounded-md border border-slate-200 bg-slate-50 p-3 text-[13px] text-slate-600" data-raci-state="empty">
+                    {t('page.onboarding_wizard.raci_empty')}
+                  </p>
+                ) : (
                 <div className="mt-4 overflow-hidden rounded-lg border border-slate-200" data-raci-table>
                   <table className="w-full text-[13px]">
                     <thead style={{ backgroundColor: '#F8FAFC' }}>
@@ -182,10 +206,10 @@ export function OnboardingWizard() {
                       </tr>
                     </thead>
                     <tbody>
-                      {raciRows.map((r, i) => {
+                      {raciRows.map(r => {
                         const c = RACI_COLOURS[r.mark]
                         return (
-                          <tr key={i} className="border-t border-slate-200" data-raci-row={i}>
+                          <tr key={r.taskId} className="border-t border-slate-200" data-raci-row={r.taskId}>
                             <td className="px-4 py-2 text-slate-800">{r.task}</td>
                             <td className="px-4 py-2 text-center">
                               <span
@@ -201,6 +225,7 @@ export function OnboardingWizard() {
                     </tbody>
                   </table>
                 </div>
+                )}
 
                 <p className="mt-3 font-mono text-[11px] text-slate-500" data-raci-legend>
                   {t('page.onboarding_wizard.raci_legend')}

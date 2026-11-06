@@ -11,12 +11,12 @@
 
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { SOURCE_FILE_ACCEPT, SOURCE_FILE_ERROR, SOURCE_FILE_EXT_RE, SOURCE_FILE_HINT } from '../../utils/sourceFileTypes'
-import { useMemo, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import type { MedContentType, PlatformUser } from '@platform/types'
+import type { MedContentType } from '@platform/types'
 import { ApiError } from '../../api/client'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
-import { platformApi } from '../../platform/api/platformApi'
+import { assignableUsersApi } from '../../api/raci'
 
 interface Props {
   projectId:  string
@@ -102,16 +102,13 @@ export function UploadMedContent({ projectId, projectTA, onCreated, onCancel }: 
   const [owner,    setOwner]    = useState('')
   const [touched,  setTouched]  = useState<Set<string>>(new Set())
 
-  const { data: users = [] } = useQuery<PlatformUser[]>({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
+  // Who can own it: the project's candidates (the tenant user directory is admin-only).
+  const { data: ownerOptions = [] } = useQuery({
+    queryKey: ['assignable-users', projectId],
+    queryFn:  () => assignableUsersApi.listForAssignee(projectId),
     enabled:  !!upload,
+    retry: false,
   })
-
-  const ownerOptions = useMemo(
-    () => users.filter(u => ['medical-writer', 'scientific-writer', 'clinical-writer', 'admin'].includes(u.role)),
-    [users],
-  )
 
   const markTouched = (f: string) => setTouched(s => (s.has(f) ? s : new Set(s).add(f)))
 
@@ -400,7 +397,7 @@ export function UploadMedContent({ projectId, projectTA, onCreated, onCancel }: 
               className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
               <option value="">You (default — reassign later)</option>
               {ownerOptions.map(u => (
-                <option key={u.id} value={u.id}>{u.name} ({u.role})</option>
+                <option key={u.id} value={u.id}>{u.name}</option>
               ))}
             </select>
           </label>

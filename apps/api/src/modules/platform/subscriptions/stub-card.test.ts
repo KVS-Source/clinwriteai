@@ -7,7 +7,12 @@ import { subscriptionRoutes } from './routes.js'
 
 async function build() {
   const app = Fastify({ logger: false })
-  app.decorate('prisma', { subscription: { findFirst: async () => null } } as never)
+  app.decorate('prisma', {
+    subscription: { findFirst: async () => null },
+    tenant: { findUnique: async () => ({ name: 'Acme' }) },
+    project: { findMany: async () => [] },
+    aiCallRecord: { groupBy: async () => [] },
+  } as never)
   app.decorate('audit', { append: async () => ({ id: '1', rowHash: 'h' }) } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {

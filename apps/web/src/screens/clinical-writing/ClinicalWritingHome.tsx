@@ -2,10 +2,10 @@ import { Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
-import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType, PlatformUser } from '@platform/types'
+import type { Comment, Document, DocumentStage, DocumentStatus, DocumentType } from '@platform/types'
 import { DOCUMENT_STAGE_KEY, DOCUMENT_STATUS_KEY, DOCUMENT_STATUS_PLAIN_KEY, DOCUMENT_TYPE_KEY, documentStageLabel, documentTypeLabel } from '../../utils/documentLabels'
 import { documentsApi, projectsApi } from '../../api'
-import { platformApi } from '../../platform/api/platformApi'
+import { useProjectPeople } from '../../hooks/useProjectPeople'
 import { usePlatformStore } from '../../platform/store'
 import { StatusPill, SlidePanel } from '../../components/ui'
 import { RaciEditor } from '../../components/raci/RaciEditor'
@@ -207,21 +207,14 @@ export function ClinicalWritingHome() {
   }
 
   // Documents are assigned to user accounts (any writer can be picked in New Document), not only to
-  // project-team members — so resolve names from the user directory, with the team as a fallback.
-  // The directory is admin-only; for other roles the request is refused and only team names resolve.
-  const { data: users = [] } = useQuery<PlatformUser[]>({
-    queryKey: ['platform-users'],
-    queryFn:  () => platformApi.listUsers(),
-    staleTime: 60_000,
-    retry: false,
-  })
+  // project-team members — so resolve names from the project's people, with the team as a fallback.
+  const { people: users } = useProjectPeople(projectId)
   const teamById = useMemo(() => {
     const map = new Map<string, { name: string; initials: string }>()
     project?.team.forEach(t => map.set(t.userId, { name: t.name, initials: t.initials }))
     users.forEach(u => map.set(u.id, { name: u.name, initials: initialsOf(u.name) }))
     // Backfill from each document's embedded assignee info — the API list
-    // endpoint attaches assigneeName/Initials for exactly this case, so
-    // contributors who can't call /admin/users still get a usable map.
+    // endpoint attaches assigneeName/Initials for exactly this case.
     for (const d of documents as Array<Document & { assigneeName?: string | null; assigneeInitials?: string | null }>) {
       if (!d.assigneeId || map.has(d.assigneeId)) continue
       if (d.assigneeName) {

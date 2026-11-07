@@ -682,12 +682,18 @@
       "show_prompts_aria":           "プロンプト候補を表示",
       "prompt_suggestions_title":    "プロンプト候補",
       "send_to_ai_aria":             "AI に送信",
-      "flags_heading":                               "{{count}} 件のフラグ",
-      "flags_heading_plural":                        "{{count}} 件のフラグ",
+      "flags_heading":                               "このセクションに対する未解決の指摘 {{count}} 件",
+      "flags_heading_plural":                        "このセクションに対する未解決の指摘 {{count}} 件",
       "flag_type_information_required":              "情報が必要",
       "flag_type_conflict":                          "ソース間の矛盾",
       "flag_type_reference_verification_required":   "参考文献の検証",
-      "flag_type_missing_cross_ref_target":          "相互参照の欠落"
+      "flag_type_missing_cross_ref_target":          "相互参照の欠落",
+      "flag_resolve":                                "解決",
+      "flag_dismiss":                                "却下",
+      "flag_resolving":                              "解決中…",
+      "flag_dismissing":                             "却下中…",
+      "flag_resolve_prompt":                         "解決メモ (任意):",
+      "flag_resolve_err":                            "指摘を解決できませんでした — もう一度試してください。"
     },
 
     "ai_prompt_help_panel": {

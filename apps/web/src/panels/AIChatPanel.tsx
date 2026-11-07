@@ -56,32 +56,20 @@ interface Props {
 // "attach source" action rather than a scope mode. See follow-up.
 type Scope = 'section' | 'document' | 'source'
 
-// Escape-hatch tokens the server-side parser extracts from the carry-
-// prompt's response. One row per bracketed flag the model emitted
-// instead of fabricating. The panel renders these as yellow cards
-// under the assistant message so the writer can act on them.
-// Keep the type local — mirrors the Zod FlagTokenType on the server;
-// the web type package doesn't ship this yet.
+// The four escape-hatch token types the server-side carry prompt
+// trains the model to emit instead of fabricating. Mirrors FlagTokenType
+// on the server; the web type package doesn't ship this yet.
 type FlagTokenType =
   | 'information_required'
   | 'conflict'
   | 'reference_verification_required'
   | 'missing_cross_ref_target'
 
-interface FlagToken {
-  type:  FlagTokenType
-  text:  string
-  start: number
-  end:   number
-  match: string
-}
-
 interface AiResult {
   responseText: string
   model: string
   recordId: string
   scope?: 'section' | 'selection'
-  flags?: FlagToken[]
 }
 
 // Scope + intent are both inferred from the prompt — the chip rows at
@@ -168,14 +156,6 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   // Range tracked per-assistant-message so Accept can swap just the right
   // span even after other turns have landed. Populated on send-success.
   const [rangesByMessageId, setRangesByMessageId] = useState<Record<string, { from: number; to: number }>>({})
-
-  // Flag tokens the server parsed off this send's response. Keyed by the
-  // assistant message id (resolved on the thread refresh that follows
-  // the send). Yellow-card rendering under the matched message surfaces
-  // the model's escape-hatch findings — the writer can act on each
-  // without having to re-read the response prose. Carry-prompt only;
-  // legacy prompts don't emit flags, so an empty list is the baseline.
-  const [flagsByMessageId, setFlagsByMessageId] = useState<Record<string, FlagToken[]>>({})
 
   // Prompt-help panel toggle — same control the bottom SectionAIPrompt
   // exposes. Keeps the two composers at feature parity so users don't
@@ -282,24 +262,22 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
         },
       )
     },
-    onSuccess: async (data, vars) => {
+    onSuccess: async (_data, vars) => {
       setPrompt('')
-      // Refresh the thread, then if this prompt had a selection, map the
-      // newest assistant message id to the captured range so Accept can
-      // replace just that span. Flags from the response also map onto
-      // the same message so yellow-card rendering follows the thread.
-      await qc.invalidateQueries({ queryKey: ['ai-chat', documentId, sectionId] })
-      const needsLatest = (vars.selectionText && savedSel) || (data.flags && data.flags.length > 0)
-      if (needsLatest) {
+      // Refresh the thread + the open-findings strip. If this prompt had
+      // a selection, map the newest assistant message id to the captured
+      // range so Accept can replace just that span. Flags are query-
+      // driven via OpenFindingsStrip — invalidating that query is how
+      // the AI's just-emitted findings appear in the UI.
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['ai-chat', documentId, sectionId] }),
+        qc.invalidateQueries({ queryKey: ['open-flags', documentId] }),
+      ])
+      if (vars.selectionText && savedSel) {
         const latest = await documentsApi.getAiChat(documentId, sectionId!)
         const assistant = [...latest.messages].reverse().find(m => m.role === 'assistant')
         if (assistant) {
-          if (vars.selectionText && savedSel) {
-            setRangesByMessageId(prev => ({ ...prev, [assistant.id]: { from: savedSel.from, to: savedSel.to } }))
-          }
-          if (data.flags && data.flags.length > 0) {
-            setFlagsByMessageId(prev => ({ ...prev, [assistant.id]: data.flags! }))
-          }
+          setRangesByMessageId(prev => ({ ...prev, [assistant.id]: { from: savedSel.from, to: savedSel.to } }))
         }
       }
       // Clear captured selection so stale ranges don't leak into the next prompt.
@@ -369,6 +347,11 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
         </p>
       </div>
 
+      {/* Open-findings strip — the AI-emitted escape-hatch tokens the
+          server has persisted for this section. Reload-safe, actionable
+          (Resolve / Dismiss). Hidden when the section has no open flags. */}
+      <OpenFindingsStrip documentId={documentId} sectionId={sectionId} />
+
       {/* Thread */}
       <div className="flex-1 overflow-y-auto px-4 py-3" data-chat-thread>
         {messages.length === 0 && !send.isPending && (
@@ -407,9 +390,6 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                   />
                 ) : (
                   <p className="whitespace-pre-wrap">{m.content}</p>
-                )}
-                {m.role === 'assistant' && flagsByMessageId[m.id] && flagsByMessageId[m.id]!.length > 0 && (
-                  <FlagCards flags={flagsByMessageId[m.id]!} />
                 )}
                 {m.role === 'assistant' && (
                   <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 text-[10px] text-slate-500">
@@ -633,36 +613,117 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   )
 }
 
-// Yellow-card list under an assistant message, one row per flag token
-// the server parsed off the response. The top row is a heading with
-// the count; each subsequent row names the flag type + its body. Pure
-// view — no interactions yet (resolve/dismiss endpoints ship in the
-// next PR; for now these are read-only so writers see the findings).
-function FlagCards({ flags }: { flags: FlagToken[] }) {
+// Open-findings strip — the persistent, query-driven view of the AI-
+// emitted escape-hatch tokens for the current section. Reload-safe
+// (server-persisted in document_brief_open_flags) + actionable (every
+// row has a Resolve + Dismiss button). Hidden when the section has no
+// open findings so the panel doesn't carry visual weight for nothing.
+//
+// Row ids are the DB row ids — the Resolve mutation sends them
+// straight to POST /documents/:id/brief/open-flags/:flagId/resolve.
+// On success the query is invalidated and the resolved row disappears
+// from the strip (status filter = 'open'). Dismiss uses the same
+// endpoint with status='dismissed'; the Part 11 audit entry
+// distinguishes the two for compliance review.
+interface OpenFlagRow {
+  id:             string
+  documentId:     string
+  sectionId:      string
+  type:           FlagTokenType
+  text:           string
+  aiCallRecordId: string | null
+  status:         'open' | 'resolved' | 'dismissed'
+  resolvedBy:     string | null
+  resolvedAt:     string | null
+  resolutionNote: string | null
+  createdAt:      string
+  updatedAt:      string
+}
+
+function OpenFindingsStrip({ documentId, sectionId }: { documentId: string; sectionId: string }) {
   const { t } = useTranslation()
+  const qc = useQueryClient()
+  const flagsQ = useQuery({
+    queryKey: ['open-flags', documentId],
+    queryFn:  () => documentsApi.listOpenFlags(documentId, 'open'),
+  })
+
+  // Filter to the current section — the list endpoint returns the
+  // whole document's open flags for the future flags-panel; this strip
+  // is per-section.
+  const forThisSection = (flagsQ.data?.flags ?? []).filter(f => f.sectionId === sectionId) as OpenFlagRow[]
+
+  const resolve = useMutation({
+    mutationFn: ({ flagId, status, note }: { flagId: string; status: 'resolved' | 'dismissed'; note?: string | null }) =>
+      documentsApi.resolveOpenFlag(documentId, flagId, { status, resolutionNote: note ?? null }),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['open-flags', documentId] }),
+  })
+
+  if (forThisSection.length === 0) return null
+
   const TYPE_LABEL: Record<FlagTokenType, string> = {
     information_required:            t('page.ai_chat_panel.flag_type_information_required'),
     conflict:                        t('page.ai_chat_panel.flag_type_conflict'),
     reference_verification_required: t('page.ai_chat_panel.flag_type_reference_verification_required'),
     missing_cross_ref_target:        t('page.ai_chat_panel.flag_type_missing_cross_ref_target'),
   }
-  const headingKey = flags.length === 1 ? 'page.ai_chat_panel.flags_heading' : 'page.ai_chat_panel.flags_heading_plural'
+  const headingKey = forThisSection.length === 1
+    ? 'page.ai_chat_panel.flags_heading'
+    : 'page.ai_chat_panel.flags_heading_plural'
+
   return (
-    <div className="mt-2 border-t border-amber-200 pt-2" data-flag-list>
-      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-700">
-        ⚠ {t(headingKey, { count: flags.length })}
+    <div className="flex-none border-b border-amber-200 bg-amber-50/50 px-4 py-3" data-open-findings>
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-amber-800">
+        ⚠ {t(headingKey, { count: forThisSection.length })}
       </p>
-      <ul className="flex flex-col gap-1">
-        {flags.map((f, i) => (
-          <li
-            key={`${f.type}-${i}`}
-            className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-900"
-            data-flag-type={f.type}
-          >
-            <span className="font-semibold">{TYPE_LABEL[f.type]}:</span>{' '}
-            <span className="whitespace-pre-wrap">{f.text || '—'}</span>
-          </li>
-        ))}
+      <ul className="flex flex-col gap-1.5">
+        {forThisSection.map(f => {
+          const busy = resolve.isPending && resolve.variables?.flagId === f.id
+          const kind = busy ? resolve.variables?.status : null
+          return (
+            <li
+              key={f.id}
+              className="rounded-md border border-amber-200 bg-white px-2.5 py-1.5 text-[11px] text-amber-900"
+              data-flag-id={f.id}
+              data-flag-type={f.type}
+            >
+              <div className="mb-1">
+                <span className="font-semibold">{TYPE_LABEL[f.type]}:</span>{' '}
+                <span className="whitespace-pre-wrap">{f.text || '—'}</span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => {
+                    const note = window.prompt(t('page.ai_chat_panel.flag_resolve_prompt'))
+                    // Null = user cancelled the browser prompt — bail silently.
+                    if (note === null) return
+                    resolve.mutate({ flagId: f.id, status: 'resolved', note: note.trim() || null })
+                  }}
+                  className="rounded border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  data-action="resolve-flag"
+                >
+                  {busy && kind === 'resolved' ? t('page.ai_chat_panel.flag_resolving') : t('page.ai_chat_panel.flag_resolve')}
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => resolve.mutate({ flagId: f.id, status: 'dismissed', note: null })}
+                  className="rounded border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-semibold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
+                  data-action="dismiss-flag"
+                >
+                  {busy && kind === 'dismissed' ? t('page.ai_chat_panel.flag_dismissing') : t('page.ai_chat_panel.flag_dismiss')}
+                </button>
+                {resolve.isError && resolve.variables?.flagId === f.id && (
+                  <span className="text-[10px] italic text-rose-700" role="alert">
+                    {t('page.ai_chat_panel.flag_resolve_err')}
+                  </span>
+                )}
+              </div>
+            </li>
+          )
+        })}
       </ul>
     </div>
   )

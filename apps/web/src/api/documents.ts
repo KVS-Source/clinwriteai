@@ -448,6 +448,31 @@ export const documentsApi = {
     api.post<AISuggestion>(`/documents/${documentId}/ai-suggest`, body),
   acceptSuggestion: (documentId: string, body: AcceptSuggestionBody) =>
     api.post<Document>(`/documents/${documentId}/ai-accept`, body),
+  // Document Brief + AI-emitted open flags (sPM-carry-prompt step D).
+  // Open flags are escape-hatch tokens the AI produced instead of
+  // fabricating; the writer resolves or dismisses each one on the AI
+  // Chat panel's yellow cards.
+  listOpenFlags: (documentId: string, status?: 'open' | 'resolved' | 'dismissed') => {
+    const qs = status ? `?status=${status}` : ''
+    return api.get<{
+      flags: Array<{
+        id:             string
+        documentId:     string
+        sectionId:      string
+        type:           'information_required' | 'conflict' | 'reference_verification_required' | 'missing_cross_ref_target'
+        text:           string
+        aiCallRecordId: string | null
+        status:         'open' | 'resolved' | 'dismissed'
+        resolvedBy:     string | null
+        resolvedAt:     string | null
+        resolutionNote: string | null
+        createdAt:      string
+        updatedAt:      string
+      }>
+    }>(`/documents/${documentId}/brief/open-flags${qs}`)
+  },
+  resolveOpenFlag: (documentId: string, flagId: string, body: { status: 'resolved' | 'dismissed'; resolutionNote?: string | null }) =>
+    api.post<{ id: string; status: string }>(`/documents/${documentId}/brief/open-flags/${flagId}/resolve`, body),
   // Unified per-section edit history (sPM-section-history). Every save
   // writes a row — manual, AI accept, undo, restore. The optional filters
   // let the UI switch between the user's own feed and the team-wide view,

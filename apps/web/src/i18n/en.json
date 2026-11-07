@@ -591,12 +591,18 @@
       "show_prompts_aria": "Show prompt suggestions",
       "prompt_suggestions_title": "Prompt suggestions",
       "send_to_ai_aria": "Send to AI",
-      "flags_heading": "{{count}} flag",
-      "flags_heading_plural": "{{count}} flags",
+      "flags_heading": "{{count}} open finding for this section",
+      "flags_heading_plural": "{{count}} open findings for this section",
       "flag_type_information_required": "Information needed",
       "flag_type_conflict": "Conflicting sources",
       "flag_type_reference_verification_required": "Reference verification",
-      "flag_type_missing_cross_ref_target": "Missing cross-reference"
+      "flag_type_missing_cross_ref_target": "Missing cross-reference",
+      "flag_resolve": "Resolve",
+      "flag_dismiss": "Dismiss",
+      "flag_resolving": "Resolving…",
+      "flag_dismissing": "Dismissing…",
+      "flag_resolve_prompt": "Resolution note (optional):",
+      "flag_resolve_err": "Couldn't resolve this finding — try again."
     },
     "ai_prompt_help_panel": {
       "title": "Prompt library",

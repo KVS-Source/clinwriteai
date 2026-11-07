@@ -56,11 +56,32 @@ interface Props {
 // "attach source" action rather than a scope mode. See follow-up.
 type Scope = 'section' | 'document' | 'source'
 
+// Escape-hatch tokens the server-side parser extracts from the carry-
+// prompt's response. One row per bracketed flag the model emitted
+// instead of fabricating. The panel renders these as yellow cards
+// under the assistant message so the writer can act on them.
+// Keep the type local — mirrors the Zod FlagTokenType on the server;
+// the web type package doesn't ship this yet.
+type FlagTokenType =
+  | 'information_required'
+  | 'conflict'
+  | 'reference_verification_required'
+  | 'missing_cross_ref_target'
+
+interface FlagToken {
+  type:  FlagTokenType
+  text:  string
+  start: number
+  end:   number
+  match: string
+}
+
 interface AiResult {
   responseText: string
   model: string
   recordId: string
   scope?: 'section' | 'selection'
+  flags?: FlagToken[]
 }
 
 // Scope + intent are both inferred from the prompt — the chip rows at
@@ -147,6 +168,14 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
   // Range tracked per-assistant-message so Accept can swap just the right
   // span even after other turns have landed. Populated on send-success.
   const [rangesByMessageId, setRangesByMessageId] = useState<Record<string, { from: number; to: number }>>({})
+
+  // Flag tokens the server parsed off this send's response. Keyed by the
+  // assistant message id (resolved on the thread refresh that follows
+  // the send). Yellow-card rendering under the matched message surfaces
+  // the model's escape-hatch findings — the writer can act on each
+  // without having to re-read the response prose. Carry-prompt only;
+  // legacy prompts don't emit flags, so an empty list is the baseline.
+  const [flagsByMessageId, setFlagsByMessageId] = useState<Record<string, FlagToken[]>>({})
 
   // Prompt-help panel toggle — same control the bottom SectionAIPrompt
   // exposes. Keeps the two composers at feature parity so users don't
@@ -253,17 +282,24 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
         },
       )
     },
-    onSuccess: async (_data, vars) => {
+    onSuccess: async (data, vars) => {
       setPrompt('')
       // Refresh the thread, then if this prompt had a selection, map the
       // newest assistant message id to the captured range so Accept can
-      // replace just that span.
+      // replace just that span. Flags from the response also map onto
+      // the same message so yellow-card rendering follows the thread.
       await qc.invalidateQueries({ queryKey: ['ai-chat', documentId, sectionId] })
-      if (vars.selectionText && savedSel) {
+      const needsLatest = (vars.selectionText && savedSel) || (data.flags && data.flags.length > 0)
+      if (needsLatest) {
         const latest = await documentsApi.getAiChat(documentId, sectionId!)
         const assistant = [...latest.messages].reverse().find(m => m.role === 'assistant')
         if (assistant) {
-          setRangesByMessageId(prev => ({ ...prev, [assistant.id]: { from: savedSel.from, to: savedSel.to } }))
+          if (vars.selectionText && savedSel) {
+            setRangesByMessageId(prev => ({ ...prev, [assistant.id]: { from: savedSel.from, to: savedSel.to } }))
+          }
+          if (data.flags && data.flags.length > 0) {
+            setFlagsByMessageId(prev => ({ ...prev, [assistant.id]: data.flags! }))
+          }
         }
       }
       // Clear captured selection so stale ranges don't leak into the next prompt.
@@ -371,6 +407,9 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
                   />
                 ) : (
                   <p className="whitespace-pre-wrap">{m.content}</p>
+                )}
+                {m.role === 'assistant' && flagsByMessageId[m.id] && flagsByMessageId[m.id]!.length > 0 && (
+                  <FlagCards flags={flagsByMessageId[m.id]!} />
                 )}
                 {m.role === 'assistant' && (
                   <div className="mt-2 flex items-center justify-between gap-2 border-t border-slate-100 pt-1.5 text-[10px] text-slate-500">
@@ -590,6 +629,41 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+// Yellow-card list under an assistant message, one row per flag token
+// the server parsed off the response. The top row is a heading with
+// the count; each subsequent row names the flag type + its body. Pure
+// view — no interactions yet (resolve/dismiss endpoints ship in the
+// next PR; for now these are read-only so writers see the findings).
+function FlagCards({ flags }: { flags: FlagToken[] }) {
+  const { t } = useTranslation()
+  const TYPE_LABEL: Record<FlagTokenType, string> = {
+    information_required:            t('page.ai_chat_panel.flag_type_information_required'),
+    conflict:                        t('page.ai_chat_panel.flag_type_conflict'),
+    reference_verification_required: t('page.ai_chat_panel.flag_type_reference_verification_required'),
+    missing_cross_ref_target:        t('page.ai_chat_panel.flag_type_missing_cross_ref_target'),
+  }
+  const headingKey = flags.length === 1 ? 'page.ai_chat_panel.flags_heading' : 'page.ai_chat_panel.flags_heading_plural'
+  return (
+    <div className="mt-2 border-t border-amber-200 pt-2" data-flag-list>
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-amber-700">
+        ⚠ {t(headingKey, { count: flags.length })}
+      </p>
+      <ul className="flex flex-col gap-1">
+        {flags.map((f, i) => (
+          <li
+            key={`${f.type}-${i}`}
+            className="rounded-md border border-amber-200 bg-amber-50 px-2 py-1 text-[11px] text-amber-900"
+            data-flag-type={f.type}
+          >
+            <span className="font-semibold">{TYPE_LABEL[f.type]}:</span>{' '}
+            <span className="whitespace-pre-wrap">{f.text || '—'}</span>
+          </li>
+        ))}
+      </ul>
     </div>
   )
 }

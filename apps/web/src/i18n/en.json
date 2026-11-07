@@ -590,7 +590,13 @@
       "done": "Done",
       "show_prompts_aria": "Show prompt suggestions",
       "prompt_suggestions_title": "Prompt suggestions",
-      "send_to_ai_aria": "Send to AI"
+      "send_to_ai_aria": "Send to AI",
+      "flags_heading": "{{count}} flag",
+      "flags_heading_plural": "{{count}} flags",
+      "flag_type_information_required": "Information needed",
+      "flag_type_conflict": "Conflicting sources",
+      "flag_type_reference_verification_required": "Reference verification",
+      "flag_type_missing_cross_ref_target": "Missing cross-reference"
     },
     "ai_prompt_help_panel": {
       "title": "Prompt library",

@@ -681,7 +681,13 @@
       "done":                        "完了",
       "show_prompts_aria":           "プロンプト候補を表示",
       "prompt_suggestions_title":    "プロンプト候補",
-      "send_to_ai_aria":             "AI に送信"
+      "send_to_ai_aria":             "AI に送信",
+      "flags_heading":                               "{{count}} 件のフラグ",
+      "flags_heading_plural":                        "{{count}} 件のフラグ",
+      "flag_type_information_required":              "情報が必要",
+      "flag_type_conflict":                          "ソース間の矛盾",
+      "flag_type_reference_verification_required":   "参考文献の検証",
+      "flag_type_missing_cross_ref_target":          "相互参照の欠落"
     },
 
     "ai_prompt_help_panel": {

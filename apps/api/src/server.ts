@@ -251,6 +251,13 @@ async function buildServer() {
   const { documentsReferencesRoutes } = await import('./modules/clinical-writing/documents/references-routes.js')
   await app.register(documentsReferencesRoutes, { prefix: '/documents' })
 
+  // Document Brief — compact derived summary carried on every AI
+  // section-rewrite call. Read-only route; mutations happen as
+  // fire-and-forget regen from the document/section/protocol-metadata
+  // mutation paths.
+  const { documentBriefRoutes } = await import('./modules/clinical-writing/document-brief/routes.js')
+  await app.register(documentBriefRoutes, { prefix: '/documents' })
+
   const { voiceNotesRoutes } = await import('./modules/clinical-writing/voice-notes/routes.js')
   await app.register(voiceNotesRoutes, { prefix: '/documents' })
 

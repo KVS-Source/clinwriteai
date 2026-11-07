@@ -67,6 +67,7 @@ import { extractTextFromBlob } from './extract-text.js'
 import { shrinkImage } from './shrink-image.js'
 import { chunkPdfToFit } from './chunk-pdf.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
+import { regenBriefInBackground } from '../document-brief/service.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -483,6 +484,12 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       }
     }
 
+    // Fire-and-forget: generate the Document Brief so the first AI
+    // section rewrite doesn't pay a lazy-regen latency cost. Failures
+    // are non-fatal — the brief route lazy-regens on first GET if
+    // this missed. See document-brief/service.ts.
+    regenBriefInBackground(app.prisma, document.id, app.log)
+
     return reply.code(201).send(documentShapeMeta({ ...document, version: version.versionNumber }))
   })
 }
@@ -766,6 +773,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (result.created || result.mutated) {
       await noteAuthoringStarted(app, { documentId, actorId: request.user!.id, ipAddress: request.ip ?? null })
     }
+
+    // Fire-and-forget: refresh the Document Brief. Outline word counts
+    // + lastEditedAt changed; the next AI section rewrite needs the
+    // fresh brief. Non-fatal on failure (lazy regen on GET).
+    regenBriefInBackground(app.prisma, documentId, app.log)
 
     return svc.getWithSections(documentId)
   })
@@ -2569,6 +2581,12 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       details: { before, after, diff },
       ipAddress: request.ip ?? null,
     })
+
+    // Fire-and-forget: refresh the Document Brief so protocol fields
+    // (studyTitle, investigationalProduct, regulatoryRegion →
+    // jurisdictions) reach the next AI section rewrite without a
+    // lazy-regen hop. Non-fatal on failure.
+    regenBriefInBackground(app.prisma, documentId, app.log)
 
     const full = await svc.getWithSections(documentId)
     if (!full) return reply.code(404).send({ error: 'not_found' })

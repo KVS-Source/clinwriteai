@@ -856,6 +856,34 @@ model SectionLock {
 }
 
 // --------------------------------------------------------------------------
+// DocumentBrief — compact derived summary of a document (migration 62,
+// 2026-11-06). One row per Document. Regenerated on structural events
+// (section add/rename, protocol-metadata edit, source link/unlink,
+// reference add) by the brief service; users never edit this directly.
+//
+// The AI section-rewrite call carries this blob so the model has
+// enough context — section outline, cross-ref inventory, next
+// citation number, jurisdiction + sponsor rules — without
+// re-sending the full document body on every call. Target: ≤ ~1.5k
+// tokens when stringified.
+//
+// `rev` increments monotonically on each regen; downstream caches
+// key off (documentId, rev). `contentJson` is validated by the Zod
+// briefSchema at the API edge (document-brief/schema.ts).
+// --------------------------------------------------------------------------
+model DocumentBrief {
+  id          String   @id @default(uuid())
+  documentId  String   @unique @map("document_id")
+  rev         Int      @default(0)
+  contentJson Json     @default("{}") @map("content_json")
+  generatedAt DateTime @default(now()) @map("generated_at")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  @@map("document_briefs")
+}
+
+// --------------------------------------------------------------------------
 // AiDraftingPass — iteration log for the AI drafter + validator pipeline
 // (migration 56, 2026-11-02).
 //

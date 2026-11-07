@@ -71,6 +71,7 @@ import { DocumentBriefService, regenBriefInBackground } from '../document-brief/
 import { buildCarryPrompt } from '../carry-prompt/build.js'
 import { carryPromptEnabledFor } from '../carry-prompt/decide.js'
 import { intentToAsk, type CarrySuggestIntent } from '../carry-prompt/intent-to-ask.js'
+import { parseFlagTokens, summariseFlagTokens } from '../carry-prompt/parse.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -2053,7 +2054,21 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         })
       } catch { /* non-fatal — chat log shouldn't block the AI response */ }
 
-      await auditAiRequest('completed', { aiModel: result.model, aiCallRecordId: result.recordId })
+      // ----- Carry-prompt flag parsing (step C of sPM-carry-prompt) ------
+      // When the carry prompt was active, scan the model response for the
+      // four escape-hatch tokens the system prompt instructs it to emit
+      // instead of fabricating ([Information Required: ...] etc.). The
+      // tokens stay inline in responseText — the UI gets a parallel
+      // structured list for yellow-card rendering + badge counts. When
+      // carry mode was off, skip the scan: legacy prompts don't train
+      // the model on those tokens and a false positive would mislead.
+      const flagTokens = carryPromptUsed ? parseFlagTokens(responseText) : []
+      const flagsSummary = summariseFlagTokens(flagTokens)
+      await auditAiRequest('completed', {
+        aiModel:        result.model,
+        aiCallRecordId: result.recordId,
+        flagsSummary,
+      })
 
       // Models sometimes wrap HTML in a code fence despite being asked not to.
       if (parsed.data.intent === 'edit') {
@@ -2061,9 +2076,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           ...result,
           responseText,
           scope: parsed.data.selectionText ? 'selection' : 'section',
+          flags: flagTokens,
         }
       }
-      return result
+      return { ...result, flags: flagTokens }
     } catch (err: unknown) {
       if (err instanceof Error && err.name === 'RateLimitedError') {
         await auditAiRequest('quota_reached')

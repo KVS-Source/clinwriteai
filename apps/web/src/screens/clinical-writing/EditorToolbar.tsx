@@ -1,8 +1,10 @@
 import type { DocumentType, PanelMode } from '@platform/types'
 import { useEditorState } from '@tiptap/react'
+import { useQuery } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useDocumentStore, useEditorStore } from '../../store'
 import { ReferenceDropdown } from '../../components/ui'
+import { documentsApi } from '../../api'
 
 // --- Icons ---
 
@@ -159,6 +161,9 @@ interface EditorToolbarProps {
   voiceNotesAllowed?: boolean
   // The Source References option is left out once this is known to be false.
   canViewSources?: boolean
+  // Document id — drives the open-flag count badge on the AI Chat button.
+  // Omitted (no badge) when the toolbar is rendered without a loaded doc.
+  documentId?: string
 }
 
 // Document types where the Protocol metadata panel is reachable. Non-
@@ -166,10 +171,23 @@ interface EditorToolbarProps {
 // belong on a CSR / IB / DSUR row.
 const PROTOCOL_DOC_TYPES: ReadonlySet<DocumentType> = new Set(['protocol', 'protocol-amendment'])
 
-export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist, aiChatAllowed = false, voiceNotesAllowed = false, canViewSources, editable }: EditorToolbarProps = {}) {
+export function EditorToolbar({ editor, ichApplicable = true, documentType, canViewChecklist, aiChatAllowed = false, voiceNotesAllowed = false, canViewSources, editable, documentId }: EditorToolbarProps = {}) {
   const { t } = useTranslation()
   const activePanel    = useDocumentStore(s => s.activePanel)
   const setActivePanel = useDocumentStore(s => s.setActivePanel)
+
+  // Open-flag badge next to the AI Chat button. Reads the same query the
+  // AI Chat panel's OpenFindingsStrip uses, so the two views are always
+  // consistent — resolving a flag updates both at once via the shared
+  // cache key. Count = 0 hides the badge (no visual noise when the AI
+  // hasn't flagged anything). Gated on aiChatAllowed since non-authors
+  // never see the panel anyway.
+  const flagsQ = useQuery({
+    queryKey: ['open-flags', documentId],
+    queryFn:  () => documentsApi.listOpenFlags(documentId!, 'open'),
+    enabled:  !!documentId && aiChatAllowed,
+  })
+  const openFlagCount = flagsQ.data?.flags.length ?? 0
 
   const toggle = (mode: NonNullable<PanelMode>) => setActivePanel(activePanel === mode ? null : mode)
   const citationMode    = useEditorStore(s => s.citationMode)
@@ -316,6 +334,16 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
       >
         <SparkleIcon />
         {t('page.editor_toolbar.ai_chat_label')}
+        {openFlagCount > 0 && (
+          <span
+            className="flex h-4 min-w-[16px] items-center justify-center rounded-full px-1 font-mono text-[9px] font-bold"
+            style={{ backgroundColor: '#FBBF24', color: '#78350F' }}
+            data-ai-chat-flag-count={openFlagCount}
+            title={t('page.editor_toolbar.ai_chat_flag_badge_tooltip', { count: openFlagCount })}
+          >
+            {openFlagCount}
+          </span>
+        )}
         <span className="rounded-[3px] px-1 py-0.5 font-mono text-[9px] font-medium" style={{ backgroundColor: '#DBEAFE', color: '#1D4ED8' }}>
           ⌘J
         </span>

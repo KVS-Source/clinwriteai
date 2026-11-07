@@ -977,7 +977,7 @@ export function DocumentEditor() {
             band so content narrows (text wraps) instead of being hidden
             when the panel opens. */}
         <div className="relative flex min-w-0 flex-1 flex-col bg-white">
-          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} canViewChecklist={canViewChecklist} aiChatAllowed={aiChatAllowed} voiceNotesAllowed={aiChatAllowed} canViewSources={canViewSources} editable={canEditSection} />
+          <EditorToolbar editor={editor} ichApplicable={ichApplicable} documentType={document?.type} canViewChecklist={canViewChecklist} aiChatAllowed={aiChatAllowed} voiceNotesAllowed={aiChatAllowed} canViewSources={canViewSources} editable={canEditSection} documentId={documentId ?? undefined} />
 
           {/* Split row — content column (scrollable + AI prompt dock
               stacked) + optional right panel column (fixed width,

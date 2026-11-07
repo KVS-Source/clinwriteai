@@ -1425,6 +1425,8 @@
       "ai_chat_authors_only": "AI Chat is only available to this document's authors",
       "voice_note_authors_only": "Voice notes are only available to this document's authors",
       "ai_chat_label": "AI Chat",
+      "ai_chat_flag_badge_tooltip": "{{count}} open AI finding on this document",
+      "ai_chat_flag_badge_tooltip_plural": "{{count}} open AI findings on this document",
       "insert_citation": "Insert citation",
       "insert_citation_tooltip": "Insert a citation linked to a source document at the cursor",
       "insert_citation_disabled_tooltip": "Open the section for editing to insert a citation"

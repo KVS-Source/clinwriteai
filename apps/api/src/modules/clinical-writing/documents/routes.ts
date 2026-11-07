@@ -67,7 +67,10 @@ import { extractTextFromBlob } from './extract-text.js'
 import { shrinkImage } from './shrink-image.js'
 import { chunkPdfToFit } from './chunk-pdf.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
-import { regenBriefInBackground } from '../document-brief/service.js'
+import { DocumentBriefService, regenBriefInBackground } from '../document-brief/service.js'
+import { buildCarryPrompt } from '../carry-prompt/build.js'
+import { carryPromptEnabledFor } from '../carry-prompt/decide.js'
+import { intentToAsk, type CarrySuggestIntent } from '../carry-prompt/intent-to-ask.js'
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -1905,9 +1908,47 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Append the scope context (if any) to whatever prompt the intent built.
-    const promptWithScope = additionalContext
+    const legacyPromptWithScope = additionalContext
       ? `${prompt}\n\n----\nAdditional context (scope=${scope}):\n${additionalContext}`
       : prompt
+
+    // ----- Carry-prompt opt-in (step B of sPM-carry-prompt) -------------
+    // When FEATURE_CARRY_PROMPT allowlists this doc type, replace the
+    // intent-templated prompt with the Document Brief + compact invariants
+    // the carry prompt supplies. Falls back to the legacy prompt on any
+    // failure — a missing brief or Prisma hiccup must never fail the
+    // user's AI request. See carry-prompt/decide.ts for the rollout
+    // mechanic (empty env var = off everywhere).
+    let promptWithScope = legacyPromptWithScope
+    let carryPromptUsed = false
+    if (carryPromptEnabledFor(hyphenate(doc.type))) {
+      try {
+        const briefSvc = new DocumentBriefService(app.prisma)
+        const stored = await briefSvc.get(documentId)
+        const brief = stored?.brief ?? await briefSvc.upsert(documentId)
+        const carry = buildCarryPrompt({
+          brief,
+          section: {
+            sectionId:     section.sectionId,
+            sectionNumber: section.sectionNumber,
+            sectionTitle:  section.sectionTitle,
+            contentHtml:   currentContent,
+          },
+          sources: additionalContext
+            ? [{ title: `Linked ${scope} context`, excerpt: additionalContext }]
+            : undefined,
+          ask: intentToAsk({
+            intent:        parsed.data.intent as CarrySuggestIntent,
+            customPrompt:  parsed.data.customPrompt,
+            selectionText: parsed.data.selectionText,
+          }),
+        })
+        promptWithScope = `${carry.systemPrompt}\n\n---\n\n${carry.userPrompt}`
+        carryPromptUsed = true
+      } catch (err) {
+        app.log.warn({ err, documentId, sectionId: section.sectionId }, 'carry-prompt assembly failed — falling back to legacy prompt')
+      }
+    }
 
     const model = await chooseModel(app.prisma, parsed.data.model)
     const promptTextForHistory = (parsed.data.intent === 'custom' || parsed.data.intent === 'edit')
@@ -1940,6 +1981,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             promptChars:       promptWithScope.length,
             instructionSha256: sha256(promptTextForHistory),
             instructionChars:  promptTextForHistory.length,
+            carryPromptUsed,
             outcome,
             ...extra,
           },

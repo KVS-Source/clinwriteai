@@ -182,9 +182,13 @@ export function generateBrief(inputs: GenerateBriefInputs): DocumentBrief {
         sectionCode: w.sectionCode,
         reason:      w.reason,
       })),
-      informationRequired:    [],   // Populated once the chat-event parser lands.
+      // AI-emitted flag arrays stay empty here — the brief service
+      // overlays them from document_brief_open_flags at read time so
+      // a structural regen doesn't wipe them.
+      informationRequired:    [],
       conflicts:              [],
       referenceVerification:  [],
+      missingCrossRefTargets: [],
     },
 
     generatedAt: now.toISOString(),

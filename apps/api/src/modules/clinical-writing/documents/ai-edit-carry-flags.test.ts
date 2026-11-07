@@ -74,6 +74,7 @@ async function build(opts: {
     ichSectionWaiver:       { findMany: vi.fn(async () => []) },
     sourceReference:        { count: vi.fn(async () => 0) },
     sourceReferenceRemoval: { count: vi.fn(async () => 0) },
+    documentBriefOpenFlag:  { findMany: vi.fn(async () => []), createMany: vi.fn(async () => ({ count: 0 })) },
   } as never)
   app.decorate('aiGateway', { chat } as never)
   app.decorate('audit', { append: vi.fn(async (ev: Record<string, unknown>) => { audits.push(ev) }) } as never)

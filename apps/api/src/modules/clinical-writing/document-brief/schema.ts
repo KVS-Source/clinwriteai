@@ -104,6 +104,10 @@ export const briefSchema = z.object({
       sourceId: z.string(),
       note:     z.string(),
     })),
+    missingCrossRefTargets: z.array(z.object({
+      sectionId: z.string(),
+      note:      z.string(),
+    })),
   }),
 
   generatedAt: z.string(),                                          // ISO

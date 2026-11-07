@@ -84,6 +84,7 @@ describe('generateBrief', () => {
     expect(b.openFlags.informationRequired).toEqual([])
     expect(b.openFlags.conflicts).toEqual([])
     expect(b.openFlags.referenceVerification).toEqual([])
+    expect(b.openFlags.missingCrossRefTargets).toEqual([])
 
     expect(b.generatedAt).toBe('2026-11-06T12:00:00.000Z')
   })

@@ -61,6 +61,7 @@ async function build(opts: {
     ichSectionWaiver:        { findMany: vi.fn(async () => []) },
     sourceReference:         { count: vi.fn(async () => 3) },
     sourceReferenceRemoval:  { count: vi.fn(async () => 0) },
+    documentBriefOpenFlag:   { findMany: vi.fn(async () => []) },
   } as never)
   app.decorate('audit', { append: audit } as never)
   app.decorateRequest('user', null)

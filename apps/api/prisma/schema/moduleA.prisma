@@ -884,6 +884,42 @@ model DocumentBrief {
 }
 
 // --------------------------------------------------------------------------
+// DocumentBriefOpenFlag — persistent record of escape-hatch tokens the AI
+// emitted (migration 64, 2026-11-07). Kept OUT of the derived brief's
+// contentJson so a structural regen (section rename, source link, …)
+// doesn't wipe them. The brief service overlays this table onto
+// brief.openFlags at read time.
+//
+// Open rows are deduped at insert: a new emission with the same
+// (documentId, sectionId, type, text) is a no-op while an existing open
+// row is still present. Resolving a flag flips `status` to 'resolved' /
+// 'dismissed'; a fresh emission of the same phrase after resolution
+// opens a new row, which is correct — the model is re-raising it.
+//
+// Provenance: aiCallRecordId links back to the AI call that produced
+// the flag so audit can trace exactly which prompt + response set it.
+// --------------------------------------------------------------------------
+model DocumentBriefOpenFlag {
+  id             String    @id @default(uuid())
+  documentId     String    @map("document_id")
+  sectionId      String    @map("section_id")
+  type           String                                         // 'information_required' | 'conflict' | 'reference_verification_required' | 'missing_cross_ref_target'
+  text           String
+  aiCallRecordId String?   @map("ai_call_record_id")
+  status         String    @default("open")                     // 'open' | 'resolved' | 'dismissed'
+  resolvedBy     String?   @map("resolved_by")
+  resolvedAt     DateTime? @map("resolved_at")
+  resolutionNote String?   @map("resolution_note")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  updatedAt      DateTime  @updatedAt @map("updated_at")
+
+  @@map("document_brief_open_flags")
+  @@index([documentId])
+  @@index([documentId, sectionId])
+  @@index([documentId, status])
+}
+
+// --------------------------------------------------------------------------
 // AiDraftingPass — iteration log for the AI drafter + validator pipeline
 // (migration 56, 2026-11-02).
 //

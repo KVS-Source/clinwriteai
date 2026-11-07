@@ -20,20 +20,40 @@
 
 import type { PrismaClient } from '@prisma/client'
 import { generateBrief, type GenerateBriefInputs } from './generate.js'
+import { OpenFlagService } from './open-flags-service.js'
 import type { DocumentBrief } from './schema.js'
 
 export class DocumentBriefService {
-  constructor(private readonly prisma: PrismaClient) {}
+  private readonly openFlags: OpenFlagService
+  constructor(private readonly prisma: PrismaClient) {
+    this.openFlags = new OpenFlagService(prisma)
+  }
 
   /** Returns the stored brief for a document, or null when none exists.
-   *  Use `upsert()` to generate on-demand. */
+   *  Open flags from document_brief_open_flags are overlaid onto
+   *  brief.openFlags at read time — the stored contentJson's own
+   *  openFlags arrays (which the generator leaves empty) are the fall-
+   *  back for the ich-waivers field, which stays in the derived set. */
   async get(documentId: string): Promise<{ rev: number; generatedAt: Date; brief: DocumentBrief } | null> {
     const row = await this.prisma.documentBrief.findUnique({ where: { documentId } })
     if (!row) return null
+    const stored = row.contentJson as unknown as DocumentBrief
+    const overlay = await this.openFlags.listOpenForBrief(documentId)
     return {
       rev:         row.rev,
       generatedAt: row.generatedAt,
-      brief:       row.contentJson as unknown as DocumentBrief,
+      brief: {
+        ...stored,
+        openFlags: {
+          // ichWaivers stays from the derived generation — it comes from
+          // the ich_section_waivers table at regen time, not from AI.
+          ichWaivers:             stored.openFlags?.ichWaivers ?? [],
+          informationRequired:    overlay.informationRequired,
+          conflicts:              overlay.conflicts,
+          referenceVerification:  overlay.referenceVerification,
+          missingCrossRefTargets: overlay.missingCrossRefTargets,
+        },
+      },
     }
   }
 

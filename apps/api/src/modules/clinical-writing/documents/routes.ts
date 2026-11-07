@@ -68,6 +68,7 @@ import { shrinkImage } from './shrink-image.js'
 import { chunkPdfToFit } from './chunk-pdf.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 import { DocumentBriefService, regenBriefInBackground } from '../document-brief/service.js'
+import { OpenFlagService } from '../document-brief/open-flags-service.js'
 import { buildCarryPrompt } from '../carry-prompt/build.js'
 import { carryPromptEnabledFor } from '../carry-prompt/decide.js'
 import { intentToAsk, type CarrySuggestIntent } from '../carry-prompt/intent-to-ask.js'
@@ -2064,10 +2065,34 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       // the model on those tokens and a false positive would mislead.
       const flagTokens = carryPromptUsed ? parseFlagTokens(responseText) : []
       const flagsSummary = summariseFlagTokens(flagTokens)
+
+      // Persist parsed flags into document_brief_open_flags so the next
+      // AI call for the same section sees them in brief.openFlags via
+      // the overlay in DocumentBriefService.get(). Dedup is handled in
+      // the service — the same phrase emitted twice doesn't double-up
+      // while the first finding is still open. Non-fatal on failure:
+      // the user's AI response has already been computed; a Prisma
+      // hiccup here shouldn't 500 the request.
+      let flagsPersisted = 0
+      if (flagTokens.length > 0) {
+        try {
+          const persistRes = await new OpenFlagService(app.prisma).appendFromAiCall({
+            documentId,
+            sectionId:      section.sectionId,
+            aiCallRecordId: result.recordId ?? null,
+            tokens:         flagTokens,
+          })
+          flagsPersisted = persistRes.inserted
+        } catch (err) {
+          app.log.warn({ err, documentId, sectionId: section.sectionId }, 'open-flag persistence failed — flags returned on response but not stored')
+        }
+      }
+
       await auditAiRequest('completed', {
         aiModel:        result.model,
         aiCallRecordId: result.recordId,
         flagsSummary,
+        flagsPersisted,
       })
 
       // Models sometimes wrap HTML in a code fence despite being asked not to.

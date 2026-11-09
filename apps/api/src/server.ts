@@ -167,6 +167,10 @@ async function buildServer() {
   //            stub selected via SMS_PROVIDER env) ----------
   await app.register(import('./modules/platform/sms/plugin.js'))
 
+  // ---------- Social publish adapter (noop by default; log / console /
+  //            per-platform stubs selected via SOCIAL_PUBLISH_PROVIDER) ----------
+  await app.register(import('./modules/platform/social-publish/plugin.js'))
+
   // ---------- Public KOL review (no auth — token in URL path is the
   //            auth; rate-limited per route; mounted at /public/ so
   //            the WAF can scope aggressive rules to this prefix) ----------

@@ -2688,7 +2688,7 @@
       "filter_all_roles": "すべてのロール",
       "filter_all_status": "すべてのステータス",
       "showing_count": "{{total}} 人中 {{shown}} 人を表示",
-      "tenant_ref_entered": "テナント ID (ユーザー入力): {{ref}}",
+      "tenant_ref_entered": "テナント ID: {{ref}}",
       "title": "ユーザー管理",
       "crumb_admin": "管理",
       "crumb_user_management": "ユーザー管理",

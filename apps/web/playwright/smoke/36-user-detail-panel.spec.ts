@@ -28,6 +28,10 @@ const USERS = [
   user('u-con', 'Casey Cole', 'contributor', 'active'),
   user('u-adm', 'Ada Admin', 'tenant-admin', 'active'),
   user('u-sus', 'Sam Suspended', 'contributor', 'suspended'),
+  // Not linked to a tenant; typed a Tenant ID when registering.
+  { ...user('u-ref', 'Tara Typed', 'auditor', 'active'), tenantId: null, tenantName: null, tenantRef: '12345' },
+  // Linked to a tenant, and also typed a Tenant ID.
+  { ...user('u-both-ids', 'Bo Both', 'auditor', 'active'), tenantRef: 'ACME-7' },
 ]
 
 type Call = { method: string; path: string; body: unknown }
@@ -193,4 +197,18 @@ test('clicking another row switches the panel; row actions don’t open it; Susp
   await expect(panel(page)).toHaveCount(0)
   await page.locator('[data-user-row="u-sus"] [data-action="unsuspend"]').click()
   await expect(panel(page)).toHaveCount(0)
+})
+
+test('the Tenant column shows the typed Tenant ID when the user isn’t linked to a tenant, not a dash', async ({ page }) => {
+  await open(page)
+  const typed = page.locator('[data-user-row="u-ref"] [data-tenant-cell]')
+  await expect(typed).toHaveText('12345')
+  await expect(typed.locator('[data-tenant-ref]')).toHaveCount(0)
+  // Linked tenant first; the typed ID underneath.
+  const both = page.locator('[data-user-row="u-both-ids"] [data-tenant-cell]')
+  await expect(both).toContainText('Acme Pharma')
+  await expect(both.locator('[data-tenant-ref]')).toHaveText('Tenant ID: ACME-7')
+  // Same in the User Detail panel.
+  await openUser(page, 'u-ref')
+  await expect(panel(page).locator('[data-detail-tenant]')).toHaveText('12345')
 })

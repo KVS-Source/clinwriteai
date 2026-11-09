@@ -17,6 +17,8 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { chooseModel } from '../../platform/config/ai-engine-settings.js'
+import { nextMlrCommentId } from '../mlr/routes.js'
 
 const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
   'pil', 'pls_eu_ctr', 'patient_education',
@@ -395,22 +397,89 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
       message: 'No material findings. Content ready for MLR review.',
     })
 
+    // ----- AI narrative (sPM-c-agentic). Deterministic findings[] + scores
+    // are the authoritative structured output; the AI adds a 2-3 sentence
+    // advisory narrative for the MLR lead based on the same inputs. Call
+    // fails → narrative stays null; shape unchanged.
+    let advisoryNarrative: string | null = null
+    let aiModel = 'stub-advisor-v1'
+    let aiCallRecordId: string | null = null
+
+    const systemPrompt = [
+      'You are a medical-compliance advisor summarising an MLR pre-review package for the MLR Lead.',
+      '',
+      'RULES',
+      '1. Produce a 2-3 sentence narrative advisory. No lists, no headings — plain prose.',
+      '2. Lead with what is strong; name what is risky; recommend a single next action.',
+      '3. Do not invent claim counts, scores, or issue types — use ONLY the numbers given below.',
+      '4. If the inputs show nothing noteworthy, say so plainly ("Package is clean; ready for MLR review.").',
+      '5. Avoid marketing phrasing; this is an internal compliance tool.',
+    ].join('\n')
+
+    const userPrompt = [
+      `Content item: ${content.title ?? content.id}`,
+      `Type: ${content.type ?? 'unknown'}`,
+      '',
+      'Scores:',
+      `  overall: ${overallScore}/100`,
+      `  claim-reuse: ${reuseScore}%`,
+      '',
+      'Stats:',
+      `  total claims: ${totalClaims} (approved ${approvedCount}, rejected ${rejectedCount}, needs-edit ${needsEditCount})`,
+      `  pre-MLR issues: should-fix ${latest.shouldFixCount}, note ${latest.noteCount}`,
+      '',
+      'Deterministic findings already surfaced to the UI:',
+      ...findings.map(f => `  - [${f.severity}] ${f.category}: ${f.message}`),
+      '',
+      'Write the advisory.',
+    ].join('\n')
+
+    try {
+      const model = await chooseModel(app.prisma)
+      const result = await app.aiGateway.chat({
+        tenantId:  request.user!.tenantId,
+        projectId: content.projectId ?? 'unknown',
+        actorId:   request.user!.id,
+        module:    'C',
+        intent:    'agentic_mlr_advisory',
+        model,
+        prompt:    `${systemPrompt}\n\n---\n\n${userPrompt}`,
+        maxOutputTokens: 400,
+      })
+      advisoryNarrative = result.responseText.trim()
+      aiModel          = result.model
+      aiCallRecordId   = result.recordId
+    } catch (err: unknown) {
+      // RateLimitedError bubbles up so the UI can show the quota banner;
+      // other failures keep the deterministic-only response.
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      app.log.warn({ err, contentId }, 'agentic-report AI narrative failed — deterministic-only response')
+    }
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'agentic_report_generated',
       entityType: 'med_content',
       entityId: contentId,
-      details: { preMlrRunId: latest.id, overallScore, findingCount: findings.length, model: 'stub-advisor-v1' },
+      details: {
+        preMlrRunId:   latest.id,
+        overallScore,
+        findingCount:  findings.length,
+        model:         aiModel,
+        aiCallRecordId,
+      },
       ipAddress: request.ip ?? null,
     })
 
     return {
       contentId,
-      model: 'stub-advisor-v1',
+      model:        aiModel,
       advisoryOnly: true,
-      generatedAt: new Date().toISOString(),
-      preMlrRunId: latest.id,
+      generatedAt:  new Date().toISOString(),
+      preMlrRunId:  latest.id,
       scores: {
         overall: overallScore,
         claimReusePct: reuseScore,
@@ -424,18 +493,77 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
         preMlrNoteCount: latest.noteCount,
       },
       findings,
+      advisoryNarrative,
     }
   })
 
-  // Escalate a specific finding from the agentic report into the MLR comment
-  // thread. Stub: records an audit entry and returns the audit id; the UI's
-  // MLR Review screen later picks this up as an escalation marker. Real
-  // implementation (when agentic report lands with AI findings persisted)
-  // will create an MlrComment row keyed to the escalated finding.
+  // Escalate a specific finding from the agentic report into the MLR
+  // comment thread. The route creates a real MlrComment row keyed to
+  // the escalated finding + records the escalation audit entry. The
+  // finding body comes from the request body (the client already has
+  // the rendered finding text — it just saw it in the agentic report
+  // response) so we don't have to persist the deterministic findings
+  // between the generate and escalate calls.
+  //
+  // Body:
+  //   { findingText: string, severity?: 'advisory' | 'suggestion', category?: string }
+  //
+  // Severity → tag mapping:
+  //   'advisory'   ⇒ 'Should Fix'     (compliance-adjacent finding)
+  //   'suggestion' ⇒ 'Note'           (editorial recommendation)
+  //   (anything else / missing) ⇒ 'Note'
+  const escalateSchema = z.object({
+    findingText: z.string().min(1, 'findingText is required'),
+    severity:    z.enum(['advisory', 'suggestion']).optional(),
+    category:    z.string().optional(),
+  })
+
+  const SEVERITY_TO_TAG: Record<'advisory' | 'suggestion', string> = {
+    advisory:   'Should Fix',
+    suggestion: 'Note',
+  }
+
   app.post('/:contentId/agentic-report/findings/:findingN/escalate', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId, findingN } = request.params as { contentId: string; findingN: string }
+    const parsed = escalateSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
+
+    const tag = SEVERITY_TO_TAG[parsed.data.severity ?? 'suggestion'] ?? 'Note'
+    const findingIndex = Number(findingN)
+    const categoryPrefix = parsed.data.category ? `[${parsed.data.category}] ` : ''
+    const commentText = `[Escalated from agentic report finding #${findingIndex}] ${categoryPrefix}${parsed.data.findingText}`
+
+    // Retry loop matches the pattern in mlr/routes.ts — the sequential
+    // id generator races with other concurrent writers.
+    let created: Awaited<ReturnType<typeof app.prisma.mlrComment.create>> | null = null
+    let lastId = ''
+    for (let attempt = 0; attempt < 5 && !created; attempt++) {
+      lastId = await nextMlrCommentId(app.prisma, contentId)
+      try {
+        created = await app.prisma.mlrComment.create({
+          data: {
+            id:                   lastId,
+            contentItemId:        contentId,
+            reviewerId:           request.user!.id,
+            reviewerName:         request.user!.email,
+            text:                 commentText,
+            tag,
+            escalatedFromAgentic: true,
+            escalatedBy:          request.user!.id,
+            escalatedAt:          new Date(),
+          },
+        })
+      } catch (e: unknown) {
+        if ((e as { code?: string }).code === 'P2002') continue
+        throw e
+      }
+    }
+    if (!created) {
+      return reply.code(503).send({ error: 'id_contention', message: 'Too many simultaneous escalations; retry' })
+    }
 
     const entry = await app.audit.append({
       timestamp: new Date().toISOString(),
@@ -443,9 +571,20 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
       action: 'agentic_finding_escalated',
       entityType: 'med_content',
       entityId: contentId,
-      details: { findingIndex: Number(findingN), model: 'stub-advisor-v1' },
+      details: {
+        findingIndex,
+        severity:  parsed.data.severity ?? null,
+        category:  parsed.data.category ?? null,
+        mlrCommentId: created.id,
+        tag,
+      },
       ipAddress: request.ip ?? null,
     })
-    return reply.code(201).send({ escalationAuditId: entry.id, escalatedAt: new Date().toISOString() })
+    return reply.code(201).send({
+      escalationAuditId: entry.id,
+      mlrCommentId:      created.id,
+      tag,
+      escalatedAt:       new Date().toISOString(),
+    })
   })
 }

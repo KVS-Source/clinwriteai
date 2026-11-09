@@ -4199,6 +4199,10 @@
       "super_admin_rate_card": "Rate Card"
     },
     "top_nav": {
+      "switch_role": "Switch role",
+      "switch_role_hint": "You hold {{count}} roles and work as one at a time.",
+      "role_current": "Current",
+      "roles_held": "{{count}} roles",
       "crumb_projects": "Projects",
       "leaf_comments": "Comments",
       "leaf_portfolio": "Portfolio",

@@ -21,7 +21,9 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
+import { randomUUID } from 'node:crypto'
 import { requireAuth } from '../../../auth/rbac.js'
+import { chooseModel } from '../../platform/config/ai-engine-settings.js'
 import { redactionsLocked, type SubmissionStage } from '../submission-stage.js'
 
 // --- consistency ----------------------------------------------------------
@@ -264,6 +266,144 @@ export const consistencyRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
+  // --- Redaction auto-detect (AI pre-pass) ---------------------------------
+  //
+  // POST /:submissionId/redactions/auto-detect
+  // Body: { documentId: string, bodyText: string }
+  //
+  // Runs the AI gateway over the supplied body text and returns candidate
+  // PPD + CCI redaction items for the human reviewer to confirm. Nothing
+  // persists here — the caller picks what to keep and POSTs the final set
+  // via /:submissionId/redactions (same schema). confirmed=false on every
+  // returned item so the UI knows these are AI suggestions, not ground
+  // truth.
+  //
+  // Prompt rules (compiled into the system prompt):
+  //   PPD — patient names, patient identifiers, investigator / PI names,
+  //         trial site names, dates of birth, geographic details narrow
+  //         enough to identify an individual.
+  //   CCI — proprietary formulation details, manufacturing trade secrets,
+  //         non-public pricing, non-public clinical data, competitive-
+  //         advantage discussion.
+  //
+  // Model is asked to emit a strict JSON array it wraps in ```json fences;
+  // parse failure → fall back to empty arrays with a reason. The caller
+  // still sees a 200 so the UI's "no suggestions found" path renders.
+  const autoDetectBodySchema = z.object({
+    documentId: z.string().min(1),
+    // Cap at 50 KB so one call can't blow out the gateway budget. The UI
+    // can chunk larger documents at the paragraph boundary.
+    bodyText:   z.string().min(1).max(50_000),
+  })
+
+  app.post('/:submissionId/redactions/auto-detect', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
+    const { submissionId } = request.params as { submissionId: string }
+    const parsed = autoDetectBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const sub = await app.prisma.regulatorySubmission.findUnique({
+      where:  { id: submissionId },
+      select: { id: true, projectId: true, stage: true },
+    })
+    if (!sub) return reply.code(404).send({ error: 'not_found' })
+    if (redactionsLocked(sub.stage as SubmissionStage)) {
+      return reply.code(422).send({ error: 'redactions_locked', message: `Redactions are locked at stage ${sub.stage} and later (DD-D-003).` })
+    }
+
+    const systemPrompt = [
+      'You are a regulatory-privacy auditor scanning document text for redaction candidates in a Health Authority submission package.',
+      '',
+      'FIND TWO CATEGORIES',
+      '- PPD (Personally Identifiable / Protected Data): patient names, patient identifiers (DOB, initials, participant numbers if they can re-identify), investigator / principal-investigator names, trial-site institution names, geographic details narrow enough to identify an individual.',
+      '- CCI (Commercial Confidential Information): proprietary formulation details, manufacturing trade secrets, batch / process records, non-public pricing, non-public clinical data beyond what is in the public disclosure, discussion of competitive advantage or market positioning.',
+      '',
+      'OUTPUT',
+      'Emit a single JSON object wrapped in ```json fences, no prose before or after:',
+      '{ "ppd": [{ "text": "...", "location": "page/section hint from the text if available, else \'unknown\'" }], "cci": [...] }',
+      'If nothing is found in a category, return an empty array for it.',
+      'Do not invent findings. Only flag text literally present in the input.',
+    ].join('\n')
+
+    const userPrompt = [
+      'Document text to scan:',
+      '',
+      parsed.data.bodyText,
+    ].join('\n')
+
+    let ppdItems: Array<{ id: string; location: string; text: string; confirmed: false }> = []
+    let cciItems: Array<{ id: string; location: string; text: string; confirmed: false }> = []
+    let aiModel  = 'stub-fallback'
+    let aiCallRecordId: string | null = null
+    let parseReason: string | null = null
+
+    try {
+      const model  = await chooseModel(app.prisma)
+      const result = await app.aiGateway.chat({
+        tenantId:  request.user!.tenantId,
+        projectId: sub.projectId ?? 'unknown',
+        actorId:   request.user!.id,
+        module:    'D',
+        intent:    'redaction_auto_detect',
+        model,
+        prompt:    `${systemPrompt}\n\n---\n\n${userPrompt}`,
+        maxOutputTokens: 2048,
+      })
+      aiModel        = result.model
+      aiCallRecordId = result.recordId
+
+      // Pull the first ```json ... ``` fence; strict JSON parse; coerce to
+      // the local shape. Any failure falls through to empty arrays with
+      // a reason recorded on the response.
+      const fence = /```json\s*([\s\S]*?)```/i.exec(result.responseText)
+      const raw   = (fence ? fence[1]! : result.responseText).trim()
+      try {
+        const parsedJson = JSON.parse(raw) as { ppd?: Array<{ text?: string; location?: string }>; cci?: Array<{ text?: string; location?: string }> }
+        const toItem = (x: { text?: string; location?: string }) => ({
+          id:        randomUUID(),
+          location:  (x.location ?? '').toString().trim() || 'unknown',
+          text:      (x.text ?? '').toString(),
+          confirmed: false as const,
+        })
+        ppdItems = (parsedJson.ppd ?? []).filter(x => x && typeof x.text === 'string' && x.text.length > 0).map(toItem)
+        cciItems = (parsedJson.cci ?? []).filter(x => x && typeof x.text === 'string' && x.text.length > 0).map(toItem)
+      } catch (parseErr) {
+        parseReason = `parse_failed: ${parseErr instanceof Error ? parseErr.message : String(parseErr)}`
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      parseReason = `ai_call_failed: ${err instanceof Error ? err.message : String(err)}`
+      app.log.warn({ err, submissionId }, 'redaction auto-detect fell back to empty suggestions')
+    }
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'redaction_auto_detect_run',
+      entityType: 'reg_submission',
+      entityId: submissionId,
+      details: {
+        documentId: parsed.data.documentId,
+        bodyChars:  parsed.data.bodyText.length,
+        ppdCount:   ppdItems.length,
+        cciCount:   cciItems.length,
+        model:      aiModel,
+        aiCallRecordId,
+        ...(parseReason ? { parseReason } : {}),
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return {
+      documentId:  parsed.data.documentId,
+      ppdItems,
+      cciItems,
+      aiModel,
+      ...(parseReason ? { parseReason } : {}),
+    }
+  })
+
   // --- Validation (stub) --------------------------------------------------
 
   app.post('/:submissionId/validation/run', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
@@ -408,19 +548,28 @@ export const consistencyRoutes: FastifyPluginAsync = async (app) => {
     return latest
   })
 
+  // Alias at the UI's preferred path. Accepts the same body the canonical
+  // /:submissionId/validation/run accepts — validator choice + the three
+  // counts. Trust-caller remains the model until the EXTEDO/Lorenz client
+  // lands; the alias no longer hardcodes `minorCount: 2` so a QA pass
+  // asserting "clean validation" produces the shape a vendor run would.
   app.post('/:submissionId/ectd-validation/run', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
     const { submissionId } = request.params as { submissionId: string }
+    const parsed = runValidationSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
     if (!sub) return reply.code(404).send({ error: 'not_found' })
-    // Vendor integration deferred (EXTEDO/Lorenz). Deterministic stub result.
+
+    const passed = parsed.data.criticalCount === 0 && parsed.data.majorCount === 0
+
     const result = await app.prisma.ectdValidationResult.create({
       data: {
         submissionId,
-        validator: 'extedo',
-        criticalCount: 0,
-        majorCount: 0,
-        minorCount: 2,
-        passed: true,
+        validator:     parsed.data.validator,
+        criticalCount: parsed.data.criticalCount,
+        majorCount:    parsed.data.majorCount,
+        minorCount:    parsed.data.minorCount,
+        passed,
       },
     })
     await app.audit.append({
@@ -429,7 +578,15 @@ export const consistencyRoutes: FastifyPluginAsync = async (app) => {
       action: 'ectd_validation_run',
       entityType: 'reg_submission',
       entityId: submissionId,
-      details: { resultId: result.id, aliasPath: 'ectd-validation/run', stub: true },
+      details: {
+        resultId:      result.id,
+        validator:     parsed.data.validator,
+        criticalCount: parsed.data.criticalCount,
+        majorCount:    parsed.data.majorCount,
+        minorCount:    parsed.data.minorCount,
+        passed,
+        aliasPath:     'ectd-validation/run',
+      },
       ipAddress: request.ip ?? null,
     })
     return { runAt: result.runAt.toISOString(), result }

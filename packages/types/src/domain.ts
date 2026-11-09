@@ -50,7 +50,8 @@ export interface User {
   name: string
   initials: string
   role: string
-  roles?: string[]           // every role held, primary first (GET /auth/me)
+  roles?: string[]           // the role(s) in use — narrowed to the active role for a two-role user
+  allRoles?: string[]        // every role held, primary first (GET /auth/me) — the top-bar role switcher
   email: string
   colourKey: keyof typeof USER_COLOURS
 }
@@ -1630,6 +1631,9 @@ export interface PlatformUser {
   role:       PlatformUserRole
   // Every role held, primary first (a user may hold two — rights are the union). Absent = [role].
   roles?:     PlatformUserRole[]
+  // Every role held, primary first. A two-role user works as one at a time (role / roles above) and
+  // switches from the top bar; absent = roles.
+  allRoles?:  PlatformUserRole[]
   modules:    Array<'A' | 'B' | 'C' | 'D' | 'E'>
   status:     PlatformUserStatus
   lastActive: string | null

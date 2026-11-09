@@ -20,6 +20,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { chooseModel } from '../../platform/config/ai-engine-settings.js'
 import { invalidTaBody, resolveTa } from '../../platform/taxonomy/validate.js'
 import {
   complianceTrackIsLocked,
@@ -196,9 +197,9 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
   })
 
   // Portfolio = same list but with the optional ?scope filter the UI's
-  // ContentPortfolio screen passes. Implemented as a thin wrapper so the
-  // UI route lands end-to-end; richer analytics (channel/TA/status roll-ups)
-  // can swap in without breaking the client contract.
+  // ContentPortfolio screen passes. Kept as a bare array for backwards
+  // compatibility with the existing client; the analytics roll-up lands
+  // under the separate /portfolio/summary endpoint below.
   app.get('/:projectId/med-content/portfolio', { preHandler: requireAuth({ modules: ['C'] }) }, async (request) => {
     const { projectId } = request.params as { projectId: string }
     const { scope } = (request.query ?? {}) as { scope?: string }
@@ -213,6 +214,93 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
       orderBy: { updatedAt: 'desc' },
     })
     return rows.map(medContentShape)
+  })
+
+  // Portfolio analytics roll-up. The ContentPortfolio dashboard
+  // renders status + type + tier distributions + an "expiring soon"
+  // card; serving pre-computed counts avoids the UI recounting on
+  // every render and the eventual move to a paginated list.
+  //
+  // Returns:
+  //   totals.active / archived
+  //   byStatus       { briefing, in_authoring, in_mlr_review, approved, … }
+  //   byStage        { 1, 2, 3, 4, 5, 6 }
+  //   byType         { hcp_deck, pil, cme_module, mi_letter, … }
+  //   byComplianceTrack { promotional, non_promotional, cme, advisory }
+  //   byReviewTier   { A, B, C, untiered }
+  //   expiringSoon.count (expiry <= 60 days from now; patient-facing only)
+  //   patientFacingFk.pass / fail / unscored
+  app.get('/:projectId/med-content/portfolio/summary', { preHandler: requireAuth({ modules: ['C'] }) }, async (request) => {
+    const { projectId } = request.params as { projectId: string }
+
+    // Patient-facing types (DD-C-002 — FK gate scope). Mirrored from
+    // pre-mlr/routes.ts PATIENT_FACING_TYPES to keep the two views in
+    // lockstep; duplicating the constant is cheap and avoids a cross-
+    // directory import.
+    const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
+      'pil', 'pls_eu_ctr', 'patient_education',
+    ])
+
+    const now  = new Date()
+    const soon = new Date(now)
+    soon.setDate(soon.getDate() + 60)
+
+    const rows = await app.prisma.medContentItem.findMany({
+      where:  { projectId },
+      select: {
+        status:          true,
+        stage:           true,
+        type:            true,
+        complianceTrack: true,
+        reviewTier:      true,
+        archivedAt:      true,
+        expiryDate:      true,
+        fkPassed:        true,
+      },
+    })
+
+    const active = rows.filter(r => r.archivedAt === null)
+
+    const byStatus: Record<string, number> = {}
+    const byStage:  Record<string, number> = {}
+    const byType:   Record<string, number> = {}
+    const byComplianceTrack: Record<string, number> = {}
+    const byReviewTier:     Record<string, number> = { A: 0, B: 0, C: 0, untiered: 0 }
+    let expiringSoonCount = 0
+    const patientFk = { pass: 0, fail: 0, unscored: 0 }
+
+    for (const r of active) {
+      byStatus[r.status] = (byStatus[r.status] ?? 0) + 1
+      const stageKey = String(r.stage)
+      byStage[stageKey] = (byStage[stageKey] ?? 0) + 1
+      byType[r.type] = (byType[r.type] ?? 0) + 1
+      byComplianceTrack[r.complianceTrack] = (byComplianceTrack[r.complianceTrack] ?? 0) + 1
+      const tierKey = r.reviewTier ?? 'untiered'
+      byReviewTier[tierKey] = (byReviewTier[tierKey] ?? 0) + 1
+      if (r.expiryDate && r.expiryDate >= now && r.expiryDate <= soon) expiringSoonCount += 1
+      if (PATIENT_FACING_TYPES.has(r.type)) {
+        if (r.fkPassed === true)       patientFk.pass     += 1
+        else if (r.fkPassed === false) patientFk.fail     += 1
+        else                           patientFk.unscored += 1
+      }
+    }
+
+    return {
+      totals: {
+        active:   active.length,
+        archived: rows.length - active.length,
+      },
+      byStatus,
+      byStage,
+      byType,
+      byComplianceTrack,
+      byReviewTier,
+      expiringSoon: {
+        count:       expiringSoonCount,
+        windowDays:  60,
+      },
+      patientFacingFk: patientFk,
+    }
   })
 }
 
@@ -498,29 +586,114 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
     ]
   })
 
-  // --- AI suggest (stub) ---------------------------------------------
-  // Deterministic stub pending the Anthropic connector (Arc 8.1).
+  // --- AI suggest --------------------------------------------------
+  // Calls the real AI gateway with a compact content-aware prompt.
+  // Mirrors the Clinical Writing /ai-suggest + Scientific Writing
+  // peer-review-draft wiring.
+  //
+  // Body:
+  //   { sectionId?: string, prompt?: string, currentContent?: string }
+  //
+  // Response:
+  //   { responseText, aiModel, generatedAt, recordId? }
+  //
+  // 429 on quota exhaustion; non-quota gateway failure returns a
+  // short "AI unavailable" stub so the user can still proceed by
+  // writing manually.
   app.post('/:contentId/ai-suggest', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
-    const body = (request.body ?? {}) as { sectionId?: string; prompt?: string }
+    const body = (request.body ?? {}) as {
+      sectionId?:      string
+      prompt?:         string
+      currentContent?: string
+    }
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
-    await app.audit.append({
-      timestamp: new Date().toISOString(),
-      actorId: request.user!.id,
-      action: 'ai_suggest_generated',
-      entityType: 'med_content',
-      entityId: contentId,
-      details: { sectionId: body.sectionId, model: 'stub-advisor-v1' },
-      ipAddress: request.ip ?? null,
-    })
-    return {
-      responseText:
-        `[AI stub — Anthropic connector pending] Suggested wording for ${body.sectionId ?? 'this section'}: ` +
-        `Veloricept + pembrolizumab significantly improved PFS vs pembrolizumab alone (HR 0.61; 95% CI 0.48–0.77; p<0.001), ` +
-        `with a safety profile consistent with pembrolizumab monotherapy.`,
-      aiModel: 'stub-advisor-v1',
-      generatedAt: new Date().toISOString(),
+
+    const sectionLabel = body.sectionId ?? 'this section'
+    const instruction  = (body.prompt ?? '').trim() || 'Suggest improved wording for this section, preserving every data point.'
+
+    const systemPrompt = [
+      'You are a medical-communications assistant drafting content for a regulated medical / pharmaceutical deliverable (HCP deck, PIL, MI letter, CME module, advisory board agenda, etc.).',
+      '',
+      'RULES',
+      '1. Produce only the suggested wording — no preamble, no headings, no "Here is...".',
+      '2. Do not invent clinical facts, numbers, statistics, or references. If the ask requires specifics you do not have, insert `[Information Required: <what>]` inline.',
+      '3. Match the register of the content type (HCP: scientific, measured; patient: plain language; CME: instructional).',
+      '4. Preserve every data point and reference in the current content — do not drop a number or drug name without an explicit instruction to do so.',
+      '5. Avoid marketing phrasing in non-promotional / CME content.',
+    ].join('\n')
+
+    const userPrompt = [
+      `Content item: ${item.title ?? item.id}`,
+      `Type: ${item.type ?? 'unknown'}`,
+      `Compliance track: ${item.complianceTrack ?? 'unknown'}`,
+      `Section: ${sectionLabel}`,
+      '',
+      body.currentContent ? `Current content:\n${body.currentContent}` : '(section is currently empty)',
+      '',
+      `Instruction: ${instruction}`,
+    ].join('\n')
+
+    try {
+      const model = await chooseModel(app.prisma)
+      const result = await app.aiGateway.chat({
+        tenantId:  request.user!.tenantId,
+        projectId: item.projectId ?? 'unknown',
+        actorId:   request.user!.id,
+        module:    'C',
+        intent:    'content_suggest',
+        model,
+        prompt:    `${systemPrompt}\n\n---\n\n${userPrompt}`,
+        maxOutputTokens: 1024,
+      })
+
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'ai_suggest_generated',
+        entityType: 'med_content',
+        entityId:   contentId,
+        details: {
+          sectionId:     body.sectionId ?? null,
+          model:         result.model,
+          aiCallRecordId: result.recordId,
+        },
+        ipAddress: request.ip ?? null,
+      })
+
+      return {
+        responseText: result.responseText,
+        aiModel:      result.model,
+        recordId:     result.recordId,
+        generatedAt:  new Date().toISOString(),
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      app.log.warn({ err, contentId }, 'content ai-suggest fell back to stub')
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'ai_suggest_generated',
+        entityType: 'med_content',
+        entityId:   contentId,
+        details: {
+          sectionId: body.sectionId ?? null,
+          model:     'stub-fallback',
+          reason:    err instanceof Error ? err.message : String(err),
+        },
+        ipAddress: request.ip ?? null,
+      })
+      return {
+        responseText:
+          `[AI temporarily unavailable — please draft manually] Starting point for ${sectionLabel}: ` +
+          `[Information Required: insert the specific wording addressing "${instruction}"].`,
+        aiModel:     'stub-fallback',
+        generatedAt: new Date().toISOString(),
+        stub:        true,
+      }
     }
   })
 

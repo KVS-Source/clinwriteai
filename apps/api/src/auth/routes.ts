@@ -255,12 +255,18 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     const profile = await app.prisma.user
       .findUnique({
         where: { id: user.id },
-        select: { name: true, initials: true, status: true, lastActiveAt: true, mustChangePassword: true },
+        select: { name: true, initials: true, status: true, lastActiveAt: true, mustChangePassword: true, role: true, additionalRoles: true },
       })
       .catch(() => null)                       // synthetic users (e.g. the collab sidecar) have no row
     const name = profile?.name ?? user.email
+    // role / roles are the role this request runs as (X-Active-Role, see active-role.ts); allRoles is
+    // every role the user holds, primary first, so the top bar can offer the switch.
+    const allRoles = profile?.role
+      ? [profile.role, ...(profile.additionalRoles ?? []).filter(r => r !== profile.role)]
+      : (user.roles ?? [user.role])
     return {
       ...user,
+      allRoles,
       name,
       initials: profile?.initials ?? initialsOf(name),
       status: profile?.status ?? 'active',

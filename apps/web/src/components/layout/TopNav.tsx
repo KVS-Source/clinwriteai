@@ -15,6 +15,7 @@ import { MODULE_KEY_TO_LABEL, type ModuleKey } from '../../config/modules'
 import { useTranslation } from 'react-i18next'
 import { useAppLanguage } from '../../i18n/useAppLanguage'
 import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS } from '../../i18n'
+import { chooseActiveRole, clearActiveRole } from '../../config/activeRole'
 
 // Module slug → i18n key for the breadcrumb crumb between the project and
 // the document. Kept inline since this is the only consumer of the mapping;
@@ -108,6 +109,47 @@ const ROLE_COLOUR: Record<string, string> = {
   'creative-team-member':      '#0D9488',
 }
 
+// Role switcher (as in Genrac): a user who holds two roles works as one at a time. Lists every role
+// held, marks the one in use, and switching reloads so every screen and query starts over as the new
+// role; the API is told the same role on every request (config/activeRole.ts). Single-role: hidden.
+function RoleSwitchSection({ userId, active, roles }: { userId: string; active: string; roles: readonly string[] }) {
+  const { t } = useTranslation()
+  if (roles.length < 2) return null
+  const pick = (role: string) => {
+    if (role === active) return
+    chooseActiveRole(userId, role)
+    window.location.assign('/home')
+  }
+  return (
+    <div className="border-t border-slate-100 px-3 py-2.5" data-role-switcher>
+      <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('component.top_nav.switch_role')}</p>
+      <p className="mt-0.5 text-[11px] text-slate-500">{t('component.top_nav.switch_role_hint', { count: roles.length })}</p>
+      <div className="mt-1.5 flex flex-col gap-1" role="radiogroup" aria-label={t('component.top_nav.switch_role')}>
+        {roles.map(r => {
+          const current = r === active
+          return (
+            <button
+              key={r}
+              type="button"
+              role="radio"
+              aria-checked={current}
+              onClick={() => pick(r)}
+              data-role-option={r}
+              data-current={current || undefined}
+              className={`flex w-full items-center justify-between rounded-md border px-2.5 py-1.5 text-left text-[12px] font-medium transition-colors ${
+                current ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50'
+              }`}
+            >
+              <span>{PLATFORM_USER_ROLE_LABEL[r as keyof typeof PLATFORM_USER_ROLE_LABEL] ?? r}</span>
+              {current && <span className="font-mono text-[10px] font-semibold uppercase">{t('component.top_nav.role_current')}</span>}
+            </button>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 export function TopNav() {
   const navigate       = useNavigate()
   const { pathname }   = useLocation()
@@ -188,6 +230,7 @@ export function TopNav() {
   ].filter(Boolean) as Array<{ label: string; href: string | null }>
 
   const currentRoleLabel = PLATFORM_USER_ROLE_LABEL[currentUser.role] ?? currentUser.role
+  const heldRoles = currentUser.allRoles && currentUser.allRoles.length > 0 ? currentUser.allRoles : [currentUser.role]
 
   // Persona list for the switcher — the real users, via /auth/demo-personas,
   // so every persona (admin or contributor) sees the same names. Lazy: only
@@ -236,6 +279,7 @@ export function TopNav() {
     setLoggingOut(true)
     try { await authApi.logout() } catch { /* still sign out locally */ }
     clearPersonaOverride()
+    clearActiveRole()
     logoutLocal()
     window.location.assign('/sign-in')
   }
@@ -245,6 +289,7 @@ export function TopNav() {
   const signOut = async () => {
     setSigningOut(true)
     await authApi.logout().catch(() => undefined)
+    clearActiveRole()
     window.location.assign('/sign-in')
   }
 
@@ -315,7 +360,10 @@ export function TopNav() {
             >{initialsFor(currentUser.name)}</span>
             <div className="hidden text-left sm:block">
               <p className="text-sm font-semibold leading-tight text-white">{currentUser.name}</p>
-              <p className="text-xs leading-tight text-slate-400">{currentRoleLabel}</p>
+              <p className="text-xs leading-tight text-slate-400" data-current-role={currentUser.role}>
+                {currentRoleLabel}
+                {heldRoles.length > 1 && <span className="ml-1 text-slate-500" title={t('component.top_nav.switch_role')} data-roles-held={heldRoles.length}>· {t('component.top_nav.roles_held', { count: heldRoles.length })}</span>}
+              </p>
             </div>
             <span className="text-slate-400"><ChevronIcon /></span>
           </button>
@@ -329,8 +377,11 @@ export function TopNav() {
               <div className="px-3 py-2.5" style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>
                 <p className="truncate text-[13px] font-semibold text-slate-900">{currentUser.name}</p>
                 <p className="truncate text-[11px] text-slate-500">{currentUser.email}</p>
-                <p className="mt-0.5 font-mono text-[10px] text-slate-500">{currentRoleLabel}</p>
+                <p className="mt-0.5 font-mono text-[10px] text-slate-500" data-account-roles>
+                  {heldRoles.map(r => PLATFORM_USER_ROLE_LABEL[r] ?? r).join(' · ')}
+                </p>
               </div>
+              <RoleSwitchSection userId={currentUser.id} active={currentUser.role} roles={heldRoles} />
               <button
                 type="button"
                 onClick={() => { setOpen(false); navigate('/set-password') }}
@@ -396,6 +447,10 @@ export function TopNav() {
                   <LogOutIcon />
                   {loggingOut ? t('component.top_nav.logging_out') : t('component.top_nav.log_out')}
                 </button>
+              </div>
+
+              <div className="flex-none [&>div]:border-t-0" style={{ borderBottom: heldRoles.length > 1 ? '1px solid #E2E8F0' : undefined }}>
+                <RoleSwitchSection userId={currentUser.id} active={currentUser.role} roles={heldRoles} />
               </div>
 
               <div className="flex-none px-3 py-2" style={{ backgroundColor: '#F8FAFC', borderBottom: '1px solid #E2E8F0' }}>

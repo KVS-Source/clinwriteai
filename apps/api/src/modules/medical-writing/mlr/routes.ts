@@ -521,7 +521,7 @@ export const mlrRoutes: FastifyPluginAsync = async (app) => {
 
 // --- helpers --------------------------------------------------------------
 
-async function nextMlrCommentId(prisma: import('@prisma/client').PrismaClient, contentItemId: string): Promise<string> {
+export async function nextMlrCommentId(prisma: import('@prisma/client').PrismaClient, contentItemId: string): Promise<string> {
   // Same per-entity sequential pattern as Module A comments (CMT-###).
   const rows = await prisma.mlrComment.findMany({
     where: { contentItemId, id: { startsWith: 'MLR-C-' } },

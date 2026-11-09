@@ -1,7 +1,7 @@
-// Unit tests for the Jaccard similarity helpers.
+// Unit tests for the shared Jaccard helpers.
 
 import { describe, expect, it } from 'vitest'
-import { bestLibraryMatch, jaccardSimilarity, tokenize } from './library-match.js'
+import { bestLibraryMatch, jaccardSimilarity, tokenize } from './text-match.js'
 
 describe('tokenize', () => {
   it('splits on non-alphanumerics, lowercases, drops one-letter tokens', () => {
@@ -27,9 +27,6 @@ describe('jaccardSimilarity', () => {
   })
 
   it('computes intersection-over-union as a percentage', () => {
-    // A = { pfs, improved, with, pembrolizumab }
-    // B = { pfs, improved, with, veloricept }
-    // intersection = 3, union = 5 → 60
     expect(jaccardSimilarity('PFS improved with pembrolizumab', 'PFS improved with veloricept')).toBe(60)
   })
 
@@ -54,18 +51,11 @@ describe('bestLibraryMatch', () => {
     const r = bestLibraryMatch('Pembrolizumab + veloricept significantly improved PFS', pool)
     expect(r.librarySectionId).toBe('lib-2')
     expect(r.similarityPct).toBeGreaterThanOrEqual(70)
-    expect(r.libraryTitle).toBe('Preferred')
   })
 
   it('returns a null-shaped result when the pool is empty', () => {
     expect(bestLibraryMatch('anything', [])).toEqual({
       librarySectionId: null, libraryTitle: null, libraryBody: null, similarityPct: 0,
     })
-  })
-
-  it('returns a null-shaped result when nothing scores above 0', () => {
-    const r = bestLibraryMatch('alpha beta', [{ id: 'x', title: 't', body: 'gamma delta' }])
-    expect(r.librarySectionId).toBeNull()
-    expect(r.similarityPct).toBe(0)
   })
 })

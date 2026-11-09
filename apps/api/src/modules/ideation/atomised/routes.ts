@@ -15,6 +15,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { bestLibraryMatch } from '../../platform/library/text-match.js'
 
 const atomiseSchema = z.object({
   channel: z.enum([
@@ -28,11 +29,37 @@ const atomiseSchema = z.object({
   complianceScreenPassed: z.boolean().default(false),
 })
 
+// Currency-check request. Two input modes:
+//
+//   mode A (preferred — server-driven):
+//     { claimTexts: ['claim one', 'claim two'] }
+//     The route matches each text against LibrarySection (category=
+//     'claim', isCurrent + non-retired) via token Jaccard and
+//     classifies each result:
+//       - matches current library row  → current (extracted)
+//       - matches retired library row  → superseded
+//       - matches 80%+ a library row that was itself superseded by
+//         another isCurrent row                → superseded
+//       - no match above threshold             → extracted (new)
+//     Conflicting detection (semantic contradiction) still needs the
+//     AI pass — caller can supply conflictingClaims explicitly.
+//
+//   mode B (legacy passthrough):
+//     { claimsExtracted, supersededClaims, conflictingClaims }
+//     Caller already classified; we persist as-is. Kept for backward
+//     compatibility with UIs that haven't adopted claimTexts yet.
+//
+// At least one of claimTexts or the three legacy arrays must be
+// supplied (else the request has nothing to record).
 const runCurrencySchema = z.object({
+  claimTexts: z.array(z.string().min(1).max(2000)).max(100).optional(),
   claimsExtracted: z.array(z.unknown()).default([]),
   supersededClaims: z.array(z.unknown()).default([]),
   conflictingClaims: z.array(z.unknown()).default([]),
 })
+
+/** Similarity floor to consider a claim "matched" to a library row. */
+const CURRENCY_MATCH_THRESHOLD = 60
 
 function computeFootprintHash(cardId: string, channel: string, text: string, model: string): string {
   return createHash('sha256')
@@ -205,12 +232,61 @@ export const atomisedRoutes: FastifyPluginAsync = async (app) => {
     const artefact = await app.prisma.ideationArtefact.findUnique({ where: { id: artefactId } })
     if (!artefact) return reply.code(404).send({ error: 'not_found' })
 
+    let claimsExtracted  = parsed.data.claimsExtracted as unknown[]
+    let supersededClaims = parsed.data.supersededClaims as unknown[]
+    const conflictingClaims = parsed.data.conflictingClaims as unknown[]
+    let classifiedByServer = false
+
+    // Server-driven path: when the caller supplied claimTexts, match
+    // each against LibrarySection and classify. This REPLACES any
+    // empty-default extracted/superseded arrays (the client still
+    // keeps full control via the legacy passthrough path).
+    if (parsed.data.claimTexts && parsed.data.claimTexts.length > 0) {
+      // Pool: every claim-category library row — current + retired +
+      // superseded. We need the retired/superseded ones to detect
+      // "you're using outdated wording" cases.
+      const libraryPool = await app.prisma.librarySection.findMany({
+        where: { category: 'claim' },
+        select: {
+          id: true, title: true, body: true,
+          isCurrent: true, retiredAt: true, supersededBy: true,
+        },
+      })
+      const extractedRows: Array<Record<string, unknown>> = []
+      const supersededRows: Array<Record<string, unknown>> = []
+      for (const text of parsed.data.claimTexts) {
+        const match = bestLibraryMatch(text, libraryPool.map(r => ({ id: r.id, title: r.title, body: r.body })))
+        if (match.librarySectionId === null || match.similarityPct < CURRENCY_MATCH_THRESHOLD) {
+          // No reuse signal — treat as newly-extracted / unmatched.
+          extractedRows.push({ text, similarityPct: match.similarityPct, librarySectionId: null })
+          continue
+        }
+        const libRow = libraryPool.find(r => r.id === match.librarySectionId)!
+        const isStale = libRow.retiredAt !== null || !libRow.isCurrent || libRow.supersededBy !== null
+        const row: Record<string, unknown> = {
+          text,
+          similarityPct:    match.similarityPct,
+          librarySectionId: match.librarySectionId,
+          libraryTitle:     match.libraryTitle,
+        }
+        if (isStale) {
+          row.reason = libRow.retiredAt ? 'retired' : (libRow.supersededBy ? 'superseded_by_newer' : 'not_current')
+          supersededRows.push(row)
+        } else {
+          extractedRows.push(row)
+        }
+      }
+      claimsExtracted  = extractedRows
+      supersededClaims = supersededRows
+      classifiedByServer = true
+    }
+
     const run = await app.prisma.claimCurrencyCheck.create({
       data: {
         ideationArtefactId: artefactId,
-        claimsExtracted: parsed.data.claimsExtracted as unknown as object,
-        supersededClaims: parsed.data.supersededClaims as unknown as object,
-        conflictingClaims: parsed.data.conflictingClaims as unknown as object,
+        claimsExtracted:    claimsExtracted  as unknown as object,
+        supersededClaims:   supersededClaims as unknown as object,
+        conflictingClaims:  conflictingClaims as unknown as object,
       },
     })
 
@@ -222,9 +298,11 @@ export const atomisedRoutes: FastifyPluginAsync = async (app) => {
       entityId: artefactId,
       details: {
         runId: run.id,
-        extracted: parsed.data.claimsExtracted.length,
-        superseded: parsed.data.supersededClaims.length,
-        conflicting: parsed.data.conflictingClaims.length,
+        extracted:          claimsExtracted.length,
+        superseded:         supersededClaims.length,
+        conflicting:        conflictingClaims.length,
+        classifiedByServer,
+        similarityEngine:   classifiedByServer ? 'jaccard' : null,  // swap to 'pgvector-cosine' when X-2 lands
       },
       ipAddress: request.ip ?? null,
     })

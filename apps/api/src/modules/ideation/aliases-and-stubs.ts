@@ -38,6 +38,7 @@ import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { requireAuth } from '../../auth/rbac.js'
 import { resolveTa, invalidTaBody } from '../platform/taxonomy/validate.js'
+import { crossRefLookup, crossRefMint } from './crossref-client.js'
 
 // ---- enum mapping between UI (hyphen) + DB (underscore) -------------------
 //
@@ -633,6 +634,25 @@ export const ideationAliasesAndStubs: FastifyPluginAsync = async (app) => {
   // DOI register alias --------------------------------------------------
   // Client calls POST /ideation-cards/:cardId/doi/register { by };
   // canonical is POST /ideation/cards/:cardId/doi { doi, crossrefResponse? }.
+  //
+  // Minting flow (crossref-client.ts):
+  //   1. Resolve the DOI we intend to use. When CROSSREF_API_USER +
+  //      CROSSREF_API_PASSWORD are set in the env, crossRefMint()
+  //      will eventually call the real deposit endpoint (procurement-
+  //      gated — see crossref-client.ts). Without creds it reports
+  //      source='stub' and we store the suggested DOI locally so the
+  //      card has a stable identifier downstream.
+  //   2. Run crossRefLookup() against the public api.crossref.org
+  //      works endpoint to see whether the DOI is already live. A
+  //      hit means someone else already minted this DOI — we store
+  //      the lookup result in crossrefResponse so the UI can show
+  //      the published title/journal.
+  //
+  // Suggested DOI prefix stays '10.5555/aurora.' until a real prefix
+  // is allocated. Prefix lives on an env (CROSSREF_PREFIX) so a staging
+  // deploy can use a test prefix separate from prod.
+  const CROSSREF_PREFIX = process.env.CROSSREF_PREFIX ?? '10.5555/aurora'
+
   app.post('/ideation-cards/:cardId/doi/register', { preHandler: eGate }, async (request, reply) => {
     const { cardId } = request.params as { cardId: string }
     const body = (request.body ?? {}) as { by?: string }
@@ -644,13 +664,38 @@ export const ideationAliasesAndStubs: FastifyPluginAsync = async (app) => {
       return { doi: existing.doi, registeredAt: existing.registeredAt.toISOString() }
     }
 
-    // CrossRef mint deferred — stub DOI with the aurora prefix.
-    const doi = `10.5555/aurora.${cardId.slice(0, 10)}`
+    const doi = `${CROSSREF_PREFIX}.${cardId.slice(0, 10)}`
+
+    // Public lookup first — if the DOI is somehow already minted
+    // externally, capture the metadata rather than overwrite.
+    const lookup = await crossRefLookup(doi)
+    // Attempt mint — returns source='stub' when creds absent.
+    // IdeationContentCard has no explicit title column — use the
+    // sourcePassage (truncated) as the deposit title. Real deposit
+    // would prefer the fully-rendered card headline; shape here is
+    // forwards-compatible.
+    const depositTitle = card.sourcePassage.slice(0, 200)
+    const mint   = await crossRefMint({ doi, title: depositTitle, url: `/cards/${card.id}` })
+
     const created = await app.prisma.doiRecord.create({
       data: {
         ideationContentCardId: cardId,
         doi,
-        crossrefResponse: { stub: true, by: body.by ?? request.user!.id } as unknown as object,
+        crossrefResponse: {
+          mint: {
+            source:       mint.source,
+            reason:       mint.reason ?? null,
+            submissionId: mint.submissionId ?? null,
+          },
+          lookup: {
+            found:   lookup.found,
+            title:   lookup.title ?? null,
+            journal: lookup.journal ?? null,
+            year:    lookup.year ?? null,
+            reason:  lookup.reason ?? null,
+          },
+          by: body.by ?? request.user!.id,
+        } as unknown as object,
       },
     })
 
@@ -660,10 +705,22 @@ export const ideationAliasesAndStubs: FastifyPluginAsync = async (app) => {
       action: 'doi_registered',
       entityType: 'ideation_card',
       entityId: cardId,
-      details: { doi, by: body.by ?? request.user!.id, aliasPath: 'doi/register', stub: true },
+      details: {
+        doi,
+        by: body.by ?? request.user!.id,
+        aliasPath: 'doi/register',
+        mintSource: mint.source,
+        mintReason: mint.reason ?? null,
+        lookupFound: lookup.found,
+      },
       ipAddress: request.ip ?? null,
     })
-    return { doi: created.doi, registeredAt: created.registeredAt.toISOString() }
+    return {
+      doi:          created.doi,
+      registeredAt: created.registeredAt.toISOString(),
+      mintSource:   mint.source,
+      lookupFound:  lookup.found,
+    }
   })
 
   // Dublin Core POST (UI shape) — forwards to the PUT upsert.

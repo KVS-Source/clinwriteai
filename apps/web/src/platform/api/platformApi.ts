@@ -409,6 +409,24 @@ export const platformApi = {
       throw err
     }
   },
+  // Admin-only CRUD surface for the Policy Admin screen (step 7).
+  // writeGate on the API is tenant-admin / super-admin / admin — the
+  // AdminGuard on the screen keeps the client in agreement.
+  listDocumentTypePolicies: () =>
+    api.get<{ policies: DocumentTypePolicy[] }>(`/document-type-policies`),
+  createDocumentTypePolicy: (body: DocumentTypePolicyCreateBody) =>
+    api.post<DocumentTypePolicy>(`/document-type-policies`, body),
+  updateDocumentTypePolicy: (docType: string, body: DocumentTypePolicyUpdateBody) =>
+    api.patch<DocumentTypePolicy>(`/document-type-policies/${encodeURIComponent(docType)}`, body),
+  bumpDocumentTypePolicy: (docType: string, body: DocumentTypePolicyBumpBody) =>
+    api.post<DocumentTypePolicy>(`/document-type-policies/${encodeURIComponent(docType)}/bump`, body),
+  retireDocumentTypePolicy: (docType: string, reason: string) =>
+    api.post<DocumentTypePolicy>(`/document-type-policies/${encodeURIComponent(docType)}/retire`, { reason }),
+  distillBestPractice: (docType: string, uploadId: string) =>
+    api.post<{ jobId: string; policyId: string; docType: string; version: number }>(
+      `/document-type-policies/${encodeURIComponent(docType)}/distill-best-practice`,
+      { uploadId },
+    ),
 }
 
 export interface ExternalApiCredentialRow {
@@ -466,4 +484,27 @@ export interface DocumentTypePolicy {
   updatedBy:           string
   createdAt:           string
   updatedAt:           string
+}
+
+// Shared body shape. `sectionRules` matches the API's Zod
+// `sectionRulesSchema`: keyed by stable section key.
+export interface DocumentTypePolicyEditableFields {
+  smePrompt?:           string
+  bestPracticeDigest?:  BestPracticeDigest
+  sectionRules?:        Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+  templateId?:          string | null
+  checklistTemplateId?: string | null
+  ichFramework?:        string | null
+}
+
+export interface DocumentTypePolicyCreateBody extends DocumentTypePolicyEditableFields {
+  docType:    string
+  smePrompt:  string          // required on create (API Zod)
+}
+
+export type DocumentTypePolicyUpdateBody = DocumentTypePolicyEditableFields
+
+export interface DocumentTypePolicyBumpBody extends DocumentTypePolicyEditableFields {
+  smePrompt:    string        // required on bump (API Zod re-posts the whole body)
+  changeReason: string
 }

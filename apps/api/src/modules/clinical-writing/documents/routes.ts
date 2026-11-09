@@ -30,6 +30,7 @@ import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonom
 import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES } from './template-sections.js'
 import { actorManagesProject } from '../../projects/project-managers.js'
 import { DocumentService, hashSections } from './service.js'
+import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { buildComplianceSummary } from '../checklist/compliance-summary.js'
 import { pdfFileName } from '../../platform/library/pdf-renderer.js'
@@ -280,6 +281,7 @@ const transitionSchema = z.object({
 
 export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
   const svc = new DocumentService(app.prisma)
+  const policySvc = new DocumentTypePolicyService(app.prisma)
 
   // List all documents under a project.
   // Returns metadata-only shape — section bodies are too heavy for a list.
@@ -396,6 +398,18 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       app.log.warn({ err, type: parsed.data.type }, 'document template lookup failed — using built-in sections (run `npm --workspace=apps/api run db:migrate`)')
     })
 
+    // DocumentTypePolicy lookup — one row per doc type carrying the SME
+    // prompt, best-practice digest, section rules, and the preferred
+    // templateId / checklistTemplateId. When present, its templateId acts
+    // as the default pick if the caller didn't pass one. The policy
+    // version is pinned on the Document so later bumps don't rewrite
+    // which rules this document was authored under. Policy docType uses
+    // the underscored canonical form (ADR 0001); documents may still
+    // arrive hyphenated from legacy clients.
+    const policyDocType = parsed.data.type.replace(/-/g, '_')
+    const policy = await policySvc.getCurrent(policyDocType)
+    const effectiveTemplateId = parsed.data.templateId ?? policy?.templateId ?? undefined
+
     const { document, version } = await svc.create({
       projectId,
       type: parsed.data.type,
@@ -404,9 +418,10 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       sections,
       assigneeId: parsed.data.assigneeId,
       createdBy: request.user!.id,
-      templateId: parsed.data.templateId,
+      templateId: effectiveTemplateId,
       targetCompletionDate: parsed.data.targetCompletionDate ? new Date(parsed.data.targetCompletionDate) : undefined,
       aiInstructions: parsed.data.aiInstructions?.trim() || undefined,
+      policyVersionAtCreate: policy?.version,
     })
 
     if (sourceUploadIds.length) {
@@ -450,7 +465,15 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       action: 'document_created',
       entityType: 'document',
       entityId: document.id,
-      details: { projectId, type: document.type, title: document.title, initialVersion: version.versionNumber, sourceUploadIds },
+      details: {
+        projectId,
+        type:                 document.type,
+        title:                document.title,
+        initialVersion:       version.versionNumber,
+        sourceUploadIds,
+        policyVersion:        policy?.version         ?? null,
+        policyTemplateApplied: !parsed.data.templateId && !!policy?.templateId,
+      },
       ipAddress: request.ip ?? null,
     })
 

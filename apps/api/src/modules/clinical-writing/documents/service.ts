@@ -57,6 +57,11 @@ export interface CreateDocumentArgs {
   /** Author's free-text prompt to the AI drafter. Flows into every AI
    *  call for this doc. Max 2000 chars (enforced at the route edge). */
   aiInstructions?: string
+  /** DocumentTypePolicy.version that was current at creation time. Pinned
+   *  on the Document row so later policy bumps don't rewrite history —
+   *  AI assembly for this doc keeps resolving against the version it was
+   *  authored under. Null when no policy exists for the doc type. */
+  policyVersionAtCreate?: number
 }
 
 export class DocumentService {
@@ -75,6 +80,7 @@ export class DocumentService {
           templateId: args.templateId ?? null,
           targetCompletionDate: args.targetCompletionDate ?? null,
           aiInstructions: args.aiInstructions ?? null,
+          policyVersionAtCreate: args.policyVersionAtCreate ?? null,
           status: 'not_started',
           stage: 'study_start_up',
         },

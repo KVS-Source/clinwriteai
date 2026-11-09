@@ -70,6 +70,12 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
     documentTemplate: {
       findFirst: vi.fn(async () => null),
     },
+    // DocumentTypePolicy lookup: these tests don't exercise the policy
+    // path. Returning null leaves templateId + policyVersionAtCreate at
+    // the caller's defaults (same shape as pre-policy behaviour).
+    documentTypePolicy: {
+      findFirst: vi.fn(async () => null),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: audit } as never)

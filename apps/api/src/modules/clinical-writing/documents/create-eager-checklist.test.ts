@@ -57,6 +57,12 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
     documentTemplate: {
       findFirst: vi.fn(async () => null),
     },
+    // DocumentTypePolicy: eager-checklist tests don't exercise the policy
+    // lookup; returning null keeps the template fallbacks these tests
+    // actually cover.
+    documentTypePolicy: {
+      findFirst: vi.fn(async () => null),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)

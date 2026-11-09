@@ -181,7 +181,11 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
 
     const upload = await app.prisma.documentUpload.findFirst({ where: { id: uploadId, projectId } })
     if (!upload) return reply.code(404).send({ error: 'upload_not_found' })
-    if (!(await actorCanChangeSource(app.prisma, request.user!, upload))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
+    // `projectId` matched the route param in the findFirst filter, so it
+    // is non-null here even though Prisma widens the column to string|null
+    // (platform BP uploads use null projectId — those never reach this
+    // project-scoped route).
+    if (!(await actorCanChangeSource(app.prisma, request.user!, { ...upload, projectId }))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
     if (upload.status === 'rejected') return reply.code(409).send({ error: 'already_rejected' })
 
     const saved = await app.prisma.documentUpload.update({
@@ -225,7 +229,8 @@ export const documentsUploadRoutes: FastifyPluginAsync = async (app) => {
       where: { id: parsed.data.uploadId, projectId },
     })
     if (!upload) return reply.code(404).send({ error: 'upload_not_found' })
-    if (!(await actorCanChangeSource(app.prisma, request.user!, upload))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
+    // projectId non-null via the findFirst filter (see note above).
+    if (!(await actorCanChangeSource(app.prisma, request.user!, { ...upload, projectId }))) return reply.code(403).send(SOURCE_EDIT_FORBIDDEN)
     if (upload.status === 'confirmed') {
       return reply.code(409).send({ error: 'already_confirmed', documentId: upload.documentId })
     }

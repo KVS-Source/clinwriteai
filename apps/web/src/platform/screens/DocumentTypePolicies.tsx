@@ -181,7 +181,7 @@ function PolicyEditor({ policy, onChanged }: { policy: DocumentTypePolicy; onCha
   const [checklistTemplateId, setChecklistTemplateId] = useState(policy.checklistTemplateId ?? '')
   const [ichFramework,        setIchFramework]        = useState(policy.ichFramework ?? '')
   const [sectionRulesText,    setSectionRulesText]    = useState(JSON.stringify(policy.sectionRules ?? {}, null, 2))
-  const [uploadIdForDistill,  setUploadIdForDistill]  = useState('')
+  const [bpFile,              setBpFile]              = useState<File | null>(null)
   const [actionError,         setActionError]         = useState<string | null>(null)
   const [actionInfo,          setActionInfo]          = useState<string | null>(null)
   const [bumpReason,          setBumpReason]          = useState('')
@@ -224,9 +224,16 @@ function PolicyEditor({ policy, onChanged }: { policy: DocumentTypePolicy; onCha
   })
 
   const distill = useMutation({
-    mutationFn: () => platformApi.distillBestPractice(policy.docType, uploadIdForDistill.trim()),
-    onSuccess: (res) => { setActionInfo(`Distillation enqueued (job ${res.jobId}). Reload in a moment to see the digest.`); setActionError(null); setUploadIdForDistill('') },
-    onError:   (err: unknown) => { setActionError(errMessage(err, 'Distill enqueue failed')); setActionInfo(null) },
+    mutationFn: () => {
+      if (!bpFile) throw new Error('Pick a PDF first')
+      return platformApi.distillBestPracticeFile(policy.docType, bpFile)
+    },
+    onSuccess: (res) => {
+      setActionInfo(`Parser enqueued for ${res.fileName} — the digest will populate in a few moments. (job ${res.jobId})`)
+      setActionError(null)
+      setBpFile(null)
+    },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Parser enqueue failed')); setActionInfo(null) },
   })
 
   const onRetire = () => {
@@ -322,28 +329,42 @@ function PolicyEditor({ policy, onChanged }: { policy: DocumentTypePolicy; onCha
       <Field
         label={`Best-Practice digest (${digest.principles.length} principles)`}
         help={digest.distilledAt
-          ? `Distilled ${new Date(digest.distilledAt).toLocaleString()} by ${digest.distilledModel ?? 'unknown model'}.`
-          : 'No digest yet — distil a Best-Practice PDF below.'}
+          ? `Parsed ${new Date(digest.distilledAt).toLocaleString()} by ${digest.distilledModel ?? 'unknown model'}.`
+          : 'No digest yet — upload a Best-Practice PDF and the parser will convert it to structured principles.'}
       >
         <DigestPreview digest={digest} />
-        <div className="mt-2 flex items-center gap-2">
-          <input
-            type="text"
-            value={uploadIdForDistill}
-            onChange={e => setUploadIdForDistill(e.currentTarget.value)}
-            placeholder="DocumentUpload id (application/pdf)"
-            className="flex-1 rounded-md border border-slate-300 px-3 py-1.5 font-mono text-[12px]"
-            data-field="distill-upload-id"
-          />
-          <button
-            type="button"
-            onClick={() => distill.mutate()}
-            disabled={distill.isPending || !uploadIdForDistill.trim()}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            data-action="distill"
-          >
-            {distill.isPending ? 'Enqueuing…' : 'Distil'}
-          </button>
+        <div className="mt-2 flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3" data-bp-upload>
+          <div className="flex items-center gap-2">
+            <input
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={e => setBpFile(e.currentTarget.files?.[0] ?? null)}
+              className="flex-1 text-[12px]"
+              data-field="bp-pdf-file"
+            />
+            <button
+              type="button"
+              onClick={() => distill.mutate()}
+              disabled={distill.isPending || !bpFile}
+              className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              data-action="distill-file"
+            >
+              {distill.isPending ? 'Uploading + parsing…' : 'Upload + parse'}
+            </button>
+          </div>
+          {bpFile && (
+            <p className="text-[11px] text-slate-600">
+              Selected <span className="font-mono">{bpFile.name}</span>
+              {' · '}
+              {(bpFile.size / (1024 * 1024)).toFixed(2)} MB
+            </p>
+          )}
+          <p className="text-[11px] text-slate-500">
+            PDF only, up to 50&nbsp;MB. The parser extracts principles into
+            JSON — severity (<code>must</code>/<code>should</code>/<code>nice</code>) and scope
+            (<code>whole-doc</code> or <code>section:&lt;key&gt;</code>) — and overwrites the
+            digest on this policy once done.
+          </p>
         </div>
       </Field>
 

@@ -427,6 +427,23 @@ export const platformApi = {
       `/document-type-policies/${encodeURIComponent(docType)}/distill-best-practice`,
       { uploadId },
     ),
+  // One-shot admin upload for the Best Practices parser: pick a PDF,
+  // the server stores it as a platform DocumentUpload (projectId=null,
+  // sourceCategory='best_practice') AND enqueues distillation in the
+  // same request. UI polls the policy row for the digest to populate.
+  distillBestPracticeFile: (docType: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    return api.upload<{
+      jobId:     string
+      uploadId:  string
+      policyId:  string
+      docType:   string
+      version:   number
+      fileName:  string
+      sizeBytes: number
+    }>(`/document-type-policies/${encodeURIComponent(docType)}/distill-best-practice-file`, form)
+  },
 }
 
 export interface ExternalApiCredentialRow {

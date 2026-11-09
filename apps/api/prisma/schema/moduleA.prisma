@@ -469,7 +469,11 @@ model VoiceNote {
 
 model DocumentUpload {
   id                   String   @id @default(uuid())
-  projectId            String
+  // Nullable after migration 66 to carry platform-level uploads (e.g. the
+  // Best-Practice PDFs admins feed the DocumentTypePolicy distiller). A
+  // project source upload still populates this; a platform asset leaves
+  // it null + relies on `sourceCategory='best_practice'` for scoping.
+  projectId            String?
   uploadedBy           String                                          // User.id
   blobKey              String                                          // key in the 'documents' BlobStorage bucket
   fileName             String

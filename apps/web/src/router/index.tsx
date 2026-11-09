@@ -92,6 +92,7 @@ import { SubscriptionPayment }           from '../platform/screens/SubscriptionP
 import { ReportsAnalytics }              from '../platform/screens/ReportsAnalytics'
 import { ChecklistTemplatesAdmin }      from '../platform/screens/ChecklistTemplatesAdmin'
 import { DocumentTypePolicies }         from '../platform/screens/DocumentTypePolicies'
+import { AiPrompts }                    from '../platform/screens/AiPrompts'
 import { AdminGuard, NonAdminGuard, SuperAdminGuard }  from '../platform/components/guards'
 import { PublicationLayout }            from '../components/layout/PublicationLayout'
 import { SubmissionLayout }             from '../components/layout/SubmissionLayout'
@@ -143,6 +144,7 @@ export const router = createBrowserRouter([
       { path: 'admin/raci',     element: <AdminGuard><RACIMatrix /></AdminGuard> },
       { path: 'admin/checklist-templates', element: <AdminGuard><ChecklistTemplatesAdmin /></AdminGuard> },
       { path: 'admin/document-type-policies', element: <AdminGuard><DocumentTypePolicies /></AdminGuard> },
+      { path: 'admin/ai-prompts',             element: <AdminGuard><AiPrompts /></AdminGuard> },
       { path: 'notifications',  element: <NotificationCentre /> },
       { path: 'super-admin/frameworks', element: <SuperAdminGuard><RegulatoryFrameworkAdmin /></SuperAdminGuard> },
       { path: 'admin/frameworks',       element: <AdminGuard><RegulatoryFrameworkAdmin readOnly /></AdminGuard> },

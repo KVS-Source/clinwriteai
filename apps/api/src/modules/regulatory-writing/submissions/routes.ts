@@ -52,22 +52,101 @@ const patchNodeSchema = z.object({
   sectionTitle: z.string().optional(),
 })
 
-// Default seed when creating a submission. Keeps the UI usable even before
-// the real Module A linking lands.
+// Default seed when creating a submission. Mirrors the ICH M4 / CTD
+// backbone so the UI's eCTD tree lands with a usable skeleton before
+// Module A linking populates specific study reports. Nodes marked
+// `readOnly: true` are the Module 5 (clinical study reports) + Module
+// 4 (nonclinical reports) sections that DD-D-001 forbids editing here
+// — the content flows in from Module A; the tree node exists so the
+// ToC + validator can find it.
+//
+// NOT exhaustive: ICH M4 has 100+ nodes once you expand study-level
+// placeholders (one node per CSR, IB, per-species tox study, etc).
+// The real per-submission tree is grown by linking actual Module A
+// deliverables; this seed just carries the standing structural nodes
+// every submission has.
+//
+// References:
+//   ICH M4 — Common Technical Document (CTD) organisation
+//   FDA Module 1 v3.3 — regional administrative sections 1.1-1.14
 const DEFAULT_ECTD_NODES: ReadonlyArray<{ section: string; title: string; readOnly?: boolean; system?: boolean }> = [
-  { section: '1.1', title: 'Comprehensive Table of Contents', system: true },
-  { section: '2.1', title: 'CTD Table of Contents', system: true },
-  { section: '2.2', title: 'Introduction', system: true },
-  { section: '2.3', title: 'Quality Overall Summary' },
-  { section: '2.4', title: 'Nonclinical Overview' },
-  { section: '2.5', title: 'Clinical Overview' },
-  { section: '2.6', title: 'Nonclinical Written and Tabulated Summaries' },
-  { section: '2.7', title: 'Clinical Summary' },
-  { section: '3.2.S', title: 'Drug Substance' },
-  { section: '3.2.P', title: 'Drug Product' },
-  { section: '4.2.1', title: 'Pharmacology Studies', readOnly: true },     // Module 5-equivalent read-only
-  { section: '5.3.5.1', title: 'Study Reports of Controlled Clinical Studies', readOnly: true }, // Module 5
-  { section: '5.3.5.3', title: 'Reports of Analyses of Data from More Than One Study', readOnly: true }, // Module 5
+  // ---- Module 1 — Administrative (regional; FDA shape) ----
+  { section: '1.1',    title: 'Comprehensive Table of Contents',               system: true },
+  { section: '1.2',    title: 'Cover Letter',                                                },
+  { section: '1.3',    title: 'Administrative Information',                                 },
+  { section: '1.3.1',  title: 'Contact / Sponsor Information',                              },
+  { section: '1.4',    title: 'References',                                                 },
+  { section: '1.5',    title: 'Application Status',                                         },
+  { section: '1.14',   title: 'Labeling',                                                   },
+  { section: '1.14.1', title: 'Draft Labeling',                                             },
+  { section: '1.14.2', title: 'Final Labeling',                                             },
+
+  // ---- Module 2 — CTD Summaries ----
+  { section: '2.1',    title: 'CTD Table of Contents',                         system: true },
+  { section: '2.2',    title: 'Introduction',                                  system: true },
+  { section: '2.3',    title: 'Quality Overall Summary' },
+  { section: '2.3.S',  title: 'QOS — Drug Substance' },
+  { section: '2.3.P',  title: 'QOS — Drug Product' },
+  { section: '2.4',    title: 'Nonclinical Overview' },
+  { section: '2.5',    title: 'Clinical Overview' },
+  { section: '2.6',    title: 'Nonclinical Written and Tabulated Summaries' },
+  { section: '2.6.1',  title: 'Introduction' },
+  { section: '2.6.2',  title: 'Pharmacology Written Summary' },
+  { section: '2.6.3',  title: 'Pharmacology Tabulated Summary' },
+  { section: '2.6.4',  title: 'Pharmacokinetics Written Summary' },
+  { section: '2.6.5',  title: 'Pharmacokinetics Tabulated Summary' },
+  { section: '2.6.6',  title: 'Toxicology Written Summary' },
+  { section: '2.6.7',  title: 'Toxicology Tabulated Summary' },
+  { section: '2.7',    title: 'Clinical Summary' },
+  { section: '2.7.1',  title: 'Summary of Biopharmaceutic Studies' },
+  { section: '2.7.2',  title: 'Summary of Clinical Pharmacology Studies' },
+  { section: '2.7.3',  title: 'Summary of Clinical Efficacy' },
+  { section: '2.7.4',  title: 'Summary of Clinical Safety' },
+  { section: '2.7.5',  title: 'Literature References' },
+  { section: '2.7.6',  title: 'Synopses of Individual Studies' },
+
+  // ---- Module 3 — Quality ----
+  { section: '3.1',    title: 'Module 3 Table of Contents',                    system: true },
+  { section: '3.2.S.1', title: 'Drug Substance — General Information' },
+  { section: '3.2.S.2', title: 'Drug Substance — Manufacture' },
+  { section: '3.2.S.3', title: 'Drug Substance — Characterisation' },
+  { section: '3.2.S.4', title: 'Drug Substance — Control of Drug Substance' },
+  { section: '3.2.S.5', title: 'Drug Substance — Reference Standards or Materials' },
+  { section: '3.2.S.6', title: 'Drug Substance — Container Closure System' },
+  { section: '3.2.S.7', title: 'Drug Substance — Stability' },
+  { section: '3.2.P.1', title: 'Drug Product — Description and Composition' },
+  { section: '3.2.P.2', title: 'Drug Product — Pharmaceutical Development' },
+  { section: '3.2.P.3', title: 'Drug Product — Manufacture' },
+  { section: '3.2.P.4', title: 'Drug Product — Control of Excipients' },
+  { section: '3.2.P.5', title: 'Drug Product — Control of Drug Product' },
+  { section: '3.2.P.6', title: 'Drug Product — Reference Standards or Materials' },
+  { section: '3.2.P.7', title: 'Drug Product — Container Closure System' },
+  { section: '3.2.P.8', title: 'Drug Product — Stability' },
+  { section: '3.2.A',   title: 'Appendices' },
+  { section: '3.2.R',   title: 'Regional Information' },
+  { section: '3.3',     title: 'Literature References' },
+
+  // ---- Module 4 — Nonclinical Study Reports (readOnly — Module A sources) ----
+  { section: '4.1',    title: 'Module 4 Table of Contents',                    system: true },
+  { section: '4.2.1',  title: 'Pharmacology Studies',                          readOnly: true },
+  { section: '4.2.2',  title: 'Pharmacokinetics Studies',                      readOnly: true },
+  { section: '4.2.3',  title: 'Toxicology Studies',                            readOnly: true },
+  { section: '4.3',    title: 'Literature References' },
+
+  // ---- Module 5 — Clinical Study Reports (readOnly — Module A sources) ----
+  { section: '5.1',     title: 'Module 5 Table of Contents',                   system: true },
+  { section: '5.2',     title: 'Tabular Listing of All Clinical Studies',      system: true },
+  { section: '5.3.1',   title: 'Biopharmaceutic Study Reports',                readOnly: true },
+  { section: '5.3.2',   title: 'Human Biomaterial Pharmacokinetic Studies',    readOnly: true },
+  { section: '5.3.3',   title: 'Human Pharmacokinetic (PK) Studies',           readOnly: true },
+  { section: '5.3.4',   title: 'Human Pharmacodynamic (PD) Studies',           readOnly: true },
+  { section: '5.3.5.1', title: 'Study Reports of Controlled Clinical Studies', readOnly: true },
+  { section: '5.3.5.2', title: 'Study Reports of Uncontrolled Clinical Studies', readOnly: true },
+  { section: '5.3.5.3', title: 'Reports of Analyses of Data from More Than One Study', readOnly: true },
+  { section: '5.3.5.4', title: 'Other Clinical Study Reports',                 readOnly: true },
+  { section: '5.3.6',   title: 'Reports of Postmarketing Experience',          readOnly: true },
+  { section: '5.3.7',   title: 'Case Report Forms and Individual Patient Listings', readOnly: true },
+  { section: '5.4',     title: 'Literature References' },
 ]
 
 // Shape reg-submission rows for the UI's packages/types RegulatorySubmission

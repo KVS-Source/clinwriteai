@@ -66,7 +66,9 @@ test('reads the signed-in user’s own feed from /notifications/me, newest first
   await expect(page.locator('[data-current-user]')).not.toContainText('Sarah Chen')
   await expect(page.locator('[data-notif-row]')).toHaveCount(3)
   await expect(page.locator('[data-notif-row]').first()).toHaveAttribute('data-notif-row', 'n-sig')
-  await expect(page.locator('[data-unread-badge]')).toHaveText('2 unread')
+  // Two arrive unread; the first is shown on arrival, so it is read (f22f3ab) and one stays unread.
+  await expect(row(page, 'n-sig')).toHaveAttribute('data-notif-read', 'true')
+  await expect(page.locator('[data-unread-badge]')).toHaveText('1 unread')
 
   // the first one is shown, with its type, body (line breaks kept) and link
   await expect(page.locator('[data-active-title]')).toHaveText('Signature requested: Protocol 7')
@@ -94,13 +96,20 @@ test('there is no Preferences tab', async ({ page }) => {
 
 test('opening an unread notification marks it read through /notifications/me/mark-read', async ({ page }) => {
   await open(page)
+  // The first one (shown on arrival) is already read; opening the other unread one reads it too.
+  await expect(page.locator('[data-unread-badge]')).toHaveText(/1 unread/)
   await row(page, 'n-warn').click()
   await expect(row(page, 'n-warn')).toHaveAttribute('data-notif-read', 'true')
-  await expect(page.locator('[data-unread-badge]')).toHaveText(/1 unread/)
+  await expect(page.locator('[data-unread-badge]')).toHaveCount(0)
   const posts = (await calls(page)).filter(c => c.path === '/notifications/me/mark-read')
+  expect(posts.map(p => p.body)).toContainEqual({ ids: ['n-sig'] })
   expect(posts.map(p => p.body)).toContainEqual({ ids: ['n-warn'] })
+  await expect(page.locator('[data-mark-all-read]')).toBeDisabled()       // nothing left unread
+})
 
-  // the Unread filter, then "you've read everything"
+test('Mark all read, then the Unread filter says everything is read', async ({ page }) => {
+  await open(page)
+  await expect(page.locator('[data-unread-badge]')).toHaveText(/1 unread/)
   await page.locator('[data-mark-all-read]').click()
   await page.locator('[data-filter-chip="unread"]').click()
   await expect(page.locator('[data-state="empty-filter"]')).toBeVisible()

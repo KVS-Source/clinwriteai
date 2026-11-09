@@ -28,6 +28,9 @@ export interface MyNotification {
   context?: { projectId: string | null; projectName: string | null; documentId: string; documentTitle: string } | null
   /** Who it came from, with their role (e.g. Reviewer). Null when unknown. */
   actor?: { name: string; role: string } | null
+  /** For a user holding two roles: the role this one is for ('pm' | 'contributor'), else null. Opening it
+   *  while working as the other role asks them to switch first (NotificationCentre). */
+  forRole?: string | null
 }
 
 // --- Request bodies ---

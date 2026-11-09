@@ -7,17 +7,22 @@
 // Loading, a failed load (with a retry) and an empty inbox each have their own state, and a
 // failed action says so instead of being swallowed.
 //
+// Role switcher: a user holding two roles sees every notification, but one meant for the other role (the
+// API's forRole) shows a warning with "Switch to ..." instead of its content, and isn't marked read. Switching
+// remembers the role and opens the notification's page as that role (or the notification itself).
+//
 // There is no Preferences tab: the API has no notification-preferences endpoint, and delivery
 // doesn't consult per-user preferences yet, so toggles would change nothing.
 
 import { useEffect, useMemo, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { PLATFORM_ACCENT, PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import { platformApi, type MyNotification } from '../api/platformApi'
 import { usePlatformStore } from '../store'
 import { describeApiError } from '../../api'
+import { chooseActiveRole } from '../../config/activeRole'
 
 const QUERY_KEY = ['notifications', 'me'] as const
 const UNREAD_KEY = ['notifications-unread'] as const     // the bell's badge (TopNav)
@@ -60,6 +65,11 @@ export function NotificationCentre() {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const currentUser = usePlatformStore(s => s.currentUser)
+  const [searchParams] = useSearchParams()
+  const heldRoles: readonly string[] = currentUser.allRoles && currentUser.allRoles.length > 0 ? currentUser.allRoles : [currentUser.role]
+  /** Meant for the user's other role: switch before seeing it. */
+  const needsSwitch = (n: MyNotification) => !!n.forRole && n.forRole !== currentUser.role && heldRoles.includes(n.forRole)
+  const roleName = (r: string) => PLATFORM_USER_ROLE_LABEL[r as keyof typeof PLATFORM_USER_ROLE_LABEL] ?? r
 
   const formatRelative = (iso: string): string => {
     const mins = Math.round((Date.now() - new Date(iso).getTime()) / 60000)
@@ -80,7 +90,11 @@ export function NotificationCentre() {
   const inbox = useMemo(() => feed.data ?? [], [feed.data])
 
   const [filter, setFilter] = useState<FilterKey>('all')
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  // ?open=<id>: the notification to show first (where a role switch lands when there is no page to open).
+  const [selectedId, setSelectedId] = useState<string | null>(() => searchParams.get('open'))
+  const [switching, setSwitching] = useState(false)
+  // Only when arriving with ?open=<id>; otherwise the first notification is opened as before.
+  const [autoOpened, setAutoOpened] = useState(() => !searchParams.get('open'))
   const [actionError, setActionError] = useState<string | null>(null)
 
   const filtered = useMemo(() => (filter === 'unread' ? inbox.filter(n => !n.readAt) : inbox), [inbox, filter])
@@ -120,13 +134,30 @@ export function NotificationCentre() {
 
   const select = (n: MyNotification) => {
     setSelectedId(n.id)
-    if (!n.readAt) markRead.mutate(n.id)
+    // Not read until it is actually seen, i.e. after switching to its role.
+    if (!n.readAt && !needsSwitch(n)) markRead.mutate(n.id)
+  }
+
+  // Switch to the notification's role, then open its page as that role (a full load, so every screen and
+  // query starts over), or the notification itself when it has no page.
+  const switchAndOpen = async (n: MyNotification) => {
+    if (!n.forRole) return
+    setSwitching(true)
+    if (!n.readAt) await platformApi.markMyNotificationsRead([n.id]).catch(() => undefined)
+    chooseActiveRole(currentUser.id, n.forRole)
+    window.location.assign(n.linkPath && n.linkPath.startsWith('/') ? n.linkPath : `/notifications?open=${encodeURIComponent(n.id)}`)
   }
 
   // The notification shown on the right is being read. On arrival (and after dismissing one) the first is shown
   // without a click, so open it for real: it is marked read and the unread count goes down.
   useEffect(() => {
     if (selectedId === null && filtered[0]) select(filtered[0])
+    else if (!autoOpened && selectedId !== null && inbox.length > 0) {
+      // Arrived with ?open=<id> (e.g. after switching role): it is being read now.
+      setAutoOpened(true)
+      const n = inbox.find(x => x.id === selectedId)
+      if (n && !n.readAt && !needsSwitch(n)) markRead.mutate(n.id)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, filtered])
 
@@ -246,6 +277,11 @@ export function NotificationCentre() {
                             {formatRelative(n.createdAt)}
                           </span>
                         </div>
+                        {needsSwitch(n) && (
+                          <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800" data-notif-for-role={n.forRole}>
+                            {t('page.notification_centre.for_role', { role: roleName(n.forRole!) })}
+                          </span>
+                        )}
                         <p className={`text-[13px] text-slate-900 ${n.readAt ? 'font-medium' : 'font-semibold'}`} data-notif-title>{withActorRole(n.title, n.actor)}</p>
                         {n.context && (
                           <p className="w-full truncate text-[11px] text-slate-500" data-notif-context>
@@ -267,7 +303,28 @@ export function NotificationCentre() {
 
             {/* Right — detail */}
             <aside className="flex min-w-0 flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5" data-detail-panel>
-              {active ? (
+              {active && needsSwitch(active) ? (
+                <div className="flex flex-col gap-3" role="alert" data-role-switch-notice={active.forRole}>
+                  <span className="inline-flex w-fit items-center rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold uppercase"
+                    style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}>
+                    {kindLabel(active.kind)}
+                  </span>
+                  <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3">
+                    <p className="text-[14px] font-bold text-amber-900">
+                      {t('page.notification_centre.switch_title', { role: roleName(active.forRole!) })}
+                    </p>
+                    <p className="mt-1 text-[13px] text-amber-900">
+                      {t('page.notification_centre.switch_body', { role: roleName(active.forRole!), current: roleName(currentUser.role) })}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button type="button" onClick={() => void switchAndOpen(active)} disabled={switching} data-action="switch-role-open"
+                      className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:opacity-60" style={{ backgroundColor: PLATFORM_ACCENT.primary }}>
+                      {switching ? t('page.notification_centre.switching') : t('page.notification_centre.switch_action', { role: roleName(active.forRole!) })}
+                    </button>
+                  </div>
+                </div>
+              ) : active ? (
                 <>
                   <div className="flex flex-wrap items-center gap-2">
                     <span className="inline-flex items-center rounded-md px-2 py-0.5 font-mono text-[10px] font-semibold uppercase"

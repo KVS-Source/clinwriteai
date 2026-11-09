@@ -4,6 +4,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { enrichNotifications } from './context.js'
+import { notificationRole } from './audience.js'
 
 const sendSchema = z.object({
   recipientId: z.string().min(1),
@@ -37,8 +38,15 @@ export const notificationsRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { createdAt: 'desc' },
       take: parsed.data.limit,
     })
-    // Add where each one belongs (project, document) and who it came from, with their role.
-    return enrichNotifications(app.prisma, rows)
+    // Add where each one belongs (project, document) and who it came from, with their role; and, for a
+    // user holding two roles, which of them each one is for (audience.ts).
+    let held: string[] = []
+    try {
+      const u = await app.prisma.user.findUnique({ where: { id: userId }, select: { role: true, additionalRoles: true } })
+      if (u) held = [u.role, ...(u.additionalRoles ?? []).filter(r => r !== u.role)]
+    } catch { /* no row (synthetic users): no role split */ }
+    const enriched = await enrichNotifications(app.prisma, rows)
+    return enriched.map(n => ({ ...n, forRole: notificationRole(n.kind, held) }))
   })
 
   app.get('/me/unread-count', { preHandler: requireAuth() }, async (request) => {

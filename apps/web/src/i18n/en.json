@@ -3263,6 +3263,11 @@
       "add_audit_footer": "Recorded in the audit trail. Frameworks are never deleted — only marked superseded."
     },
     "notification_centre": {
+      "for_role": "For {{role}}",
+      "switch_title": "This notification is for your {{role}} role",
+      "switch_body": "You're working as {{current}}. Switch to {{role}} to see it; you'll be taken to its page.",
+      "switch_action": "Switch to {{role}} and open",
+      "switching": "Switching…",
       "project_label": "Project",
       "document_label": "Document",
       "from_label": "From",

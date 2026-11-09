@@ -249,19 +249,68 @@ export const regAliasesAndStubs: FastifyPluginAsync = async (app) => {
     return updated
   })
 
-  // --- Super Review stubs ---------------------------------------------
-  // No dedicated SuperReviewer table yet — the Stage 4 multi-disciplinary
-  // review model is deferred. Stubs return a deterministic 4-seat panel
-  // so the UI's Super Review screen (SuperReview.tsx) renders instead of
-  // 404'ing. Real sign-off model lands when the role catalogue + e-sig
-  // sync up with Module A's signature chain.
-  app.get('/:submissionId/super-reviewers', { preHandler: dGate }, async () => {
-    return [
-      { id: 'sr-clin',   seatRole: 'Clinical',    name: 'Dr Rebecca Morton',   initials: 'RM', signedAt: null, stub: true },
-      { id: 'sr-reg',    seatRole: 'Regulatory',  name: 'Dr Priya Nair',       initials: 'PN', signedAt: null, stub: true },
-      { id: 'sr-pv',     seatRole: 'PV Lead',     name: 'Dr Elena Vasquez',    initials: 'EV', signedAt: null, stub: true },
-      { id: 'sr-stats',  seatRole: 'Biostats',    name: 'Mr David Chen',       initials: 'DC', signedAt: null, stub: true },
+  // --- Super Review seats ---------------------------------------------
+  // No dedicated SuperReviewer table yet, but the 4-seat Stage 4 panel
+  // is now derived from the submission's project members instead of
+  // hardcoded names. Routing heuristic per seat:
+  //   Clinical   — User.role='clinical-writer'   OR projectRole matches /clinical/i
+  //   Regulatory — User.role='regulatory-writer' OR projectRole matches /regulatory/i
+  //   PV Lead    — projectRole matches /pv|pharmacovigilance/i
+  //   Biostats   — projectRole matches /biostat|statist/i
+  //
+  // First matching ProjectMember wins each seat. Seats with no match
+  // return { assigned: false, name: null } so the UI can show
+  // "unassigned" badges. Dedicated SuperReviewer table + Part 11 e-sig
+  // sync with Module A still deferred; the shape is forwards-compatible.
+  app.get('/:submissionId/super-reviewers', { preHandler: dGate }, async (request, reply) => {
+    const { submissionId } = request.params as { submissionId: string }
+    const sub = await app.prisma.regulatorySubmission.findUnique({
+      where:  { id: submissionId },
+      select: { projectId: true },
+    })
+    if (!sub) return reply.code(404).send({ error: 'not_found' })
+
+    const members = await app.prisma.projectMember.findMany({
+      where:   { projectId: sub.projectId, removedAt: null },
+      include: { user: { select: { id: true, name: true, initials: true, role: true } } },
+    })
+
+    type SeatMatch = (m: typeof members[number]) => boolean
+    const seats: Array<{ id: string; seatRole: string; matches: SeatMatch }> = [
+      {
+        id: 'sr-clin',  seatRole: 'Clinical',
+        matches: m => m.user.role === 'clinical-writer' || /clinical/i.test(m.projectRole ?? ''),
+      },
+      {
+        id: 'sr-reg',   seatRole: 'Regulatory',
+        matches: m => m.user.role === 'regulatory-writer' || /regulatory/i.test(m.projectRole ?? ''),
+      },
+      {
+        id: 'sr-pv',    seatRole: 'PV Lead',
+        matches: m => /\b(pv|pharmacovigilance)\b/i.test(m.projectRole ?? ''),
+      },
+      {
+        id: 'sr-stats', seatRole: 'Biostats',
+        matches: m => /\b(biostat|statist)/i.test(m.projectRole ?? ''),
+      },
     ]
+
+    const assigned = new Set<string>()
+    return seats.map(seat => {
+      // First unassigned match wins; avoids one member filling multiple
+      // seats when their projectRole is generic.
+      const hit = members.find(m => !assigned.has(m.userId) && seat.matches(m))
+      if (hit) assigned.add(hit.userId)
+      return {
+        id:       seat.id,
+        seatRole: seat.seatRole,
+        userId:   hit?.userId ?? null,
+        name:     hit?.user.name ?? null,
+        initials: hit?.user.initials ?? null,
+        assigned: !!hit,
+        signedAt: null,
+      }
+    })
   })
 
   app.post('/:submissionId/super-reviewers/:reviewerId/sign', { preHandler: dGate }, async (request) => {

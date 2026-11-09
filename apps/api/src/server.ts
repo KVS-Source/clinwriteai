@@ -167,6 +167,12 @@ async function buildServer() {
   //            stub selected via SMS_PROVIDER env) ----------
   await app.register(import('./modules/platform/sms/plugin.js'))
 
+  // ---------- Public KOL review (no auth — token in URL path is the
+  //            auth; rate-limited per route; mounted at /public/ so
+  //            the WAF can scope aggressive rules to this prefix) ----------
+  const { kolReviewPublicRoutes } = await import('./modules/ideation/kol-review-public/routes.js')
+  await app.register(kolReviewPublicRoutes)
+
   // ---------- Rate limit (Redis-backed) ----------
   const { rateLimitCounting } = await import('./modules/platform/rate-limit.js')
   // Shares the queue plugin's ioredis connection via app.redis so multi-

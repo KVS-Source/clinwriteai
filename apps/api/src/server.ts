@@ -163,6 +163,10 @@ async function buildServer() {
   //            Postmark / SES selected via EMAIL_PROVIDER env) ----------
   await app.register(import('./modules/platform/email/plugin.js'))
 
+  // ---------- SMS adapter (noop by default; log / console / twilio-
+  //            stub selected via SMS_PROVIDER env) ----------
+  await app.register(import('./modules/platform/sms/plugin.js'))
+
   // ---------- Rate limit (Redis-backed) ----------
   const { rateLimitCounting } = await import('./modules/platform/rate-limit.js')
   // Shares the queue plugin's ioredis connection via app.redis so multi-

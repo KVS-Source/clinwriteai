@@ -15,6 +15,9 @@ import type { FastifyPluginAsync } from 'fastify'
 import { randomBytes } from 'node:crypto'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { decryptColumn, encryptColumn } from '../../platform/compliance/column-crypto.js'
+import type { EmailSendResult } from '../../platform/email/adapter.js'
+import type { SmsSendResult } from '../../platform/sms/adapter.js'
 
 const CHANNEL_ENUM = z.enum([
   'linkedin', 'twitter', 'blog', 'email',
@@ -93,9 +96,27 @@ function kolContactShape(k: {
   }
 }
 
-// MaContact has no UI counterpart in packages/types yet — the Prisma row
-// serialises as-is. If/when the UI adds a MAContact type we can wrap this
-// in a shape helper for consistency.
+// MaContact shape — strips the ciphertext `mobileEncrypted` column from
+// the wire so clients never see raw AES-GCM output. The field is
+// write-only via the create route; decryption happens only inside the
+// /notify path where the plaintext is needed to hand to the SMS adapter.
+function maContactShape(m: {
+  id:                     string
+  ideationProjectId:      string
+  role:                   string
+  name:                   string
+  email:                  string
+  notificationPreference: string
+}) {
+  return {
+    id:                     m.id,
+    ideationProjectId:      m.ideationProjectId,
+    role:                   m.role,
+    name:                   m.name,
+    email:                  m.email,
+    notificationPreference: m.notificationPreference,
+  }
+}
 
 // Shape CalendarEntry rows for the UI's packages/types CalendarEntry
 // interface. The UI pulls together card/artefact/user context + the
@@ -245,7 +266,10 @@ export const publishingRoutes: FastifyPluginAsync = async (app) => {
         ideationProjectId,
         name: parsed.data.name,
         email: parsed.data.email,
-        mobileEncrypted: parsed.data.mobileEncrypted ?? null,
+        // Column-level AES-256-GCM via the shared crypto helper.
+        // decryptColumn tolerates legacy plaintext for the gradual
+        // rollout path; new writes always land encrypted.
+        mobileEncrypted: encryptColumn(parsed.data.mobileEncrypted ?? null),
         reviewLinkToken: token,
         reviewLinkExpiry: expiry,
       },
@@ -291,7 +315,7 @@ export const publishingRoutes: FastifyPluginAsync = async (app) => {
         role: parsed.data.role,
         name: parsed.data.name,
         email: parsed.data.email,
-        mobileEncrypted: parsed.data.mobileEncrypted ?? null,
+        mobileEncrypted: encryptColumn(parsed.data.mobileEncrypted ?? null),
         notificationPreference: parsed.data.notificationPreference,
       },
     })
@@ -306,15 +330,105 @@ export const publishingRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    return reply.code(201).send(created)
+    return reply.code(201).send(maContactShape(created))
   })
 
   app.get('/:ideationProjectId/ma-contacts', { preHandler: requireAuth({ modules: ['E'] }) }, async (request) => {
     const { ideationProjectId } = request.params as { ideationProjectId: string }
-    return app.prisma.maContact.findMany({
+    const rows = await app.prisma.maContact.findMany({
       where: { ideationProjectId },
       orderBy: { role: 'asc' },
     })
+    return rows.map(maContactShape)
+  })
+
+  // --- MA contact notification ------------------------------------------
+  //
+  // POST /ma-contacts/:contactId/notify
+  // Body: { subject, body, reason? }
+  //
+  // Dispatches to email + / or SMS according to the contact's
+  // notificationPreference ('email' | 'sms' | 'email_sms'). Decrypts
+  // the mobile number inline for the SMS send — plaintext never leaves
+  // the function scope. SMS body is capped at 320 chars (two SMS
+  // segments); longer bodies are truncated with "…" so the SMS stays
+  // readable + within the adapter's 1600-char hard cap.
+  //
+  // Returns a per-channel result array so the UI can show which
+  // channels delivered. Partial failure (email OK, SMS failed) is
+  // still a 200 — the audit entry captures both outcomes.
+  const notifyBodySchema = z.object({
+    subject: z.string().min(1).max(200),
+    body:    z.string().min(1).max(4000),
+    reason:  z.string().max(60).optional(),
+  })
+
+  app.post('/ma-contacts/:contactId/notify', { preHandler: requireAuth({ modules: ['E'] }) }, async (request, reply) => {
+    const { contactId } = request.params as { contactId: string }
+    const parsed = notifyBodySchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const contact = await app.prisma.maContact.findUnique({ where: { id: contactId } })
+    if (!contact) return reply.code(404).send({ error: 'not_found' })
+
+    const pref = contact.notificationPreference as 'email' | 'sms' | 'email_sms'
+    const sendEmail = pref === 'email' || pref === 'email_sms'
+    const sendSms   = pref === 'sms'   || pref === 'email_sms'
+
+    const results: Array<{ channel: 'email' | 'sms'; adapter: string; delivered: boolean; providerMessageId: string | null; skippedReason?: string }> = []
+
+    if (sendEmail) {
+      try {
+        const r: EmailSendResult = await app.email.send({
+          to:       contact.email,
+          subject:  parsed.data.subject,
+          textBody: parsed.data.body,
+          reason:   parsed.data.reason ?? 'ma_contact_notify',
+        })
+        results.push({ channel: 'email', adapter: r.adapter, delivered: r.delivered, providerMessageId: r.providerMessageId })
+      } catch (err) {
+        results.push({ channel: 'email', adapter: 'error', delivered: false, providerMessageId: null, skippedReason: err instanceof Error ? err.message : String(err) })
+      }
+    }
+
+    if (sendSms) {
+      const mobile = decryptColumn(contact.mobileEncrypted)
+      if (!mobile) {
+        results.push({ channel: 'sms', adapter: 'noop', delivered: false, providerMessageId: null, skippedReason: 'no mobile number on file' })
+      } else {
+        // Compose a compact SMS body: subject + short body prefix.
+        // Total ≤ 320 chars (keeps it under the 2-segment GSM-7 limit;
+        // anything longer gets truncated with an ellipsis).
+        const raw = `${parsed.data.subject}: ${parsed.data.body}`
+        const smsBody = raw.length > 320 ? `${raw.slice(0, 319)}…` : raw
+        try {
+          const r: SmsSendResult = await app.sms.send({
+            to:     mobile,
+            body:   smsBody,
+            reason: parsed.data.reason ?? 'ma_contact_notify',
+          })
+          results.push({ channel: 'sms', adapter: r.adapter, delivered: r.delivered, providerMessageId: r.providerMessageId })
+        } catch (err) {
+          results.push({ channel: 'sms', adapter: 'error', delivered: false, providerMessageId: null, skippedReason: err instanceof Error ? err.message : String(err) })
+        }
+      }
+    }
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId:   request.user!.id,
+      action:    'ma_contact_notify_sent',
+      entityType: 'ma_contact',
+      entityId:  contactId,
+      details:   {
+        preference: pref,
+        reason:     parsed.data.reason ?? null,
+        results:    results.map(r => ({ channel: r.channel, adapter: r.adapter, delivered: r.delivered, skippedReason: r.skippedReason ?? null })),
+      },
+      ipAddress: request.ip ?? null,
+    })
+
+    return { contactId, results }
   })
 
   // --- Calendar + Publish ------------------------------------------------

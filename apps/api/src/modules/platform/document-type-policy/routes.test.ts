@@ -59,6 +59,8 @@ async function build(opts: {
   docCount?: number                                    // pinned-to-version count for updateCurrent
   upload?: { id: string; contentType: string | null } | null
   enqueueThrows?: boolean
+  // Default: AI is configured. Set false to exercise the 503 ai_not_configured path.
+  aiConfigured?: boolean
 } = {}) {
   const state: { rows: Row[] } = { rows: opts.rows ?? [] }
   const audit = vi.fn(async () => undefined)
@@ -68,6 +70,10 @@ async function build(opts: {
   })
   const app = Fastify()
   app.decorate('queue', { enqueue } as never)
+  // Admin writes now gate on AI readiness; default the gateway to "configured"
+  // so the existing CRUD tests still see 2xx/4xx. The ai_not_configured path
+  // is exercised by its own test below.
+  app.decorate('aiGateway', { isConfigured: () => opts.aiConfigured !== false } as never)
   app.decorate('prisma', {
     documentUpload: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
@@ -192,6 +198,16 @@ describe('POST /document-type-policies — create first version', () => {
       payload: { docType: 'protocol', smePrompt: 'x' },
     })
     expect(res.statusCode).toBe(403)
+  })
+
+  it('503s with ai_not_configured when no AI engine is set up', async () => {
+    const { app } = await build({ aiConfigured: false })
+    const res = await app.inject({
+      method: 'POST', url: '/document-type-policies',
+      payload: { docType: 'protocol', smePrompt: 'anything' },
+    })
+    expect(res.statusCode).toBe(503)
+    expect(res.json()).toMatchObject({ error: 'ai_not_configured', setupPath: '/admin' })
   })
 
   it('400s on missing smePrompt', async () => {

@@ -44,6 +44,42 @@ export const adminConfigRoutes: FastifyPluginAsync = async (app) => {
     } catch { return null }                  // an unreadable audit row must not break the Admin Panel
   }
 
+  // GET /ai/readiness — one source of truth for "is AI set up?". Any
+  // authenticated user may read it (the New Document wizard disables
+  // the "Draft with AI" opt-in for non-admins when it says no, and the
+  // admin screens surface a banner + setup CTA). Returns the default
+  // model + whether its provider has credentials, plus the list of
+  // missing env fields so the setup-now screen can name them.
+  //
+  // Consulting this endpoint is cheap: the gateway's isConfigured()
+  // walks in-memory client state only (no network call). It's safe for
+  // every page render without rate-limit concerns.
+  app.get('/ai/readiness', { preHandler: requireAuth({ modules: [] }) }, async () => {
+    const engine     = await resolveAiEngineSettings(app.prisma)
+    const configured = app.aiGateway.isConfigured(engine.default)
+    const provider   = engine.default.startsWith('claude-') ? 'anthropic' : engine.default.split('-')[0] ?? 'unknown'
+    const blockers: string[] = []
+    if (!configured) {
+      if (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY?.trim()) {
+        blockers.push('ANTHROPIC_API_KEY')
+      }
+      if (blockers.length === 0) {
+        blockers.push(`${provider}-credentials`)                                   // generic: unknown provider or opaque gateway state
+      }
+    }
+    return {
+      configured,
+      defaultModel: engine.default,
+      fallbackModel: engine.fallback,
+      provider,
+      blockers,
+      // The web uses this to build the "Set up AI" CTA link. Centralised
+      // so a future admin reorg (e.g. /admin → /super-admin) only
+      // touches one place.
+      setupPath: '/admin',
+    }
+  })
+
   app.post('/admin/test-connection', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request) => {
     const { default: model } = await resolveAiEngineSettings(app.prisma)   // test the engine the platform will actually use
     const key = process.env.ANTHROPIC_API_KEY?.trim() ?? ''

@@ -358,6 +358,23 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     if (parsed.data.targetCompletionDate && isPastDay(parsed.data.targetCompletionDate)) return reply.code(422).send(DATE_IN_PAST)
 
+    // Hard-block "Draft with AI" when the platform has no AI configured:
+    // without this guard the worker enqueue succeeds, the document stamps
+    // aiDraftState='not_configured', and the author only finds out when
+    // they open an empty document. Refuse at request time instead so the
+    // wizard can show a direct "Set up AI" link. Blank-document creation
+    // (aiDraft=false) stays allowed — hand-authoring doesn't need AI.
+    if (parsed.data.aiDraft) {
+      const modelForCheck = await chooseModel(app.prisma)
+      if (!app.aiGateway.isConfigured(modelForCheck)) {
+        return reply.code(422).send({
+          error:     'ai_not_configured',
+          message:   'AI is not set up on this platform. Uncheck "Draft with AI" to create a blank document, or ask an admin to configure the AI engine.',
+          setupPath: '/admin',
+        })
+      }
+    }
+
     const project = await app.prisma.project.findUnique({ where: { id: projectId } })
     if (!project) return reply.code(404).send({ error: 'project_not_found' })
     if (project.status === 'closed') return reply.code(423).send(PROJECT_CLOSED)

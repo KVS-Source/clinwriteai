@@ -401,6 +401,13 @@ export const platformApi = {
   // "AI will use" preview on the New Document wizard + the admin policy
   // editor. A 404 (no policy authored yet) is normalised to null so the
   // consumer can render the "no policy" state without an error boundary.
+  // AI readiness — one source of truth for "is AI set up?". The New
+  // Document wizard disables its Draft-with-AI opt-in when this says
+  // no; admin screens surface a banner + setup CTA. Any authenticated
+  // user may call this (the wizard needs it).
+  getAiReadiness: () =>
+    api.get<AiReadiness>('/ai/readiness'),
+
   getDocumentTypePolicy: async (docType: string): Promise<DocumentTypePolicy | null> => {
     try {
       return await api.get<DocumentTypePolicy>(`/document-type-policies/${encodeURIComponent(docType)}`)
@@ -479,6 +486,20 @@ export interface BestPracticeDigest {
   sourcePdfId?:    string
   distilledAt?:    string
   distilledModel?: string
+}
+
+// --- AI readiness ---------------------------------------------------------
+// Mirror of GET /ai/readiness. Consumed by the useAiReadiness() hook +
+// the AiReadinessBanner that every admin AI screen (+ the New Document
+// wizard's Draft-with-AI opt-in) consults before letting the user go.
+
+export interface AiReadiness {
+  configured:    boolean
+  defaultModel:  string
+  fallbackModel: string
+  provider:      string            // 'anthropic' | 'openai' | …
+  blockers:      string[]          // e.g. ['ANTHROPIC_API_KEY']
+  setupPath:     string            // e.g. '/admin' — where the CTA sends the admin
 }
 
 export interface DocumentTypePolicy {

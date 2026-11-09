@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import { platformApi, type DocumentTypePolicy } from '../api/platformApi'
+import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
   if (err instanceof ApiError) {
@@ -42,6 +43,8 @@ export function AiPrompts() {
     queryFn:  () => platformApi.listDocumentTypePolicies(),
   })
   const policies = useMemo(() => data?.policies ?? [], [data])
+  const { data: readiness } = useAiReadiness()
+  const aiReady = isAiReady(readiness)
 
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null)
   useEffect(() => {
@@ -63,6 +66,11 @@ export function AiPrompts() {
         </p>
       </header>
 
+      <AiReadinessBanner
+        readiness={readiness}
+        context="Editing or creating prompts is blocked until an AI engine is configured — a prompt that never reaches a model is a trap for authors."
+      />
+
       {isLoading && <p className="text-[13px] text-slate-500">Loading prompts…</p>}
       {error && <p className="text-[13px] text-rose-700">{errMessage(error, 'Could not load prompts')}</p>}
 
@@ -71,8 +79,8 @@ export function AiPrompts() {
           <DocTypeList policies={policies} selected={selectedDocType} onSelect={setSelectedDocType} />
           <div className="flex-1 overflow-y-auto">
             {selected
-              ? <PromptEditor key={selected.id} policy={selected} onSaved={invalidate} />
-              : <NewPromptForm onCreated={(docType) => { invalidate(); setSelectedDocType(docType) }} />}
+              ? <PromptEditor key={selected.id} policy={selected} aiReady={aiReady} onSaved={invalidate} />
+              : <NewPromptForm aiReady={aiReady} onCreated={(docType) => { invalidate(); setSelectedDocType(docType) }} />}
           </div>
         </div>
       )}
@@ -136,7 +144,7 @@ function DocTypeList({
 
 // ---- editor -------------------------------------------------------------
 
-function PromptEditor({ policy, onSaved }: { policy: DocumentTypePolicy; onSaved: () => void }) {
+function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy; aiReady: boolean; onSaved: () => void }) {
   const [draft,       setDraft]       = useState(policy.smePrompt)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionInfo,  setActionInfo]  = useState<string | null>(null)
@@ -234,7 +242,8 @@ function PromptEditor({ policy, onSaved }: { policy: DocumentTypePolicy; onSaved
           <button
             type="button"
             onClick={() => save.mutate()}
-            disabled={!dirty || !trimmed || save.isPending}
+            disabled={!dirty || !trimmed || save.isPending || !aiReady}
+            title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
             className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             data-action="save"
           >
@@ -271,7 +280,8 @@ function PromptEditor({ policy, onSaved }: { policy: DocumentTypePolicy; onSaved
             <button
               type="button"
               onClick={() => bump.mutate()}
-              disabled={bump.isPending || !bumpReason.trim() || !trimmed}
+              disabled={bump.isPending || !bumpReason.trim() || !trimmed || !aiReady}
+              title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
               className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               data-action="bump-confirm"
             >
@@ -286,7 +296,7 @@ function PromptEditor({ policy, onSaved }: { policy: DocumentTypePolicy; onSaved
 
 // ---- new --------------------------------------------------------------
 
-function NewPromptForm({ onCreated }: { onCreated: (docType: string) => void }) {
+function NewPromptForm({ aiReady, onCreated }: { aiReady: boolean; onCreated: (docType: string) => void }) {
   const [docType,   setDocType]   = useState('')
   const [smePrompt, setSmePrompt] = useState('')
   const [error,     setError]     = useState<string | null>(null)
@@ -327,7 +337,8 @@ function NewPromptForm({ onCreated }: { onCreated: (docType: string) => void }) 
           <button
             type="button"
             onClick={() => create.mutate()}
-            disabled={create.isPending || !docType.trim() || !smePrompt.trim()}
+            disabled={create.isPending || !docType.trim() || !smePrompt.trim() || !aiReady}
+            title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
             className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             data-action="create-prompt"
           >

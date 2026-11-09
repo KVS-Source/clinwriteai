@@ -33,6 +33,7 @@ import { ApiError } from '../../api/client'
 import { assignableUsersApi } from '../../api/raci'
 import { AssigneeCombobox, type AssigneeOption } from '../../components/raci/AssigneeCombobox'
 import { platformApi, type DocumentTypePolicy } from '../../platform/api/platformApi'
+import { useAiReadiness, isAiReady, AiReadinessBanner } from '../../platform/ai-readiness'
 import { sourceCategoryLabel } from '../../utils/sourceCategories'
 import { sourceCategoriesForDocType } from '../../utils/documentTypeSourceCategories'
 
@@ -233,6 +234,12 @@ export function NewDocumentForm({
     retry: false,
   })
 
+  // AI readiness — when off, the Draft-with-AI opt-in is disabled, the
+  // create call sends aiDraft=false (blank document), and a banner tells
+  // the author why they're authoring by hand this time.
+  const { data: aiReadiness } = useAiReadiness()
+  const aiReady = isAiReady(aiReadiness)
+
   const { data: sourceDoc } = useQuery({
     queryKey: ['document', duplicateSourceId],
     queryFn:  () => documentsApi.get(duplicateSourceId!),
@@ -266,11 +273,16 @@ export function NewDocumentForm({
         targetCompletionDate: targetCompletionDate ? new Date(targetCompletionDate).toISOString() : undefined,
         description: description || undefined,
         sourceUploadIds: sourceIds.length ? sourceIds : undefined,
-        // AI drafting is the only path; step 2 guarantees at least one source.
-        aiDraft: true,
+        // AI drafting runs when the platform has an AI engine configured;
+        // otherwise create a blank document (the author drafts by hand).
+        // The API also refuses aiDraft=true when AI is off, so this flag
+        // just keeps the wizard and backend in agreement.
+        aiDraft: aiReady,
         // Author's prompt to the AI drafter. Empty string → undefined so the
         // API treats it as "no directive" rather than "clear directive".
-        aiInstructions: aiInstructions.trim().length > 0 ? aiInstructions.trim() : undefined,
+        // Only sent when AI is on — otherwise the directive would be stored
+        // against a draft that never runs through AI.
+        aiInstructions: aiReady && aiInstructions.trim().length > 0 ? aiInstructions.trim() : undefined,
       }
       return documentsApi.create(projectId, body)
     },
@@ -326,6 +338,15 @@ export function NewDocumentForm({
       data-form="new-document"
       data-step={step}
     >
+      {!aiReady && (
+        <div className="flex-none border-b border-amber-200 bg-amber-50 px-5 py-2.5">
+          <AiReadinessBanner
+            readiness={aiReadiness}
+            context="This document will be created blank — AI drafting is skipped. The author can fill sections in by hand; once AI is set up, /ai-suggest rewrites will work."
+          />
+        </div>
+      )}
+
       {/* Progress indicator */}
       <div className="flex-none border-b border-slate-200 bg-white px-5 py-3">
         <div className="flex items-center gap-2">

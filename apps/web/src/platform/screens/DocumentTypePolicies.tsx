@@ -27,6 +27,7 @@ import {
   type DocumentTypePolicy,
   type BestPracticeDigest,
 } from '../api/platformApi'
+import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
 
 type SectionRulesMap = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
 
@@ -70,6 +71,8 @@ export function DocumentTypePolicies() {
     queryFn:  () => platformApi.listDocumentTypePolicies(),
   })
   const policies = useMemo(() => data?.policies ?? [], [data])
+  const { data: readiness } = useAiReadiness()
+  const aiReady = isAiReady(readiness)
 
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null)
   useEffect(() => {
@@ -88,6 +91,11 @@ export function DocumentTypePolicies() {
         </p>
       </header>
 
+      <AiReadinessBanner
+        readiness={readiness}
+        context="Editing policies or parsing a Best-Practice PDF is blocked until an AI engine is configured — the policies here only matter when AI is live."
+      />
+
       {isLoading && <p className="text-[13px] text-slate-500">Loading policies…</p>}
       {error && <p className="text-[13px] text-rose-700">{errMessage(error, 'Could not load policies')}</p>}
 
@@ -96,8 +104,8 @@ export function DocumentTypePolicies() {
           <PolicyList policies={policies} selected={selectedDocType} onSelect={setSelectedDocType} />
           <div className="flex-1 overflow-y-auto">
             {selected
-              ? <PolicyEditor key={selected.id} policy={selected} onChanged={() => qc.invalidateQueries({ queryKey: ['document-type-policies'] })} />
-              : <CreatePolicyPrompt onCreated={(docType) => { qc.invalidateQueries({ queryKey: ['document-type-policies'] }); setSelectedDocType(docType) }} />}
+              ? <PolicyEditor key={selected.id} policy={selected} aiReady={aiReady} onChanged={() => qc.invalidateQueries({ queryKey: ['document-type-policies'] })} />
+              : <CreatePolicyPrompt aiReady={aiReady} onCreated={(docType) => { qc.invalidateQueries({ queryKey: ['document-type-policies'] }); setSelectedDocType(docType) }} />}
           </div>
         </div>
       )}
@@ -175,7 +183,7 @@ function PolicyChips({ policy }: { policy: DocumentTypePolicy }) {
 
 // ---- editor -------------------------------------------------------------
 
-function PolicyEditor({ policy, onChanged }: { policy: DocumentTypePolicy; onChanged: () => void }) {
+function PolicyEditor({ policy, aiReady, onChanged }: { policy: DocumentTypePolicy; aiReady: boolean; onChanged: () => void }) {
   const [smePrompt,           setSmePrompt]           = useState(policy.smePrompt)
   const [templateId,          setTemplateId]          = useState(policy.templateId ?? '')
   const [checklistTemplateId, setChecklistTemplateId] = useState(policy.checklistTemplateId ?? '')
@@ -257,7 +265,8 @@ function PolicyEditor({ policy, onChanged }: { policy: DocumentTypePolicy; onCha
           <button
             type="button"
             onClick={() => save.mutate()}
-            disabled={save.isPending || !rulesOk}
+            disabled={save.isPending || !rulesOk || !aiReady}
+            title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
             className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             data-action="save"
           >
@@ -266,7 +275,9 @@ function PolicyEditor({ policy, onChanged }: { policy: DocumentTypePolicy; onCha
           <button
             type="button"
             onClick={() => setBumpOpen(v => !v)}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
+            disabled={!aiReady}
+            title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
             data-action="bump-toggle"
           >
             Bump new version
@@ -306,7 +317,8 @@ function PolicyEditor({ policy, onChanged }: { policy: DocumentTypePolicy; onCha
             <button
               type="button"
               onClick={() => bump.mutate()}
-              disabled={bump.isPending || !bumpReason.trim() || !rulesOk}
+              disabled={bump.isPending || !bumpReason.trim() || !rulesOk || !aiReady}
+              title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
               className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               data-action="bump-confirm"
             >
@@ -345,7 +357,8 @@ function PolicyEditor({ policy, onChanged }: { policy: DocumentTypePolicy; onCha
             <button
               type="button"
               onClick={() => distill.mutate()}
-              disabled={distill.isPending || !bpFile}
+              disabled={distill.isPending || !bpFile || !aiReady}
+              title={!aiReady ? 'AI is not set up — the parser needs an AI engine.' : undefined}
               className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
               data-action="distill-file"
             >
@@ -446,7 +459,7 @@ function DigestPreview({ digest }: { digest: BestPracticeDigest }) {
 
 // ---- create -------------------------------------------------------------
 
-function CreatePolicyPrompt({ onCreated }: { onCreated: (docType: string) => void }) {
+function CreatePolicyPrompt({ aiReady, onCreated }: { aiReady: boolean; onCreated: (docType: string) => void }) {
   const [docType,   setDocType]   = useState('')
   const [smePrompt, setSmePrompt] = useState('')
   const [error, setError] = useState<string | null>(null)
@@ -487,7 +500,8 @@ function CreatePolicyPrompt({ onCreated }: { onCreated: (docType: string) => voi
           <button
             type="button"
             onClick={() => create.mutate()}
-            disabled={create.isPending || !docType.trim() || !smePrompt.trim()}
+            disabled={create.isPending || !docType.trim() || !smePrompt.trim() || !aiReady}
+            title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
             className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
             data-action="create-policy"
           >

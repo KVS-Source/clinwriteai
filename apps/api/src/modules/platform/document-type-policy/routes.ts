@@ -13,6 +13,7 @@ import type { MultipartFile } from '@fastify/multipart'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { generateBlobKey } from '../blob/local-storage.js'
+import { resolveAiEngineSettings } from '../config/ai-engine-settings.js'
 import {
   bumpVersionSchema,
   createPolicySchema,
@@ -27,6 +28,17 @@ import {
 } from './service.js'
 
 const MAX_BP_PDF_BYTES = 50 * 1024 * 1024    // 50 MB — same ceiling as source uploads
+
+// Admin writes to policy rows (create / update / bump / BP distill) are
+// pointless when the platform has no AI configured — the prompts never
+// reach a model. Refuse early with a dedicated 503 so the admin screens
+// can surface an inline "Set up AI first" CTA rather than looking like
+// a generic server error.
+const AI_NOT_CONFIGURED = {
+  error:   'ai_not_configured',
+  message: 'Set up an AI engine (API key) before editing policies — prompts here never reach a model until AI is configured.',
+  setupPath: '/admin',
+} as const
 
 // Project admins can read (for the wizard preview); super-admin only can write.
 const readGate  = requireAuth({})
@@ -90,6 +102,15 @@ function mapServiceError(err: unknown): { code: number; body: Record<string, unk
 export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
   const svc = new DocumentTypePolicyService(app.prisma)
 
+  // Checks the default AI engine has credentials before letting an
+  // admin write to a policy. Reads are never gated — the wizard preview
+  // and admin screens need to render even in a no-AI state so the
+  // "Set up AI" banner knows what to recommend.
+  async function assertAiReady(): Promise<boolean> {
+    const engine = await resolveAiEngineSettings(app.prisma)
+    return app.aiGateway.isConfigured(engine.default)
+  }
+
   // GET /document-type-policies — list every current policy
   app.get('/', { preHandler: readGate }, async () => {
     const rows = await svc.listAllCurrent()
@@ -123,6 +144,7 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
 
   // POST /document-type-policies — create first version
   app.post('/', { preHandler: writeGate }, async (request, reply) => {
+    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
     const parsed = createPolicySchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     try {
@@ -146,6 +168,7 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
 
   // PATCH /document-type-policies/:docType — edit current (only if unused)
   app.patch('/:docType', { preHandler: writeGate }, async (request, reply) => {
+    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
     const { docType } = request.params as { docType: string }
     const parsed = updatePolicySchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -170,6 +193,7 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
 
   // POST /document-type-policies/:docType/bump — new version
   app.post('/:docType/bump', { preHandler: writeGate }, async (request, reply) => {
+    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
     const { docType } = request.params as { docType: string }
     const parsed = bumpVersionSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -209,6 +233,7 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
   const distillSchema = z.object({ uploadId: z.string().min(1) })
 
   app.post('/:docType/distill-best-practice', { preHandler: writeGate }, async (request, reply) => {
+    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
     const { docType } = request.params as { docType: string }
     const parsed = distillSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -260,6 +285,7 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
   // distilled digest. Dedup jobId matches the paste-uploadId route
   // (bp-distill-<policyId>-<uploadId>).
   app.post('/:docType/distill-best-practice-file', { preHandler: writeGate }, async (request, reply) => {
+    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
     const { docType } = request.params as { docType: string }
 
     const policy = await svc.getCurrent(docType)

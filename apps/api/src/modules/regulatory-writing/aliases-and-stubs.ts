@@ -23,6 +23,7 @@
 // alerts mount at the root prefix separately (also exported below).
 
 import type { FastifyPluginAsync } from 'fastify'
+import { z } from 'zod'
 import { requireAuth } from '../../auth/rbac.js'
 import { chooseModel } from '../platform/config/ai-engine-settings.js'
 
@@ -393,30 +394,127 @@ export const regAliasesAndStubs: FastifyPluginAsync = async (app) => {
     }
   })
 
-  // --- Library cards stubs --------------------------------------------
-  app.get('/:submissionId/library-cards', { preHandler: dGate }, async (request) => {
+  // --- Library cards --------------------------------------------------
+  //
+  // Reads real LibrarySection rows (platform-wide, single-tenant
+  // install) filtered to this submission's therapeutic area +
+  // `module:D` or platform-wide `module:A` (Clinical Writing-sourced
+  // approved documents, which Module D often reuses as evidence).
+  //
+  // Returns a `kind` derived from the `doctype:` tag (falls back to
+  // the LibrarySection.framework when no doctype tag is set). `title`
+  // comes from LibrarySection.title + `body` lives in LibrarySection.body
+  // so the UI can show the preview without a second round-trip.
+  app.get('/:submissionId/library-cards', { preHandler: dGate }, async (request, reply) => {
     const { submissionId } = request.params as { submissionId: string }
     const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
-    if (!sub) return []
-    return [
-      { id: `libr-${submissionId}-1`, submissionId, title: `${sub.submissionType.toUpperCase()} summary — ${sub.taTag}`, kind: 'module-2', pushedAt: null, stub: true },
-    ]
+    if (!sub) return reply.code(404).send({ error: 'not_found' })
+
+    const rows = await app.prisma.librarySection.findMany({
+      where: {
+        isCurrent: true,
+        retiredAt: null,
+        taTag: sub.taTag,
+        // Match claims (Medical Writing pushes) + full documents
+        // (Clinical Writing pushes) — both are useful evidence in a
+        // Module 2 package.
+        OR: [
+          { tags: { has: 'module:D' } },
+          { tags: { has: 'module:C' } },
+          { tags: { has: 'module:A' } },
+        ],
+      },
+      select: { id: true, title: true, body: true, framework: true, category: true, tags: true, updatedAt: true },
+      orderBy: { updatedAt: 'desc' },
+      take: 200,                                              // UI pagination lands later; cap so the response stays bounded
+    })
+
+    return rows.map(r => {
+      // Pull the doctype hint out of the tags array if present.
+      const docTypeTag = r.tags.find(t => t.startsWith('doctype:'))
+      const kind = docTypeTag ? docTypeTag.slice('doctype:'.length) : r.framework
+      return {
+        id:        r.id,
+        submissionId,
+        title:     r.title,
+        body:      r.body,
+        kind,
+        category:  r.category,
+        tags:      r.tags,
+        updatedAt: r.updatedAt.toISOString(),
+      }
+    })
   })
 
-  app.post('/:submissionId/library-cards/push', { preHandler: dGate }, async (request) => {
+  // Push submission artefacts back into the Master Library for reuse.
+  // Takes an array of { title, body, docType } items — the client
+  // picks what to capture; this route doesn't infer from the eCTD
+  // tree. Writes one LibrarySection per item, dedup on (title + body
+  // + submissionId) via a `source:<submissionId>` tag check.
+  const regPushSchema = z.object({
+    items: z.array(z.object({
+      title:    z.string().min(1).max(200),
+      body:     z.string().min(1).max(10_000),
+      docType:  z.string().min(1).max(80),
+      category: z.enum(['claim', 'safety', 'boilerplate', 'best_practice']).default('boilerplate'),
+    })).min(1).max(50),
+  })
+
+  app.post('/:submissionId/library-cards/push', { preHandler: dGate }, async (request, reply) => {
     const { submissionId } = request.params as { submissionId: string }
-    const body = (request.body ?? {}) as { cardIds?: string[] }
-    const count = body.cardIds?.length ?? 0
+    const parsed = regPushSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
+    if (!sub) return reply.code(404).send({ error: 'not_found' })
+
+    const results: Array<{ title: string; librarySectionId?: string; skippedReason?: 'already_pushed' }> = []
+    for (const item of parsed.data.items) {
+      const existing = await app.prisma.librarySection.findFirst({
+        where: {
+          title: item.title,
+          isCurrent: true,
+          retiredAt: null,
+          tags: { has: `source:${submissionId}` },
+        },
+        select: { id: true },
+      })
+      if (existing) {
+        results.push({ title: item.title, skippedReason: 'already_pushed' })
+        continue
+      }
+      const created = await app.prisma.librarySection.create({
+        data: {
+          tenantId:  null,
+          title:     item.title,
+          body:      item.body,
+          taTag:     sub.taTag,
+          framework: item.docType,
+          category:  item.category,
+          tags: [
+            'module:D',
+            `doctype:${item.docType}`,
+            `project:${sub.projectId}`,
+            `source:${submissionId}`,
+            `submissionType:${sub.submissionType}`,
+          ],
+          approvedBy: request.user!.id,
+        },
+      })
+      results.push({ title: item.title, librarySectionId: created.id })
+    }
+
+    const pushedCount = results.filter(r => r.librarySectionId).length
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'library_push',
       entityType: 'reg_submission',
       entityId: submissionId,
-      details: { cardCount: count, stub: true },
+      details: { requested: parsed.data.items.length, pushed: pushedCount, results },
       ipAddress: request.ip ?? null,
     })
-    return { pushedAt: new Date().toISOString(), cardCount: count }
+    return { pushedAt: new Date().toISOString(), pushedCount, results }
   })
 
   // --- Final record bundle ---------------------------------------------

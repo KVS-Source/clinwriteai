@@ -20,6 +20,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { chooseModel } from '../../platform/config/ai-engine-settings.js'
 import { invalidTaBody, resolveTa } from '../../platform/taxonomy/validate.js'
 import {
   complianceTrackIsLocked,
@@ -498,29 +499,114 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
     ]
   })
 
-  // --- AI suggest (stub) ---------------------------------------------
-  // Deterministic stub pending the Anthropic connector (Arc 8.1).
+  // --- AI suggest --------------------------------------------------
+  // Calls the real AI gateway with a compact content-aware prompt.
+  // Mirrors the Clinical Writing /ai-suggest + Scientific Writing
+  // peer-review-draft wiring.
+  //
+  // Body:
+  //   { sectionId?: string, prompt?: string, currentContent?: string }
+  //
+  // Response:
+  //   { responseText, aiModel, generatedAt, recordId? }
+  //
+  // 429 on quota exhaustion; non-quota gateway failure returns a
+  // short "AI unavailable" stub so the user can still proceed by
+  // writing manually.
   app.post('/:contentId/ai-suggest', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
-    const body = (request.body ?? {}) as { sectionId?: string; prompt?: string }
+    const body = (request.body ?? {}) as {
+      sectionId?:      string
+      prompt?:         string
+      currentContent?: string
+    }
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
-    await app.audit.append({
-      timestamp: new Date().toISOString(),
-      actorId: request.user!.id,
-      action: 'ai_suggest_generated',
-      entityType: 'med_content',
-      entityId: contentId,
-      details: { sectionId: body.sectionId, model: 'stub-advisor-v1' },
-      ipAddress: request.ip ?? null,
-    })
-    return {
-      responseText:
-        `[AI stub — Anthropic connector pending] Suggested wording for ${body.sectionId ?? 'this section'}: ` +
-        `Veloricept + pembrolizumab significantly improved PFS vs pembrolizumab alone (HR 0.61; 95% CI 0.48–0.77; p<0.001), ` +
-        `with a safety profile consistent with pembrolizumab monotherapy.`,
-      aiModel: 'stub-advisor-v1',
-      generatedAt: new Date().toISOString(),
+
+    const sectionLabel = body.sectionId ?? 'this section'
+    const instruction  = (body.prompt ?? '').trim() || 'Suggest improved wording for this section, preserving every data point.'
+
+    const systemPrompt = [
+      'You are a medical-communications assistant drafting content for a regulated medical / pharmaceutical deliverable (HCP deck, PIL, MI letter, CME module, advisory board agenda, etc.).',
+      '',
+      'RULES',
+      '1. Produce only the suggested wording — no preamble, no headings, no "Here is...".',
+      '2. Do not invent clinical facts, numbers, statistics, or references. If the ask requires specifics you do not have, insert `[Information Required: <what>]` inline.',
+      '3. Match the register of the content type (HCP: scientific, measured; patient: plain language; CME: instructional).',
+      '4. Preserve every data point and reference in the current content — do not drop a number or drug name without an explicit instruction to do so.',
+      '5. Avoid marketing phrasing in non-promotional / CME content.',
+    ].join('\n')
+
+    const userPrompt = [
+      `Content item: ${item.title ?? item.id}`,
+      `Type: ${item.type ?? 'unknown'}`,
+      `Compliance track: ${item.complianceTrack ?? 'unknown'}`,
+      `Section: ${sectionLabel}`,
+      '',
+      body.currentContent ? `Current content:\n${body.currentContent}` : '(section is currently empty)',
+      '',
+      `Instruction: ${instruction}`,
+    ].join('\n')
+
+    try {
+      const model = await chooseModel(app.prisma)
+      const result = await app.aiGateway.chat({
+        tenantId:  request.user!.tenantId,
+        projectId: item.projectId ?? 'unknown',
+        actorId:   request.user!.id,
+        module:    'C',
+        intent:    'content_suggest',
+        model,
+        prompt:    `${systemPrompt}\n\n---\n\n${userPrompt}`,
+        maxOutputTokens: 1024,
+      })
+
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'ai_suggest_generated',
+        entityType: 'med_content',
+        entityId:   contentId,
+        details: {
+          sectionId:     body.sectionId ?? null,
+          model:         result.model,
+          aiCallRecordId: result.recordId,
+        },
+        ipAddress: request.ip ?? null,
+      })
+
+      return {
+        responseText: result.responseText,
+        aiModel:      result.model,
+        recordId:     result.recordId,
+        generatedAt:  new Date().toISOString(),
+      }
+    } catch (err: unknown) {
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      app.log.warn({ err, contentId }, 'content ai-suggest fell back to stub')
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'ai_suggest_generated',
+        entityType: 'med_content',
+        entityId:   contentId,
+        details: {
+          sectionId: body.sectionId ?? null,
+          model:     'stub-fallback',
+          reason:    err instanceof Error ? err.message : String(err),
+        },
+        ipAddress: request.ip ?? null,
+      })
+      return {
+        responseText:
+          `[AI temporarily unavailable — please draft manually] Starting point for ${sectionLabel}: ` +
+          `[Information Required: insert the specific wording addressing "${instruction}"].`,
+        aiModel:     'stub-fallback',
+        generatedAt: new Date().toISOString(),
+        stub:        true,
+      }
     }
   })
 

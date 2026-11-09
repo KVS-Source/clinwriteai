@@ -26,6 +26,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { CHECKER_BY_LABEL, type CheckerInputs } from './checkers.js'
 
 // Default check set — seeded on first run per publication. Matches the
 // data model's 6 groups per §21.1.
@@ -136,9 +137,12 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
     return { summary: summariseChecks(rows), checks: shaped }
   })
 
-  // Re-run all checks. Real check engine lands separately; this stub
-  // bumps lastRunAt + preserves current states (so a user who just
-  // acknowledged something doesn't see it re-flip).
+  // Re-run all checks. Rows whose label has a real checker
+  // (checkers.ts) get fresh evaluation against the live publication
+  // data; every other row preserves its current state (so a user who
+  // acknowledged a `warn` doesn't see it re-flip). Fully-engine
+  // implementations for format / EQUATOR / plagiarism / figures land
+  // in a follow-up — see checkers.ts for how to add one.
   app.post('/:publicationId/submission-checks/run', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
     const { publicationId } = request.params as { publicationId: string }
     const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
@@ -146,8 +150,49 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
 
     await ensureSeeded(publicationId)
     const now = new Date()
+
+    // Fetch the inputs real checkers need. Cheaper than per-checker
+    // queries + keeps the Prisma surface in one place.
+    const [citations, authors] = await Promise.all([
+      app.prisma.citation.findMany({
+        where:  { publicationId, removedAt: null },
+        select: { pmid: true, fullRef: true, isSourceDocument: true },
+      }),
+      app.prisma.publicationAuthor.findMany({
+        where:  { publicationId, removedAt: null },
+        select: { id: true, name: true, isExternal: true, coiStatus: true },
+      }),
+    ])
+    const checkerInputs: CheckerInputs = { citations, authors }
+
+    // Find every row whose label has a real checker so we can apply
+    // the result in a single UPDATE per row (updateMany can't vary
+    // per row).
+    const liveRows = await app.prisma.submissionCheck.findMany({
+      where:  { publicationId, label: { in: Object.keys(CHECKER_BY_LABEL) } },
+      select: { id: true, label: true },
+    })
+
+    const perRowUpdates = liveRows.map(async r => {
+      const checker = CHECKER_BY_LABEL[r.label]
+      if (!checker) return                                              // belt-and-braces; the `in` filter already guarantees
+      const result = checker(checkerInputs)
+      await app.prisma.submissionCheck.update({
+        where: { id: r.id },
+        data:  { state: result.state, note: result.note, lastRunAt: now },
+      })
+    })
+    await Promise.all(perRowUpdates)
+
+    // Everything else keeps its state; just bump lastRunAt so the UI
+    // knows it was re-checked (and the "not yet evaluated" story is
+    // explicit to users).
+    const liveLabels = liveRows.map(r => r.label)
     await app.prisma.submissionCheck.updateMany({
-      where: { publicationId },
+      where: {
+        publicationId,
+        ...(liveLabels.length > 0 ? { label: { notIn: liveLabels } } : {}),
+      },
       data: { lastRunAt: now },
     })
 
@@ -157,7 +202,11 @@ export const submissionChecksRoutes: FastifyPluginAsync = async (app) => {
       action: 'submission_checks_run',
       entityType: 'publication',
       entityId: publicationId,
-      details: { runAt: now.toISOString(), stub: true },
+      details: {
+        runAt:          now.toISOString(),
+        liveCheckers:   liveRows.map(r => r.label),
+        scaffoldedOnly: !liveRows.length,
+      },
       ipAddress: request.ip ?? null,
     })
 

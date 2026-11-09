@@ -32,7 +32,7 @@ import { documentsApi, type DocumentTemplate } from '../../api'
 import { ApiError } from '../../api/client'
 import { assignableUsersApi } from '../../api/raci'
 import { AssigneeCombobox, type AssigneeOption } from '../../components/raci/AssigneeCombobox'
-import { platformApi } from '../../platform/api/platformApi'
+import { platformApi, type DocumentTypePolicy } from '../../platform/api/platformApi'
 import { sourceCategoryLabel } from '../../utils/sourceCategories'
 import { sourceCategoriesForDocType } from '../../utils/documentTypeSourceCategories'
 
@@ -219,6 +219,20 @@ export function NewDocumentForm({
     })
   }, [allBestPractices, type])
 
+  // DocumentTypePolicy for the chosen type — drives the "AI will use"
+  // preview so the author sees up front which SME prompt + BP digest +
+  // section rules AI will have on every call. Server normalises the
+  // docType to underscored canonical form for lookup, so do the same
+  // client-side. Missing policy → `null` → the card renders a "no
+  // policy authored yet" hint instead of an error state.
+  const policyDocType = useMemo(() => type.replace(/-/g, '_'), [type])
+  const { data: policy = null, isLoading: policyLoading } = useQuery({
+    queryKey: ['document-type-policy', policyDocType],
+    queryFn:  () => platformApi.getDocumentTypePolicy(policyDocType),
+    staleTime: 60_000,
+    retry: false,
+  })
+
   const { data: sourceDoc } = useQuery({
     queryKey: ['document', duplicateSourceId],
     queryFn:  () => documentsApi.get(duplicateSourceId!),
@@ -372,6 +386,18 @@ export function NewDocumentForm({
                 )}
               </div>
             )}
+
+            {/* AI rule-set preview — surfaces the DocumentTypePolicy the
+                drafter + /ai-suggest calls will see for this doc type:
+                SME prompt (always present when a policy exists), BP
+                principle count, section-rule count, ICH framework. Pure
+                preview; read-only. Admin edits land on the policy
+                editor screen. */}
+            <PolicyPreviewCard
+              policy={policy}
+              loading={policyLoading}
+              docTypeLabel={selectedTypeMeta?.label ?? type}
+            />
 
             {/* Best Practices Library — items whose applicableDocTypes
                 matches the selected type. Shows the writer the framework
@@ -776,6 +802,88 @@ function AiInstructionsField({ value, onChange, t }: { value: string; onChange: 
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// DocumentTypePolicy preview — surfaces the rule-set the AI drafter +
+// section rewrites will see for the chosen doc type. Read-only; admins
+// edit the policy on its own screen. "No policy yet" is a valid state
+// (the create call still succeeds — AI just falls back to the built-in
+// behaviour) so the empty case is a neutral hint, not a warning.
+function PolicyPreviewCard({
+  policy,
+  loading,
+  docTypeLabel,
+}: {
+  policy:       DocumentTypePolicy | null
+  loading:      boolean
+  docTypeLabel: string
+}) {
+  if (loading) {
+    return (
+      <div className="rounded-md border border-dashed border-slate-200 bg-white p-3">
+        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+          AI rule-set
+        </p>
+        <p className="mt-1 text-[12px] text-slate-500">Loading policy…</p>
+      </div>
+    )
+  }
+  if (!policy) {
+    return (
+      <div className="rounded-md border border-dashed border-slate-200 bg-white p-3">
+        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+          AI rule-set
+        </p>
+        <p className="mt-1 text-[12px] text-slate-500">
+          No policy authored for <span className="font-semibold">{docTypeLabel}</span> yet — AI will use the built-in defaults.
+        </p>
+      </div>
+    )
+  }
+  const principleCount = policy.bestPracticeDigest?.principles.length ?? 0
+  const sectionRuleCount = policy.sectionRules
+    ? Object.keys(policy.sectionRules).length
+    : 0
+  const smePromptLen = policy.smePrompt.length
+  return (
+    <div className="rounded-md border border-slate-200 bg-blue-50/40 p-3" data-policy-preview>
+      <div className="flex items-baseline justify-between">
+        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-blue-700">
+          AI rule-set
+        </p>
+        <span className="font-mono text-[10px] text-blue-700">v{policy.version}</span>
+      </div>
+      <p className="mt-1 text-[12px] text-slate-700">
+        AI will use the <span className="font-semibold">{docTypeLabel}</span> policy on every draft + rewrite.
+      </p>
+      <ul className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+        <li className="rounded-full bg-white px-2 py-0.5 text-slate-700 ring-1 ring-slate-200">
+          SME prompt {smePromptLen.toLocaleString()} chars
+        </li>
+        <li className="rounded-full bg-white px-2 py-0.5 text-slate-700 ring-1 ring-slate-200">
+          BP digest {principleCount === 0 ? 'none yet' : `${principleCount} principle${principleCount === 1 ? '' : 's'}`}
+        </li>
+        <li className="rounded-full bg-white px-2 py-0.5 text-slate-700 ring-1 ring-slate-200">
+          Section rules {sectionRuleCount === 0 ? 'none' : sectionRuleCount}
+        </li>
+        {policy.ichFramework && (
+          <li className="rounded-full bg-white px-2 py-0.5 text-slate-700 ring-1 ring-slate-200">
+            ICH {policy.ichFramework}
+          </li>
+        )}
+        {policy.templateId && (
+          <li className="rounded-full bg-white px-2 py-0.5 text-slate-700 ring-1 ring-slate-200">
+            Template pinned
+          </li>
+        )}
+        {policy.checklistTemplateId && (
+          <li className="rounded-full bg-white px-2 py-0.5 text-slate-700 ring-1 ring-slate-200">
+            Checklist pinned
+          </li>
+        )}
+      </ul>
     </div>
   )
 }

@@ -1,5 +1,5 @@
 // Platform & Admin API client — used by sPM04–sPM18 and sB10.
-import { api } from '../../api/client'
+import { api, ApiError } from '../../api/client'
 import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
   PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, MasterLibraryItem,
@@ -393,6 +393,19 @@ export const platformApi = {
     api.put<ExternalApiCredentialRow>(`/admin/external-apis/${encodeURIComponent(apiId)}/credentials`, body),
   deleteExternalApiCredentials: (apiId: string) =>
     api.delete<void>(`/admin/external-apis/${encodeURIComponent(apiId)}/credentials`),
+
+  // DocumentTypePolicy — the current policy row for a doc type. Powers the
+  // "AI will use" preview on the New Document wizard + the admin policy
+  // editor. A 404 (no policy authored yet) is normalised to null so the
+  // consumer can render the "no policy" state without an error boundary.
+  getDocumentTypePolicy: async (docType: string): Promise<DocumentTypePolicy | null> => {
+    try {
+      return await api.get<DocumentTypePolicy>(`/document-type-policies/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
 }
 
 export interface ExternalApiCredentialRow {
@@ -411,4 +424,43 @@ export interface ExternalApiCredentialBody {
   username?: string | null
   baseUrl?:  string | null
   notes?:    string | null
+}
+
+// --- DocumentTypePolicy (platform/document-type-policy) ------------------
+// Mirrors the API shape() helper. `bestPracticeDigest` and `sectionRules`
+// are already JSON-typed server-side so the client can read them directly.
+
+export interface PolicyPrinciple {
+  scope:    'whole-doc' | string           // 'whole-doc' | 'section:<key>'
+  severity: 'must' | 'should' | 'nice'
+  text:     string
+}
+
+export interface BestPracticeDigest {
+  principles:      PolicyPrinciple[]
+  sourcePdfId?:    string
+  distilledAt?:    string
+  distilledModel?: string
+}
+
+export interface DocumentTypePolicy {
+  id:                  string
+  docType:             string
+  version:             number
+  isCurrent:           boolean
+  smePrompt:           string
+  bestPracticeDigest:  BestPracticeDigest | null
+  sectionRules:        Record<string, unknown> | null
+  templateId:          string | null
+  checklistTemplateId: string | null
+  ichFramework:        string | null
+  effectiveDate:       string
+  supersededBy:        string | null
+  retiredAt:           string | null
+  retiredBy:           string | null
+  retireReason:        string | null
+  createdBy:           string
+  updatedBy:           string
+  createdAt:           string
+  updatedAt:           string
 }

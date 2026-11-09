@@ -170,13 +170,41 @@ export const canonicalRoutes: FastifyPluginAsync = async (app) => {
 
   // --- UI-shorthand alias ---------------------------------------------
   // Web client calls POST /canonical-json/index; canonical API is just
-  // POST /canonical-json. Alias indexes the current source documents
-  // into a single CanonicalJsonEntry stub so the UI's "Index now" button
-  // resolves — real indexing engine will replace the stub later.
+  // POST /canonical-json. Alias reports the current indexed state so the
+  // UI's "Index now" button has real counts to render. Real indexing
+  // engine (PDF/Word → structured JSON extractor) still lands later;
+  // this just surfaces what's already stored.
+  //
+  // `dataPoints` = sum of top-level keys across every entry's `content`
+  // JSON (a proxy; the extractor will produce a true data-point count
+  // when it lands). `sources` = unique sourceDocId per entry with its
+  // type + the version string the caller recorded.
   app.post('/:submissionId/canonical-json/index', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
     const { submissionId } = request.params as { submissionId: string }
     const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
     if (!sub) return reply.code(404).send({ error: 'not_found' })
+
+    const entries = await app.prisma.canonicalJsonEntry.findMany({
+      where:   { submissionId },
+      select:  { sourceDocId: true, sourceType: true, version: true, content: true, indexedAt: true },
+      orderBy: { indexedAt: 'desc' },
+    })
+
+    const sources = entries.map(e => ({
+      sourceDocId: e.sourceDocId,
+      sourceType:  e.sourceType,
+      version:     e.version,
+      indexedAt:   e.indexedAt.toISOString(),
+    }))
+    const dataPoints = entries.reduce((sum, e) => {
+      // `content` is `Json` on Prisma — usually an object with named
+      // fields, occasionally an array. Count top-level keys for object,
+      // length for array, 0 for a bare scalar / null.
+      if (e.content && typeof e.content === 'object') {
+        return sum + (Array.isArray(e.content) ? e.content.length : Object.keys(e.content as object).length)
+      }
+      return sum
+    }, 0)
 
     const indexedAt = new Date()
     await app.audit.append({
@@ -185,16 +213,15 @@ export const canonicalRoutes: FastifyPluginAsync = async (app) => {
       action: 'canonical_json_indexed',
       entityType: 'reg_submission',
       entityId: submissionId,
-      details: { aliasPath: 'canonical-json/index', stub: true },
+      details: { aliasPath: 'canonical-json/index', sourceCount: sources.length, dataPoints },
       ipAddress: request.ip ?? null,
     })
 
     return {
       submissionId,
       indexedAt: indexedAt.toISOString(),
-      dataPoints: 0,
-      sources: [],
-      stub: true,
+      dataPoints,
+      sources,
     }
   })
 }

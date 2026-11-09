@@ -697,25 +697,108 @@ export const medContentRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
-  // --- Library push (stub) --------------------------------------------
-  // Master Library push: records an audit event and returns pushed card
-  // count. Real Master Library persistence lands when the shared card
-  // table + versioning model lands (project_phase_3c_deferrals A3).
+  // --- Library push ----------------------------------------------------
+  //
+  // Push approved claims from this content item into the platform
+  // Master Library (LibrarySection with category='claim'). The approved
+  // claim becomes a reusable row that Medical / Regulatory / Ideation
+  // can later match + adopt.
+  //
+  // Body: { cardIds?: string[] }
+  //   - When cardIds is supplied: push ONLY those claims (each must be
+  //     approvalStatus='approved' + belong to this content item).
+  //   - When cardIds omitted: push every claim with approvalStatus=
+  //     'approved' on this content item.
+  //
+  // Precondition: the content item must itself be approved (its
+  // MedContentItem.status === 'approved'). Pushing from an un-approved
+  // piece would introduce un-reviewed language into the Master Library.
+  //
+  // Each pushed claim creates a single LibrarySection row:
+  //   tenantId:  null               (single-tenant install; platform-wide)
+  //   category:  'claim'
+  //   framework: 'MLR Approved'
+  //   tags:      module:C, doctype:<type>, project:<id>, source:<contentId>,
+  //              claim:<claimId>, track:<complianceTrack>
+  //   body:      the claim text
+  //
+  // Dedup: if a LibrarySection with tag claim:<claimId> already exists +
+  // isCurrent=true + retiredAt=null, that claim is skipped (reported
+  // separately). The versioning path (Clinical Writing's /library/push)
+  // isn't used here — the first push wins; a re-push after retirement
+  // creates a fresh row.
   app.post('/:contentId/library/push', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
-    const body = (request.body ?? {}) as { cardIds?: string[]; pushedBy?: string }
+    const body = (request.body ?? {}) as { cardIds?: string[] }
+    const requestedIds = Array.isArray(body.cardIds) ? body.cardIds.filter((x): x is string => typeof x === 'string' && x.length > 0) : undefined
+
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
+    if (item.status !== 'approved') {
+      return reply.code(409).send({ error: 'content_not_approved', message: `Only approved content can push to the Master Library (current status: ${item.status})` })
+    }
+
+    const whereBase = { contentItemId: contentId, approvalStatus: 'approved' as const }
+    const candidates = await app.prisma.claimsMatrixItem.findMany({
+      where: requestedIds ? { ...whereBase, id: { in: requestedIds } } : whereBase,
+    })
+    if (candidates.length === 0) {
+      return reply.code(422).send({ error: 'nothing_to_push', message: 'No approved claims to push.' })
+    }
+
+    const pushedAt = new Date()
+    const results: Array<{ claimId: string; librarySectionId?: string; skippedReason?: 'already_pushed' }> = []
+
+    for (const claim of candidates) {
+      const alreadyPushed = await app.prisma.librarySection.findFirst({
+        where: {
+          category: 'claim',
+          isCurrent: true,
+          retiredAt: null,
+          tags: { has: `claim:${claim.id}` },
+        },
+        select: { id: true },
+      })
+      if (alreadyPushed) {
+        results.push({ claimId: claim.id, skippedReason: 'already_pushed' })
+        continue
+      }
+
+      const created = await app.prisma.librarySection.create({
+        data: {
+          tenantId:  null,
+          title:     `${item.title ?? item.id} — ${claim.claimText.slice(0, 60)}`,
+          body:      claim.claimText,
+          taTag:     item.taTag,
+          framework: 'MLR Approved',
+          category:  'claim',
+          tags: [
+            'module:C',
+            `doctype:${item.type}`,
+            `project:${item.projectId}`,
+            `source:${contentId}`,
+            `claim:${claim.id}`,
+            `track:${item.complianceTrack}`,
+          ],
+          approvedBy: request.user!.id,
+        },
+      })
+      results.push({ claimId: claim.id, librarySectionId: created.id })
+    }
+
+    const pushedCount = results.filter(r => r.librarySectionId).length
+    const skippedCount = results.length - pushedCount
+
     await app.audit.append({
-      timestamp: new Date().toISOString(),
+      timestamp: pushedAt.toISOString(),
       actorId: request.user!.id,
       action: 'library_push',
       entityType: 'med_content',
       entityId: contentId,
-      details: { cardCount: body.cardIds?.length ?? 0, stub: true },
+      details: { requested: candidates.length, pushed: pushedCount, skipped: skippedCount, results },
       ipAddress: request.ip ?? null,
     })
-    return { pushedAt: new Date().toISOString(), cardCount: body.cardIds?.length ?? 0 }
+    return { pushedAt: pushedAt.toISOString(), pushedCount, skippedCount, results }
   })
 }
 

@@ -21,6 +21,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import type { PrismaClient } from '@prisma/client'
 import { requireAuth } from '../../../auth/rbac.js'
+import { bestLibraryMatch } from './library-match.js'
 
 const createClaimSchema = z.object({
   claimText: z.string().min(1),
@@ -103,9 +104,20 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  // Harvest stub: assigns deterministic pseudo-similarity based on claim text
-  // length so the UI gets stable numbers without needing pgvector. Real
-  // similarity engine lands with the pgvector extension install (deferred).
+  // Harvest: for each claim on this content item, finds the best
+  // Master Library match (LibrarySection where category='claim',
+  // matching TA), records similarityPct + approvedLibraryText so the
+  // adopt flow can carry the matched text forward without a round-
+  // trip to the Library UI.
+  //
+  // Similarity today = Jaccard on tokenised word sets (library-match.ts).
+  // When pgvector lands (X-2) swap the scoring call for cosine on the
+  // embedding column; function signature stays identical.
+  //
+  // Claims with no match in the Library (e.g. first-of-kind content)
+  // get similarityPct = 0 + approvedLibraryText = null. The UI's 80%
+  // gate in the adopt route will keep them out of the library-adoption
+  // path automatically.
   app.post('/:contentId/claims/harvest', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId } = request.params as { contentId: string }
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
@@ -114,27 +126,52 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
     const claims = await app.prisma.claimsMatrixItem.findMany({ where: { contentItemId: contentId } })
     const now = new Date()
 
+    // Pull the candidate Library pool in one query: current + non-
+    // retired claim-category rows matching the item's TA. Platform-wide
+    // tenancy (single-tenant install); the filter is category + TA.
+    const libraryCandidates = await app.prisma.librarySection.findMany({
+      where: {
+        category: 'claim',
+        isCurrent: true,
+        retiredAt: null,
+        taTag: item.taTag,
+      },
+      select: { id: true, title: true, body: true },
+    })
+
+    const results = claims.map(c => {
+      const match = bestLibraryMatch(c.claimText, libraryCandidates)
+      return { claim: c, match }
+    })
+
     await app.prisma.$transaction(
-      claims.map(c => {
-        // Stable pseudo-similarity: longer text → closer to 50%; the harvest
-        // UI shows gradient bars so any deterministic distribution works.
-        const sim = Math.min(95, 30 + (c.claimText.length % 60))
-        return app.prisma.claimsMatrixItem.update({
-          where: { id: c.id },
-          data: { similarityPct: sim, harvestedAt: now },
-        })
-      }),
+      results.map(({ claim, match }) =>
+        app.prisma.claimsMatrixItem.update({
+          where: { id: claim.id },
+          data: {
+            similarityPct:       match.similarityPct,
+            approvedLibraryText: match.libraryBody,
+            harvestedAt:         now,
+          },
+        }),
+      ),
     )
 
     await recalculateReviewTier(app.prisma, contentId, request.user!.id)
 
+    const matchedCount = results.filter(r => r.match.librarySectionId !== null).length
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'claims_harvested',
       entityType: 'med_content',
       entityId: contentId,
-      details: { claimCount: claims.length, stub: true },
+      details: {
+        claimCount:         claims.length,
+        libraryPoolSize:    libraryCandidates.length,
+        matchedCount,
+        similarityEngine:   'jaccard',           // swap to 'pgvector-cosine' when X-2 lands
+      },
       ipAddress: request.ip ?? null,
     })
 

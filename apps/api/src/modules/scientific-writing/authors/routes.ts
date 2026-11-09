@@ -18,6 +18,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import type { EmailSendResult } from '../../platform/email/adapter.js'
 
 const toggleCriterionSchema = z.object({
   criterionIndex: z.number().int().min(0).max(3),
@@ -246,15 +247,53 @@ export const authorsRoutes: FastifyPluginAsync = async (app) => {
     })
     if (!author) return reply.code(404).send({ error: 'not_found' })
 
-    // Real email send goes here once the Postmark/SES adapter lands; for now
-    // the audit event is the record of the reminder.
+    // Pull publication title for the subject line.
+    const publication = await app.prisma.publication.findUnique({
+      where:  { id: publicationId },
+      select: { title: true },
+    })
+    const title = publication?.title ?? 'your manuscript'
+
+    // Hand off to the registered EmailAdapter. Default build is `noop`
+    // so this is a no-op until EMAIL_PROVIDER is set — the audit event
+    // still lands below either way. The `delivered` + `adapter` fields
+    // the adapter returns go into the audit so a staging deploy using
+    // the `log` adapter can be distinguished from a real send once a
+    // provider is wired.
+    let emailResult: EmailSendResult = { adapter: 'noop', delivered: false, providerMessageId: null }
+    if (author.inviteEmail) {
+      try {
+        emailResult = await app.email.send({
+          to:       author.inviteEmail,
+          subject:  `Author action needed: ${title}`,
+          textBody: [
+            `Hi ${author.name},`,
+            '',
+            `You have an outstanding action on "${title}" — please log in to confirm your affiliation, conflict-of-interest statement, and ICMJE acknowledgements.`,
+            '',
+            'Thank you.',
+          ].join('\n'),
+          reason:   'author_reminder',
+        })
+      } catch (err) {
+        app.log.warn({ err, authorId, publicationId }, 'author_reminder email send failed — audit event still written')
+      }
+    }
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'author_reminder_sent',
       entityType: 'publication',
       entityId: publicationId,
-      details: { authorId, authorName: author.name, inviteEmail: author.inviteEmail ?? null },
+      details: {
+        authorId,
+        authorName:       author.name,
+        inviteEmail:      author.inviteEmail ?? null,
+        emailAdapter:     emailResult.adapter,
+        emailDelivered:   emailResult.delivered,
+        providerMessageId: emailResult.providerMessageId,
+      },
       ipAddress: request.ip ?? null,
     })
 

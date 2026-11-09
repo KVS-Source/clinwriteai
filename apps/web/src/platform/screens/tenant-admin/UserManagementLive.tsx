@@ -41,9 +41,10 @@ function formatLastActive(iso: string, t: (k: string, o?: Record<string, unknown
   return new Date(iso).toLocaleDateString()
 }
 
-// Tenant column: the real tenant (CW-099). The Tenant ID typed at registration is free text
-// anyone can fill in, so it is only shown underneath, labelled as entered by the user.
-const tenantOf = (u: AdminUser) => u.tenantName || u.tenantId || null
+// Tenant column: the tenant the account is linked to (CW-099); without one, the Tenant ID the user
+// typed when registering. When there are both, the typed ID is shown underneath.
+const tenantOf = (u: AdminUser) => u.tenantName || u.tenantId || u.tenantRef || null
+const linkedTenant = (u: AdminUser) => u.tenantName || u.tenantId || null
 
 // The invite form asks only for email + role. The API still needs a display
 // name, so derive one from the address: "jane.doe@acme.com" \u2192 "Jane Doe".
@@ -360,7 +361,7 @@ export function UserManagementLive() {
                   <td className="px-4 py-3 text-slate-700" data-user-roles>{rolesOfUser(u).map(r => roleLabelOf(r, t)).join(', ')}</td>
                   <td className="px-4 py-3 text-[12px] text-slate-700" data-tenant-cell>
                     <p>{tenantOf(u) ?? '—'}</p>
-                    {u.tenantRef && (
+                    {u.tenantRef && linkedTenant(u) && (
                       <p className="mt-0.5 font-mono text-[10px] text-slate-500" data-tenant-ref>
                         {t('page.user_management_live.tenant_ref_entered', { ref: u.tenantRef })}
                       </p>

@@ -12,6 +12,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { fetchPubmedSearch } from './pubmed-client.js'
 
 const createSchema = z.object({
   pmid: z.string().optional(),
@@ -130,18 +131,31 @@ export const citationsRoutes: FastifyPluginAsync = async (app) => {
   })
 }
 
-// PubMed search stub — the citation editor queries this when the author
-// types a search string. Real E-utilities integration is externally
-// blocked (procurement for ORCID / CrossRef / PubMed keys per
-// project_phase_3b_deferrals). Stub returns a deterministic set shaped
-// like PubmedRecord so the UI's search autocomplete + "insert citation"
-// flow works end-to-end against the demo DB.
+// PubMed search — the citation editor queries this when the author
+// types a search string. Live NCBI E-utilities call (public, no key
+// required; set NCBI_API_KEY in the env to lift the per-second ceiling
+// from 3 to 10). On any failure (network, 429, parse) the route falls
+// back to the deterministic fixture set below so the UI's autocomplete
+// stays responsive — the `source` field on the response tells the
+// client which path returned.
 //
 // Registered at the root prefix in server.ts (NOT /publications) because
 // the client calls GET /pubmed/search?q=... as a top-level search.
 export const pubmedRoutes: FastifyPluginAsync = async (app) => {
   app.get('/pubmed/search', { preHandler: requireAuth({ modules: ['B'] }) }, async (request) => {
-    const q = ((request.query as { q?: string }).q ?? '').trim().toLowerCase()
+    const q = ((request.query as { q?: string }).q ?? '').trim()
+
+    // Real E-utilities call. fetchPubmedSearch never throws — a failure
+    // returns {source:'stub'} and we fall through to the fixture set.
+    if (q.length > 0) {
+      const live = await fetchPubmedSearch(q, { apiKey: process.env.NCBI_API_KEY })
+      if (live.source === 'ncbi') {
+        return { source: 'ncbi', query: q, results: live.results }
+      }
+      app.log.warn({ reason: live.reason, query: q }, 'pubmed live fetch fell back to stub')
+    }
+
+    const qLower = q.toLowerCase()
     const base = [
       {
         id:    'pm-001',
@@ -176,9 +190,9 @@ export const pubmedRoutes: FastifyPluginAsync = async (app) => {
     ]
     // Case-insensitive substring filter so "velora" or "ICH" both match
     // reasonably. Empty query returns the top of the stub list.
-    const results = q
-      ? base.filter(r => `${r.title} ${r.abstractText} ${r.keys}`.toLowerCase().includes(q))
+    const results = qLower
+      ? base.filter(r => `${r.title} ${r.abstractText} ${r.keys}`.toLowerCase().includes(qLower))
       : base
-    return { stub: true, query: q, results }
+    return { source: 'stub', query: q, results }
   })
 }

@@ -14,6 +14,7 @@ import { useEffect, useState } from 'react'
 import type { PlatformUser, PlatformUserRole } from '@platform/types'
 import { api, ApiError } from '../../api/client'
 import { AUTH_BYPASS } from '../../config/auth'
+import { applyActiveRole } from '../../config/activeRole'
 import { hasPersonaOverride, usePlatformStore } from './platformStore'
 
 interface MeResponse {
@@ -22,6 +23,7 @@ interface MeResponse {
   name: string
   role: PlatformUserRole
   roles?: PlatformUserRole[]
+  allRoles?: PlatformUserRole[]
   modules: Array<'A' | 'B' | 'C' | 'D' | 'E'>
   status: PlatformUser['status']
   lastActiveAt: string | null
@@ -29,19 +31,21 @@ interface MeResponse {
   mustChangePassword?: boolean
 }
 
+// A user holding two roles works as the one picked in the top bar (config/activeRole.ts).
 export function toPlatformUser(me: MeResponse): PlatformUser {
-  return {
+  return applyActiveRole({
     id: me.id,
     name: me.name,
     email: me.email,
     role: me.role,
     roles: me.roles ?? [me.role],
+    allRoles: me.allRoles ?? me.roles ?? [me.role],
     modules: me.modules,
     status: me.status,
     lastActive: me.lastActiveAt,
     // Platform admin vs tenant admin is decided on this (null = platform).
     tenantId: me.tenantId ?? null,
-  }
+  }) as PlatformUser
 }
 
 export type SessionStatus = 'pending' | 'signed-in' | 'signed-out'

@@ -12,6 +12,7 @@
 //   the user to the login URL (VITE_AUTH_LOGIN_URL, default the SPA's /sign-in).
 
 import { PUBLIC_AUTH_PATHS } from '../config/auth'
+import { activeRoleHeader } from '../config/activeRole'
 
 const API_BASE = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '')
 // `||` not `??`: a blank VITE_AUTH_LOGIN_URL= line in .env.local comes through
@@ -95,7 +96,7 @@ async function requestWithHeaders<T>(endpoint: string, options?: RequestOptions)
       // this header is rejected by Fastify ("Body cannot be empty").
       ...(init.body != null ? { 'Content-Type': 'application/json' } : {}),
       Accept: 'application/json',
-      ...demoPersonaHeader(),
+      ...demoPersonaHeader(), ...activeRoleHeader(),
       ...(init.headers ?? {}),
     },
   })
@@ -140,7 +141,7 @@ async function upload<T>(endpoint: string, body: FormData, options?: RequestOpti
     body,
     headers: {
       Accept: 'application/json',
-      ...demoPersonaHeader(),
+      ...demoPersonaHeader(), ...activeRoleHeader(),
       ...(init.headers ?? {}),
     },
   })
@@ -162,7 +163,7 @@ async function upload<T>(endpoint: string, body: FormData, options?: RequestOpti
 // on failure, so callers can show the real reason ("file_missing", "quarantined"...).
 async function download(endpoint: string, options?: Pick<RequestOptions, 'on401'>): Promise<{ blob: Blob; filename: string | null }> {
   const { on401 = 'throw' } = options ?? {}
-  const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include', headers: { ...demoPersonaHeader() } })
+  const res = await fetch(`${API_BASE}${endpoint}`, { credentials: 'include', headers: { ...demoPersonaHeader(), ...activeRoleHeader() } })
   if (res.status === 401 && on401 === 'redirect' && typeof window !== 'undefined' && !onPublicAuthPage()) {
     window.location.assign(`${LOGIN_URL}?return_to=${encodeURIComponent(window.location.pathname + window.location.search)}`)
     throw new ApiError(401, null)

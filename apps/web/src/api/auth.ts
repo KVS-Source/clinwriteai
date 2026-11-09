@@ -1,5 +1,6 @@
 import { api } from './client'
 import type { User } from '@platform/types'
+import { applyActiveRole } from '../config/activeRole'
 
 // Password-login profile (POST /auth/password-login → shapeUserForClient).
 export interface PasswordLoginUser {
@@ -21,7 +22,7 @@ export const authApi = {
     api.post<{ sessionToken: string; requiresMFA: boolean; user: Pick<User, 'id' | 'name' | 'initials' | 'role'> }>('/auth/login', body),
   verifyMFA: (body: { code: string }) =>
     api.post<{ sessionToken: string }>('/auth/mfa', body),
-  me: () => api.get<User>('/auth/me'),
+  me: () => api.get<User>('/auth/me').then(u => applyActiveRole(u)),
   logout: () => api.post<void>('/auth/logout', {}, NO_REDIRECT),
 
   // Password auth (Phase A).
@@ -38,5 +39,5 @@ export const authApi = {
   registerFromInvite: (token: string, name: string, newPassword: string, tenantRef?: string) =>
     api.post<{ ok: true; email: string }>('/auth/invitations/register', { token, name, newPassword, acceptTerms: true, ...(tenantRef && { tenantRef }) }, NO_REDIRECT),
   session: () =>
-    api.get<User & { email: string; mustChangePassword?: boolean }>('/auth/me', NO_REDIRECT),
+    api.get<User & { email: string; mustChangePassword?: boolean }>('/auth/me', NO_REDIRECT).then(u => applyActiveRole(u)),
 }

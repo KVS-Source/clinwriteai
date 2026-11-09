@@ -4415,6 +4415,10 @@
     },
 
     "top_nav": {
+      "switch_role": "ロールの切り替え",
+      "switch_role_hint": "{{count}} つのロールを保有しています。一度に 1 つのロールで作業します。",
+      "role_current": "使用中",
+      "roles_held": "{{count}} ロール",
       "crumb_projects": "プロジェクト",
       "leaf_comments": "コメント",
       "leaf_portfolio": "ポートフォリオ",

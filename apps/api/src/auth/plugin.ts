@@ -14,6 +14,7 @@ import { passwordAuthRoutes } from './password-routes.js'
 import { mailerPlugin } from '../mailer/mailer.js'
 import { SESSION_COOKIE_NAME, type SessionClaims } from './jwt.js'
 import type { AuthenticatedUser, Capability, ModuleKey, Role } from './rbac.js'
+import { ACTIVE_ROLE_HEADER, withActiveRole } from './active-role.js'
 
 // The signed-in identity from a User row: every role the user holds (primary first, then any
 // additional one — rights are the union, see rbac.ts), capabilities, modules and tenant.
@@ -172,6 +173,14 @@ const authPlugin: FastifyPluginAsync = async (app) => {
           request.user = toAuthUser(dbUser)
         }
       }
+    }
+  })
+
+  // Active role: a user holding two roles works as the one picked in the top bar (X-Active-Role).
+  // Runs after the identity hook above, whichever path resolved the user. See active-role.ts.
+  app.addHook('onRequest', async (request) => {
+    if (request.user && !request.user.id.startsWith('system:')) {
+      request.user = withActiveRole(request.user, request.headers[ACTIVE_ROLE_HEADER])
     }
   })
 

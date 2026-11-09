@@ -159,6 +159,10 @@ async function buildServer() {
   // ---------- Queue (BullMQ producer side; worker runs in apps/worker) ----------
   await app.register(import('./modules/platform/queue/plugin.js'))
 
+  // ---------- Email adapter (noop by default; log / console / future
+  //            Postmark / SES selected via EMAIL_PROVIDER env) ----------
+  await app.register(import('./modules/platform/email/plugin.js'))
+
   // ---------- Rate limit (Redis-backed) ----------
   const { rateLimitCounting } = await import('./modules/platform/rate-limit.js')
   // Shares the queue plugin's ioredis connection via app.redis so multi-

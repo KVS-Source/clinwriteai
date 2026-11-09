@@ -24,7 +24,8 @@ the fix. Order is rough "highest-leverage first".
 
 | # | Blocker | Blocks | Shape of fix |
 |---|---|---|---|
-| ~~X-1~~ | ~~Master Library data model~~ | — | **RESOLVED** 2026-11-09. The Master Library (`LibrarySection` + `LibraryAdoptionRecord` in [platform-services.prisma](../apps/api/prisma/schema/platform-services.prisma)) already existed at the platform level; the gap was module-side wiring, not schema. Every module now reads + writes to `LibrarySection` via tag-based filtering (`module:A..E`, `project:<id>`, `source:<id>`, `doctype:<type>`). Single-tenant installs use `tenantId: null` consistently. |
+| **X-0** | **Tenant UUID for external license-system linking** | Every module gate (A/B/C/D/E) — module enablement needs to be license-verifiable, not just DB-flag-verifiable. Also affects the Master Library writes shipped 2026-11-09 (they set `tenantId: null`; should use the install's tenant UUID once it exists). | See the dedicated section below ("Tenant UUID + license-key linking"). Short: `Tenant.id` is CUID today; add a stable `uuid` column (or switch id to UUID via migration) + a license-key store + a periodic verify job against the external licensing system. |
+| ~~X-1~~ | ~~Master Library data model~~ | — | **RESOLVED** 2026-11-09. The Master Library (`LibrarySection` + `LibraryAdoptionRecord` in [platform-services.prisma](../apps/api/prisma/schema/platform-services.prisma)) already existed at the platform level; the gap was module-side wiring, not schema. Every module now reads + writes to `LibrarySection` via tag-based filtering (`module:A..E`, `project:<id>`, `source:<id>`, `doctype:<type>`). **Note:** current writes use `tenantId: null`; those need to flip to the install's tenant UUID once X-0 lands. |
 | X-2 | **pgvector extension + embedding model** | Medical Writing + Ideation & Publishing claim similarity (currently token-Jaccard — good for near-duplicates, misses paraphrases) | Install `pgvector` on QA/prod Postgres (Hetzner CPX31: `apt install postgresql-16-pgvector`). Pick embedding provider — recommend Voyage AI (cost / quality trade). Add `vector(1536)` column to `library_sections`. Swap `jaccardSimilarity()` in [platform/library/text-match.ts](../apps/api/src/modules/platform/library/text-match.ts) for cosine on the embedding column; signature stable. |
 | X-3 | **MedDRA licensing (MSSO)** | Medical Writing (AE claim validation), Regulatory Writing (AE line-lists inside aggregate safety reports) | MSSO licence + download MedDRA LLT/PT tables + seed `meddra_lookup` table + wire validators. |
 | X-4 | **Part 11 compliance decision** — PDF vs canonical-JSON hash binding + inline credential re-auth | Clinical Writing (e-sig chain), Medical Writing (MLR Lead e-sig), Regulatory Writing (gateway transmit, super-review e-sig) | Compliance review decision; artefact format pick; wire inline re-auth per sign. Blocks three modules' sign-off chains. |
@@ -32,6 +33,104 @@ the fix. Order is rough "highest-leverage first".
 | X-6 | **Publication PDF renderer** | Scientific Writing (final download), Medical Writing (final output bundle), Regulatory Writing (dossier rendering) | Design pass — manuscript layout, journal templates, page numbering. Clinical Writing's `renderFinalDocumentPdf` is document-shaped and not directly reusable. |
 | X-7 | **Role catalogue expansion** — MLR Lead, PV Lead, Biostats Lead, SuperReviewer seats | Medical Writing (tier-override gate, MLR decision), Regulatory Writing (super-review panel strict gate), platform-wide | Add roles to `CanonicalRole` + `LegacyRole` unions in `apps/api/src/auth/rbac.ts`. Policy decision on who can grant. |
 | X-8 | **Anthropic-gated budget / cost caps** | Everywhere `aiGateway.chat()` is now wired — all 5 modules | Operational: configure AI engine in Admin Panel → AI Engine per tenant. Tenant-level monthly budget. |
+
+---
+
+## Tenant UUID + license-key linking (X-0)
+
+**Why this matters now:** The deployment model is **one tenant per install**,
+but that tenant still needs a **stable UUID** because the external licensing
+system we're wiring up will issue license keys **keyed to that UUID**.
+Without it, module enablement stays an untrusted local DB flag — anyone with
+DB access can flip `Tenant.modulesEnabled` and bypass licensing.
+
+### Current state (verified 2026-11-09)
+
+- [`Tenant` model](../apps/api/prisma/schema/tenant.prisma#L26) exists with
+  `id: String @id @default(cuid())`. The id is a **CUID, not a UUID** —
+  that's the first mismatch with an external licensing system that expects
+  UUIDs.
+- `Tenant.modulesEnabled: String[]` stores module access locally. Runtime
+  check (per the schema comment): `intersect(env.FEATURE_MODULES_ENABLED,
+  tenant.modulesEnabled)`. Both must grant.
+- **No license-key column, no verification against anything external.**
+  A license-system integration needs somewhere to store the active license
+  and a job to refresh it.
+- My 2026-11-09 Master Library wire-ups write `tenantId: null` (platform-
+  wide) because I treated "single tenant per install" as "no tenant scope
+  needed". With X-0 in place those should use the install's tenant UUID
+  so license checks can scope to it later (e.g. "if the install's licence
+  lapses, read-only lock the library").
+
+### What needs to happen
+
+**Order matters** — the schema migration is first, everything else flows
+from it:
+
+1. **Schema**:
+   - Option A (safer): add `Tenant.uuid String @unique @default(uuid()) @db.Uuid`
+     — keeps the existing CUID `id` as the internal PK, adds a UUID the
+     licensing system uses. Lower blast radius: no FK rewrites.
+   - Option B (cleaner): migrate `Tenant.id` to UUID. Rewrites every FK
+     pointing at Tenant (User, Project, Membership, SsoConnection, …).
+     Bigger change; do it only if the external system can't tolerate a
+     separate `uuid` column.
+   - Add `Tenant.licenseKey String?` + `licenseVerifiedAt DateTime?` +
+     `licenseExpiresAt DateTime?` to cache the active license locally.
+
+2. **Boot-time validation**:
+   - On API boot, read `Tenant.licenseKey` and call the external licensing
+     service to verify it's still valid. Cache the result + `modulesEnabled`
+     derived from the license. Fail-closed on first boot (no cached license
+     ⇒ 503 on module routes until licensing responds); fail-open on refresh
+     (if the external system is down but we have a recent valid cache ⇒
+     keep running up to a grace period, say 72h).
+   - Env: `LICENSING_API_URL`, `LICENSING_API_KEY`, `LICENSE_GRACE_HOURS=72`.
+
+3. **Periodic refresh**:
+   - Worker job `platform.license_verify` every 6h — re-queries external
+     licensing, updates `licenseVerifiedAt` + the cached `modulesEnabled`,
+     audits any delta.
+
+4. **`requireAuth({ modules })` gate**:
+   - Already intersects `FEATURE_MODULES_ENABLED` env + `tenant.modulesEnabled`.
+     After X-0: additionally check `tenant.licenseExpiresAt > now` AND
+     `tenant.licenseVerifiedAt > now - LICENSE_GRACE_HOURS`. Returns
+     `503 module_disabled` with reason `'license_expired'` /
+     `'license_unverified'` when fail.
+
+5. **Master Library tenantId backfill**:
+   - After the UUID lands, rewrite the 2026-11-09 Master Library pushes
+     (Medical Writing, Regulatory Writing, Scientific Writing, Ideation)
+     to use `tenantId: <install uuid>` instead of `null`. One-time data
+     migration to set `tenantId` on existing rows.
+
+6. **Admin surface**:
+   - Super-admin can view the active UUID + license key + verification state.
+     Rotate-license button for emergencies. Audit entry on every change.
+
+### Open questions (decide before coding)
+
+- **Who generates the UUID?** On tenant create (local) or issued by the
+  licensing system when the license is first minted (external)? If external
+  — API create-tenant becomes a two-step: create local shell → import UUID
+  from licensing system → activate.
+- **Offline deployment** — the install runs on a VPS; does it always have
+  outbound network to the licensing service? If air-gapped deploys are in
+  scope, the grace window has to be weeks, not hours.
+- **Module-key granularity** — does the external system issue one key
+  covering all paid modules, or one per module? Affects `modulesEnabled`
+  shape (string[] today; could become map of module → key-fragment).
+- **Revocation flow** — if licensing says "revoke immediately", does the
+  install purge data or just block access? Most SaaS models block; GAMP 5
+  Part 11 arguably requires data retention through the audit window.
+
+### Not blocked on
+
+- The Master Library itself (it exists and is wired across all 5 modules).
+- Multi-tenancy (there isn't any — single tenant per install remains).
+- Module licensing's **local** DB flag — that works today; X-0 is about
+  making it **license-verifiable**.
 
 ---
 

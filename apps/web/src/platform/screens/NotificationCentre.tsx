@@ -10,7 +10,7 @@
 // There is no Preferences tab: the API has no notification-preferences endpoint, and delivery
 // doesn't consult per-user preferences yet, so toggles would change nothing.
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -51,6 +51,10 @@ function formatDateTime(iso: string): string {
   return `${dd} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()} ${hh}:${mm} UTC`
 }
 
+// A title that starts with the sender's name gets their role in brackets: "Raj mentioned you…" -> "Raj (Reviewer) mentioned you…".
+const withActorRole = (title: string, actor: MyNotification['actor']) =>
+  actor && title.startsWith(actor.name) && !title.startsWith(`${actor.name} (`) ? `${actor.name} (${actor.role})${title.slice(actor.name.length)}` : title
+
 export function NotificationCentre() {
   const { t } = useTranslation()
   const navigate = useNavigate()
@@ -81,8 +85,8 @@ export function NotificationCentre() {
 
   const filtered = useMemo(() => (filter === 'unread' ? inbox.filter(n => !n.readAt) : inbox), [inbox, filter])
   const unreadCount = inbox.filter(n => !n.readAt).length
-  // The chosen notification, else the first one in the list — never a fixed id.
-  const active = filtered.find(n => n.id === selectedId) ?? filtered[0] ?? null
+  // The chosen notification (kept open even after it is read and leaves the Unread filter), else the first one in the list.
+  const active = inbox.find(n => n.id === selectedId) ?? filtered[0] ?? null
 
   // Changes are applied to the cached feed straight away; a failure says so and reloads it.
   const patchCache = (fn: (list: MyNotification[]) => MyNotification[]) =>
@@ -118,6 +122,13 @@ export function NotificationCentre() {
     setSelectedId(n.id)
     if (!n.readAt) markRead.mutate(n.id)
   }
+
+  // The notification shown on the right is being read. On arrival (and after dismissing one) the first is shown
+  // without a click, so open it for real: it is marked read and the unread count goes down.
+  useEffect(() => {
+    if (selectedId === null && filtered[0]) select(filtered[0])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedId, filtered])
 
   const openLink = (path: string) => {
     if (path.startsWith('/')) navigate(path)
@@ -235,7 +246,14 @@ export function NotificationCentre() {
                             {formatRelative(n.createdAt)}
                           </span>
                         </div>
-                        <p className={`text-[13px] text-slate-900 ${n.readAt ? 'font-medium' : 'font-semibold'}`} data-notif-title>{n.title}</p>
+                        <p className={`text-[13px] text-slate-900 ${n.readAt ? 'font-medium' : 'font-semibold'}`} data-notif-title>{withActorRole(n.title, n.actor)}</p>
+                        {n.context && (
+                          <p className="w-full truncate text-[11px] text-slate-500" data-notif-context>
+                            <span className="font-semibold text-slate-600">{n.context.projectName ?? t('page.notification_centre.project_unknown', { defaultValue: 'Project' })}</span>
+                            <span className="mx-1 text-slate-300">›</span>
+                            {n.context.documentTitle}
+                          </p>
+                        )}
                       </button>
                     )
                   })}
@@ -264,7 +282,25 @@ export function NotificationCentre() {
                     )}
                   </div>
 
-                  <h2 className="text-[16px] font-bold text-slate-900" data-active-title>{active.title}</h2>
+                  <h2 className="text-[16px] font-bold text-slate-900" data-active-title>{withActorRole(active.title, active.actor)}</h2>
+                  {(active.context || active.actor) && (
+                    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md bg-slate-50 px-3 py-2 text-[12px]" data-active-context>
+                      {active.context && (
+                        <>
+                          <dt className="font-semibold text-slate-500">{t('page.notification_centre.project_label', { defaultValue: 'Project' })}</dt>
+                          <dd className="text-slate-900" data-context-project>{active.context.projectName ?? '—'}</dd>
+                          <dt className="font-semibold text-slate-500">{t('page.notification_centre.document_label', { defaultValue: 'Document' })}</dt>
+                          <dd className="text-slate-900" data-context-document>{active.context.documentTitle}</dd>
+                        </>
+                      )}
+                      {active.actor && (
+                        <>
+                          <dt className="font-semibold text-slate-500">{t('page.notification_centre.from_label', { defaultValue: 'From' })}</dt>
+                          <dd className="text-slate-900" data-context-from>{active.actor.name} ({active.actor.role})</dd>
+                        </>
+                      )}
+                    </dl>
+                  )}
                   <p className="whitespace-pre-line break-words text-[13px] leading-relaxed text-slate-700" data-active-body>{active.body}</p>
                   <p className="font-mono text-[11px] text-slate-500" data-active-stamp>
                     {t('page.notification_centre.raised_label', { time: formatDateTime(active.createdAt) })}

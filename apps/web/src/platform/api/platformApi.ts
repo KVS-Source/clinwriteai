@@ -24,6 +24,10 @@ export interface MyNotification {
   readAt: string | null
   dismissedAt: string | null
   createdAt: string
+  /** Where it belongs (the API works this out). Null when it isn't about a document. */
+  context?: { projectId: string | null; projectName: string | null; documentId: string; documentTitle: string } | null
+  /** Who it came from, with their role (e.g. Reviewer). Null when unknown. */
+  actor?: { name: string; role: string } | null
 }
 
 // --- Request bodies ---

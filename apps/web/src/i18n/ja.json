@@ -3451,6 +3451,10 @@
     },
 
     "notification_centre": {
+      "project_label": "プロジェクト",
+      "document_label": "ドキュメント",
+      "from_label": "送信者",
+      "project_unknown": "プロジェクト",
       "crumb_platform": "プラットフォーム",
       "crumb_notifications": "通知",
       "filter_comment": "コメントとメンション",
@@ -3828,6 +3832,7 @@
       "back_crm": "← CRM に戻る",
       "back_documents": "← ドキュメント一覧に戻る",
       "back_editor": "← エディターに戻る",
+      "back_reviewer_view": "← レビューアービューに戻る",
       "loading": "署名チェーンを読み込み中…",
       "denied_title": "このドキュメントの署名記録へのアクセス権がありません。",
       "denied_body": "署名記録を閲覧できるのは、ドキュメントに指定された人、プロジェクト マネージャー、監査担当者です。",

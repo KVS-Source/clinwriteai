@@ -24,6 +24,8 @@ import { useDocumentStore } from '../../store'
 import { InitiateSignatureChain } from './InitiateSignatureChain'
 // import { ReturnToAuthoring } from '../clinical-writing/ReturnToAuthoring'
 import { useSignatureAccess } from './useSignatureAccess'
+import { useCanEditDocument } from '../../hooks/useCanEditDocument'
+import { useDocumentTabAccess } from '../../hooks/useDocumentTabAccess'
 
 // Signer avatar palette (matches Pattern 7). A signer's colour comes from their initials, so it is stable.
 const AVATAR_PALETTE: Array<{ bg: string; fg: string }> = [
@@ -349,6 +351,10 @@ export function ESignature() {
   })
   const hadCrm = meetings.length > 0
   const editorLocked = document?.status === 'pending-signature' || document?.status === 'signed'
+  // Reviewers and approvers can't edit the document, so their "back" is the Reviewer View, not the Editor.
+  const canEdit = useCanEditDocument(documentId)
+  const tabAccess = useDocumentTabAccess(documentId)
+  const backToReview = canEdit === false && tabAccess?.review !== false
 
   // Push the loaded document into the store so TopNav's enriched breadcrumb
   // picks up the title on the E-Signature tab the same way it does on the
@@ -479,10 +485,12 @@ export function ESignature() {
 
   // Back to the step before this one: the CRM meeting when the document had one, the mirror of the
   // CRM screen's "Go to E-Signature →". Without a meeting (CW-101) it goes back to the Editor while the
-  // document is still being authored, else to the document list (the Editor is locked from here on).
+  // document is still being authored — the Reviewer View for someone who can't edit it (a reviewer or approver) —
+  // else to the document list (the Editor and Reviewer View are locked from here on).
   const backTarget =
     hadCrm ? { to: `/projects/${projectId}/clinical-writing/documents/${documentId}/crm`, label: t('page.e_signature.back_crm'), kind: 'crm' }
     : editorLocked ? { to: `/projects/${projectId}/clinical-writing`, label: t('page.e_signature.back_documents'), kind: 'documents' }
+    : backToReview ? { to: `/projects/${projectId}/clinical-writing/documents/${documentId}/review`, label: t('page.e_signature.back_reviewer_view'), kind: 'reviewer-view' }
     : { to: `/projects/${projectId}/clinical-writing/documents/${documentId}`, label: t('page.e_signature.back_editor'), kind: 'editor' }
   const backToCrm = (
     <button

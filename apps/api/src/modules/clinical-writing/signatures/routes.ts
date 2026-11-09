@@ -76,6 +76,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
   const notifySigners = async (
     signers: Array<{ signerId: string; step: number }>,
     doc: { id: string; projectId: string; title: string },
+    startedBy?: string,
   ) => {
     if (!app.hasDecorator('notifications')) return
     for (const s of signers) {
@@ -86,7 +87,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
           title:       `Your signature is needed on "${doc.title}"`,
           body:        `It's your turn to sign (step ${s.step}). Open the E-Signature tab to review and sign.`,
           linkPath:    `/projects/${doc.projectId}/clinical-writing/documents/${doc.id}/sign`,
-          payload:     { documentId: doc.id, step: s.step },
+          payload:     { documentId: doc.id, projectId: doc.projectId, step: s.step, ...(startedBy ? { startedBy } : {}) },
         })
       } catch (err) {
         app.log.warn({ err, documentId: doc.id, signerId: s.signerId }, 'signature_requested notification failed')
@@ -231,6 +232,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     await notifySigners(
       (withRecords?.records ?? []).filter(r => r.status === 'awaiting'),
       { id: doc.id, projectId: doc.projectId, title: doc.title },
+      request.user!.id,
     )
     return reply.code(201).send(withRecords)
   })
@@ -433,7 +435,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
 
     // The next signer in a sequential chain is told it's their turn.
     if (result.released.length > 0) {
-      await notifySigners(result.released, { id: doc.id, projectId: doc.projectId, title: doc.title })
+      await notifySigners(result.released, { id: doc.id, projectId: doc.projectId, title: doc.title }, request.user!.id)
     }
 
     // Auto-complete items tagged autoCompleteOn='document_signed' —

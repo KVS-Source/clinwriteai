@@ -3257,6 +3257,10 @@
       "add_audit_footer": "Recorded in the audit trail. Frameworks are never deleted — only marked superseded."
     },
     "notification_centre": {
+      "project_label": "Project",
+      "document_label": "Document",
+      "from_label": "From",
+      "project_unknown": "Project",
       "crumb_platform": "Platform",
       "crumb_notifications": "Notifications",
       "filter_comment": "Comments & mentions",
@@ -3616,6 +3620,7 @@
       "back_crm": "← Back to CRM",
       "back_documents": "← Back to documents",
       "back_editor": "← Back to Editor",
+      "back_reviewer_view": "← Back to Reviewer View",
       "loading": "Loading signature chain…",
       "denied_title": "You don't have access to this document's signature records.",
       "denied_body": "Signature records are visible to the people named on the document, project managers and auditors.",

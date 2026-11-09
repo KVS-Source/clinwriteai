@@ -3,6 +3,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { enrichNotifications } from './context.js'
 
 const sendSchema = z.object({
   recipientId: z.string().min(1),
@@ -27,7 +28,7 @@ export const notificationsRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const userId = request.user!.id
 
-    return app.prisma.notification.findMany({
+    const rows = await app.prisma.notification.findMany({
       where: {
         recipientId: userId,
         dismissedAt: null,
@@ -36,6 +37,8 @@ export const notificationsRoutes: FastifyPluginAsync = async (app) => {
       orderBy: { createdAt: 'desc' },
       take: parsed.data.limit,
     })
+    // Add where each one belongs (project, document) and who it came from, with their role.
+    return enrichNotifications(app.prisma, rows)
   })
 
   app.get('/me/unread-count', { preHandler: requireAuth() }, async (request) => {

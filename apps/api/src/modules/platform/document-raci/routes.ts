@@ -723,7 +723,7 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
                 title:    `${returnedBy?.name ?? 'A colleague'} returned "${doc.title}" to authoring`,
                 body:     `Now ${snap.version.versionNumber}. Reason: ${reasonText}`,
                 linkPath: `/projects/${doc.projectId}/clinical-writing/documents/${documentId}`,
-                payload:  { documentId, projectId: doc.projectId, versionNumber: snap.version.versionNumber, letter: row.letter },
+                payload:  { documentId, projectId: doc.projectId, versionNumber: snap.version.versionNumber, letter: row.letter, returnedBy: actor.id },
               })
             } catch (err) {
               request.log.warn({ err, documentId, recipientId }, 'returned_to_authoring notification failed')

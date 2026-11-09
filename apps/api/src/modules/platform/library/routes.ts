@@ -28,7 +28,7 @@ import { compareSections } from '../../clinical-writing/documents/service.js'
 import { htmlToPlainText } from './plain-text.js'
 import { pdfFileName, renderLibraryItemPdf } from './pdf-renderer.js'
 import {
-  BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
+  BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, sourceDocumentInfo, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
   type LibraryContext, type SectionRow,
 } from './shape.js'
 
@@ -152,7 +152,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const titles = [...new Set(rows.filter(r => r.category !== 'best_practice').map(r => r.title))]
     const [projects, documents, versions] = await Promise.all([
       projectIds.length ? app.prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true, status: true } }) : [],
-      documentIds.length ? app.prisma.document.findMany({ where: { id: { in: documentIds } }, select: { id: true, title: true } }) : [],
+      documentIds.length ? app.prisma.document.findMany({ where: { id: { in: documentIds } }, select: { id: true, title: true, createdBy: true, createdAt: true, currentVersionId: true } }) : [],
       titles.length ? app.prisma.librarySection.findMany({ where: { title: { in: titles } }, select: { title: true, tenantId: true, version: true, createdAt: true, approvedBy: true } }) : [],
     ])
     const firstVersions = new Map<string, { createdAt: Date; by: string; version: number }>()
@@ -161,13 +161,48 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       const seen = firstVersions.get(key)
       if (!seen || v.version < seen.version) firstVersions.set(key, { createdAt: v.createdAt, by: v.approvedBy, version: v.version })
     }
-    const userIds = [...new Set([...rows.map(r => r.approvedBy), ...[...firstVersions.values()].map(f => f.by)])]
+
+    // The source documents' people: role holders, who edited the current text, and the
+    // signatures of the completed chain. Ids from other modules match no Document row and
+    // simply get no entry.
+    const docIds = documents.map(d => d.id)
+    const versionIds = documents.map(d => d.currentVersionId).filter((v): v is string => !!v)
+    const [raciRows, sectionRows, chains] = await Promise.all([
+      docIds.length ? app.prisma.documentRaci.findMany({ where: { documentId: { in: docIds } }, select: { documentId: true, userId: true, letter: true, removedAt: true } }) : [],
+      versionIds.length ? app.prisma.sectionContent.findMany({ where: { documentVersionId: { in: versionIds } }, select: { documentVersionId: true, lastEditedBy: true, lastEditedAt: true, humanSpanCount: true } }) : [],
+      docIds.length ? app.prisma.signatureChain.findMany({
+        where: { documentId: { in: docIds }, status: 'complete' },
+        orderBy: { completedAt: 'desc' },
+        select: { documentId: true, records: { where: { status: 'signed' }, select: { signerId: true, signerName: true, meaning: true, step: true, timestampUtc: true, versionAtSigning: true } } },
+      }) : [],
+    ])
+    const latestChain = new Map<string, (typeof chains)[number]>()
+    for (const c of chains) if (!latestChain.has(c.documentId)) latestChain.set(c.documentId, c)   // newest first
+
+    const userIds = [...new Set([
+      ...rows.map(r => r.approvedBy), ...[...firstVersions.values()].map(f => f.by),
+      ...documents.map(d => d.createdBy), ...raciRows.map(r => r.userId),
+      ...sectionRows.flatMap(s => (s.lastEditedBy ? [s.lastEditedBy] : [])),
+      ...chains.flatMap(c => c.records.map(r => r.signerId)),
+    ])]
     const users = userIds.length ? await app.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : []
+    const userNames = new Map(users.map(u => [u.id, u.name]))
+
+    const sourceDocuments = new Map(documents.map(d => [d.id, sourceDocumentInfo({
+      createdBy: d.createdBy,
+      createdAt: d.createdAt,
+      sections: sectionRows.filter(s => s.documentVersionId === d.currentVersionId),
+      raci: raciRows.filter(r => r.documentId === d.id),
+      signatures: latestChain.get(d.id)?.records ?? [],
+      userNames,
+    })]))
+
     return {
-      userNames: new Map(users.map(u => [u.id, u.name])),
+      userNames,
       projects: new Map(projects.map(p => [p.id, { name: p.name, status: p.status }])),
       documents: new Map(documents.map(d => [d.id, d.title])),
       firstVersions,
+      sourceDocuments,
     }
   }
 

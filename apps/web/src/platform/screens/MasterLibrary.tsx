@@ -4,7 +4,7 @@ import { createPortal } from 'react-dom'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTaLabels } from '../../hooks'
-import type { MasterLibraryItem, ModuleKey } from '@platform/types'
+import type { MasterLibraryItem, MasterLibrarySourceDocument, ModuleKey } from '@platform/types'
 import type { LibraryListParams } from '../api/platformApi'
 import { PLATFORM_ACCENT, PLATFORM_USER_ROLE_LABEL } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -157,9 +157,11 @@ export function MasterLibrary() {
     : active.isWithdrawn ? t('page.master_library.pull_withdrawn')
     : !active.body ? t('page.master_library.pull_no_text')
     : t('page.master_library.pull_default')
+  // A whole document can't be pulled, so its note doesn't talk about pulling.
+  const isSectionItem = active?.itemType === 'section'
   const immutabilityNote = active?.isArchived
-    ? t('page.master_library.immutability_archived')
-    : t('page.master_library.immutability_default')
+    ? t(isSectionItem ? 'page.master_library.immutability_archived' : 'page.master_library.immutability_archived_document')
+    : t(isSectionItem ? 'page.master_library.immutability_default' : 'page.master_library.immutability_document')
 
   // Download PDF: the server builds a PDF of the item's own text (title + body, no app
   // details) and the browser saves it as a file — no print dialog, no pop-up.
@@ -397,13 +399,25 @@ export function MasterLibrary() {
                   )
                 })}
               </dl>
+              {/* The library entry: who pushed it and when. The source document's own people are below. */}
               <dl className="mt-1.5 grid grid-cols-[100px_1fr] gap-x-3 gap-y-1.5 text-[12px]" data-active-meta>
-                <dt className={labelClass}>{t('page.master_library.meta_editor')}</dt><dd className="text-slate-800">{active.editedByName ?? active.pushedByName}</dd>
-                <dt className={labelClass}>{t('page.master_library.meta_created_by')}</dt><dd className="text-slate-800">{active.createdByName ?? active.pushedByName}</dd>
-                <dt className={labelClass}>{t('page.master_library.meta_created_at')}</dt><dd className="text-slate-800">{formatDateTime(active.createdAt ?? active.pushedAt)}</dd>
+                <dt className={labelClass}>{t('page.master_library.meta_pushed_by')}</dt><dd className="text-slate-800" data-meta-pushed-by>{active.editedByName ?? active.pushedByName}</dd>
+                <dt className={labelClass}>{t('page.master_library.meta_pushed_at')}</dt><dd className="text-slate-800">{formatDateTime(active.pushedAt)}</dd>
+                {(active.createdByName ?? active.pushedByName) !== (active.editedByName ?? active.pushedByName) && (
+                  <>
+                    <dt className={labelClass}>{t('page.master_library.meta_first_pushed_by')}</dt><dd className="text-slate-800">{active.createdByName}</dd>
+                  </>
+                )}
+                {active.createdAt && active.createdAt !== active.pushedAt && (
+                  <>
+                    <dt className={labelClass}>{t('page.master_library.meta_first_pushed_at')}</dt><dd className="text-slate-800">{formatDateTime(active.createdAt)}</dd>
+                  </>
+                )}
                 <dt className={labelClass}>{t('page.master_library.meta_updated')}</dt><dd className="text-slate-800">{formatDateTime(active.updatedAt ?? active.pushedAt)}</dd>
               </dl>
             </div>
+
+            {active.sourceDocument && <SourceDocumentCard info={active.sourceDocument} />}
 
             <div className="rounded-md border border-slate-200 p-3" data-version-history>
               <p className={labelClass}>{t('page.master_library.version_history')}</p>
@@ -424,12 +438,16 @@ export function MasterLibrary() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" disabled={!canPull} onClick={() => setPullOpen(true)}
-                data-pull-button data-panel-trigger
-                className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-                title={pullLabel}
-              >{pullLabel}</button>
+              {/* Only a section's text can be pulled into a document. The library lists whole
+                  documents, so for those there is no pull button at all rather than a dead one. */}
+              {active.itemType === 'section' && (
+                <button type="button" disabled={!canPull} onClick={() => setPullOpen(true)}
+                  data-pull-button data-panel-trigger
+                  className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  style={{ backgroundColor: PLATFORM_ACCENT.primary }}
+                  title={pullLabel}
+                >{pullLabel}</button>
+              )}
               <button type="button" onClick={() => downloadPdf(active)}
                 className="h-9 rounded-md border px-4 text-[13px] font-semibold"
                 style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
@@ -483,6 +501,72 @@ export function MasterLibrary() {
           <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: PLATFORM_ACCENT.primary }} />
           {toast}
         </div>
+      )}
+    </div>
+  )
+}
+
+const ROLE_ORDER = ['R', 'A', 'C', 'Q', 'I'] as const
+const ROLE_KEY: Record<string, string> = { R: 'role_author', A: 'role_approver', C: 'role_reviewer', Q: 'role_qc', I: 'role_informed' }
+
+// The document the item was pushed from: who created it, whose edits are in it, its role
+// holders and its signatures. The library entry's own "pushed by" is in the card above.
+function SourceDocumentCard({ info }: { info: MasterLibrarySourceDocument }) {
+  const { t } = useTranslation()
+  const byRole = ROLE_ORDER
+    .map(letter => ({ letter, names: info.team.filter(m => m.letter === letter).map(m => m.name) }))
+    .filter(g => g.names.length > 0)
+  const meaning = (m: string) => m ? m.charAt(0).toUpperCase() + m.slice(1) : m
+  return (
+    <div className="rounded-md border border-slate-200 p-3" data-source-document>
+      <p className={labelClass}>{t('page.master_library.source_document')}</p>
+      <dl className="mt-2 grid grid-cols-[100px_1fr] gap-x-3 gap-y-1.5 text-[12px]">
+        <dt className={labelClass}>{t('page.master_library.meta_created_by')}</dt>
+        <dd className="text-slate-800" data-source-created-by>{info.createdByName}</dd>
+        <dt className={labelClass}>{t('page.master_library.meta_created_at')}</dt>
+        <dd className="text-slate-800">{formatDateTime(info.createdAt)}</dd>
+        {info.lastEditedByName && (
+          <>
+            <dt className={labelClass}>{t('page.master_library.last_edited_by')}</dt>
+            <dd className="text-slate-800" data-source-last-edited-by>
+              {info.lastEditedByName}{info.lastEditedAt && <span className="text-slate-500"> · {formatDateTime(info.lastEditedAt)}</span>}
+            </dd>
+          </>
+        )}
+        {info.editors.length > 1 && (
+          <>
+            <dt className={labelClass}>{t('page.master_library.edited_by')}</dt>
+            <dd className="text-slate-800" data-source-editors>{info.editors.join(', ')}</dd>
+          </>
+        )}
+      </dl>
+
+      <p className={`${labelClass} mt-3`}>{t('page.master_library.document_team')}</p>
+      {byRole.length === 0 ? (
+        <p className="mt-1 text-[12px] text-slate-500">{t('page.master_library.no_team')}</p>
+      ) : (
+        <dl className="mt-2 grid grid-cols-[100px_1fr] gap-x-3 gap-y-1.5 text-[12px]" data-source-team>
+          {byRole.map(g => (
+            <Fragment key={g.letter}>
+              <dt className={labelClass}>{t(`page.master_library.${ROLE_KEY[g.letter]}`)}</dt>
+              <dd className="text-slate-800" data-team-role={g.letter}>{g.names.join(', ')}</dd>
+            </Fragment>
+          ))}
+        </dl>
+      )}
+
+      {info.signatures.length > 0 && (
+        <>
+          <p className={`${labelClass} mt-3`}>{t('page.master_library.signatures')}</p>
+          <ul className="mt-1.5 flex flex-col gap-1 text-[12px]" data-source-signatures>
+            {info.signatures.map((s, i) => (
+              <li key={i} className="text-slate-800">
+                <span className="font-semibold">{s.name}</span>
+                <span className="text-slate-500"> · {meaning(s.meaning)} · {formatDateTime(s.signedAt)}{s.version ? ` · ${s.version}` : ''}</span>
+              </li>
+            ))}
+          </ul>
+        </>
       )}
     </div>
   )

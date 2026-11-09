@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  BEST_PRACTICE_NAME, parseTags, parseVersionLabel, sectionToBestPractice, sectionToItem,
+  BEST_PRACTICE_NAME, parseTags, parseVersionLabel, sectionToBestPractice, sectionToItem, sourceDocumentInfo,
   type LibraryContext, type SectionRow,
 } from './shape.js'
 
@@ -57,6 +57,62 @@ describe('sectionToItem — source and authorship', () => {
   })
   it('falls back to this row when no earlier version is known', () => {
     expect(sectionToItem(row({ createdAt: new Date('2026-10-16T09:00:00Z') }), ctx())).toMatchObject({ createdByName: 'Dr James Hartley', createdAt: '2026-10-16T09:00:00.000Z' })
+  })
+})
+
+describe('sourceDocumentInfo — the source document\'s people', () => {
+  // The case from the "CSR Full (pm and author)" report: a PM creates the document, two
+  // Authors, a Reviewer and an Approver; one Author did the editing; Sheetal pushed it.
+  const names = new Map([['pm', 'Alex Thornton'], ['abh', 'Abhishek'], ['she', 'Sheetal'], ['raj', 'Raj'], ['sou', 'Sourabh'], ['old', 'Former Author']])
+  const at = (h: number) => new Date(Date.UTC(2026, 10, 6, h))
+  const info = sourceDocumentInfo({
+    createdBy: 'pm', createdAt: at(4),
+    sections: [
+      { lastEditedBy: 'she', lastEditedAt: at(6), humanSpanCount: 2 },
+      { lastEditedBy: 'abh', lastEditedAt: at(5), humanSpanCount: 1 },
+      { lastEditedBy: 'she', lastEditedAt: at(5), humanSpanCount: 3 },
+      { lastEditedBy: null, lastEditedAt: null, humanSpanCount: 0 },
+      // AI draft written at creation under the creator's name: not an edit by the PM.
+      { lastEditedBy: 'pm', lastEditedAt: at(7), humanSpanCount: 0 },
+    ],
+    raci: [
+      { userId: 'sou', letter: 'A', removedAt: null },
+      { userId: 'raj', letter: 'C', removedAt: null },
+      { userId: 'she', letter: 'R', removedAt: null },
+      { userId: 'abh', letter: 'R', removedAt: null },
+      { userId: 'abh', letter: 'R', removedAt: null },            // a section row for the same role
+      { userId: 'old', letter: 'R', removedAt: at(5) },           // removed: not on the team any more
+    ],
+    signatures: [
+      { signerId: 'sou', signerName: 'Sourabh', meaning: 'approved', step: 2, timestampUtc: at(7), versionAtSigning: 'v0.8' },
+      { signerId: 'abh', signerName: 'Abhishek', meaning: 'authored', step: 1, timestampUtc: at(6), versionAtSigning: 'v0.8' },
+      { signerId: 'raj', signerName: 'Raj', meaning: 'reviewed', step: 3, timestampUtc: null, versionAtSigning: null },
+    ],
+    userNames: names,
+  })
+
+  it('names the document\'s creator, not whoever pushed it to the library', () => {
+    expect(info).toMatchObject({ createdByName: 'Alex Thornton', createdAt: '2026-11-06T04:00:00.000Z' })
+  })
+  it('lists everyone whose own writing is in the text, latest first, and not the creator of an AI-only section', () => {
+    expect(info).toMatchObject({ lastEditedByName: 'Sheetal', lastEditedAt: '2026-11-06T06:00:00.000Z', editors: ['Sheetal', 'Abhishek'] })
+  })
+  it('lists every current role holder once, Authors first, removed people left out', () => {
+    expect(info.team).toEqual([
+      { letter: 'R', name: 'Abhishek' }, { letter: 'R', name: 'Sheetal' },
+      { letter: 'A', name: 'Sourabh' }, { letter: 'C', name: 'Raj' },
+    ])
+  })
+  it('lists only signatures actually given, in chain order', () => {
+    expect(info.signatures).toEqual([
+      { name: 'Abhishek', meaning: 'authored', signedAt: '2026-11-06T06:00:00.000Z', version: 'v0.8' },
+      { name: 'Sourabh', meaning: 'approved', signedAt: '2026-11-06T07:00:00.000Z', version: 'v0.8' },
+    ])
+  })
+  it('is attached to the library item pushed from that document', () => {
+    const item = sectionToItem(row({ tags: ['type:document', 'source:doc-9'] }), { ...ctx(), sourceDocuments: new Map([['doc-9', info]]) })
+    expect(item.sourceDocument).toBe(info)
+    expect(sectionToItem(row({ tags: ['source:other'] }), { ...ctx(), sourceDocuments: new Map([['doc-9', info]]) }).sourceDocument).toBeUndefined()
   })
 })
 

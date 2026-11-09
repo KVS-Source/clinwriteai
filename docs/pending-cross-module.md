@@ -1,7 +1,8 @@
 # Pending work across modules
 
-Snapshot: **2026-11-09** after session that wired AI connector across all
-five modules + closed stubs that no longer needed external blockers.
+Snapshot: **2026-11-09** after the session that wired the AI connector
+across all five modules, wired the shared **Master Library** across all
+five modules, and closed stubs that no longer needed external blockers.
 
 This document is the single source of truth for what is still stubbed /
 hardcoded / unwired across every module, grouped by **shared dependency**
@@ -23,8 +24,8 @@ the fix. Order is rough "highest-leverage first".
 
 | # | Blocker | Blocks | Shape of fix |
 |---|---|---|---|
-| X-1 | **Master Library data model** — shared claim corpus + card table + versioning | Medical Writing (push to library, library cards, locales), Ideation & Publishing (currency check against corpus), Regulatory Writing (library cards per submission) | Schema migration + CRUD + Prisma relations. ~2-3 weeks. Owner: platform. |
-| X-2 | **pgvector extension + embedding model** | Medical Writing (claims similarity engine), Ideation & Publishing (claim currency check), future retrieval across all modules | Install `pgvector` on QA/prod Postgres (Hetzner CPX31: `apt install postgresql-16-pgvector`). Pick embedding provider — recommend Voyage AI (cost / quality trade). Add `vector(1536)` column to `claims_matrix_items` + ideation claim rows. Replace deterministic length-mod stubs with cosine similarity. |
+| ~~X-1~~ | ~~Master Library data model~~ | — | **RESOLVED** 2026-11-09. The Master Library (`LibrarySection` + `LibraryAdoptionRecord` in [platform-services.prisma](../apps/api/prisma/schema/platform-services.prisma)) already existed at the platform level; the gap was module-side wiring, not schema. Every module now reads + writes to `LibrarySection` via tag-based filtering (`module:A..E`, `project:<id>`, `source:<id>`, `doctype:<type>`). Single-tenant installs use `tenantId: null` consistently. |
+| X-2 | **pgvector extension + embedding model** | Medical Writing + Ideation & Publishing claim similarity (currently token-Jaccard — good for near-duplicates, misses paraphrases) | Install `pgvector` on QA/prod Postgres (Hetzner CPX31: `apt install postgresql-16-pgvector`). Pick embedding provider — recommend Voyage AI (cost / quality trade). Add `vector(1536)` column to `library_sections`. Swap `jaccardSimilarity()` in [platform/library/text-match.ts](../apps/api/src/modules/platform/library/text-match.ts) for cosine on the embedding column; signature stable. |
 | X-3 | **MedDRA licensing (MSSO)** | Medical Writing (AE claim validation), Regulatory Writing (AE line-lists inside aggregate safety reports) | MSSO licence + download MedDRA LLT/PT tables + seed `meddra_lookup` table + wire validators. |
 | X-4 | **Part 11 compliance decision** — PDF vs canonical-JSON hash binding + inline credential re-auth | Clinical Writing (e-sig chain), Medical Writing (MLR Lead e-sig), Regulatory Writing (gateway transmit, super-review e-sig) | Compliance review decision; artefact format pick; wire inline re-auth per sign. Blocks three modules' sign-off chains. |
 | X-5 | **Email provider (Postmark / SES / SendGrid)** + domain SPF / DKIM | Scientific Writing (author-reminder send), future reminder flows across modules | Provider pick → adapter impl behind the shipped `EmailAdapter` interface (`apps/api/src/modules/platform/email/`). DNS work in parallel. |
@@ -91,21 +92,30 @@ Shipped this session: agentic report AI narrative + content
 analytics endpoint.
 
 ### Still blocked
-- **pgvector claims similarity** — X-2. Harvest stub at
-  `claims/routes.ts:121` returns `sim = 30 + text.length % 60`.
-- **Review tier formula** — placeholder `≥70→A / 40-69→B / <40→C`
-  at `claims/routes.ts:319`. Needs SME sign-off.
-- **MLR Lead role gate** — X-7. Tier-override at `claims/routes.ts:303`
-  + `mlr/routes.ts:386` still uses `['admin','super-admin']`.
+- **pgvector-grade semantic similarity** — X-2. Harvest now uses
+  token-Jaccard against real `LibrarySection` claim rows
+  ([claims/routes.ts](../apps/api/src/modules/medical-writing/claims/routes.ts)
+  + [library-match.ts](../apps/api/src/modules/platform/library/text-match.ts)).
+  Catches near-duplicate reuse; misses semantic paraphrases.
+- **Review tier formula** — placeholder `≥70→A / 40-69→B / <40→C`.
+  Needs SME sign-off.
+- **MLR Lead role gate** — X-7. Still uses `['admin','super-admin']`.
 - **MedDRA** — X-3.
 - **ACCME CME tables** — framework data + SME review.
 - **WCAG runtime check** — axe-core runs in a browser, not an API
   route. Harness exists at `apps/web/playwright/a11y/`. Needs worker
-  job w/ headless Chrome OR reframe as "list latest Playwright run
-  findings".
+  job w/ headless Chrome.
 - **KOL session data model** — schema design + migration.
-- **Locales list** — tied to X-1 Master Library.
-- **pushToLibrary** — tied to X-1 Master Library.
+- **Locales list** — hardcoded locale list; **unrelated to Master
+  Library** (locales are UI translation, not reusable text). Needs
+  its own shared locale service.
+
+### Wired this session
+- **pushToLibrary** — real `LibrarySection` write at
+  [content/routes.ts](../apps/api/src/modules/medical-writing/content/routes.ts);
+  gated on `item.status === 'approved'`; dedup via `claim:<id>` tag.
+- **Claim harvest** — reads `LibrarySection` rows + Jaccard match;
+  stores `similarityPct` + `approvedLibraryText` for the adopt flow.
 
 ---
 
@@ -138,11 +148,15 @@ ICH M4 seed + dynamic super-review panel.
 ### Scope-choice / data model
 - **`targetHas: string[]` → `health_authorities` FK** — lookup table
   lands with gateway integration.
-- **Library cards** — tied to X-1 Master Library.
 - **DB-level redaction constraint** — API gate at stage 5+ is
   enforced; defence-in-depth DB CHECK / trigger is a raw-SQL
   migration (Prisma can't express cross-table CHECK). Needs
   reviewer.
+
+### Wired this session
+- **Library cards GET + push** — reads real `LibrarySection` rows
+  filtered to submission TA + `module:A`/`C`/`D` tags; push creates
+  new rows with `source:<submissionId>` dedup.
 
 ---
 
@@ -152,17 +166,22 @@ Nothing shipped in this session — audit only. Memory from 2026-10-05
 is still accurate.
 
 ### Externally blocked
-- **CrossRef DOI minting** — procurement (depositor account, legal
-  lead time). Same blocker as Scientific Writing. `/doi/register`
-  returns stub DOI with `aurora.${cardId.slice(0,10)}` prefix.
-- **SMS gateway (Twilio or equivalent)** — depends on X-5-adjacent
-  procurement. `MaContact.notificationPreference` accepts
-  `'email_sms'` but there's no SMS send path.
+- **CrossRef DOI minting** — procurement only (public lookup is now
+  wired via `crossref-client.ts`; mint returns `{source: 'stub'}` if
+  `CROSSREF_API_USER` + `CROSSREF_API_PASSWORD` absent OR deposit
+  implementation still pending).
+- **SMS actual delivery** — Twilio or equivalent procurement.
+  `SmsAdapter` scaffold shipped; `SMS_PROVIDER=twilio` surfaces the
+  gap with a warn log.
 - **Social listening + sentiment** — vendor (Brandwatch / Sprinklr
   / equivalent) + `social_listening_alerts` table (not in schema).
   `GET /ideation-projects/:id/social-alerts` returns `[]`.
-- **Master Library claim corpus** — X-1 + X-2. Currency check at
-  `atomised/routes.ts:200-232` is a passthrough.
+
+### Wired this session
+- **Claim currency against real Library** — new `claimTexts[]` mode
+  runs each claim through token-Jaccard against `LibrarySection`
+  (category='claim'), classifies as extracted / superseded /
+  retired. Audit records `classifiedByServer: true`.
 
 ### Security-sensitive (needs threat model before shipping)
 - **Public `/kol-review/:token` guest route** — token is generated at

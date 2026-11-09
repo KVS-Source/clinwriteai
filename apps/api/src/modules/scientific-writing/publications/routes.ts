@@ -602,4 +602,100 @@ export const publicationsRoutes: FastifyPluginAsync = async (app) => {
       stub: true,
     }
   })
+
+  // --- Master Library push --------------------------------------------
+  //
+  // POST /:publicationId/library/push
+  // Body: { items: [{ title, body, category? }] }
+  //
+  // A published manuscript is approved content — its key findings can
+  // flow into the shared Master Library (LibrarySection) so other
+  // modules (Medical Writing claims, Regulatory Writing library
+  // cards, Ideation currency check) can reuse the wording.
+  //
+  // Gate: stage must be 'published'. 409 otherwise — earlier stages
+  // haven't cleared peer review and shouldn't land in the reusable
+  // pool.
+  //
+  // Per-item LibrarySection:
+  //   tenantId:  null                (single-tenant install)
+  //   category:  'claim' (default) or caller-supplied
+  //   framework: 'Peer-Reviewed Publication'
+  //   tags:      module:B, doctype:publication, project:<id>,
+  //              source:<pubId>, journal:<name> (when set)
+  //   body:      the item body
+  //
+  // Dedup: (source:<pubId> + title) short-circuits — a re-push of
+  // the same title is a no-op. Later versions should use the
+  // platform /library/:id PUT update to supersede; the Phase-4 cadence
+  // of "publication is immutable once published" keeps that uncommon.
+  const pubLibraryPushSchema = z.object({
+    items: z.array(z.object({
+      title:    z.string().min(1).max(200),
+      body:     z.string().min(1).max(10_000),
+      category: z.enum(['claim', 'safety', 'boilerplate', 'best_practice']).default('claim'),
+    })).min(1).max(20),
+  })
+
+  app.post('/:publicationId/library/push', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { publicationId } = request.params as { publicationId: string }
+    const parsed = pubLibraryPushSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })
+    if (!pub) return reply.code(404).send({ error: 'not_found' })
+    if (pub.stage !== 'published') {
+      return reply.code(409).send({ error: 'not_published', message: `Only published publications can push to the Master Library (current stage: ${pub.stage})` })
+    }
+
+    const commonTags = [
+      'module:B',
+      'doctype:publication',
+      `project:${pub.projectId}`,
+      `source:${publicationId}`,
+      ...(pub.journal ? [`journal:${pub.journal}`] : []),
+    ]
+
+    const results: Array<{ title: string; librarySectionId?: string; skippedReason?: 'already_pushed' }> = []
+    for (const item of parsed.data.items) {
+      const existing = await app.prisma.librarySection.findFirst({
+        where: {
+          title: item.title,
+          isCurrent: true,
+          retiredAt: null,
+          tags: { has: `source:${publicationId}` },
+        },
+        select: { id: true },
+      })
+      if (existing) {
+        results.push({ title: item.title, skippedReason: 'already_pushed' })
+        continue
+      }
+      const created = await app.prisma.librarySection.create({
+        data: {
+          tenantId:   null,
+          title:      item.title,
+          body:       item.body,
+          taTag:      pub.guideline,                            // Publication model carries guideline (CONSORT/STROBE…) not TA; use it as the taTag proxy
+          framework:  'Peer-Reviewed Publication',
+          category:   item.category,
+          tags:       commonTags,
+          approvedBy: request.user!.id,
+        },
+      })
+      results.push({ title: item.title, librarySectionId: created.id })
+    }
+
+    const pushedCount = results.filter(r => r.librarySectionId).length
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'library_push',
+      entityType: 'publication',
+      entityId: publicationId,
+      details: { requested: parsed.data.items.length, pushed: pushedCount, results },
+      ipAddress: request.ip ?? null,
+    })
+    return { pushedAt: new Date().toISOString(), pushedCount, results }
+  })
 }

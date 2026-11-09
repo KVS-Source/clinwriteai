@@ -208,10 +208,16 @@ function viewFromResult(r: AiConnectionTestResult, t: (k: string) => string): Co
 
 function ConnectionTest({ config }: { config: PlatformConfig }) {
   const { t } = useTranslation()
+  const qc = useQueryClient()
   const [view, setView] = useState<ConnectionView>(() => initialView(config, t))
   const test = useMutation({
     mutationFn: () => platformApi.testAiConnection(),
-    onSuccess:  (result) => setView(viewFromResult(result, t)),
+    onSuccess:  (result) => {
+      setView(viewFromResult(result, t))
+      // A successful test confirms AI is live now — refresh readiness
+      // so the admin screens' banner clears without waiting on staleTime.
+      qc.invalidateQueries({ queryKey: ['ai-readiness'] })
+    },
     onError:    (err)    => setView({ kind: 'failed', model: config.aiEngine.default, message: describeApiError(err).message, at: new Date().toISOString() }),
   })
 
@@ -873,7 +879,13 @@ export function AdminPanel() {
   const saveAi = useMutation({
     mutationFn: (body: AiDraft) => platformApi.saveAiEngine(body),
     onSuccess: async () => {
-      await qc.invalidateQueries({ queryKey: ['platform-config'] })
+      // Also invalidate ai-readiness so the admin screens' banner +
+      // the New Document wizard's gate update immediately after a key
+      // lands, rather than waiting out the 30s hook staleTime.
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ['platform-config'] }),
+        qc.invalidateQueries({ queryKey: ['ai-readiness'] }),
+      ])
       setAiDraft(null)
       setSaveNote(t('page.admin_panel.ai_settings_saved_note'))
     },

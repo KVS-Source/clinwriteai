@@ -31,6 +31,7 @@
 
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
+import { resolveForDocument, renderPolicyPromptBlock, type PolicyRowForAi } from './policy-prompt.js'
 import type { JobHandler } from './types.js'
 
 interface AiInitialDraftPayload {
@@ -137,6 +138,7 @@ async function draftSection(args: {
   docType:   string
   model:     string
   aiInstructions: string | null
+  policy:    PolicyRowForAi | null
 }): Promise<{ contentHtml: string; engine: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   if (!apiKey) {
@@ -174,6 +176,7 @@ async function draftWithClaude(args: {
   apiKey:     string
   model:      string
   aiInstructions: string | null
+  policy:     PolicyRowForAi | null
 }): Promise<string> {
   const { default: Anthropic } = await import('@anthropic-ai/sdk').catch(() => {
     throw new Error('ANTHROPIC_API_KEY is set but @anthropic-ai/sdk is not installed in apps/worker.')
@@ -193,6 +196,14 @@ async function draftWithClaude(args: {
       ].join('\n')
     : ''
 
+  // DocumentTypePolicy block — SME prompt + document-wide BP principles +
+  // section-scoped rules for THIS section. Empty string when no policy is
+  // attached to the doc type (then AI falls back to the built-in rules
+  // above). Policy is pinned at document create time so later version
+  // bumps don't rewrite drafts of already-authored documents.
+  const policyBlock = renderPolicyPromptBlock(args.policy, args.section.id)
+  const policySection = policyBlock ? `\n\n${policyBlock}\n` : ''
+
   const system = [
     `You are drafting a single section of a regulatory clinical writing deliverable.`,
     `Document type: ${args.docType}.`,
@@ -203,6 +214,7 @@ async function draftWithClaude(args: {
     `If the sources genuinely do not contain the information needed for this section, write a short <p>stating what is missing and what the writer should supply.</p>`,
     `Do not invent numeric values, patient counts, dates, or citations. Quote figures only when they appear in the sources.`,
     authorBlock,
+    policySection,
   ].join('\n')
 
   // Build the content array: PDFs first (so Claude reads context before
@@ -313,11 +325,21 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // --- Load the author's AI instructions (migration 58) -----------------
   // Flows into the Claude system prompt below so language / tone /
   // structure directives steer every section. Null = default behaviour.
+  // Also pick up the pinned policy version so the DocumentTypePolicy
+  // block (SME prompt + BP digest + section rules) can be assembled
+  // against the same rule-set the document was created under.
   const docRow = await prisma.document.findUnique({
     where:  { id: documentId },
-    select: { aiInstructions: true },
+    select: { aiInstructions: true, policyVersionAtCreate: true },
   })
   const aiInstructions = docRow?.aiInstructions?.trim() || null
+  const policy = await resolveForDocument(prisma, {
+    docType:               type,
+    policyVersionAtCreate: docRow?.policyVersionAtCreate ?? null,
+  })
+  if (policy) {
+    log.info({ documentId, policyId: policy.id, policyVersion: policy.version }, 'ai_initial_draft: policy resolved')
+  }
 
   // --- Load the template -------------------------------------------------
   const template = await prisma.documentTemplate.findFirst({
@@ -404,7 +426,7 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
     }
     try {
       const { contentHtml, engine } = await draftSection({
-        section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions,
+        section: sec, sources, sourcePdfs, docType: type, model: resolvedModel, aiInstructions, policy,
       })
 
       await prisma.$transaction(async (tx) => {

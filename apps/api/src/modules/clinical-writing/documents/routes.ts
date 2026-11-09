@@ -31,6 +31,7 @@ import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES 
 import { actorManagesProject } from '../../projects/project-managers.js'
 import { DocumentService, hashSections } from './service.js'
 import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
+import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock } from '../../platform/document-type-policy/resolve.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { buildComplianceSummary } from '../checklist/compliance-summary.js'
 import { pdfFileName } from '../../platform/library/pdf-renderer.js'
@@ -1977,6 +1978,22 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       ? `${prompt}\n\n----\nAdditional context (scope=${scope}):\n${additionalContext}`
       : prompt
 
+    // ----- DocumentTypePolicy (step 5 of policy wiring) -----------------
+    // Pull the policy pinned at document creation time (or the current
+    // policy if none was pinned). Inject its SME prompt + whole-doc
+    // principles + section-scoped rules into the system prompt so AI
+    // answers against the same rule-set the document was authored under.
+    // Falls back to '' (no addition) when no policy exists — matches the
+    // pre-policy prompt exactly.
+    const policy = await resolvePolicyForDocument(app.prisma, {
+      docType:               doc.type,
+      policyVersionAtCreate: doc.policyVersionAtCreate ?? null,
+    }).catch((err) => {
+      app.log.warn({ err, documentId }, 'policy resolve failed — falling back to no-policy prompt')
+      return null
+    })
+    const policyBlock = renderPolicyPromptBlock(policy, section.sectionId)
+
     // ----- Carry-prompt opt-in (step B of sPM-carry-prompt) -------------
     // When FEATURE_CARRY_PROMPT allowlists this doc type, replace the
     // intent-templated prompt with the Document Brief + compact invariants
@@ -1984,7 +2001,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // failure — a missing brief or Prisma hiccup must never fail the
     // user's AI request. See carry-prompt/decide.ts for the rollout
     // mechanic (empty env var = off everywhere).
-    let promptWithScope = legacyPromptWithScope
+    let promptWithScope = policyBlock
+      ? `${policyBlock}\n\n${legacyPromptWithScope}`
+      : legacyPromptWithScope
     let carryPromptUsed = false
     if (carryPromptEnabledFor(hyphenate(doc.type))) {
       try {
@@ -2008,7 +2027,10 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             selectionText: parsed.data.selectionText,
           }),
         })
-        promptWithScope = `${carry.systemPrompt}\n\n---\n\n${carry.userPrompt}`
+        const systemWithPolicy = policyBlock
+          ? `${carry.systemPrompt}\n\n${policyBlock}`
+          : carry.systemPrompt
+        promptWithScope = `${systemWithPolicy}\n\n---\n\n${carry.userPrompt}`
         carryPromptUsed = true
       } catch (err) {
         app.log.warn({ err, documentId, sectionId: section.sectionId }, 'carry-prompt assembly failed — falling back to legacy prompt')
@@ -2047,6 +2069,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             instructionSha256: sha256(promptTextForHistory),
             instructionChars:  promptTextForHistory.length,
             carryPromptUsed,
+            policyVersionUsed: policy?.version ?? null,
             outcome,
             ...extra,
           },

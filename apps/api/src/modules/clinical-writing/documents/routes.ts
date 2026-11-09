@@ -604,6 +604,89 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     return sendFullDocument(request, doc, 'document')
   })
 
+  // GET /:documentId/sections/:sectionId/context — the rule-set AI will
+  // see on this section's next draft or rewrite. Surfaces, in one shape:
+  //   - the DocumentTypePolicy row that applies (pinned-at-create first,
+  //     else current) with version + SME prompt + separated
+  //     whole-doc / section-digest / section-rules principle lists
+  //   - the author's aiInstructions from the Document
+  //   - the rendered system-prompt block exactly as the worker + the
+  //     /ai-suggest route will inject it (character-identical, so an
+  //     author sees what AI sees — no interpretation layer)
+  // Access: anyone who can see the document. No PHI tagged — this route
+  // returns no section body, just policy metadata + the author's prompt.
+  app.get('/:documentId/sections/:sectionId/context', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
+    const { documentId, sectionId } = request.params as { documentId: string; sectionId: string }
+    const doc = await app.prisma.document.findUnique({
+      where: { id: documentId },
+      select: {
+        id: true, type: true, aiInstructions: true, policyVersionAtCreate: true, deletedAt: true,
+        currentVersion: {
+          select: {
+            sections: {
+              where:  { OR: [{ sectionId }, { id: sectionId }] },
+              select: { sectionId: true, sectionNumber: true, sectionTitle: true },
+            },
+          },
+        },
+      },
+    })
+    if (!doc || doc.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!(await canSeeDocument(app.prisma, request.user!, documentId))) return reply.code(404).send({ error: 'not_found' })
+    const section = doc.currentVersion?.sections[0]
+    if (!section) return reply.code(404).send({ error: 'section_not_found' })
+
+    const policy = await resolvePolicyForDocument(app.prisma, {
+      docType:               doc.type,
+      policyVersionAtCreate: doc.policyVersionAtCreate ?? null,
+    }).catch((err) => {
+      app.log.warn({ err, documentId }, 'section-context: policy resolve failed — returning no-policy shape')
+      return null
+    })
+
+    const renderedPromptBlock = renderPolicyPromptBlock(policy, section.sectionId)
+
+    const wholeDocPrinciples = policy
+      ? policy.bestPracticeDigest.principles
+          .filter(p => p.scope === 'whole-doc')
+          .map(p => ({ severity: p.severity, text: p.text }))
+      : []
+    const sectionPrinciples = policy
+      ? policy.bestPracticeDigest.principles
+          .filter(p => p.scope === `section:${section.sectionId}`)
+          .map(p => ({ severity: p.severity, text: p.text }))
+      : []
+    const sectionRules = policy
+      ? (policy.sectionRules[section.sectionId] ?? []).map(r => ({ severity: r.severity, text: r.text }))
+      : []
+
+    return {
+      document: {
+        id:            doc.id,
+        type:          doc.type,
+        policyVersion: doc.policyVersionAtCreate ?? null,
+      },
+      section: {
+        sectionId:     section.sectionId,
+        sectionNumber: section.sectionNumber,
+        sectionTitle:  section.sectionTitle,
+      },
+      policy: policy
+        ? {
+            id:                  policy.id,
+            version:             policy.version,
+            isPinned:            doc.policyVersionAtCreate === policy.version,
+            smePrompt:           policy.smePrompt,
+            wholeDocPrinciples,
+            sectionPrinciples,
+            sectionRules,
+          }
+        : null,
+      aiInstructions:      doc.aiInstructions ?? null,
+      renderedPromptBlock,
+    }
+  })
+
   // The Final Document screen's read. Same content as GET /:documentId, but only
   // for those who may read the Final Document: any RACI letter on the document,
   // its assignee, a PM who can see the project, or an auditor — never an admin or

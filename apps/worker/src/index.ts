@@ -19,6 +19,7 @@ import { handleRestoreVersion } from './jobs/restore-version.js'
 import { handleVoiceTranscribe } from './jobs/voice-transcribe.js'
 import { handleAiInitialDraft } from './jobs/ai-initial-draft.js'
 import { handleAiValidationPass } from './jobs/ai-validation-pass.js'
+import { handleDistillBestPractice } from './jobs/distill-best-practice.js'
 import { handlePresenceReaper } from './jobs/presence-reaper.js'
 import { handleAccessReviewCron } from './jobs/access-review-cron.js'
 
@@ -106,6 +107,9 @@ const handlers = {
   'clinical.ai_validation_pass': handleAiValidationPass,
   'clinical.presence_reaper': handlePresenceReaper,
   'compliance.access_review': handleAccessReviewCron,
+  // Platform — one-off Best-Practice PDF → structured digest. Enqueued
+  // from the admin "Distil BP" button on the DocumentTypePolicy screen.
+  'platform.distill_best_practice': handleDistillBestPractice,
 } as const
 type JobName = keyof typeof handlers
 
@@ -136,6 +140,8 @@ const concurrency: Record<JobName, number> = {
   'clinical.ai_validation_pass': 1,
   // Reaper is a single-UPDATE sweep; concurrency=1 avoids racing schedulers.
   'clinical.presence_reaper': 1,
+  // One AI call per distillation; serial to keep provider pressure predictable.
+  'platform.distill_best_practice': 1,
   // Access review is a once-a-month fan-out; concurrency=1 prevents a
   // double-notification race if two schedulers tick at the same minute.
   'compliance.access_review': 1,

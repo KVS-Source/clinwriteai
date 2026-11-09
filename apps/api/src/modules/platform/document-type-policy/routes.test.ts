@@ -57,11 +57,25 @@ async function build(opts: {
   rows?: Row[]
   callerRole?: AuthenticatedUser['role']
   docCount?: number                                    // pinned-to-version count for updateCurrent
+  upload?: { id: string; contentType: string | null } | null
+  enqueueThrows?: boolean
 } = {}) {
   const state: { rows: Row[] } = { rows: opts.rows ?? [] }
   const audit = vi.fn(async () => undefined)
+  const enqueue = vi.fn(async () => {
+    if (opts.enqueueThrows) throw new Error('redis down')
+    return { jobId: 'bullmq-generated' }
+  })
   const app = Fastify()
+  app.decorate('queue', { enqueue } as never)
   app.decorate('prisma', {
+    documentUpload: {
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+        if (opts.upload === null) return null
+        if (opts.upload === undefined) return { id: where.id, contentType: 'application/pdf' }
+        return opts.upload.id === where.id ? opts.upload : null
+      }),
+    },
     documentTypePolicy: {
       findFirst:  vi.fn(async ({ where }: { where: Record<string, unknown> }) => {
         const w = where as { docType: string; isCurrent?: boolean; retiredAt?: null }
@@ -108,7 +122,7 @@ async function build(opts: {
   })
   await app.register(documentTypePolicyRoutes, { prefix: '/document-type-policies' })
   await app.ready()
-  return { app, audit, state }
+  return { app, audit, state, enqueue }
 }
 
 beforeEach(() => { process.env.FEATURE_MODULES_ENABLED = 'A' })
@@ -263,6 +277,106 @@ describe('POST /document-type-policies/:docType/bump — new version', () => {
       payload: { smePrompt: 'x' },
     })
     expect(res.statusCode).toBe(400)
+  })
+})
+
+describe('POST /document-type-policies/:docType/distill-best-practice', () => {
+  const policyRow = () => mkRow({ docType: 'protocol', version: 3, id: 'pol-3' })
+
+  it('enqueues the distill_best_practice job with the policy id + upload id', async () => {
+    const { app, enqueue, audit } = await build({
+      rows: [policyRow()],
+      upload: { id: 'up-7', contentType: 'application/pdf' },
+    })
+    const res = await app.inject({
+      method: 'POST', url: '/document-type-policies/protocol/distill-best-practice',
+      payload: { uploadId: 'up-7' },
+    })
+    expect(res.statusCode).toBe(202)
+    const body = res.json() as { jobId: string; policyId: string; docType: string; version: number }
+    expect(body).toMatchObject({ jobId: 'bp-distill-pol-3-up-7', policyId: 'pol-3', docType: 'protocol', version: 3 })
+    expect(enqueue).toHaveBeenCalledTimes(1)
+    const [name, payload, opts] = enqueue.mock.calls[0]!
+    expect(name).toBe('platform.distill_best_practice')
+    expect(payload).toMatchObject({ policyId: 'pol-3', uploadId: 'up-7', actorId: 'u1' })
+    expect(opts).toMatchObject({ jobId: 'bp-distill-pol-3-up-7' })
+    const rec = audit.mock.calls.map(c => c[0]).find(e => e.action === 'document_type_policy.bp_distill_enqueued')
+    expect(rec?.details).toMatchObject({ uploadId: 'up-7', jobId: 'bp-distill-pol-3-up-7' })
+  })
+
+  it('404 when no current policy exists for the doc type', async () => {
+    const { app, enqueue } = await build({
+      rows: [], upload: { id: 'up-7', contentType: 'application/pdf' },
+    })
+    const res = await app.inject({
+      method: 'POST', url: '/document-type-policies/protocol/distill-best-practice',
+      payload: { uploadId: 'up-7' },
+    })
+    expect(res.statusCode).toBe(404)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('400 when the uploadId does not exist', async () => {
+    const { app } = await build({ rows: [policyRow()], upload: null })
+    const res = await app.inject({
+      method: 'POST', url: '/document-type-policies/protocol/distill-best-practice',
+      payload: { uploadId: 'does-not-exist' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toMatchObject({ error: 'upload_not_found' })
+  })
+
+  it('400 when the upload is not application/pdf', async () => {
+    const { app } = await build({
+      rows: [policyRow()],
+      upload: { id: 'up-7', contentType: 'application/msword' },
+    })
+    const res = await app.inject({
+      method: 'POST', url: '/document-type-policies/protocol/distill-best-practice',
+      payload: { uploadId: 'up-7' },
+    })
+    expect(res.statusCode).toBe(400)
+    expect(res.json()).toMatchObject({ error: 'not_pdf' })
+  })
+
+  it('400 when uploadId is missing from the body', async () => {
+    const { app } = await build({ rows: [policyRow()] })
+    const res = await app.inject({
+      method: 'POST', url: '/document-type-policies/protocol/distill-best-practice',
+      payload: {},
+    })
+    expect(res.statusCode).toBe(400)
+  })
+
+  it('403 when the caller is not an admin', async () => {
+    const { app, enqueue } = await build({
+      rows: [policyRow()],
+      upload: { id: 'up-7', contentType: 'application/pdf' },
+      callerRole: 'contributor',
+    })
+    const res = await app.inject({
+      method: 'POST', url: '/document-type-policies/protocol/distill-best-practice',
+      payload: { uploadId: 'up-7' },
+    })
+    expect(res.statusCode).toBe(403)
+    expect(enqueue).not.toHaveBeenCalled()
+  })
+
+  it('503 when the queue is down (Redis unreachable)', async () => {
+    const { app, audit } = await build({
+      rows: [policyRow()],
+      upload: { id: 'up-7', contentType: 'application/pdf' },
+      enqueueThrows: true,
+    })
+    const res = await app.inject({
+      method: 'POST', url: '/document-type-policies/protocol/distill-best-practice',
+      payload: { uploadId: 'up-7' },
+    })
+    expect(res.statusCode).toBe(503)
+    expect(res.json()).toMatchObject({ error: 'enqueue_failed' })
+    // No audit entry on enqueue failure — nothing meaningful happened.
+    const rec = audit.mock.calls.map(c => c[0]).find(e => e.action === 'document_type_policy.bp_distill_enqueued')
+    expect(rec).toBeUndefined()
   })
 })
 

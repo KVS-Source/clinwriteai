@@ -9,6 +9,7 @@
 // re-parse.
 
 import type { FastifyPluginAsync } from 'fastify'
+import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import {
   bumpVersionSchema,
@@ -185,6 +186,61 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
       if (mapped) return reply.code(mapped.code).send(mapped.body)
       throw err
     }
+  })
+
+  // POST /document-type-policies/:docType/distill-best-practice —
+  // enqueue the Best-Practice distillation worker for this doc type's
+  // current policy. Body: { uploadId: string } — the DocumentUpload id
+  // of the BP PDF. Returns 202 Accepted + jobId. Admins poll the audit
+  // chain for document_type_policy.bp_distilled / bp_distilled_failed
+  // to see the outcome.
+  //
+  // Preconditions:
+  //   - current policy exists for docType (404 otherwise)
+  //   - uploadId references an application/pdf DocumentUpload (400 on
+  //     missing / wrong type)
+  //
+  // Job dedup: jobId = bp-distill-<policyId>-<uploadId>; a retry of the
+  // same (policy, upload) pair reuses the job slot.
+  const distillSchema = z.object({ uploadId: z.string().min(1) })
+
+  app.post('/:docType/distill-best-practice', { preHandler: writeGate }, async (request, reply) => {
+    const { docType } = request.params as { docType: string }
+    const parsed = distillSchema.safeParse(request.body)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const policy = await svc.getCurrent(docType)
+    if (!policy) return reply.code(404).send({ error: 'no_current_policy' })
+
+    const upload = await app.prisma.documentUpload.findUnique({ where: { id: parsed.data.uploadId } })
+    if (!upload) return reply.code(400).send({ error: 'upload_not_found', message: `DocumentUpload ${parsed.data.uploadId} not found` })
+    if ((upload.contentType ?? '').toLowerCase() !== 'application/pdf') {
+      return reply.code(400).send({ error: 'not_pdf', message: `Best-Practice upload must be application/pdf (got ${upload.contentType ?? 'unknown'})` })
+    }
+
+    const jobId = `bp-distill-${policy.id}-${upload.id}`
+    try {
+      await app.queue.enqueue('platform.distill_best_practice', {
+        policyId: policy.id,
+        uploadId: upload.id,
+        actorId:  request.user!.id,
+      }, { jobId })
+    } catch (err) {
+      app.log.warn({ err, policyId: policy.id, uploadId: upload.id }, 'bp distill enqueue failed')
+      return reply.code(503).send({ error: 'enqueue_failed', message: 'Could not enqueue distillation job. Try again.' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'document_type_policy.bp_distill_enqueued',
+      entityType: 'document_type_policy',
+      entityId:   policy.id,
+      details:    { docType, version: policy.version, uploadId: upload.id, jobId },
+      ipAddress:  request.ip ?? null,
+    })
+
+    return reply.code(202).send({ jobId, policyId: policy.id, docType, version: policy.version })
   })
 
   // POST /document-type-policies/:docType/retire — retire the current

@@ -197,9 +197,9 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
   })
 
   // Portfolio = same list but with the optional ?scope filter the UI's
-  // ContentPortfolio screen passes. Implemented as a thin wrapper so the
-  // UI route lands end-to-end; richer analytics (channel/TA/status roll-ups)
-  // can swap in without breaking the client contract.
+  // ContentPortfolio screen passes. Kept as a bare array for backwards
+  // compatibility with the existing client; the analytics roll-up lands
+  // under the separate /portfolio/summary endpoint below.
   app.get('/:projectId/med-content/portfolio', { preHandler: requireAuth({ modules: ['C'] }) }, async (request) => {
     const { projectId } = request.params as { projectId: string }
     const { scope } = (request.query ?? {}) as { scope?: string }
@@ -214,6 +214,93 @@ export const medContentProjectScopedRoutes: FastifyPluginAsync = async (app) => 
       orderBy: { updatedAt: 'desc' },
     })
     return rows.map(medContentShape)
+  })
+
+  // Portfolio analytics roll-up. The ContentPortfolio dashboard
+  // renders status + type + tier distributions + an "expiring soon"
+  // card; serving pre-computed counts avoids the UI recounting on
+  // every render and the eventual move to a paginated list.
+  //
+  // Returns:
+  //   totals.active / archived
+  //   byStatus       { briefing, in_authoring, in_mlr_review, approved, … }
+  //   byStage        { 1, 2, 3, 4, 5, 6 }
+  //   byType         { hcp_deck, pil, cme_module, mi_letter, … }
+  //   byComplianceTrack { promotional, non_promotional, cme, advisory }
+  //   byReviewTier   { A, B, C, untiered }
+  //   expiringSoon.count (expiry <= 60 days from now; patient-facing only)
+  //   patientFacingFk.pass / fail / unscored
+  app.get('/:projectId/med-content/portfolio/summary', { preHandler: requireAuth({ modules: ['C'] }) }, async (request) => {
+    const { projectId } = request.params as { projectId: string }
+
+    // Patient-facing types (DD-C-002 — FK gate scope). Mirrored from
+    // pre-mlr/routes.ts PATIENT_FACING_TYPES to keep the two views in
+    // lockstep; duplicating the constant is cheap and avoids a cross-
+    // directory import.
+    const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
+      'pil', 'pls_eu_ctr', 'patient_education',
+    ])
+
+    const now  = new Date()
+    const soon = new Date(now)
+    soon.setDate(soon.getDate() + 60)
+
+    const rows = await app.prisma.medContentItem.findMany({
+      where:  { projectId },
+      select: {
+        status:          true,
+        stage:           true,
+        type:            true,
+        complianceTrack: true,
+        reviewTier:      true,
+        archivedAt:      true,
+        expiryDate:      true,
+        fkPassed:        true,
+      },
+    })
+
+    const active = rows.filter(r => r.archivedAt === null)
+
+    const byStatus: Record<string, number> = {}
+    const byStage:  Record<string, number> = {}
+    const byType:   Record<string, number> = {}
+    const byComplianceTrack: Record<string, number> = {}
+    const byReviewTier:     Record<string, number> = { A: 0, B: 0, C: 0, untiered: 0 }
+    let expiringSoonCount = 0
+    const patientFk = { pass: 0, fail: 0, unscored: 0 }
+
+    for (const r of active) {
+      byStatus[r.status] = (byStatus[r.status] ?? 0) + 1
+      const stageKey = String(r.stage)
+      byStage[stageKey] = (byStage[stageKey] ?? 0) + 1
+      byType[r.type] = (byType[r.type] ?? 0) + 1
+      byComplianceTrack[r.complianceTrack] = (byComplianceTrack[r.complianceTrack] ?? 0) + 1
+      const tierKey = r.reviewTier ?? 'untiered'
+      byReviewTier[tierKey] = (byReviewTier[tierKey] ?? 0) + 1
+      if (r.expiryDate && r.expiryDate >= now && r.expiryDate <= soon) expiringSoonCount += 1
+      if (PATIENT_FACING_TYPES.has(r.type)) {
+        if (r.fkPassed === true)       patientFk.pass     += 1
+        else if (r.fkPassed === false) patientFk.fail     += 1
+        else                           patientFk.unscored += 1
+      }
+    }
+
+    return {
+      totals: {
+        active:   active.length,
+        archived: rows.length - active.length,
+      },
+      byStatus,
+      byStage,
+      byType,
+      byComplianceTrack,
+      byReviewTier,
+      expiringSoon: {
+        count:       expiringSoonCount,
+        windowDays:  60,
+      },
+      patientFacingFk: patientFk,
+    }
   })
 }
 

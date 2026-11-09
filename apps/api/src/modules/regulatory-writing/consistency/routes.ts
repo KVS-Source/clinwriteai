@@ -548,19 +548,28 @@ export const consistencyRoutes: FastifyPluginAsync = async (app) => {
     return latest
   })
 
+  // Alias at the UI's preferred path. Accepts the same body the canonical
+  // /:submissionId/validation/run accepts — validator choice + the three
+  // counts. Trust-caller remains the model until the EXTEDO/Lorenz client
+  // lands; the alias no longer hardcodes `minorCount: 2` so a QA pass
+  // asserting "clean validation" produces the shape a vendor run would.
   app.post('/:submissionId/ectd-validation/run', { preHandler: requireAuth({ modules: ['D'] }) }, async (request, reply) => {
     const { submissionId } = request.params as { submissionId: string }
+    const parsed = runValidationSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const sub = await app.prisma.regulatorySubmission.findUnique({ where: { id: submissionId } })
     if (!sub) return reply.code(404).send({ error: 'not_found' })
-    // Vendor integration deferred (EXTEDO/Lorenz). Deterministic stub result.
+
+    const passed = parsed.data.criticalCount === 0 && parsed.data.majorCount === 0
+
     const result = await app.prisma.ectdValidationResult.create({
       data: {
         submissionId,
-        validator: 'extedo',
-        criticalCount: 0,
-        majorCount: 0,
-        minorCount: 2,
-        passed: true,
+        validator:     parsed.data.validator,
+        criticalCount: parsed.data.criticalCount,
+        majorCount:    parsed.data.majorCount,
+        minorCount:    parsed.data.minorCount,
+        passed,
       },
     })
     await app.audit.append({
@@ -569,7 +578,15 @@ export const consistencyRoutes: FastifyPluginAsync = async (app) => {
       action: 'ectd_validation_run',
       entityType: 'reg_submission',
       entityId: submissionId,
-      details: { resultId: result.id, aliasPath: 'ectd-validation/run', stub: true },
+      details: {
+        resultId:      result.id,
+        validator:     parsed.data.validator,
+        criticalCount: parsed.data.criticalCount,
+        majorCount:    parsed.data.majorCount,
+        minorCount:    parsed.data.minorCount,
+        passed,
+        aliasPath:     'ectd-validation/run',
+      },
       ipAddress: request.ip ?? null,
     })
     return { runAt: result.runAt.toISOString(), result }

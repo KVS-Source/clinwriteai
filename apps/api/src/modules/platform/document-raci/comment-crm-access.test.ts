@@ -25,6 +25,7 @@ function prisma(opts: { rows?: Row[]; assignee?: string; memberOf?: string[] } =
           && (!where.letter || where.letter.in.includes(r.letter))),
     },
     projectMember:     { findMany: async () => (opts.memberOf ?? []).map(projectId => ({ projectId })) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: async () => [] },
   } as never
 }

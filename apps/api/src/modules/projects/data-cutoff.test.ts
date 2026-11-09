@@ -18,6 +18,7 @@ async function build(existing: Record<string, unknown> | null = null) {
     project: { findUnique: vi.fn(async () => existing), create, update },
     therapeuticArea: { findFirst: vi.fn(async () => ({ label: 'Oncology' })) },
     projectMember: { findMany: vi.fn(async () => [{ projectId: 'PROJ-CUT' }]) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
     document: { findMany: vi.fn(async () => []) },
   } as never)

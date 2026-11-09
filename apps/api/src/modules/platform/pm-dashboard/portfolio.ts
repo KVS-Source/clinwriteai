@@ -25,6 +25,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
+import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 
 export const portfolioDashboardRoutes: FastifyPluginAsync = async (app) => {
   app.get('/portfolio', { preHandler: requireAuth() }, async (request) => {
@@ -38,11 +39,13 @@ export const portfolioDashboardRoutes: FastifyPluginAsync = async (app) => {
       const rows = await app.prisma.project.findMany({ where, select: { id: true } })
       projectIds = rows.map(p => p.id)
     } else {
-      const memberships = await app.prisma.projectMember.findMany({
-        where: { userId: actor.id, removedAt: null },
-        select: { projectId: true },
-      })
-      projectIds = Array.from(new Set(memberships.map(m => m.projectId)))
+      // The same projects the Projects list shows (a Contributor sees a project they manage only with a
+      // RACI role there — see projects/visibility.ts).
+      const visible = await visibleProjectIdsForUser(app.prisma, actor)
+      if (visible === 'all') {
+        const rows = await app.prisma.project.findMany({ where: actor.tenantId ? { tenantId: actor.tenantId } : {}, select: { id: true } })
+        projectIds = rows.map(p => p.id)
+      } else projectIds = [...visible]
     }
 
     if (projectIds.length === 0) {

@@ -46,6 +46,7 @@ async function build(actor: Partial<AuthenticatedUser> = {}, opts: { onProject?:
       create: async ({ data }: Row) => { const m = { id: `m-${members.length}`, addedAt: new Date(), removedAt: null, ...data }; members.push(m); return m },
       update: async ({ where, data }: Row) => Object.assign(members.find(m => m.id === where.id)!, data),
     },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: async () => [] },
     document: { findMany: async () => [] },
     therapeuticArea: { findMany: async () => [{ label: 'Oncology' }], findFirst: async () => ({ label: 'Oncology' }) },

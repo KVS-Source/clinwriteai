@@ -10,7 +10,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../auth/rbac.js'
 import { findActiveTaLabel, invalidTaBody, sameTa } from '../platform/taxonomy/validate.js'
-import { documentVisibilityWhere, visibleProjectIdsForUser } from './visibility.js'
+import { documentVisibilityWhere, PM_PROJECT_ROLE, visibleProjectIdsForUser } from './visibility.js'
 import { DATE_IN_PAST, isPastDay } from '../platform/past-date.js'
 import { actorManagesProject, addPmToProject, checkPmEmail, createInvitedPm, findSelectablePm, normaliseEmail, PM_EMAIL_TAKEN, PM_FORBIDDEN, PM_USER_NOT_ELIGIBLE } from './project-managers.js'
 import {
@@ -224,7 +224,7 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
         tenantId: request.user!.tenantId,
         // The creating PM joins the project, otherwise visibility.ts hides it
         // from them (a new project has no documents to grant access through).
-        members: { create: { userId: request.user!.id, projectRole: 'Project Manager', addedBy: request.user!.id } },
+        members: { create: { userId: request.user!.id, projectRole: PM_PROJECT_ROLE, addedBy: request.user!.id } },
       },
     })
 

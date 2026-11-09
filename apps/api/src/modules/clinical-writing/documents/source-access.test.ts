@@ -58,6 +58,7 @@ async function build(who: Who = {}) {
     sourceReferenceRemoval: { findMany: vi.fn(async () => []) },
     user: { findMany: vi.fn(async () => []) },
     projectMember: { findMany: vi.fn(async () => (who.memberOfProject === false ? [] : [{ projectId: P }])) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
   } as never)
   app.decorate('blob', blob as never)

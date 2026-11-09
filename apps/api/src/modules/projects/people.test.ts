@@ -13,6 +13,7 @@ async function build(role = 'admin') {
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: 'p1' })) },
     projectMember: { findMany: vi.fn(async () => [{ userId: 'u-pm' }, { userId: 'u-member' }]) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => [{ userId: 'u-team' }, { userId: 'user-PLACEHOLDER' }, { userId: 'u-member' }]) },
     document: { findMany: vi.fn(async () => [
       { assigneeId: 'u-assignee', createdBy: 'u-creator' },

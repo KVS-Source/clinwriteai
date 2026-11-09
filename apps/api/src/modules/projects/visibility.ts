@@ -8,6 +8,14 @@
 //     - ProjectTeamMember row                                      (legacy)
 //     - DocumentRaci row with removedAt null on any Document in the project
 //       (or being that Document's assignee / creator)
+//     - a project-level RACI letter (RaciAssignment: R, A, C or I on any activity)
+//
+// Working as PM vs not (a user holding PM + Contributor works as one at a time — auth/active-role.ts):
+//   - The "Project Manager" membership (the project's creator, or a PM added to it) shows the project
+//     only while the user works as PM. Working as Contributor they see a project they manage only if
+//     they also hold a RACI role there (document or project level) or another membership.
+//   - Likewise, having created a document in a project counts only for a PM (a PM sets documents up
+//     for others); a Contributor needs to be its assignee or hold a RACI letter on it.
 //
 // Why three sources: migration 47 added ProjectMember + DocumentRaci on top
 // of the existing ProjectTeamMember table. Both old and new rows co-exist
@@ -22,6 +30,9 @@
 
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { hasAnyRole, type AuthenticatedUser } from '../../auth/rbac.js'
+
+/** ProjectMember.projectRole written for the creating PM and for PMs added to a project. */
+export const PM_PROJECT_ROLE = 'Project Manager'
 
 const SEE_ALL_ROLES: ReadonlySet<string> = new Set([
   'tenant-admin',
@@ -40,10 +51,16 @@ export async function visibleProjectIdsForUser(
   user: AuthenticatedUser,
 ): Promise<'all' | Set<string>> {
   if (hasAnyRole(user, ...SEE_ALL_ROLES)) return 'all'
+  const asPm = hasAnyRole(user, 'pm')
 
-  const [members, legacyTeam, raciDocs] = await Promise.all([
+  const [members, legacyTeam, raciDocs, projectRaci] = await Promise.all([
     prisma.projectMember.findMany({
-      where: { userId: user.id, removedAt: null },
+      where: {
+        userId: user.id,
+        removedAt: null,
+        // Not working as PM: the PM membership doesn't count (see the rule above).
+        ...(asPm ? {} : { OR: [{ projectRole: null }, { projectRole: { not: PM_PROJECT_ROLE } }] }),
+      },
       select: { projectId: true },
     }),
     prisma.projectTeamMember.findMany({
@@ -56,8 +73,21 @@ export async function visibleProjectIdsForUser(
         // Same "works on" test as documentVisibilityWhere below.
         OR: [
           { assigneeId: user.id },
-          { createdBy: user.id },
+          ...(asPm ? [{ createdBy: user.id }] : []),
           { raciRows: { some: { userId: user.id, removedAt: null } } },
+        ],
+      },
+      select: { projectId: true },
+      distinct: ['projectId'],
+    }),
+    // Project-level RACI (/projects/:id/raci).
+    prisma.raciAssignment.findMany({
+      where: {
+        OR: [
+          { responsibleId: user.id },
+          { accountableId: user.id },
+          { consultedIds: { has: user.id } },
+          { informedIds: { has: user.id } },
         ],
       },
       select: { projectId: true },
@@ -69,6 +99,7 @@ export async function visibleProjectIdsForUser(
   for (const r of members)    ids.add(r.projectId)
   for (const r of legacyTeam) ids.add(r.projectId)
   for (const r of raciDocs)   ids.add(r.projectId)
+  for (const r of projectRaci) ids.add(r.projectId)
   return ids
 }
 

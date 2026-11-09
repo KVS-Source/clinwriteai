@@ -49,6 +49,7 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
     user: { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => ({ role: where.id.startsWith('role:') ? where.id.slice(5) : 'contributor' })) },
     // Project visibility for the PM creator: a member of proj-1.
     projectMember:     { findMany: vi.fn(async () => memberOf.map(projectId => ({ projectId }))) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
     document:          { findMany: vi.fn(async () => []) },
     documentUpload: {

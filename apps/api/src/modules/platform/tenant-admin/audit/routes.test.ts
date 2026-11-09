@@ -70,6 +70,7 @@ async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; call
     $queryRawUnsafe,
     // Project visibility for a PM: a member of p-1, and working on a document in p-2.
     projectMember:     { findMany: vi.fn(async () => [{ projectId: 'p-1' }]) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
     document:          { findMany: vi.fn(async () => [{ projectId: 'p-2' }]) },
   } as never)

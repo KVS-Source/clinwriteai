@@ -103,6 +103,7 @@ function fakePrisma() {
     // Team Approver roster — used by the 2026-10-28 "every Approver must
     // sign" validation. Default: both twoSigners users are RACI='A' on
     // PROJ-1, which satisfies the default signer list.
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: {
       findMany: async ({ where }: Row) => projectTeamMembers.filter(m => matches(m, where)),
     },

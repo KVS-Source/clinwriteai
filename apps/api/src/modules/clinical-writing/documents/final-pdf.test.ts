@@ -330,6 +330,7 @@ async function build(o: Opts = {}) {
     signatureChain: { findFirst: chainFind },
     project: { findUnique: vi.fn(async () => ({ shortTitle: 'VELORA-301', name: 'A study', therapeuticArea: 'Oncology', phase: 'Phase 3' })) },
     projectMember: { findMany: vi.fn(async () => (o.pmMember ? [{ projectId: 'p-1' }] : [])) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
     user: { findUnique: vi.fn(async () => ({ name: 'Alex Thornton' })), findMany: vi.fn(async () => []) },
     checklistInstance: { findUnique: vi.fn(async () => ({ templateVersion: 1, items: [] })) },

@@ -30,6 +30,7 @@ async function build(users: U[], members: Array<{ userId: string; projectRole: s
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: 'p1', tenantId: projectTenant })) },
     projectMember: { findMany: vi.fn(async () => members) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
     user: { findMany },
   } as never)

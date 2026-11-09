@@ -33,6 +33,7 @@ async function build(opts: {
     document: { findUnique: vi.fn(async () => doc), findMany: vi.fn(async () => []), update },
     project: { findUnique: vi.fn(async () => ({ status: opts.projectStatus ?? 'ongoing' })) },
     projectMember: { findMany: vi.fn(async () => (opts.memberOf ?? ['p-1']).map(projectId => ({ projectId }))) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
     documentRaci: { findMany: vi.fn(async () => (opts.rRow ? [{ userId }] : [{ userId: 'another-author' }])) },
   } as never)

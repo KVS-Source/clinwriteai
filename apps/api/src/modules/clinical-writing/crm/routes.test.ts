@@ -63,6 +63,7 @@ function fakePrisma() {
     },
     user: { findMany: async ({ where }: Row) => users.filter(u => where.id.in.includes(u.id) && !(where.role?.notIn ?? []).includes(u.role)) },
     projectMember:     { findMany: async () => [{ projectId: 'P-1', userId: 'u-pm', user: { role: 'pm' } }] },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: async () => [] },
     project: { findUnique: async () => ({ status: 'ongoing' }) },
 

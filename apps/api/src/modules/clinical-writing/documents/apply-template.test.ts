@@ -42,6 +42,7 @@ async function build(opts: Opts = {}) {
     },
     project: { findUnique: async () => ({ status: opts.projectStatus ?? 'ongoing', submissionCountries: opts.countries ?? [] }) },
     projectMember: { findMany: async () => (opts.memberOf ?? []).map(projectId => ({ projectId })) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: async () => [] },
     documentTemplate: { findFirst: async () => (opts.dbTemplate !== undefined ? { sections: opts.dbTemplate } : null) },
     $transaction: async (fn: (t: Row) => unknown) => fn(tx),

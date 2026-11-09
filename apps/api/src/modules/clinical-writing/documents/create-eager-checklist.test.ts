@@ -45,6 +45,7 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
     user: { findUnique: vi.fn(async () => ({ role: 'contributor' })) },
     // Project visibility for the PM creator: a member of proj-1.
     projectMember:     { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
     document:          { findMany: vi.fn(async () => []) },
     documentUpload: { findMany: vi.fn(async () => []) },

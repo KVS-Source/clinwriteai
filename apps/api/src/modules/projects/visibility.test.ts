@@ -4,21 +4,28 @@ import type { AuthenticatedUser } from '../../auth/rbac.js'
 import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from './visibility.js'
 
 interface FakeRows {
-  members?:    Array<{ userId: string; projectId: string; removedAt: Date | null }>
-  legacyTeam?: Array<{ userId: string; projectId: string }>
-  raciDocs?:   Array<{ userId: string; projectId: string; removedAt: Date | null }>
+  members?:     Array<{ userId: string; projectId: string; removedAt: Date | null; projectRole?: string | null }>
+  legacyTeam?:  Array<{ userId: string; projectId: string }>
+  raciDocs?:    Array<{ userId: string; projectId: string; removedAt: Date | null }>
+  createdDocs?: Array<{ userId: string; projectId: string }>
+  projectRaci?: Array<{ projectId: string; responsibleId?: string; accountableId?: string; consultedIds?: string[]; informedIds?: string[] }>
 }
 
-// Tiny fake Prisma — only the three findMany calls the helper makes.
-// Each filter method honours userId + the removedAt null filter where
-// relevant so we can test the "removed member doesn't appear" case.
+type MemberWhere = { userId: string; removedAt: null; OR?: Array<{ projectRole: null | { not: string } }> }
+type DocWhere = { OR: Array<{ assigneeId?: string; createdBy?: string; raciRows?: { some: { userId: string } } }> }
+
+// Tiny fake Prisma — only the findMany calls the helper makes. Each honours the filters the helper
+// sends (userId, removedAt, the PM-membership exclusion, the creator branch) so the rules are tested.
 function fakePrisma(rows: FakeRows): PrismaClient {
   const impl = {
     projectMember: {
-      findMany: async ({ where }: { where: { userId: string; removedAt: null } }) =>
-        (rows.members ?? [])
+      findMany: async ({ where }: { where: MemberWhere }) => {
+        const excluded = where.OR?.map(c => c.projectRole).find(c => c && typeof c === 'object') as { not: string } | undefined
+        return (rows.members ?? [])
           .filter(r => r.userId === where.userId && r.removedAt === null)
-          .map(r => ({ projectId: r.projectId })),
+          .filter(r => !excluded || (r.projectRole ?? null) !== excluded.not)
+          .map(r => ({ projectId: r.projectId }))
+      },
     },
     projectTeamMember: {
       findMany: async ({ where }: { where: { userId: string } }) =>
@@ -27,28 +34,29 @@ function fakePrisma(rows: FakeRows): PrismaClient {
           .map(r => ({ projectId: r.projectId })),
     },
     document: {
-      // The helper ORs assignee / creator / active RACI; these fixtures only
-      // model RACI rows, so read the user from that branch.
-      findMany: async ({ where }: { where: { OR: Array<{ raciRows?: { some: { userId: string } } }> } }) => {
+      findMany: async ({ where }: { where: DocWhere }) => {
         const userId = where.OR.find(c => c.raciRows)!.raciRows!.some.userId
-        const seen = new Set<string>()
-        const out: Array<{ projectId: string }> = []
-        for (const r of rows.raciDocs ?? []) {
-          if (r.userId !== userId) continue
-          if (r.removedAt !== null) continue
-          if (seen.has(r.projectId)) continue
-          seen.add(r.projectId)
-          out.push({ projectId: r.projectId })
-        }
-        return out
+        const creatorCounts = where.OR.some(c => c.createdBy === userId)
+        const ids = new Set<string>()
+        for (const r of rows.raciDocs ?? []) if (r.userId === userId && r.removedAt === null) ids.add(r.projectId)
+        if (creatorCounts) for (const r of rows.createdDocs ?? []) if (r.userId === userId) ids.add(r.projectId)
+        return [...ids].map(projectId => ({ projectId }))
+      },
+    },
+    raciAssignment: {
+      findMany: async ({ where }: { where: { OR: Array<Record<string, unknown>> } }) => {
+        const userId = where.OR.find(c => 'responsibleId' in c)!.responsibleId as string
+        return (rows.projectRaci ?? [])
+          .filter(r => r.responsibleId === userId || r.accountableId === userId || r.consultedIds?.includes(userId) || r.informedIds?.includes(userId))
+          .map(r => ({ projectId: r.projectId }))
       },
     },
   }
   return impl as unknown as PrismaClient
 }
 
-function user(role: AuthenticatedUser['role'], id = 'u-1'): AuthenticatedUser {
-  return { id, email: `${id}@x`, role, modules: ['A'], tenantId: 't-1' }
+function user(role: AuthenticatedUser['role'], id = 'u-1', roles?: AuthenticatedUser['role'][]): AuthenticatedUser {
+  return { id, email: `${id}@x`, role, ...(roles && { roles }), modules: ['A'], tenantId: 't-1' }
 }
 
 describe('visibleProjectIdsForUser', () => {
@@ -139,6 +147,61 @@ describe('visibleProjectIdsForUser', () => {
       user('contributor', 'u-1'),
     )
     expect(r).toEqual(new Set())
+  })
+})
+
+describe('PM + Contributor: projects depend on the role in use', () => {
+  // Sourabh created p-mine (so he is its "Project Manager" member), holds an R on a document in p-raci,
+  // a project-level C on p-proj-raci, and nothing on p-other.
+  const rows: FakeRows = {
+    members: [
+      { userId: 'u-1', projectId: 'p-mine', removedAt: null, projectRole: 'Project Manager' },
+      { userId: 'u-1', projectId: 'p-mine-with-raci', removedAt: null, projectRole: 'Project Manager' },
+    ],
+    raciDocs: [
+      { userId: 'u-1', projectId: 'p-raci', removedAt: null },
+      { userId: 'u-1', projectId: 'p-mine-with-raci', removedAt: null },
+    ],
+    createdDocs: [{ userId: 'u-1', projectId: 'p-doc-i-created' }],
+    projectRaci: [{ projectId: 'p-proj-raci', consultedIds: ['u-1'] }, { projectId: 'p-other', responsibleId: 'someone-else' }],
+  }
+
+  it('working as PM: every project he created or manages, plus those where he has a RACI role', async () => {
+    expect(await visibleProjectIdsForUser(fakePrisma(rows), user('pm'))).toEqual(
+      new Set(['p-mine', 'p-mine-with-raci', 'p-raci', 'p-doc-i-created', 'p-proj-raci']),
+    )
+  })
+
+  it('working as Contributor: only projects where he has a RACI role — not the ones he manages', async () => {
+    expect(await visibleProjectIdsForUser(fakePrisma(rows), user('contributor'))).toEqual(
+      new Set(['p-mine-with-raci', 'p-raci', 'p-proj-raci']),
+    )
+  })
+
+  it('holding both with no role chosen (union) sees the PM set', async () => {
+    expect(await visibleProjectIdsForUser(fakePrisma(rows), user('pm', 'u-1', ['pm', 'contributor']))).toEqual(
+      new Set(['p-mine', 'p-mine-with-raci', 'p-raci', 'p-doc-i-created', 'p-proj-raci']),
+    )
+  })
+
+  it('a Contributor keeps a non-PM membership (e.g. Lead Writer) and one with no label', async () => {
+    const r = await visibleProjectIdsForUser(fakePrisma({
+      members: [
+        { userId: 'u-1', projectId: 'p-writer', removedAt: null, projectRole: 'Lead Writer' },
+        { userId: 'u-1', projectId: 'p-unlabelled', removedAt: null, projectRole: null },
+      ],
+    }), user('contributor'))
+    expect(r).toEqual(new Set(['p-writer', 'p-unlabelled']))
+  })
+
+  it.each([
+    ['responsible', { responsibleId: 'u-1' }],
+    ['accountable', { accountableId: 'u-1' }],
+    ['consulted', { consultedIds: ['u-1'] }],
+    ['informed', { informedIds: ['u-1'] }],
+  ])('a project-level RACI letter (%s) shows the project', async (_l, letter) => {
+    const r = await visibleProjectIdsForUser(fakePrisma({ projectRaci: [{ projectId: 'p-x', ...letter }] }), user('contributor'))
+    expect(r).toEqual(new Set(['p-x']))
   })
 })
 

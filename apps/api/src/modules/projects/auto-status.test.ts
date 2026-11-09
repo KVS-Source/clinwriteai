@@ -92,6 +92,7 @@ describe('GET /projects/:id/status', () => {
     app.decorate('prisma', {
       project: { findUnique: vi.fn(async () => ({ id: 'p-1', status: 'ongoing' })) },
       projectMember: { findMany: vi.fn(async () => [{ projectId: 'p-1' }]) },
+      raciAssignment: { findMany: async () => [] },
       projectTeamMember: { findMany: vi.fn(async () => []) },
       document: { findMany: vi.fn(async () => []) },
       user: { findMany: vi.fn(async () => [{ id: 'u-author', name: 'Sam Author' }]) },

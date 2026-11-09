@@ -49,6 +49,7 @@ async function buildApp(opts: AppOpts) {
     },
     documentRaci: { findFirst: vi.fn(async () => (opts.hasLetter === false ? null : { id: 'raci-1' })) },
     projectMember: { findMany: vi.fn(async () => (opts.projectMember ? [{ projectId: 'PROJ-1' }] : [])) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
     user: { findMany: vi.fn(async () => [{ id: 'user-a', name: 'Alex' }]), findUnique: vi.fn(async () => null) },
   } as never)

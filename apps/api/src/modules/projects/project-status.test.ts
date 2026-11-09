@@ -15,6 +15,7 @@ async function build(opts: { status?: string; role?: AuthenticatedUser['role']; 
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => project), update },
     projectMember: { findMany: vi.fn(async () => (opts.memberOf ?? ['p-1']).map(projectId => ({ projectId }))) },
+    raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
     document: { findMany: vi.fn(async () => []) },
     user: { findMany: vi.fn(async () => [{ id: 'u-pm', name: 'Alex Thornton' }]) },

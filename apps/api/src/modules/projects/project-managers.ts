@@ -11,7 +11,7 @@ import type { PrismaClient, User } from '@prisma/client'
 import type { FastifyInstance, FastifyRequest } from 'fastify'
 import { hasAnyRole, type AuthenticatedUser } from '../../auth/rbac.js'
 import { issueUserInvitation } from '../platform/users/issue-invitation.js'
-import { visibleProjectIdsForUser } from './visibility.js'
+import { PM_PROJECT_ROLE, visibleProjectIdsForUser } from './visibility.js'
 
 // Who can be made a project's PM: not someone suspended or deprovisioned.
 const SELECTABLE_STATUSES = ['active', 'invited']
@@ -116,12 +116,12 @@ export async function addPmToProject(
     if (existing.removedAt) {
       await app.prisma.projectMember.update({
         where: { id: existing.id },
-        data: { removedAt: null, projectRole: 'Project Manager', addedBy: actor.id, addedAt: new Date() },
+        data: { removedAt: null, projectRole: PM_PROJECT_ROLE, addedBy: actor.id, addedAt: new Date() },
       })
     }
   } else {
     await app.prisma.projectMember.create({
-      data: { projectId: project.id, userId: user.id, projectRole: 'Project Manager', addedBy: actor.id },
+      data: { projectId: project.id, userId: user.id, projectRole: PM_PROJECT_ROLE, addedBy: actor.id },
     })
   }
 

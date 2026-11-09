@@ -16,6 +16,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { createHash } from 'node:crypto'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { chooseModel } from '../../platform/config/ai-engine-settings.js'
 import type { PrismaClient } from '@prisma/client'
 
 const openRoundSchema = z.object({
@@ -603,36 +604,117 @@ export const peerReviewRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
-  // AI draft stub — pending Anthropic connector (Arc 8.1). Returns a
-  // deterministic suggested response + flags the stored row as
-  // aiDrafted so the Part 11 provenance is correct the moment the real
-  // AI connector ships.
+  // AI draft — calls the real AI gateway with a compact prompt scoped
+  // to the comment + manuscript title. Falls back to a stub string on
+  // any gateway failure (quota exhausted, provider 5xx, network) so
+  // the review flow doesn't stall on infra blips.
   app.post('/review-rounds/:roundId/comments/:commentId/ai-draft', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
     const { roundId, commentId } = request.params as { roundId: string; commentId: string }
     const comment = await app.prisma.reviewerComment.findFirst({ where: { id: commentId, roundId } })
     if (!comment) return reply.code(404).send({ error: 'not_found' })
 
-    const draft =
-      `[AI stub — Anthropic connector pending] Proposed response to reviewer comment #${comment.commentNumber}:\n\n` +
-      `We thank the reviewer for this comment. We have revised the ${comment.reviewerTab === 'ed' ? 'manuscript' : 'relevant section'} ` +
-      `to address this concern (please see tracked changes in the revised version). The revised text now reads: ` +
-      `"[placeholder — insert specific wording addressing the reviewer's point]".`
-
-    await app.audit.append({
-      timestamp: new Date().toISOString(),
-      actorId: request.user!.id,
-      action: 'peer_review_ai_draft_generated',
-      entityType: 'reviewer_comment',
-      entityId: commentId,
-      details: { roundId, model: 'stub-advisor-v1', commentNumber: comment.commentNumber },
-      ipAddress: request.ip ?? null,
+    // Pull manuscript context so the model knows what study / phrasing
+    // the response should match. projectId is what the aiGateway bills
+    // + rate-limits against.
+    const round = await app.prisma.peerReviewRound.findUnique({
+      where:  { id: roundId },
+      select: { publicationId: true },
     })
+    const publication = round
+      ? await app.prisma.publication.findUnique({
+          where:  { id: round.publicationId },
+          select: { projectId: true, title: true },
+        })
+      : null
 
-    return {
-      draftText: draft,
-      aiModel: 'stub-advisor-v1',
-      generatedAt: new Date().toISOString(),
-      stub: true,
+    const tabLabel = comment.reviewerTab === 'ed' ? 'Editor' : `Reviewer ${comment.reviewerTab.replace('r', '')}`
+    const systemPrompt = [
+      'You are a scientific-writing assistant drafting a response to a peer-review comment on a manuscript being prepared for journal submission.',
+      '',
+      'RULES',
+      '1. Produce a concise, professional response the corresponding author can edit and send back to the journal.',
+      '2. Address the reviewer\'s specific concern directly — do not generalise.',
+      '3. Do not invent clinical facts, numbers, statistics, references, or revised wording — if the reply needs specifics you do not have, emit `[Information Required: <what>]` inline.',
+      '4. Output only the response prose. No "Dear Reviewer" preamble, no signature.',
+      '5. Match the register of a peer-reviewed clinical / scientific manuscript: precise, measured, no marketing phrasing.',
+    ].join('\n')
+
+    const userPrompt = [
+      `Manuscript: ${publication?.title ?? '(title unavailable)'}`,
+      `Reviewer: ${tabLabel}, comment #${comment.commentNumber}`,
+      '',
+      'Comment:',
+      comment.commentText,
+      '',
+      'Draft the response.',
+    ].join('\n')
+
+    const model = await chooseModel(app.prisma)
+
+    try {
+      const result = await app.aiGateway.chat({
+        tenantId:  request.user!.tenantId,
+        projectId: publication?.projectId ?? 'unknown',
+        actorId:   request.user!.id,
+        module:    'B',
+        intent:    'peer_review_draft',
+        model,
+        prompt:    `${systemPrompt}\n\n---\n\n${userPrompt}`,
+        maxOutputTokens: 1024,
+      })
+
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'peer_review_ai_draft_generated',
+        entityType: 'reviewer_comment',
+        entityId:   commentId,
+        details: {
+          roundId,
+          commentNumber: comment.commentNumber,
+          model:         result.model,
+          aiCallRecordId: result.recordId,
+        },
+        ipAddress: request.ip ?? null,
+      })
+
+      return {
+        draftText:   result.responseText,
+        aiModel:     result.model,
+        recordId:    result.recordId,
+        generatedAt: new Date().toISOString(),
+      }
+    } catch (err: unknown) {
+      // Quota exhausted → 429 so the UI can tell the user explicitly.
+      // Anything else → log + stub fallback so the round isn't blocked.
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      app.log.warn({ err, commentId, roundId }, 'peer-review ai draft fell back to stub')
+      const draft =
+        `[AI temporarily unavailable — please draft manually] Suggested starting point for ${tabLabel} comment #${comment.commentNumber}:\n\n` +
+        `We thank the reviewer for this comment. [Information Required: insert the specific wording addressing this point.]`
+
+      await app.audit.append({
+        timestamp:  new Date().toISOString(),
+        actorId:    request.user!.id,
+        action:     'peer_review_ai_draft_generated',
+        entityType: 'reviewer_comment',
+        entityId:   commentId,
+        details: {
+          roundId,
+          commentNumber: comment.commentNumber,
+          model:         'stub-fallback',
+          reason:        err instanceof Error ? err.message : String(err),
+        },
+        ipAddress: request.ip ?? null,
+      })
+      return {
+        draftText:   draft,
+        aiModel:     'stub-fallback',
+        generatedAt: new Date().toISOString(),
+        stub:        true,
+      }
     }
   })
 }

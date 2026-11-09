@@ -19,7 +19,7 @@
 // the same jobId; this guard means we never create duplicate versions.
 
 import { diff_match_patch } from 'diff-match-patch'
-import { createHash } from 'node:crypto'
+import { hashSections, inDocumentOrder } from './section-hash.js'
 import type { JobHandler } from './types.js'
 
 interface RestoreJobPayload {
@@ -114,16 +114,10 @@ export const handleRestoreVersion: JobHandler<RestoreJobPayload> = async (job, {
     })
   }
 
-  const mergedSections = Array.from(currentById.values()).sort((a, b) => a.sectionId.localeCompare(b.sectionId))
+  const mergedSections = inDocumentOrder(Array.from(currentById.values()))
 
-  // Hash the merged content (same algorithm as DocumentService.hashSections —
-  // keep in sync; if they diverge, the e-sig chain breaks).
-  const hash = createHash('sha256')
-  for (const s of mergedSections) {
-    hash.update(s.sectionId, 'utf8'); hash.update('', 'utf8')
-    hash.update(s.contentHtml, 'utf8'); hash.update('', 'utf8')
-  }
-  const contentHash = hash.digest('hex')
+  // Hash the merged content with the same function the API uses (section-hash.ts), or the e-sig chain breaks.
+  const contentHash = hashSections(mergedSections)
 
   const nextVersionNumber = bumpVersion(doc.currentVersion.versionNumber)
 

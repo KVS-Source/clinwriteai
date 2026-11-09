@@ -38,6 +38,10 @@ function initialsFromName(name: string | null | undefined): string {
   return name.trim().split(/\s+/).slice(0, 2).map(p => p[0]?.toUpperCase() ?? '').join('') || '?'
 }
 
+// Two versions of a section differ in more than words (bold, lists, tables, images…) when their HTML differs
+// once spacing is ignored.
+const htmlSig = (html: string) => html.replace(/\s+/g, ' ').replace(/> </g, '><').trim()
+
 // Section HTML → plain text for the word diff (tags become spaces, entities decoded).
 function htmlToText(html: string): string {
   const spaced = html.replace(/<[^>]*>/g, ' ')
@@ -191,7 +195,8 @@ export function DiffView() {
     for (const s of toSections.sections) {
       const prev = fromById.get(s.sectionId)
       const d = wordDiff(htmlToText(prev?.contentHtml ?? ''), htmlToText(s.contentHtml))
-      const kind = !prev ? 'added' : d.added + d.removed > 0 ? 'changed' : 'unchanged'
+      // Same words but different HTML is still a change (formatting only), so it can be seen and restored.
+      const kind = !prev ? 'added' : d.added + d.removed > 0 || htmlSig(prev.contentHtml) !== htmlSig(s.contentHtml) ? 'changed' : 'unchanged'
       out.push({ sectionId: s.sectionId, number: s.sectionNumber, title: s.sectionTitle, kind, ops: d.ops, added: d.added, removed: d.removed, fromHtml: prev?.contentHtml ?? '', toHtml: s.contentHtml })
     }
     for (const s of fromSections.sections) {
@@ -231,8 +236,22 @@ export function DiffView() {
   const currentVersionNumber = versions.find(v => v.isCurrent)?.versionNumber ?? versions[0]?.versionNumber ?? null
   const nextVersionLabel = currentVersionNumber ? bumpVersion(currentVersionNumber) : t('page.diff_view.a_new_version')
 
-  // Only sections that exist in the "from" version and differ can be restored from it.
-  const restorable = (d: SectionDiff) => d.kind === 'changed' || d.kind === 'removed'
+  // Restoring puts a section's content from the "from" version into the CURRENT version, so Restore is offered
+  // only where that content differs from what the document holds now. (The comparison on screen is from vs "To",
+  // which is the current version when you arrive from the version menu, but can be an older one.)
+  const currentRecord = versions.find(v => v.isCurrent) ?? versions[0] ?? null
+  const { data: currentSections } = useQuery({
+    queryKey: ['version-sections', documentId, currentRecord?.id],
+    queryFn:  () => documentsApi.getVersionSections(documentId!, currentRecord!.id),
+    enabled:  !!documentId && !!currentRecord,
+    staleTime: Infinity,
+  })
+  const currentHtmlById = useMemo(
+    () => new Map((currentSections?.sections ?? []).map(sec => [sec.sectionId, sec.contentHtml])),
+    [currentSections],
+  )
+  const sameAsCurrent = (d: SectionDiff) => !!currentSections && currentHtmlById.get(d.sectionId) === d.fromHtml
+  const restorable = (d: SectionDiff) => (d.kind === 'changed' || d.kind === 'removed') && !!currentSections && !sameAsCurrent(d)
   const selectedHere = selectedForRestore.filter(id => {
     const d = diffById.get(id)
     return !!d && restorable(d)
@@ -501,8 +520,13 @@ export function DiffView() {
                         className="flex-none rounded font-mono text-[9px] font-medium tracking-wide text-slate-500"
                         style={{ backgroundColor: '#F1F5F9', padding: '2px 6px' }}
                       >
-                        {d.kind === 'added' ? t('page.diff_view.section_new_in', { version: toVersion }) : d.kind === 'removed' ? t('page.diff_view.section_removed_in', { version: toVersion }) : t('page.diff_view.section_word_change', { added: d.added, removed: d.removed })}
+                        {d.kind === 'changed' && d.added + d.removed === 0 ? t('page.diff_view.formatting_only', { defaultValue: 'formatting only' }) : d.kind === 'added' ? t('page.diff_view.section_new_in', { version: toVersion }) : d.kind === 'removed' ? t('page.diff_view.section_removed_in', { version: toVersion }) : t('page.diff_view.section_word_change', { added: d.added, removed: d.removed })}
                       </span>
+                      {canEditDocument === true && sameAsCurrent(d) && (
+                        <span className="flex-none whitespace-nowrap text-xs font-medium text-slate-500" data-same-as-current>
+                          {t('page.diff_view.same_as_current', { version: currentVersionNumber ?? '', defaultValue: 'Same as the current version ({{version}}) — nothing to restore' })}
+                        </span>
+                      )}
                       {canRestore && (
                         <>
                           <button

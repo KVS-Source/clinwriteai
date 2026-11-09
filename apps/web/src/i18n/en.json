@@ -1253,6 +1253,8 @@
       "project_fallback": "…"
     },
     "diff_view": {
+      "formatting_only": "formatting only",
+      "same_as_current": "Same as the current version ({{version}}) — nothing to restore",
       "loading_document": "Loading document…",
       "exit_diff_tooltip": "Exit diff view",
       "comparing_label": "Comparing",

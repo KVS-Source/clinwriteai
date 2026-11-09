@@ -1387,6 +1387,8 @@
     },
 
     "diff_view": {
+      "formatting_only": "書式のみ",
+      "same_as_current": "現在のバージョン（{{version}}）と同じです。復元する内容はありません",
       "loading_document": "ドキュメントを読み込み中…",
       "exit_diff_tooltip": "差分ビューを終了",
       "comparing_label": "比較中",

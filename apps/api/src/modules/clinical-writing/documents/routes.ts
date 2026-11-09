@@ -926,7 +926,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const versionIds = [...new Set(parsed.data.sections.map(s => s.fromVersionId))]
     const sourceVersions = await app.prisma.documentVersion.findMany({
       where:  { id: { in: versionIds }, documentId },
-      select: { id: true, versionNumber: true, sections: { select: { sectionId: true } } },
+      select: { id: true, versionNumber: true, sections: { select: { sectionId: true, contentHtml: true } } },
     })
     const byId = new Map(sourceVersions.map(v => [v.id, v]))
     const missing = parsed.data.sections.filter(s => !byId.get(s.fromVersionId)?.sections.some(x => x.sectionId === s.sectionId))
@@ -937,6 +937,31 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           .map(s => `${s.sectionId} (${byId.get(s.fromVersionId)?.versionNumber ?? 'unknown version'})`).join(', ')}.`,
         missing,
       })
+    }
+
+    // A section whose content in the chosen version is already what the document holds now has nothing to
+    // restore. Without this a restore of it still made a new version, and nothing looked different.
+    const docRow = await app.prisma.document.findUnique({ where: { id: documentId }, select: { currentVersionId: true } })
+    const current = docRow?.currentVersionId
+      ? await app.prisma.documentVersion.findUnique({
+          where:  { id: docRow.currentVersionId },
+          select: { versionNumber: true, sections: { select: { sectionId: true, contentHtml: true } } },
+        })
+      : null
+    if (current) {
+      const currentBySection = new Map(current.sections.map(x => [x.sectionId, x.contentHtml]))
+      const same = parsed.data.sections.filter(sec => {
+        const chosen = byId.get(sec.fromVersionId)?.sections.find(x => x.sectionId === sec.sectionId)
+        return chosen !== undefined && currentBySection.get(sec.sectionId) === chosen.contentHtml
+      })
+      if (same.length > 0) {
+        return reply.code(400).send({
+          error:   'restore_sections_unchanged',
+          message: `These sections already match the current version (${current.versionNumber}), so there is nothing to restore: ${same
+            .map(sec => `${sec.sectionId} (from ${byId.get(sec.fromVersionId)?.versionNumber ?? 'unknown version'})`).join(', ')}. Untick them.`,
+          unchanged: same,
+        })
+      }
     }
 
     const job = await app.prisma.versionRestoreJob.create({

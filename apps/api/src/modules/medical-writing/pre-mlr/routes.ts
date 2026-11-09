@@ -18,6 +18,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { chooseModel } from '../../platform/config/ai-engine-settings.js'
+import { nextMlrCommentId } from '../mlr/routes.js'
 
 const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
   'pil', 'pls_eu_ctr', 'patient_education',
@@ -496,15 +497,73 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
     }
   })
 
-  // Escalate a specific finding from the agentic report into the MLR comment
-  // thread. Stub: records an audit entry and returns the audit id; the UI's
-  // MLR Review screen later picks this up as an escalation marker. Real
-  // implementation (when agentic report lands with AI findings persisted)
-  // will create an MlrComment row keyed to the escalated finding.
+  // Escalate a specific finding from the agentic report into the MLR
+  // comment thread. The route creates a real MlrComment row keyed to
+  // the escalated finding + records the escalation audit entry. The
+  // finding body comes from the request body (the client already has
+  // the rendered finding text — it just saw it in the agentic report
+  // response) so we don't have to persist the deterministic findings
+  // between the generate and escalate calls.
+  //
+  // Body:
+  //   { findingText: string, severity?: 'advisory' | 'suggestion', category?: string }
+  //
+  // Severity → tag mapping:
+  //   'advisory'   ⇒ 'Should Fix'     (compliance-adjacent finding)
+  //   'suggestion' ⇒ 'Note'           (editorial recommendation)
+  //   (anything else / missing) ⇒ 'Note'
+  const escalateSchema = z.object({
+    findingText: z.string().min(1, 'findingText is required'),
+    severity:    z.enum(['advisory', 'suggestion']).optional(),
+    category:    z.string().optional(),
+  })
+
+  const SEVERITY_TO_TAG: Record<'advisory' | 'suggestion', string> = {
+    advisory:   'Should Fix',
+    suggestion: 'Note',
+  }
+
   app.post('/:contentId/agentic-report/findings/:findingN/escalate', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {
     const { contentId, findingN } = request.params as { contentId: string; findingN: string }
+    const parsed = escalateSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
+
+    const tag = SEVERITY_TO_TAG[parsed.data.severity ?? 'suggestion'] ?? 'Note'
+    const findingIndex = Number(findingN)
+    const categoryPrefix = parsed.data.category ? `[${parsed.data.category}] ` : ''
+    const commentText = `[Escalated from agentic report finding #${findingIndex}] ${categoryPrefix}${parsed.data.findingText}`
+
+    // Retry loop matches the pattern in mlr/routes.ts — the sequential
+    // id generator races with other concurrent writers.
+    let created: Awaited<ReturnType<typeof app.prisma.mlrComment.create>> | null = null
+    let lastId = ''
+    for (let attempt = 0; attempt < 5 && !created; attempt++) {
+      lastId = await nextMlrCommentId(app.prisma, contentId)
+      try {
+        created = await app.prisma.mlrComment.create({
+          data: {
+            id:                   lastId,
+            contentItemId:        contentId,
+            reviewerId:           request.user!.id,
+            reviewerName:         request.user!.email,
+            text:                 commentText,
+            tag,
+            escalatedFromAgentic: true,
+            escalatedBy:          request.user!.id,
+            escalatedAt:          new Date(),
+          },
+        })
+      } catch (e: unknown) {
+        if ((e as { code?: string }).code === 'P2002') continue
+        throw e
+      }
+    }
+    if (!created) {
+      return reply.code(503).send({ error: 'id_contention', message: 'Too many simultaneous escalations; retry' })
+    }
 
     const entry = await app.audit.append({
       timestamp: new Date().toISOString(),
@@ -512,9 +571,20 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
       action: 'agentic_finding_escalated',
       entityType: 'med_content',
       entityId: contentId,
-      details: { findingIndex: Number(findingN), model: 'stub-advisor-v1' },
+      details: {
+        findingIndex,
+        severity:  parsed.data.severity ?? null,
+        category:  parsed.data.category ?? null,
+        mlrCommentId: created.id,
+        tag,
+      },
       ipAddress: request.ip ?? null,
     })
-    return reply.code(201).send({ escalationAuditId: entry.id, escalatedAt: new Date().toISOString() })
+    return reply.code(201).send({
+      escalationAuditId: entry.id,
+      mlrCommentId:      created.id,
+      tag,
+      escalatedAt:       new Date().toISOString(),
+    })
   })
 }

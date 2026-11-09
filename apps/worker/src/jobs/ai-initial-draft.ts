@@ -70,6 +70,7 @@ interface SourcePdfPayload {
   bytes:    Buffer
 }
 
+// Only ever written when AI_ALLOW_STUB=1 (dev/CI). Matched by the API's placeholder guard.
 const STUB_HEAD = '[AI-drafted initial content — ANTHROPIC_API_KEY not set, deterministic stub shown instead.]'
 
 // Max bytes any single source attachment is allowed to contribute.
@@ -139,20 +140,24 @@ async function draftSection(args: {
 }): Promise<{ contentHtml: string; engine: string }> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   if (!apiKey) {
+    // The caller checks aiConfigured() first, so this is only reached with the dev/CI flag on.
+    if (!stubAllowed()) throw new Error('AI not configured')
     return { contentHtml: buildStubDraftHtml(args), engine: 'stub' }
   }
-  try {
-    const html = await draftWithClaude({ ...args, apiKey })
-    return { contentHtml: html, engine: args.model }
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    // Degrade to stub on upstream failure rather than failing the whole
-    // section — the writer can regenerate per-section via the editor's
-    // AI chat panel. Log the reason so the operator can investigate.
-    const fallback = buildStubDraftHtml(args)
-    const note = `<p><em>[Draft fell back to stub — Claude call failed: ${escapeHtml(message)}]</em></p>`
-    return { contentHtml: note + fallback, engine: `${args.model}-fallback` }
-  }
+  // A failed Claude call throws: the section is left empty and reported as errored. Placeholder
+  // text is never written into a document as if it were a draft.
+  const html = await draftWithClaude({ ...args, apiKey })
+  return { contentHtml: html, engine: args.model }
+}
+
+/** Dev/CI only: AI_ALLOW_STUB=1 lets the placeholder drafter run. Off by default. */
+function stubAllowed(): boolean {
+  return process.env.AI_ALLOW_STUB === '1'
+}
+
+/** A real provider is available (an Anthropic key), or the dev/CI stub is explicitly allowed. */
+function aiConfigured(): boolean {
+  return !!process.env.ANTHROPIC_API_KEY?.trim() || stubAllowed()
 }
 
 /**
@@ -266,6 +271,20 @@ interface Report {
 
 export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (job, { prisma, log, enqueue }) => {
   const { documentId, versionId, type, sourceUploadIds, targetSectionIds } = job.data
+
+  // --- No AI set up: draft nothing --------------------------------------
+  // Sections stay empty (the API seeded them blank), nothing is queued after this, and the document's
+  // draft status says "AI not configured" so the writer sees why.
+  if (!aiConfigured()) {
+    log.warn({ documentId }, 'ai_initial_draft: AI not configured — sections left empty')
+    if (!targetSectionIds || targetSectionIds.length === 0) {
+      await prisma.document.update({
+        where: { id: documentId },
+        data:  { aiDraftState: 'not_configured' },
+      }).catch(() => undefined)
+    }
+    return { skipped: 'ai_not_configured' }
+  }
 
   // --- Mark document as drafting (migration 56, 2026-11-02) --------------
   // Writers polling GET /documents/:id/ai-draft-status need a signal that
@@ -442,6 +461,16 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // chain from a full-document draft (no targetSectionIds) — targeted
   // re-draft calls are themselves enqueued by validation and chaining
   // from them would double-schedule.
+  // Every section errored (e.g. the provider is down): nothing was drafted, so there is nothing to
+  // validate. Mark the chain failed so the writer sees it and can retry; sections stay empty.
+  if (!targetSet && report.drafted === 0 && report.errored.length > 0) {
+    await prisma.document.update({
+      where: { id: documentId },
+      data:  { aiDraftState: 'failed' },
+    }).catch(() => undefined)
+    return { documentId, sectionsTotal: sections.length, drafted: 0, skipped: report.skipped, errored: report.errored }
+  }
+
   if (!targetSet) {
     // Flip state → 'validating' before enqueueing so the SPA's progress
     // toast moves off "Drafting…" the moment the drafter commits.

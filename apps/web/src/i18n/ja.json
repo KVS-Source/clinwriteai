@@ -650,6 +650,9 @@
     },
 
     "ai_chat_panel": {
+      "ai_not_configured": "AI が設定されていません",
+      "ai_not_configured_tooltip": "このワークスペースでは AI が設定されていません。管理者にお問い合わせください。",
+      "ai_not_configured_empty": "このワークスペースでは AI が設定されていません。管理者にお問い合わせください。",
       "select_section_first":        "先にセクションを選択してください — チャットはセクションごとです。",
       "current_section":             "現在のセクション",
       "header_subtitle":             "このセクションでの会話 — 本人のみに表示されます。ドキュメントに実際に反映された内容は、チーム共通のセクション履歴パネルで確認できます。",
@@ -714,6 +717,7 @@
       "state_validating":        "検証中",
       "state_complete":          "完了",
       "state_failed":            "失敗",
+      "state_not_configured":    "AI 未設定",
       "confidence_overall":      "全体 {{label}}",
       "sections_evaluated_one":  "{{count}} セクションを評価",
       "sections_evaluated_other":"{{count}} セクションを評価",
@@ -1710,6 +1714,8 @@
     },
 
     "section_ai_prompt": {
+      "ai_not_configured": "AI が設定されていません",
+      "ai_not_configured_tooltip": "このワークスペースでは AI が設定されていません。管理者にお問い合わせください。",
       "err_quota": "このテナントは今月の AI 利用枠に達しました。管理者に上限引き上げを依頼してください。",
       "err_unavailable": "AI サービスは一時的に利用できません。しばらくしてから再試行してください。",
       "err_http": "AI リクエストが失敗しました (HTTP {{status}})。もう一度お試しください。",
@@ -4207,6 +4213,8 @@
       "state_complete": "AI 信頼度",
       "state_failed": "AI ドラフトに失敗",
       "failed_sub": "レポートを開く",
+      "state_not_configured": "AI 未設定",
+      "not_configured_sub": "ドラフトは作成されていません",
       "in_flight_pass_sub": "パス {{number}}",
       "in_flight_sections_sub_one": "{{count}} セクション",
       "in_flight_sections_sub_other": "{{count}} セクション",
@@ -4224,6 +4232,7 @@
       "headline_validating": "検証中",
       "headline_complete": "AI ドラフトを完了",
       "headline_failed": "AI ドラフトに失敗",
+      "headline_not_configured": "AI 未設定",
       "dismiss": "閉じる",
       "line_pending": "ワーカーがジョブを取得するのを待機中…",
       "line_drafting_count_one": "ソースから {{count}} セクションを作成中",

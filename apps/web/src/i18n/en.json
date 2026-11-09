@@ -559,6 +559,9 @@
       "current_section": "Current section"
     },
     "ai_chat_panel": {
+      "ai_not_configured": "AI is not configured",
+      "ai_not_configured_tooltip": "AI is not set up for this workspace. Contact your administrator.",
+      "ai_not_configured_empty": "AI is not configured for this workspace. Contact your administrator.",
       "select_section_first": "Select a section first — the chat is per-section.",
       "current_section": "Current section",
       "header_subtitle": "Your conversation on this section — private to you. The team-wide Section History panel shows what actually landed in the document.",
@@ -621,6 +624,7 @@
       "state_validating": "Validating",
       "state_complete": "Complete",
       "state_failed": "Failed",
+      "state_not_configured": "AI not configured",
       "confidence_overall": "{{label}} overall",
       "sections_evaluated_one": "{{count}} section evaluated",
       "sections_evaluated_other": "{{count}} sections evaluated",
@@ -1566,6 +1570,8 @@
       "anonymous": "Anonymous"
     },
     "section_ai_prompt": {
+      "ai_not_configured": "AI is not configured",
+      "ai_not_configured_tooltip": "AI is not set up for this workspace. Contact your administrator.",
       "err_quota": "This tenant has reached its monthly AI budget. Ask an admin to raise the cap.",
       "err_unavailable": "The AI service is temporarily unavailable. Try again shortly.",
       "err_http": "The AI request failed (HTTP {{status}}). Try again.",
@@ -3994,6 +4000,8 @@
       "state_complete": "AI confidence",
       "state_failed": "AI draft failed",
       "failed_sub": "open report",
+      "state_not_configured": "AI not configured",
+      "not_configured_sub": "no draft written",
       "in_flight_pass_sub": "pass {{number}}",
       "in_flight_sections_sub_one": "{{count}} section",
       "in_flight_sections_sub_other": "{{count}} sections",
@@ -4010,6 +4018,7 @@
       "headline_validating": "Validating",
       "headline_complete": "AI draft complete",
       "headline_failed": "AI draft failed",
+      "headline_not_configured": "AI not configured",
       "dismiss": "Dismiss",
       "line_pending": "Waiting for the worker to pick up the job…",
       "line_drafting_count_one": "Writing {{count}} section from your sources",

@@ -1254,6 +1254,7 @@ export function DocumentEditor() {
                 </span>
               )}
               <h3 className="text-sm font-bold text-slate-900">{t(`page.document_editor.${PANEL_TITLE_KEYS[activePanel]}`)}</h3>
+              {/* Hidden for now: hard-coded "claude-sonnet" label, not the real model.
               {activePanel === 'ai' && (
                 <span
                   className="rounded border px-1.5 py-0.5 font-mono text-[10px] font-medium text-slate-500"
@@ -1262,6 +1263,7 @@ export function DocumentEditor() {
                   claude-sonnet
                 </span>
               )}
+              */}
               <div className="flex-1" />
               {/* Expand button — hidden for now (QA request); drag the left edge or double-click it to resize instead.
               <button

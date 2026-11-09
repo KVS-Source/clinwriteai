@@ -13,6 +13,7 @@ export type AiDraftState =
   | 'validating'   // validation-pass loop is running
   | 'complete'     // loop ended cleanly (may have residual flags; see confidence)
   | 'failed'       // worker threw; writer should regenerate from the editor
+  | 'not_configured' // no AI provider set up; nothing was drafted, sections left empty
 
 export interface AiDraftSectionStatus {
   sectionId:     string

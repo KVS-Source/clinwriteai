@@ -27,6 +27,13 @@ const quotaSchema = z.object({
 })
 
 export const aiGatewayRoutes: FastifyPluginAsync = async (app) => {
+  // Is a real AI provider set up for the current default engine? Open to every signed-in
+  // user so the editor can hide its AI prompt and say so. Reveals only yes/no — never keys.
+  app.get('/status', { preHandler: requireAuth() }, async () => {
+    const model = await chooseModel(app.prisma)
+    return { configured: app.aiGateway.isConfigured(model) }
+  })
+
   // Direct chat — feature modules call app.aiGateway.chat() in-process;
   // this route exists for QA + testing + admin diagnostics.
   app.post('/chat', { preHandler: requireAuth() }, async (request, reply) => {

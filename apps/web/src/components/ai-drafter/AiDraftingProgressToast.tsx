@@ -25,6 +25,7 @@ const STATE_HEADLINE_KEY: Record<AiDraftState, string> = {
   validating: 'headline_validating',
   complete:   'headline_complete',
   failed:     'headline_failed',
+  not_configured: 'headline_not_configured',
 }
 
 export function AiDraftingProgressToast({ state, summary }: Props) {

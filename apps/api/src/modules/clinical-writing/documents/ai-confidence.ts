@@ -66,6 +66,7 @@ export type AiDraftState =
   | 'validating'   // validation-pass loop is running
   | 'complete'     // loop ended cleanly (may have residual flags; see confidence)
   | 'failed'       // worker threw; writer should regenerate from the editor
+  | 'not_configured' // no AI provider is set up; sections left empty, nothing drafted
 
 /** Decide whether the validator loop should stop after this pass. */
 export function shouldStopLoop(args: {

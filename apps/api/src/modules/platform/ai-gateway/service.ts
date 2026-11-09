@@ -108,8 +108,34 @@ export class RateLimitedError extends Error {
   }
 }
 
+/**
+ * Thrown when no real AI provider can serve the requested model (no key for its
+ * provider, or a model name no provider recognises). Nothing is sent, recorded or
+ * written to any document. Surfaces as HTTP 503 "AI is not configured" — Fastify
+ * turns `statusCode` + `message` into the response.
+ */
+export class AiNotConfiguredError extends Error {
+  readonly statusCode = 503
+  readonly code = 'ai_not_configured'
+  constructor(public readonly model: string) {
+    super('AI is not configured')
+    this.name = 'AiNotConfiguredError'
+  }
+}
+
+/**
+ * The deterministic placeholder client is for local dev and CI only, and only when
+ * explicitly switched on with AI_ALLOW_STUB=1. Off by default, so a deployment with
+ * no key refuses instead of writing "[STUB_…]" text into a regulated document.
+ */
+export function stubAllowed(env: NodeJS.ProcessEnv = process.env): boolean {
+  return env.AI_ALLOW_STUB === '1'
+}
+
 /** Interface over the real Anthropic SDK call. */
 export interface LlmClient {
+  /** True when this client can really answer for `model`. Omitted = assume yes (test doubles). */
+  isConfigured?(model: string): boolean
   send(args: {
     model: string
     prompt: string
@@ -151,7 +177,8 @@ class StubLlmClient implements LlmClient {
  *   model starts with 'claude-'  → AnthropicLlmClient (requires ANTHROPIC_API_KEY)
  *   model starts with 'gpt-'     → OpenAILlmClient (requires OPENAI_API_KEY)
  *   model starts with 'gemini-'  → GeminiLlmClient (requires GOOGLE_API_KEY or GEMINI_API_KEY)
- *   anything else / no key set   → StubLlmClient (deterministic, no network)
+ *   anything else / no key set   → AiNotConfiguredError ("AI is not configured"); the
+ *                                  deterministic StubLlmClient only when AI_ALLOW_STUB=1 (dev/CI)
  *
  * All three provider clients lazy-load their SDK on first call, so a
  * deployment that only uses Anthropic doesn't pay the openai /
@@ -163,11 +190,21 @@ class MultiProviderLlmClient implements LlmClient {
   private readonly gemini    = createGeminiClientFromEnv()
   private readonly stub      = new StubLlmClient()
 
+  isConfigured(model: string): boolean {
+    const m = (model ?? '').toLowerCase()
+    if (m.startsWith('claude-') && this.anthropic) return true
+    if (m.startsWith('gpt-')    && this.openai)    return true
+    if (m.startsWith('gemini-') && this.gemini)    return true
+    return stubAllowed()
+  }
+
   async send(args: Parameters<LlmClient['send']>[0]) {
     const model = (args.model ?? '').toLowerCase()
     if (model.startsWith('claude-') && this.anthropic) return this.anthropic.send(args)
     if (model.startsWith('gpt-')    && this.openai)    return this.openai.send(args)
     if (model.startsWith('gemini-') && this.gemini)    return this.gemini.send(args)
+    // No real provider for this model. Only the explicit dev/CI flag may fall back to the stub.
+    if (!stubAllowed()) throw new AiNotConfiguredError(args.model)
     return this.stub.send(args)
   }
 }
@@ -187,7 +224,14 @@ export class AiGatewayService {
     private readonly llm: LlmClient = createLlmClient(),
   ) {}
 
+  /** Can a real AI provider answer for this model? (false = "AI is not configured") */
+  isConfigured(model: string): boolean {
+    return this.llm.isConfigured ? this.llm.isConfigured(model) : true
+  }
+
   async chat(args: ChatArgs): Promise<ChatResult> {
+    // Refuse before anything else: no PII scrub, no quota lookup, no AiCallRecord.
+    if (!this.isConfigured(args.model)) throw new AiNotConfiguredError(args.model)
     const start = Date.now()
     const { scrubbed, piiFound, categories } = scrubPii(args.prompt)
 

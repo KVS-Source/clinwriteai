@@ -26,6 +26,7 @@ import type { Editor } from '@tiptap/react'
 import { api, ApiError } from '../../api/client'
 import { documentsApi } from '../../api'
 import { useDocumentStore } from '../../store'
+import { useAiConfigured } from '../../hooks/useAiConfigured'
 import type { SuggestedPrompt } from '../../data/aiPromptLibrary'
 
 interface AiEditResult {
@@ -78,6 +79,9 @@ interface Props {
 
 export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, onAccept }: Props) {
   const { t } = useTranslation()
+  // No AI set up on the server: the prompt stays visible but disabled, with the reason.
+  const aiConfigured = useAiConfigured()
+  const aiOff = !aiConfigured
   const [prompt, setPrompt] = useState('')
   const [result, setResult] = useState<{ html: string; model: string; recordId: string; instruction: string; scope: 'selection' | 'section'; from?: number; to?: number } | null>(null)
   // Source attachments — paperclip picker. When any sources are selected
@@ -233,7 +237,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
 
   const send = () => {
     const instruction = prompt.trim()
-    if (!instruction || ask.isPending) return
+    if (!instruction || ask.isPending || aiOff) return
     setResult(null)
     const sel = readSelection()
     ask.mutate({ instruction, selectionText: sel?.text, savedRange: sel ? { from: sel.from, to: sel.to } : undefined })
@@ -361,10 +365,11 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
           }}
           rows={1}
           maxLength={2000}
-          disabled={ask.isPending}
-          placeholder={ask.isPending ? (hasSelection ? t('page.section_ai_prompt.placeholder_editing_selection') : t('page.section_ai_prompt.placeholder_editing_section')) : placeholder}
+          disabled={ask.isPending || aiOff}
+          placeholder={aiOff ? t('page.section_ai_prompt.ai_not_configured', { defaultValue: 'AI is not configured' }) : ask.isPending ? (hasSelection ? t('page.section_ai_prompt.placeholder_editing_selection') : t('page.section_ai_prompt.placeholder_editing_section')) : placeholder}
           aria-label={t('page.section_ai_prompt.input_aria')}
-          title={t('page.section_ai_prompt.input_tooltip')}
+          title={aiOff ? t('page.section_ai_prompt.ai_not_configured_tooltip', { defaultValue: 'AI is not set up for this workspace. Contact your administrator.' }) : t('page.section_ai_prompt.input_tooltip')}
+          data-ai-off={aiOff ? 'true' : undefined}
           data-field="ai-edit-prompt"
           className="block max-h-40 min-h-[28px] flex-1 resize-none border-0 bg-transparent py-1 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
         />
@@ -375,7 +380,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
           <button
             type="button"
             onClick={() => setSourcePickerOpen(o => !o)}
-            disabled={availableSources.length === 0 || ask.isPending}
+            disabled={availableSources.length === 0 || ask.isPending || aiOff}
             aria-label={t('page.section_ai_prompt.attach_source_aria')}
             aria-expanded={sourcePickerOpen}
             title={
@@ -449,7 +454,7 @@ export function SectionAIPrompt({ documentId, sectionId, currentHtml, editor, on
             <circle cx="8" cy="11.6" r="0.4" fill="currentColor" />
           </svg>
         </button>
-        <button type="button" onClick={send} disabled={!prompt.trim() || ask.isPending} aria-label={t('page.section_ai_prompt.send_to_ai_aria')} title={t('page.section_ai_prompt.send_tooltip')} data-action="ai-edit-send"
+        <button type="button" onClick={send} disabled={!prompt.trim() || ask.isPending || aiOff} aria-label={t('page.section_ai_prompt.send_to_ai_aria')} title={t('page.section_ai_prompt.send_tooltip')} data-action="ai-edit-send"
           className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:bg-slate-300">
           {ask.isPending
             ? <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-white/40 border-t-white" aria-hidden="true" />

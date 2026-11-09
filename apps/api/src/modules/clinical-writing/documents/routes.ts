@@ -30,6 +30,7 @@ import { findActiveTaLabel, invalidTaBody, sameTa } from '../../platform/taxonom
 import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES } from './template-sections.js'
 import { actorManagesProject } from '../../projects/project-managers.js'
 import { DocumentService, hashSections } from './service.js'
+import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { buildComplianceSummary } from '../checklist/compliance-summary.js'
 import { pdfFileName } from '../../platform/library/pdf-renderer.js'
 import { contentDisposition } from './source-routes.js'
@@ -459,7 +460,16 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     // created immediately regardless; the draft fills sections in
     // asynchronously. On enqueue failure (Redis down) the document still
     // exists — the user can retry via the editor's AI Chat panel.
-    if (parsed.data.aiDraft && sourceUploadIds.length > 0) {
+    // No real AI set up: don't queue a draft that could only produce placeholder text. The document is
+    // created with empty sections and the draft status says "AI not configured".
+    const wantsAiDraft = !!parsed.data.aiDraft && sourceUploadIds.length > 0
+    const aiReady = wantsAiDraft ? app.aiGateway.isConfigured(await chooseModel(app.prisma)) : true
+    if (wantsAiDraft && !aiReady) {
+      await app.prisma.document.update({
+        where: { id: document.id },
+        data:  { aiDraftState: 'not_configured' },
+      }).catch(() => undefined)
+    } else if (parsed.data.aiDraft && sourceUploadIds.length > 0) {
       // Mark the document as 'pending' BEFORE the enqueue so the SPA's
       // first poll of /ai-draft-status returns something meaningful even
       // if BullMQ hasn't picked the job up yet.
@@ -681,6 +691,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const parsed = sectionUpdateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     if (!(await actorCanEditDocumentContent(app.prisma, request.user!, documentId))) return reply.code(403).send(DOCUMENT_EDIT_FORBIDDEN)
+
+    // AI-origin text that is really a "no AI configured" placeholder never goes into a section.
+    if (parsed.data.aiDrafted && containsAiPlaceholder(parsed.data.contentHtml)) {
+      return reply.code(422).send(AI_PLACEHOLDER_REFUSAL)
+    }
 
     const locked = await authoringLock(documentId)
     if (locked) return reply.code(409).send(locked)
@@ -2196,6 +2211,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     if (!msg) return reply.code(404).send({ error: 'not_found' })
     if (msg.actorId !== request.user!.id) return reply.code(403).send({ error: 'not_your_message' })
     if (msg.role !== 'assistant') return reply.code(422).send({ error: 'not_an_assistant_message' })
+    if (containsAiPlaceholder(msg.content)) return reply.code(422).send(AI_PLACEHOLDER_REFUSAL)
     {
       const refusal = await sectionEditRefusal(request.user!, msg.documentId, msg.sectionId)
       if (refusal) return reply.code(refusal.code).send(refusal.body)

@@ -28,6 +28,7 @@ import { api, ApiError } from '../api/client'
 import { documentsApi } from '../api'
 import { sanitizeAiHtml } from '../screens/clinical-writing/SectionAIPrompt'
 import { useDocumentStore } from '../store'
+import { useAiConfigured } from '../hooks/useAiConfigured'
 
 interface Props {
   documentId: string
@@ -133,6 +134,8 @@ export function classifyScope(prompt: string): 'section' | 'document' {
 export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcceptSuggestion, canEditSection = true, cannotEditReason }: Props) {
   const { t } = useTranslation()
   const qc = useQueryClient()
+  // No AI set up on the server: the composer is disabled with the reason (the thread stays readable).
+  const aiOff = !useAiConfigured()
   const [prompt, setPrompt] = useState('')
   // Explicit source attachments (paperclip in composer). When present,
   // the request goes with scope='source' and attachedSourceIds[] so the
@@ -301,7 +304,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
     // AI follows editing rights: only someone who may edit this section (its
     // author, holding the section lock, document open) can ask. The API refuses
     // anyone else; viewers keep the read-only conversation above.
-    if (!text || send.isPending || !canEditSection) return
+    if (!text || send.isPending || !canEditSection || aiOff) return
     // When the user has attached source documents, scope is forced to
     // 'source' server-side anyway; passing it here just keeps the wire
     // explicit. Otherwise we fall back to the inferred scope.
@@ -356,7 +359,9 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
       <div className="flex-1 overflow-y-auto px-4 py-3" data-chat-thread>
         {messages.length === 0 && !send.isPending && (
           <p className="mt-6 rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-[12px] text-slate-500">
-            {t('page.ai_chat_panel.empty_thread')}
+            {aiOff
+              ? t('page.ai_chat_panel.ai_not_configured_empty', { defaultValue: 'AI is not configured for this workspace. Contact your administrator.' })
+              : t('page.ai_chat_panel.empty_thread')}
           </p>
         )}
         <ul className="flex flex-col gap-3">
@@ -507,9 +512,10 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
             }}
             rows={1}
             maxLength={2000}
-            disabled={send.isPending || !canEditSection}
-            placeholder={canEditSection ? t('page.ai_chat_panel.input_placeholder') : (cannotEditReason ?? t('page.ai_chat_panel.section_read_only'))}
-            title={canEditSection ? undefined : (cannotEditReason ?? t('page.ai_chat_panel.section_read_only'))}
+            disabled={send.isPending || !canEditSection || aiOff}
+            placeholder={aiOff ? t('page.ai_chat_panel.ai_not_configured', { defaultValue: 'AI is not configured' }) : canEditSection ? t('page.ai_chat_panel.input_placeholder') : (cannotEditReason ?? t('page.ai_chat_panel.section_read_only'))}
+            title={aiOff ? t('page.ai_chat_panel.ai_not_configured_tooltip', { defaultValue: 'AI is not set up for this workspace. Contact your administrator.' }) : canEditSection ? undefined : (cannotEditReason ?? t('page.ai_chat_panel.section_read_only'))}
+            data-ai-off={aiOff ? 'true' : undefined}
             data-ai-chat-input
             aria-label={t('page.ai_chat_panel.input_aria')}
             className="block max-h-40 min-h-[36px] w-full resize-none rounded-t-xl border-0 bg-transparent px-3 pt-2 text-[13px] text-slate-800 outline-none placeholder:text-slate-400 disabled:opacity-60"
@@ -523,7 +529,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
               <button
                 type="button"
                 onClick={() => setSourcePickerOpen(o => !o)}
-                disabled={availableSources.length === 0 || send.isPending || !canEditSection}
+                disabled={availableSources.length === 0 || send.isPending || !canEditSection || aiOff}
                 aria-label={t('page.ai_chat_panel.attach_source_aria')}
                 aria-expanded={sourcePickerOpen}
                 title={
@@ -597,7 +603,7 @@ export function AIChatPanel({ documentId, sectionId, sectionLabel, editor, onAcc
             <button
               type="button"
               onClick={handleSend}
-              disabled={!prompt.trim() || send.isPending || !canEditSection}
+              disabled={!prompt.trim() || send.isPending || !canEditSection || aiOff}
               aria-label={t('page.ai_chat_panel.send_to_ai_aria')}
               data-ai-chat-send
               className="flex h-7 w-7 flex-none items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:bg-slate-300"

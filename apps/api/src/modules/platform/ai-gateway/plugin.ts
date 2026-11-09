@@ -10,6 +10,7 @@ const aiGatewayPlugin: FastifyPluginAsync = async (app) => {
   // service) means the AiGatewayService stays unit-testable without
   // needing the metrics decoration mocked.
   const instrumented = {
+    isConfigured: (model: string) => underlying.isConfigured(model),
     chat: async (args: ChatArgs) => {
       try {
         const result = await underlying.chat(args)

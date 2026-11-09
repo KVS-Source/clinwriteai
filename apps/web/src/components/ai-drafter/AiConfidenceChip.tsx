@@ -29,12 +29,19 @@ const STATE_KEY: Record<AiDraftState, string> = {
   validating: 'state_validating',
   complete:   'state_complete',
   failed:     'state_failed',
+  not_configured: 'state_not_configured',
 }
 
 export function AiConfidenceChip({ state, summary, onClick }: Props) {
   const { t } = useTranslation()
   // No AI draft ever ran for this doc → no chip at all.
   if (state === null) return null
+
+  // AI isn't set up: nothing was drafted. Amber, not an error.
+  if (state === 'not_configured') {
+    const sty = { bg: '#FFFBEB', border: '#FDE68A', fg: '#B45309', dot: '#D97706' }
+    return <ChipShell style={sty} label={t('component.ai_confidence_chip.state_not_configured')} sub={t('component.ai_confidence_chip.not_configured_sub')} testid="ai-chip-not-configured" onClick={onClick} />
+  }
 
   // Settled 'failed' is its own tone — not green/amber/rose confidence.
   if (state === 'failed') {

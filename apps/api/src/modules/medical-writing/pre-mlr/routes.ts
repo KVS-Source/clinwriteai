@@ -17,6 +17,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
+import { chooseModel } from '../../platform/config/ai-engine-settings.js'
 
 const PATIENT_FACING_TYPES: ReadonlySet<string> = new Set([
   'pil', 'pls_eu_ctr', 'patient_education',
@@ -395,22 +396,89 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
       message: 'No material findings. Content ready for MLR review.',
     })
 
+    // ----- AI narrative (sPM-c-agentic). Deterministic findings[] + scores
+    // are the authoritative structured output; the AI adds a 2-3 sentence
+    // advisory narrative for the MLR lead based on the same inputs. Call
+    // fails → narrative stays null; shape unchanged.
+    let advisoryNarrative: string | null = null
+    let aiModel = 'stub-advisor-v1'
+    let aiCallRecordId: string | null = null
+
+    const systemPrompt = [
+      'You are a medical-compliance advisor summarising an MLR pre-review package for the MLR Lead.',
+      '',
+      'RULES',
+      '1. Produce a 2-3 sentence narrative advisory. No lists, no headings — plain prose.',
+      '2. Lead with what is strong; name what is risky; recommend a single next action.',
+      '3. Do not invent claim counts, scores, or issue types — use ONLY the numbers given below.',
+      '4. If the inputs show nothing noteworthy, say so plainly ("Package is clean; ready for MLR review.").',
+      '5. Avoid marketing phrasing; this is an internal compliance tool.',
+    ].join('\n')
+
+    const userPrompt = [
+      `Content item: ${content.title ?? content.id}`,
+      `Type: ${content.type ?? 'unknown'}`,
+      '',
+      'Scores:',
+      `  overall: ${overallScore}/100`,
+      `  claim-reuse: ${reuseScore}%`,
+      '',
+      'Stats:',
+      `  total claims: ${totalClaims} (approved ${approvedCount}, rejected ${rejectedCount}, needs-edit ${needsEditCount})`,
+      `  pre-MLR issues: should-fix ${latest.shouldFixCount}, note ${latest.noteCount}`,
+      '',
+      'Deterministic findings already surfaced to the UI:',
+      ...findings.map(f => `  - [${f.severity}] ${f.category}: ${f.message}`),
+      '',
+      'Write the advisory.',
+    ].join('\n')
+
+    try {
+      const model = await chooseModel(app.prisma)
+      const result = await app.aiGateway.chat({
+        tenantId:  request.user!.tenantId,
+        projectId: content.projectId ?? 'unknown',
+        actorId:   request.user!.id,
+        module:    'C',
+        intent:    'agentic_mlr_advisory',
+        model,
+        prompt:    `${systemPrompt}\n\n---\n\n${userPrompt}`,
+        maxOutputTokens: 400,
+      })
+      advisoryNarrative = result.responseText.trim()
+      aiModel          = result.model
+      aiCallRecordId   = result.recordId
+    } catch (err: unknown) {
+      // RateLimitedError bubbles up so the UI can show the quota banner;
+      // other failures keep the deterministic-only response.
+      if (err instanceof Error && err.name === 'RateLimitedError') {
+        return reply.code(429).send({ error: 'quota_reached', message: err.message })
+      }
+      app.log.warn({ err, contentId }, 'agentic-report AI narrative failed — deterministic-only response')
+    }
+
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
       action: 'agentic_report_generated',
       entityType: 'med_content',
       entityId: contentId,
-      details: { preMlrRunId: latest.id, overallScore, findingCount: findings.length, model: 'stub-advisor-v1' },
+      details: {
+        preMlrRunId:   latest.id,
+        overallScore,
+        findingCount:  findings.length,
+        model:         aiModel,
+        aiCallRecordId,
+      },
       ipAddress: request.ip ?? null,
     })
 
     return {
       contentId,
-      model: 'stub-advisor-v1',
+      model:        aiModel,
       advisoryOnly: true,
-      generatedAt: new Date().toISOString(),
-      preMlrRunId: latest.id,
+      generatedAt:  new Date().toISOString(),
+      preMlrRunId:  latest.id,
       scores: {
         overall: overallScore,
         claimReusePct: reuseScore,
@@ -424,6 +492,7 @@ export const preMlrRoutes: FastifyPluginAsync = async (app) => {
         preMlrNoteCount: latest.noteCount,
       },
       findings,
+      advisoryNarrative,
     }
   })
 

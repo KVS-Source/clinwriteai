@@ -1,7 +1,7 @@
-// Right-hand detail panel for a document in the All Stages list: metadata, the source
-// documents it is based on (with the sections that cite each), and an Open button. A signed
-// document's Author (R) can also push it, or one section, to the Master Library from here with
-// the four mandatory tags (FR-A-080) — the same push as on the Final Document screen.
+// Right-hand detail panel for a document in the All Stages list: metadata, the document's team
+// (every role holder), the source documents it is based on (with the sections that cite each),
+// and an Open button. A signed document's Author (R) can also push it to the Master Library from
+// here with the four mandatory tags (FR-A-080) — the same push as on the Final Document screen.
 
 import { useEffect, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -20,6 +20,10 @@ import { DeadlineField } from './DeadlineField'
 import { useSourceAccess } from '../../hooks/useSourceAccess'
 import { useCanEditDocument } from '../../hooks/useCanEditDocument'
 import { LibraryPushedBadge, PushToLibraryButton } from '../../components/library/PushToLibraryButton'
+import { raciApi, type DocumentRaciRow } from '../../api/raci'
+
+const TEAM_ORDER = ['R', 'A', 'C', 'Q', 'I'] as const
+const TEAM_ROLE_KEY: Record<string, string> = { R: 'team_authors', A: 'team_approvers', C: 'team_reviewers', Q: 'team_qc', I: 'team_informed' }
 
 interface Props {
   projectId: string
@@ -81,6 +85,21 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
     enabled: !!doc && isSigned,
     retry: false,
   })
+
+  // The document's role holders. Same query key as the tab-access hook, so it is usually cached.
+  const raci = useQuery<DocumentRaciRow[]>({
+    queryKey: ['document-raci', doc?.id],
+    queryFn: () => raciApi.list(doc!.id),
+    enabled: !!doc,
+    staleTime: 30_000,
+  })
+  const teamByRole = TEAM_ORDER
+    .map(letter => ({
+      letter,
+      names: [...new Set((raci.data ?? []).filter(r => r.letter === letter && !r.removedAt).map(r => r.userName ?? t('page.document_detail_panel.unknown_user')))]
+        .sort((a, b) => a.localeCompare(b)),
+    }))
+    .filter(g => g.names.length > 0)
 
   const qc = useQueryClient()
   const advance = useMutation({
@@ -171,6 +190,20 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
               <MetaRow label={t('page.document_detail_panel.therapeutic_area')}>{doc.therapeuticArea || t('page.detail_panel_parts.em_dash')}</MetaRow>
               <MetaRow label={t('page.document_detail_panel.assigned_to')}>{assigneeName}</MetaRow>
             </MetaSection>
+
+            {/* Everyone holding a role on the document, not just the assignee: a document can
+                have several Authors, Reviewers and Approvers. */}
+            {teamByRole.length > 0 && (
+              <MetaSection label={t('page.document_detail_panel.team')}>
+                <div data-document-team>
+                  {teamByRole.map(g => (
+                    <MetaRow key={g.letter} label={t(`page.document_detail_panel.${TEAM_ROLE_KEY[g.letter]}`)}>
+                      <span data-team-role={g.letter}>{g.names.join(', ')}</span>
+                    </MetaRow>
+                  ))}
+                </div>
+              </MetaSection>
+            )}
 
             <MetaSection label={t('page.document_detail_panel.dates')}>
               <MetaRow label={t('page.document_detail_panel.created')}>{fmtDate(doc.createdAt)}</MetaRow>

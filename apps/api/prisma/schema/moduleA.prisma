@@ -61,6 +61,14 @@ model Document {
   aiLastPassAt           DateTime? @map("ai_last_pass_at")
   aiLastPassNumber       Int?      @map("ai_last_pass_number")
 
+  // ---- DocumentTypePolicy snapshot (migration 65, 2026-11-10) ----
+  // Which DocumentTypePolicy version was active when this document was
+  // created. Lets the AI assembly reconstruct the exact rule set this
+  // document was drafted against even after a later policy version
+  // bumps the SME prompt / best-practice digest / section rules. Null
+  // for documents created before migration 65.
+  policyVersionAtCreate  Int?      @map("policy_version_at_create")
+
   // ---- Protocol metadata (migration 60, 2026-11-04) ----
   // Captured on the "Protocol" right-panel when type is 'protocol' /
   // 'protocol-amendment'. Every column is nullable: the panel is a

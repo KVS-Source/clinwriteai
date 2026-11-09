@@ -54,6 +54,73 @@ model LibraryAdoptionRecord {
 }
 
 // --------------------------------------------------------------------------
+// DocumentTypePolicy — one row per doc type carrying everything true for
+// every document of that type (migration 65, 2026-11-10).
+//
+// Combines what used to be scattered across:
+//   - SME prompt (admin-maintained, author-prepended to every AI call)
+//   - Best-Practice digest (JSON compiled from BP PDFs via a one-off
+//     distillation worker — avoids re-parsing the PDF on every AI call)
+//   - Template link (which section skeleton / required source categories)
+//   - Checklist template link (what the auto-attached checklist is)
+//   - ICH framework (e.g. 'ICH E3', 'ICH M11', 'ICH E6(R3)')
+//   - Section-specific rule overrides
+//
+// Versioning model matches ChecklistTemplate: isCurrent=true is the one
+// live row per docType; a new version supersedes the old (isCurrent
+// flipped false, supersededBy set to the new row's id). Author cannot
+// delete; retire only. Document.policyVersionAtCreate snapshots which
+// policy version drafted the doc so a later policy bump does not
+// retroactively change the rule set a signed document was written to.
+//
+// Reads: authenticated users (wizard needs it for the preview). Writes:
+// super-admin only. See platform/document-type-policy/routes.ts.
+//
+// bestPracticeDigest shape (Zod enforced at the route edge):
+//   {
+//     principles: [
+//       { scope: 'whole-doc' | 'section:<key>', severity: 'must' | 'should' | 'nice', text: string }
+//     ],
+//     sourcePdfId?: string,            // DocumentUpload.id of the uploaded BP doc
+//     distilledAt?: string,            // ISO; set by the distillation worker
+//     distilledModel?: string,         // 'claude-…'; which model distilled it
+//   }
+//
+// sectionRules shape: { '<sectionKey>': [{ severity, text }] } — additional
+// per-section rules outside the BP digest (e.g. SME-authored overrides).
+// --------------------------------------------------------------------------
+
+model DocumentTypePolicy {
+  id                  String    @id @default(uuid())
+  docType             String                                            // 'protocol' | 'csr-full' | 'ib' | …
+  version             Int       @default(1)
+  isCurrent           Boolean   @default(true)
+
+  smePrompt           String                                            // the SME-provided base prompt
+  bestPracticeDigest  Json      @default("{}")                          // see shape above
+  sectionRules        Json      @default("{}")                          // { <sectionKey>: [{severity,text}] }
+
+  templateId          String?                                           // → document_templates.id
+  checklistTemplateId String?                                           // → checklist_templates.id
+  ichFramework        String?                                           // 'ICH E3' | 'ICH M11' | …
+
+  effectiveDate       DateTime  @default(now())
+  supersededBy        String?                                           // → next version's id
+  retiredAt           DateTime?
+  retiredBy           String?
+  retireReason        String?
+
+  createdBy           String
+  updatedBy           String
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
+
+  @@map("document_type_policies")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
+}
+
+// --------------------------------------------------------------------------
 // Notifications — in-app + email + SMS fan-out
 // --------------------------------------------------------------------------
 

@@ -262,6 +262,14 @@ async function buildServer() {
     await import('./modules/clinical-writing/document-templates/routes.js')
   await app.register(documentTemplatesRoutes, { prefix: '/document-templates' })
 
+  // Document type policies — SME prompt + best-practice digest +
+  // template / checklist / ICH links per doc type. Reads are open to
+  // any authenticated caller (New Document wizard previews it);
+  // writes are super-admin only (see document-type-policy/routes.ts).
+  const { documentTypePolicyRoutes } =
+    await import('./modules/platform/document-type-policy/routes.js')
+  await app.register(documentTypePolicyRoutes, { prefix: '/document-type-policies' })
+
   const { documentsUploadRoutes } = await import('./modules/clinical-writing/documents/upload-routes.js')
   await app.register(documentsUploadRoutes, { prefix: '/projects' })
   const { documentsSourceRoutes } = await import('./modules/clinical-writing/documents/source-routes.js')

@@ -1,0 +1,96 @@
+// Master Library — unified admin surface for content standards.
+//
+// Single sidebar entry (hidden from IT-admin) → this shell with a
+// horizontal tab bar. Each tab is a nested React Router route, so
+// switching tabs is client-side AJAX navigation (no page reload, no
+// full-shell re-render). The existing standalone admin screens
+// (TemplateLibrary, AiPrompts, DocumentTypePolicies, …) are reused
+// verbatim as the tab bodies — no duplicated UI.
+//
+// Role model (ask: 2026-11-10):
+//   - IT Admin cannot reach these — the sidebar hides the entry and
+//     every tab's write-gated API route refuses with 503 / 403. Admin
+//     is a system operator, not a content owner.
+//   - PM is the content admin. Reads + writes everything here.
+//   - Contributor / author / auditor can read Master Documents + Best
+//     Practices (the two "library" tabs); the other tabs are gated
+//     server-side (PM-only writes) so a contributor opening them sees
+//     them in read mode only.
+//
+// If a user who shouldn't be here lands via deep link, the inner
+// screens' own error states take over (the gated APIs return 503 /
+// 403 and the empty-state renders).
+
+import { useMemo } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
+
+interface Tab {
+  slug:  string       // URL segment — '/master-library/<slug>'
+  label: string
+}
+
+// Order is prescribed (2026-11-10): Master Documents first, Best
+// Practices second, then the four standards tools, Doc Type Policies
+// last (it's the aggregated editor — admins typically reach it after
+// the atomic tools).
+const TABS: Tab[] = [
+  { slug: 'documents',      label: 'Master Documents' },
+  { slug: 'best-practices', label: 'Best Practices'  },
+  { slug: 'templates',      label: 'Templates'       },
+  { slug: 'ai-prompts',     label: 'AI Prompts'      },
+  { slug: 'checklists',     label: 'Checklists'      },
+  { slug: 'ich-frameworks', label: 'ICH Frameworks'  },
+  { slug: 'policies',       label: 'Doc Type Policies' },
+]
+
+export function MasterLibraryShell() {
+  const { pathname } = useLocation()
+  // The matched tab is the first segment after /master-library/. Used
+  // to style the active tab chip; routing itself is handled by NavLink.
+  const activeSlug = useMemo(() => {
+    const m = /^\/master-library\/([^/]+)/.exec(pathname)
+    return m?.[1] ?? 'documents'
+  }, [pathname])
+
+  return (
+    <div className="flex h-full min-h-0 flex-col bg-slate-50" data-screen="master-library">
+      <header className="flex-none border-b border-slate-200 bg-white px-5 pt-4">
+        <h1 className="text-[20px] font-semibold text-slate-900">Master Library</h1>
+        <p className="mt-0.5 text-[13px] text-slate-500">
+          The content + standards every document is drafted against: finalised master documents, best-practice guidance,
+          section templates, AI prompts, checklists, ICH framework registry, and per-doc-type policies.
+        </p>
+        <nav
+          className="-mx-5 mt-4 flex items-end gap-0 overflow-x-auto border-b border-slate-200 px-5"
+          role="tablist"
+          data-master-library-tabs
+        >
+          {TABS.map(tab => (
+            <NavLink
+              key={tab.slug}
+              to={`/master-library/${tab.slug}`}
+              role="tab"
+              aria-selected={activeSlug === tab.slug}
+              data-tab={tab.slug}
+              className={({ isActive }) => {
+                const active = isActive || activeSlug === tab.slug
+                return [
+                  'relative whitespace-nowrap px-4 py-2.5 text-[13px] font-medium transition-colors',
+                  active
+                    ? 'text-blue-700 after:absolute after:inset-x-3 after:bottom-[-1px] after:h-0.5 after:rounded-full after:bg-blue-600'
+                    : 'text-slate-600 hover:text-slate-900',
+                ].join(' ')
+              }}
+            >
+              {tab.label}
+            </NavLink>
+          ))}
+        </nav>
+      </header>
+
+      <div className="min-h-0 flex-1 overflow-y-auto">
+        <Outlet />
+      </div>
+    </div>
+  )
+}

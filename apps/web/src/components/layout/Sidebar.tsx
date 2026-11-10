@@ -36,22 +36,22 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   { labelKey: 'component.sidebar.platform_audit_trail',          href: '/admin/audit',               roles: ['admin'] as const, icon: <ClipboardIcon /> },
   { labelKey: 'component.sidebar.platform_ta_tags',              href: '/admin/taxonomy',            roles: ['admin'] as const, icon: <TagIcon /> },
   { labelKey: 'component.sidebar.platform_raci_matrix',          href: '/admin/raci',                roles: ['admin'] as const, icon: <MatrixIcon /> },
-  { labelKey: 'component.sidebar.platform_checklist_templates',  href: '/admin/checklist-templates', roles: ['admin'] as const, icon: <ClipboardIcon /> },
-  { labelKey: 'component.sidebar.platform_doc_type_policies',    href: '/admin/document-type-policies', roles: ['admin'] as const, icon: <ClipboardIcon /> },
-  { labelKey: 'component.sidebar.platform_ai_prompts',           href: '/admin/ai-prompts',          roles: ['admin'] as const, icon: <ClipboardIcon /> },
-  { labelKey: 'component.sidebar.platform_template_library',     href: '/admin/templates',           roles: ['admin'] as const, icon: <ClipboardIcon /> },
+  // Master Library (content standards) deliberately absent from the IT
+  // Admin nav — admins are system operators, not content owners. The
+  // Master Library sidebar entry lives in MASTER_LIBRARY_NAV below and
+  // shows for non-admin roles (PM, contributor, author, auditor).
   { labelKey: 'component.sidebar.platform_notifications',        href: '/notifications',             roles: ['admin'] as const, icon: <BellIcon /> },
-  { labelKey: 'component.sidebar.platform_master_library',       href: '/library',                   roles: ['admin'] as const, icon: <BookIcon /> },
-  { labelKey: 'component.sidebar.platform_best_practices',       href: '/library/best-practices',    roles: ['admin'] as const, icon: <StarIcon /> },
   { labelKey: 'component.sidebar.platform_services',             href: '/services',                  roles: ['admin'] as const, icon: <LayersIcon /> },
   { labelKey: 'component.sidebar.platform_subscription',         href: '/admin/subscription',        roles: ['admin'] as const, icon: <CardIcon /> },
   { labelKey: 'component.sidebar.platform_reports',              href: '/reports',                   roles: ['admin'] as const, icon: <ChartIcon /> },
 ]
-// Read access to the library is open to every signed-in user (PRD sPM08), so
-// users without the Platform section get these two links on their own.
-const LIBRARY_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
-  { labelKey: 'component.sidebar.platform_master_library',  href: '/library',                icon: <BookIcon /> },
-  { labelKey: 'component.sidebar.platform_best_practices',  href: '/library/best-practices', icon: <StarIcon /> },
+// Master Library — single entry for non-admin users (PM = content
+// admin, contributor / author / auditor = readers). Replaces the old
+// LIBRARY_NAV pair; the unified shell at /master-library has horizontal
+// tabs for Master Documents, Best Practices, Templates, AI Prompts,
+// Checklists, ICH Frameworks, and Doc Type Policies.
+const MASTER_LIBRARY_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
+  { labelKey: 'component.sidebar.platform_master_library', href: '/master-library', icon: <BookIcon /> },
 ]
 // A PM doesn't get the Platform section but can read their projects' audit trail.
 const PM_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
@@ -60,7 +60,9 @@ const PM_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
 const SUPER_ADMIN_NAV: PlatformNavItem[] = [
   { labelKey: 'component.sidebar.super_admin_panel',       href: '/super-admin',            roles: ['admin'] as const, icon: <ShieldCheckIcon /> },
   { labelKey: 'component.sidebar.super_admin_tenants',     href: '/super-admin/tenants',    roles: ['admin'] as const, icon: <BuildingIcon /> },
-  { labelKey: 'component.sidebar.super_admin_frameworks',  href: '/super-admin/frameworks', roles: ['admin'] as const, icon: <LayersIcon /> },
+  // Frameworks (ICH registry) relocated under Master Library — a PM
+  // content-management concern, not a platform-infra one. The /super-admin/frameworks
+  // URL redirects there (router index.tsx) for existing bookmarks.
   { labelKey: 'component.sidebar.super_admin_rate_card',   href: '/super-admin/rate-card',  roles: ['admin'] as const, icon: <ReceiptIcon /> },
 ]
 
@@ -85,7 +87,6 @@ function TagIcon()         { return <svg {...icon16}><path d="M1.5 2.5h6l7 7-5 5
 function MatrixIcon()      { return <svg {...icon16}><rect x="2" y="2" width="12" height="12" rx="1.5"/><path d="M2 6h12M2 10h12M6 2v12M10 2v12"/></svg> }
 function BellIcon()        { return <svg {...icon16}><path d="M3.5 11.5V7a4.5 4.5 0 019 0v4.5l1 1.5h-11l1-1.5ZM6.5 14.5h3"/></svg> }
 function BookIcon()        { return <svg {...icon16}><path d="M2 3h4a2 2 0 012 2v9a1.5 1.5 0 00-1.5-1.5H2V3ZM14 3h-4a2 2 0 00-2 2v9a1.5 1.5 0 011.5-1.5H14V3Z"/></svg> }
-function StarIcon()        { return <svg {...icon16}><path d="M8 1.8l1.9 3.9 4.2.6-3 3 .7 4.2L8 11.5l-3.8 2 .7-4.2-3-3 4.2-.6L8 1.8Z"/></svg> }
 function LayersIcon()      { return <svg {...icon16}><path d="M8 1.8l6.5 3.4L8 8.6 1.5 5.2 8 1.8ZM1.5 8.2L8 11.6l6.5-3.4M1.5 11l6.5 3.4 6.5-3.4"/></svg> }
 function CardIcon()        { return <svg {...icon16}><rect x="1.5" y="3.5" width="13" height="9" rx="1.5"/><path d="M1.5 6.5h13M4 10h3"/></svg> }
 function ChartIcon()       { return <svg {...icon16}><path d="M2 14V2M2 14h12M5 11V8M8.5 11V5M12 11V7"/></svg> }
@@ -208,7 +209,12 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
   const platformItems   = isAdmin      ? PLATFORM_NAV    : []
   const superAdminItems = isSuperAdmin ? SUPER_ADMIN_NAV : []
   const showPlatform   = platformItems.length   > 0
-  const libraryItems   = showPlatform ? [] : LIBRARY_NAV
+  // Master Library is everyone's content surface — PM edits, contributor
+  // + author + auditor read. Hidden from IT Admin: admins are not
+  // content owners, so cluttering their sidebar with a menu they can't
+  // use is noise (and any 403 from a deep link is a clear "contact
+  // support" signal, logged server-side).
+  const masterLibraryItems = showPlatform ? [] : MASTER_LIBRARY_NAV
   const pmItems        = holdsRole(currentUser, 'pm') ? PM_NAV : []
   const showSuperAdmin = superAdminItems.length > 0
 
@@ -352,11 +358,11 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
             </nav>
           </>
         )}
-        {libraryItems.length > 0 && (
+        {masterLibraryItems.length > 0 && (
           <>
             <RailDivider />
             <nav className="flex w-full flex-col items-center gap-1 px-3" data-sidebar-section="library" aria-label={t('component.sidebar.aria_library')}>
-              {libraryItems.map(item => (
+              {masterLibraryItems.map(item => (
                 <RailLink key={item.href} to={item.href} end label={t(item.labelKey)} icon={item.icon} accent={MODULE_COLOURS['platform']!} data={{ 'data-platform-link': item.href }} />
               ))}
             </nav>
@@ -570,13 +576,13 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
       )}
 
       {/* Library — for users who don't get the Platform section above */}
-      {libraryItems.length > 0 && (
+      {masterLibraryItems.length > 0 && (
         <div className="mt-4 px-3" data-sidebar-section="library">
           <div className="mb-2 px-2.5">
             <MonoLabel className="text-slate-500">{t('component.sidebar.section_library')}</MonoLabel>
           </div>
           <nav className="flex flex-col gap-0.5">
-            {libraryItems.map(item => (
+            {masterLibraryItems.map(item => (
               <NavLink
                 key={item.href}
                 to={item.href}

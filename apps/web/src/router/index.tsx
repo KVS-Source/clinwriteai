@@ -94,6 +94,7 @@ import { ChecklistTemplatesAdmin }      from '../platform/screens/ChecklistTempl
 import { DocumentTypePolicies }         from '../platform/screens/DocumentTypePolicies'
 import { AiPrompts }                    from '../platform/screens/AiPrompts'
 import { TemplateLibrary }              from '../platform/screens/TemplateLibrary'
+import { MasterLibraryShell }           from '../platform/screens/MasterLibraryShell'
 import { AdminGuard, NonAdminGuard, SuperAdminGuard }  from '../platform/components/guards'
 import { PublicationLayout }            from '../components/layout/PublicationLayout'
 import { SubmissionLayout }             from '../components/layout/SubmissionLayout'
@@ -143,15 +144,48 @@ export const router = createBrowserRouter([
       { path: 'super-admin/tenants/:tenantId/sso',    element: <SuperAdminGuard><SsoConnectionConfig /></SuperAdminGuard> },
       { path: 'admin/taxonomy', element: <AdminGuard><TATagConfiguration /></AdminGuard> },
       { path: 'admin/raci',     element: <AdminGuard><RACIMatrix /></AdminGuard> },
-      { path: 'admin/checklist-templates', element: <AdminGuard><ChecklistTemplatesAdmin /></AdminGuard> },
-      { path: 'admin/document-type-policies', element: <AdminGuard><DocumentTypePolicies /></AdminGuard> },
-      { path: 'admin/ai-prompts',             element: <AdminGuard><AiPrompts /></AdminGuard> },
-      { path: 'admin/templates',              element: <AdminGuard><TemplateLibrary /></AdminGuard> },
       { path: 'notifications',  element: <NotificationCentre /> },
-      { path: 'super-admin/frameworks', element: <SuperAdminGuard><RegulatoryFrameworkAdmin /></SuperAdminGuard> },
-      { path: 'admin/frameworks',       element: <AdminGuard><RegulatoryFrameworkAdmin readOnly /></AdminGuard> },
-      { path: 'library',               element: <MasterLibrary /> },
-      { path: 'library/best-practices', element: <BestPracticesLibrary /> },
+      // /admin/frameworks previously served the read-only variant for
+      // tenant admins; the Master Library's ICH Frameworks tab now
+      // covers that need for PMs. Keep the redirect so IT-admins who
+      // bookmarked the old URL land on the shell (the shell's role gate
+      // takes over from there).
+      { path: 'admin/frameworks',       element: <Navigate to="/master-library/ich-frameworks" replace /> },
+      // Legacy /library URLs redirect into the unified Master Library
+      // shell so bookmarks + external links keep landing somewhere
+      // sensible. See /master-library below for the live routes.
+      { path: 'library',               element: <Navigate to="/master-library/documents" replace /> },
+      { path: 'library/best-practices', element: <Navigate to="/master-library/best-practices" replace /> },
+
+      // Master Library — unified shell for content standards. Every tab
+      // is a nested route so switching is pure client-side AJAX. IT
+      // Admin is NOT in the sidebar entry's role list (see Sidebar.tsx),
+      // so admins never land here through nav; a deep link renders the
+      // inner screens whose write buttons are server-gated to PM.
+      //
+      // Old admin URLs (/admin/templates, /admin/ai-prompts, etc.)
+      // redirect in so existing bookmarks + route tests keep working.
+      {
+        path: 'master-library',
+        element: <MasterLibraryShell />,
+        children: [
+          { index: true,                 element: <Navigate to="/master-library/documents" replace /> },
+          { path: 'documents',           element: <MasterLibrary /> },
+          { path: 'best-practices',      element: <BestPracticesLibrary /> },
+          { path: 'templates',           element: <TemplateLibrary /> },
+          { path: 'ai-prompts',          element: <AiPrompts /> },
+          { path: 'checklists',          element: <ChecklistTemplatesAdmin /> },
+          { path: 'ich-frameworks',      element: <RegulatoryFrameworkAdmin /> },
+          { path: 'policies',            element: <DocumentTypePolicies /> },
+        ],
+      },
+      // Legacy admin URLs → Master Library equivalents. Keep around
+      // until existing bookmarks + tests are migrated.
+      { path: 'admin/templates',               element: <Navigate to="/master-library/templates" replace /> },
+      { path: 'admin/ai-prompts',              element: <Navigate to="/master-library/ai-prompts" replace /> },
+      { path: 'admin/checklist-templates',     element: <Navigate to="/master-library/checklists" replace /> },
+      { path: 'admin/document-type-policies',  element: <Navigate to="/master-library/policies" replace /> },
+      { path: 'super-admin/frameworks',        element: <Navigate to="/master-library/ich-frameworks" replace /> },
       { path: 'services',               element: <AdminGuard><ServicesDashboard /></AdminGuard> },
       { path: 'super-admin/rate-card',  element: <SuperAdminGuard><RateCardAdmin /></SuperAdminGuard> },
       { path: 'admin/subscription',     element: <AdminGuard><SubscriptionPayment /></AdminGuard> },

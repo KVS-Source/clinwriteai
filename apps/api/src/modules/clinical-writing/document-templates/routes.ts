@@ -98,11 +98,12 @@ function toApiShape(row: TemplateRow) {
   }
 }
 
-// modules: ['A'] marks these as Clinical Writing writes, which fires the
-// auditor-read-only guard before the role check — auditors get a 403
-// with error='auditor_read_only' (rather than a generic forbidden) and
-// the audit-read-only sweep test is satisfied.
-const writeGate = requireAuth({ roles: ['tenant-admin', 'super-admin', 'admin'], modules: ['A'] })
+// Writes locked to PM — the 2026-11-10 role model: Master Library
+// content (templates, prompts, checklists, ICH) is a PM responsibility,
+// not an IT Admin one. modules: ['A'] keeps the Clinical Writing
+// auditor-read-only sweep intact (auditor → 403 auditor_read_only
+// before the PM check runs).
+const writeGate = requireAuth({ roles: ['pm'], modules: ['A'] })
 
 export const documentTemplatesRoutes: FastifyPluginAsync = async (app) => {
   async function assertAiReady(): Promise<boolean> {

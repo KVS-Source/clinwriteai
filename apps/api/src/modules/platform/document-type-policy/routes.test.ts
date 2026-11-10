@@ -121,7 +121,12 @@ async function build(opts: {
   app.addHook('onRequest', async (req) => {
     const user: AuthenticatedUser = {
       id: 'u1', email: 'u@x.io',
-      role: opts.callerRole ?? 'tenant-admin',
+      // Content-standard writes flipped to PM-only on 2026-11-10 — the
+      // 2026-11-10 role model separates IT Admin (no content rights)
+      // from PM (content admin). Default caller is a PM so the CRUD
+      // tests see 2xx/4xx; the "403s a non-admin" test overrides to
+      // 'contributor' now for the same semantic (non-content-admin).
+      role: opts.callerRole ?? 'pm',
       modules: ['A'], tenantId: null,
     }
     ;(req as unknown as { user: AuthenticatedUser }).user = user
@@ -191,7 +196,7 @@ describe('POST /document-type-policies — create first version', () => {
     expect(res.json()).toMatchObject({ error: 'already_exists' })
   })
 
-  it('403s when caller is not an admin', async () => {
+  it('403s when caller is not a PM (content admin)', async () => {
     const { app } = await build({ callerRole: 'contributor' })
     const res = await app.inject({
       method: 'POST', url: '/document-type-policies',

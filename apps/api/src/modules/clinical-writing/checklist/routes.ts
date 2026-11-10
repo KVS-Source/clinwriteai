@@ -392,7 +392,10 @@ export const projectChecklistRoutes: FastifyPluginAsync = async (app) => {
 // here yet (editing endpoints TBD); platform admins see every project, tenant
 // admins see their tenant's projects (via the project query filter below).
 export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
-  const adminGate = requireAuth({ roles: ['admin'], modules: ['A'] })
+  // Writes locked to PM — Master Library content governance belongs
+  // to the content admin (PM), not the IT Admin. modules: ['A'] keeps
+  // the auditor-read-only sweep intact.
+  const adminGate = requireAuth({ roles: ['pm'], modules: ['A'] })
 
   // GET /checklist-templates — list all templates. Platform admin (tenantId
   // null) sees every row; tenant admin only sees platform baselines +

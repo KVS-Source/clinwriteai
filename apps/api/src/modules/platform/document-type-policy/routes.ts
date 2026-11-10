@@ -40,9 +40,12 @@ const AI_NOT_CONFIGURED = {
   setupPath: '/admin',
 } as const
 
-// Project admins can read (for the wizard preview); super-admin only can write.
+// Reads open to any authenticated user — the wizard preview and the
+// section-context endpoint both consume policy data for authoring.
+// Writes locked to PM: the 2026-11-10 role model separates IT Admin
+// (system operator, no content rights) from PM (content admin).
 const readGate  = requireAuth({})
-const writeGate = requireAuth({ roles: ['tenant-admin', 'super-admin', 'admin'] })
+const writeGate = requireAuth({ roles: ['pm'] })
 
 interface PolicyRow {
   id:                  string

@@ -35,7 +35,12 @@ export interface MLRDecisionBody {
   decidedBy:         string
 }
 
-export interface HarvestClaimResponse { candidates: MedClaim[] }
+export interface HarvestClaimResponse {
+  candidates:     MedClaim[]
+  extractedCount?: number       // new claims surfaced by AI in this run (undef on older API builds)
+  matchedCount?:   number       // claims that matched a Library row
+  totalClaims?:    number       // size of candidates after extraction
+}
 
 export interface AdoptClaimBody {
   claimId: string

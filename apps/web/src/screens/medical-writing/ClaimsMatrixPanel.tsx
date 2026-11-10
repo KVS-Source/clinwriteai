@@ -4,6 +4,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { ClaimStatus, MedClaim } from '@platform/types'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { useClaimsStore } from '../../modules/medical-writing/store'
+import { ApiError } from '../../api/client'
+import { useAiReadiness, isAiReady } from '../../platform/ai-readiness'
 
 const CURRENT_USER_NAME = 'Dr Sarah Chen'
 
@@ -112,13 +114,41 @@ export function ClaimsMatrixPanel() {
     },
   })
 
+  const { data: readiness } = useAiReadiness()
+  const aiReady = isAiReady(readiness)
+
   const harvestMutation = useMutation({
     mutationFn: () => medContentApi.harvestClaims(activeContentId!),
     onMutate:   () => setHarvestSpin(true),
     onSettled:  () => setHarvestSpin(false),
     onSuccess:  (data) => {
       qc.invalidateQueries({ queryKey: ['med-claims'] })
-      flash(`Harvest complete · ${data.candidates.length} candidate claims re-scored.`)
+      // New response shape (2026-11-10) returns extractedCount + matchedCount
+      // alongside candidates. Older API builds only return `candidates`; fall
+      // back to a generic message when the counts aren't present.
+      const extracted = data.extractedCount
+      const matched   = data.matchedCount
+      const total     = data.totalClaims ?? data.candidates.length
+      if (typeof extracted === 'number' && typeof matched === 'number') {
+        flash(
+          extracted > 0
+            ? `Harvest complete · ${extracted} new claim${extracted === 1 ? '' : 's'} extracted · ${matched} matched the library · ${total} total.`
+            : `Harvest complete · no new claims extracted (deck may be empty) · ${matched} of ${total} matched the library.`,
+        )
+      } else {
+        flash(`Harvest complete · ${total} candidate claims processed.`)
+      }
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ApiError && err.status === 503) {
+        const body = err.body as { message?: string } | null
+        flash(body?.message ?? 'AI is not configured — ask an admin to set up the AI engine.')
+      } else if (err instanceof ApiError) {
+        const body = err.body as { message?: string; error?: string } | null
+        flash(`Harvest failed · ${body?.message ?? body?.error ?? err.status}`)
+      } else {
+        flash(`Harvest failed · ${err instanceof Error ? err.message : String(err)}`)
+      }
     },
   })
 
@@ -163,10 +193,15 @@ export function ClaimsMatrixPanel() {
             <button
               type="button"
               onClick={() => harvestMutation.mutate()}
-              disabled={harvestSpin}
+              disabled={harvestSpin || !activeContentId || !aiReady}
+              title={
+                !aiReady          ? 'AI is not set up — claim extraction needs an AI engine. Ask an admin to configure one.' :
+                !activeContentId  ? 'Pick a content item first.' :
+                undefined
+              }
               data-run-harvest
-              className="h-9 rounded-md px-3 text-[13px] font-semibold text-white"
-              style={{ backgroundColor: harvestSpin ? '#CBD5E1' : '#7C3AED' }}
+              className="h-9 rounded-md px-3 text-[13px] font-semibold text-white disabled:cursor-not-allowed"
+              style={{ backgroundColor: harvestSpin || !aiReady || !activeContentId ? '#CBD5E1' : '#7C3AED' }}
             >{harvestSpin ? 'Harvesting…' : 'Run claims harvest ✦'}</button>
           </div>
         </div>

@@ -5,4 +5,8 @@
 -- Claude). Best-Practice PDFs are platform assets, not scoped to a
 -- project, so projectId is now nullable. A null projectId + sourceCategory
 -- in ('best_practice', ...) is the "platform asset" signal.
-ALTER TABLE "document_uploads" ALTER COLUMN "project_id" DROP NOT NULL;
+--
+-- Column name is "projectId" (camelCase) — the Prisma generator used
+-- here keeps the model's field name verbatim (no @@map), so the DDL
+-- quotes it to preserve case.
+ALTER TABLE "document_uploads" ALTER COLUMN "projectId" DROP NOT NULL;

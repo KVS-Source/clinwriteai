@@ -125,9 +125,24 @@ export function documentVisibilityWhere(user: AuthenticatedUser): Prisma.Documen
   }
 }
 
-/** Whether `user` may open the document (existence is the caller's concern). */
+/**
+ * Whether `user` may open the document (existence is the caller's concern).
+ *
+ *   admin | auditor → yes
+ *   contributor     → only documents they work on (documentVisibilityWhere); working on a
+ *                     document is itself what makes its project visible to them
+ *   pm              → every document, but only inside a project they can see. Without this a
+ *                     PM could open any document of any project by pasting its id (CW-020).
+ *
+ * requireAuth runs this for every route with a :documentId parameter, so a new document route
+ * is covered without remembering to call it.
+ */
 export async function canSeeDocument(prisma: PrismaClient, user: AuthenticatedUser, documentId: string): Promise<boolean> {
+  if (hasAnyRole(user, ...SEE_ALL_ROLES)) return true
   const scope = documentVisibilityWhere(user)
-  if (!scope) return true
-  return (await prisma.document.count({ where: { id: documentId, ...scope } })) > 0
+  if (scope) return (await prisma.document.count({ where: { id: documentId, ...scope } })) > 0
+  const projects = await visibleProjectIdsForUser(prisma, user)
+  if (projects === 'all') return true
+  if (projects.size === 0) return false
+  return (await prisma.document.count({ where: { id: documentId, projectId: { in: [...projects] } } })) > 0
 }

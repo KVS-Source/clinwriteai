@@ -111,9 +111,15 @@ export function ChecklistTemplatesAdmin() {
     return (err instanceof Error ? err.message : t('page.checklist_templates_admin.err_request_failed'))
   }
 
+  // After an approval: how many in-flight documents were told a newer version is available (CW-028).
+  const [approvedNotice, setApprovedNotice] = useState<string | null>(null)
   const approveMut = useMutation({
     mutationFn: (id: string) => documentsApi.approveChecklistTemplate(id),
-    onSuccess:  () => { setApproveError(null); invalidate() },
+    onSuccess:  (res) => {
+      setApproveError(null)
+      setApprovedNotice(t('page.checklist_templates_admin.approved_notice', { count: res.inFlightDocumentsNotified ?? 0 }))
+      invalidate()
+    },
     onError: (err: unknown) => setApproveError(t('page.checklist_templates_admin.err_approve', { message: extractApiError(err) })),
   })
 
@@ -218,7 +224,7 @@ export function ChecklistTemplatesAdmin() {
                     <button
                       key={tpl.id}
                       type="button"
-                      onClick={() => { setSelected(tpl.id); setApproveError(null) }}
+                      onClick={() => { setSelected(tpl.id); setApproveError(null); setApprovedNotice(null) }}
                       className={`flex w-full flex-col gap-1 border-b border-slate-100 px-6 py-3 text-left transition-colors hover:bg-slate-50 ${isSelected ? 'bg-blue-50/60' : ''}`}
                       aria-selected={isSelected}
                       data-template-row={tpl.id}
@@ -241,6 +247,12 @@ export function ChecklistTemplatesAdmin() {
                       <p className="text-[11px] text-slate-500">
                         {t('page.checklist_templates_admin.row_summary', { items: tpl.itemCount, docs: tpl.instanceCount })}
                         {tpl.isCurrent ? t('page.checklist_templates_admin.row_current_suffix') : ''}
+                      </p>
+                      {/* Template library (CW-029): who drafted it, and when it took effect and who approved it. */}
+                      <p className="text-[11px] text-slate-500" data-template-row-history>
+                        {tpl.templateStatus === 'locked' && tpl.approvedAt
+                          ? t('page.checklist_templates_admin.row_effective', { date: fmtDate(tpl.effectiveDate), name: tpl.approvedByName ?? tpl.approvedBy ?? '—' })
+                          : t('page.checklist_templates_admin.row_drafted_by', { name: tpl.createdByName ?? tpl.createdBy })}
                       </p>
                     </button>
                   )
@@ -272,6 +284,9 @@ export function ChecklistTemplatesAdmin() {
               onApprove={() => approveMut.mutate(detailQ.data!.id)}
               approving={approveMut.isPending}
               approveError={approveError}
+              approvedNotice={approvedNotice}
+              versions={(listQ.data ?? []).filter(r => r.deliverableType === detailQ.data!.deliverableType && r.projectId === detailQ.data!.projectId)}
+              onSelectVersion={(id) => { setSelected(id); setApproveError(null); setApprovedNotice(null) }}
               onBumpDraft={() => bumpMut.mutate(detailQ.data!.id)}
               bumping={bumpMut.isPending}
               onCloneToProject={() => setCloneForTemplateId(detailQ.data!.id)}
@@ -400,6 +415,10 @@ interface TemplateDetailViewProps {
   onApprove: () => void
   approving: boolean
   approveError: string | null
+  approvedNotice: string | null
+  /** Every version of this template (same deliverable type and scope), newest first. */
+  versions: Template[]
+  onSelectVersion: (id: string) => void
   onBumpDraft: () => void
   bumping: boolean
   onCloneToProject: () => void
@@ -434,8 +453,11 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
 
   const isPlatformBaseline = template.projectId == null
   const isDraft    = template.templateStatus === 'draft'
-  const canApprove = isDraft
+  // Approval cycle (CW-029): an author of the draft can't approve it. The API says so (canApprove).
+  const showApprove   = isDraft
+  const selfAuthored  = isDraft && template.canApprove === false
   const canBump    = template.templateStatus === 'locked'
+  const versions = [...props.versions].sort((a, b) => b.version - a.version)
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -457,6 +479,11 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
             {template.approvedAt && t('page.checklist_templates_admin.detail_approved_suffix', { date: fmtDate(template.approvedAt) })}
           </p>
           <p className="mt-1 text-[11px] italic text-slate-500">{template.changeReason}</p>
+          <p className="mt-1 text-[11px] text-slate-600" data-template-people>
+            {t('page.checklist_templates_admin.detail_drafted_by', { name: template.createdByName ?? template.createdBy })}
+            {template.approvedAt && <> · {t('page.checklist_templates_admin.detail_approved_by', { name: template.approvedByName ?? template.approvedBy ?? '—', date: fmtDate(template.approvedAt) })}</>}
+            {isDraft && (template.draftAuthors?.length ?? 0) > 1 && <> · {t('page.checklist_templates_admin.detail_draft_authors', { names: template.draftAuthors!.join(', ') })}</>}
+          </p>
         </div>
         <div className="flex flex-col items-end gap-2">
           <span
@@ -467,16 +494,27 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
           >
             {TEMPLATE_STATUS_KEYS[template.templateStatus] ? t(TEMPLATE_STATUS_KEYS[template.templateStatus]) : template.templateStatus}
           </span>
-          {canApprove && (
+          {showApprove && (
             <button
               type="button"
               onClick={props.onApprove}
-              disabled={props.approving}
+              disabled={props.approving || selfAuthored}
               className="rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300"
               data-action="approve-template"
+              title={selfAuthored ? t('page.checklist_templates_admin.self_approval_note') : undefined}
             >
               {props.approving ? t('page.checklist_templates_admin.approving') : t('page.checklist_templates_admin.approve_and_lock')}
             </button>
+          )}
+          {selfAuthored && (
+            <p className="max-w-[260px] text-right text-[11px] text-slate-500" data-self-approval-note>
+              {t('page.checklist_templates_admin.self_approval_note')}
+            </p>
+          )}
+          {props.approvedNotice && !isDraft && (
+            <p className="max-w-[260px] rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-right text-[11px] text-emerald-800" role="status" data-approved-notice>
+              {props.approvedNotice}
+            </p>
           )}
           {canBump && (
             <button
@@ -513,6 +551,48 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
       </div>
 
       <div className="flex-1 overflow-y-auto bg-slate-50">
+        {/* Template library (CW-029): every version of this template, its status and effective date. */}
+        {versions.length > 1 && (
+          <section className="mx-8 mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white" data-template-versions>
+            <h3 className="border-b border-slate-100 px-4 py-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              {t('page.checklist_templates_admin.versions_heading', { count: versions.length })}
+            </h3>
+            <table className="w-full text-left text-[12px]">
+              <thead className="text-[10px] uppercase tracking-wide text-slate-400">
+                <tr>
+                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_version')}</th>
+                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_status')}</th>
+                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_effective')}</th>
+                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_people')}</th>
+                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_reason')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {versions.map(v => (
+                  <tr
+                    key={v.id}
+                    onClick={() => props.onSelectVersion(v.id)}
+                    className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${v.id === template.id ? 'bg-blue-50/60' : ''}`}
+                    data-template-version-row={v.version}
+                  >
+                    <td className="px-4 py-1.5 font-semibold text-slate-900">v{v.version}</td>
+                    <td className="px-4 py-1.5">
+                      {v.templateStatus === 'draft'
+                        ? t('page.checklist_templates_admin.status_draft')
+                        : v.isCurrent ? t('page.checklist_templates_admin.version_current') : t('page.checklist_templates_admin.version_superseded')}
+                    </td>
+                    <td className="px-4 py-1.5 text-slate-600">{v.templateStatus === 'locked' ? fmtDate(v.effectiveDate) : '—'}</td>
+                    <td className="px-4 py-1.5 text-slate-600">
+                      {v.createdByName ?? v.createdBy}
+                      {v.approvedAt && <> → {v.approvedByName ?? v.approvedBy}</>}
+                    </td>
+                    <td className="px-4 py-1.5 text-slate-500">{v.changeReason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </section>
+        )}
         {byStage.length === 0 && !isDraft && (
           <p className="px-8 py-10 text-sm text-slate-500">
             {t('page.checklist_templates_admin.empty_template')}

@@ -230,4 +230,20 @@ describe('documentVisibilityWhere / canSeeDocument', () => {
     expect(await canSeeDocument(prisma, user('tenant-admin'), 'DOC-1')).toBe(true)
     expect(seen).toHaveLength(1)
   })
+
+  it('canSeeDocument lets a PM open a document only inside a project they can see (CW-020)', async () => {
+    const counted: unknown[] = []
+    const prisma = {
+      ...fakePrisma({ members: [{ userId: 'pm-1', projectId: 'p-mine', removedAt: null, projectRole: 'Project Manager' }] }),
+      document: {
+        findMany: async () => [],
+        count: async (args: { where: { projectId?: { in: string[] } } }) => { counted.push(args); return args.where.projectId?.in.includes('p-mine') ? 1 : 0 },
+      },
+    } as unknown as PrismaClient
+    expect(await canSeeDocument(prisma, user('pm', 'pm-1'), 'DOC-1')).toBe(true)
+    expect(counted[0]).toMatchObject({ where: { id: 'DOC-1', projectId: { in: ['p-mine'] } } })
+    // A PM on no project sees no document, without asking the database.
+    const none = { ...fakePrisma({}), document: { findMany: async () => [], count: async () => { throw new Error('not expected') } } } as unknown as PrismaClient
+    expect(await canSeeDocument(none, user('pm', 'pm-2'), 'DOC-1')).toBe(false)
+  })
 })

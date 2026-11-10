@@ -85,10 +85,19 @@ describe('document-scoped reads respect visibility', () => {
     expect(res.statusCode).toBe(404)
   })
 
-  it('canSeeDocument follows the scoped count, and skips it for a PM', async () => {
-    const hidden = prismaFor('ongoing', 0)
+  it('canSeeDocument follows the scoped count, and for a PM the projects they can see (CW-020)', async () => {
     const base = { id: 'u1', email: 'u@x.io', modules: ['A'], tenantId: null }
+    const hidden = prismaFor('ongoing', 0)
     expect(await canSeeDocument(hidden as never, { ...base, role: 'clinical-writer' } as AuthenticatedUser, 'DOC-1')).toBe(false)
-    expect(await canSeeDocument(hidden as never, { ...base, role: 'pm' } as AuthenticatedUser, 'DOC-1')).toBe(true)
+    const projectLists = (member: boolean) => ({
+      projectMember: { findMany: vi.fn(async () => (member ? [{ projectId: 'proj-1' }] : [])) },
+      projectTeamMember: { findMany: vi.fn(async () => []) },
+      raciAssignment: { findMany: vi.fn(async () => []) },
+    })
+    const pm = { ...base, role: 'pm' } as AuthenticatedUser
+    const onProject = prismaFor('ongoing', 1)
+    expect(await canSeeDocument({ ...onProject, ...projectLists(true), document: { ...onProject.document, findMany: vi.fn(async () => []) } } as never, pm, 'DOC-1')).toBe(true)
+    const offProject = prismaFor('ongoing', 1)
+    expect(await canSeeDocument({ ...offProject, ...projectLists(false), document: { ...offProject.document, findMany: vi.fn(async () => []) } } as never, pm, 'DOC-1')).toBe(false)
   })
 })

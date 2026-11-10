@@ -35,6 +35,7 @@ async function build(opts: Opts = {}) {
     document: {
 
       count: async () => 1,
+      findMany: vi.fn(async () => []),
       findUnique: vi.fn(async () => ({
         id: DOC, title: 'CSR Velora-301', type: opts.type ?? 'csr_full', status: opts.docStatus ?? 'in_authoring',
         projectId: 'proj-1', deletedAt: null, assigneeId: opts.assigneeId ?? 'someone-else',
@@ -49,6 +50,10 @@ async function build(opts: Opts = {}) {
         (opts.letter && where.letter.in.includes(opts.letter) ? { id: 'raci-1' } : null)),
     },
     project:          { findUnique: vi.fn(async () => ({ status: opts.projectStatus ?? 'ongoing' })) },
+    // Project visibility for a PM (canSeeDocument): on proj-1.
+    projectMember:     { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
+    projectTeamMember: { findMany: vi.fn(async () => []) },
+    raciAssignment:    { findMany: vi.fn(async () => []) },
     user:             { findMany: vi.fn(async () => [{ id: 'u-9', name: 'Dr A Rao' }]) },
     comment:          { findMany: vi.fn(async () => [{ sectionRef: '§5', verdict: null }, { sectionRef: '§5', verdict: 'approve' }]) },
     sourceReference:  { findMany: vi.fn(async () => [{ id: 'ref-1', sectionId: 's5' }, { id: 'ref-2', sectionId: 's5' }]) },

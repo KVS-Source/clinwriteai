@@ -459,6 +459,99 @@ function ItemRow(p: ItemRowProps) {
   )
 }
 
+// --- Newer template (CW-028, FR-A-001c / AC-A-014) ---
+//
+// The document keeps the checklist it was created with. When a newer approved
+// template applies, everyone who can see the checklist sees this notice; the
+// Author can review exactly what changes and adopt it. Nothing changes until
+// they do, and adopting is recorded in the audit trail.
+
+function TemplateUpdateBanner({ documentId }: { documentId: string }) {
+  const { t } = useTranslation()
+  const qc = useQueryClient()
+  const [open, setOpen] = useState(false)
+  const [confirming, setConfirming] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const { data } = useQuery({
+    queryKey: ['checklist-template-update', documentId],
+    queryFn:  () => documentsApi.getChecklistTemplateUpdate(documentId),
+    enabled:  !!documentId,
+  })
+  const adopt = useMutation({
+    mutationFn: (templateId: string) => documentsApi.adoptChecklistTemplate(documentId, templateId),
+    onMutate:   () => setError(null),
+    onSuccess:  () => {
+      setConfirming(false); setOpen(false)
+      void qc.invalidateQueries({ queryKey: ['checklist', documentId] })
+      void qc.invalidateQueries({ queryKey: ['checklist-template-update', documentId] })
+      void qc.invalidateQueries({ queryKey: ['compliance-summary', documentId] })
+    },
+    onError: (err: unknown) => {
+      setError(errorMessage(err, t('page.checklist_panel.template_update_adopt_failed'), t))
+      void qc.invalidateQueries({ queryKey: ['checklist-template-update', documentId] })
+    },
+  })
+  if (!data || data.available === null) return null
+  const u = data
+  const nothingChanges = u.added.length === 0 && u.changed.length === 0 && u.removed.length === 0
+
+  return (
+    <div className="flex-none border-b px-4 py-2.5 text-[11px]" style={{ backgroundColor: '#EFF6FF', borderColor: '#BFDBFE', color: '#1E3A8A' }} data-checklist-template-update>
+      <p className="font-semibold">
+        {t('page.checklist_panel.template_update_title', { version: u.available.version, current: u.currentVersion })}
+      </p>
+      <p className="mt-0.5">
+        {u.canAdopt ? t('page.checklist_panel.template_update_body_author') : t('page.checklist_panel.template_update_body_viewer')}
+        {u.available.changeReason && <> {t('page.checklist_panel.template_update_reason', { reason: u.available.changeReason })}</>}
+      </p>
+      <button type="button" onClick={() => setOpen(o => !o)} className="mt-1 font-semibold underline" data-action="toggle-template-changes">
+        {open ? t('page.checklist_panel.template_update_hide') : t('page.checklist_panel.template_update_show')}
+      </button>
+      {open && (
+        <div className="mt-1.5 space-y-1.5 rounded border border-blue-200 bg-white p-2 text-slate-700" data-template-changes>
+          {nothingChanges && <p>{t('page.checklist_panel.template_update_no_item_changes')}</p>}
+          {u.added.length > 0 && (
+            <div data-template-changes-added>
+              <p className="font-semibold text-emerald-700">{t('page.checklist_panel.template_update_added', { count: u.added.length })}</p>
+              <ul className="ml-4 list-disc">{u.added.map((i, k) => <li key={k}>{i.text}</li>)}</ul>
+            </div>
+          )}
+          {u.changed.length > 0 && (
+            <div data-template-changes-changed>
+              <p className="font-semibold text-amber-700">{t('page.checklist_panel.template_update_changed', { count: u.changed.length })}</p>
+              <ul className="ml-4 list-disc">{u.changed.map((c, k) => <li key={k}>{c.text} <span className="text-slate-500">({c.fields.map(f => t(`page.checklist_panel.template_update_field_${f}`)).join(', ')})</span></li>)}</ul>
+            </div>
+          )}
+          {u.removed.length > 0 && (
+            <div data-template-changes-removed>
+              <p className="font-semibold text-red-700">{t('page.checklist_panel.template_update_removed', { count: u.removed.length })}</p>
+              <ul className="ml-4 list-disc">{u.removed.map((i, k) => <li key={k}>{i.text}</li>)}</ul>
+            </div>
+          )}
+          <p className="text-slate-500">{t('page.checklist_panel.template_update_kept', { count: u.unchangedCount + u.changed.length })}</p>
+        </div>
+      )}
+      {u.canAdopt && !confirming && (
+        <button type="button" onClick={() => { setConfirming(true); setOpen(true) }} className="mt-2 rounded-md bg-blue-600 px-2.5 py-1 font-semibold text-white hover:bg-blue-700" data-action="adopt-template">
+          {t('page.checklist_panel.template_update_adopt', { version: u.available.version })}
+        </button>
+      )}
+      {u.canAdopt && confirming && (
+        <div className="mt-2 flex flex-wrap items-center gap-2" data-adopt-confirm>
+          <span className="font-semibold">{t('page.checklist_panel.template_update_confirm')}</span>
+          <button type="button" disabled={adopt.isPending} onClick={() => adopt.mutate(u.available.templateId)} className="rounded-md bg-blue-600 px-2.5 py-1 font-semibold text-white hover:bg-blue-700 disabled:opacity-60" data-action="confirm-adopt-template">
+            {adopt.isPending ? t('page.checklist_panel.template_update_adopting') : t('page.checklist_panel.template_update_confirm_button')}
+          </button>
+          <button type="button" disabled={adopt.isPending} onClick={() => setConfirming(false)} className="rounded-md border border-slate-300 bg-white px-2.5 py-1 font-semibold text-slate-700 hover:bg-slate-50">
+            {t('button.cancel')}
+          </button>
+        </div>
+      )}
+      {error && <p className="mt-1.5 font-semibold text-red-700" role="alert">{error}</p>}
+    </div>
+  )
+}
+
 // --- Panel ---
 
 export function ChecklistPanel({ documentId }: Props) {
@@ -471,13 +564,22 @@ export function ChecklistPanel({ documentId }: Props) {
     queryFn:  () => documentsApi.getChecklist(documentId),
     enabled:  !!documentId,
   })
+  // Whether this caller may change the list (same query as useCanViewChecklist). Read from here rather
+  // than from the items, so an empty or still-loading checklist is not treated as editable (CW-079).
+  const { data: access } = useQuery({
+    queryKey:  ['document-checklist-access', documentId],
+    queryFn:   () => documentsApi.getChecklistAccess(documentId),
+    enabled:   !!documentId,
+    staleTime: 30_000,
+  })
   // Removed items stay visible (PRD FR-A-001b) but are not part of the counts.
   const items        = useMemo(() => allItems.filter(i => i.status !== 'removed'), [allItems])
   const removedItems = useMemo(() => allItems.filter(i => i.status === 'removed'), [allItems])
-  // The API says whether this caller may change the list; absent = yes.
-  const canEdit = allItems[0]?.canEdit !== false
+  // Editable only once the API has said so: from the items when there are any (fresh on every refetch),
+  // otherwise from the access check. Unknown = not editable.
+  const canEdit = allItems.length > 0 ? allItems[0]!.canEdit !== false : access?.canEdit === true
   // A signature chain is in progress: the checklist is fixed until it is cancelled or complete.
-  const chainActive = allItems[0]?.chainActive === true
+  const chainActive = allItems.length > 0 ? allItems[0]!.chainActive === true : access?.chainActive === true
 
   const [actionError, setActionError] = useState<string | null>(null)
   const [filter,      setFilter]      = useState<'all' | 'pending' | 'mandatory' | 'waived'>('all')
@@ -702,6 +804,8 @@ export function ChecklistPanel({ documentId }: Props) {
         </div>
       </div>
 
+      <TemplateUpdateBanner documentId={documentId} />
+
       {mandatoryPendingTotal > 0 && (
         <p
           className="flex-none border-b px-4 py-2 text-[11px] font-semibold"
@@ -749,7 +853,7 @@ export function ChecklistPanel({ documentId }: Props) {
           {actionError}
         </p>
       )}
-      {!canEdit && allItems.length > 0 && (
+      {!canEdit && (allItems.length > 0 || access?.canEdit === false) && (
         <p
           className="flex-none border-b border-slate-200 px-4 py-2 text-[11px] text-slate-500"
           data-checklist-readonly={chainActive ? 'chain' : 'role'}

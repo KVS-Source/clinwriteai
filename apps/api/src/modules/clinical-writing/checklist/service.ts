@@ -11,6 +11,7 @@
 //     .create so new documents arrive with their instance already in place.
 
 import type { PrismaClient } from '@prisma/client'
+import { applicableChecklistTemplate } from './template-update.js'
 
 /**
  * Checklist templates were originally keyed off whatever string the client
@@ -63,32 +64,12 @@ export async function ensureChecklistInstance(
     projectId = doc?.projectId ?? undefined
   }
 
-  // Preference order:
+  // Preference order (applicableChecklistTemplate — the same rule decides when a
+  // newer template is offered to an in-flight document):
   //   1. the project's own approved override, if one exists
   //   2. the platform baseline (projectId=null, locked)
   //   3. any current template for the type (defensive, pre-migration DBs)
-  const include = { items: { orderBy: { sortOrder: 'asc' as const } } }
-
-  let template = projectId
-    ? await tx.checklistTemplate.findFirst({
-        where: { deliverableType: normalizedType, projectId, isCurrent: true, templateStatus: 'locked' },
-        include,
-      })
-    : null
-
-  if (!template) {
-    template = await tx.checklistTemplate.findFirst({
-      where: { deliverableType: normalizedType, projectId: null, isCurrent: true },
-      include,
-    })
-  }
-
-  if (!template) {
-    template = await tx.checklistTemplate.findFirst({
-      where: { deliverableType: normalizedType, isCurrent: true },
-      include,
-    })
-  }
+  let template = await applicableChecklistTemplate(tx, normalizedType, projectId)
 
   if (!template) {
     const created = await tx.checklistTemplate.create({

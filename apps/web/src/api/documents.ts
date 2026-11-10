@@ -11,6 +11,19 @@ import type {
 
 export interface MentionablePerson { id: string; name: string; initials: string | null; projectRole: string | null }
 
+/** GET /documents/:id/checklist/template-update — `available` is null when the checklist is on the current template. */
+export type ChecklistTemplateUpdate =
+  | { available: null }
+  | {
+      currentVersion: number
+      available: { templateId: string; version: number; effectiveDate: string; changeReason: string; scope: 'platform' | 'project' }
+      added:   Array<{ text: string; framework: string; stage: string; frameworkMandatory: boolean }>
+      changed: Array<{ text: string; fields: Array<'frameworkMandatory' | 'ownerRaci' | 'stage' | 'autoCompleteOn'> }>
+      removed: Array<{ text: string; framework: string; stage: string; status: string }>
+      unchangedCount: number
+      canAdopt: boolean
+    }
+
 // Submit for review, when other authors (R) still have to submit their part.
 export interface PartSubmittedResponse {
   id:             string
@@ -288,8 +301,10 @@ export const documentsApi = {
       isCurrent: boolean
       templateStatus: 'draft' | 'locked'
       approvedBy: string | null
+      approvedByName?: string | null
       approvedAt: string | null
       createdBy: string
+      createdByName?: string
       createdAt: string
       itemCount: number
       instanceCount: number
@@ -305,10 +320,15 @@ export const documentsApi = {
       isCurrent: boolean
       templateStatus: 'draft' | 'locked'
       approvedBy: string | null
+      approvedByName?: string | null
       approvedAt: string | null
       createdBy: string
+      createdByName?: string
       createdAt: string
       instanceCount: number
+      // Approval cycle (CW-029): who authored this draft, and whether the caller may approve it.
+      draftAuthors?: string[]
+      canApprove?: boolean
       items: Array<{
         id: string
         text: string
@@ -327,7 +347,7 @@ export const documentsApi = {
       }>
     }>(`/checklist-templates/${templateId}`),
   approveChecklistTemplate: (templateId: string) =>
-    api.post<unknown>(`/checklist-templates/${templateId}/approve`, {}),
+    api.post<{ id: string; version: number; inFlightDocumentsNotified?: number }>(`/checklist-templates/${templateId}/approve`, {}),
   bumpChecklistTemplateDraft: (templateId: string) =>
     api.post<{ id: string; version: number; templateStatus: 'draft' }>(`/checklist-templates/${templateId}/bump-draft`, {}),
   cloneChecklistTemplateToProject: (templateId: string, projectId: string) =>
@@ -358,9 +378,16 @@ export const documentsApi = {
 
   // Checklist
   getChecklistAccess: (documentId: string) =>
-    api.get<{ canView: boolean }>(`/documents/${documentId}/checklist/access`),
+    api.get<{ canView: boolean; canEdit?: boolean; chainActive?: boolean }>(`/documents/${documentId}/checklist/access`),
   getChecklist: (documentId: string) =>
     api.get<ChecklistItem[]>(`/documents/${documentId}/checklist`),
+  // A newer approved checklist template for this document (CW-028, FR-A-001c): what adopting it changes.
+  getChecklistTemplateUpdate: (documentId: string) =>
+    api.get<ChecklistTemplateUpdate>(`/documents/${documentId}/checklist/template-update`),
+  adoptChecklistTemplate: (documentId: string, templateId: string) =>
+    api.post<{ templateVersion: number; added: number; changed: number; removed: number; unchanged: number }>(
+      `/documents/${documentId}/checklist/adopt-template`, { templateId },
+    ),
   // Compliance Summary appendix of the output document (FR-A-030 / AC-A-029).
   getComplianceSummary: (documentId: string) =>
     api.get<{

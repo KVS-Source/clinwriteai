@@ -204,6 +204,8 @@ async function buildServer() {
 
   // ---------- Auth (SSO + JWT session + RBAC) ----------
   await app.register(import('./auth/plugin.js'))
+  // Every :documentId route answers 404 to someone who may not see the document (CW-020).
+  await app.register(import('./auth/document-access.js'))
 
   // ---------- Realtime (Socket.io presence channel) ----------
   await app.register(import('./modules/platform/realtime/plugin.js'))

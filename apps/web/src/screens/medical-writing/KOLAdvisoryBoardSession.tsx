@@ -243,8 +243,8 @@ export function KOLAdvisoryBoardSession() {
           </div>
 
           <p className="mb-1 text-[11px] font-mono uppercase" style={{ color: '#64748B', letterSpacing: '0.1em' }}>Session objectives</p>
-          <p className="mb-4 rounded-md bg-slate-50 p-3 text-[13px] text-slate-700" data-agenda>
-            Validate combination positioning, discuss safety-management protocols, agree Tier-2 messaging for HCP audiences.
+          <p className="mb-4 rounded-md border border-dashed border-slate-200 bg-slate-50 p-3 text-[13px] italic text-slate-500" data-agenda data-objectives-empty>
+            No objectives set for this session. Add objectives when scheduling the advisory board.
           </p>
 
           <p className="mb-1 text-[11px] font-mono uppercase" style={{ color: '#64748B', letterSpacing: '0.1em' }}>KOL attendees</p>

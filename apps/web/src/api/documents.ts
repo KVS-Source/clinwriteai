@@ -722,4 +722,11 @@ export interface DocumentTemplate {
   requiredSourceCategories: string[]
   version:                  number
   updatedAt:                string
+  // Admin-shape extensions (optional so listTemplates callers stay typed).
+  // The admin routes always populate these; the wizard's existing read
+  // ignores them.
+  isCurrent?:               boolean
+  retiredAt?:               string | null
+  createdAt?:               string
+  createdBy?:               string
 }

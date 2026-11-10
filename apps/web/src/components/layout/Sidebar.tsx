@@ -39,6 +39,7 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   { labelKey: 'component.sidebar.platform_checklist_templates',  href: '/admin/checklist-templates', roles: ['admin'] as const, icon: <ClipboardIcon /> },
   { labelKey: 'component.sidebar.platform_doc_type_policies',    href: '/admin/document-type-policies', roles: ['admin'] as const, icon: <ClipboardIcon /> },
   { labelKey: 'component.sidebar.platform_ai_prompts',           href: '/admin/ai-prompts',          roles: ['admin'] as const, icon: <ClipboardIcon /> },
+  { labelKey: 'component.sidebar.platform_template_library',     href: '/admin/templates',           roles: ['admin'] as const, icon: <ClipboardIcon /> },
   { labelKey: 'component.sidebar.platform_notifications',        href: '/notifications',             roles: ['admin'] as const, icon: <BellIcon /> },
   { labelKey: 'component.sidebar.platform_master_library',       href: '/library',                   roles: ['admin'] as const, icon: <BookIcon /> },
   { labelKey: 'component.sidebar.platform_best_practices',       href: '/library/best-practices',    roles: ['admin'] as const, icon: <StarIcon /> },

@@ -451,6 +451,46 @@ export const platformApi = {
       sizeBytes: number
     }>(`/document-type-policies/${encodeURIComponent(docType)}/distill-best-practice-file`, form)
   },
+
+  // --- Template Library (admin) ----------------------------------------
+  // Create + edit + retire DocumentTemplate rows that drive the New
+  // Document wizard, and the PDF parser that extracts the section
+  // outline from an exemplar / final document.
+  listDocumentTemplatesAdmin: () =>
+    api.get<DocumentTemplateAdmin[]>('/document-templates'),
+  createDocumentTemplate: (body: DocumentTemplateCreateBody) =>
+    api.post<DocumentTemplateAdmin>('/document-templates', body),
+  updateDocumentTemplate: (templateId: string, body: DocumentTemplateUpdateBody) =>
+    api.patch<DocumentTemplateAdmin>(`/document-templates/${encodeURIComponent(templateId)}`, body),
+  retireDocumentTemplate: (templateId: string) =>
+    api.post<DocumentTemplateAdmin>(`/document-templates/${encodeURIComponent(templateId)}/retire`, {}),
+  // One-shot PDF parser: multipart file + optional templateId (parse
+  // into an existing template) OR type+label+description+framework
+  // (parse into a freshly-created bare template). Enqueues
+  // platform.distill_template on the server.
+  parseTemplateFile: (
+    file: File,
+    target: { templateId: string } | { type: string; label: string; description: string; framework: string },
+  ) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    const qs = new URLSearchParams()
+    if ('templateId' in target) qs.set('templateId', target.templateId)
+    else {
+      qs.set('type',        target.type)
+      qs.set('label',       target.label)
+      qs.set('description', target.description)
+      qs.set('framework',   target.framework)
+    }
+    return api.upload<{
+      jobId:      string
+      templateId: string
+      uploadId:   string
+      type:       string
+      fileName:   string
+      sizeBytes:  number
+    }>(`/document-templates/parse-file?${qs.toString()}`, form)
+  },
 }
 
 export interface ExternalApiCredentialRow {
@@ -546,3 +586,41 @@ export interface DocumentTypePolicyBumpBody extends DocumentTypePolicyEditableFi
   smePrompt:    string        // required on bump (API Zod re-posts the whole body)
   changeReason: string
 }
+
+// --- Template Library admin shape ---------------------------------------
+// Full admin shape returned by GET /document-templates. The wizard's own
+// DocumentTemplate type (api/documents.ts) is a subset.
+
+export interface DocumentTemplateSection {
+  id:      string
+  number:  string
+  title:   string
+  usOnly?: boolean
+}
+
+export interface DocumentTemplateAdmin {
+  id:                       string
+  type:                     string
+  label:                    string
+  description:              string
+  framework:                string
+  sections:                 DocumentTemplateSection[]
+  requiredSourceCategories: string[]
+  version:                  number
+  isCurrent:                boolean
+  retiredAt:                string | null
+  createdAt:                string
+  createdBy:                string
+  updatedAt:                string
+}
+
+export interface DocumentTemplateCreateBody {
+  type:                      string
+  label:                     string
+  description:               string
+  framework:                 string
+  sections?:                 DocumentTemplateSection[]
+  requiredSourceCategories?: string[]
+}
+
+export type DocumentTemplateUpdateBody = Partial<Omit<DocumentTemplateCreateBody, 'type'>>

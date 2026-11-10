@@ -31,6 +31,7 @@ export type QueueJobName =
   | 'dpdpa.erasure'
   | 'dpdpa.breach_notification'
   | 'platform.distill_best_practice'
+  | 'platform.distill_template'
 
 export interface QueueJobOptions {
   /** Delay in milliseconds before the worker picks the job up. */

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { AgenticFinding, AgenticReport, PreMLRIssue, PreMLRResult } from '@platform/types'
@@ -55,6 +55,30 @@ export function PreMLRCheckPanel() {
     queryFn:  () => medContentApi.getAgenticReport(contentId!),
     enabled:  !!contentId,
   })
+  // Pull the content item + deck so the document-summary strip at the top
+  // of the screen reflects THIS content (not a hardcoded "Veloricept +
+  // Pembrolizumab" placeholder). Word count is derived from the slide
+  // body HTML — same technique the Module A editor uses.
+  const { data: contentItem } = useQuery({
+    queryKey: ['med-content', contentId],
+    queryFn:  () => medContentApi.get(contentId!),
+    enabled:  !!contentId,
+  })
+  const { data: deckData } = useQuery({
+    queryKey: ['med-slide-deck', contentId],
+    queryFn:  () => medContentApi.getSlideDeck(contentId!),
+    enabled:  !!contentId,
+  })
+  const liveSlides = deckData?.slides ?? []
+  const summary = useMemo(() => {
+    const slideCount = liveSlides.length
+    const wordCount = liveSlides.reduce((sum, s) => {
+      const text = (s.bodyHtml + ' ' + s.speakerNotes).replace(/<[^>]+>/g, ' ').trim()
+      if (!text) return sum
+      return sum + text.split(/\s+/).filter(Boolean).length
+    }, 0)
+    return { slideCount, wordCount }
+  }, [liveSlides])
 
   useEffect(() => { if (fetchedResult)  setResult(fetchedResult as PreMLRResult) },  [fetchedResult, setResult])
   useEffect(() => { if (fetchedAgentic) setAgenticReport(fetchedAgentic as AgenticReport) }, [fetchedAgentic, setAgenticReport])
@@ -117,12 +141,14 @@ export function PreMLRCheckPanel() {
           </div>
         </div>
 
-        {/* Document summary */}
+        {/* Document summary — reads live from the content item + its deck
+            (slide count + word count derived from MedSlide rows). No more
+            hardcoded "Veloricept + Pembrolizumab" placeholder. */}
         <div className="grid gap-3 rounded-lg border border-slate-200 bg-white p-4 md:grid-cols-4" data-doc-summary>
-          <div><p className="font-mono text-[10px] uppercase text-slate-500">Title</p><p className="text-[13px] font-semibold text-slate-800">Veloricept + Pembrolizumab HCP Slide Deck</p></div>
-          <div><p className="font-mono text-[10px] uppercase text-slate-500">Version</p><p className="text-[13px] font-semibold text-slate-800">v0.3</p></div>
-          <div><p className="font-mono text-[10px] uppercase text-slate-500">Slides</p><p className="text-[13px] font-semibold text-slate-800">26</p></div>
-          <div><p className="font-mono text-[10px] uppercase text-slate-500">Word count</p><p className="text-[13px] font-semibold text-slate-800">2,140</p></div>
+          <div><p className="font-mono text-[10px] uppercase text-slate-500">Title</p><p className="text-[13px] font-semibold text-slate-800" data-summary-title>{contentItem?.title ?? '—'}</p></div>
+          <div><p className="font-mono text-[10px] uppercase text-slate-500">Version</p><p className="text-[13px] font-semibold text-slate-800" data-summary-version>{contentItem?.version ?? '—'}</p></div>
+          <div><p className="font-mono text-[10px] uppercase text-slate-500">Slides</p><p className="text-[13px] font-semibold text-slate-800" data-summary-slides>{summary.slideCount || '—'}</p></div>
+          <div><p className="font-mono text-[10px] uppercase text-slate-500">Word count</p><p className="text-[13px] font-semibold text-slate-800" data-summary-words>{summary.wordCount > 0 ? summary.wordCount.toLocaleString() : '—'}</p></div>
         </div>
 
         <p className="font-mono text-[10px] uppercase tracking-widest" style={{ color: '#64748B' }}>

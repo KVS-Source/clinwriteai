@@ -166,7 +166,11 @@ export function ContentBriefing() {
       return medContentApi.update(contentId!, body as Partial<MedContentItem>)
     },
     onSuccess: (item) => {
-      qc.invalidateQueries({ queryKey: ['med-content'] })
+      // MedicalWritingHome subscribes with queryKey ['medContent', projectId] —
+      // the old ['med-content'] key never matched, so saves succeeded in the DB
+      // but the list stayed stale (matches the "count up, list empty" bug).
+      qc.invalidateQueries({ queryKey: ['medContent', projectId] })
+      qc.invalidateQueries({ queryKey: ['medContent', contentId] })
       if (isNew) navigate(`../content/${item.id}`)
     },
   })
@@ -201,12 +205,29 @@ export function ContentBriefing() {
           </div>
           <div className="flex flex-none items-center gap-2">
             <span className="font-mono text-[11px] uppercase" style={{ letterSpacing: '0.1em', color: '#7C3AED' }}>Stage 1 of 6</span>
+            {/* Save-draft status chip — a visible signal so the user
+                knows the click did something. Stays silent until the
+                first mutate; then Saving… → Saved ✓ (or an error
+                message) until the next user input. */}
+            {saveMutation.isPending && (
+              <span className="rounded-md bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-save-draft-state="pending">Saving…</span>
+            )}
+            {!saveMutation.isPending && saveMutation.isSuccess && (
+              <span className="rounded-md bg-emerald-100 px-2 py-0.5 text-[11px] font-semibold text-emerald-800" data-save-draft-state="ok">Saved ✓</span>
+            )}
+            {!saveMutation.isPending && saveMutation.isError && (
+              <span className="rounded-md bg-rose-100 px-2 py-0.5 text-[11px] font-semibold text-rose-800" title={String(saveMutation.error)} data-save-draft-state="error">
+                Save failed
+              </span>
+            )}
             <button
               type="button"
               onClick={() => saveMutation.mutate()}
+              disabled={saveMutation.isPending || !title.trim()}
+              title={!title.trim() ? 'Enter a content title first — the draft has nothing to save.' : undefined}
               data-save-draft
-              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50"
-            >Save draft</button>
+              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            >{saveMutation.isPending ? 'Saving…' : 'Save draft'}</button>
             <button
               type="button"
               onClick={proceed}

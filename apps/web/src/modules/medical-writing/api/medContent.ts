@@ -35,7 +35,12 @@ export interface MLRDecisionBody {
   decidedBy:         string
 }
 
-export interface HarvestClaimResponse { candidates: MedClaim[] }
+export interface HarvestClaimResponse {
+  candidates:     MedClaim[]
+  extractedCount?: number       // new claims surfaced by AI in this run (undef on older API builds)
+  matchedCount?:   number       // claims that matched a Library row
+  totalClaims?:    number       // size of candidates after extraction
+}
 
 export interface AdoptClaimBody {
   claimId: string
@@ -199,4 +204,61 @@ export const medContentApi = {
     overrides: string[]
   }) =>
     api.post<MedContentItem>(`/projects/${projectId}/med-content/confirm-classification`, body),
+
+  // Slide deck — the deck job + its slides for a content item. Lazy-creates
+  // the deck on first call so the editor doesn't need an explicit "create
+  // deck" step.
+  getSlideDeck: (contentId: string) =>
+    api.get<SlideDeckResponse>(`/med-content/${contentId}/slide-deck`),
+  // Fire-and-forget AI slide generation. Returns 202 + jobId; the UI polls
+  // getSlideDeck until the new slide at `position` appears.
+  generateSlide: (contentId: string, body: { prompt?: string; position?: number }) =>
+    api.post<{ jobId: string; deckJobId: string; position: number }>(
+      `/med-content/${contentId}/slides/ai-generate`, body,
+    ),
+  // Human edit — clears aiGenerated on the slide so pre-MLR can tell
+  // pristine AI output from reviewed content.
+  updateSlide: (slideId: string, body: { title?: string; bodyHtml?: string; speakerNotes?: string }) =>
+    api.patch<MedSlide>(`/med-slides/${slideId}`, body),
+  deleteSlide: (slideId: string) =>
+    api.delete<void>(`/med-slides/${slideId}`),
+}
+
+// --- Slide deck shape (API returns these verbatim) ---------------------
+
+export interface MedSlide {
+  id:              string
+  deckJobId:       string
+  position:        number
+  title:           string
+  bodyHtml:        string
+  speakerNotes:    string
+  aiGenerated:     boolean
+  aiModel:         string | null
+  aiGeneratedAt:   string | null
+  aiPrompt:        string | null
+  lastEditedBy:    string | null
+  lastEditedAt:    string | null
+  createdAt:       string
+  updatedAt:       string
+}
+
+export interface MedSlideDeck {
+  id:                    string
+  contentItemId:         string
+  source:                string
+  congressTarget:        string | null
+  slideCountLimit:       number
+  status:                'draft' | 'generating' | 'ready' | 'exported'
+  aiModel:               string | null
+  aiFootprintPct:        number | null
+  policyVersionAtCreate: number | null
+  generatedAt:           string | null
+  createdAt:             string
+  updatedAt:             string
+}
+
+export interface SlideDeckResponse {
+  deck:   MedSlideDeck
+  slides: MedSlide[]
 }

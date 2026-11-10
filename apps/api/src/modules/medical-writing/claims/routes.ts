@@ -22,6 +22,8 @@ import { z } from 'zod'
 import type { PrismaClient } from '@prisma/client'
 import { requireAuth } from '../../../auth/rbac.js'
 import { bestLibraryMatch } from './library-match.js'
+import { extractClaimsWithClaude, buildStubClaims, normaliseClaimText, type ExtractedClaim } from './ai-extract.js'
+import { resolveAiEngineSettings } from '../../platform/config/ai-engine-settings.js'
 
 const createClaimSchema = z.object({
   claimText: z.string().min(1),
@@ -123,6 +125,57 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
     const item = await app.prisma.medContentItem.findUnique({ where: { id: contentId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
 
+    // AI extraction first (two-step harvest, 2026-11-10):
+    //   1. Ask Claude to surface every discrete claim from the slide deck
+    //      (or content metadata when no slides exist yet). Dedupe against
+    //      existing rows by normalised claimText so re-running the button
+    //      only adds genuinely new claims — existing claims keep their
+    //      reviewer + approval status.
+    //   2. Re-score every claim (new + existing) against the Master
+    //      Library for similarityPct + approvedLibraryText. (Original
+    //      harvest behaviour.)
+    // Gated on AI readiness so a no-key deployment gets a direct 503
+    // instead of a silent "0 claims" return.
+    const engine = await resolveAiEngineSettings(app.prisma)
+    const aiModel = engine.default
+    const aiConfigured = app.aiGateway.isConfigured(aiModel)
+    const stubAllowed = process.env.AI_ALLOW_STUB === '1'
+    if (!aiConfigured && !stubAllowed) {
+      return reply.code(503).send({
+        error:     'ai_not_configured',
+        message:   'AI is not set up — claim extraction needs an AI engine. Ask an admin to configure one.',
+        setupPath: '/admin',
+      })
+    }
+
+    const existingClaims = await app.prisma.claimsMatrixItem.findMany({ where: { contentItemId: contentId } })
+    const existingByNorm = new Map(existingClaims.map(c => [normaliseClaimText(c.claimText), c]))
+
+    let extractedCount = 0
+    try {
+      const apiKey = process.env.ANTHROPIC_API_KEY?.trim() ?? ''
+      const extracted: ExtractedClaim[] = aiConfigured
+        ? await extractClaimsWithClaude({ prisma: app.prisma, contentId, model: aiModel, apiKey })
+        : buildStubClaims()
+      const novel = extracted.filter(c => !existingByNorm.has(normaliseClaimText(c.claimText)))
+      if (novel.length > 0) {
+        await app.prisma.claimsMatrixItem.createMany({
+          data: novel.map(c => ({
+            contentItemId: contentId,
+            claimText:     c.claimText,
+            sourceRef:     c.sourceRef,
+            sourceType:    c.sourceType,
+            location:      c.location,
+            approvalStatus: 'new',
+          })),
+        })
+        extractedCount = novel.length
+      }
+    } catch (err) {
+      app.log.warn({ err, contentId }, 'claims harvest: AI extraction failed — proceeding with library re-score on existing rows only')
+    }
+
+    // Re-read so the re-scoring loop below sees the just-inserted rows.
     const claims = await app.prisma.claimsMatrixItem.findMany({ where: { contentItemId: contentId } })
     const now = new Date()
 
@@ -168,9 +221,11 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
       entityId: contentId,
       details: {
         claimCount:         claims.length,
+        extractedCount,                           // new claims surfaced by AI in this run
         libraryPoolSize:    libraryCandidates.length,
         matchedCount,
         similarityEngine:   'jaccard',           // swap to 'pgvector-cosine' when X-2 lands
+        extractionEngine:   aiConfigured ? aiModel : 'stub',
       },
       ipAddress: request.ip ?? null,
     })
@@ -179,7 +234,10 @@ export const claimsRoutes: FastifyPluginAsync = async (app) => {
       where: { contentItemId: contentId },
       orderBy: { createdAt: 'asc' },
     })
-    return { candidates }
+    // Response carries the per-run counts alongside the full candidates list
+    // so the UI can flash a useful toast ("4 new claims extracted; 2 matched
+    // the library") without a second request.
+    return { candidates, extractedCount, matchedCount, totalClaims: claims.length }
   })
 
   app.post('/:contentId/claims/adopt', { preHandler: requireAuth({ modules: ['C'] }) }, async (request, reply) => {

@@ -1,11 +1,13 @@
-import { useMemo, useState } from 'react'
-import { useMutation, useQuery } from '@tanstack/react-query'
+import { useEffect, useMemo, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { MedClaim, MedContentItem } from '@platform/types'
 import { MED_CONTENT_TYPE_META } from '@platform/types'
-import { medContentApi } from '../../modules/medical-writing/api/medContent'
+import { medContentApi, type MedSlide } from '../../modules/medical-writing/api/medContent'
 import { projectsApi } from '../../api/projects'
 import { ReviewTierBadge } from '../../components/ui'
+import { ApiError } from '../../api/client'
+import { useAiReadiness, isAiReady } from '../../platform/ai-readiness'
 
 // --- Static slide list — 26 slides per brief §43 ---
 
@@ -113,6 +115,62 @@ export function ContentEditor() {
     enabled:  !!contentId && isPatientFacing,
   })
 
+  const qc = useQueryClient()
+  // Slide deck + slides — the real backing store. `+ New slide with AI`
+  // writes here; we poll briefly after an AI enqueue so the new row shows
+  // up without a manual refresh. Deck lazy-creates on the first GET.
+  const { data: deckData } = useQuery({
+    queryKey: ['med-slide-deck', contentId],
+    queryFn:  () => medContentApi.getSlideDeck(contentId!),
+    enabled:  !!contentId,
+    // Poll briefly while the deck is 'generating' — stops once the worker
+    // flips it back to 'ready'. Prevents the dead-polling tax when nothing
+    // is in flight.
+    refetchInterval: (query) => {
+      const d = query.state.data?.deck
+      return d?.status === 'generating' ? 1500 : false
+    },
+  })
+  const liveSlides: MedSlide[] = useMemo(() => deckData?.slides ?? [], [deckData])
+  const { data: readiness } = useAiReadiness()
+  const aiReady = isAiReady(readiness)
+  const [newSlideOpen, setNewSlideOpen] = useState(false)
+  const [newSlidePrompt, setNewSlidePrompt] = useState('')
+  const generateSlide = useMutation({
+    mutationFn: () => medContentApi.generateSlide(contentId!, {
+      prompt:   newSlidePrompt.trim() || undefined,
+      position: liveSlides.length + 1,
+    }),
+    onSuccess: (res) => {
+      flash(`AI slide generation enqueued at position ${res.position} — refreshing the deck…`)
+      setNewSlideOpen(false)
+      setNewSlidePrompt('')
+      qc.invalidateQueries({ queryKey: ['med-slide-deck', contentId] })
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ApiError && err.status === 503) {
+        const body = err.body as { message?: string } | null
+        flash(body?.message ?? 'AI is not configured — ask an admin to set up the AI engine.')
+      } else {
+        flash(`Slide generation failed: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    },
+  })
+
+  // Auto-stop polling + surface a toast when a new AI slide lands after
+  // enqueue — otherwise the user sees the deck quietly grow one row and
+  // might miss the completion signal.
+  const [lastSlideCount, setLastSlideCount] = useState<number | null>(null)
+  useEffect(() => {
+    if (lastSlideCount === null) { setLastSlideCount(liveSlides.length); return }
+    if (liveSlides.length > lastSlideCount) {
+      flash(`Slide ${liveSlides.length} added — AI drafted title + body + speaker notes. Review in the deck.`)
+      setLastSlideCount(liveSlides.length)
+    } else if (liveSlides.length !== lastSlideCount) {
+      setLastSlideCount(liveSlides.length)
+    }
+  }, [liveSlides.length, lastSlideCount])
+
   const slideLocation = `Slide ${activeSlide}`
   const slideClaims = useMemo(
     () => claims.filter(c => c.location === slideLocation),
@@ -150,10 +208,13 @@ export function ContentEditor() {
 
   const currentItem: MedContentItem | undefined = item
 
-  // Export gates (brief §38–40)
+  // Export gates (brief §38–40) — canExport was computed to enable the
+  // "Export for MLR circulation" button, but export isn't implemented yet,
+  // so the button is permanently disabled with a "coming soon" tooltip
+  // (see below). Keeping the counters here as reference for when export lands.
   const mustFixCount: number = 1 // Slide 5 fair-balance
   const altTextComplete      = altSaved
-  const canExport            = mustFixCount === 0 && altTextComplete
+  void mustFixCount; void altTextComplete
 
   const mlrFootprintLabel = `${aiFootprintPct}% AI · ${100 - aiFootprintPct}% Human`
 
@@ -211,18 +272,24 @@ export function ContentEditor() {
 
           <button
             type="button"
+            onClick={() => setNewSlideOpen(true)}
+            disabled={generateSlide.isPending || !aiReady}
+            title={!aiReady ? 'AI is not set up — ask an admin to configure the AI engine before generating slides.' : undefined}
             data-new-slide-ai
-            className="h-9 rounded-md border px-3 text-[12px] font-semibold"
+            className="h-9 rounded-md border px-3 text-[12px] font-semibold disabled:opacity-50"
             style={{ borderColor: '#7C3AED', color: '#7C3AED' }}
-          >+ New slide with AI</button>
+          >{generateSlide.isPending ? 'Generating…' : '+ New slide with AI'}</button>
           <button
             type="button"
+            disabled
+            title="Present mode is not implemented yet."
             data-present
-            className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
+            className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-400"
           >▶ Present</button>
           <button
             type="button"
-            disabled={!canExport}
+            disabled
+            title="MLR export is not implemented yet."
             data-export-mlr
             className="h-9 rounded-md px-3 text-[12px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             style={{ backgroundColor: '#7C3AED' }}
@@ -253,46 +320,84 @@ export function ContentEditor() {
 
         <div className="grid gap-4" style={{ gridTemplateColumns: '260px minmax(0,1fr) 360px' }}>
 
-          {/* LEFT — Slide navigator */}
+          {/* LEFT — Slide navigator. When the deck has any AI-generated
+              slides, render those (real data from GET /slide-deck);
+              otherwise fall back to the fixture SLIDES so the canvas
+              placeholder demo still shows — the fixture will fade as
+              the user generates slides. */}
           <aside className="rounded-lg border border-slate-200 bg-white p-3" data-slide-navigator>
             <p className="mb-2 font-mono text-[10px] uppercase" style={{ color: '#64748B', letterSpacing: '0.1em' }} data-deck-count>
-              Slide deck · {TOTAL_SLIDES} slides
+              Slide deck · {liveSlides.length > 0 ? liveSlides.length : TOTAL_SLIDES} slide{liveSlides.length === 1 ? '' : 's'}
+              {deckData?.deck.status === 'generating' && ' · generating…'}
             </p>
             <div className="flex flex-col gap-1">
-              {SLIDES.map(s => {
-                const active = activeSlide === s.n
-                const dot =
-                  s.state === 'done' ? '#15803D' :
-                  s.state === 'active' ? '#7C3AED' :
-                  s.state === 'warn' ? '#D97706' :
-                  '#CBD5E1'
-                return (
-                  <button
-                    key={s.n}
-                    type="button"
-                    onClick={() => setActiveSlide(s.n)}
-                    data-slide-chip={s.n}
-                    data-slide-state={s.state}
-                    className="flex flex-col rounded-md px-2 py-1.5 text-left"
-                    style={{
-                      backgroundColor: active ? '#F5F3FF' : 'transparent',
-                      border:          active ? '1px solid #DDD6FE' : '1px solid transparent',
-                    }}
-                  >
-                    <div className="flex items-center gap-2 text-[12px]">
-                      <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ backgroundColor: dot }} />
-                      <span className="font-mono text-[10px] text-slate-500">S{s.n}</span>
-                      <span className="truncate font-semibold text-slate-800">{s.title}</span>
-                    </div>
-                    {s.subLabel && (
-                      <span className="ml-4 font-mono text-[10px]" style={{ color: '#B45309' }} data-slide-sublabel={s.n}>
-                        {s.subLabel}
-                      </span>
-                    )}
-                  </button>
-                )
-              })}
-              <p className="mt-1 font-mono text-[10px] text-slate-400">+ {TOTAL_SLIDES - SLIDES.length} more slides</p>
+              {liveSlides.length > 0 ? (
+                liveSlides.map(s => {
+                  const active = activeSlide === s.position
+                  return (
+                    <button
+                      key={s.id}
+                      type="button"
+                      onClick={() => setActiveSlide(s.position)}
+                      data-slide-chip={s.position}
+                      data-slide-state={s.aiGenerated ? 'ai' : 'human'}
+                      className="flex flex-col rounded-md px-2 py-1.5 text-left"
+                      style={{
+                        backgroundColor: active ? '#F5F3FF' : 'transparent',
+                        border:          active ? '1px solid #DDD6FE' : '1px solid transparent',
+                      }}
+                    >
+                      <div className="flex items-center gap-2 text-[12px]">
+                        <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ backgroundColor: s.aiGenerated ? '#7C3AED' : '#15803D' }} />
+                        <span className="font-mono text-[10px] text-slate-500">S{s.position}</span>
+                        <span className="truncate font-semibold text-slate-800">{s.title}</span>
+                      </div>
+                      {s.aiGenerated && (
+                        <span className="ml-4 font-mono text-[10px] text-violet-700" data-slide-ai-tag>
+                          AI draft · review before MLR
+                        </span>
+                      )}
+                    </button>
+                  )
+                })
+              ) : (
+                <>
+                  {SLIDES.map(s => {
+                    const active = activeSlide === s.n
+                    const dot =
+                      s.state === 'done' ? '#15803D' :
+                      s.state === 'active' ? '#7C3AED' :
+                      s.state === 'warn' ? '#D97706' :
+                      '#CBD5E1'
+                    return (
+                      <button
+                        key={s.n}
+                        type="button"
+                        onClick={() => setActiveSlide(s.n)}
+                        data-slide-chip={s.n}
+                        data-slide-state={s.state}
+                        className="flex flex-col rounded-md px-2 py-1.5 text-left"
+                        style={{
+                          backgroundColor: active ? '#F5F3FF' : 'transparent',
+                          border:          active ? '1px solid #DDD6FE' : '1px solid transparent',
+                        }}
+                      >
+                        <div className="flex items-center gap-2 text-[12px]">
+                          <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ backgroundColor: dot }} />
+                          <span className="font-mono text-[10px] text-slate-500">S{s.n}</span>
+                          <span className="truncate font-semibold text-slate-800">{s.title}</span>
+                        </div>
+                        {s.subLabel && (
+                          <span className="ml-4 font-mono text-[10px]" style={{ color: '#B45309' }} data-slide-sublabel={s.n}>
+                            {s.subLabel}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                  <p className="mt-1 font-mono text-[10px] text-slate-400">+ {TOTAL_SLIDES - SLIDES.length} more slides</p>
+                </>
+              )}
             </div>
 
             <div className="mt-4 border-t border-slate-200 pt-3" data-collaborators-strip>
@@ -546,6 +651,63 @@ export function ContentEditor() {
           >
             <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#7C3AED' }} />
             {toast}
+          </div>
+        )}
+
+        {newSlideOpen && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+            data-modal="new-slide-ai"
+            onClick={() => setNewSlideOpen(false)}
+          >
+            <div
+              className="w-full max-w-lg rounded-lg bg-white p-5 shadow-xl"
+              onClick={e => e.stopPropagation()}
+            >
+              <h2 className="text-[16px] font-semibold text-slate-900">New slide with AI</h2>
+              <p className="mt-0.5 text-[12px] text-slate-500">
+                The drafter reads this deck's existing slides + the content item's briefing + the policy's SME prompt
+                and best-practice digest, then produces a complete slide (title, body, speaker notes, optional figure).
+                Review and polish before pre-MLR.
+              </p>
+              <label className="mt-4 flex flex-col gap-1">
+                <span className="text-[12px] font-semibold text-slate-800">What should this slide cover? (optional)</span>
+                <textarea
+                  value={newSlidePrompt}
+                  onChange={e => setNewSlidePrompt(e.currentTarget.value.slice(0, 500))}
+                  rows={4}
+                  placeholder="e.g. Summarise safety findings for Grade ≥3 adverse events — one sentence per class, no new claims."
+                  className="w-full rounded-md border border-slate-300 px-3 py-2 text-[13px]"
+                  data-field="new-slide-prompt"
+                  autoFocus
+                />
+                <span className="self-end font-mono text-[10px] text-slate-400">{newSlidePrompt.length} / 500</span>
+              </label>
+              <p className="mt-2 text-[11px] text-slate-500">
+                Leaving this empty lets the drafter infer the next slide from the deck's existing flow.
+                New slide will be inserted at position <span className="font-mono">{liveSlides.length + 1}</span>.
+              </p>
+              <div className="mt-4 flex justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => { setNewSlideOpen(false); setNewSlidePrompt('') }}
+                  className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
+                  data-action="new-slide-cancel"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={() => generateSlide.mutate()}
+                  disabled={generateSlide.isPending || !aiReady}
+                  title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
+                  className="rounded-md border border-violet-600 bg-violet-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-violet-700 disabled:opacity-50"
+                  data-action="new-slide-generate"
+                >
+                  {generateSlide.isPending ? 'Enqueuing…' : 'Generate with AI'}
+                </button>
+              </div>
+            </div>
           </div>
         )}
       </div>

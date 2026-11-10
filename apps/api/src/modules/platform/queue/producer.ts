@@ -32,6 +32,7 @@ export type QueueJobName =
   | 'dpdpa.breach_notification'
   | 'platform.distill_best_practice'
   | 'platform.distill_template'
+  | 'med_content.ai_slide_draft'
 
 export interface QueueJobOptions {
   /** Delay in milliseconds before the worker picks the job up. */

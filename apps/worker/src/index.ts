@@ -21,6 +21,7 @@ import { handleAiInitialDraft } from './jobs/ai-initial-draft.js'
 import { handleAiValidationPass } from './jobs/ai-validation-pass.js'
 import { handleDistillBestPractice } from './jobs/distill-best-practice.js'
 import { handleDistillTemplate } from './jobs/distill-template.js'
+import { handleGenerateMedSlide } from './jobs/generate-med-slide.js'
 import { handlePresenceReaper } from './jobs/presence-reaper.js'
 import { handleAccessReviewCron } from './jobs/access-review-cron.js'
 
@@ -114,6 +115,9 @@ const handlers = {
   // Platform — one-off Template PDF → structured sections[]. Enqueued
   // from the admin "Upload + parse" button on the Template Library screen.
   'platform.distill_template': handleDistillTemplate,
+  // Module C — one slide inserted into a MedSlideDeckJob via Claude.
+  // Enqueued from the Content Editor's "+ New slide with AI" button.
+  'med_content.ai_slide_draft': handleGenerateMedSlide,
 } as const
 type JobName = keyof typeof handlers
 
@@ -148,6 +152,10 @@ const concurrency: Record<JobName, number> = {
   'platform.distill_best_practice': 1,
   // Template parsing: same shape as BP distill, serial for the same reason.
   'platform.distill_template': 1,
+  // Slide generation: serial to keep provider pressure predictable — users
+  // click "+ New slide with AI" one slide at a time anyway. Bump when
+  // full-deck generation (20 slides at a time) lands.
+  'med_content.ai_slide_draft': 1,
   // Access review is a once-a-month fan-out; concurrency=1 prevents a
   // double-notification race if two schedulers tick at the same minute.
   'compliance.access_review': 1,

@@ -390,6 +390,13 @@ async function buildServer() {
   const { mlrRoutes } = await import('./modules/medical-writing/mlr/routes.js')
   await app.register(mlrRoutes, { prefix: '/med-content' })
 
+  // Slide deck — GET /med-content/:id/slide-deck + POST .../slides/ai-generate;
+  // PATCH / DELETE land on /med-slides/:slideId so slide-id-only clients
+  // don't need the content id.
+  const { slideDeckRoutes, slideItemRoutes } = await import('./modules/medical-writing/slide-deck/routes.js')
+  await app.register(slideDeckRoutes, { prefix: '/med-content' })
+  await app.register(slideItemRoutes, { prefix: '/med-slides' })
+
   // ---------- Module D — Regulatory Writing ----------
   const { regSubmissionsProjectScopedRoutes, regSubmissionsRoutes } =
     await import('./modules/regulatory-writing/submissions/routes.js')

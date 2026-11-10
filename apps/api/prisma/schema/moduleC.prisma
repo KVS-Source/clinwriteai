@@ -289,3 +289,90 @@ model ContentUpload {
   @@index([status])
   @@index([contentItemId])
 }
+
+// --------------------------------------------------------------------------
+// 28.7 med_slide_deck_jobs / med_slides / med_slide_figures
+// --------------------------------------------------------------------------
+//
+// Slide-deck authoring for MedContentItem. Mirrors Module B's SlideDeckJob /
+// Slide / SlideFigure (which is scoped to Publication) but attached to
+// MedContentItem instead, so Module C can run its own AI slide generation
+// without polluting Module B.
+//
+// AI pipeline mirrors clinical.ai_initial_draft:
+//   - Deck job holds generation metadata (model, status, aiFootprintPct)
+//   - One Slide row per slide (position, title, bodyHtml, speakerNotes)
+//   - Slide rows written by the worker `med_content.ai_slide_draft` from
+//     DocumentTypePolicy.smePrompt + bestPracticeDigest + existing slide
+//     context (`policyVersionAtCreate` pinned on the deck).
+//
+// Added in migration 67 (2026-11-10).
+
+model MedSlideDeckJob {
+  id                      String   @id @default(uuid())
+  contentItemId           String
+  // Snapshot of the generation settings — same shape as Module B's deck job
+  // so the two can converge later if we abstract.
+  source                  String   @default("full-briefing")              // 'full-briefing' | 'claims-matrix' | 'manual'
+  congressTarget          String?                                          // e.g. 'ASCO 2027' when deck is pitched for a venue
+  slideCountLimit         Int      @default(25)                            // soft cap for full-deck jobs; single-slide generations ignore this
+  status                  String   @default("draft")                       // 'draft' | 'generating' | 'ready' | 'exported'
+  aiModel                 String?                                          // 'claude-sonnet-4-6' etc. — null until the first AI slide lands
+  aiFootprintPct          Int?                                             // rough AI contribution %; computed by the worker
+  policyVersionAtCreate   Int?                                             // DocumentTypePolicy.version pinned at deck creation (same mechanism as Document)
+  generatedAt             DateTime?
+  createdBy               String
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  slides                  MedSlide[]
+
+  @@map("med_slide_deck_jobs")
+  @@index([contentItemId])
+  @@index([status])
+}
+
+model MedSlide {
+  id                      String   @id @default(uuid())
+  deckJobId               String
+  position                Int                                              // 1-based slide number in the deck
+  title                   String
+  bodyHtml                String                                           // sanitised HTML body (lists, paragraphs)
+  speakerNotes            String                                           // plain text; renders in Present mode (not yet shipped)
+  // AI provenance per-slide — lets the Pre-MLR checker + audit reconstruct
+  // what AI contributed vs. what the author edited. Mirrors clinical
+  // SectionContent.aiSpanCount/humanSpanCount.
+  aiGenerated             Boolean  @default(false)                         // flipped true on first AI write; author edits set to false on the next save (TBD)
+  aiModel                 String?                                          // the model that produced this slide, if AI-drafted
+  aiGeneratedAt           DateTime?
+  aiPrompt                String?                                          // the free-text prompt the author gave the generator
+  lastEditedBy            String?
+  lastEditedAt            DateTime?
+  createdAt               DateTime @default(now())
+  updatedAt               DateTime @updatedAt
+
+  deckJob                 MedSlideDeckJob @relation(fields: [deckJobId], references: [id], onDelete: Cascade)
+  figures                 MedSlideFigure[]
+
+  @@map("med_slides")
+  @@index([deckJobId])
+  @@unique([deckJobId, position])
+}
+
+model MedSlideFigure {
+  id              String   @id @default(uuid())
+  slideId         String
+  // Figure stays a reference for now — rendering the actual chart / image is
+  // deferred. The AI generator fills `figureRef` + `altText` + a short
+  // `figureDescription` so the slide can show a placeholder until a figure
+  // asset is attached.
+  figureRef       String                                                   // e.g. 'Fig-3', 'Table-2', 'CSR §16.4 Fig 1'
+  altText         String                                                   // WCAG alt text (accessibility)
+  figureDescription String                                                 // one-sentence what the figure shows
+  createdAt       DateTime @default(now())
+
+  slide           MedSlide @relation(fields: [slideId], references: [id], onDelete: Cascade)
+
+  @@map("med_slide_figures")
+  @@index([slideId])
+}

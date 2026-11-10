@@ -38,7 +38,6 @@ export function SignIn() {
     <AuthCard
       screen="sign-in"
       title={t('page.sign_in.title')}
-      subtitle={<span className="font-mono text-[11px] text-blue-600">{t('page.sign_in.subtitle')}</span>}
     >
       <form onSubmit={handleSubmit} className="flex flex-col gap-4">
         {justReset && <AuthNotice>{t('page.sign_in.reset_notice')}</AuthNotice>}

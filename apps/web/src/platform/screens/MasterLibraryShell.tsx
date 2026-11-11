@@ -62,8 +62,10 @@ export function MasterLibraryShell() {
     <div className="flex h-full min-h-0 flex-col bg-slate-50" data-screen="master-library">
       <header className="flex-none border-b border-slate-200 bg-white px-5 pt-4">
         <div ref={setHeadingSlot} data-master-library-heading />
+        {/* Scrolls sideways on narrow screens, but never up and down and with no scrollbar showing: the
+            active tab's underline used to poke 1px below the strip, which put scroll arrows on its right. */}
         <nav
-          className="-mx-5 mt-4 flex items-end gap-0 overflow-x-auto border-b border-slate-200 px-5"
+          className="-mx-5 mt-4 flex items-end gap-0 overflow-x-auto overflow-y-hidden border-b border-slate-200 px-5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
           role="tablist"
           data-master-library-tabs
         >
@@ -79,7 +81,7 @@ export function MasterLibraryShell() {
                 return [
                   'relative whitespace-nowrap px-4 py-2.5 text-[13px] font-medium transition-colors',
                   active
-                    ? 'text-blue-700 after:absolute after:inset-x-3 after:bottom-[-1px] after:h-0.5 after:rounded-full after:bg-blue-600'
+                    ? 'text-blue-700 after:absolute after:inset-x-3 after:bottom-0 after:h-0.5 after:rounded-full after:bg-blue-600'
                     : 'text-slate-600 hover:text-slate-900',
                 ].join(' ')
               }}

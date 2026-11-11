@@ -208,17 +208,15 @@ export function MasterLibrary() {
         {/* The heading goes up into the Master Library header (above the tabs); the breadcrumb and
             "who you are" line are gone — the top bar carries "Master Library / Master Documents". */}
         <MasterLibraryHeading>
-          <h1 className="text-[20px] font-semibold text-slate-900">{t('page.master_library.tab_documents', { defaultValue: 'Master Documents' })}</h1>
+          {/* The item count sits beside the title, in brackets: "Master Documents (2)". */}
+          <h1 className="text-[20px] font-semibold text-slate-900">
+            {t('page.master_library.tab_documents', { defaultValue: 'Master Documents' })}
+            {!isLoading && <span className="ml-1.5 font-normal text-slate-500" data-results-count={total}>({total})</span>}
+          </h1>
           <p className="mt-0.5 text-[13px] text-slate-500">
             {t('page.master_library.subtitle_documents', { defaultValue: 'Signed documents and sections pushed here from projects. Search and filter the library, and pull approved sections into new documents.' })}
           </p>
         </MasterLibraryHeading>
-
-        <div className="flex items-center gap-2" data-results-count>
-          <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-mono text-[11px] font-semibold uppercase tracking-wide text-slate-700">
-            {isLoading ? t('page.master_library.loading_short') : t('page.master_library.results_count', { items: total, filters: activeFilterCount })}
-          </span>
-        </div>
 
         {/* Filters — fill the card's width. At 1100px of content width and up it is one row (search
             twice as wide as each dropdown); narrower, it wraps: search on its own first row, the rest below. */}

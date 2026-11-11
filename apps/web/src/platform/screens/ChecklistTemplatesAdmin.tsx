@@ -5,12 +5,16 @@
 // bump-new-draft, add/edit/delete items, reorder up/down, approve + lock.
 
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
-import { useMemo, useState } from 'react'
+import { MultiSelect } from '../components/MultiSelect'
+import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { documentsApi } from '../../api/documents'
 import { projectsApi } from '../../api/projects'
 import { ApiError } from '../../api/client'
+import { SlidePanel } from '../../components/ui/SlidePanel'
+import { SortIcon } from '../../components/ui/SortIcon'
+import { PLATFORM_ACCENT } from '@platform/types'
 
 type Template = Awaited<ReturnType<typeof documentsApi.listChecklistTemplates>>[number]
 type TemplateDetail = Awaited<ReturnType<typeof documentsApi.getChecklistTemplate>>
@@ -69,6 +73,10 @@ const TEMPLATE_STATUS_KEYS: Record<string, string> = {
   draft:  'page.checklist_templates_admin.status_draft',
   locked: 'page.checklist_templates_admin.status_locked',
 }
+
+type SortKey = 'deliverable-asc' | 'deliverable-desc' | 'version-asc' | 'version-desc' | 'items-asc' | 'items-desc' | 'recent' | 'oldest'
+const PAGE_SIZES = [10, 20, 50]
+const filterControl = 'h-10 w-full rounded-md border border-slate-300 bg-white px-2.5 text-[12px] text-slate-800'
 
 function fmtDate(iso: string | null): string {
   if (!iso) return '—'
@@ -168,136 +176,245 @@ export function ChecklistTemplatesAdmin() {
     onSuccess: invalidate,
   })
 
-  // Group templates by deliverable type so the catalog reads naturally.
-  const grouped = useMemo(() => {
-    const bins = new Map<string, Template[]>()
-    for (const tpl of listQ.data ?? []) {
-      const list = bins.get(tpl.deliverableType) ?? []
-      list.push(tpl)
-      bins.set(tpl.deliverableType, list)
-    }
-    return Array.from(bins.entries())
-      .map(([deliverableType, rows]) => ({
-        deliverableType,
-        label: deliverableTypeLabel(deliverableType),
-        rows: rows.sort((a, b) => (a.projectId ?? '') < (b.projectId ?? '') ? -1 : 1),
-      }))
-      .sort((a, b) => a.label.localeCompare(b.label))
-  // deliverableTypeLabel depends on t; include listQ.data as the data source
+  // --- List: filters, sort and paging (the same controls as Master Documents; the list is small, so they run in the browser)
+  const [search,       setSearch]       = useState('')
+  const [deliverables, setDeliverables] = useState<string[]>([])
+  const [statuses,     setStatuses]     = useState<string[]>([])
+  const [scopes,       setScopes]       = useState<string[]>([])
+  const [sort,         setSort]         = useState<SortKey>('deliverable-asc')
+  const [page,         setPage]         = useState(1)
+  const [pageSize,     setPageSize]     = useState(PAGE_SIZES[0]!)
+
+  const deliverableOptions = useMemo(
+    () => Array.from(new Set((listQ.data ?? []).map(r => r.deliverableType)))
+      .map(k => ({ value: k, label: deliverableTypeLabel(k) }))
+      .sort((a, b) => a.label.localeCompare(b.label)),
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [listQ.data, t])
+  [listQ.data, t])
+  const statusOptions = ['draft', 'locked'].map(k => ({ value: k, label: TEMPLATE_STATUS_KEYS[k] ? t(TEMPLATE_STATUS_KEYS[k]) : k }))
+  const scopeOptions = [
+    { value: 'platform', label: t('page.checklist_templates_admin.scope_platform_baseline') },
+    { value: 'project',  label: t('page.checklist_templates_admin.scope_project_override', { defaultValue: 'Project override' }) },
+  ]
+
+  const filtersDirty = search.trim() !== '' || deliverables.length > 0 || statuses.length > 0 || scopes.length > 0
+  const resetFilters = () => { setSearch(''); setDeliverables([]); setStatuses([]); setScopes([]) }
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const rows = (listQ.data ?? []).filter(r => {
+      if (deliverables.length > 0 && !deliverables.includes(r.deliverableType)) return false
+      if (statuses.length > 0 && !statuses.includes(r.templateStatus)) return false
+      if (scopes.length > 0 && !scopes.includes(r.projectId == null ? 'platform' : 'project')) return false
+      if (q && ![deliverableTypeLabel(r.deliverableType), r.projectId ?? '', r.changeReason ?? '', r.createdByName ?? r.createdBy ?? '', r.approvedByName ?? r.approvedBy ?? '']
+        .some(v => v.toLowerCase().includes(q))) return false
+      return true
+    })
+    const label = (r: Template) => deliverableTypeLabel(r.deliverableType)
+    const time = (v: string | null) => (v ? new Date(v).getTime() : 0)
+    const by: Record<SortKey, (x: Template, y: Template) => number> = {
+      'deliverable-asc':  (x, y) => label(x).localeCompare(label(y)) || y.version - x.version,
+      'deliverable-desc': (x, y) => label(y).localeCompare(label(x)) || y.version - x.version,
+      'version-asc':      (x, y) => x.version - y.version,
+      'version-desc':     (x, y) => y.version - x.version,
+      'items-asc':        (x, y) => x.itemCount - y.itemCount,
+      'items-desc':       (x, y) => y.itemCount - x.itemCount,
+      'recent':           (x, y) => time(y.effectiveDate) - time(x.effectiveDate),
+      'oldest':           (x, y) => time(x.effectiveDate) - time(y.effectiveDate),
+    }
+    return [...rows].sort(by[sort])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listQ.data, search, deliverables, statuses, scopes, sort, t])
+
+  useEffect(() => { setPage(1) }, [search, deliverables, statuses, scopes, sort, pageSize])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pageRows  = filtered.slice((Math.min(page, pageCount) - 1) * pageSize, Math.min(page, pageCount) * pageSize)
+
+  const sortFor = (asc: SortKey, desc: SortKey): 'asc' | 'desc' | null => sort === asc ? 'asc' : sort === desc ? 'desc' : null
+  const SortHead = ({ label, asc, desc }: { label: string; asc: SortKey; desc: SortKey }) => (
+    <th className="px-4 py-3 text-left" aria-sort={sort === asc ? 'ascending' : sort === desc ? 'descending' : 'none'}>
+      <button type="button" onClick={() => setSort(sort === asc ? desc : asc)} data-sort={asc}
+        className="inline-flex items-center gap-1.5 uppercase tracking-widest hover:text-slate-800">
+        {label}<SortIcon state={sortFor(asc, desc)} />
+      </button>
+    </th>
+  )
+  const PlainHead = ({ label }: { label: string }) => <th className="px-4 py-3 text-left uppercase tracking-widest">{label}</th>
+
+  const detail = detailQ.data
+  const openRow = (id: string) => { setSelected(id); setApproveError(null); setApprovedNotice(null) }
+  const closePanel = () => { setSelected(null); setApproveError(null); setApprovedNotice(null) }
 
   return (
-    <div className="flex h-full flex-col overflow-hidden" data-screen="checklist-templates-admin">
-      <MasterLibraryHeading>
-        <h1 className="text-[20px] font-semibold text-slate-900">{t('page.checklist_templates_admin.title')}</h1>
-        <p className="mt-0.5 text-[13px] text-slate-500">
-          {t('page.checklist_templates_admin.subtitle')}
-        </p>
-      </MasterLibraryHeading>
+    <div className="bg-slate-50" data-screen="checklist-templates-admin">
+      <div className="flex flex-col gap-4" style={{ maxWidth: 1600, padding: '20px 24px 48px' }}>
+        <MasterLibraryHeading>
+          <h1 className="text-[20px] font-semibold text-slate-900">{t('page.checklist_templates_admin.title')}</h1>
+          <p className="mt-0.5 text-[13px] text-slate-500">
+            {t('page.checklist_templates_admin.subtitle')}
+          </p>
+        </MasterLibraryHeading>
 
-      <div className="flex flex-1 min-h-0">
-        {/* Left: catalog */}
-        <div className="flex w-[420px] flex-none flex-col overflow-hidden border-r border-slate-200 bg-white">
-          <div className="flex-1 overflow-y-auto">
-            {listQ.isLoading && (
-              <p className="px-6 py-6 text-sm text-slate-400">{t('page.checklist_templates_admin.loading_list')}</p>
-            )}
-            {listQ.isError && (
-              <p className="px-6 py-6 text-sm text-red-700" role="alert">
-                {t('page.checklist_templates_admin.load_failed_list')}
-              </p>
-            )}
-            {!listQ.isLoading && !listQ.isError && grouped.length === 0 && (
-              <p className="px-6 py-6 text-sm text-slate-500">{t('page.checklist_templates_admin.empty_list')}</p>
-            )}
-            {grouped.map(group => (
-              <section key={group.deliverableType} data-group={group.deliverableType}>
-                <div className="sticky top-0 bg-slate-50 px-6 py-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-                  {group.label}
-                </div>
-                {group.rows.map(tpl => {
-                  const isSelected = selected === tpl.id
-                  const isPlatformBaseline = tpl.projectId == null
-                  return (
-                    <button
-                      key={tpl.id}
-                      type="button"
-                      onClick={() => { setSelected(tpl.id); setApproveError(null); setApprovedNotice(null) }}
-                      className={`flex w-full flex-col gap-1 border-b border-slate-100 px-6 py-3 text-left transition-colors hover:bg-slate-50 ${isSelected ? 'bg-blue-50/60' : ''}`}
-                      aria-selected={isSelected}
-                      data-template-row={tpl.id}
-                    >
-                      <div className="flex items-baseline justify-between gap-3">
-                        <p className="text-[13px] font-semibold text-slate-900">
-                          {isPlatformBaseline
-                            ? t('page.checklist_templates_admin.row_version_platform', { version: tpl.version })
-                            : t('page.checklist_templates_admin.row_version_project', { version: tpl.version, projectId: tpl.projectId })}
-                        </p>
-                        <span
-                          className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase"
-                          style={tpl.templateStatus === 'locked'
-                            ? { backgroundColor: '#DCFCE7', color: '#15803D' }
-                            : { backgroundColor: '#FEF3C7', color: '#B45309' }}
-                        >
-                          {TEMPLATE_STATUS_KEYS[tpl.templateStatus] ? t(TEMPLATE_STATUS_KEYS[tpl.templateStatus]) : tpl.templateStatus}
-                        </span>
-                      </div>
-                      <p className="text-[11px] text-slate-500">
-                        {t('page.checklist_templates_admin.row_summary', { items: tpl.itemCount, docs: tpl.instanceCount })}
-                        {tpl.isCurrent ? t('page.checklist_templates_admin.row_current_suffix') : ''}
-                      </p>
-                      {/* Template library (CW-029): who drafted it, and when it took effect and who approved it. */}
-                      <p className="text-[11px] text-slate-500" data-template-row-history>
-                        {tpl.templateStatus === 'locked' && tpl.approvedAt
-                          ? t('page.checklist_templates_admin.row_effective', { date: fmtDate(tpl.effectiveDate), name: tpl.approvedByName ?? tpl.approvedBy ?? '—' })
-                          : t('page.checklist_templates_admin.row_drafted_by', { name: tpl.createdByName ?? tpl.createdBy })}
-                      </p>
-                    </button>
-                  )
-                })}
-              </section>
-            ))}
+        {/* Filters — search, Deliverable, Status, Scope and reset in one row, like Master Documents. New drafts and
+            project overrides are made from a template's panel (a template is never started from nothing). */}
+        <div className="[container-type:inline-size]" data-filter-panel>
+          <div className="flex flex-wrap items-center gap-3 [@container_(min-width:900px)]:flex-nowrap">
+            <input
+              type="search" value={search} onChange={e => setSearch(e.currentTarget.value)}
+              placeholder={t('page.checklist_templates_admin.search_placeholder', { defaultValue: 'Search checklists' })}
+              aria-label={t('page.checklist_templates_admin.search_placeholder', { defaultValue: 'Search checklists' })}
+              data-filter-search
+              className={`${filterControl} basis-full min-w-0 [@container_(min-width:900px)]:min-w-[180px] [@container_(min-width:900px)]:flex-[2_1_0%] [@container_(min-width:900px)]:basis-auto`}
+            />
+            <div data-filter-deliverable className="min-w-[150px] flex-[1_1_150px] [@container_(min-width:900px)]:flex-[1_1_0%]">
+              <MultiSelect label={t('page.checklist_templates_admin.col_deliverable', { defaultValue: 'Deliverable' })} allLabel={t('page.checklist_templates_admin.all_deliverables', { defaultValue: 'All deliverables' })}
+                options={deliverableOptions} value={deliverables} onChange={setDeliverables} optionAttr="data-deliverable-option" className={filterControl} />
+            </div>
+            <div data-filter-status className="min-w-[140px] flex-[1_1_140px] [@container_(min-width:900px)]:flex-[1_1_0%]">
+              <MultiSelect label={t('page.checklist_templates_admin.versions_col_status')} allLabel={t('page.checklist_templates_admin.all_statuses', { defaultValue: 'All statuses' })}
+                options={statusOptions} value={statuses} onChange={setStatuses} optionAttr="data-status-option" className={filterControl} />
+            </div>
+            <div data-filter-scope className="min-w-[140px] flex-[1_1_140px] [@container_(min-width:900px)]:flex-[1_1_0%]">
+              <MultiSelect label={t('page.checklist_templates_admin.col_scope', { defaultValue: 'Scope' })} allLabel={t('page.checklist_templates_admin.all_scopes', { defaultValue: 'All scopes' })}
+                options={scopeOptions} value={scopes} onChange={setScopes} optionAttr="data-scope-option" className={filterControl} />
+            </div>
+            <button
+              type="button" onClick={resetFilters} disabled={!filtersDirty}
+              title={filtersDirty ? t('page.master_library.reset_filters') : t('page.master_library.filters_at_defaults')}
+              aria-label={t('page.master_library.reset_filters')}
+              className="flex h-10 w-10 flex-none items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white"
+              data-action="reset-filters"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" />
+                <path d="M2.5 2.5v2.8h2.8" />
+              </svg>
+            </button>
           </div>
         </div>
 
-        {/* Right: detail */}
-        <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
-          {!selected && (
-            <p className="px-8 py-10 text-sm text-slate-500">
-              {t('page.checklist_templates_admin.pick_hint')}
-            </p>
-          )}
-          {selected && detailQ.isLoading && (
-            <p className="px-8 py-10 text-sm text-slate-400">{t('page.checklist_templates_admin.loading_detail')}</p>
-          )}
-          {selected && detailQ.isError && (
-            <p className="px-8 py-10 text-sm text-red-700" role="alert">
-              {t('page.checklist_templates_admin.load_failed_detail')}
-            </p>
-          )}
-          {selected && detailQ.data && (
-            <TemplateDetailView
-              template={detailQ.data}
-              deliverableTypeLabel={deliverableTypeLabel}
-              onApprove={() => approveMut.mutate(detailQ.data!.id)}
-              approving={approveMut.isPending}
-              approveError={approveError}
-              approvedNotice={approvedNotice}
-              versions={(listQ.data ?? []).filter(r => r.deliverableType === detailQ.data!.deliverableType && r.projectId === detailQ.data!.projectId)}
-              onSelectVersion={(id) => { setSelected(id); setApproveError(null); setApprovedNotice(null) }}
-              onBumpDraft={() => bumpMut.mutate(detailQ.data!.id)}
-              bumping={bumpMut.isPending}
-              onCloneToProject={() => setCloneForTemplateId(detailQ.data!.id)}
-              onAddItem={(body) => addItemMut.mutate({ templateId: detailQ.data!.id, ...body })}
-              onPatchItem={(itemId, body) => patchItemMut.mutate({ itemId, ...body })}
-              onDeleteItem={(itemId) => deleteItemMut.mutate(itemId)}
-              onMoveItem={(itemId, direction) => moveItemMut.mutate({ itemId, direction })}
-              anyMutating={addItemMut.isPending || patchItemMut.isPending || deleteItemMut.isPending || moveItemMut.isPending}
-            />
-          )}
-        </div>
+        {listQ.isError && (
+          <p className="rounded-md bg-red-50 p-3 text-[12px] text-red-800" role="alert" data-state="error">{t('page.checklist_templates_admin.load_failed_list')}</p>
+        )}
+
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-results-list>
+          <table className="w-full border-collapse text-[13px]">
+            <thead className="border-b border-slate-200 bg-slate-50 font-mono text-[10px] font-semibold text-slate-500">
+              <tr>
+                <SortHead label={t('page.checklist_templates_admin.col_deliverable', { defaultValue: 'Deliverable' })} asc="deliverable-asc" desc="deliverable-desc" />
+                <SortHead label={t('page.checklist_templates_admin.versions_col_version')} asc="version-asc" desc="version-desc" />
+                <PlainHead label={t('page.checklist_templates_admin.col_scope', { defaultValue: 'Scope' })} />
+                <PlainHead label={t('page.checklist_templates_admin.versions_col_status')} />
+                <SortHead label={t('page.checklist_templates_admin.col_items', { defaultValue: 'Items' })} asc="items-asc" desc="items-desc" />
+                <PlainHead label={t('page.checklist_templates_admin.col_documents', { defaultValue: 'Documents' })} />
+                <SortHead label={t('page.checklist_templates_admin.versions_col_effective')} asc="oldest" desc="recent" />
+                <PlainHead label={t('page.checklist_templates_admin.versions_col_people')} />
+              </tr>
+            </thead>
+            <tbody>
+              {listQ.isLoading && (
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.checklist_templates_admin.loading_list')}</td></tr>
+              )}
+              {!listQ.isLoading && !listQ.isError && pageRows.length === 0 && (
+                <tr><td colSpan={8} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
+                  {filtersDirty ? t('page.checklist_templates_admin.empty_filtered', { defaultValue: 'No checklists match these filters.' }) : t('page.checklist_templates_admin.empty_list')}
+                  {filtersDirty && (
+                    <div><button type="button" onClick={resetFilters} className="mt-2 font-semibold text-slate-700 underline">{t('page.master_library.reset_filters')}</button></div>
+                  )}
+                </td></tr>
+              )}
+              {pageRows.map(tpl => {
+                const isActive = tpl.id === selected
+                return (
+                  <tr key={tpl.id} onClick={() => openRow(tpl.id)} tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRow(tpl.id) } }}
+                    data-template-row={tpl.id} data-template-active={isActive || undefined} data-panel-trigger aria-current={isActive || undefined}
+                    className="cursor-pointer border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
+                    style={{ backgroundColor: isActive ? PLATFORM_ACCENT.bgTint : undefined }}>
+                    <td className="px-4 py-3 font-semibold text-slate-900">{deliverableTypeLabel(tpl.deliverableType)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">
+                      v{tpl.version}
+                      {tpl.isCurrent && <span className="ml-1.5 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">{t('page.checklist_templates_admin.version_current')}</span>}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">
+                      {tpl.projectId == null ? t('page.checklist_templates_admin.scope_platform_baseline') : t('page.checklist_templates_admin.scope_project', { projectId: tpl.projectId })}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className="rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase"
+                        style={tpl.templateStatus === 'locked' ? { backgroundColor: '#DCFCE7', color: '#15803D' } : { backgroundColor: '#FEF3C7', color: '#B45309' }}>
+                        {TEMPLATE_STATUS_KEYS[tpl.templateStatus] ? t(TEMPLATE_STATUS_KEYS[tpl.templateStatus]) : tpl.templateStatus}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">{tpl.itemCount}</td>
+                    <td className="px-4 py-3 text-slate-700">{tpl.instanceCount}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{tpl.templateStatus === 'locked' ? fmtDate(tpl.effectiveDate) : '—'}</td>
+                    <td className="px-4 py-3 text-[12px] text-slate-600" data-template-row-history>
+                      {tpl.createdByName ?? tpl.createdBy}
+                      {tpl.approvedAt && <> → {tpl.approvedByName ?? tpl.approvedBy ?? '—'}</>}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+
+          <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3" data-pagination>
+            <select className="h-9 rounded-md border border-slate-300 bg-white px-2 text-[13px]" value={pageSize}
+              onChange={e => setPageSize(Number(e.target.value))} aria-label={t('page.master_library.rows_per_page')} data-page-size>
+              {PAGE_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <div className="flex items-center gap-3 font-mono text-[12px] text-slate-600">
+              <span>{t('page.master_library.page_status', { page: Math.min(page, pageCount), pages: pageCount, count: filtered.length })}</span>
+              <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} data-action="prev-page"
+                className="h-9 rounded-md border border-slate-300 px-3 text-[13px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                ‹ {t('page.master_library.previous')}
+              </button>
+              <button type="button" onClick={() => setPage(p => Math.min(pageCount, p + 1))} disabled={page >= pageCount} data-action="next-page"
+                className="h-9 rounded-md border border-slate-300 px-3 text-[13px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                {t('page.master_library.next')} ›
+              </button>
+            </div>
+          </div>
+        </section>
       </div>
+
+      {/* The template's items and actions open in a right-hand panel. Not closed by an outside click, so a
+          half-typed item isn't lost by accident. */}
+      <SlidePanel open={!!selected} onClose={closePanel}
+        title={detail ? `${deliverableTypeLabel(detail.deliverableType)} · ${t('page.checklist_templates_admin.detail_version', { version: detail.version })}` : t('page.checklist_templates_admin.title')}
+        subtitle={detail && (
+          <span className="mt-1 block truncate text-[12px] text-slate-500">
+            {detail.projectId == null ? t('page.checklist_templates_admin.scope_platform_baseline') : t('page.checklist_templates_admin.scope_project', { projectId: detail.projectId })}
+          </span>
+        )}
+        storageKey="checklist-detail" defaultWidth={880} belowTopBar expandable>
+        {selected && detailQ.isLoading && (
+          <p className="px-5 py-10 text-sm text-slate-400">{t('page.checklist_templates_admin.loading_detail')}</p>
+        )}
+        {selected && detailQ.isError && (
+          <p className="px-5 py-10 text-sm text-red-700" role="alert">{t('page.checklist_templates_admin.load_failed_detail')}</p>
+        )}
+        {selected && detail && (
+          <TemplateDetailView
+            template={detail}
+            deliverableTypeLabel={deliverableTypeLabel}
+            onApprove={() => approveMut.mutate(detail.id)}
+            approving={approveMut.isPending}
+            approveError={approveError}
+            approvedNotice={approvedNotice}
+            versions={(listQ.data ?? []).filter(r => r.deliverableType === detail.deliverableType && r.projectId === detail.projectId)}
+            onSelectVersion={openRow}
+            onBumpDraft={() => bumpMut.mutate(detail.id)}
+            bumping={bumpMut.isPending}
+            onCloneToProject={() => setCloneForTemplateId(detail.id)}
+            onAddItem={(body) => addItemMut.mutate({ templateId: detail.id, ...body })}
+            onPatchItem={(itemId, body) => patchItemMut.mutate({ itemId, ...body })}
+            onDeleteItem={(itemId) => deleteItemMut.mutate(itemId)}
+            onMoveItem={(itemId, direction) => moveItemMut.mutate({ itemId, direction })}
+            anyMutating={addItemMut.isPending || patchItemMut.isPending || deleteItemMut.isPending || moveItemMut.isPending}
+          />
+        )}
+      </SlidePanel>
 
       {cloneForTemplateId && (
         <CloneToProjectModal
@@ -450,8 +567,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
     return ordered
   }, [template, t])
 
-  const isPlatformBaseline = template.projectId == null
-  const isDraft    = template.templateStatus === 'draft'
+  const isDraft   = template.templateStatus === 'draft'
   // Approval cycle (CW-029): an author of the draft can't approve it. The API says so (canApprove).
   const showApprove   = isDraft
   const selfAuthored  = isDraft && template.canApprove === false
@@ -459,21 +575,10 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
   const versions = [...props.versions].sort((a, b) => b.version - a.version)
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
-      <div className="flex flex-none items-start justify-between gap-4 border-b border-slate-200 bg-white px-8 py-5">
+    <div className="flex flex-col">
+      <div className="flex flex-none items-start justify-between gap-4 border-b border-slate-200 bg-white px-5 py-5">
         <div>
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-            {props.deliverableTypeLabel(template.deliverableType)}
-          </p>
-          <h2 className="mt-1 text-lg font-semibold text-slate-900">
-            {t('page.checklist_templates_admin.detail_version', { version: template.version })}
-            <span className="ml-2 text-sm font-normal text-slate-500">
-              {isPlatformBaseline
-                ? t('page.checklist_templates_admin.scope_platform_baseline')
-                : t('page.checklist_templates_admin.scope_project', { projectId: template.projectId })}
-            </span>
-          </h2>
-          <p className="mt-1 text-[12px] text-slate-500">
+          <p className="text-[12px] text-slate-500">
             {t('page.checklist_templates_admin.detail_summary', { items: template.items.length, docs: template.instanceCount, effective: fmtDate(template.effectiveDate) })}
             {template.approvedAt && t('page.checklist_templates_admin.detail_approved_suffix', { date: fmtDate(template.approvedAt) })}
           </p>
@@ -549,10 +654,10 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-slate-50">
+      <div className="bg-slate-50 pb-4">
         {/* Template library (CW-029): every version of this template, its status and effective date. */}
         {versions.length > 1 && (
-          <section className="mx-8 mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white" data-template-versions>
+          <section className="mx-5 mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white" data-template-versions>
             <h3 className="border-b border-slate-100 px-4 py-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
               {t('page.checklist_templates_admin.versions_heading', { count: versions.length })}
             </h3>
@@ -593,7 +698,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
           </section>
         )}
         {byStage.length === 0 && !isDraft && (
-          <p className="px-8 py-10 text-sm text-slate-500">
+          <p className="px-5 py-10 text-sm text-slate-500">
             {t('page.checklist_templates_admin.empty_template')}
           </p>
         )}
@@ -605,10 +710,10 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
           const items = group?.items ?? []
           return (
             <section key={stage} className="mt-4 first:mt-0" data-stage-group={stage}>
-              <h3 className="px-8 pt-4 pb-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              <h3 className="px-5 pt-4 pb-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
                 {t('page.checklist_templates_admin.stage_heading', { stage: t(STAGE_LABEL_KEYS[stage]), count: items.length })}
               </h3>
-              <div className="mx-8 overflow-hidden rounded-lg border border-slate-200 bg-white">
+              <div className="mx-5 overflow-hidden rounded-lg border border-slate-200 bg-white">
                 {items.map((it, i) => (
                   editingId === it.id ? (
                     <EditItemRow

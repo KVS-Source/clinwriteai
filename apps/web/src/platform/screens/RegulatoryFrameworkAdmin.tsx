@@ -303,7 +303,8 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
         <MasterLibraryHeading>
           <h1 className="text-[20px] font-semibold text-slate-900">{t('page.regulatory_framework_admin.title')}</h1>
           <p className="mt-0.5 text-[13px] text-slate-500" data-header-note>
-            {t('page.regulatory_framework_admin.header_note')}
+            {t('page.regulatory_framework_admin.header_note')}{' '}
+            <span data-access-note>{t('page.regulatory_framework_admin.access_note')}</span>
           </p>
         </MasterLibraryHeading>
 
@@ -349,14 +350,6 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
           </div>
         </div>
         {!readOnly && <AddFrameworkPanel open={addOpen} onClose={() => setAddOpen(false)} />}
-
-        <p
-          className="rounded-md p-3 text-[12px]"
-          style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
-          data-access-note
-        >
-          {t('page.regulatory_framework_admin.access_note')}
-        </p>
 
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-frameworks-table data-count={frameworks.length}>
           <table className="w-full border-collapse text-[13px]">

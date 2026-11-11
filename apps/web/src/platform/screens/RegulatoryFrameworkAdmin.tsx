@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useState } from 'react'
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -7,7 +7,6 @@ import { PLATFORM_ACCENT } from '@platform/types'
 import { ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui'
 import { platformApi } from '../api/platformApi'
-import { usePlatformStore } from '../store'
 
 const SCOPE_COLOURS: Record<string, string> = {
   A: '#2563EB', B: '#0D9488', C: '#7C3AED', D: '#B0200D', E: '#0D9488', platform: PLATFORM_ACCENT.primary,
@@ -185,7 +184,6 @@ function formatDay(iso: string): string {
 
 export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: boolean } = {}) {
   const { t } = useTranslation()
-  const currentUser = usePlatformStore(s => s.currentUser)
   const qc = useQueryClient()
 
   const { data: frameworks = [] } = useQuery<RegulatoryFramework[]>({
@@ -208,11 +206,6 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
     setSaveResult(null)
     setSaveError(null)
   }
-
-  const changedInLast12 = useMemo(
-    () => frameworks.filter(f => f.status !== 'Current' && f.status !== 'Deprecated').length,
-    [frameworks],
-  )
 
   // The only status change the registry stores today is "superseded"
   // (POST /admin/frameworks/:id/retire). It is one-way — there is no un-retire.
@@ -245,48 +238,35 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
     <div className="bg-slate-50" data-screen="regulatory-framework-admin" data-read-only={readOnly || undefined}>
       <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
 
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.regulatory_framework_admin.crumb_super_admin')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">{t('page.regulatory_framework_admin.crumb_framework_registry')}</span>
-        </nav>
+        {/* Breadcrumb and "who you are · N frameworks · N changed" line removed: the top bar shows
+            "Master Library / ICH Frameworks". */}
+        <MasterLibraryHeading>
+          <h1 className="text-[20px] font-semibold text-slate-900">{t('page.regulatory_framework_admin.title')}</h1>
+          <p className="mt-0.5 text-[13px] text-slate-500" data-header-note>
+            {t('page.regulatory_framework_admin.header_note')}
+          </p>
+        </MasterLibraryHeading>
 
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div>
-            <MasterLibraryHeading>
-              <h1 className="text-[20px] font-semibold text-slate-900">{t('page.regulatory_framework_admin.title')}</h1>
-              <p className="mt-0.5 text-[13px] text-slate-500" data-header-note>
-                {t('page.regulatory_framework_admin.header_note')}
-              </p>
-            </MasterLibraryHeading>
-            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>
-              {t('page.regulatory_framework_admin.user_byline', {
-                name:   currentUser.name,
-                role:   readOnly ? t('page.regulatory_framework_admin.role_admin_readonly') : t('page.regulatory_framework_admin.role_super_admin'),
-                total:  frameworks.length,
-                changed: changedInLast12,
-              })}
-            </p>
-          </div>
+        {/* The access note shares a row with the Add framework button. */}
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <p
+            className="min-w-0 flex-1 rounded-md p-3 text-[12px]"
+            style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
+            data-access-note
+          >
+            {t('page.regulatory_framework_admin.access_note')}
+          </p>
           {!readOnly && (
             <button
               type="button"
               data-add-framework
               onClick={() => setAddOpen(true)}
-              className="h-9 rounded-md px-4 text-[13px] font-semibold text-white"
+              className="h-9 flex-none rounded-md px-4 text-[13px] font-semibold text-white"
               style={{ backgroundColor: PLATFORM_ACCENT.primary }}
             >{t('page.regulatory_framework_admin.add_framework_button')}</button>
           )}
         </div>
         {!readOnly && <AddFrameworkPanel open={addOpen} onClose={() => setAddOpen(false)} />}
-
-        <p
-          className="rounded-md p-3 text-[12px]"
-          style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
-          data-access-note
-        >
-          {t('page.regulatory_framework_admin.access_note')}
-        </p>
 
         <div className="grid gap-4" style={{ gridTemplateColumns: readOnly ? '1fr' : '1fr 380px' }}>
 

@@ -22,9 +22,10 @@
 // 403 and the empty-state renders).
 
 import { useMemo, useState } from 'react'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { platformApi } from '../api/platformApi'
-import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { documentsApi } from '../../api/documents'
 import { MasterLibrarySlotContext } from '../components/MasterLibraryHeading'
 
 export interface Tab {
@@ -47,6 +48,38 @@ export const MASTER_LIBRARY_TABS: Tab[] = [
   { slug: 'policies',       label: 'Doc Type Policies' },
 ]
 
+// Master Documents lists documents only (sections are pulled from inside them).
+export const MASTER_DOCUMENT_ITEM_TYPES = ['document']
+
+// Each tab shows how many items it holds, beside its name: "Templates (4)". The counts come from the same
+// queries the tabs themselves run (same keys), so opening a tab reuses the data and a change made on a tab
+// updates its count. Master Documents is paged, so its count is the library's total (X-Total-Count) with no
+// filters, as the tab opens. A tab whose list can't be read (e.g. not allowed) shows no count.
+function useTabCounts(): Partial<Record<string, number>> {
+  const opts = { retry: false, staleTime: 30_000 } as const
+  const documents = useQuery({
+    queryKey: ['library', 'tab-count'],
+    queryFn:  () => platformApi.listLibraryPage({ itemType: MASTER_DOCUMENT_ITEM_TYPES, limit: 1 }),
+    ...opts,
+  })
+  const bestPractices = useQuery({ queryKey: ['best-practices'], queryFn: () => platformApi.listBestPractices(), ...opts })
+  // The Best Practices page hides modules this tenant hasn't enabled (Platform items always show), so the count does too.
+  const enabled = useQuery({ queryKey: ['library-enabled-modules'], queryFn: () => platformApi.getEnabledModules(), retry: false, staleTime: 5 * 60_000 })
+  const templates = useQuery({ queryKey: ['document-templates-admin'], queryFn: () => platformApi.listDocumentTemplatesAdmin(), ...opts })
+  const policies = useQuery({ queryKey: ['document-type-policies'], queryFn: () => platformApi.listDocumentTypePolicies(), ...opts })
+  const checklists = useQuery({ queryKey: ['checklist-templates'], queryFn: () => documentsApi.listChecklistTemplates(), ...opts })
+  const frameworks = useQuery({ queryKey: ['regulatory-frameworks'], queryFn: () => platformApi.listFrameworks(), ...opts })
+  return {
+    documents:        documents.data?.total,
+    'best-practices': bestPractices.data?.filter(i => i.module === 'platform' || !enabled.data || (enabled.data.modules as string[]).includes(i.module)).length,
+    templates:        templates.data?.length,
+    'ai-prompts':     policies.data?.policies.length,     // one SME prompt per doc-type policy
+    checklists:       checklists.data?.length,
+    'ich-frameworks': frameworks.data?.length,
+    policies:         policies.data?.policies.length,
+  }
+}
+
 export function MasterLibraryShell() {
   const { pathname } = useLocation()
   // The matched tab is the first segment after /master-library/. Used
@@ -56,23 +89,9 @@ export function MasterLibraryShell() {
     return m?.[1] ?? 'documents'
   }, [pathname])
 
-  // The Best Practices tab shows how many best practices this tenant can see (its enabled modules + Platform).
-  // Same query keys as the Best Practices page, so this is normally a cache read.
-  const { data: bestPractices } = useQuery({ queryKey: ['best-practices'], queryFn: () => platformApi.listBestPractices() })
-  const { data: enabled } = useQuery({ queryKey: ['library-enabled-modules'], queryFn: () => platformApi.getEnabledModules(), staleTime: 5 * 60_000, retry: false })
-  const bestPracticeCount = bestPractices
-    ? bestPractices.filter(i => i.module === 'platform' || !enabled || (enabled.modules as string[]).includes(i.module)).length
-    : null
-
-  // The Templates tab shows how many templates exist (same query key as the Templates page).
-  const { data: templates } = useQuery({ queryKey: ['document-templates-admin'], queryFn: () => platformApi.listDocumentTemplatesAdmin() })
-  const tabCounts: Record<string, number | null> = {
-    'best-practices': bestPracticeCount,
-    'templates':      templates ? templates.length : null,
-  }
-
   // The header's heading slot: each page puts its own title + subtitle here (see MasterLibraryHeading).
   const [headingSlot, setHeadingSlot] = useState<HTMLElement | null>(null)
+  const counts = useTabCounts()
 
   return (
     <MasterLibrarySlotContext.Provider value={headingSlot}>
@@ -104,8 +123,8 @@ export function MasterLibraryShell() {
               }}
             >
               {tab.label}
-              {tabCounts[tab.slug] != null && (
-                <span className="ml-1.5 font-normal text-slate-500" data-tab-count={tab.slug}>({tabCounts[tab.slug]})</span>
+              {counts[tab.slug] !== undefined && (
+                <>{' '}<span className="font-normal opacity-70" data-tab-count={counts[tab.slug]}>({counts[tab.slug]})</span></>
               )}
             </NavLink>
           ))}

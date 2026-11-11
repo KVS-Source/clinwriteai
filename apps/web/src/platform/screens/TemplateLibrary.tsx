@@ -15,6 +15,7 @@
 // English-only copy for now (same scope as AiPrompts / DocumentTypePolicies —
 // super-admin facing, Phase 1 i18n is UI chrome).
 
+import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
@@ -84,13 +85,13 @@ export function TemplateLibrary() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-5" data-screen="template-library">
-      <header>
+      <MasterLibraryHeading>
         <h1 className="text-[20px] font-semibold text-slate-900">Template Library</h1>
         <p className="mt-0.5 text-[13px] text-slate-500">
           One template per doc type: the section outline the New Document wizard seeds + the AI drafter
           fills in. Upload a PDF of a completed exemplar and the parser extracts the sections into JSON.
         </p>
-      </header>
+      </MasterLibraryHeading>
 
       <AiReadinessBanner
         readiness={readiness}

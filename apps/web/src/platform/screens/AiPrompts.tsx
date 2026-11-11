@@ -14,6 +14,7 @@
 // a one-line fix is friction. /admin/document-type-policies remains the
 // place to edit everything else.
 
+import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
@@ -57,14 +58,14 @@ export function AiPrompts() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-5" data-screen="ai-prompts">
-      <header>
+      <MasterLibraryHeading>
         <h1 className="text-[20px] font-semibold text-slate-900">AI Prompts</h1>
         <p className="mt-0.5 text-[13px] text-slate-500">
           The SME prompt AI sees on every draft + rewrite. One per doc type — editing here updates
           the same row the full Doc Type Policies screen edits. Everything else (Best-Practice
           digest, section rules, template pins) is managed over there.
         </p>
-      </header>
+      </MasterLibraryHeading>
 
       <AiReadinessBanner
         readiness={readiness}

@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { RegulatoryFramework, RegulatoryFrameworkStatus } from '@platform/types'
@@ -252,10 +253,12 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.regulatory_framework_admin.title')}</h1>
-            <p className="mt-1 max-w-[720px] text-[13px] text-slate-600" data-header-note>
-              {t('page.regulatory_framework_admin.header_note')}
-            </p>
+            <MasterLibraryHeading>
+              <h1 className="text-[20px] font-semibold text-slate-900">{t('page.regulatory_framework_admin.title')}</h1>
+              <p className="mt-0.5 text-[13px] text-slate-500" data-header-note>
+                {t('page.regulatory_framework_admin.header_note')}
+              </p>
+            </MasterLibraryHeading>
             <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>
               {t('page.regulatory_framework_admin.user_byline', {
                 name:   currentUser.name,

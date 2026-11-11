@@ -19,6 +19,7 @@
 //   - Version-history browser (read earlier bumps) is deferred; the
 //     current version is the only one editable anyway.
 
+import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
@@ -83,13 +84,13 @@ export function DocumentTypePolicies() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-5" data-screen="document-type-policies">
-      <header>
+      <MasterLibraryHeading>
         <h1 className="text-[20px] font-semibold text-slate-900">Document Type Policies</h1>
         <p className="mt-0.5 text-[13px] text-slate-500">
           Per doc-type SME prompt, Best-Practice digest, section rules, and template / checklist / ICH pins.
           The AI drafter and <code>/ai-suggest</code> inject these into every call.
         </p>
-      </header>
+      </MasterLibraryHeading>
 
       <AiReadinessBanner
         readiness={readiness}

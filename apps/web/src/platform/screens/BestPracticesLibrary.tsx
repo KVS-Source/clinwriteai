@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react'
+import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { BestPractice, ModuleKey } from '@platform/types'
@@ -144,18 +145,12 @@ export function BestPracticesLibrary() {
     <div className="bg-slate-50" data-screen="best-practices-library">
       <div className="flex flex-col gap-4 px-4 pb-12 pt-5 sm:px-8" style={{ maxWidth: 1440 }}>
 
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.best_practices_library.crumb_platform')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">{t('page.best_practices_library.crumb_best_practices')}</span>
-        </nav>
-
+        {/* Breadcrumb and "who you are" line removed: the top bar shows "Master Library / Best Practices". */}
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.best_practices_library.title')}</h1>
-            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>
-              {t('page.best_practices_library.user_byline', { name: currentUser.name, role: canAuthor ? t('page.best_practices_library.role_super_admin') : t('page.best_practices_library.role_read_only') })}
-            </p>
+            <MasterLibraryHeading>
+              <h1 className="text-[20px] font-semibold text-slate-900">{t('page.best_practices_library.title')}</h1>
+            </MasterLibraryHeading>
           </div>
           {canAuthor && (
             <button

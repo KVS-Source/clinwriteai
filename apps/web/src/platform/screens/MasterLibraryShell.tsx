@@ -21,10 +21,11 @@
 // screens' own error states take over (the gated APIs return 503 /
 // 403 and the empty-state renders).
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { MasterLibrarySlotContext } from '../components/MasterLibraryHeading'
 
-interface Tab {
+export interface Tab {
   slug:  string       // URL segment — '/master-library/<slug>'
   label: string
 }
@@ -33,7 +34,8 @@ interface Tab {
 // Practices second, then the four standards tools, Doc Type Policies
 // last (it's the aggregated editor — admins typically reach it after
 // the atomic tools).
-const TABS: Tab[] = [
+// Also read by the top bar, which shows "Master Library / <active tab>" as its breadcrumb.
+export const MASTER_LIBRARY_TABS: Tab[] = [
   { slug: 'documents',      label: 'Master Documents' },
   { slug: 'best-practices', label: 'Best Practices'  },
   { slug: 'templates',      label: 'Templates'       },
@@ -52,20 +54,20 @@ export function MasterLibraryShell() {
     return m?.[1] ?? 'documents'
   }, [pathname])
 
+  // The header's heading slot: each page puts its own title + subtitle here (see MasterLibraryHeading).
+  const [headingSlot, setHeadingSlot] = useState<HTMLElement | null>(null)
+
   return (
+    <MasterLibrarySlotContext.Provider value={headingSlot}>
     <div className="flex h-full min-h-0 flex-col bg-slate-50" data-screen="master-library">
       <header className="flex-none border-b border-slate-200 bg-white px-5 pt-4">
-        <h1 className="text-[20px] font-semibold text-slate-900">Master Library</h1>
-        <p className="mt-0.5 text-[13px] text-slate-500">
-          The content + standards every document is drafted against: finalised master documents, best-practice guidance,
-          section templates, AI prompts, checklists, ICH framework registry, and per-doc-type policies.
-        </p>
+        <div ref={setHeadingSlot} data-master-library-heading />
         <nav
           className="-mx-5 mt-4 flex items-end gap-0 overflow-x-auto border-b border-slate-200 px-5"
           role="tablist"
           data-master-library-tabs
         >
-          {TABS.map(tab => (
+          {MASTER_LIBRARY_TABS.map(tab => (
             <NavLink
               key={tab.slug}
               to={`/master-library/${tab.slug}`}
@@ -92,5 +94,6 @@ export function MasterLibraryShell() {
         <Outlet />
       </div>
     </div>
+    </MasterLibrarySlotContext.Provider>
   )
 }

@@ -1,4 +1,5 @@
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
+import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
@@ -6,7 +7,7 @@ import { useTranslation } from 'react-i18next'
 import { useTaLabels } from '../../hooks'
 import type { MasterLibraryItem, MasterLibrarySourceDocument, ModuleKey } from '@platform/types'
 import type { LibraryListParams } from '../api/platformApi'
-import { PLATFORM_ACCENT, PLATFORM_USER_ROLE_LABEL } from '@platform/types'
+import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store/platformStore'
 import { documentsApi, projectsApi, describeApiError } from '../../api'
@@ -53,8 +54,6 @@ const selectClass = 'h-8 w-full rounded-md border border-slate-300 bg-white px-2
 
 export function MasterLibrary() {
   const { t } = useTranslation()
-  const currentUser = usePlatformStore(s => s.currentUser)
-  const roleLabel = PLATFORM_USER_ROLE_LABEL[currentUser.role] ?? currentUser.role
 
   const queryClient = useQueryClient()
   const canManage = usePlatformStore(s => s.hasRole)(['tenant-admin', 'admin'])
@@ -206,16 +205,11 @@ export function MasterLibrary() {
     <div className="bg-slate-50" data-screen="master-library">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1600, padding: '20px 24px 48px' }}>
 
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.master_library.crumb_platform')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">{t('page.master_library.crumb_master_library')}</span>
-        </nav>
-
-        <div>
-          <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.master_library.title')}</h1>
-          <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>{currentUser.name} · {roleLabel}</p>
-        </div>
+        {/* The heading goes up into the Master Library header (above the tabs); the breadcrumb and
+            "who you are" line are gone — the top bar carries "Master Library / Master Documents". */}
+        <MasterLibraryHeading>
+          <h1 className="text-[20px] font-semibold text-slate-900">{t('page.master_library.tab_documents', { defaultValue: 'Master Documents' })}</h1>
+        </MasterLibraryHeading>
 
         <div className="flex items-center gap-2" data-results-count>
           <span className="rounded-full border border-slate-200 bg-white px-3 py-1 font-mono text-[11px] font-semibold uppercase tracking-wide text-slate-700">

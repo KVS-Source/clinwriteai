@@ -4,6 +4,7 @@
 // baselines + per-project overrides) with full edit controls on drafts:
 // bump-new-draft, add/edit/delete items, reorder up/down, approve + lock.
 
+import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
@@ -188,14 +189,12 @@ export function ChecklistTemplatesAdmin() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden" data-screen="checklist-templates-admin">
-      <div className="flex flex-none items-start justify-between gap-4 border-b border-slate-200 bg-white px-8 py-5">
-        <div>
-          <h1 className="text-xl font-bold tracking-tight text-slate-900">{t('page.checklist_templates_admin.title')}</h1>
-          <p className="mt-1 text-sm text-slate-500">
-            {t('page.checklist_templates_admin.subtitle')}
-          </p>
-        </div>
-      </div>
+      <MasterLibraryHeading>
+        <h1 className="text-[20px] font-semibold text-slate-900">{t('page.checklist_templates_admin.title')}</h1>
+        <p className="mt-0.5 text-[13px] text-slate-500">
+          {t('page.checklist_templates_admin.subtitle')}
+        </p>
+      </MasterLibraryHeading>
 
       <div className="flex flex-1 min-h-0">
         {/* Left: catalog */}

@@ -7,6 +7,7 @@ import { useAuthStore } from '../../store/authStore'
 import { authApi, documentsApi, projectsApi } from '../../api'
 import { usePlatformStore, hasPersonaOverride, clearPersonaOverride, PLATFORM_DEMO_USERS } from '../../platform/store'
 import { platformApi } from '../../platform/api/platformApi'
+import { MASTER_LIBRARY_TABS } from '../../platform/screens/MasterLibraryShell'
 import { ApiError } from '../../api/client'
 import { AUTH_BYPASS } from '../../config/auth'
 import { PLATFORM_USER_ROLE_LABEL } from '@platform/types'
@@ -214,7 +215,16 @@ export function TopNav() {
   const leafSlug       = !docMatch && trailing ? trailing.split('/')[0]! : null
   const leafLabel      = leafSlug && LEAF_LABEL_KEYS[leafSlug] ? t(LEAF_LABEL_KEYS[leafSlug]!) : null
 
-  const crumbs: Array<{ label: string; href: string | null }> = [
+  // Master Library: "Master Library / <active tab>" (e.g. Master Library / Master Documents) instead of "Projects".
+  const masterLibraryMatch = /^\/master-library(?:\/([^/]+))?/.exec(pathname)
+  const masterLibraryTab   = masterLibraryMatch
+    ? MASTER_LIBRARY_TABS.find(tab => tab.slug === (masterLibraryMatch[1] ?? 'documents'))
+    : null
+
+  const crumbs: Array<{ label: string; href: string | null }> = masterLibraryMatch ? [
+    { label: t('page.master_library.crumb_master_library', { defaultValue: 'Master Library' }), href: masterLibraryTab ? '/master-library' : null },
+    ...(masterLibraryTab ? [{ label: masterLibraryTab.label, href: null }] : []),
+  ] : [
     ADMIN_ROLES.has(currentUser.role) ? null : { label: t('component.top_nav.crumb_projects'), href: '/projects' },
     inProjectRoute && crumbProject ? { label: crumbProject.shortTitle, href: `/projects/${crumbProject.id}` } : null,
     inProjectRoute && moduleLabel && crumbProject

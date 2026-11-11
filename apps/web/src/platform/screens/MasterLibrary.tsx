@@ -209,6 +209,9 @@ export function MasterLibrary() {
             "who you are" line are gone — the top bar carries "Master Library / Master Documents". */}
         <MasterLibraryHeading>
           <h1 className="text-[20px] font-semibold text-slate-900">{t('page.master_library.tab_documents', { defaultValue: 'Master Documents' })}</h1>
+          <p className="mt-0.5 text-[13px] text-slate-500">
+            {t('page.master_library.subtitle_documents', { defaultValue: 'Signed documents and sections pushed here from projects. Search and filter the library, and pull approved sections into new documents.' })}
+          </p>
         </MasterLibraryHeading>
 
         <div className="flex items-center gap-2" data-results-count>

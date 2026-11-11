@@ -2998,6 +2998,7 @@
       "create_override_draft": "Create override draft"
     },
     "master_library": {
+      "subtitle_documents": "Signed documents and sections pushed here from projects. Search and filter the library, and pull approved sections into new documents.",
       "crumb_platform": "Platform",
       "crumb_master_library": "Master Library",
       "filters_at_defaults": "Filters are at defaults.",
@@ -3147,6 +3148,7 @@
       "pdf_no_content": "This item has no text to download."
     },
     "best_practices_library": {
+      "subtitle": "Best-practice guidance that authors and the AI drafter follow, grouped by discipline. Items follow a fixed naming convention.",
       "crumb_platform": "Platform",
       "crumb_best_practices": "Best Practices Library",
       "title": "Best Practices Library",

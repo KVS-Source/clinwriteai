@@ -3186,6 +3186,7 @@
     },
 
     "master_library": {
+      "subtitle_documents": "プロジェクトから登録された署名済みの文書とセクションです。ライブラリを検索・絞り込みでき、承認済みセクションを新しい文書に取り込めます。",
       "crumb_platform": "プラットフォーム",
       "crumb_master_library": "マスターライブラリ",
       "filters_at_defaults": "フィルターは初期状態です。",
@@ -3338,6 +3339,7 @@
     },
 
     "best_practices_library": {
+      "subtitle": "執筆者と AI ドラフターが従うベストプラクティスのガイダンスを、領域別にまとめています。項目は所定の命名規則に従います。",
       "crumb_platform": "プラットフォーム",
       "crumb_best_practices": "ベストプラクティスライブラリ",
       "title": "ベストプラクティスライブラリ",

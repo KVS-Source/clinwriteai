@@ -135,12 +135,6 @@ export function BestPracticesLibrary() {
     setDrawerOpen(false)
   }
 
-  const heading = tab === 'all'
-    ? t('page.best_practices_library.heading_all', { count: filtered.length })
-    : tab === 'platform'
-      ? t('page.best_practices_library.heading_platform', { count: filtered.length })
-      : t('page.best_practices_library.heading_module', { module: t(MODULE_LABEL_KEYS[tab]), count: filtered.length })
-
   return (
     <div className="bg-slate-50" data-screen="best-practices-library">
       <div className="flex flex-col gap-4 px-4 pb-12 pt-5 sm:px-8" style={{ maxWidth: 1440 }}>
@@ -150,6 +144,9 @@ export function BestPracticesLibrary() {
           <div>
             <MasterLibraryHeading>
               <h1 className="text-[20px] font-semibold text-slate-900">{t('page.best_practices_library.title')}</h1>
+              <p className="mt-0.5 text-[13px] text-slate-500">
+                {t('page.best_practices_library.subtitle', { defaultValue: 'Best-practice guidance that authors and the AI drafter follow, grouped by discipline. Items follow a fixed naming convention.' })}
+              </p>
             </MasterLibraryHeading>
           </div>
           {canAuthor && (
@@ -202,8 +199,6 @@ export function BestPracticesLibrary() {
             data-review-due-chip
           >{t('page.best_practices_library.review_due_count', { count: reviewDueCount })}</p>
         )}
-
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500" data-heading>{heading}</p>
 
         <div className={`grid gap-4 ${drawerOpen ? 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]' : 'grid-cols-1'}`}>
 

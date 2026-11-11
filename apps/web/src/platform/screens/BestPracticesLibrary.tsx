@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { MultiSelect } from '../components/MultiSelect'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
@@ -9,9 +9,14 @@ import { platformApi } from '../api/platformApi'
 import { usePlatformStore } from '../store'
 import { isPlatformAdmin } from '../../config/roles'
 import { PastDateError } from '../../components/ui/PastDateError'
+import { SlidePanel } from '../../components/ui/SlidePanel'
+import { SortIcon } from '../../components/ui/SortIcon'
 import { isPastDate, localToday } from '../../utils/formatDate'
 
 type TabKey = 'all' | 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
+type SortKey = 'name-asc' | 'name-desc' | 'category-asc' | 'category-desc' | 'version-asc' | 'version-desc' | 'effective-asc' | 'effective-desc' | 'recent' | 'oldest'
+const PAGE_SIZES = [10, 20, 50]
+const filterControl = 'h-10 w-full rounded-md border border-slate-300 bg-white px-2.5 text-[12px] text-slate-800'
 
 const MODULE_LABEL_KEYS: Record<TabKey, string> = {
   all:      'page.best_practices_library.module_all',
@@ -66,7 +71,12 @@ export function BestPracticesLibrary() {
   const moduleOptions = (['A', 'B', 'C', 'D', 'E', 'platform'] as const)
     .filter(isOffered)
     .map(m => ({ value: m, label: t(MODULE_LABEL_KEYS[m]) }))
-  const [drawerOpen, setDrawerOpen] = useState(false)
+  const [reviews, setReviews] = useState<string[]>([])
+  const [sort,     setSort]     = useState<SortKey>('name-asc')
+  const [page,     setPage]     = useState(1)
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0]!)
+  const [openId,   setOpenId]   = useState<string | null>(null)   // the best practice open in the details panel
+  const [drawerOpen, setDrawerOpen] = useState(false)             // the New best practice panel
   const [name,     setName]     = useState('')
   const [module_,  setModule]   = useState<ModuleKey>('D')
   const [category, setCategory] = useState('')
@@ -76,21 +86,54 @@ export function BestPracticesLibrary() {
   const [publishError, setPublishError] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
 
-  const filtersDirty = search.trim() !== '' || modules.length > 0
-  const resetFilters = () => { setSearch(''); setModules([]) }
+  const filtersDirty = search.trim() !== '' || modules.length > 0 || reviews.length > 0
+  const resetFilters = () => { setSearch(''); setModules([]); setReviews([]) }
+  const reviewOptions = [
+    { value: 'due', label: t('page.best_practices_library.review_due_badge') },
+    { value: 'ok',  label: t('page.best_practices_library.review_ok', { defaultValue: 'Up to date' }) },
+  ]
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    return items.filter(i => {
+    const rows = items.filter(i => {
       if (!isOffered(i.module)) return false                          // a module this tenant hasn't enabled
       if (modules.length > 0 && !modules.includes(i.module)) return false
+      if (reviews.length > 0 && !reviews.includes(i.reviewDue ? 'due' : 'ok')) return false
       if (q && ![i.name, i.category, i.guidance, i.version].some(v => (v ?? '').toLowerCase().includes(q))) return false
       return true
     })
+    const time = (v: string | null | undefined) => (v ? new Date(v).getTime() : 0)
+    const by: Record<SortKey, (x: BestPractice, y: BestPractice) => number> = {
+      'name-asc':       (x, y) => x.name.localeCompare(y.name),
+      'name-desc':      (x, y) => y.name.localeCompare(x.name),
+      'category-asc':   (x, y) => (x.category ?? '').localeCompare(y.category ?? ''),
+      'category-desc':  (x, y) => (y.category ?? '').localeCompare(x.category ?? ''),
+      'version-asc':    (x, y) => (x.version ?? '').localeCompare(y.version ?? '', undefined, { numeric: true }),
+      'version-desc':   (x, y) => (y.version ?? '').localeCompare(x.version ?? '', undefined, { numeric: true }),
+      'effective-asc':  (x, y) => time(x.effectiveFrom) - time(y.effectiveFrom),
+      'effective-desc': (x, y) => time(y.effectiveFrom) - time(x.effectiveFrom),
+      'recent':         (x, y) => time(y.updatedAt) - time(x.updatedAt),
+      'oldest':         (x, y) => time(x.updatedAt) - time(y.updatedAt),
+    }
+    return [...rows].sort(by[sort])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, search, modules, enabledModuleKeys])
+  }, [items, search, modules, reviews, sort, enabledModuleKeys])
 
-  const reviewDueCount = filtered.filter(i => i.reviewDue).length
+  useEffect(() => { setPage(1) }, [search, modules, reviews, sort, pageSize])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pageRows  = filtered.slice((Math.min(page, pageCount) - 1) * pageSize, Math.min(page, pageCount) * pageSize)
+  const openItem  = items.find(i => i.id === openId) ?? null
+
+  const sortFor = (asc: SortKey, desc: SortKey): 'asc' | 'desc' | null => sort === asc ? 'asc' : sort === desc ? 'desc' : null
+  const SortHead = ({ label, asc, desc }: { label: string; asc: SortKey; desc: SortKey }) => (
+    <th className="px-4 py-3 text-left" aria-sort={sort === asc ? 'ascending' : sort === desc ? 'descending' : 'none'}>
+      <button type="button" onClick={() => setSort(sort === asc ? desc : asc)} data-sort={asc}
+        className="inline-flex items-center gap-1.5 uppercase tracking-widest hover:text-slate-800">
+        {label}<SortIcon state={sortFor(asc, desc)} />
+      </button>
+    </th>
+  )
+  const PlainHead = ({ label }: { label: string }) => <th className="px-4 py-3 text-left uppercase tracking-widest">{label}</th>
 
   const parsedName = parseName(name)
   const nameValid = parsedName !== null
@@ -124,7 +167,7 @@ export function BestPracticesLibrary() {
 
   return (
     <div className="bg-slate-50" data-screen="best-practices-library">
-      <div className="flex flex-col gap-4 px-4 pb-12 pt-5 sm:px-8" style={{ maxWidth: 1440 }}>
+      <div className="flex flex-col gap-4" style={{ maxWidth: 1600, padding: '20px 24px 48px' }}>
 
         {/* The heading goes up into the Master Library header; the naming convention moved into its subtitle. */}
         <MasterLibraryHeading>
@@ -153,6 +196,10 @@ export function BestPracticesLibrary() {
                 className="h-10 w-full rounded-md border border-slate-300 bg-white px-2.5 text-[12px] text-slate-800"
               />
             </div>
+            <div data-filter-review className="min-w-[150px] flex-[1_1_150px] [@container_(min-width:700px)]:flex-[1_1_0%]">
+              <MultiSelect label={t('page.best_practices_library.filter_review', { defaultValue: 'Review' })} allLabel={t('page.best_practices_library.all_reviews', { defaultValue: 'All reviews' })}
+                options={reviewOptions} value={reviews} onChange={setReviews} optionAttr="data-review-option" className={filterControl} />
+            </div>
             <button
               type="button" onClick={resetFilters} disabled={!filtersDirty}
               title={filtersDirty ? t('page.master_library.reset_filters') : t('page.master_library.filters_at_defaults')}
@@ -176,168 +223,209 @@ export function BestPracticesLibrary() {
           </div>
         </div>
 
-        {reviewDueCount > 0 && (
-          <p
-            className="inline-flex w-fit items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-            style={{ backgroundColor: '#FFFBEB', color: '#B45309', border: '1px solid #FDE68A' }}
-            data-review-due-chip
-          >{t('page.best_practices_library.review_due_count', { count: reviewDueCount })}</p>
+        {isError && (
+          <p className="rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-800" role="alert" data-state="error">
+            {t('page.best_practices_library.load_error')}{' '}
+            <button type="button" onClick={() => refetch()} className="font-semibold underline">{t('page.best_practices_library.retry')}</button>
+          </p>
         )}
 
-        <div className={`grid gap-4 ${drawerOpen ? 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]' : 'grid-cols-1'}`}>
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" aria-label={t('page.best_practices_library.title')} data-bp-cards data-results-list>
+          <table className="w-full border-collapse text-[13px]">
+            <thead className="border-b border-slate-200 bg-slate-50 font-mono text-[10px] font-semibold text-slate-500">
+              <tr>
+                <SortHead label={t('page.best_practices_library.field_name')} asc="name-asc" desc="name-desc" />
+                <PlainHead label={t('page.best_practices_library.filter_module', { defaultValue: 'Module' })} />
+                <SortHead label={t('page.best_practices_library.field_category')} asc="category-asc" desc="category-desc" />
+                <SortHead label={t('page.master_library.col_version')} asc="version-asc" desc="version-desc" />
+                <SortHead label={t('page.best_practices_library.field_effective_from')} asc="effective-asc" desc="effective-desc" />
+                <PlainHead label={t('page.best_practices_library.field_valid_until')} />
+                <SortHead label={t('page.master_library.col_pushed_on', { defaultValue: 'Updated' })} asc="oldest" desc="recent" />
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.best_practices_library.loading')}</td></tr>
+              )}
+              {!isLoading && !isError && pageRows.length === 0 && (
+                <tr><td colSpan={7} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
+                  {filtersDirty ? t('page.best_practices_library.empty_filtered', { defaultValue: 'No best practices match these filters.' }) : t('page.best_practices_library.empty_all')}
+                  {filtersDirty && (
+                    <div><button type="button" onClick={resetFilters} className="mt-2 font-semibold text-slate-700 underline">{t('page.master_library.reset_filters')}</button></div>
+                  )}
+                </td></tr>
+              )}
+              {pageRows.map(bp => {
+                const isActive = bp.id === openId
+                const reviewDue = !!bp.reviewDue
+                return (
+                  <tr key={bp.id} onClick={() => { setDrawerOpen(false); setOpenId(bp.id) }} tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setDrawerOpen(false); setOpenId(bp.id) } }}
+                    data-bp-card={bp.id} data-review-due={reviewDue || undefined} data-panel-trigger aria-current={isActive || undefined}
+                    className="cursor-pointer border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
+                    style={{ backgroundColor: isActive ? PLATFORM_ACCENT.bgTint : undefined }}>
+                    <td className="px-4 py-3 font-semibold text-slate-900 [overflow-wrap:anywhere]">
+                      {bp.name}
+                      {reviewDue && (
+                        <span className="ml-2 inline-flex items-center rounded-full px-2 py-0.5 text-[10px] font-semibold"
+                          style={{ backgroundColor: '#FFFBEB', color: '#B45309', border: '1px solid #FDE68A' }}
+                          data-review-due-badge>{t('page.best_practices_library.review_due_badge')}</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">{t(MODULE_LABEL_KEYS[(bp.module as TabKey) ?? 'platform'] ?? MODULE_LABEL_KEYS.platform)}</td>
+                    <td className="px-4 py-3 text-slate-700">{bp.category || '—'}</td>
+                    <td className="px-4 py-3 font-mono text-[12px] text-slate-700">{bp.version}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(bp.effectiveFrom)}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{bp.validUntil ? formatDay(bp.validUntil) : t('page.best_practices_library.no_end_date')}</td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(bp.updatedAt)}</td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
 
-          <section className="flex min-w-0 flex-col gap-3" aria-label={t('page.best_practices_library.title')} data-bp-cards>
-            {isLoading && <p className="text-[13px] text-slate-500" data-state="loading">{t('page.best_practices_library.loading')}</p>}
-            {isError && (
-              <p className="rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-800" role="alert" data-state="error">
-                {t('page.best_practices_library.load_error')}{' '}
-                <button type="button" onClick={() => refetch()} className="font-semibold underline">{t('page.best_practices_library.retry')}</button>
+          <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3" data-pagination>
+            <select className="h-9 rounded-md border border-slate-300 bg-white px-2 text-[13px]" value={pageSize}
+              onChange={e => setPageSize(Number(e.target.value))} aria-label={t('page.master_library.rows_per_page')} data-page-size>
+              {PAGE_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <div className="flex items-center gap-3 font-mono text-[12px] text-slate-600">
+              <span>{t('page.master_library.page_status', { page: Math.min(page, pageCount), pages: pageCount, count: filtered.length })}</span>
+              <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} data-action="prev-page"
+                className="h-9 rounded-md border border-slate-300 px-3 text-[13px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                ‹ {t('page.master_library.previous')}
+              </button>
+              <button type="button" onClick={() => setPage(p => Math.min(pageCount, p + 1))} disabled={page >= pageCount} data-action="next-page"
+                className="h-9 rounded-md border border-slate-300 px-3 text-[13px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                {t('page.master_library.next')} ›
+              </button>
+            </div>
+          </div>
+        </section>
+
+        {/* Details panel — opens on a row click */}
+        <SlidePanel open={!!openItem && !drawerOpen} onClose={() => setOpenId(null)}
+          title={openItem?.name ?? ''}
+          subtitle={openItem && (
+            <span className="mt-1 block truncate font-mono text-[11px] text-slate-500">
+              {t(MODULE_LABEL_KEYS[(openItem.module as TabKey) ?? 'platform'] ?? MODULE_LABEL_KEYS.platform)} · {openItem.category} · {openItem.version}
+            </span>
+          )}
+          storageKey="best-practice-detail" defaultWidth={520} belowTopBar closeOnOutsideClick>
+          {openItem && (
+            <div className="flex flex-col gap-4 px-5 py-5" data-bp-detail>
+              {openItem.reviewDue && (
+                <div className="rounded-md border p-3" style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }}>
+                  <p className="text-[12px] font-semibold" style={{ color: '#B45309' }}>{t('page.best_practices_library.review_due_badge')}</p>
+                  {openItem.reviewDueNote && <p className="mt-1 text-[12px] text-slate-700" data-review-due-note>{openItem.reviewDueNote}</p>}
+                </div>
+              )}
+              <p className="font-mono text-[11px] text-slate-500">
+                {t('page.best_practices_library.effective_prefix', { date: formatDay(openItem.effectiveFrom) })} → {openItem.validUntil ? t('page.best_practices_library.valid_until', { date: formatDay(openItem.validUntil) }) : t('page.best_practices_library.no_end_date')}
               </p>
-            )}
-            {!isLoading && !isError && filtered.length === 0 && (
-              <p className="text-[13px] text-slate-500" data-state="empty">
-                {filtersDirty ? t('page.best_practices_library.empty_filtered', { defaultValue: 'No best practices match these filters.' }) : t('page.best_practices_library.empty_all')}
-              </p>
-            )}
-            {filtered.map(bp => {
-              const reviewDue = !!bp.reviewDue
-              return (
-                <article
-                  key={bp.id}
-                  className="rounded-lg border bg-white p-5"
-                  style={{
-                    borderColor: reviewDue ? '#FDE68A' : '#E2E8F0',
-                    borderLeftWidth: reviewDue ? 4 : 1,
-                    borderLeftColor: reviewDue ? '#D97706' : '#E2E8F0',
-                  }}
-                  data-bp-card={bp.id}
-                  data-review-due={reviewDue || undefined}
-                >
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500 [overflow-wrap:anywhere]">{bp.category} · {bp.version}</p>
-                      <p className="mt-1 text-[15px] font-bold text-slate-900 [overflow-wrap:anywhere]">{bp.name}</p>
-                    </div>
-                    {reviewDue && (
-                      <span
-                        className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
-                        style={{ backgroundColor: '#FFFBEB', color: '#B45309', border: '1px solid #FDE68A' }}
-                        data-review-due-badge
-                      >{t('page.best_practices_library.review_due_badge')}</span>
-                    )}
-                  </div>
-                  <p className="mt-2 font-mono text-[11px] text-slate-500">
-                    {t('page.best_practices_library.effective_prefix', { date: formatDay(bp.effectiveFrom) })} → {bp.validUntil ? t('page.best_practices_library.valid_until', { date: formatDay(bp.validUntil) }) : t('page.best_practices_library.no_end_date')}
-                  </p>
-                  <p className="mt-3 text-[13px] text-slate-700 [overflow-wrap:anywhere]">{bp.guidance}</p>
-                  {(bp.applicableDocTypes?.length ?? 0) > 0 && (
-                    <p className="mt-3 font-mono text-[11px] text-slate-500">
-                      {t('page.best_practices_library.applicable_doc_types')} {bp.applicableDocTypes.join(', ')}
-                    </p>
-                  )}
-                  {(bp.frameworkRefs?.length ?? 0) > 0 && (
-                    <p className="mt-1 font-mono text-[11px] text-slate-500">
-                      {t('page.best_practices_library.framework_references')} {bp.frameworkRefs.join(', ')}
-                    </p>
-                  )}
-                  <p className="mt-1 font-mono text-[11px] text-slate-500">{t('page.best_practices_library.last_updated', { date: formatDay(bp.updatedAt) })}</p>
-                  {reviewDue && bp.reviewDueNote && (
-                    <p className="mt-2 text-[12px] text-slate-600" data-review-due-note>{bp.reviewDueNote}</p>
-                  )}
-                </article>
-              )
-            })}
-          </section>
-
-          {drawerOpen && canAuthor && (
-            <aside aria-label={t('page.best_practices_library.drawer_aria')} className="flex min-w-0 flex-col gap-3 self-start rounded-lg border border-slate-200 bg-white p-4 sm:p-5" data-new-bp-drawer>
-              <div className="flex items-start justify-between">
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.drawer_eyebrow')}</p>
-                <button type="button" onClick={() => setDrawerOpen(false)} aria-label={t('page.best_practices_library.close_drawer_aria')}
-                  className="h-7 rounded-md border border-slate-300 bg-white px-2.5 text-[12px] font-semibold text-slate-600 hover:bg-slate-50">{t('page.best_practices_library.close_button')}</button>
+              <div>
+                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_guidance')}</p>
+                <p className="mt-1 whitespace-pre-wrap text-[13px] text-slate-800 [overflow-wrap:anywhere]">{openItem.guidance}</p>
               </div>
-
-              <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_name')}</span>
-                <input type="text" value={name} onChange={(e) => setName(e.currentTarget.value)}
-                  placeholder="Module-D-Category-v1.0-2026-09"
-                  data-input-name
-                  className={`h-9 ${FIELD_CLS}`} />
-                {name && !nameValid && (
-                  <p className="text-[11px] font-semibold text-red-700" role="alert" data-name-invalid>
-                    {t('page.best_practices_library.name_invalid')}
-                  </p>
-                )}
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_discipline')}</span>
-                <select value={module_} onChange={(e) => setModule(e.currentTarget.value as ModuleKey)}
-                  data-input-module
-                  className={`h-9 ${FIELD_CLS}`}>
-                  {(['A','B','C','D','E','platform'] as ModuleKey[]).filter(isOffered).map(m => <option key={m} value={m}>{t(MODULE_LABEL_KEYS[m as TabKey])}</option>)}
-                </select>
-                {nameValid && !moduleMatches && (
-                  <p className="text-[11px] font-semibold text-red-700" role="alert" data-module-mismatch>
-                    {t('page.best_practices_library.module_mismatch', { prefix: name.startsWith('Platform') ? 'Platform' : name.slice(0, 8), discipline: t(MODULE_LABEL_KEYS[module_ as TabKey]) })}
-                  </p>
-                )}
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_category')}</span>
-                <input type="text" value={category} onChange={(e) => setCategory(e.currentTarget.value)}
-                  data-input-category
-                  className={`h-9 ${FIELD_CLS}`} />
-              </label>
-
-              <label className="flex flex-col gap-1">
-                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_guidance')}</span>
-                <textarea rows={4} value={guidance} onChange={(e) => setGuidance(e.currentTarget.value)}
-                  data-input-guidance
-                  className={`resize-y py-2 ${FIELD_CLS}`} />
-              </label>
-
-              <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
-                <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_effective_from')}</span>
-                  <input type="date" value={effFrom} min={localToday()} onChange={(e) => setEffFrom(e.currentTarget.value)}
-                    data-input-effective
-                    className={`h-9 ${FIELD_CLS}`} />
-                  <PastDateError value={effFrom} />
-                </label>
-                <label className="flex flex-col gap-1">
-                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_valid_until')}</span>
-                  <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.currentTarget.value)}
-                    min={effFrom || localToday()}
-                    data-input-valid-until
-                    className={`h-9 ${FIELD_CLS}`} />
-                  <PastDateError value={validUntil} />
-                </label>
-              </div>
-              {!datesInOrder && (
-                <p className="text-[11px] font-semibold text-red-700" role="alert" data-dates-invalid>
-                  {t('page.best_practices_library.dates_invalid')}
+              {(openItem.applicableDocTypes?.length ?? 0) > 0 && (
+                <p className="font-mono text-[11px] text-slate-500">
+                  {t('page.best_practices_library.applicable_doc_types')} {openItem.applicableDocTypes.join(', ')}
                 </p>
               )}
-
-              <button
-                type="button" onClick={publish} disabled={!canPublish || publishing}
-                data-publish-bp
-                className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-              >{publishing ? t('page.best_practices_library.publishing') : t('page.best_practices_library.publish')}</button>
-
-              {publishError && (
-                <p className="text-[11px] font-semibold text-red-700" role="alert" data-publish-error>{publishError}</p>
+              {(openItem.frameworkRefs?.length ?? 0) > 0 && (
+                <p className="font-mono text-[11px] text-slate-500">
+                  {t('page.best_practices_library.framework_references')} {openItem.frameworkRefs.join(', ')}
+                </p>
               )}
-
-              <p className="font-mono text-[11px] text-slate-500" data-publish-note>
-                {t('page.best_practices_library.publish_note')}
-              </p>
-            </aside>
+              <p className="font-mono text-[11px] text-slate-500">{t('page.best_practices_library.last_updated', { date: formatDay(openItem.updatedAt) })}</p>
+            </div>
           )}
-        </div>
+        </SlidePanel>
+
+        {/* New best practice — opens in the same right-hand panel (not closed by an outside click, so nothing typed is lost) */}
+        <SlidePanel open={drawerOpen && canAuthor} onClose={() => setDrawerOpen(false)}
+          title={t('page.best_practices_library.drawer_eyebrow')} storageKey="best-practice-new" defaultWidth={460} belowTopBar>
+          <div className="flex flex-col gap-3 px-5 py-5" aria-label={t('page.best_practices_library.drawer_aria')} data-new-bp-drawer>
+            <label className="flex flex-col gap-1">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_name')}</span>
+              <input type="text" value={name} onChange={(e) => setName(e.currentTarget.value)}
+                placeholder="Module-D-Category-v1.0-2026-09"
+                data-input-name
+                className={`h-9 ${FIELD_CLS}`} />
+              {name && !nameValid && (
+                <p className="text-[11px] font-semibold text-red-700" role="alert" data-name-invalid>
+                  {t('page.best_practices_library.name_invalid')}
+                </p>
+              )}
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_discipline')}</span>
+              <select value={module_} onChange={(e) => setModule(e.currentTarget.value as ModuleKey)}
+                data-input-module
+                className={`h-9 ${FIELD_CLS}`}>
+                {(['A','B','C','D','E','platform'] as ModuleKey[]).filter(isOffered).map(m => <option key={m} value={m}>{t(MODULE_LABEL_KEYS[m as TabKey])}</option>)}
+              </select>
+              {nameValid && !moduleMatches && (
+                <p className="text-[11px] font-semibold text-red-700" role="alert" data-module-mismatch>
+                  {t('page.best_practices_library.module_mismatch', { prefix: name.startsWith('Platform') ? 'Platform' : name.slice(0, 8), discipline: t(MODULE_LABEL_KEYS[module_ as TabKey]) })}
+                </p>
+              )}
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_category')}</span>
+              <input type="text" value={category} onChange={(e) => setCategory(e.currentTarget.value)}
+                data-input-category
+                className={`h-9 ${FIELD_CLS}`} />
+            </label>
+
+            <label className="flex flex-col gap-1">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_guidance')}</span>
+              <textarea rows={4} value={guidance} onChange={(e) => setGuidance(e.currentTarget.value)}
+                data-input-guidance
+                className={`resize-y py-2 ${FIELD_CLS}`} />
+            </label>
+
+            <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_effective_from')}</span>
+                <input type="date" value={effFrom} min={localToday()} onChange={(e) => setEffFrom(e.currentTarget.value)}
+                  data-input-effective
+                  className={`h-9 ${FIELD_CLS}`} />
+                <PastDateError value={effFrom} />
+              </label>
+              <label className="flex flex-col gap-1">
+                <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_valid_until')}</span>
+                <input type="date" value={validUntil} onChange={(e) => setValidUntil(e.currentTarget.value)}
+                  min={effFrom || localToday()}
+                  data-input-valid-until
+                  className={`h-9 ${FIELD_CLS}`} />
+                <PastDateError value={validUntil} />
+              </label>
+            </div>
+            {!datesInOrder && (
+              <p className="text-[11px] font-semibold text-red-700" role="alert" data-dates-invalid>
+                {t('page.best_practices_library.dates_invalid')}
+              </p>
+            )}
+
+            <button
+              type="button" onClick={publish} disabled={!canPublish || publishing}
+              data-publish-bp
+              className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+              style={{ backgroundColor: PLATFORM_ACCENT.primary }}
+            >{publishing ? t('page.best_practices_library.publishing') : t('page.best_practices_library.publish')}</button>
+
+            {publishError && (
+              <p className="text-[11px] font-semibold text-red-700" role="alert" data-publish-error>{publishError}</p>
+            )}
+
+            <p className="font-mono text-[11px] text-slate-500" data-publish-note>
+              {t('page.best_practices_library.publish_note')}
+            </p>
+          </div>
+        </SlidePanel>
       </div>
     </div>
   )

@@ -22,6 +22,8 @@
 // 403 and the empty-state renders).
 
 import { useMemo, useState } from 'react'
+import { useQuery } from '@tanstack/react-query'
+import { platformApi } from '../api/platformApi'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { MasterLibrarySlotContext } from '../components/MasterLibraryHeading'
 
@@ -53,6 +55,21 @@ export function MasterLibraryShell() {
     const m = /^\/master-library\/([^/]+)/.exec(pathname)
     return m?.[1] ?? 'documents'
   }, [pathname])
+
+  // The Best Practices tab shows how many best practices this tenant can see (its enabled modules + Platform).
+  // Same query keys as the Best Practices page, so this is normally a cache read.
+  const { data: bestPractices } = useQuery({ queryKey: ['best-practices'], queryFn: () => platformApi.listBestPractices() })
+  const { data: enabled } = useQuery({ queryKey: ['library-enabled-modules'], queryFn: () => platformApi.getEnabledModules(), staleTime: 5 * 60_000, retry: false })
+  const bestPracticeCount = bestPractices
+    ? bestPractices.filter(i => i.module === 'platform' || !enabled || (enabled.modules as string[]).includes(i.module)).length
+    : null
+
+  // The Templates tab shows how many templates exist (same query key as the Templates page).
+  const { data: templates } = useQuery({ queryKey: ['document-templates-admin'], queryFn: () => platformApi.listDocumentTemplatesAdmin() })
+  const tabCounts: Record<string, number | null> = {
+    'best-practices': bestPracticeCount,
+    'templates':      templates ? templates.length : null,
+  }
 
   // The header's heading slot: each page puts its own title + subtitle here (see MasterLibraryHeading).
   const [headingSlot, setHeadingSlot] = useState<HTMLElement | null>(null)
@@ -87,6 +104,9 @@ export function MasterLibraryShell() {
               }}
             >
               {tab.label}
+              {tabCounts[tab.slug] != null && (
+                <span className="ml-1.5 font-normal text-slate-500" data-tab-count={tab.slug}>({tabCounts[tab.slug]})</span>
+              )}
             </NavLink>
           ))}
         </nav>

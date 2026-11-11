@@ -3339,7 +3339,12 @@
     },
 
     "best_practices_library": {
-      "subtitle": "執筆者と AI ドラフターが従うベストプラクティスのガイダンスを、領域別にまとめています。項目は所定の命名規則に従います。",
+      "subtitle": "執筆者と AI ドラフターが従うベストプラクティスのガイダンスを、領域別にまとめています。",
+      "search_placeholder": "ベストプラクティスを検索",
+      "search_aria": "ベストプラクティスを検索",
+      "filter_module": "モジュール",
+      "all_modules": "すべてのモジュール",
+      "empty_filtered": "条件に一致するベストプラクティスはありません。",
       "crumb_platform": "プラットフォーム",
       "crumb_best_practices": "ベストプラクティスライブラリ",
       "title": "ベストプラクティスライブラリ",

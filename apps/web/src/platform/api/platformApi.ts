@@ -228,6 +228,10 @@ export const platformApi = {
   adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/adopt`, body),
 
+  // The writing modules (A–E) this caller's tenant has switched on — what the Best Practices filter offers.
+  getEnabledModules: () =>
+    api.get<{ modules: Array<'A' | 'B' | 'C' | 'D' | 'E'> }>('/library/enabled-modules'),
+
   // sPM09 — Best Practices
   listBestPractices: () =>
     api.get<BestPractice[]>('/library/best-practices'),

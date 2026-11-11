@@ -19,7 +19,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { DATE_IN_PAST, isPastDay } from '../past-date.js'
-import { requireAuth } from '../../../auth/rbac.js'
+import { enabledModules, requireAuth } from '../../../auth/rbac.js'
 import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
 import type { Prisma } from '@prisma/client'
 import { visibleProjectIdsForUser } from '../../projects/visibility.js'
@@ -280,6 +280,20 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     if (ids.length === 0) return []
     const projects = await app.prisma.project.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
     return projects.map(p => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name))
+  })
+
+  // The writing modules this caller's tenant has switched on: the tenant's own toggles intersected with
+  // the deployment kill-switch (FEATURE_MODULES_ENABLED). A platform user with no tenant gets every module
+  // the deployment has on. The Best Practices filter offers only these.
+  app.get('/enabled-modules', { preHandler: requireAuth() }, async (request) => {
+    const user = request.user!
+    const deployment = enabledModules()
+    const tenant = user.tenantId
+      ? await app.prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { modulesEnabled: true } })
+      : null
+    const modules = (['A', 'B', 'C', 'D', 'E'] as const)
+      .filter(k => deployment.has(k) && (!tenant || tenant.modulesEnabled.includes(k)))
+    return { modules }
   })
 
   app.get('/best-practices', { preHandler: requireAuth() }, async (request, reply) => {

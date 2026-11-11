@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
+import { MultiSelect } from '../components/MultiSelect'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { BestPractice, ModuleKey } from '@platform/types'
@@ -11,16 +12,6 @@ import { PastDateError } from '../../components/ui/PastDateError'
 import { isPastDate, localToday } from '../../utils/formatDate'
 
 type TabKey = 'all' | 'A' | 'B' | 'C' | 'D' | 'E' | 'platform'
-
-const TAB_META: { key: TabKey; labelKey: string }[] = [
-  { key: 'all',      labelKey: 'page.best_practices_library.tab_all' },
-  { key: 'A',        labelKey: 'page.best_practices_library.tab_a' },
-  { key: 'B',        labelKey: 'page.best_practices_library.tab_b' },
-  { key: 'C',        labelKey: 'page.best_practices_library.tab_c' },
-  { key: 'D',        labelKey: 'page.best_practices_library.tab_d' },
-  { key: 'E',        labelKey: 'page.best_practices_library.tab_e' },
-  { key: 'platform', labelKey: 'page.best_practices_library.tab_platform' },
-]
 
 const MODULE_LABEL_KEYS: Record<TabKey, string> = {
   all:      'page.best_practices_library.module_all',
@@ -52,16 +43,6 @@ function formatDay(iso: string | null | undefined): string {
   return `${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
-const TAB_STORAGE_KEY = 'clinwrite.bestPractices.tab'
-
-function readSavedTab(): TabKey {
-  try {
-    const saved = localStorage.getItem(TAB_STORAGE_KEY)
-    if (saved && TAB_META.some(m => m.key === saved)) return saved as TabKey
-  } catch { /* storage blocked */ }
-  return 'all'
-}
-
 export function BestPracticesLibrary() {
   const { t } = useTranslation()
   const currentUser = usePlatformStore(s => s.currentUser)
@@ -73,12 +54,18 @@ export function BestPracticesLibrary() {
     queryFn:  () => platformApi.listBestPractices(),
   })
 
-  // Opens on "All" (CW-072), or on the tab the user last chose.
-  const [tab, setTabState]  = useState<TabKey>(readSavedTab)
-  const setTab = (next: TabKey) => {
-    setTabState(next)
-    try { localStorage.setItem(TAB_STORAGE_KEY, next) } catch { /* storage blocked: just don't remember */ }
-  }
+  // Filters, like Master Documents: a search box and a module dropdown (nothing ticked = all modules).
+  const [search,  setSearch]  = useState('')
+  const [modules, setModules] = useState<string[]>([])
+
+  // Only the writing modules this tenant has switched on are offered. While that loads, or if it can't be
+  // read, nothing is hidden (the server still decides what each user may see).
+  const { data: enabledData } = useQuery({ queryKey: ['library-enabled-modules'], queryFn: () => platformApi.getEnabledModules(), staleTime: 5 * 60_000, retry: false })
+  const enabledModuleKeys = enabledData?.modules ?? null
+  const isOffered = (m: string) => m === 'platform' || !enabledModuleKeys || enabledModuleKeys.includes(m as 'A' | 'B' | 'C' | 'D' | 'E')
+  const moduleOptions = (['A', 'B', 'C', 'D', 'E', 'platform'] as const)
+    .filter(isOffered)
+    .map(m => ({ value: m, label: t(MODULE_LABEL_KEYS[m]) }))
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [name,     setName]     = useState('')
   const [module_,  setModule]   = useState<ModuleKey>('D')
@@ -89,21 +76,21 @@ export function BestPracticesLibrary() {
   const [publishError, setPublishError] = useState<string | null>(null)
   const [publishing, setPublishing] = useState(false)
 
-  const counts = useMemo(() => {
-    const c: Record<TabKey, number> = { all: items.length, A: 0, B: 0, C: 0, D: 0, E: 0, platform: 0 }
-    items.forEach(i => {
-      if (i.module === 'A' || i.module === 'B' || i.module === 'C' || i.module === 'D' || i.module === 'E') c[i.module]++
-      else if (i.module === 'platform') c.platform++
-    })
-    return c
-  }, [items])
+  const filtersDirty = search.trim() !== '' || modules.length > 0
+  const resetFilters = () => { setSearch(''); setModules([]) }
 
   const filtered = useMemo(() => {
-    if (tab === 'all') return items
-    return items.filter(i => i.module === tab)
-  }, [items, tab])
+    const q = search.trim().toLowerCase()
+    return items.filter(i => {
+      if (!isOffered(i.module)) return false                          // a module this tenant hasn't enabled
+      if (modules.length > 0 && !modules.includes(i.module)) return false
+      if (q && ![i.name, i.category, i.guidance, i.version].some(v => (v ?? '').toLowerCase().includes(q))) return false
+      return true
+    })
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, search, modules, enabledModuleKeys])
 
-  const reviewDueCount = items.filter(i => i.reviewDue).length
+  const reviewDueCount = filtered.filter(i => i.reviewDue).length
 
   const parsedName = parseName(name)
   const nameValid = parsedName !== null
@@ -139,57 +126,54 @@ export function BestPracticesLibrary() {
     <div className="bg-slate-50" data-screen="best-practices-library">
       <div className="flex flex-col gap-4 px-4 pb-12 pt-5 sm:px-8" style={{ maxWidth: 1440 }}>
 
-        {/* Breadcrumb and "who you are" line removed: the top bar shows "Master Library / Best Practices". */}
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div>
-            <MasterLibraryHeading>
-              <h1 className="text-[20px] font-semibold text-slate-900">{t('page.best_practices_library.title')}</h1>
-              <p className="mt-0.5 text-[13px] text-slate-500">
-                {t('page.best_practices_library.subtitle', { defaultValue: 'Best-practice guidance that authors and the AI drafter follow, grouped by discipline. Items follow a fixed naming convention.' })}
-              </p>
-            </MasterLibraryHeading>
-          </div>
-          {canAuthor && (
+        {/* The heading goes up into the Master Library header; the naming convention moved into its subtitle. */}
+        <MasterLibraryHeading>
+          <h1 className="text-[20px] font-semibold text-slate-900">{t('page.best_practices_library.title')}</h1>
+          <p className="mt-0.5 text-[13px] text-slate-500" data-naming-convention>
+            {t('page.best_practices_library.subtitle', { defaultValue: 'Best-practice guidance that authors and the AI drafter follow, grouped by discipline.' })}{' '}
+            {t('page.best_practices_library.naming_convention_prefix')} <code>[Module]-[Category]-[Version]-[Date]</code> {t('page.best_practices_library.naming_convention_example_prefix')} <code>Module-D-CTD-Authoring-v1.2-2026-01</code>
+          </p>
+        </MasterLibraryHeading>
+
+        {/* Filters — same look as Master Documents: search, a module dropdown, reset (and New for those who may add). */}
+        <div className="[container-type:inline-size]" data-filter-panel>
+          <div className="flex flex-wrap items-center gap-3 [@container_(min-width:700px)]:flex-nowrap">
+            <input
+              type="search" value={search} onChange={(e) => setSearch(e.currentTarget.value)}
+              placeholder={t('page.best_practices_library.search_placeholder', { defaultValue: 'Search best practices' })}
+              aria-label={t('page.best_practices_library.search_aria', { defaultValue: 'Search best practices' })}
+              data-filter-search
+              className="h-10 w-full basis-full min-w-0 rounded-md border border-slate-300 bg-white px-2.5 text-[12px] text-slate-800 [@container_(min-width:700px)]:min-w-[180px] [@container_(min-width:700px)]:flex-[2_1_0%] [@container_(min-width:700px)]:basis-auto"
+            />
+            <div data-filter-module className="min-w-[160px] flex-[1_1_160px] [@container_(min-width:700px)]:flex-[1_1_0%]">
+              <MultiSelect
+                label={t('page.best_practices_library.filter_module', { defaultValue: 'Module' })}
+                allLabel={t('page.best_practices_library.all_modules', { defaultValue: 'All modules' })}
+                options={moduleOptions} value={modules} onChange={setModules} optionAttr="data-module-option"
+                className="h-10 w-full rounded-md border border-slate-300 bg-white px-2.5 text-[12px] text-slate-800"
+              />
+            </div>
             <button
-              type="button" onClick={() => setDrawerOpen(true)}
-              data-new-bp
-              className="h-9 rounded-md px-4 text-[13px] font-semibold text-white"
-              style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >{t('page.best_practices_library.new_bp')}</button>
-          )}
-        </div>
-
-        {/* Naming convention note — always visible per brief §22 */}
-        <p
-          className="rounded-md p-3 text-[12px]"
-          style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
-          data-naming-convention
-        >
-          {t('page.best_practices_library.naming_convention_prefix')} <code>[Module]-[Category]-[Version]-[Date]</code> {t('page.best_practices_library.naming_convention_example_prefix')} <code>Module-D-CTD-Authoring-v1.2-2026-01</code>
-        </p>
-
-        {/* Tabs */}
-        <div className="flex flex-wrap items-center gap-1 border-b border-slate-200" role="tablist" aria-label={t('page.best_practices_library.tablist_label')} data-module-tabs>
-          {TAB_META.map(ty => {
-            const active = tab === ty.key
-            return (
+              type="button" onClick={resetFilters} disabled={!filtersDirty}
+              title={filtersDirty ? t('page.master_library.reset_filters') : t('page.master_library.filters_at_defaults')}
+              aria-label={t('page.master_library.reset_filters')}
+              className="flex h-10 w-10 flex-none items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white"
+              data-action="reset-filters"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" />
+                <path d="M2.5 2.5v2.8h2.8" />
+              </svg>
+            </button>
+            {canAuthor && (
               <button
-                key={ty.key} type="button" role="tab" aria-selected={active} onClick={() => setTab(ty.key)}
-                data-tab={ty.key} data-active={active || undefined}
-                className="flex items-center gap-2 px-3 py-2 text-[13px] font-semibold"
-                style={{
-                  color: active ? PLATFORM_ACCENT.primary : '#64748B',
-                  borderBottom: active ? `2px solid ${PLATFORM_ACCENT.primary}` : '2px solid transparent',
-                }}
-              >
-                {t(ty.labelKey)}
-                <span className="inline-flex h-5 items-center rounded-full px-1.5 text-[10px] font-mono font-semibold"
-                  style={{ backgroundColor: active ? PLATFORM_ACCENT.primary : '#F1F5F9', color: active ? '#FFFFFF' : '#475569' }}
-                  data-tab-count={ty.key}
-                >{counts[ty.key]}<span className="sr-only"> {counts[ty.key] === 1 ? t('page.best_practices_library.item_singular') : t('page.best_practices_library.item_plural')}</span></span>
-              </button>
-            )
-          })}
+                type="button" onClick={() => setDrawerOpen(true)}
+                data-new-bp
+                className="h-10 flex-none rounded-md px-4 text-[13px] font-semibold text-white"
+                style={{ backgroundColor: PLATFORM_ACCENT.primary }}
+              >{t('page.best_practices_library.new_bp')}</button>
+            )}
+          </div>
         </div>
 
         {reviewDueCount > 0 && (
@@ -202,7 +186,7 @@ export function BestPracticesLibrary() {
 
         <div className={`grid gap-4 ${drawerOpen ? 'grid-cols-1 lg:grid-cols-[minmax(0,1fr)_360px]' : 'grid-cols-1'}`}>
 
-          <section className="flex min-w-0 flex-col gap-3" role="tabpanel" aria-label={t(MODULE_LABEL_KEYS[tab])} data-bp-cards>
+          <section className="flex min-w-0 flex-col gap-3" aria-label={t('page.best_practices_library.title')} data-bp-cards>
             {isLoading && <p className="text-[13px] text-slate-500" data-state="loading">{t('page.best_practices_library.loading')}</p>}
             {isError && (
               <p className="rounded-md border border-red-200 bg-red-50 p-3 text-[13px] text-red-800" role="alert" data-state="error">
@@ -212,7 +196,7 @@ export function BestPracticesLibrary() {
             )}
             {!isLoading && !isError && filtered.length === 0 && (
               <p className="text-[13px] text-slate-500" data-state="empty">
-                {tab === 'all' ? t('page.best_practices_library.empty_all') : t('page.best_practices_library.empty_module', { module: t(MODULE_LABEL_KEYS[tab]) })}
+                {filtersDirty ? t('page.best_practices_library.empty_filtered', { defaultValue: 'No best practices match these filters.' }) : t('page.best_practices_library.empty_all')}
               </p>
             )}
             {filtered.map(bp => {
@@ -291,7 +275,7 @@ export function BestPracticesLibrary() {
                 <select value={module_} onChange={(e) => setModule(e.currentTarget.value as ModuleKey)}
                   data-input-module
                   className={`h-9 ${FIELD_CLS}`}>
-                  {(['A','B','C','D','E','platform'] as ModuleKey[]).map(m => <option key={m} value={m}>{t(MODULE_LABEL_KEYS[m as TabKey])}</option>)}
+                  {(['A','B','C','D','E','platform'] as ModuleKey[]).filter(isOffered).map(m => <option key={m} value={m}>{t(MODULE_LABEL_KEYS[m as TabKey])}</option>)}
                 </select>
                 {nameValid && !moduleMatches && (
                   <p className="text-[11px] font-semibold text-red-700" role="alert" data-module-mismatch>

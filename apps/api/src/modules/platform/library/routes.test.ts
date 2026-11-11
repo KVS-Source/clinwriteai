@@ -14,7 +14,7 @@ const section = (id: string, over: Partial<SectionRow> = {}): SectionRow => ({
   tags: ['module:D'], updatedAt: new Date('2026-10-02T00:00:00Z'), ...over,
 })
 
-interface Setup { role?: Role | null; tenantId?: string | null; rows?: SectionRow[]; total?: number; ta?: string | null; dup?: boolean }
+interface Setup { role?: Role | null; tenantId?: string | null; rows?: SectionRow[]; total?: number; ta?: string | null; dup?: boolean; tenantModules?: string[] }
 
 async function build(setup: Setup = {}) {
   const findMany = vi.fn(async () => setup.rows ?? [])
@@ -32,6 +32,7 @@ async function build(setup: Setup = {}) {
     user: { findMany: vi.fn(async () => [{ id: 'u1', name: 'Dr James Hartley' }]) },
     project: { findMany: vi.fn(async () => [{ id: 'p1', name: 'VELORA-301', status: 'closed' }]) },
     document: { findMany: vi.fn(async () => []) },
+    tenant: { findUnique: vi.fn(async () => (setup.tenantModules ? { modulesEnabled: setup.tenantModules } : null)) },
     therapeuticArea: { findFirst: vi.fn(async () => (setup.ta === null ? null : { label: setup.ta ?? 'Oncology' })) },
   } as never)
   app.decorate('audit', { append } as never)
@@ -220,5 +221,30 @@ describe('best practices', () => {
     const res = await app.inject({ method: 'POST', url: '/library/best-practices', payload: { ...body, therapeuticArea: 'Nope' } })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toBe('invalid_therapeutic_area')
+  })
+})
+
+describe('GET /library/enabled-modules', () => {
+  it('requires a signed-in user', async () => {
+    const { app } = await setup({ role: null })
+    expect((await app.inject({ method: 'GET', url: '/library/enabled-modules' })).statusCode).toBe(401)
+  })
+
+  it("returns only the writing modules the caller's tenant has switched on", async () => {
+    const { app } = await setup({ tenantId: 't1', tenantModules: ['A', 'C'] })
+    const res = await app.inject({ method: 'GET', url: '/library/enabled-modules' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ modules: ['A', 'C'] })
+  })
+
+  it('a platform user with no tenant gets every module the deployment has on', async () => {
+    const { app } = await setup({ tenantId: null })
+    const res = await app.inject({ method: 'GET', url: '/library/enabled-modules' })
+    expect(res.json().modules).toEqual(expect.arrayContaining(['A']))
+  })
+
+  it('is not read as a library item id', async () => {
+    const { app } = await setup({ tenantId: 't1', tenantModules: ['B'] })
+    expect((await app.inject({ method: 'GET', url: '/library/enabled-modules' })).json()).toEqual({ modules: ['B'] })
   })
 })

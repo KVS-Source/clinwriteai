@@ -23,6 +23,9 @@
 
 import { useMemo, useState } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
+import { useQuery } from '@tanstack/react-query'
+import { platformApi } from '../api/platformApi'
+import { documentsApi } from '../../api/documents'
 import { MasterLibrarySlotContext } from '../components/MasterLibraryHeading'
 
 export interface Tab {
@@ -45,6 +48,36 @@ export const MASTER_LIBRARY_TABS: Tab[] = [
   { slug: 'policies',       label: 'Doc Type Policies' },
 ]
 
+// Master Documents lists documents only (sections are pulled from inside them).
+export const MASTER_DOCUMENT_ITEM_TYPES = ['document']
+
+// Each tab shows how many items it holds, beside its name: "Templates (4)". The counts come from the same
+// queries the tabs themselves run (same keys), so opening a tab reuses the data and a change made on a tab
+// updates its count. Master Documents is paged, so its count is the library's total (X-Total-Count) with no
+// filters, as the tab opens. A tab whose list can't be read (e.g. not allowed) shows no count.
+function useTabCounts(): Partial<Record<string, number>> {
+  const opts = { retry: false, staleTime: 30_000 } as const
+  const documents = useQuery({
+    queryKey: ['library', 'tab-count'],
+    queryFn:  () => platformApi.listLibraryPage({ itemType: MASTER_DOCUMENT_ITEM_TYPES, limit: 1 }),
+    ...opts,
+  })
+  const bestPractices = useQuery({ queryKey: ['best-practices'], queryFn: () => platformApi.listBestPractices(), ...opts })
+  const templates = useQuery({ queryKey: ['document-templates-admin'], queryFn: () => platformApi.listDocumentTemplatesAdmin(), ...opts })
+  const policies = useQuery({ queryKey: ['document-type-policies'], queryFn: () => platformApi.listDocumentTypePolicies(), ...opts })
+  const checklists = useQuery({ queryKey: ['checklist-templates'], queryFn: () => documentsApi.listChecklistTemplates(), ...opts })
+  const frameworks = useQuery({ queryKey: ['regulatory-frameworks'], queryFn: () => platformApi.listFrameworks(), ...opts })
+  return {
+    documents:        documents.data?.total,
+    'best-practices': bestPractices.data?.length,
+    templates:        templates.data?.length,
+    'ai-prompts':     policies.data?.policies.length,     // one SME prompt per doc-type policy
+    checklists:       checklists.data?.length,
+    'ich-frameworks': frameworks.data?.length,
+    policies:         policies.data?.policies.length,
+  }
+}
+
 export function MasterLibraryShell() {
   const { pathname } = useLocation()
   // The matched tab is the first segment after /master-library/. Used
@@ -56,6 +89,7 @@ export function MasterLibraryShell() {
 
   // The header's heading slot: each page puts its own title + subtitle here (see MasterLibraryHeading).
   const [headingSlot, setHeadingSlot] = useState<HTMLElement | null>(null)
+  const counts = useTabCounts()
 
   return (
     <MasterLibrarySlotContext.Provider value={headingSlot}>
@@ -87,6 +121,9 @@ export function MasterLibraryShell() {
               }}
             >
               {tab.label}
+              {counts[tab.slug] !== undefined && (
+                <>{' '}<span className="font-normal opacity-70" data-tab-count={counts[tab.slug]}>({counts[tab.slug]})</span></>
+              )}
             </NavLink>
           ))}
         </nav>

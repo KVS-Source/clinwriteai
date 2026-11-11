@@ -9,6 +9,7 @@ import type { MasterLibraryItem, MasterLibrarySourceDocument, ModuleKey } from '
 import type { LibraryListParams } from '../api/platformApi'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
+import { MASTER_DOCUMENT_ITEM_TYPES } from './MasterLibraryShell'
 import { usePlatformStore } from '../store/platformStore'
 import { documentsApi, projectsApi, describeApiError } from '../../api'
 import { raciApi } from '../../api/raci'
@@ -27,7 +28,7 @@ const BASE_DOC_TYPES = ['NDA', 'CSR', 'SmPC', 'RMP', 'Blog Post', 'IND', 'KOL Su
 const PAGE_SIZES = [10, 20, 50]
 // Whole documents only. Best practices have their own page, and single sections can no longer be
 // pushed, so the section entries from earlier pushes are kept in the database but not listed here.
-const LIST_ITEM_TYPES = ['document']
+const LIST_ITEM_TYPES = MASTER_DOCUMENT_ITEM_TYPES
 const SEARCH_DEBOUNCE_MS = 300
 // Mirrors the API's AUTHORING_LOCKED_STATUSES. The web sends statuses with hyphens (in-review), the API with underscores.
 const AUTHORING_LOCKED = ['in-review', 'pending-signature', 'signed']
@@ -208,11 +209,8 @@ export function MasterLibrary() {
         {/* The heading goes up into the Master Library header (above the tabs); the breadcrumb and
             "who you are" line are gone — the top bar carries "Master Library / Master Documents". */}
         <MasterLibraryHeading>
-          {/* The item count sits beside the title, in brackets: "Master Documents (2)". */}
-          <h1 className="text-[20px] font-semibold text-slate-900">
-            {t('page.master_library.tab_documents', { defaultValue: 'Master Documents' })}
-            {!isLoading && <span className="ml-1.5 font-normal text-slate-500" data-results-count={total}>({total})</span>}
-          </h1>
+          {/* The item count is on the tab ("Master Documents (2)", MasterLibraryShell), not the title. */}
+          <h1 className="text-[20px] font-semibold text-slate-900">{t('page.master_library.tab_documents', { defaultValue: 'Master Documents' })}</h1>
           <p className="mt-0.5 text-[13px] text-slate-500">
             {t('page.master_library.subtitle_documents', { defaultValue: 'Signed documents and sections pushed here from projects. Search and filter the library, and pull approved sections into new documents.' })}
           </p>

@@ -1,7 +1,7 @@
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { MultiSelect } from '../components/MultiSelect'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTaLabels } from '../../hooks'
@@ -85,7 +85,7 @@ export function MasterLibrary() {
   const listParams = useMemo<LibraryListParams>(() => ({
     q: debouncedSearch, itemType: LIST_ITEM_TYPES, docType: docTypes, ta: tas,
     projectId: project, from: rangeToIso(rangeFrom, 'start', tz), to: rangeToIso(rangeTo, 'end', tz), sort, includeRetired: showWithdrawn, limit: pageSize,
-  }), [debouncedSearch, docTypes, tas, project, rangeFrom, rangeTo, tz, sort, showWithdrawn])
+  }), [debouncedSearch, docTypes, tas, project, rangeFrom, rangeTo, tz, sort, showWithdrawn, pageSize])
 
   // Any change to a filter, the sort or the page size starts again from page 1.
   useEffect(() => { setPage(1) }, [listParams])
@@ -105,7 +105,14 @@ export function MasterLibrary() {
   const [pullOpen,   setPullOpen]   = useState(false)
   const [adminAction, setAdminAction] = useState<'version' | 'withdraw' | null>(null)
   const [toast,      setToast]      = useState<string | null>(null)
-  const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 3600) }
+  // One timer for the toast: a new message replaces the old one and gets its full time (the old timer is cancelled).
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (toastTimer.current) clearTimeout(toastTimer.current) }, [])
+  const flash = (msg: string) => {
+    if (toastTimer.current) clearTimeout(toastTimer.current)
+    setToast(msg)
+    toastTimer.current = setTimeout(() => setToast(null), 3600)
+  }
 
   // "Source: …" line stored beside a pulled section; read-only text in the destination.
   const provenanceLine = (item: MasterLibraryItem): string =>
@@ -142,6 +149,17 @@ export function MasterLibrary() {
 
   const active = selected ? (items.find(i => i.id === selected.id) ?? selected) : undefined
 
+  // The list leaves each document's text out (it can be hundreds of KB); the full item is read once a row is opened.
+  // Everything that needs the text (Pull, New version) uses `activeItem` and waits until it has arrived.
+  const detailQ = useQuery({
+    queryKey: ['library-item', active?.id],
+    queryFn:  () => platformApi.getLibraryItem(active!.id),
+    enabled:  !!active,
+    staleTime: 30_000,
+  })
+  const bodyReady = !detailQ.isLoading
+  const activeItem = active ? { ...active, body: detailQ.data?.body ?? active.body } : undefined
+
   // Other versions of the same item (same name, different version) — newest first.
   const versionHistory = useMemo(() => {
     if (!active) return []
@@ -150,12 +168,12 @@ export function MasterLibrary() {
       .sort((a, b) => new Date(b.pushedAt).getTime() - new Date(a.pushedAt).getTime())
   }, [items, active])
 
-  const canPull = !!active && active.itemType === 'section' && !!active.body && !active.isWithdrawn
+  const canPull = !!activeItem && activeItem.itemType === 'section' && !!activeItem.body && !activeItem.isWithdrawn
   const canAdminister = canManage && !!active && active.itemType !== 'best-practice' && !active.isWithdrawn
   const pullLabel = !active ? t('page.master_library.pull_default')
     : active.itemType !== 'section' ? t('page.master_library.pull_sections_only')
     : active.isWithdrawn ? t('page.master_library.pull_withdrawn')
-    : !active.body ? t('page.master_library.pull_no_text')
+    : !activeItem?.body ? t('page.master_library.pull_no_text')
     : t('page.master_library.pull_default')
   // A whole document can't be pulled, so its note doesn't talk about pulling.
   const isSectionItem = active?.itemType === 'section'
@@ -166,7 +184,6 @@ export function MasterLibrary() {
   // Download PDF: the server builds a PDF of the item's own text (title + body, no app
   // details) and the browser saves it as a file — no print dialog, no pop-up.
   async function downloadPdf(item: MasterLibraryItem) {
-    if (!item.body) { flash(t('page.master_library.pdf_no_content')); return }
     try {
       const { blob, filename } = await api.download(`/library/${encodeURIComponent(item.id)}/pdf`)
       const url = URL.createObjectURL(blob)
@@ -212,7 +229,7 @@ export function MasterLibrary() {
           {/* The item count is on the tab ("Master Documents (2)", MasterLibraryShell), not the title. */}
           <h1 className="text-[20px] font-semibold text-slate-900">{t('page.master_library.tab_documents', { defaultValue: 'Master Documents' })}</h1>
           <p className="mt-0.5 text-[13px] text-slate-500">
-            {t('page.master_library.subtitle_documents', { defaultValue: 'Signed documents and sections pushed here from projects. Search and filter the library, and pull approved sections into new documents.' })}
+            {t('page.master_library.subtitle_documents', { defaultValue: 'Signed documents pushed here from projects. Search and filter the library, and open any document to see its source, team and signatures.' })}
           </p>
         </MasterLibraryHeading>
 
@@ -324,7 +341,7 @@ export function MasterLibrary() {
                       {it.isArchived && <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600" data-archived-tag>{t('page.master_library.archived_tag')}</span>}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{it.docType || '—'}</td>
-                    <td className="px-4 py-3 text-slate-700">{it.ta.join(', ') || '—'}</td>
+                    <td className="px-4 py-3 text-slate-700">{(it.ta ?? []).join(', ') || '—'}</td>
                     <td className="px-4 py-3 font-mono text-[12px] text-slate-700">{it.version}</td>
                     <td className="px-4 py-3 text-slate-700">{it.projectName || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{it.pushedByName || '—'}</td>
@@ -362,7 +379,7 @@ export function MasterLibrary() {
             <span className="mt-1 flex flex-wrap items-center gap-2" data-active-badges>
               <span className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-mono font-semibold uppercase" style={{ backgroundColor: `${MODULE_COLOURS[active.module]}22`, color: MODULE_COLOURS[active.module] }} data-active-module>{active.module}</span>
               <span className="font-mono text-[11px] text-slate-500" data-active-doctype>{active.docType}</span>
-              <span className="font-mono text-[11px] text-slate-500">{t('page.master_library.ta_prefix')} {active.ta.join(', ')}</span>
+              <span className="font-mono text-[11px] text-slate-500">{t('page.master_library.ta_prefix')} {(active.ta ?? []).join(', ')}</span>
               {active.isArchived && (
                 <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{t('page.master_library.archived_tag')}</span>
               )}
@@ -373,16 +390,16 @@ export function MasterLibrary() {
         storageKey="library-detail" defaultWidth={520} belowTopBar closeOnOutsideClick>
         {active && (
           <div className="flex flex-col gap-4 px-5 py-5" data-detail-panel>
-            {active.tags.length > 0 && (
+            {(active.tags ?? []).length > 0 && (
               <div className="flex flex-wrap gap-1" data-active-tags>
-                {active.tags.map(tg => <span key={tg} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{tg}</span>)}
+                {(active.tags ?? []).map(tg => <span key={tg} className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] text-slate-600">{tg}</span>)}
               </div>
             )}
 
             <div className="rounded-md border border-slate-200 p-3" data-provenance>
               <p className={labelClass}>{t('page.master_library.provenance_chain')}</p>
               <dl className="mt-2 grid grid-cols-[100px_1fr] gap-x-3 gap-y-1.5 text-[12px]">
-                {active.provenanceChain.map((step, i) => {
+                {(active.provenanceChain ?? []).map((step, i) => {
                   const cut = step.indexOf(': ')
                   return (
                     <Fragment key={i}>
@@ -448,8 +465,8 @@ export function MasterLibrary() {
               >{t('page.master_library.download_pdf')}</button>
               {canAdminister && (
                 <>
-                  <button type="button" onClick={() => setAdminAction('version')} data-action="new-version" data-panel-trigger
-                    className="h-9 rounded-md border border-slate-300 px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">
+                  <button type="button" onClick={() => setAdminAction('version')} data-action="new-version" data-panel-trigger disabled={!bodyReady}
+                    className="h-9 rounded-md border border-slate-300 px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
                     {t('page.master_library.action_new_version')}
                   </button>
                   <button type="button" onClick={() => setAdminAction('withdraw')} data-action="withdraw" data-panel-trigger
@@ -468,20 +485,20 @@ export function MasterLibrary() {
         )}
       </SlidePanel>
 
-      {active && (
+      {activeItem && (
         <PullPanel
           open={pullOpen}
-          item={active}
+          item={activeItem}
           onClose={() => setPullOpen(false)}
           onDone={(msg) => { setPullOpen(false); flash(msg) }}
           provenanceLine={provenanceLine}
         />
       )}
 
-      {active && canAdminister && (
+      {activeItem && canAdminister && (
         <AdminActionPanel
           mode={adminAction}
-          item={active}
+          item={activeItem}
           onClose={() => setAdminAction(null)}
           onDone={(msg) => { setAdminAction(null); setSelected(null); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library'] }) }}
         />
@@ -507,7 +524,7 @@ const ROLE_KEY: Record<string, string> = { R: 'role_author', A: 'role_approver',
 function SourceDocumentCard({ info }: { info: MasterLibrarySourceDocument }) {
   const { t } = useTranslation()
   const byRole = ROLE_ORDER
-    .map(letter => ({ letter, names: info.team.filter(m => m.letter === letter).map(m => m.name) }))
+    .map(letter => ({ letter, names: (info.team ?? []).filter(m => m.letter === letter).map(m => m.name) }))
     .filter(g => g.names.length > 0)
   const meaning = (m: string) => m ? m.charAt(0).toUpperCase() + m.slice(1) : m
   return (
@@ -526,10 +543,10 @@ function SourceDocumentCard({ info }: { info: MasterLibrarySourceDocument }) {
             </dd>
           </>
         )}
-        {info.editors.length > 1 && (
+        {(info.editors ?? []).length > 1 && (
           <>
             <dt className={labelClass}>{t('page.master_library.edited_by')}</dt>
-            <dd className="text-slate-800" data-source-editors>{info.editors.join(', ')}</dd>
+            <dd className="text-slate-800" data-source-editors>{(info.editors ?? []).join(', ')}</dd>
           </>
         )}
       </dl>
@@ -548,11 +565,11 @@ function SourceDocumentCard({ info }: { info: MasterLibrarySourceDocument }) {
         </dl>
       )}
 
-      {info.signatures.length > 0 && (
+      {(info.signatures ?? []).length > 0 && (
         <>
           <p className={`${labelClass} mt-3`}>{t('page.master_library.signatures')}</p>
           <ul className="mt-1.5 flex flex-col gap-1 text-[12px]" data-source-signatures>
-            {info.signatures.map((s, i) => (
+            {(info.signatures ?? []).map((s, i) => (
               <li key={i} className="text-slate-800">
                 <span className="font-semibold">{s.name}</span>
                 <span className="text-slate-500"> · {meaning(s.meaning)} · {formatDateTime(s.signedAt)}{s.version ? ` · ${s.version}` : ''}</span>
@@ -580,6 +597,7 @@ function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
   const [sectionId,  setSectionId]  = useState('')
   const [busy,       setBusy]       = useState(false)
   const [failure,    setFailure]    = useState<string | null>(null)
+  const qc = useQueryClient()
 
   // Reset the picker whenever it is reopened for a different item.
   useEffect(() => { if (open) { setProjectId(''); setDocumentId(''); setSectionId(''); setFailure(null) } }, [open, item.id])
@@ -615,11 +633,22 @@ function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
     if (!target || !item.body) return
     setBusy(true); setFailure(null)
     try {
+      // Read the section again now, not from the copy loaded when the picker opened: the author (or someone else)
+      // may have changed it since, and saving the old copy plus the pulled text would overwrite that.
+      const fresh = await documentsApi.get(documentId)
+      if (isAuthoringLocked(fresh.status)) {
+        throw new Error(t('page.master_library.pull_doc_locked', { status: fresh.status.replace(/[_-]/g, ' ') }))
+      }
+      const freshSection = fresh.sections.find(s => s.id === sectionId)
+      if (!freshSection) throw new Error(t('page.master_library.pull_section_gone', { defaultValue: 'That section no longer exists in the document.' }))
+      if (freshSection.isLocked) throw new Error(t('page.master_library.pull_section_locked_now', { defaultValue: 'That section is locked by someone else right now. Try again in a moment.' }))
       // Library text is plain text; keep its paragraphs and line breaks.
       const paragraphs = item.body.split(/\n{2,}/).map(par => `<p>${escapeHtml(par.trim()).replace(/\n/g, '<br/>')}</p>`).join('')
       const addition = paragraphs +
         `<p data-provenance="library" data-library-item="${escapeHtml(item.id)}"><em>${escapeHtml(provenanceLine(item))}</em></p>`
-      await documentsApi.updateSection(documentId, sectionId, { contentHtml: `${target.contentHtml ?? ''}${addition}` })
+      await documentsApi.updateSection(documentId, sectionId, { contentHtml: `${freshSection.contentHtml ?? ''}${addition}` })
+      void qc.invalidateQueries({ queryKey: ['library-pull', 'document', documentId] })
+      void qc.invalidateQueries({ queryKey: ['document', documentId] })
       // The text is already in the document, so a failure to record the adoption
       // does not undo it — but it is no longer silent: the usage count would be
       // short by one, so the author is told. The target is a Clinical Writing

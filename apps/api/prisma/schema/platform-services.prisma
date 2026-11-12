@@ -38,6 +38,10 @@ model LibrarySection {
   @@index([framework])
   @@index([category])
   @@index([tenantId, isCurrent])
+  // Master Library search (migration 68): trigram indexes serve  title/body ILIKE '%q%'  and a GIN index serves tags.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "library_sections_title_trgm_idx")
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "library_sections_body_trgm_idx")
+  @@index([tags], type: Gin, map: "library_sections_tags_gin_idx")
 }
 
 model LibraryAdoptionRecord {

@@ -2998,7 +2998,7 @@
       "create_override_draft": "Create override draft"
     },
     "master_library": {
-      "subtitle_documents": "Signed documents and sections pushed here from projects. Search and filter the library, and pull approved sections into new documents.",
+      "subtitle_documents": "Signed documents pushed here from projects. Search and filter the library, and open any document to see its source, team and signatures.",
       "crumb_platform": "Platform",
       "crumb_master_library": "Master Library",
       "filters_at_defaults": "Filters are at defaults.",

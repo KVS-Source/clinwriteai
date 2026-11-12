@@ -17,6 +17,7 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
+  extensions = [pg_trgm]          // Master Library search indexes (migration 68)
   // pgvector extension DEFERRED to Phase 3C — requires `sudo apt-get install
   // postgresql-16-pgvector` on the host first. When ready, restore:
   //   extensions = [pgvector(map: "vector")]

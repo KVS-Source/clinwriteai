@@ -131,6 +131,17 @@ interface FrameworkRow {
   updatedAt:     string
 }
 
+// The query string for the Master Library list and its count. A list value that contains a comma (or a percent sign) is
+// percent-encoded so it stays one value; the API decodes it.
+function libraryQuery(params: LibraryListParams): URLSearchParams {
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    const value = Array.isArray(v) ? v.map(x => String(x).replace(/%/g, '%25').replace(/,/g, '%2C')).join(',') : v
+    if (value !== undefined && value !== '' && value !== false) qs.set(k, String(value))
+  }
+  return qs
+}
+
 export interface CreateFrameworkBody {
   name:          string
   version:       string
@@ -201,15 +212,17 @@ export const platformApi = {
   // One page of the Master Library. Filters, search and sort run on the server;
   // the total and the next-page cursor come back in headers.
   listLibraryPage: async (params: LibraryListParams, cursor?: string): Promise<LibraryPage> => {
-    const qs = new URLSearchParams()
-    for (const [k, v] of Object.entries(params)) {
-      const value = Array.isArray(v) ? v.join(',') : v
-      if (value !== undefined && value !== '' && value !== false) qs.set(k, String(value))
-    }
+    const qs = libraryQuery(params)
     if (cursor) qs.set('cursor', cursor)
     const { data, headers } = await api.getWithHeaders<MasterLibraryItem[]>(`/library${qs.size ? `?${qs}` : ''}`)
     const total = Number(headers.get('X-Total-Count'))
     return { items: data, total: Number.isFinite(total) && headers.has('X-Total-Count') ? total : data.length, nextCursor: headers.get('X-Next-Cursor') || null }
+  },
+  // How many items the same filters match — one number, no rows (the tab bar's count).
+  countLibrary: async (params: LibraryListParams): Promise<number> => {
+    const qs = libraryQuery(params)
+    const { total } = await api.get<{ total: number }>(`/library/count${qs.size ? `?${qs}` : ''}`)
+    return total
   },
   // FR-A-080: push a signed, final document (or one of its sections) into the library.
   pushToLibrary: (body: LibraryPushBody) =>

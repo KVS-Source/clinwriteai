@@ -31,12 +31,19 @@ const finalDoc = (over: Record<string, unknown> = {}) => ({
   ...over,
 })
 
-interface Setup { role?: Role; tenantId?: string | null; found?: ReturnType<typeof row> | null; doc?: ReturnType<typeof finalDoc> | null; earlier?: ReturnType<typeof row> | null }
+// earlierInTx: what the second look-up (made under the push lock, inside the transaction) finds — a push that
+// landed between the quick check and the lock.
+interface Setup { role?: Role; tenantId?: string | null; found?: ReturnType<typeof row> | null; doc?: ReturnType<typeof finalDoc> | null; earlier?: ReturnType<typeof row> | null; earlierInTx?: ReturnType<typeof row> | null }
 
 async function setup(s: Setup = {}) {
   const found = s.found === undefined ? row('a') : s.found
-  const findFirst = vi.fn(async (args: { where: Record<string, unknown> }) =>
-    'tags' in args.where ? (s.earlier ?? null) : found)
+  let tagLookups = 0
+  const findFirst = vi.fn(async (args: { where: Record<string, unknown> }) => {
+    if (!('tags' in args.where)) return found
+    tagLookups++
+    return tagLookups === 1 ? (s.earlier ?? null) : (s.earlierInTx !== undefined ? s.earlierInTx : (s.earlier ?? null))
+  })
+  const executeRaw = vi.fn(async () => 0)
   const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => row('new-1', data))
   const update = vi.fn(async ({ data }: { data: Record<string, unknown> }) => row('a', data))
   const findMany = vi.fn(async () => [])
@@ -49,7 +56,7 @@ async function setup(s: Setup = {}) {
     project: { findUnique: vi.fn(async () => ({ tenantId: 't1' })), findMany: vi.fn(async () => []) },
     user: { findMany: vi.fn(async () => [{ id: 'u1', name: 'Dr A' }]) },
     therapeuticArea: { findFirst: vi.fn(async () => ({ label: 'Oncology' })) },
-    $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ librarySection, libraryAdoptionRecord: { create: vi.fn() } })),
+    $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn({ librarySection, libraryAdoptionRecord: { create: vi.fn() }, $executeRaw: executeRaw })),
   }
   const app = Fastify()
   app.decorate('prisma', prisma as never)
@@ -63,7 +70,7 @@ async function setup(s: Setup = {}) {
   await app.register(libraryRoutes, { prefix: '/library' })
   await app.ready()
   current = app
-  return { app, findFirst, create, update, findMany, append }
+  return { app, findFirst, create, update, findMany, append, executeRaw, prisma }
 }
 
 let current: FastifyInstance | null = null
@@ -246,6 +253,34 @@ describe('POST /library/push (CW-058, FR-A-080)', () => {
     expect(newer.create.mock.calls[0]![0].data.version).toBe(3)
     expect(newer.update.mock.calls[0]![0]).toMatchObject({ where: { id: 'old' }, data: { isCurrent: false, supersededBy: 'new-1' } })
   })
+
+  it('takes a per-document lock before creating the entry, so two pushes cannot interleave', async () => {
+    const { app, executeRaw, create } = await setup()
+    expect((await push(app)).statusCode).toBe(201)
+    expect(executeRaw).toHaveBeenCalledTimes(1)
+    // the lock is on this document (tagged template call: first argument is the SQL text parts)
+    const call = executeRaw.mock.calls[0] as unknown as [TemplateStringsArray, string]
+    expect(call[0].join('?')).toContain('pg_advisory_xact_lock')
+    expect(call[1]).toContain('source:d1')
+    expect(create).toHaveBeenCalledTimes(1)
+  })
+
+  it('a push that landed between the quick check and the lock is refused with 409 and nothing is created', async () => {
+    // The quick check sees nothing; by the time this request has the lock, the other push has finished.
+    const { app, create, update } = await setup({ earlier: null, earlierInTx: row('other', { tags: ['source:d1', 'docversion:v1.0'] }) })
+    const res = await push(app)
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'already_pushed' })
+    expect(create).not.toHaveBeenCalled()
+    expect(update).not.toHaveBeenCalled()
+  })
+
+  it('a push that landed meanwhile for an OLDER version is superseded by the new one under the lock', async () => {
+    const { app, create, update } = await setup({ earlier: null, earlierInTx: row('other', { version: 1, tags: ['source:d1', 'docversion:v0.9'] }) })
+    expect((await push(app)).statusCode).toBe(201)
+    expect(create.mock.calls[0]![0].data.version).toBe(2)
+    expect(update.mock.calls[0]![0]).toMatchObject({ where: { id: 'other' }, data: { isCurrent: false } })
+  })
 })
 
 describe('GET /library/by-document/:documentId', () => {
@@ -302,5 +337,41 @@ describe('pdfSafeText', () => {
     const { pdfSafeText } = await import('./pdf-renderer.js')
     expect(pdfSafeText('age ≥ 18 → yes — “ok” é')).toBe('age >= 18 -> yes — “ok” é')
     expect(pdfSafeText('日本')).toBe('??')
+  })
+})
+
+describe('POST /library/sections/:id/adopt — recording text adopted into a document', () => {
+  const adopt = (app: FastifyInstance, entity = 'd1') =>
+    app.inject({ method: 'POST', url: '/library/sections/a/adopt', payload: { adoptingModule: 'A', adoptingEntity: entity } })
+
+  it('refuses someone who may not edit that document, and records nothing', async () => {
+    access.canEdit = false
+    const { app, prisma } = await setup()
+    const res = await adopt(app)
+    expect(res.statusCode).toBe(403)
+    expect(res.json()).toMatchObject({ error: 'adopt_forbidden' })
+    expect(prisma.$transaction).not.toHaveBeenCalled()
+  })
+
+  it('records the adoption for someone who may edit that document', async () => {
+    access.canEdit = true
+    const { app, prisma } = await setup()
+    expect((await adopt(app)).statusCode).toBe(201)
+    expect(prisma.$transaction).toHaveBeenCalledTimes(1)
+  })
+
+  it('still 404s a section the caller cannot see, before any edit-rights question', async () => {
+    access.canEdit = false
+    const { app } = await setup({ found: null })
+    expect((await adopt(app)).statusCode).toBe(404)
+  })
+})
+
+describe('GET /library/:id/pdf — size cap', () => {
+  it('refuses an item too long to render with 413 instead of building the PDF', async () => {
+    const { app } = await setup({ found: row('a', { body: 'x'.repeat(2_000_001) }) })
+    const res = await app.inject({ method: 'GET', url: '/library/a/pdf' })
+    expect(res.statusCode).toBe(413)
+    expect(res.json()).toMatchObject({ error: 'too_large' })
   })
 })

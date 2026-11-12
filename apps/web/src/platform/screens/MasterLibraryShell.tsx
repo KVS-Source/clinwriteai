@@ -55,11 +55,15 @@ export const MASTER_DOCUMENT_ITEM_TYPES = ['document']
 // queries the tabs themselves run (same keys), so opening a tab reuses the data and a change made on a tab
 // updates its count. Master Documents is paged, so its count is the library's total (X-Total-Count) with no
 // filters, as the tab opens. A tab whose list can't be read (e.g. not allowed) shows no count.
+// A count only when the response really is a list. An unexpected shape (an error body, a changed endpoint) shows no
+// count for that tab instead of throwing and taking the whole Master Library down.
+const countOf = (v: unknown): number | undefined => (Array.isArray(v) ? v.length : undefined)
+
 function useTabCounts(): Partial<Record<string, number>> {
   const opts = { retry: false, staleTime: 30_000 } as const
   const documents = useQuery({
     queryKey: ['library', 'tab-count'],
-    queryFn:  () => platformApi.listLibraryPage({ itemType: MASTER_DOCUMENT_ITEM_TYPES, limit: 1 }),
+    queryFn:  () => platformApi.countLibrary({ itemType: MASTER_DOCUMENT_ITEM_TYPES }),
     ...opts,
   })
   const bestPractices = useQuery({ queryKey: ['best-practices'], queryFn: () => platformApi.listBestPractices(), ...opts })
@@ -70,13 +74,15 @@ function useTabCounts(): Partial<Record<string, number>> {
   const checklists = useQuery({ queryKey: ['checklist-templates'], queryFn: () => documentsApi.listChecklistTemplates(), ...opts })
   const frameworks = useQuery({ queryKey: ['regulatory-frameworks'], queryFn: () => platformApi.listFrameworks(), ...opts })
   return {
-    documents:        documents.data?.total,
-    'best-practices': bestPractices.data?.filter(i => i.module === 'platform' || !enabled.data || (enabled.data.modules as string[]).includes(i.module)).length,
-    templates:        templates.data?.length,
-    'ai-prompts':     policies.data?.policies.length,     // one SME prompt per doc-type policy
-    checklists:       checklists.data?.length,
-    'ich-frameworks': frameworks.data?.length,
-    policies:         policies.data?.policies.length,
+    documents:        typeof documents.data === 'number' ? documents.data : undefined,
+    'best-practices': Array.isArray(bestPractices.data)
+      ? bestPractices.data.filter(i => i.module === 'platform' || !Array.isArray(enabled.data?.modules) || (enabled.data!.modules as string[]).includes(i.module)).length
+      : undefined,
+    templates:        countOf(templates.data),
+    'ai-prompts':     countOf(policies.data?.policies),     // one SME prompt per doc-type policy
+    checklists:       countOf(checklists.data),
+    'ich-frameworks': countOf(frameworks.data),
+    policies:         countOf(policies.data?.policies),
   }
 }
 

@@ -387,7 +387,7 @@ export function ChecklistTemplatesAdmin() {
             {detail.projectId == null ? t('page.checklist_templates_admin.scope_platform_baseline') : t('page.checklist_templates_admin.scope_project', { projectId: detail.projectId })}
           </span>
         )}
-        storageKey="checklist-detail" defaultWidth={880} belowTopBar expandable>
+        storageKey="checklist-detail" defaultWidth={880} belowTopBar>
         {selected && detailQ.isLoading && (
           <p className="px-5 py-10 text-sm text-slate-400">{t('page.checklist_templates_admin.loading_detail')}</p>
         )}

@@ -175,7 +175,6 @@
       "available_modules":   "利用可能なモジュール",
       "compare_scopes":      "モジュール範囲を比較",
       "not_active":          "未アクティブ",
-      "add_module":          "モジュールを追加",
 
       "ai_section_label":    "コスト & パフォーマンス",
       "ai_section_title":    "このプロジェクトの AI 利用状況",
@@ -4583,6 +4582,12 @@
       "operators_hint_prefix": "運用者向け: このモジュールのキーを次に追加して再有効化",
       "operators_hint_and": "および API 側の",
       "operators_hint_suffix": "。",
+      "back_to_projects": "すべてのプロジェクトに戻る"
+    },
+    "module_no_access_screen": {
+      "eyebrow": "アクセス権なし",
+      "title": "{{module}} へのアクセス権がありません",
+      "body": "お使いのアカウントでは {{module}} が有効になっていません。このモジュールへのアクセスを管理者に依頼してください。",
       "back_to_projects": "すべてのプロジェクトに戻る"
     },
 

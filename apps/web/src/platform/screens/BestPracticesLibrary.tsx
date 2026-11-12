@@ -116,7 +116,6 @@ export function BestPracticesLibrary() {
       'oldest':         (x, y) => time(x.updatedAt) - time(y.updatedAt),
     }
     return [...rows].sort(by[sort])
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [items, search, modules, reviews, sort, enabledModuleKeys])
 
   useEffect(() => { setPage(1) }, [search, modules, reviews, sort, pageSize])

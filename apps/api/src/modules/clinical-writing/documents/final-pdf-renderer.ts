@@ -74,7 +74,8 @@ const MISSING_MARK = '□'
 const SUBSCRIPT_DIGITS = '₀₁₂₃₄₅₆₇₈₉'
 const SUPERSCRIPT_DIGITS: Record<string, string> = { '⁰': '0', '⁴': '4', '⁵': '5', '⁶': '6', '⁷': '7', '⁸': '8', '⁹': '9' }
 // Invisible characters that mark nothing on paper.
-const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f​-‏⁠﻿]/g
+// eslint-disable-next-line no-control-regex -- the control characters are the point: they are stripped
+const INVISIBLE = /[\u0000-\u0008\u000b-\u001f\u007f\u200b-\u200f\u2060\ufeff]/g
 
 /** Text the font can draw. Unknown characters become □ and are reported. */
 function drawable(text: string, missing: Set<string>): string {

@@ -28,6 +28,7 @@ import { requireAuth } from '../../../auth/rbac.js'
 import { ADDABLE_ROLES, roleSetProblem } from '../../../auth/role-combos.js'
 import { issueUserInvitation } from './issue-invitation.js'
 import { eventForTarget, isUserStatus, transition, type UserEvent, type UserStatus } from './status-machine.js'
+import { publicUser, type PublicUser } from './public-user.js'
 
 // Role whitelist for /admin/users invite + update endpoints. The canonical
 // set after migration 48 is tenant-admin | pm | contributor | auditor |
@@ -207,13 +208,13 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
   // to a paginated envelope { items, total, page, pageSize }.
   // The real tenant's name for each user (CW-099): the Tenant column used to show the free-text
   // Tenant ID typed at registration (tenantRef) instead. One query per page of users.
-  async function withTenantNames<U extends { tenantId: string | null }>(users: U[]): Promise<Array<U & { tenantName: string | null }>> {
+  async function withTenantNames<U extends { tenantId: string | null }>(users: U[]): Promise<Array<PublicUser<U> & { tenantName: string | null }>> {
     const ids = [...new Set(users.map(u => u.tenantId).filter((v): v is string => !!v))]
     const tenants = ids.length
       ? await app.prisma.tenant.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
       : []
     const nameById = new Map(tenants.map(t => [t.id, t.name]))
-    return users.map(u => ({ ...u, tenantName: u.tenantId ? nameById.get(u.tenantId) ?? null : null }))
+    return users.map(u => ({ ...publicUser(u), tenantName: u.tenantId ? nameById.get(u.tenantId) ?? null : null }))
   }
 
   app.get('/', { preHandler: adminGate }, async (request, reply) => {
@@ -259,7 +260,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string }
     const user = await loadTarget(request.user!, id)
     if (!user) return reply.code(404).send({ error: 'not_found' })
-    return user
+    return publicUser(user)
   })
 
   // --- invite --------------------------------------------------------------
@@ -298,7 +299,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       email: created.email, role: created.role, modules: created.modules, inviteExpiresAt: invite.inviteExpiresAt, emailQueued: invite.emailQueued,
     })
 
-    return reply.code(201).send({ ...created, ...invite })
+    return reply.code(201).send({ ...publicUser(created), ...invite })
   }
   app.post('/', { preHandler: adminGate }, inviteHandler)
 
@@ -365,7 +366,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       ...(event && { statusFrom: existing.status, statusTo: target }),
     })
 
-    return updated
+    return publicUser(updated)
   })
 
   // --- roles: add / revoke (a user holds one or two; rights are the union) -----
@@ -395,7 +396,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       data: { additionalRoles: [...existing.additionalRoles.filter(r => r !== existing.role), parsed.data.role] },
     })
     await audit(request, 'user.role_added', id, { email: existing.email, role: parsed.data.role, rolesFrom: current, rolesTo: rolesOfUser(updated) })
-    return updated
+    return publicUser(updated)
   })
 
   app.delete('/:id/roles/:role', { preHandler: adminGate }, async (request, reply) => {
@@ -422,7 +423,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
       data: { role: remaining[0]!, additionalRoles: remaining.slice(1) },
     })
     await audit(request, 'user.role_revoked', id, { email: existing.email, role, rolesFrom: current, rolesTo: rolesOfUser(updated) })
-    return updated
+    return publicUser(updated)
   })
 
   // --- lifecycle -----------------------------------------------------------
@@ -457,7 +458,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     if (existing.status === 'deprovisioned') {
       return reply.code(409).send({ error: 'deprovisioned', message: 'User is deprovisioned; cannot suspend' })
     }
-    if (existing.status === 'suspended') return existing
+    if (existing.status === 'suspended') return publicUser(existing)
     if (!isUserStatus(existing.status)) return illegalTransition(reply, existing.status, 'suspend')
 
     const result = transition(existing.status, 'suspend')
@@ -466,7 +467,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
 
     const updated = await applyEvent(existing, 'suspend', result.to)
     await audit(request, 'user.suspend', id, { email: existing.email })
-    return updated
+    return publicUser(updated)
   })
 
   app.post('/:id/reactivate', { preHandler: adminGate }, async (request, reply) => {
@@ -477,7 +478,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
     if (existing.status === 'deprovisioned') {
       return reply.code(409).send({ error: 'deprovisioned', message: 'Deprovisioned users cannot be reactivated; invite as a new user' })
     }
-    if (existing.status === 'active') return existing
+    if (existing.status === 'active') return publicUser(existing)
     if (!isUserStatus(existing.status)) return illegalTransition(reply, existing.status, 'reactivate')
 
     // Only suspended users reactivate; invitees must accept their invitation.
@@ -486,7 +487,7 @@ export const userRoutes: FastifyPluginAsync = async (app) => {
 
     const updated = await applyEvent(existing, 'reactivate', result.to)
     await audit(request, 'user.reactivate', id, { email: existing.email, previousStatus: existing.status })
-    return updated
+    return publicUser(updated)
   })
 
   // Resend invite — valid only for users still in 'invited' status. Rotates

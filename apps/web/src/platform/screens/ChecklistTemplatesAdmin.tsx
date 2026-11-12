@@ -189,7 +189,6 @@ export function ChecklistTemplatesAdmin() {
     () => Array.from(new Set((listQ.data ?? []).map(r => r.deliverableType)))
       .map(k => ({ value: k, label: deliverableTypeLabel(k) }))
       .sort((a, b) => a.label.localeCompare(b.label)),
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   [listQ.data, t])
   const statusOptions = ['draft', 'locked'].map(k => ({ value: k, label: TEMPLATE_STATUS_KEYS[k] ? t(TEMPLATE_STATUS_KEYS[k]) : k }))
   const scopeOptions = [
@@ -223,7 +222,6 @@ export function ChecklistTemplatesAdmin() {
       'oldest':           (x, y) => time(x.effectiveDate) - time(y.effectiveDate),
     }
     return [...rows].sort(by[sort])
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listQ.data, search, deliverables, statuses, scopes, sort, t])
 
   useEffect(() => { setPage(1) }, [search, deliverables, statuses, scopes, sort, pageSize])

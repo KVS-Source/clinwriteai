@@ -67,7 +67,7 @@ async function setup(s: Setup = {}) {
   app.decorate('audit', { append } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (request) => {
-    ;(request as unknown as { user: AuthenticatedUser }).user = {
+    (request as unknown as { user: AuthenticatedUser }).user = {
       id: 'u1', email: 'a@b.c', role: s.role ?? 'tenant-admin', modules: ['A'], tenantId: s.tenantId === undefined ? 't1' : s.tenantId,
     }
   })

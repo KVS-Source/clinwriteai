@@ -1,6 +1,6 @@
 // Unit tests for the CrossRef client — stubbed fetch, no network.
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { crossRefLookup, crossRefMint } from './crossref-client.js'
 
 function mkFetch(respond: (url: string) => Partial<Response> | Promise<Partial<Response>>): typeof fetch {

@@ -203,6 +203,7 @@ export const router = createBrowserRouter([
           { path: 'settings', element: <ProjectSettings /> },
           {
             path: 'clinical-writing',
+            element: <ModuleGate slug="clinical-writing" />,
             children: [
               { index: true,          element: <ClinicalWritingHome /> },
               // /clinical-writing/new retired — slider on ClinicalWritingHome.

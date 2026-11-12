@@ -158,7 +158,6 @@
       "available_modules": "Available modules",
       "compare_scopes": "Compare module scopes",
       "not_active": "Not active",
-      "add_module": "Add module",
       "ai_section_label": "Cost & Performance",
       "ai_section_title": "AI usage for this project",
       "ai_load_failed": "Unable to load AI usage. Check the project's reporting service.",
@@ -4358,6 +4357,12 @@
       "operators_hint_prefix": "Operators: re-enable by adding this module's key to",
       "operators_hint_and": "and the matching API-side",
       "operators_hint_suffix": ".",
+      "back_to_projects": "Back to All Projects"
+    },
+    "module_no_access_screen": {
+      "eyebrow": "No access",
+      "title": "You don't have access to {{module}}",
+      "body": "{{module}} hasn't been turned on for your account. Ask your administrator to give you access to this module.",
       "back_to_projects": "Back to All Projects"
     },
     "placeholder_screen": {

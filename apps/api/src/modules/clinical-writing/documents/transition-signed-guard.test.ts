@@ -59,7 +59,7 @@ describe('POST /documents/:id/transition — who may (CW-006)', () => {
 
   it('returning to authoring is for A, C or Q; an Author cannot bounce their own document', async () => {
     for (const letters of [['A'], ['C'], ['Q']]) {
-      const { app, update } = await build({ completeChain: false, letters })
+      const { app } = await build({ completeChain: false, letters })
       // Past the role gate (the bounce itself needs more of the database than this stub has).
       expect((await go(app, 'in_authoring')).statusCode).not.toBe(403)
       await app.close()

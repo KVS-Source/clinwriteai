@@ -3,7 +3,8 @@
 // API client sends it on every request as X-Active-Role, so the server answers as that role too
 // (apps/api/src/auth/active-role.ts). With no choice yet, the primary role is used.
 
-const STORAGE_KEY = 'clinwrite.activeRole'
+export const ACTIVE_ROLE_STORAGE_KEY = 'clinwrite.activeRole'
+const STORAGE_KEY = ACTIVE_ROLE_STORAGE_KEY
 
 interface Stored { userId: string; role: string }
 
@@ -33,6 +34,35 @@ export function activeRoleHeader(): Record<string, string> {
 export function chooseActiveRole(userId: string, role: string) { write({ userId, role }) }
 
 export function clearActiveRole() { write(null) }
+
+/** The role stored for `userId`, if any. */
+export function storedActiveRole(userId: string): string | null {
+  const v = typeof window === 'undefined' ? null : read()
+  return v && v.userId === userId ? v.role : null
+}
+
+/**
+ * Keep the page on screen in step with the role the API is being told. The browser's Back button can show
+ * a page from its back/forward cache exactly as it was left, i.e. still as the old role (e.g. the
+ * Notification Centre mid-"Switching…" after a switch), and a switch in another tab changes the stored role
+ * for this one too. Either way the screen would show one role while every request goes out as another, so
+ * the page reloads as the role now in use. Returns a cleanup function.
+ */
+export function watchActiveRole(userId: string, shownRole: string, heldRoles: readonly string[]): () => void {
+  if (typeof window === 'undefined' || heldRoles.length < 2) return () => undefined
+  const check = () => {
+    const wanted = storedActiveRole(userId)
+    if (wanted && wanted !== shownRole && heldRoles.includes(wanted)) window.location.reload()
+  }
+  const onShow = (e: PageTransitionEvent) => { if (e.persisted) check() }
+  const onStorage = (e: StorageEvent) => { if (e.key === STORAGE_KEY) check() }
+  window.addEventListener('pageshow', onShow)
+  window.addEventListener('storage', onStorage)
+  return () => {
+    window.removeEventListener('pageshow', onShow)
+    window.removeEventListener('storage', onStorage)
+  }
+}
 
 type WithRoles = { id: string; role: string; roles?: readonly string[] | null; allRoles?: readonly string[] | null }
 

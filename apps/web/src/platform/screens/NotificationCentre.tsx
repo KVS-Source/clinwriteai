@@ -95,6 +95,11 @@ export function NotificationCentre() {
   const [switching, setSwitching] = useState(false)
   // Only when arriving with ?open=<id>; otherwise the first notification is opened as before.
   const [autoOpened, setAutoOpened] = useState(() => !searchParams.get('open'))
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) setSwitching(false) }
+    window.addEventListener('pageshow', onShow)
+    return () => window.removeEventListener('pageshow', onShow)
+  }, [])
   const [actionError, setActionError] = useState<string | null>(null)
 
   const filtered = useMemo(() => (filter === 'unread' ? inbox.filter(n => !n.readAt) : inbox), [inbox, filter])

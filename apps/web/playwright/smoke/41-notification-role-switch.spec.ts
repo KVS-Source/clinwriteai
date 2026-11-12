@@ -128,3 +128,52 @@ test('a single-role user sees no role flags or warnings', async ({ page }) => {
   await expect(page.locator('[data-active-body]')).toHaveText('PM-ONLY-BODY')
   await expect(notice(page)).toHaveCount(0)
 })
+
+// Back button after switching: the page that comes back must be for the role now in use, never the old
+// page frozen mid-"Switching…" (the browser's back/forward cache), and a switch in another tab is picked up.
+test('Back after switching shows the page as the new role, not the old one mid-switch', async ({ page }) => {
+  await signIn(page, { held: ['pm', 'contributor'], active: 'pm' })
+  await row(page, 'n-sign').click()
+  await page.locator('[data-action="switch-role-open"]').click()
+  await expect(page).toHaveURL(/\/notifications\?open=n-sign$/, { timeout: 60_000 })
+  await expect(currentRole(page)).toHaveAttribute('data-current-role', 'contributor', { timeout: 60_000 })
+
+  await page.goBack()
+  await expect(page).toHaveURL(/\/notifications$/)
+  await expect(currentRole(page)).toHaveAttribute('data-current-role', 'contributor', { timeout: 60_000 })
+  await expect(page.getByText('Switching…')).toHaveCount(0)
+  // As Contributor, the signature request opens normally; the PM one now asks to switch.
+  await row(page, 'n-sign').click()
+  await expect(page.locator('[data-active-body]')).toHaveText('CONTRIBUTOR-BODY')
+  await expect(row(page, 'n-pm').locator('[data-notif-for-role="pm"]')).toBeVisible()
+})
+
+test('a page restored from the back/forward cache as the old role reloads as the role in use', async ({ page }) => {
+  await signIn(page, { held: ['pm', 'contributor'], active: 'pm' })
+  await expect(currentRole(page)).toHaveAttribute('data-current-role', 'pm')
+  // What the browser does on Back to a cached page after the role was switched elsewhere.
+  await page.evaluate(k => {
+    localStorage.setItem(k, JSON.stringify({ userId: 'u-sourabh', role: 'contributor' }))
+    window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true }))
+  }, STORAGE_KEY)
+  await expect(currentRole(page)).toHaveAttribute('data-current-role', 'contributor', { timeout: 60_000 })
+})
+
+test('a role switch in another tab reloads this one as that role', async ({ page }) => {
+  await signIn(page, { held: ['pm', 'contributor'], active: 'pm' })
+  await expect(currentRole(page)).toHaveAttribute('data-current-role', 'pm')
+  await page.evaluate(k => {
+    const value = JSON.stringify({ userId: 'u-sourabh', role: 'contributor' })
+    localStorage.setItem(k, value)
+    window.dispatchEvent(new StorageEvent('storage', { key: k, newValue: value }))
+  }, STORAGE_KEY)
+  await expect(currentRole(page)).toHaveAttribute('data-current-role', 'contributor', { timeout: 60_000 })
+})
+
+test('a normal page show (not from the cache) with the same role does not reload', async ({ page }) => {
+  await signIn(page, { held: ['pm', 'contributor'], active: 'pm' })
+  await page.evaluate(() => { (window as unknown as { __marker: boolean }).__marker = true })
+  await page.evaluate(() => window.dispatchEvent(new PageTransitionEvent('pageshow', { persisted: true })))
+  await page.waitForTimeout(1500)
+  expect(await page.evaluate(() => (window as unknown as { __marker?: boolean }).__marker)).toBe(true)
+})

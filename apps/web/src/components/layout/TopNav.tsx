@@ -16,7 +16,7 @@ import { MODULE_KEY_TO_LABEL, type ModuleKey } from '../../config/modules'
 import { useTranslation } from 'react-i18next'
 import { useAppLanguage } from '../../i18n/useAppLanguage'
 import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS } from '../../i18n'
-import { chooseActiveRole, clearActiveRole } from '../../config/activeRole'
+import { chooseActiveRole, clearActiveRole, watchActiveRole } from '../../config/activeRole'
 
 // Module slug → i18n key for the breadcrumb crumb between the project and
 // the document. Kept inline since this is the only consumer of the mapping;
@@ -241,6 +241,9 @@ export function TopNav() {
 
   const currentRoleLabel = PLATFORM_USER_ROLE_LABEL[currentUser.role] ?? currentUser.role
   const heldRoles = currentUser.allRoles && currentUser.allRoles.length > 0 ? currentUser.allRoles : [currentUser.role]
+  // Back button / another tab: reload if the page on screen is for a role other than the one in use.
+  const heldKey = heldRoles.join(',')
+  useEffect(() => watchActiveRole(currentUser.id, currentUser.role, heldKey.split(',')), [currentUser.id, currentUser.role, heldKey])
 
   // Persona list for the switcher — the real users, via /auth/demo-personas,
   // so every persona (admin or contributor) sees the same names. Lazy: only

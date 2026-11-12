@@ -59,7 +59,8 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
   const { t } = useTranslation()
   const qc = useQueryClient()
   const [email, setEmail] = useState('')
-  const [role,  setRole]  = useState<string>('contributor')
+  // No role until one is chosen: the dropdown shows a grey "Select a role" placeholder, and Send invite waits for it.
+  const [role,  setRole]  = useState<string>('')
   const [err, setErr] = useState<string | null>(null)
 
   // Pasted addresses can carry stray spaces or zero-width characters that fail validation.
@@ -87,13 +88,14 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
         <label className="flex flex-col gap-1 text-[11px] font-semibold text-slate-600">
           {t('page.user_management_live.field_role')}
           <select
-            className="rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal text-slate-900"
+            className={`rounded-md border border-slate-300 px-2 py-1.5 text-[13px] font-normal ${role ? 'text-slate-900' : 'text-slate-400'}`}
             value={role}
-            onChange={e => setRole(e.target.value)}
+            onChange={e => { setRole(e.target.value); setErr(null) }}
             title={activeRoleDesc ? t(activeRoleDesc) : undefined}
-            data-input="role"
+            data-input="role" data-placeholder-shown={!role || undefined}
           >
-            {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value} title={t(r.descriptionKey)}>{t(r.labelKey)}</option>)}
+            <option value="" disabled hidden>{t('page.user_management_live.role_placeholder')}</option>
+            {ROLE_OPTIONS.map(r => <option key={r.value} value={r.value} title={t(r.descriptionKey)} className="text-slate-900">{t(r.labelKey)}</option>)}
           </select>
         </label>
       </div>
@@ -108,7 +110,7 @@ function InviteForm({ onDone }: { onDone: (email: string, link: InviteLink) => v
             }
             invite.mutate()
           }}
-          disabled={!cleanEmail || invite.isPending}
+          disabled={!cleanEmail || !role || invite.isPending}
           className="rounded-md bg-slate-800 px-3 py-1.5 text-[12px] font-semibold text-white disabled:opacity-50"
           data-action="invite"
         >
@@ -284,25 +286,30 @@ export function UserManagementLive() {
 
         {/* Filter bar: status, role, search (name / email), clear. */}
         <div className="flex flex-wrap items-center gap-3" data-section="user-filters">
+          {/* With no filter chosen, each box shows a grey placeholder ("All Status"), like the search box. The
+              placeholder is a hidden option (value ""), so the list itself offers "All …" and every value; choosing
+              "All …" clears the filter and the placeholder shows again. */}
           <select
-            value={statusFilter}
-            onChange={e => setStatusFilter(e.currentTarget.value as 'all' | UserStatus)}
+            value={statusFilter === 'all' ? '' : statusFilter}
+            onChange={e => setStatusFilter((e.currentTarget.value || 'all') as 'all' | UserStatus)}
             aria-label={t('page.user_management_live.filter_status_aria')}
-            data-filter="status"
-            className="h-9 min-w-[140px] rounded-md border border-slate-200 bg-white px-3 font-mono text-[12px] text-slate-900"
+            data-filter="status" data-placeholder-shown={statusFilter === 'all' || undefined}
+            className={`h-9 min-w-[160px] rounded-md border border-slate-200 bg-white px-3 font-mono text-[12px] ${statusFilter === 'all' ? 'text-slate-400' : 'text-slate-900'}`}
           >
-            <option value="all">{t('page.user_management_live.filter_all_status')}</option>
-            {STATUS_ORDER.map(s => <option key={s} value={s}>{t(`page.user_management_live.status_${s}`)}</option>)}
+            <option value="" disabled hidden>{t('page.user_management_live.filter_status_placeholder')}</option>
+            <option value="all" className="text-slate-900">{t('page.user_management_live.filter_all_status')}</option>
+            {STATUS_ORDER.map(s => <option key={s} value={s} className="text-slate-900">{t(`page.user_management_live.status_${s}`)}</option>)}
           </select>
           <select
-            value={roleFilter}
-            onChange={e => setRoleFilter(e.currentTarget.value)}
+            value={roleFilter === 'all' ? '' : roleFilter}
+            onChange={e => setRoleFilter(e.currentTarget.value || 'all')}
             aria-label={t('page.user_management_live.filter_role_aria')}
-            data-filter="role"
-            className="h-9 min-w-[170px] rounded-md border border-slate-200 bg-white px-3 font-mono text-[12px] text-slate-900"
+            data-filter="role" data-placeholder-shown={roleFilter === 'all' || undefined}
+            className={`h-9 min-w-[170px] rounded-md border border-slate-200 bg-white px-3 font-mono text-[12px] ${roleFilter === 'all' ? 'text-slate-400' : 'text-slate-900'}`}
           >
-            <option value="all">{t('page.user_management_live.filter_all_roles')}</option>
-            {roleOptions.map(r => <option key={r} value={r}>{roleLabelOf(r, t)}</option>)}
+            <option value="" disabled hidden>{t('page.user_management_live.filter_role_placeholder')}</option>
+            <option value="all" className="text-slate-900">{t('page.user_management_live.filter_all_roles')}</option>
+            {roleOptions.map(r => <option key={r} value={r} className="text-slate-900">{roleLabelOf(r, t)}</option>)}
           </select>
           <div className="flex h-9 min-w-[240px] flex-1 items-center gap-2 rounded-md border border-slate-200 bg-white px-3 focus-within:border-slate-800">
             <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="#94A3B8" strokeWidth="1.5" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="m10.5 10.5 3.5 3.5" strokeLinecap="round" /></svg>

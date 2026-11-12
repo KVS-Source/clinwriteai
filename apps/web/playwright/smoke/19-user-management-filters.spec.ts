@@ -71,15 +71,22 @@ const role   = (page: Page) => page.locator('[data-filter="role"]')
 const search = (page: Page) => page.locator('[data-filter="search"]')
 const clear  = (page: Page) => page.locator('[data-section="user-filters"] [data-action="clear-filters"]')
 
-test('the filter bar shows All Status, All Roles, the search field and a disabled Clear filters', async ({ page }) => {
+test('the filter bar shows grey "All Status" / "All Roles" placeholders, the search field and a disabled Clear filters', async ({ page }) => {
   await openUserManagement(page)
+  // No filter chosen: each dropdown shows its placeholder, in grey like the search placeholder.
   await expect(status(page).locator('option:checked')).toHaveText('All Status')
   await expect(role(page).locator('option:checked')).toHaveText('All Roles')
+  await expect(status(page)).toHaveAttribute('data-placeholder-shown', 'true')
+  await expect(role(page)).toHaveAttribute('data-placeholder-shown', 'true')
+  await expect(status(page)).toHaveCSS('color', 'rgb(148, 163, 184)')        // slate-400
+  // The placeholder is not a choice in the list; "All …" is.
+  await expect(status(page).locator('option[value=""]')).toHaveAttribute('hidden', '')
+  await expect(status(page).locator('option:not([hidden])').first()).toHaveText('All Status')
   await expect(search(page)).toHaveAttribute('placeholder', 'Search by name...')
   await expect(clear(page)).toBeDisabled()
   await expect(page.getByText('5 users', { exact: true })).toBeVisible()
   // only the five standard roles are offered — no legacy roles such as clinical-writer
-  await expect(role(page).locator('option')).toHaveText(['All Roles', 'Tenant admin', 'Project manager', 'Contributor', 'Auditor', 'Guest'])
+  await expect(role(page).locator('option:not([hidden])')).toHaveText(['All Roles', 'Tenant admin', 'Project manager', 'Contributor', 'Auditor', 'Guest'])
   await expect(role(page).locator('option[value="clinical-writer"]')).toHaveCount(0)
 })
 
@@ -115,8 +122,10 @@ test('filters combine (AND) and Clear filters resets all three', async ({ page }
   expect(await rowIds(page)).toEqual(['emp-1004'])
 
   await clear(page).click()
-  await expect(status(page)).toHaveValue('all')
-  await expect(role(page)).toHaveValue('all')
+  // Cleared: back to the placeholders.
+  await expect(status(page)).toHaveValue('')
+  await expect(role(page)).toHaveValue('')
+  await expect(status(page)).toHaveAttribute('data-placeholder-shown', 'true')
   await expect(search(page)).toHaveValue('')
   await expect(page.locator('[data-user-row]')).toHaveCount(5)
   await expect(clear(page)).toBeDisabled()
@@ -176,10 +185,21 @@ test('Invite user asks only for email and role, and sends a name derived from th
   await expect(form.locator('[data-input="name"], [data-input="tenantId"]')).toHaveCount(0)
   await expect(form.getByText(/display name|tenant id/i)).toHaveCount(0)
 
+  // The role starts empty, showing a grey "Select a role" placeholder that is not a choice in the list.
+  const roleSelect = form.locator('[data-input="role"]')
+  await expect(roleSelect.locator('option:checked')).toHaveText('Select a role')
+  await expect(roleSelect).toHaveAttribute('data-placeholder-shown', 'true')
+  await expect(roleSelect).toHaveCSS('color', 'rgb(148, 163, 184)')
+  await expect(roleSelect.locator('option[value=""]')).toHaveAttribute('hidden', '')
+
+  // Send invite waits for both an email and a role.
   const send = form.locator('[data-action="invite"]')
   await expect(send).toBeDisabled()
   await form.locator('[data-input="email"]').fill(' jane.doe@example.com ')
-  await form.locator('[data-input="role"]').selectOption('auditor')
+  await expect(send).toBeDisabled()
+  await roleSelect.selectOption('auditor')
+  await expect(roleSelect).not.toHaveAttribute('data-placeholder-shown', 'true')
+  await expect(roleSelect).not.toHaveCSS('color', 'rgb(148, 163, 184)')
   await send.click()
 
   await expect(page.locator('[data-section="invite-link"]')).toBeVisible()
@@ -201,6 +221,7 @@ test('a newly invited user shows up with the email masked', async ({ page }) => 
   await openUserManagement(page)
   await page.locator('[data-action="toggle-invite"]').click()
   await page.locator('[data-section="invite-user"] [data-input="email"]').fill('new.person@acme.io')
+  await page.locator('[data-section="invite-user"] [data-input="role"]').selectOption('contributor')
   await page.locator('[data-section="invite-user"] [data-action="invite"]').click()
 
   const row = page.locator('[data-user-row="emp-new"]')
@@ -224,4 +245,21 @@ test('a suspended account shows Suspended with an Unsuspend button (not Suspend)
   await expect(suspendedRow).toContainText('Active')
   await expect(suspendedRow.locator('[data-action="suspend"]')).toHaveText('Suspend')
   await expect(suspendedRow.locator('[data-action="unsuspend"]')).toHaveCount(0)
+})
+
+test('choosing a filter shows it in dark text; choosing "All …" brings the placeholder back', async ({ page }) => {
+  await openUserManagement(page)
+  await status(page).selectOption('active')
+  await expect(status(page).locator('option:checked')).toHaveText('Active')
+  await expect(status(page)).not.toHaveAttribute('data-placeholder-shown', 'true')
+  await expect(status(page)).not.toHaveCSS('color', 'rgb(148, 163, 184)')    // no longer the grey placeholder
+  await status(page).selectOption('all')
+  await expect(status(page).locator('option:checked')).toHaveText('All Status')
+  await expect(status(page)).toHaveAttribute('data-placeholder-shown', 'true')
+  await expect(page.getByText('5 users', { exact: true })).toBeVisible()
+
+  await role(page).selectOption('auditor')
+  await expect(role(page).locator('option:checked')).toHaveText('Auditor')
+  await role(page).selectOption('all')
+  await expect(role(page).locator('option:checked')).toHaveText('All Roles')
 })

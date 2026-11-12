@@ -169,13 +169,13 @@ export function NewMedContent({ projectId, projectTA, duplicateSourceId, onCreat
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">Title *</span>
             <input value={title} onChange={e => setTitle(e.currentTarget.value)} required
-              placeholder="Veloricept + Pembrolizumab — HCP Slide Deck v0.1"
+              placeholder="e.g. Type 2 diabetes patient leaflet"
               className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
           </label>
           <label className="flex flex-col gap-1">
             <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{THERAPEUTIC_AREA_LABEL} *</span>
             <input value={taTag} onChange={e => setTaTag(e.currentTarget.value)} required
-              placeholder="Oncology"
+              placeholder="e.g. Cardiometabolic"
               className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
           </label>
           <label className="flex flex-col gap-1">

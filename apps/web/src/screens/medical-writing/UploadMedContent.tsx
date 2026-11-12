@@ -360,7 +360,7 @@ export function UploadMedContent({ projectId, projectTA, onCreated, onCancel }: 
         <div className="mt-3 flex flex-col gap-3">
           <FieldLabel label="Title *" conf={titleConf} touched={touched.has('title')}>
             <input value={title} onChange={e => { setTitle(e.currentTarget.value); markTouched('title') }} required
-              placeholder="Veloricept HCP Slide Deck v0.3"
+              placeholder="e.g. Type 2 diabetes patient leaflet"
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
           </FieldLabel>
 
@@ -372,7 +372,7 @@ export function UploadMedContent({ projectId, projectTA, onCreated, onCancel }: 
 
           <FieldLabel label={`${THERAPEUTIC_AREA_LABEL} *`} conf={taConf} touched={touched.has('therapeuticArea')}>
             <input value={ta} onChange={e => { setTa(e.currentTarget.value); markTouched('therapeuticArea') }} required
-              placeholder="Oncology"
+              placeholder="e.g. Cardiometabolic"
               className="h-9 w-full rounded-md border border-slate-300 px-3 text-[13px]" />
           </FieldLabel>
 

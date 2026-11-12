@@ -5,6 +5,8 @@ import { useFormattingStore } from '../../modules/medical-writing/store'
 import type { WCAGResult } from '../../modules/medical-writing/store'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { projectsApi } from '../../api/projects'
+import { ApiError } from '../../api/client'
+import { fmtDay, stageLabel, tierLabel } from './medLabels'
 
 // --- Initial WCAG state — one Contrast failure per brief ---
 const INITIAL_WCAG: WCAGResult = {
@@ -78,6 +80,19 @@ export function FormattingAccessibility() {
   // Project header + locales + WCAG results now come from the API. The
   // INITIAL_WCAG constant above remains as a startup fallback for before
   // the first API response arrives (demo UX stays stable).
+  // The item and its latest MLR decision: the approval strip shows what was really decided, by whom.
+  const { data: fmtItem } = useQuery({
+    queryKey: ['med-content', contentId],
+    queryFn:  () => medContentApi.get(contentId!),
+    enabled:  !!contentId,
+  })
+  const { data: latestDecision } = useQuery({
+    queryKey: ['mlr-decision-latest', contentId],
+    queryFn:  () => medContentApi.getLatestMLRDecision(contentId!).catch(e => { if (e instanceof ApiError && e.status === 404) return null; throw e }),
+    enabled:  !!contentId,
+    retry:    false,
+  })
+  const isApproved = fmtItem?.stage === 6
   const { data: project } = useQuery({
     queryKey: ['project', projectId],
     queryFn:  () => projectsApi.get(projectId!),
@@ -131,15 +146,11 @@ export function FormattingAccessibility() {
   ]
   const canProceed = checklist.every(c => c.passed)
 
-  const advanceStageMutation = useMutation({
-    mutationFn: () => medContentApi.advanceStage(contentId!),
-  })
-
+  // Final Output opens once MLR has approved the item. This button used to advance the stage itself, which
+  // let an item reach Approved without an MLR decision; it now only navigates.
   const proceed = () => {
-    if (!canProceed) return
-    advanceStageMutation.mutate(undefined, {
-      onSettled: () => navigate(`/projects/${projectId}/medical-writing/content/${contentId}/final`),
-    })
+    if (!canProceed || !isApproved) return
+    navigate(`/projects/${projectId}/medical-writing/content/${contentId}/final`)
   }
 
   const toggleChannel = (id: string) => setChannels(c => ({ ...c, [id]: !c[id] }))
@@ -159,7 +170,7 @@ export function FormattingAccessibility() {
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Formatting &amp; Accessibility</h1>
-            <p className="font-mono text-xs" style={{ color: '#64748B' }}>{project?.shortTitle ?? '…'} · Stage 5 · MLR Approved · Format for distribution</p>
+            <p className="font-mono text-xs" style={{ color: '#64748B' }}>{project?.shortTitle ?? '…'} · <span data-format-stage>{stageLabel(fmtItem?.stage)}</span> · Format for distribution</p>
           </div>
           <div className="flex flex-none gap-2">
             <button
@@ -172,22 +183,30 @@ export function FormattingAccessibility() {
             <button
               type="button"
               onClick={proceed}
-              disabled={!canProceed}
+              disabled={!canProceed || !isApproved}
+              title={!isApproved ? 'Available once MLR has approved this item.' : undefined}
               data-proceed-stage-6
-              data-proceed-enabled={canProceed}
+              data-proceed-enabled={canProceed && isApproved}
               className="h-9 rounded-md px-3 text-[13px] font-semibold text-white"
-              style={{ backgroundColor: canProceed ? '#7C3AED' : '#CBD5E1', cursor: canProceed ? 'pointer' : 'not-allowed' }}
-            >Proceed to Stage 6 →</button>
+              style={{ backgroundColor: canProceed && isApproved ? '#7C3AED' : '#CBD5E1', cursor: canProceed && isApproved ? 'pointer' : 'not-allowed' }}
+            >Go to Final Output →</button>
           </div>
         </div>
 
         {/* MLR Approval strip */}
-        <div className="rounded-md px-3 py-2" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }} data-mlr-approval>
-          <p className="text-[13px]" style={{ color: '#166534' }}>
-            <strong>MLR Approved · 18 Oct 2026 · Tier 2 Standard Review</strong>
-          </p>
-          <p className="text-[11px]" style={{ color: '#166534' }}>Dr Rebecca Morton (MLR Lead) · e-signature on file</p>
-        </div>
+        {latestDecision?.decision === 'approved' ? (
+          <div className="rounded-md px-3 py-2" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }} data-mlr-approval="approved">
+            <p className="text-[13px]" style={{ color: '#166534' }}>
+              <strong>MLR Approved · {fmtDay(latestDecision.timestampUtc)} · {tierLabel(fmtItem?.reviewTier)}</strong>
+            </p>
+            <p className="text-[11px]" style={{ color: '#166534' }} data-mlr-approved-by>{latestDecision.decidedByName} (MLR Lead) · e-signature recorded</p>
+          </div>
+        ) : (
+          <div className="rounded-md px-3 py-2" style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0' }} data-mlr-approval="none">
+            <p className="text-[13px] text-slate-700"><strong>Not MLR-approved yet</strong></p>
+            <p className="text-[11px] text-slate-500">Formatting can be prepared now; Final Output opens once MLR approves the item.</p>
+          </div>
+        )}
 
         {/* Output Formats */}
         <section className="rounded-lg border border-slate-200 bg-white p-5" data-output-formats>
@@ -282,8 +301,8 @@ export function FormattingAccessibility() {
               style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }}
               data-wcag-passed
             >
-              <p className="text-[13px] font-semibold" style={{ color: '#166534' }}>All 48 tests pass at Level AA.</p>
-              <p className="text-[12px]" style={{ color: '#166534' }}>HTML output is cleared and Stage 6 is unlocked.</p>
+              <p className="text-[13px] font-semibold" style={{ color: '#166534' }} data-wcag-pass-line>All checks pass at Level AA{typeof (wcagResult as unknown as { score?: number }).score === 'number' ? ` · score ${(wcagResult as unknown as { score: number }).score}` : ''}.</p>
+              <p className="text-[12px]" style={{ color: '#166534' }}>HTML output is cleared for distribution.</p>
               <p className="mt-1 font-mono text-[11px]" style={{ color: '#166534' }}>Last run: {formatDateTime(wcagResult.runAt)}</p>
             </div>
           )}
@@ -349,7 +368,7 @@ export function FormattingAccessibility() {
 
         {/* Stage 5 checklist */}
         <section className="rounded-lg border border-slate-200 bg-white p-5" data-stage5-checklist>
-          <h2 className="mb-2 text-[14px] font-bold text-slate-900">Stage 5 Checklist</h2>
+          <h2 className="mb-2 text-[14px] font-bold text-slate-900">Formatting checklist</h2>
           <div className="flex flex-col gap-1.5">
             {checklist.map(c => <CheckDot key={c.label} passed={c.passed} label={c.label} />)}
           </div>

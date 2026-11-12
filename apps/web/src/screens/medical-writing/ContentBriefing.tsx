@@ -8,6 +8,8 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { ComplianceTrack, MedContentItem, MedContentType } from '@platform/types'
 import { MED_CONTENT_TYPE_META } from '@platform/types'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
+import { projectsApi, documentsApi } from '../../api'
+import { ver } from './medLabels'
 
 // --- Static config ---
 
@@ -114,10 +116,28 @@ export function ContentBriefing() {
   const [channels,    setChannels]    = useState<string[]>(['Congress', 'Digital'])
   const [targetDate,  setTargetDate]  = useState('')
 
-  // Source documents — Clinical Writing read-only. All three linked by default for the demo.
-  const [sourceDocs] = useState({ csr: true, smpc: true, ib: true })
-  const [mapLinked] = useState(true)
-  const [ppLinked]  = useState(false)
+  // Source documents: the Clinical Writing project this item is linked to (the item's own project when new),
+  // and which of its documents are a CSR or an IB. Clinical Writing has no SmPC document type, so SmPC is
+  // shown as not tracked here.
+  const sourceProjectId = (isNew ? projectId : existing?.sourceModuleAProjectId) ?? projectId ?? null
+  const { data: sourceProject } = useQuery({
+    queryKey: ['project', sourceProjectId],
+    queryFn:  () => projectsApi.get(sourceProjectId!),
+    enabled:  !!sourceProjectId,
+    retry:    false,
+  })
+  const { data: sourceDocList = [] } = useQuery({
+    queryKey: ['documents', sourceProjectId],
+    queryFn:  () => documentsApi.list(sourceProjectId!),
+    enabled:  !!sourceProjectId,
+    retry:    false,
+  })
+  const csrDoc = sourceDocList.find(d => d.type === 'csr-full' || d.type === 'csr-synopsis') ?? null
+  const ibDoc  = sourceDocList.find(d => d.type === 'ib') ?? null
+  const sourceName = sourceProject ? (sourceProject.shortTitle || sourceProject.name) : '—'
+  const sourceDocs = { linked: !!sourceProjectId }
+  const mapLinked = !!existing?.medicalAffairsPlanId
+  const ppLinked  = !!existing?.publicationPlanId
 
   // Hydrate from existing item
   useEffect(() => {
@@ -143,7 +163,7 @@ export function ContentBriefing() {
 
   // Readiness gate
   const checks = [
-    { label: 'Source documents linked',    passed: sourceDocs.csr && sourceDocs.smpc && sourceDocs.ib },
+    { label: 'Source project linked',      passed: sourceDocs.linked },
     { label: 'TA tag set',                 passed: !!taTag },
     { label: 'Audience defined',           passed: audience.length > 0 },
     { label: 'Content type selected',      passed: !!type },
@@ -239,7 +259,7 @@ export function ContentBriefing() {
                 backgroundColor: ready ? '#7C3AED' : '#CBD5E1',
                 cursor:          ready ? 'pointer' : 'not-allowed',
               }}
-            >Proceed to Stage 2 →</button>
+            >Save &amp; go to KOL session →</button>
           </div>
         </div>
 
@@ -253,13 +273,13 @@ export function ContentBriefing() {
               <header className="mb-3 flex items-center justify-between">
                 <div>
                   <h2 className="text-[14px] font-bold text-slate-900">Source Documents</h2>
-                  <p className="font-mono text-[11px] text-slate-500">Clinical Writing · VELORA-301 · Read-only</p>
+                  <p className="font-mono text-[11px] text-slate-500" data-source-project>Clinical Writing · {sourceName} · Read-only</p>
                 </div>
               </header>
               <div className="flex flex-wrap gap-2">
-                <Pill text="CSR ✓" active />
-                <Pill text="SmPC ✓" active />
-                <Pill text="IB ✓" active />
+                <span data-source-doc="csr"><Pill text={csrDoc ? 'CSR ✓' : 'CSR · not found'} active={!!csrDoc} /></span>
+                <span data-source-doc="smpc"><Pill text="SmPC · not tracked in Clinical Writing" active={false} /></span>
+                <span data-source-doc="ib"><Pill text={ibDoc ? 'IB ✓' : 'IB · not found'} active={!!ibDoc} /></span>
               </div>
               <div className="mt-3 flex items-center gap-2" data-module-b-link>
                 <span className="text-[13px] text-slate-500">Scientific Writing publication:</span>
@@ -267,7 +287,7 @@ export function ContentBriefing() {
               </div>
               <div className="mt-3 inline-flex items-center gap-2 rounded-md px-2 py-1 text-[12px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8', border: '1px solid #93C5FD' }}>
                 <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#2563EB' }} />
-                VELORA-301 CSR v1.0 · Clinical Writing
+                <span data-source-csr>{csrDoc ? `${csrDoc.title} ${ver(csrDoc.version)} · Clinical Writing` : `No CSR in ${sourceName}`}</span>
               </div>
             </section>
 
@@ -281,7 +301,7 @@ export function ContentBriefing() {
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
-                  placeholder="e.g. Veloricept + Pembrolizumab HCP Slide Deck"
+                  placeholder="e.g. Type 2 diabetes patient leaflet"
                   data-input-title
                   className="w-full rounded-md border border-slate-300 px-3 py-2 text-[13px] outline-none focus:border-violet-500"
                 />
@@ -328,8 +348,10 @@ export function ContentBriefing() {
                 <span className="mt-1 block"><PastDateError value={targetDate} /></span>
               </label>
 
-              <div className="flex items-center justify-between rounded-md px-3 py-2" style={{ backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' }} data-map-link>
-                <span className="text-[13px] text-slate-800">VELORA-301 Medical Affairs Plan v1.0 · <span style={{ color: '#15803D', fontWeight: 600 }}>Linked ✓</span></span>
+              <div className="flex items-center justify-between rounded-md px-3 py-2" style={mapLinked ? { backgroundColor: '#F0FDF4', border: '1px solid #BBF7D0' } : { backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0' }} data-map-link data-linked={mapLinked || undefined}>
+                <span className="text-[13px] text-slate-800">Medical Affairs Plan · {mapLinked
+                  ? <span style={{ color: '#15803D', fontWeight: 600 }}>Linked ✓</span>
+                  : <span style={{ color: '#94A3B8' }}>Not yet linked</span>}</span>
                 <div className="flex gap-2">
                   <button type="button" className="text-[12px] font-semibold text-slate-600 hover:underline">Link</button>
                   <button type="button" className="text-[12px] font-semibold text-slate-600 hover:underline">Create new</button>
@@ -337,7 +359,9 @@ export function ContentBriefing() {
               </div>
 
               <div className="mt-2 flex items-center justify-between rounded-md px-3 py-2" style={{ backgroundColor: '#F8FAFC', border: '1px solid #E2E8F0' }} data-pp-link>
-                <span className="text-[13px] text-slate-500">Publication Plan · <span style={{ color: '#94A3B8' }}>Not yet linked</span></span>
+                <span className="text-[13px] text-slate-500" data-pp-state={ppLinked ? 'linked' : 'none'}>Publication Plan · {ppLinked
+                  ? <span style={{ color: '#15803D', fontWeight: 600 }}>Linked ✓</span>
+                  : <span style={{ color: '#94A3B8' }}>Not yet linked</span>}</span>
                 <div className="flex gap-2">
                   <button type="button" className="text-[12px] font-semibold text-slate-600 hover:underline">Link</button>
                   <button type="button" className="text-[12px] font-semibold text-slate-600 hover:underline">Create new</button>
@@ -436,7 +460,7 @@ export function ContentBriefing() {
 
               <div className="mb-3 grid gap-1">
                 <p className="text-[11px] font-mono uppercase" style={{ color: '#64748B', letterSpacing: '0.1em' }}>Source</p>
-                <p className="text-[13px] text-slate-800">VELORA-301 CSR v1.0 · Clinical Writing</p>
+                <p className="text-[13px] text-slate-800" data-summary-source>{csrDoc ? `${csrDoc.title} ${ver(csrDoc.version)} · Clinical Writing` : `${sourceName} · Clinical Writing (no CSR yet)`}</p>
               </div>
 
               <div className="mb-3">

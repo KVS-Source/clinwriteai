@@ -201,7 +201,7 @@ export function KOLAdvisoryBoardSession() {
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>KOL Advisory Board Session</h1>
             <p className="font-mono text-xs" style={{ color: '#64748B' }}>
-              Stage 2 · {formatDate(session?.sessionDate)} · {session?.attendees.length ?? 0} KOL attendees
+              Stage 2 · Drafting — KOL session · {formatDate(session?.sessionDate)} · {session?.attendees.length ?? 0} KOL attendees
             </p>
           </div>
           <div className="flex flex-none items-center gap-2">
@@ -330,8 +330,10 @@ export function KOLAdvisoryBoardSession() {
             >Upload meeting transcript</button>
           </div>
           <div className="mt-3 flex items-center gap-2 rounded-md bg-slate-50 p-3">
-            <span className="text-[13px] text-slate-800">📄 {session?.transcriptRef ?? '—'}</span>
-            <span className="font-mono text-[11px]" style={{ color: '#15803D' }}>UPLOADED ✓ · Indexed for AI insights</span>
+            <span className="text-[13px] text-slate-800">📄 {session?.transcriptRef ?? 'No transcript'}</span>
+            {session?.transcriptUploadedAt
+              ? <span className="font-mono text-[11px]" style={{ color: '#15803D' }} data-transcript-state="uploaded">UPLOADED ✓ · {formatDateTime(session.transcriptUploadedAt)}</span>
+              : <span className="font-mono text-[11px] text-slate-500" data-transcript-state="none">Not uploaded yet</span>}
           </div>
         </section>
 

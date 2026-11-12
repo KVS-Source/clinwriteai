@@ -8,23 +8,10 @@ import { projectsApi } from '../../api/projects'
 import { ReviewTierBadge } from '../../components/ui'
 import { ApiError } from '../../api/client'
 import { useAiReadiness, isAiReady } from '../../platform/ai-readiness'
+import { fmtTime, stageLabel, textOf, ver } from './medLabels'
 
-// --- Static slide list — 26 slides per brief §43 ---
-
-type SlideState = 'done' | 'active' | 'warn' | 'todo'
-interface Slide { n: number; title: string; state: SlideState; subLabel?: string }
-
-const SLIDES: Slide[] = [
-  { n: 1,  title: 'Title',                                     state: 'done' },
-  { n: 2,  title: 'Disclosure',                                state: 'done' },
-  { n: 3,  title: 'Disease context — NSCLC',                  state: 'done' },
-  { n: 4,  title: 'VELORA-301 study design',                  state: 'active' },
-  { n: 5,  title: 'Primary endpoint: PFS',                     state: 'warn', subLabel: '1 must-fix · fair-balance required' },
-  { n: 6,  title: 'Secondary endpoints',                       state: 'todo' },
-  { n: 7,  title: 'Safety overview',                           state: 'todo' },
-  { n: 8,  title: 'Discontinuations & dose modifications',    state: 'todo' },
-]
-const TOTAL_SLIDES = 26
+// The slide navigator and canvas show the item's own slide deck (GET /slide-deck). An item with no slides yet
+// shows an empty state, not a demo deck.
 
 // --- Collaborators in this deck now (brief §47) ---
 const COLLABORATORS = [
@@ -77,11 +64,12 @@ export function ContentEditor() {
   const { projectId, contentId } = useParams()
   const navigate = useNavigate()
 
-  const [activeSlide, setActiveSlide]         = useState(4)
+  const [activeSlide, setActiveSlide]         = useState(1)
   const [showPAOAnnotations, setShowPAO]      = useState(false)
   const [activeTab, setActiveTab]             = useState<RightTab>('content')
-  const [aiFootprintPct, setAiFootprintPct]   = useState(28) // per brief §36 (28% AI)
-  const [aiSuggestionOpen, setAiSuggestionOpen] = useState(true)
+  // The latest AI suggestion returned by the API for this slide (none until "Suggest again" is used).
+  const [aiSuggestion, setAiSuggestion] = useState<{ responseText: string; aiModel: string; generatedAt: string } | null>(null)
+  const [aiSuggestionOpen, setAiSuggestionOpen] = useState(false)
   const [suggestResolved, setSuggestResolved] = useState(false)
   const [altText, setAltText]                 = useState('')
   const [altSaved, setAltSaved]               = useState(false)
@@ -182,25 +170,34 @@ export function ContentEditor() {
     return { tracked: claims.length, approved, pending }
   }, [claims])
 
+  // Latest Pre-MLR run (404 until the first run).
+  const { data: preMlr } = useQuery({
+    queryKey: ['pre-mlr', contentId],
+    queryFn:  () => medContentApi.getPreMLR(contentId!).catch(e => { if (e instanceof ApiError && e.status === 404) return null; throw e }),
+    enabled:  !!contentId,
+    retry:    false,
+  })
+  const preMlrRunAt = preMlr ? (preMlr as unknown as { runAt?: string }).runAt : undefined
+
   const preMLRRerunMutation = useMutation({
     mutationFn: () => medContentApi.runPreMLR(contentId!),
-    onSuccess:  () => flash('Pre-MLR check queued — results available in under 45 seconds.'),
+    onSuccess:  () => { flash('Pre-MLR check run.'); qc.invalidateQueries({ queryKey: ['pre-mlr', contentId] }) },
   })
 
   const aiSuggestMutation = useMutation({
     mutationFn: () => medContentApi.aiSuggest(contentId!, { sectionId: slideLocation }),
-    onSuccess:  () => { setAiSuggestionOpen(true); setSuggestResolved(false); flash('New AI suggestion generated.') },
+    onSuccess:  (res) => { setAiSuggestion(res); setAiSuggestionOpen(true); setSuggestResolved(false); flash('New AI suggestion generated.') },
   })
 
   const handleAcceptAI = () => {
-    setAiFootprintPct(v => Math.min(100, v + 3))
     setAiSuggestionOpen(false)
     setSuggestResolved(true)
-    flash('Suggestion accepted. AI footprint updated.')
+    flash('Suggestion accepted.')
   }
   const handleDiscardAI = () => {
     setAiSuggestionOpen(false)
-    flash('Suggestion discarded. AI footprint recalculated.')
+    setAiSuggestion(null)
+    flash('Suggestion discarded.')
   }
 
   const submitPreMLR    = () => navigate(`/projects/${projectId}/medical-writing/content/${contentId}/pre-mlr`)
@@ -212,11 +209,17 @@ export function ContentEditor() {
   // "Export for MLR circulation" button, but export isn't implemented yet,
   // so the button is permanently disabled with a "coming soon" tooltip
   // (see below). Keeping the counters here as reference for when export lands.
-  const mustFixCount: number = 1 // Slide 5 fair-balance
-  const altTextComplete      = altSaved
-  void mustFixCount; void altTextComplete
+  const mustFixCount   = preMlr?.mustFixCount ?? 0
+  const shouldFixCount = preMlr?.shouldFixCount ?? 0
 
-  const mlrFootprintLabel = `${aiFootprintPct}% AI · ${100 - aiFootprintPct}% Human`
+  // AI footprint: the deck's own figure, else the item's; unknown until the API has one.
+  const aiFootprintPct: number | null = deckData?.deck.aiFootprintPct ?? (item ? item.aiFootprintPct ?? null : null)
+  const mlrFootprintLabel = aiFootprintPct == null ? '—' : `${aiFootprintPct}% AI · ${100 - aiFootprintPct}% Human`
+
+  const activeLiveSlide = liveSlides.find(s => s.position === activeSlide) ?? liveSlides[0] ?? null
+  const totalSlides = liveSlides.length
+  const approvedClaims = claims.filter(c => c.approvalStatus === 'approved').length
+  const aiModelLabel = activeLiveSlide?.aiModel ?? deckData?.deck.aiModel ?? null
 
   return (
     <div className="bg-slate-50" data-screen="content-editor">
@@ -232,7 +235,7 @@ export function ContentEditor() {
         {/* Header bar */}
         <div className="mb-3 flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white px-4 py-3" data-editor-header>
           <p className="font-mono text-[11px] text-slate-500" data-content-title>
-            {project?.shortTitle ?? project?.name ?? '…'} · Medical Writing · {currentItem?.title ?? '…'} · Stage {currentItem?.stage ?? '—'}
+            {project?.shortTitle ?? project?.name ?? '…'} · Medical Writing · {currentItem?.title ?? '…'} · {stageLabel(currentItem?.stage)}
           </p>
           <span
             className="inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-[12px] font-semibold"
@@ -240,7 +243,7 @@ export function ContentEditor() {
             data-messaging-framework-chip
           >
             <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#7C3AED' }} />
-            Messaging framework: {project?.shortTitle ?? '—'} v{currentItem?.version ?? '0.1'} ✓
+            Messaging framework: {project?.shortTitle ?? '—'} {ver(currentItem?.version)} ✓
           </span>
           {currentItem?.reviewTier && (
             <ReviewTierBadge tier={currentItem.reviewTier} overridden={!!currentItem.reviewTierOverriddenBy} />
@@ -259,15 +262,17 @@ export function ContentEditor() {
           <div className="flex-1" />
 
           <div className="flex items-center gap-2 text-[12px]" data-pre-mlr-status>
-            <span className="font-mono text-[11px]" style={{ color: '#64748B' }}>
-              Pre-MLR check · Last run: 09:10 UTC · <span style={{ color: '#B0200D' }}>1 must-fix</span> · <span style={{ color: '#B45309' }}>2 should-fix</span>
+            <span className="font-mono text-[11px]" style={{ color: '#64748B' }} data-pre-mlr-summary>
+              {preMlr
+                ? <>Pre-MLR check · Last run: {fmtTime(preMlrRunAt)} · <span style={{ color: '#B0200D' }}>{mustFixCount} must-fix</span> · <span style={{ color: '#B45309' }}>{shouldFixCount} should-fix</span></>
+                : <>Pre-MLR check · Not run yet</>}
             </span>
             <button
               type="button"
               onClick={() => preMLRRerunMutation.mutate()}
               data-rerun-pre-mlr
               className="text-[12px] font-semibold text-violet-700 hover:underline"
-            >Re-run</button>
+            >{preMlr ? 'Re-run' : 'Run'}</button>
           </div>
 
           <button
@@ -300,21 +305,18 @@ export function ContentEditor() {
             data-submit-pre-mlr
             className="h-9 rounded-md px-3 text-[13px] font-semibold text-white"
             style={{ backgroundColor: '#7C3AED' }}
-          >Submit for Pre-MLR →</button>
+          >Go to Pre-MLR check →</button>
         </div>
 
         {/* Gate notes */}
         <div className="mb-4 flex flex-col gap-2">
-          <div className="rounded-md border p-2 text-[12px]" style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', color: '#B45309' }} data-mustfix-gate>
-            ⚠ Pre-MLR check has 1 must-fix · Slide 5 carries an unsubstantiated claim. Resolve the must-fix finding before exporting for MLR circulation.
-          </div>
-          {!altSaved && (
-            <div className="rounded-md border p-2 text-[12px]" style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', color: '#B45309' }} data-alttext-gate>
-              ⚠ Alt text missing on Fig 1.1 · WCAG 2.2 AA requires alt text on every figure.
+          {mustFixCount > 0 && (
+            <div className="rounded-md border p-2 text-[12px]" style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', color: '#B45309' }} data-mustfix-gate>
+              ⚠ Pre-MLR check has {mustFixCount} must-fix finding{mustFixCount === 1 ? '' : 's'}. Resolve {mustFixCount === 1 ? 'it' : 'them'} before submitting to MLR.
             </div>
           )}
           <p className="font-mono text-[11px] text-slate-500" data-export-note>
-            Export is disabled until the must-fix finding and the missing alt text are resolved.
+            Export for MLR circulation isn't available yet.
           </p>
         </div>
 
@@ -327,77 +329,43 @@ export function ContentEditor() {
               the user generates slides. */}
           <aside className="rounded-lg border border-slate-200 bg-white p-3" data-slide-navigator>
             <p className="mb-2 font-mono text-[10px] uppercase" style={{ color: '#64748B', letterSpacing: '0.1em' }} data-deck-count>
-              Slide deck · {liveSlides.length > 0 ? liveSlides.length : TOTAL_SLIDES} slide{liveSlides.length === 1 ? '' : 's'}
+              Slide deck · {totalSlides} slide{totalSlides === 1 ? '' : 's'}
               {deckData?.deck.status === 'generating' && ' · generating…'}
             </p>
             <div className="flex flex-col gap-1">
-              {liveSlides.length > 0 ? (
-                liveSlides.map(s => {
-                  const active = activeSlide === s.position
-                  return (
-                    <button
-                      key={s.id}
-                      type="button"
-                      onClick={() => setActiveSlide(s.position)}
-                      data-slide-chip={s.position}
-                      data-slide-state={s.aiGenerated ? 'ai' : 'human'}
-                      className="flex flex-col rounded-md px-2 py-1.5 text-left"
-                      style={{
-                        backgroundColor: active ? '#F5F3FF' : 'transparent',
-                        border:          active ? '1px solid #DDD6FE' : '1px solid transparent',
-                      }}
-                    >
-                      <div className="flex items-center gap-2 text-[12px]">
-                        <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ backgroundColor: s.aiGenerated ? '#7C3AED' : '#15803D' }} />
-                        <span className="font-mono text-[10px] text-slate-500">S{s.position}</span>
-                        <span className="truncate font-semibold text-slate-800">{s.title}</span>
-                      </div>
-                      {s.aiGenerated && (
-                        <span className="ml-4 font-mono text-[10px] text-violet-700" data-slide-ai-tag>
-                          AI draft · review before MLR
-                        </span>
-                      )}
-                    </button>
-                  )
-                })
-              ) : (
-                <>
-                  {SLIDES.map(s => {
-                    const active = activeSlide === s.n
-                    const dot =
-                      s.state === 'done' ? '#15803D' :
-                      s.state === 'active' ? '#7C3AED' :
-                      s.state === 'warn' ? '#D97706' :
-                      '#CBD5E1'
-                    return (
-                      <button
-                        key={s.n}
-                        type="button"
-                        onClick={() => setActiveSlide(s.n)}
-                        data-slide-chip={s.n}
-                        data-slide-state={s.state}
-                        className="flex flex-col rounded-md px-2 py-1.5 text-left"
-                        style={{
-                          backgroundColor: active ? '#F5F3FF' : 'transparent',
-                          border:          active ? '1px solid #DDD6FE' : '1px solid transparent',
-                        }}
-                      >
-                        <div className="flex items-center gap-2 text-[12px]">
-                          <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ backgroundColor: dot }} />
-                          <span className="font-mono text-[10px] text-slate-500">S{s.n}</span>
-                          <span className="truncate font-semibold text-slate-800">{s.title}</span>
-                        </div>
-                        {s.subLabel && (
-                          <span className="ml-4 font-mono text-[10px]" style={{ color: '#B45309' }} data-slide-sublabel={s.n}>
-                            {s.subLabel}
-                          </span>
-                        )}
-                      </button>
-                    )
-                  })}
-                  <p className="mt-1 font-mono text-[10px] text-slate-400">+ {TOTAL_SLIDES - SLIDES.length} more slides</p>
-                </>
+              {liveSlides.length === 0 && (
+                <p className="rounded-md bg-slate-50 p-2 text-[12px] text-slate-500" data-no-slides>
+                  No slides yet. Use “+ New slide with AI” to draft the first one.
+                </p>
               )}
+              {liveSlides.map(s => {
+                const active = activeLiveSlide?.id === s.id
+                return (
+                  <button
+                    key={s.id}
+                    type="button"
+                    onClick={() => setActiveSlide(s.position)}
+                    data-slide-chip={s.position}
+                    data-slide-state={s.aiGenerated ? 'ai' : 'human'}
+                    className="flex flex-col rounded-md px-2 py-1.5 text-left"
+                    style={{
+                      backgroundColor: active ? '#F5F3FF' : 'transparent',
+                      border:          active ? '1px solid #DDD6FE' : '1px solid transparent',
+                    }}
+                  >
+                    <div className="flex items-center gap-2 text-[12px]">
+                      <span className="inline-block h-2 w-2 flex-none rounded-full" style={{ backgroundColor: s.aiGenerated ? '#7C3AED' : '#15803D' }} />
+                      <span className="font-mono text-[10px] text-slate-500">S{s.position}</span>
+                      <span className="truncate font-semibold text-slate-800">{s.title}</span>
+                    </div>
+                    {s.aiGenerated && (
+                      <span className="ml-4 font-mono text-[10px] text-violet-700" data-slide-ai-tag>
+                        AI draft · review before MLR
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
 
             <div className="mt-4 border-t border-slate-200 pt-3" data-collaborators-strip>
@@ -420,33 +388,25 @@ export function ContentEditor() {
 
           {/* CENTRE — Content canvas */}
           <section className="rounded-lg border border-slate-200 bg-white p-6" data-content-canvas>
-            <p className="font-mono text-[10px] uppercase" style={{ color: '#64748B', letterSpacing: '0.1em' }} data-slide-locator>
-              Slide {activeSlide} of {TOTAL_SLIDES} · Study design · You hold the edit lock · released after 5 min idle
-            </p>
-            <h2 className="mt-1 text-[20px] font-bold text-slate-900">VELORA-301 Phase III Study Design</h2>
-            <p className="mt-2 text-[13px] text-slate-600">Randomised, Double-Blind, Placebo-Controlled</p>
-
-            <div className="mt-4 rounded-md border border-dashed border-slate-300 p-4" data-figure-placeholder>
-              <p className="font-mono text-[11px]" style={{ color: '#64748B' }}>Study schema diagram (TLF Fig 1.1 · Clinical Writing) · Replace figure · <span style={{ color: '#B45309' }}>alt text missing</span></p>
-            </div>
-
-            <p className="mt-4 text-[14px] leading-[1.7] text-slate-800">
-              VELORA-301 was a phase III, multicentre, randomised, double-blind trial evaluating <span className="underline decoration-violet-400 decoration-2 underline-offset-2">Veloricept 200 mg once daily + pembrolizumab 200 mg Q3W</span> versus pembrolizumab monotherapy in treatment-naive advanced NSCLC with PD-L1 tumour proportion score ≥50%.
-            </p>
-            <p className="mt-3 text-[14px] leading-[1.7] text-slate-800">
-              Primary endpoint: progression-free survival (blinded independent central review). Secondary endpoints included overall survival, objective response rate, and safety.
-            </p>
-            <p className="mt-2 font-mono text-[11px] text-slate-500">Dr Arjun Patel is editing this block</p>
-
-            <p className="mt-4 font-mono text-[11px]" style={{ color: '#64748B' }} data-provenance-line>
-              Grounded in SmPC v2.1 §4.2 and CSR v1.0 §6.1.1 · Clinical Writing
-            </p>
+            {activeLiveSlide ? (
+              <>
+                <p className="font-mono text-[10px] uppercase" style={{ color: '#64748B', letterSpacing: '0.1em' }} data-slide-locator>
+                  Slide {activeLiveSlide.position} of {totalSlides}{activeLiveSlide.lastEditedAt ? ` · last edited ${fmtTime(activeLiveSlide.lastEditedAt)}` : ''}
+                </p>
+                <h2 className="mt-1 text-[20px] font-bold text-slate-900" data-slide-title>{activeLiveSlide.title}</h2>
+                <p className="mt-4 whitespace-pre-line text-[14px] leading-[1.7] text-slate-800" data-slide-body>
+                  {textOf(activeLiveSlide.bodyHtml) || 'This slide has no body text yet.'}
+                </p>
+              </>
+            ) : (
+              <p className="text-[13px] text-slate-500" data-canvas-empty>This item has no slides yet.</p>
+            )}
 
             <span
-              className="mt-3 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold"
-              style={{ backgroundColor: '#F0FDF4', color: '#166534' }}
+              className="mt-4 inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold"
+              style={{ backgroundColor: claims.length > 0 && approvedClaims === claims.length ? '#F0FDF4' : '#F8FAFC', color: claims.length > 0 && approvedClaims === claims.length ? '#166534' : '#475569' }}
               data-claims-matrix-chip
-            >Claims matrix: approved ✓ · Source: CSR v1.0 Table 14.2.1</span>
+            >{claims.length === 0 ? 'Claims matrix: no claims yet' : `Claims matrix: ${approvedClaims} of ${claims.length} approved`}</span>
 
             {showPAOAnnotations && (
               <div className="mt-4 rounded-md border border-amber-200 bg-amber-50 p-3" data-pao-card>
@@ -472,24 +432,24 @@ export function ContentEditor() {
                 <div data-tab-content className="flex flex-col gap-2">
                   <label className="flex flex-col gap-1">
                     <span className="font-mono text-[10px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Slide title</span>
-                    <input defaultValue="VELORA-301 Phase III Study Design" className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
+                    <input key={`t-${activeLiveSlide?.id ?? 'none'}`} defaultValue={activeLiveSlide?.title ?? ''} placeholder="No slide selected" className="h-9 rounded-md border border-slate-300 px-3 text-[13px]" />
                   </label>
                   <label className="flex flex-col gap-1">
                     <span className="font-mono text-[10px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Body text</span>
-                    <textarea rows={5} defaultValue="Randomised, Double-Blind, Placebo-Controlled" className="rounded-md border border-slate-300 p-2 text-[12px]" />
+                    <textarea key={`b-${activeLiveSlide?.id ?? 'none'}`} rows={5} defaultValue={textOf(activeLiveSlide?.bodyHtml)} className="rounded-md border border-slate-300 p-2 text-[12px]" />
                   </label>
                   <button type="button" className="self-start text-[12px] font-semibold text-violet-700 hover:underline" data-insert-figure>Insert figure from CSR →</button>
 
                   <div className="mt-2 rounded-md border border-slate-200 p-2" data-ai-refine>
                     <p className="font-mono text-[10px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>AI refine</p>
                     <p className="mt-1 text-[11px] text-slate-500">Refinement applies to this text block only. It cannot introduce values not in grounded sources.</p>
-                    <p className="mt-2 font-mono text-[10px] text-slate-400">claude-sonnet-4-6 · grounded in SmPC v2.1 + CSR v1.0</p>
+                    <p className="mt-2 font-mono text-[10px] text-slate-400" data-ai-model>{aiModelLabel ? `${aiModelLabel} · grounded in the linked source documents` : 'Grounded in the linked source documents'}</p>
                   </div>
 
                   <div className="mt-2 rounded-md border border-slate-200 p-2" data-alt-text-input>
                     <p className="font-mono text-[10px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Alt text — mandatory</p>
                     <input type="text" value={altText} onChange={(e) => setAltText(e.currentTarget.value)}
-                      placeholder="Describe Fig 1.1 for screen readers"
+                      placeholder="Describe the figure for screen readers"
                       data-alt-input
                       className="mt-1 h-8 w-full rounded-md border border-slate-300 px-2 text-[12px]" />
                     <div className="mt-2 flex items-center gap-2">
@@ -500,7 +460,7 @@ export function ContentEditor() {
                         style={{ backgroundColor: '#7C3AED' }}>Save alt text</button>
                       {altSaved && <span className="text-[11px] font-semibold" style={{ color: '#166534' }}>✓ Saved</span>}
                     </div>
-                    <p className="mt-2 font-mono text-[10px] text-slate-500">Missing alt text blocks export and is reported by the WCAG 2.2 AA check.</p>
+                    <p className="mt-2 font-mono text-[10px] text-slate-500">Missing alt text is reported by the WCAG 2.1 AA check.</p>
                   </div>
                 </div>
               )}
@@ -529,7 +489,7 @@ export function ContentEditor() {
                       data-ai-footprint-chip
                     >
                       <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#7C3AED' }} />
-                      AI footprint · {aiFootprintPct}%
+                      AI footprint · {aiFootprintPct == null ? '—' : `${aiFootprintPct}%`}
                     </span>
                     <button
                       type="button"
@@ -539,17 +499,12 @@ export function ContentEditor() {
                     >Suggest again ✦</button>
                   </div>
 
-                  {aiSuggestionOpen ? (
+                  {aiSuggestionOpen && aiSuggestion ? (
                     <div className="rounded-md border border-slate-200 bg-slate-50 p-3" data-ai-suggestion>
-                      <p className="text-[11px] font-mono uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Suggested addition · Slide 4 methods</p>
-                      <p className="mt-1 text-[13px] text-slate-800">
-                        "Randomisation was stratified by PD-L1 expression (50–74% vs ≥75%), performance status (0 vs 1), and geographic region."
-                      </p>
-                      <p className="mt-2 font-mono text-[11px]" style={{ color: '#64748B' }}>
-                        Grounded: SmPC v2.1 §5.1 · CSR v1.0 §9.2
-                      </p>
+                      <p className="text-[11px] font-mono uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Suggested addition · {slideLocation}</p>
+                      <p className="mt-1 whitespace-pre-line text-[13px] text-slate-800" data-ai-suggestion-text>{aiSuggestion.responseText}</p>
                       <p className="mt-2 font-mono text-[10px]" style={{ color: '#94A3B8' }} data-ai-attribution>
-                        Generated 09:14 UTC · claude-sonnet-4-6 · Accepting logs to audit trail.
+                        Generated {fmtTime(aiSuggestion.generatedAt)} · {aiSuggestion.aiModel}
                       </p>
                       <div className="mt-3 flex gap-2">
                         <button type="button" onClick={handleAcceptAI} data-accept-ai className="rounded-md px-3 py-1.5 text-[12px] font-semibold text-white" style={{ backgroundColor: '#7C3AED' }}>Accept</button>
@@ -563,7 +518,7 @@ export function ContentEditor() {
                           ✓ Suggestion accepted and logged to the audit trail. Suggest again to iterate.
                         </p>
                       )}
-                      <p className="text-[12px] text-slate-500">No pending suggestions. Click "Suggest again ✦" to request a new one.</p>
+                      <p className="text-[12px] text-slate-500">No pending suggestions. Click "Suggest again ✦" to request one.</p>
                     </div>
                   )}
                 </div>
@@ -603,22 +558,23 @@ export function ContentEditor() {
 
               {activeTab === 'fk' && (
                 <div data-tab-fk>
-                  <p className="font-mono text-[10px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Live scoring · Updated paragraph by paragraph</p>
-                  <p className="mt-2 text-[13px] font-semibold" data-fk-grade>
-                    Grade 7.2 · Gate ≤8 · <span style={{ color: '#166534' }}>Passes gate ✓</span>
-                  </p>
-                  <p className="mt-1 font-mono text-[11px] text-slate-500">1 section above FK 8 — advisory only (below FK 10 gate).</p>
+                  <p className="font-mono text-[10px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Latest recorded score · gate is grade 8 or lower</p>
                   {!isPatientFacing && (
                     <p className="mt-2 text-[12px] text-slate-500" data-fk-na>
-                      Shown for the linked patient version. The active HCP slide deck is not FK-gated.
+                      This content type isn't patient-facing, so the reading-level gate doesn't apply.
                     </p>
                   )}
                   {isPatientFacing && fkScore && (
                     <div className="mt-2 flex flex-col gap-2" data-fk-live>
-                      <p className="text-[13px] font-semibold">
-                        Grade {fkScore.score.toFixed(1)} · <span style={{ color: fkScore.passed ? '#15803D' : '#B45309' }}>{fkScore.passed ? 'Passes gate ✓' : 'Above 8 · needs revision'}</span>
+                      <p className="text-[13px] font-semibold" data-fk-grade>
+                        Grade {Number(fkScore.score).toFixed(1)} · <span style={{ color: fkScore.passed ? '#15803D' : '#B45309' }}>{fkScore.passed ? 'Passes gate ✓' : 'Above grade 8 · needs revision'}</span>
                       </p>
                     </div>
+                  )}
+                  {isPatientFacing && !fkScore && (
+                    <p className="mt-2 text-[12px] text-slate-500" data-fk-none>
+                      No score recorded yet. Patient-facing content needs grade 8 or lower before MLR submission.
+                    </p>
                   )}
                 </div>
               )}
@@ -626,7 +582,7 @@ export function ContentEditor() {
               {activeTab === 'a11y' && (
                 <div data-tab-a11y>
                   <p className="mb-2 text-[11px] font-mono uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }} data-wcag-header>
-                    WCAG 2.2 AA · slide-level checks
+                    WCAG 2.1 AA · slide-level checks
                   </p>
                   <ul className="flex flex-col gap-1 text-[12px]">
                     <li className="flex items-center gap-2" data-a11y-check="alt-text"><span className="h-2 w-2 rounded-full" style={{ backgroundColor: altSaved ? '#15803D' : '#D97706' }} />Alt text on figures · {altSaved ? 'complete ✓' : 'Fig 1.1 missing'}</li>

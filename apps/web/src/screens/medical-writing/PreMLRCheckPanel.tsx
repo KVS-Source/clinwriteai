@@ -4,11 +4,10 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { AgenticFinding, AgenticReport, PreMLRIssue, PreMLRResult } from '@platform/types'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { usePreMLRStore } from '../../modules/medical-writing/store'
+import { tierLabel, useMedUser } from './medLabels'
 
-// --- Static assumption: current user is not MLR Lead ---
+// The signed-in user. "MLR Lead" means the admin role, which is what the API's tier override checks.
 type UserRole = 'author' | 'mlr-lead' | 'reviewer'
-const CURRENT_USER_ROLE: UserRole = 'author'
-const CURRENT_USER_NAME = 'Dr Sarah Chen'
 
 function formatDateTime(iso: string | null | undefined): string {
   if (!iso) return '—'
@@ -64,6 +63,15 @@ export function PreMLRCheckPanel() {
     queryFn:  () => medContentApi.get(contentId!),
     enabled:  !!contentId,
   })
+  const me = useMedUser()
+  const CURRENT_USER_NAME = me.name
+  const CURRENT_USER_ROLE: UserRole = me.isMlrLead ? 'mlr-lead' : 'author'
+  const { data: mlrReviewers = [] } = useQuery({
+    queryKey: ['mlr-reviewers', contentId],
+    queryFn:  () => medContentApi.getMLRReviewers(contentId!),
+    enabled:  !!contentId,
+    retry:    false,
+  })
   const { data: deckData } = useQuery({
     queryKey: ['med-slide-deck', contentId],
     queryFn:  () => medContentApi.getSlideDeck(contentId!),
@@ -111,7 +119,9 @@ export function PreMLRCheckPanel() {
 
         {/* Breadcrumb */}
         <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <button onClick={() => navigate(`/projects/${projectId}/medical-writing/content/${contentId}/editor`)} className="hover:text-slate-900">Content Editor</button>
+          <button onClick={() => navigate(`/projects/${projectId}/medical-writing`)} className="hover:text-slate-900">Medical Writing</button>
+          <span style={{ color: '#CBD5E1' }}>&gt;</span>
+          <button onClick={() => navigate(`/projects/${projectId}/medical-writing/content/${contentId}/editor`)} className="hover:text-slate-900" data-crumb-item>{contentItem?.title ?? 'Content'}</button>
           <span style={{ color: '#CBD5E1' }}>&gt;</span>
           <span className="font-semibold text-slate-900">Pre-MLR Automated Check</span>
         </nav>
@@ -120,7 +130,7 @@ export function PreMLRCheckPanel() {
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>Pre-MLR Automated Check</h1>
-            <p className="font-mono text-xs" style={{ color: '#64748B' }}>Stage 4a · Automated quality checks before MLR review</p>
+            <p className="font-mono text-xs" style={{ color: '#64748B' }}>Stage 4 · MLR submission · Automated quality checks before MLR review</p>
           </div>
           <div className="flex flex-none items-center gap-2">
             <button
@@ -283,11 +293,13 @@ export function PreMLRCheckPanel() {
             <span
               className="inline-flex items-center rounded-md px-2 py-1 text-[12px] font-semibold"
               style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}
-              data-current-tier
-            >Tier 2 — Standard Review</span>
-            <span className="text-[12px] text-slate-500">All 4 MLR reviewers assigned · Standard checklist</span>
+              data-current-tier={contentItem?.reviewTier ?? 'none'}
+            >{tierLabel(contentItem?.reviewTier)}</span>
+            <span className="text-[12px] text-slate-500" data-reviewer-count>
+              {mlrReviewers.length === 0 ? 'No MLR reviewers assigned yet' : `${mlrReviewers.length} MLR reviewer${mlrReviewers.length === 1 ? '' : 's'} assigned`}
+            </span>
           </div>
-          <button
+          {CURRENT_USER_ROLE === 'mlr-lead' && <button
             type="button"
             onClick={handleTierOverrideClick}
             disabled={CURRENT_USER_ROLE !== 'mlr-lead'}
@@ -298,7 +310,7 @@ export function PreMLRCheckPanel() {
               color:  CURRENT_USER_ROLE === 'mlr-lead' ? '#1E293B' : '#94A3B8',
               cursor: CURRENT_USER_ROLE === 'mlr-lead' ? 'pointer' : 'not-allowed',
             }}
-          >Override tier (requires MLR Lead sign-off)</button>
+          >Override tier</button>}
         </section>
       </div>
 

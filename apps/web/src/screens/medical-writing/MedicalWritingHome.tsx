@@ -1,9 +1,10 @@
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
+import { MED_STAGE_NAMES } from './medLabels'
 import { useEffect, useMemo, useState } from 'react'
 import { useTaFilterOptions } from '../../hooks'
 import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
-import type { MedContentItem, MedContentStatus, MedContentType } from '@platform/types'
+import type { MedContentItem, MedContentType } from '@platform/types'
 import { MED_CONTENT_TYPE_META, MED_CONTENT_STATUS_META } from '@platform/types'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { useMedContentStore } from '../../modules/medical-writing/store'
@@ -30,17 +31,18 @@ type StageTab =
 interface TabDef {
   id:       StageTab
   label:    string
-  statuses: MedContentStatus[] | null
+  stage:    number | null      // the stage the API reports for the item (content-stage.ts); null = all
 }
 
+// One tab per stage, named as the API names it, so the counts match where each item really is.
 const TABS: TabDef[] = [
-  { id: 'all',          label: 'All',                    statuses: null },
-  { id: 'briefing',     label: 'Stage 1 (Briefing)',     statuses: ['briefing'] },
-  { id: 'kol-session',  label: 'Stage 2 (KOL Session)',  statuses: ['kol-session'] },
-  { id: 'in-authoring', label: 'Stage 3 (Authoring)',    statuses: ['in-authoring'] },
-  { id: 'mlr-review',   label: 'Stage 4 (MLR Review)',   statuses: ['pre-mlr', 'in-mlr-review'] },
-  { id: 'formatting',   label: 'Stage 5 (Formatting)',   statuses: ['formatting'] },
-  { id: 'approved',     label: 'Stage 6 (Approved)',     statuses: ['mlr-approved', 'final-output'] },
+  { id: 'all',          label: 'All',                                  stage: null },
+  { id: 'briefing',     label: `Stage 1 (${MED_STAGE_NAMES[1]})`,      stage: 1 },
+  { id: 'kol-session',  label: `Stage 2 (${MED_STAGE_NAMES[2]})`,      stage: 2 },
+  { id: 'in-authoring', label: `Stage 3 (${MED_STAGE_NAMES[3]})`,      stage: 3 },
+  { id: 'mlr-review',   label: `Stage 4 (${MED_STAGE_NAMES[4]})`,      stage: 4 },
+  { id: 'formatting',   label: `Stage 5 (${MED_STAGE_NAMES[5]})`,      stage: 5 },
+  { id: 'approved',     label: `Stage 6 (${MED_STAGE_NAMES[6]})`,      stage: 6 },
 ]
 
 type TAOption = string   // a TA label from the Admin master list, or 'all'
@@ -93,8 +95,8 @@ function ownerInitials(id: string | null | undefined): string {
 }
 
 function tabMatches(item: MedContentItem, tab: TabDef): boolean {
-  if (tab.statuses === null) return true
-  return tab.statuses.includes(item.status)
+  if (tab.stage === null) return true
+  return item.stage === tab.stage
 }
 
 
@@ -452,7 +454,7 @@ export function MedicalWritingHome() {
               Medical Writing
             </h1>
             <p className="font-mono text-xs font-medium text-slate-500">
-              {project?.shortTitle ?? project?.name ?? '…'} · {project?.therapeuticArea ?? '—'} · MLR Track · GPP 2022 compliant
+              {project?.shortTitle ?? project?.name ?? '…'} · {project?.therapeuticArea ?? '—'}
             </p>
           </div>
           <div className="flex flex-none gap-2">

@@ -18,6 +18,7 @@ import { actorIsOnlyInformed, actorIsOnlyInformedOnProject, INFORMED_READ_ONLY }
 import { groupSectionsByItem } from './section-grouping.js'
 import { PROJECT_CLOSED, projectIsClosed } from '../../projects/closed.js'
 import { canSeeDocument } from '../../projects/visibility.js'
+import { ownerVisibilityHook } from '../../../auth/document-access.js'
 
 const createPackageSchema = z.object({
   version: z.string().min(1).max(32),
@@ -45,6 +46,16 @@ const linkSectionSchema = z.object({
 })
 
 export const tlfRoutes: FastifyPluginAsync = async (app) => {
+  // A TLF package belongs to a project, and its items to a package: all of it is only for people who
+  // may see that project (CW-020). The project itself, a package, or an item can address a route.
+  app.addHook('preHandler', ownerVisibilityHook('projectId', async (_prisma, id) => ({ projectId: id })))
+  app.addHook('preHandler', ownerVisibilityHook('packageId', async (prisma, id) =>
+    prisma.tlfPackage.findUnique({ where: { id }, select: { projectId: true } })))
+  app.addHook('preHandler', ownerVisibilityHook('itemId', async (prisma, id) => {
+    const item = await prisma.tlfItem.findUnique({ where: { id }, select: { package: { select: { projectId: true } } } })
+    return item ? { projectId: item.package.projectId } : null
+  }))
+
   // --- Package CRUD (project-scoped) --------------------------------------
 
   app.get('/projects/:projectId/tlf-packages', { preHandler: requireAuth({ modules: ['A'] }) }, async (request) => {
@@ -168,6 +179,8 @@ export const tlfRoutes: FastifyPluginAsync = async (app) => {
 
     const item = await app.prisma.tlfItem.findUnique({ where: { id: itemId } })
     if (!item) return reply.code(404).send({ error: 'not_found' })
+    // The document named in the body is addressed too: it must be one the caller may see (CW-020).
+    if (!(await canSeeDocument(app.prisma, request.user!, parsed.data.documentId))) return reply.code(404).send({ error: 'not_found' })
     if (await actorIsOnlyInformed(app.prisma, request.user!, parsed.data.documentId)) return reply.code(403).send(INFORMED_READ_ONLY)
 
     // Upsert — repeated POST increments referenceCount if desired.

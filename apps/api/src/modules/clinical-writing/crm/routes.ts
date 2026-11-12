@@ -23,6 +23,7 @@ import { actorCanResolveComments, actorHoldsLetter, actorCanScheduleCrm, actorCa
 import { crmPeople, CRM_PEOPLE_INVALID } from './people.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 import { canSeeDocument } from '../../projects/visibility.js'
+import { ownerVisibilityHook } from '../../../auth/document-access.js'
 
 const scheduleSchema = z.object({
   chairId: z.string().min(1),
@@ -139,6 +140,11 @@ async function crmMeetingShape(
 }
 
 export const crmRoutes: FastifyPluginAsync = async (app) => {
+  // Every /crm/:meetingId/… route belongs to the meeting's document: someone who may not see that
+  // document gets "not found" on all of them (CW-020), not just on the two that used to check.
+  app.addHook('preHandler', ownerVisibilityHook('meetingId', async (prisma, id) =>
+    prisma.crmMeeting.findUnique({ where: { id }, select: { documentId: true } })))
+
   // Informed (I) are participants only (action table row 18): they don't schedule, add people or change a
   // meeting — unless they chair one they were somehow given.
   const refusedAsInformed = async (user: AuthenticatedUser, meeting: { chairId: string; documentId: string }) =>

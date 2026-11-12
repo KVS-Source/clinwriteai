@@ -23,8 +23,10 @@ import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatur
 import {
   computeProjectChecklistSummary,
   ensureChecklistInstance,
+  normalizeDeliverableType,
 } from './service.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
+import { autoCompleteTagError, normaliseAutoCompleteTag } from './auto-complete-tag.js'
 import { SIGNATURE_BOUND_STATUSES } from '../documents/template-sections.js'
 import {
   findChecklistTemplateUpdate,
@@ -530,6 +532,19 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
   // the auditor-read-only sweep intact.
   const adminGate = requireAuth({ roles: ['pm'], modules: ['A'] })
 
+  // CW-089: documents look their template up under the underscored type ("csr_full"), so a template stored
+  // under the hyphenated spelling ("csr-full") is never used by any document. Editing one would look like
+  // changing the checklist and change nothing, so those rows are read-only: every change is refused and
+  // points at the real template. (The screen shows them under their type with an "old spelling" mark.)
+  const isLegacyType = (type: string) => normalizeDeliverableType(type) !== type
+  /** Both spellings of a type, for a lookup that must not miss a row filed under the other one. */
+  const sameType = (type: string) => [...new Set([type, normalizeDeliverableType(type), normalizeDeliverableType(type).replace(/_/g, '-')])]
+  const legacyTypeBody = (type: string) => ({
+    error: 'template_type_legacy',
+    message: `This template is filed under the old spelling "${type}". Documents use "${normalizeDeliverableType(type)}", so a change here would never reach them. Edit the "${normalizeDeliverableType(type)}" template instead.`,
+    canonicalType: normalizeDeliverableType(type),
+  })
+
   // GET /checklist-templates — list all templates. Platform admin (tenantId
   // null) sees every row; tenant admin only sees platform baselines +
   // overrides owned by projects in their tenant. Ordered: platform
@@ -563,7 +578,10 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
 
     return rows.map(r => ({
       id: r.id,
-      deliverableType: r.deliverableType,
+      // One spelling on the wire: the screen groups by it. A row stored under the old spelling is marked.
+      deliverableType: normalizeDeliverableType(r.deliverableType),
+      legacySpelling: isLegacyType(r.deliverableType),
+      storedType: r.deliverableType,
       projectId: r.projectId,
       version: r.version,
       effectiveDate: r.effectiveDate.toISOString(),
@@ -613,7 +631,9 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
 
     return {
       id: template.id,
-      deliverableType: template.deliverableType,
+      deliverableType: normalizeDeliverableType(template.deliverableType),
+      legacySpelling: isLegacyType(template.deliverableType),
+      storedType: template.deliverableType,
       projectId: template.projectId,
       version: template.version,
       effectiveDate: template.effectiveDate.toISOString(),
@@ -665,6 +685,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       include: { items: { orderBy: { sortOrder: 'asc' } } },
     })
     if (!source) return reply.code(404).send({ error: 'not_found' })
+    if (isLegacyType(source.deliverableType)) return reply.code(409).send(legacyTypeBody(source.deliverableType))
 
     const project = await app.prisma.project.findUnique({
       where: { id: parsed.data.projectId },
@@ -679,7 +700,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
 
     // Reject if an override (any version) already exists on this project.
     const existing = await app.prisma.checklistTemplate.findFirst({
-      where: { deliverableType: source.deliverableType, projectId: project.id },
+      where: { deliverableType: { in: sameType(source.deliverableType) }, projectId: project.id },
       select: { id: true, version: true, templateStatus: true },
     })
     if (existing) {
@@ -693,7 +714,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
     const created = await app.prisma.$transaction(async (tx) => {
       const t = await tx.checklistTemplate.create({
         data: {
-          deliverableType: source.deliverableType,
+          deliverableType: normalizeDeliverableType(source.deliverableType),
           projectId: project.id,
           version: 1,
           effectiveDate: new Date(),
@@ -752,6 +773,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       include: { items: { orderBy: { sortOrder: 'asc' } } },
     })
     if (!source) return reply.code(404).send({ error: 'not_found' })
+    if (isLegacyType(source.deliverableType)) return reply.code(409).send(legacyTypeBody(source.deliverableType))
     if (source.templateStatus === 'draft') {
       return reply.code(409).send({ error: 'already_draft', message: 'This template is already a draft.' })
     }
@@ -826,13 +848,17 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
 
   // POST /checklist-templates/:id/items — add a new item to a draft.
   // Fails if the template is locked (admins must bump a new draft first).
+  // An auto-complete rule: one of the old triggers or a tagged strategy (auto-complete-tag.ts), stored normalised.
+  const autoCompleteSchema = z.string().trim().min(1).max(120)
+    .superRefine((v, ctx) => { const why = autoCompleteTagError(v); if (why) ctx.addIssue({ code: 'custom', message: why }) })
+    .transform(normaliseAutoCompleteTag)
   const addItemSchema = z.object({
     text: z.string().min(1).max(500),
     framework: z.string().min(1).max(100),
     frameworkMandatory: z.boolean().default(false),
-    ownerRaci: z.enum(['R', 'A', 'C', 'I']).default('R'),
+    ownerRaci: z.enum(['R', 'A', 'C', 'Q', 'I']).default('R'),
     stage: z.enum(['study_start_up', 'during_study', 'reporting', 'cross_functional_review', 'crm', 'final_output']),
-    autoCompleteOn: z.enum(['submit_for_review', 'crm_complete', 'document_signed']).nullable().optional(),
+    autoCompleteOn: autoCompleteSchema.nullable().optional(),
   })
   app.post('/:templateId/items', { preHandler: adminGate }, async (request, reply) => {
     const { templateId } = request.params as { templateId: string }
@@ -841,6 +867,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
 
     const template = await app.prisma.checklistTemplate.findUnique({ where: { id: templateId } })
     if (!template) return reply.code(404).send({ error: 'not_found' })
+    if (isLegacyType(template.deliverableType)) return reply.code(409).send(legacyTypeBody(template.deliverableType))
     if (template.templateStatus === 'locked') {
       return reply.code(409).send({ error: 'template_locked', message: 'Locked templates are immutable — bump a new draft first.' })
     }
@@ -883,9 +910,9 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
     text: z.string().min(1).max(500).optional(),
     framework: z.string().min(1).max(100).optional(),
     frameworkMandatory: z.boolean().optional(),
-    ownerRaci: z.enum(['R', 'A', 'C', 'I']).optional(),
+    ownerRaci: z.enum(['R', 'A', 'C', 'Q', 'I']).optional(),
     stage: z.enum(['study_start_up', 'during_study', 'reporting', 'cross_functional_review', 'crm', 'final_output']).optional(),
-    autoCompleteOn: z.enum(['submit_for_review', 'crm_complete', 'document_signed']).nullable().optional(),
+    autoCompleteOn: autoCompleteSchema.nullable().optional(),
   })
   app.patch('/items/:itemId', { preHandler: adminGate }, async (request, reply) => {
     const { itemId } = request.params as { itemId: string }
@@ -897,6 +924,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       include: { template: true },
     })
     if (!item) return reply.code(404).send({ error: 'not_found' })
+    if (isLegacyType(item.template.deliverableType)) return reply.code(409).send(legacyTypeBody(item.template.deliverableType))
     if (item.template.templateStatus === 'locked') {
       return reply.code(409).send({ error: 'template_locked', message: 'Locked templates are immutable — bump a new draft first.' })
     }
@@ -937,6 +965,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       include: { template: true },
     })
     if (!item) return reply.code(404).send({ error: 'not_found' })
+    if (isLegacyType(item.template.deliverableType)) return reply.code(409).send(legacyTypeBody(item.template.deliverableType))
     if (item.template.templateStatus === 'locked') {
       return reply.code(409).send({ error: 'template_locked', message: 'Locked templates are immutable — bump a new draft first.' })
     }
@@ -973,6 +1002,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       include: { template: true },
     })
     if (!item) return reply.code(404).send({ error: 'not_found' })
+    if (isLegacyType(item.template.deliverableType)) return reply.code(409).send(legacyTypeBody(item.template.deliverableType))
     if (item.template.templateStatus === 'locked') {
       return reply.code(409).send({ error: 'template_locked', message: 'Locked templates are immutable — bump a new draft first.' })
     }
@@ -1024,6 +1054,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       where: { id: templateId },
     })
     if (!template) return reply.code(404).send({ error: 'not_found' })
+    if (isLegacyType(template.deliverableType)) return reply.code(409).send(legacyTypeBody(template.deliverableType))
     if (template.templateStatus === 'locked') {
       return reply.code(409).send({ error: 'already_locked', message: 'This template is already locked.' })
     }

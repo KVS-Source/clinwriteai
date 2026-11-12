@@ -14,6 +14,7 @@ import { projectsApi } from '../../api/projects'
 import { ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 import { SortIcon } from '../../components/ui/SortIcon'
+import { AUTO_CHECKS, AUTO_EVENTS, RULE_FIELDS, buildRule, parseRule, ruleComplete, type AutoRuleKind, type AutoRuleState } from './checklistAutoRule'
 import { PLATFORM_ACCENT } from '@platform/types'
 
 type Template = Awaited<ReturnType<typeof documentsApi.listChecklistTemplates>>[number]
@@ -21,7 +22,6 @@ type TemplateDetail = Awaited<ReturnType<typeof documentsApi.getChecklistTemplat
 type TemplateItem = TemplateDetail['items'][number]
 type Stage = TemplateItem['stage']
 type Raci = TemplateItem['ownerRaci']
-type AutoTrigger = Exclude<TemplateItem['autoCompleteOn'], null | undefined>
 
 // --- Metadata (mirrors ChecklistPanel so the admin + authoring views look consistent)
 
@@ -56,10 +56,11 @@ const DELIVERABLE_LABEL_KEYS: Record<string, string> = {
   patient_narrative:     'page.checklist_templates_admin.deliverable_patient_narrative',
 }
 
-const RACI_COLOUR: Record<'R' | 'A' | 'C' | 'I', { bg: string; fg: string }> = {
+const RACI_COLOUR: Record<'R' | 'A' | 'C' | 'Q' | 'I', { bg: string; fg: string }> = {
   R: { bg: '#DBEAFE', fg: '#1D4ED8' },
   A: { bg: '#FEF3C7', fg: '#B45309' },
   C: { bg: '#E0E7FF', fg: '#4338CA' },
+  Q: { bg: '#DCFCE7', fg: '#15803D' },
   I: { bg: '#F1F5F9', fg: '#475569' },
 }
 
@@ -67,6 +68,21 @@ const AUTO_LABEL_KEYS: Record<string, string> = {
   submit_for_review: 'page.checklist_templates_admin.auto_submit_for_review',
   crm_complete:      'page.checklist_templates_admin.auto_crm_complete',
   document_signed:   'page.checklist_templates_admin.auto_document_signed',
+}
+
+// A tagged rule in words, for the badge on an item: "Min. 200 words (§11.4)".
+function describeRule(tag: string, t: (key: string, o?: Record<string, unknown>) => string): string {
+  const r = parseRule(tag)
+  if (r.kind === '') return tag
+  const where = r.section ? ` (${r.section})` : ''
+  switch (r.kind) {
+    case 'content-min-words': return `${t('page.checklist_templates_admin.rule_content_min_words_short', { words: r.words })}${where}`
+    case 'content-no-placeholders': return `${t('page.checklist_templates_admin.rule_content_no_placeholders')}${where}`
+    case 'references-complete': return `${t('page.checklist_templates_admin.rule_references_complete')}${where}`
+    case 'signal:esig-captured': return `${t('page.checklist_templates_admin.rule_signal_esig_captured')}${r.meaning ? ` (${r.meaning})` : ''}`
+    case 'ai-pass': return `${t('page.checklist_templates_admin.rule_ai_pass')}: ${r.profile}`
+    default: return t(`page.checklist_templates_admin.rule_${r.kind.replace(/[:-]/g, '_')}`)
+  }
 }
 
 const TEMPLATE_STATUS_KEYS: Record<string, string> = {
@@ -329,7 +345,14 @@ export function ChecklistTemplatesAdmin() {
                     data-template-row={tpl.id} data-template-active={isActive || undefined} data-panel-trigger aria-current={isActive || undefined}
                     className="cursor-pointer border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
                     style={{ backgroundColor: isActive ? PLATFORM_ACCENT.bgTint : undefined }}>
-                    <td className="px-4 py-3 font-semibold text-slate-900">{deliverableTypeLabel(tpl.deliverableType)}</td>
+                    <td className="px-4 py-3 font-semibold text-slate-900">
+                      {deliverableTypeLabel(tpl.deliverableType)}
+                      {tpl.legacySpelling && (
+                        <span className="ml-2 rounded bg-slate-200 px-1.5 py-0.5 text-[10px] font-semibold uppercase text-slate-700" title={t('page.checklist_templates_admin.legacy_spelling_tooltip', { stored: tpl.storedType })} data-legacy-template>
+                          {t('page.checklist_templates_admin.legacy_spelling_badge')}
+                        </span>
+                      )}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">
                       v{tpl.version}
                       {tpl.isCurrent && <span className="ml-1.5 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">{t('page.checklist_templates_admin.version_current')}</span>}
@@ -567,9 +590,12 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
 
   const isDraft   = template.templateStatus === 'draft'
   // Approval cycle (CW-029): an author of the draft can't approve it. The API says so (canApprove).
-  const showApprove   = isDraft
-  const selfAuthored  = isDraft && template.canApprove === false
-  const canBump    = template.templateStatus === 'locked'
+  // A template filed under the old spelling is read-only: no document uses it (CW-089).
+  const legacy        = template.legacySpelling
+  const canChange     = isDraft && !legacy
+  const showApprove   = canChange
+  const selfAuthored  = canChange && template.canApprove === false
+  const canBump    = template.templateStatus === 'locked' && !legacy
   const versions = [...props.versions].sort((a, b) => b.version - a.version)
 
   return (
@@ -581,6 +607,11 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
             {template.approvedAt && t('page.checklist_templates_admin.detail_approved_suffix', { date: fmtDate(template.approvedAt) })}
           </p>
           <p className="mt-1 text-[11px] italic text-slate-500">{template.changeReason}</p>
+          {legacy && (
+            <p className="mt-2 max-w-xl rounded-md bg-amber-50 p-2 text-[12px] text-amber-900" role="note" data-legacy-notice>
+              {t('page.checklist_templates_admin.legacy_spelling_notice', { stored: template.storedType, canonical: template.deliverableType })}
+            </p>
+          )}
           <p className="mt-1 text-[11px] text-slate-600" data-template-people>
             {t('page.checklist_templates_admin.detail_drafted_by', { name: template.createdByName ?? template.createdBy })}
             {template.approvedAt && <> · {t('page.checklist_templates_admin.detail_approved_by', { name: template.approvedByName ?? template.approvedBy ?? '—', date: fmtDate(template.approvedAt) })}</>}
@@ -726,9 +757,9 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
                       key={it.id}
                       item={it}
                       isLast={i === items.length - 1}
-                      canEdit={isDraft}
-                      canMoveUp={isDraft && i > 0}
-                      canMoveDown={isDraft && i < items.length - 1}
+                      canEdit={canChange}
+                      canMoveUp={canChange && i > 0}
+                      canMoveDown={canChange && i < items.length - 1}
                       onEdit={() => setEditingId(it.id)}
                       onDelete={() => props.onDeleteItem(it.id)}
                       onMove={(dir) => props.onMoveItem(it.id, dir)}
@@ -736,7 +767,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
                     />
                   )
                 ))}
-                {isDraft && addingStage !== stage && (
+                {canChange && addingStage !== stage && (
                   <button
                     type="button"
                     onClick={() => setAddingStage(stage)}
@@ -747,7 +778,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
                     {t('page.checklist_templates_admin.add_item')}
                   </button>
                 )}
-                {isDraft && addingStage === stage && (
+                {canChange && addingStage === stage && (
                   <AddItemRow
                     stage={stage}
                     onCancel={() => setAddingStage(null)}
@@ -801,7 +832,7 @@ function ReadItemRow({ item, isLast, canEdit, canMoveUp, canMoveDown, onEdit, on
               className="inline-flex items-center gap-0.5 rounded-full border px-1.5 py-px text-[10px] font-medium"
               style={{ backgroundColor: '#F0F9FF', borderColor: '#BAE6FD', color: '#0369A1' }}
             >
-              ⚡ {AUTO_LABEL_KEYS[item.autoCompleteOn] ? t(AUTO_LABEL_KEYS[item.autoCompleteOn]) : item.autoCompleteOn}
+              ⚡ {AUTO_LABEL_KEYS[item.autoCompleteOn] ? t(AUTO_LABEL_KEYS[item.autoCompleteOn]) : describeRule(item.autoCompleteOn, t)}
             </span>
           )}
         </div>
@@ -833,7 +864,7 @@ interface ItemFormValues {
   frameworkMandatory: boolean
   ownerRaci: Raci
   stage: Stage
-  autoCompleteOn: AutoTrigger | ''
+  rule: AutoRuleState
 }
 
 function AddItemRow({ stage, onCancel, onSave, disabled }: {
@@ -849,7 +880,7 @@ function AddItemRow({ stage, onCancel, onSave, disabled }: {
     frameworkMandatory: false,
     ownerRaci: 'R',
     stage,
-    autoCompleteOn: '',
+    rule: parseRule(null),
   })
   const submit = () => {
     if (!v.text.trim()) return
@@ -859,7 +890,7 @@ function AddItemRow({ stage, onCancel, onSave, disabled }: {
       frameworkMandatory: v.frameworkMandatory,
       ownerRaci: v.ownerRaci,
       stage: v.stage,
-      autoCompleteOn: v.autoCompleteOn === '' ? null : v.autoCompleteOn,
+      autoCompleteOn: buildRule(v.rule),
     })
   }
   return (
@@ -867,7 +898,7 @@ function AddItemRow({ stage, onCancel, onSave, disabled }: {
       <ItemFormFields v={v} setV={setV} />
       <div className="mt-2 flex justify-end gap-2">
         <button type="button" onClick={onCancel} disabled={disabled} className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
-        <button type="button" onClick={submit} disabled={disabled || !v.text.trim()} className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300">{t('page.checklist_templates_admin.add')}</button>
+        <button type="button" onClick={submit} disabled={disabled || !v.text.trim() || !ruleComplete(v.rule)} className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300">{t('page.checklist_templates_admin.add')}</button>
       </div>
     </div>
   )
@@ -886,7 +917,7 @@ function EditItemRow({ item, onCancel, onSave, disabled }: {
     frameworkMandatory: item.frameworkMandatory,
     ownerRaci: item.ownerRaci,
     stage: item.stage,
-    autoCompleteOn: item.autoCompleteOn ?? '',
+    rule: parseRule(item.autoCompleteOn),
   })
   const submit = () => {
     if (!v.text.trim()) return
@@ -896,7 +927,8 @@ function EditItemRow({ item, onCancel, onSave, disabled }: {
       frameworkMandatory: v.frameworkMandatory,
       ownerRaci: v.ownerRaci,
       stage: v.stage,
-      autoCompleteOn: v.autoCompleteOn === '' ? null : v.autoCompleteOn,
+      // A rule this editor can't show (set some other way) is left as it is, not cleared by saving.
+      ...(item.autoCompleteOn && parseRule(item.autoCompleteOn).kind === '' && v.rule.kind === '' ? {} : { autoCompleteOn: buildRule(v.rule) }),
     })
   }
   return (
@@ -904,7 +936,7 @@ function EditItemRow({ item, onCancel, onSave, disabled }: {
       <ItemFormFields v={v} setV={setV} />
       <div className="mt-2 flex justify-end gap-2">
         <button type="button" onClick={onCancel} disabled={disabled} className="rounded border border-slate-200 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
-        <button type="button" onClick={submit} disabled={disabled || !v.text.trim()} className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300">{t('page.checklist_templates_admin.save')}</button>
+        <button type="button" onClick={submit} disabled={disabled || !v.text.trim() || !ruleComplete(v.rule)} className="rounded bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:bg-slate-300">{t('page.checklist_templates_admin.save')}</button>
       </div>
     </div>
   )
@@ -938,18 +970,23 @@ function ItemFormFields({ v, setV }: { v: ItemFormValues; setV: (next: ItemFormV
           <option value="R">{t('page.checklist_templates_admin.raci_r')}</option>
           <option value="A">{t('page.checklist_templates_admin.raci_a')}</option>
           <option value="C">{t('page.checklist_templates_admin.raci_c')}</option>
+          <option value="Q">{t('page.checklist_templates_admin.raci_q')}</option>
           <option value="I">{t('page.checklist_templates_admin.raci_i')}</option>
         </select>
         <select
-          value={v.autoCompleteOn}
-          onChange={e => setV({ ...v, autoCompleteOn: e.target.value as AutoTrigger | '' })}
+          value={v.rule.kind}
+          onChange={e => setV({ ...v, rule: { ...v.rule, kind: e.target.value as AutoRuleKind } })}
           className={inputCls}
           title={t('page.checklist_templates_admin.auto_complete_tooltip')}
+          data-field="auto-rule"
         >
           <option value="">{t('page.checklist_templates_admin.auto_manual')}</option>
-          <option value="submit_for_review">{t('page.checklist_templates_admin.auto_submit_for_review')}</option>
-          <option value="crm_complete">{t('page.checklist_templates_admin.auto_crm_complete')}</option>
-          <option value="document_signed">{t('page.checklist_templates_admin.auto_document_signed')}</option>
+          <optgroup label={t('page.checklist_templates_admin.auto_group_events')}>
+            {AUTO_EVENTS.map(k => <option key={k} value={k}>{t(`page.checklist_templates_admin.auto_${k}`)}</option>)}
+          </optgroup>
+          <optgroup label={t('page.checklist_templates_admin.auto_group_checks')}>
+            {AUTO_CHECKS.map(k => <option key={k} value={k}>{t(`page.checklist_templates_admin.rule_${k.replace(/[:-]/g, '_')}`)}</option>)}
+          </optgroup>
         </select>
         <label className="flex items-center gap-1.5 px-1 text-[12px] text-slate-700">
           <input
@@ -960,6 +997,23 @@ function ItemFormFields({ v, setV }: { v: ItemFormValues; setV: (next: ItemFormV
           {t('page.checklist_templates_admin.mandatory_checkbox')}
         </label>
       </div>
+      {RULE_FIELDS[v.rule.kind].length > 0 && (
+        <div className="flex flex-wrap items-center gap-2" data-rule-fields>
+          {RULE_FIELDS[v.rule.kind].map(f => (
+            <input
+              key={f}
+              type={f === 'words' ? 'number' : 'text'}
+              min={f === 'words' ? 1 : undefined}
+              value={v.rule[f]}
+              onChange={e => setV({ ...v, rule: { ...v.rule, [f]: e.target.value } })}
+              placeholder={t(`page.checklist_templates_admin.rule_arg_${f}`)}
+              title={t(`page.checklist_templates_admin.rule_arg_${f}_hint`)}
+              className={`${inputCls} ${f === 'words' ? 'w-28' : 'w-56'}`}
+              data-rule-arg={f}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }

@@ -294,6 +294,9 @@ export const documentsApi = {
     api.get<Array<{
       id: string
       deliverableType: string
+      /** Filed under the old hyphenated spelling: no document uses it, and it can't be changed. */
+      legacySpelling: boolean
+      storedType: string
       projectId: string | null
       version: number
       effectiveDate: string
@@ -313,6 +316,8 @@ export const documentsApi = {
     api.get<{
       id: string
       deliverableType: string
+      legacySpelling: boolean
+      storedType: string
       projectId: string | null
       version: number
       effectiveDate: string
@@ -334,7 +339,7 @@ export const documentsApi = {
         text: string
         framework: string
         frameworkMandatory: boolean
-        ownerRaci: 'R' | 'A' | 'C' | 'I'
+        ownerRaci: 'R' | 'A' | 'C' | 'Q' | 'I'
         stage:
           | 'study_start_up'
           | 'during_study'
@@ -342,7 +347,7 @@ export const documentsApi = {
           | 'cross_functional_review'
           | 'crm'
           | 'final_output'
-        autoCompleteOn: 'submit_for_review' | 'crm_complete' | 'document_signed' | null
+        autoCompleteOn: string | null
         sortOrder: number
       }>
     }>(`/checklist-templates/${templateId}`),
@@ -359,17 +364,17 @@ export const documentsApi = {
     text: string
     framework: string
     frameworkMandatory?: boolean
-    ownerRaci: 'R' | 'A' | 'C' | 'I'
+    ownerRaci: 'R' | 'A' | 'C' | 'Q' | 'I'
     stage: 'study_start_up' | 'during_study' | 'reporting' | 'cross_functional_review' | 'crm' | 'final_output'
-    autoCompleteOn?: 'submit_for_review' | 'crm_complete' | 'document_signed' | null
+    autoCompleteOn?: string | null
   }) => api.post<{ id: string }>(`/checklist-templates/${templateId}/items`, body),
   patchChecklistTemplateItem: (itemId: string, body: {
     text?: string
     framework?: string
     frameworkMandatory?: boolean
-    ownerRaci?: 'R' | 'A' | 'C' | 'I'
+    ownerRaci?: 'R' | 'A' | 'C' | 'Q' | 'I'
     stage?: 'study_start_up' | 'during_study' | 'reporting' | 'cross_functional_review' | 'crm' | 'final_output'
-    autoCompleteOn?: 'submit_for_review' | 'crm_complete' | 'document_signed' | null
+    autoCompleteOn?: string | null
   }) => api.patch<{ id: string }>(`/checklist-templates/items/${itemId}`, body),
   deleteChecklistTemplateItem: (itemId: string) =>
     api.delete<void>(`/checklist-templates/items/${itemId}`),

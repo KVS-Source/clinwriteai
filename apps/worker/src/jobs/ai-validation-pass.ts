@@ -97,12 +97,6 @@ function stripTags(html: string): string {
   return html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim()
 }
 
-interface SectionResult {
-  sectionId: string
-  pass:      boolean
-  reason:    string
-}
-
 export const handleAiValidationPass: JobHandler<AiValidationPassPayload> = async (job, { prisma, log, enqueue }) => {
   const { documentId, versionId, iteration } = job.data
   const passStartedAt = new Date()

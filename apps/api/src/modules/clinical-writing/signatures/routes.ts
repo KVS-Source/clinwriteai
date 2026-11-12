@@ -34,6 +34,7 @@ import { PASSWORD_MAX_LENGTH, verifyPassword } from '../../../auth/password.js'
 import { DocumentService, hashSections } from '../documents/service.js'
 import type { PrismaClient } from '@prisma/client'
 import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
+import { checkSignableContent, contentBlockedBody } from './content-gate.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
 import { initialStatuses, recordsToRelease, sortForChain, type ChainType, type SignatureStatus } from './chain-progress.js'
 import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain, requiredSigners } from './access.js'
@@ -162,6 +163,20 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
     const gate = await checkSignatureGate(app.prisma, documentId)
     if (!gate.ok) {
       return reply.code(409).send(blockedBody('signature', gate))
+    }
+
+    // Gate B — the text itself: no mandatory section empty or still holding a placeholder (CW-097).
+    {
+      const [version, waivers] = await Promise.all([
+        doc.currentVersionId
+          ? app.prisma.documentVersion.findUnique({ where: { id: doc.currentVersionId }, select: { sections: { select: { sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true } } } })
+          : null,
+        app.prisma.ichSectionWaiver.findMany({ where: { documentId }, select: { sectionCode: true } }),
+      ])
+      const content = checkSignableContent({
+        documentType: doc.type, sections: version?.sections ?? [], waivedCodes: waivers.map(w => w.sectionCode),
+      })
+      if (!content.ok) return reply.code(409).send(contentBlockedBody(content))
     }
 
     // The chain needs at least one Approver: without an approval the document can't become signed.

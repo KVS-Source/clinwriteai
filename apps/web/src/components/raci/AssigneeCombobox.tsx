@@ -12,6 +12,8 @@ export interface AssigneeOption {
   email: string
   /** Shown beside the name when the user has a role on the project. */
   role: string | null
+  /** Set when the person is listed but can't be picked (for example they hold no can-author capability yet). */
+  ineligibleReason?: string
 }
 
 export function filterAssignees(options: AssigneeOption[], query: string): AssigneeOption[] {
@@ -48,6 +50,7 @@ export function AssigneeCombobox({ label, placeholder, options, value, onChange 
   }
 
   function choose(option: AssigneeOption) {
+    if (option.ineligibleReason) return
     onChange(option.id)
     close()
   }
@@ -134,14 +137,17 @@ export function AssigneeCombobox({ label, placeholder, options, value, onChange 
               id={`${listId}-${o.id}`}
               role="option"
               aria-selected={o.id === value}
+              aria-disabled={o.ineligibleReason ? true : undefined}
+              data-ineligible={o.ineligibleReason ? '' : undefined}
               onClick={() => choose(o)}
               onMouseEnter={() => setActive(i)}
-              className={`cursor-pointer px-3 py-1.5 text-[13px] ${i === active ? 'bg-blue-50' : ''}`}
+              className={`px-3 py-1.5 text-[13px] ${o.ineligibleReason ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'} ${i === active && !o.ineligibleReason ? 'bg-blue-50' : ''}`}
             >
               <span className={`block truncate text-slate-900 ${o.id === value ? 'font-semibold' : ''}`}>
                 {o.name}{o.role ? ` (${o.role})` : ''}
+                {o.ineligibleReason && <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600">{t('component.assignee_combobox.not_eligible')}</span>}
               </span>
-              <span className="block truncate text-[11px] text-slate-500">{o.email}</span>
+              <span className="block truncate text-[11px] text-slate-500">{o.ineligibleReason ?? o.email}</span>
             </li>
           ))}
         </ul>

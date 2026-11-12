@@ -91,7 +91,8 @@ export function evaluateContentMinWords(
 
 // ---------- content-no-placeholders ----------
 
-const PLACEHOLDER_PATTERN = /\[(tbd|placeholder|ref)\]/i
+// [TBD], [TBD: what is needed], [TBC ...], [PLACEHOLDER], [REF]
+const PLACEHOLDER_PATTERN = /\[\s*(?:(?:tbd|tbc|placeholder)\b[^\]]*|ref)\s*\]/i
 
 export function evaluateContentNoPlaceholders(
   args: string[],

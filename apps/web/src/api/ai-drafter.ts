@@ -36,6 +36,8 @@ export interface AiDraftingPassSummary {
 }
 
 export interface AiDraftStatusResponse {
+  /** True when this deployment has no AI provider key and runs the placeholder drafter (dev/CI only). */
+  aiStubMode?:        boolean
   /** null when the doc was never AI-drafted (e.g. created without the opt-in). */
   state:              AiDraftState | null
   /** 0-100 roll-up; null until the first pass runs. */

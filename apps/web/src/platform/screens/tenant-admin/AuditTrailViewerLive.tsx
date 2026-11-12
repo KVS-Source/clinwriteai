@@ -21,7 +21,8 @@ import {
 } from '../../../hooks'
 import { usePlatformStore } from '../../store'
 import { useQuery } from '@tanstack/react-query'
-import { auditApi, projectsApi, describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry, type AuditSortKey } from '../../../api'
+import { auditApi, projectsApi, describeApiError, AUDIT_EXPORT_ROW_CAP, type AuditEntry, type AuditSortKey } from '../../../api'
+
 import { holdsRole } from '../../../config/roles'
 
 const PAGE_SIZE = 25
@@ -932,6 +933,11 @@ export function AuditTrailViewerLive() {
                 )}
               </tbody>
             </table>
+            {data.rows.some(r => r.actorRole && r.actorRoleRecorded === false) && (
+              <p className="border-t border-slate-200 bg-slate-50 px-4 py-2 text-[11px] text-slate-600" data-role-footnote>
+                {t('page.audit_trail_viewer_live.role_footnote')}
+              </p>
+            )}
             {(pageIndex > 0 || data.hasMore) && (
               <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-2 text-[12px] text-slate-600">
                 <button

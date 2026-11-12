@@ -238,6 +238,8 @@
       "submit_for_review":            "レビューに提出",
 
       "read_only_prefix":              "読み取り専用 — {{short}}。",
+      "ai_stub_heading": "AIはテストモードです",
+      "ai_stub_body": "ここにはAIプロバイダーが接続されていないため、AIの下書きと返信はプレースホルダーのテキストです。実際の文書には使用しないでください。",
       "submitted_for_review_heading":  "レビューに提出しました。",
       "submitted_for_review_body":     "レビュアーが対応している間、ドキュメントは編集ロックされています。",
 
@@ -1231,6 +1233,7 @@
     },
 
     "new_document": {
+      "assignee_no_capability": "執筆者の権限が登録されていません。まず管理者が can-author 権限を付与してください。",
       "step_label_1": "種別",
       "step_label_2": "ソース",
       "step_label_3": "詳細",
@@ -2593,6 +2596,7 @@
       "system_unauth": "システム / 未認証",
       "role_recorded_tooltip": "このイベント時点で記録されたロールです。",
       "role_current_tooltip": "表示されているロールはユーザーの現在のロールです (エントリには記録されていません)。",
+      "role_footnote": "* この操作の記録時にロールが保存されていないため、ユーザーの現在のロールを表示しています。",
       "actor_role_current_suffix": "(現在のロール、エントリ未記録)",
       "not_recorded": "未記録",
       "no_details_recorded": "追加の詳細は記録されていません。",
@@ -4578,6 +4582,9 @@
       "tab_final_output": "最終アウトプット"
     },
 
+    "assignee_combobox": {
+      "not_eligible": "選択不可"
+    },
     "module_disabled_screen": {
       "eyebrow": "モジュール一時停止",
       "title": "{{module}} は一時的に無効になっています",

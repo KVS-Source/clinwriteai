@@ -17,6 +17,7 @@ const PASSWORD_HASH = bcrypt.hashSync(PASSWORD, 4)
 function fakePrisma() {
   const documents: Row[] = [{
     id: 'DOC-1', projectId: 'PROJ-1', assigneeId: 'u-owner', status: 'pending_signature', watermarked: true, signedAt: null,
+    type: 'protocol', currentVersionId: 'ver-2',
     currentVersion: { label: 'Draft', versionNumber: 'v0.2', sections: [{ sectionId: 's1', contentHtml: '<p>a</p>' }] },
   }]
   // Team Approvers (RACI='A') — the chain-init handler reads these to
@@ -73,12 +74,15 @@ function fakePrisma() {
     },
     // Version snapshot on the final signature (the document becomes v1.0).
     documentVersion: {
+      // The sections of the current version, read by the content gate (CW-097).
+      findUnique: async ({ where }: Row) => (where.id === 'ver-2' ? { sections: documents[0].currentVersion.sections } : null),
       findFirst: async ({ where }: Row) => versions.find(v => matches(v, where)) ?? null,
       findMany: async ({ where }: Row) => versions.filter(v => matches(v, where)),
       updateMany: async ({ where, data }: Row) => { const hit = versions.filter(v => matches(v, where)); hit.forEach(v => Object.assign(v, data)); return { count: hit.length } },
       create: async ({ data }: Row) => { const v = { id: `ver-${versions.length + 1}`, ...data }; versions.push(v); return v },
     },
     $executeRaw: async () => 1,
+    ichSectionWaiver: { findMany: async () => [] },
     signatureChain: {
       findFirst: async ({ where }: Row) => chains.find(c => matches(c, where)) ?? null,
       findUnique: async ({ where, include }: Row) => { const c = chains.find(x => x.id === where.id); return include ? withRecords(c) ?? null : c ?? null },
@@ -176,6 +180,24 @@ describe('signature chain routes', () => {
     expect(res.json().records.map((r: Row) => r.status)).toEqual(['awaiting', 'queued'])
     const again = await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })
     expect(again.json().error).toBe('chain_already_active')
+  })
+
+  it('refuses to open a chain on a document with an empty section or a placeholder left (CW-097)', async () => {
+    const sections = t.db.documents[0].currentVersion.sections as Row[]
+    sections.push({ sectionId: 's2', sectionNumber: '2', sectionTitle: 'Synopsis', contentHtml: '<p></p>' })
+    const empty = await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })
+    expect(empty.statusCode).toBe(409)
+    expect(empty.json()).toMatchObject({ error: 'content_incomplete', problemCount: 1, problems: [{ section: '2 Synopsis', reason: 'empty' }] })
+    expect(empty.json().message).toContain('2 Synopsis (empty)')
+
+    sections[1]!.contentHtml = '<p>Primary endpoint [TBD] and [XX]</p>'
+    const marked = await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })
+    expect(marked.statusCode).toBe(409)
+    expect(marked.json().problems).toEqual([{ section: '2 Synopsis', reason: 'placeholders', placeholders: 2 }])
+    expect(t.db.chains).toHaveLength(0)
+
+    sections[1]!.contentHtml = '<p>Real text.</p>'
+    expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(201)
   })
 
   it('runs initiate → sign → sign and marks the document signed with the watermark cleared', async () => {

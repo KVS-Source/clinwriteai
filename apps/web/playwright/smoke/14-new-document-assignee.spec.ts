@@ -59,11 +59,16 @@ test('a non-admin (admin user list answers 403) still gets project writers in th
   const options = page.locator('[data-field="assignee"] [role="option"]')
   await expect(options).toHaveCount(3)
   await expect(options.filter({ hasText: 'Sarah Chen (Clinical Writer)' })).toHaveCount(1)
-  await expect(options.filter({ hasText: 'Omar Reyes (Medical Writer)' })).toHaveCount(1)   // no recorded capabilities counts as a writer
+  const omar = options.filter({ hasText: 'Omar Reyes (Medical Writer)' })
+  await expect(omar).toHaveCount(1)                                                         // no recorded capabilities: listed, but not eligible (CW-081)
+  await expect(omar).toHaveAttribute('data-ineligible', '')
+  await expect(omar).toContainText('Not eligible')
   await expect(options.filter({ hasText: 'Rita Okafor' })).toHaveCount(0)                   // reviewer-only, cannot author
   await expect(options.filter({ hasText: 'Priya Nair' })).toContainText('Priya Nair')
   await expect(options.filter({ hasText: 'Priya Nair' })).not.toContainText('(')            // no project role, nothing in brackets
 
+  await omar.click({ force: true })                                                         // an ineligible person can't be picked (force: Playwright won't click aria-disabled)
+  await expect(field).toHaveValue('')
   await options.filter({ hasText: 'Sarah Chen' }).click()
   await expect(field).toHaveValue('Sarah Chen')
 })
@@ -89,12 +94,15 @@ test('the assignee list narrows by name or email, and works from the keyboard', 
   await field.fill('')
   await field.press('ArrowDown')
   await field.press('Enter')
-  await expect(field).toHaveValue('Omar Reyes')
+  await expect(field).toHaveValue('')                                                       // Omar (second row) is not eligible: Enter picks nobody
+  await field.press('ArrowDown')
+  await field.press('Enter')
+  await expect(field).toHaveValue('Priya Nair')
   await expect(page.locator('[data-step-body="details"]')).toBeVisible()                    // Enter chose a person, it did not submit
 
   await field.click()
   await field.fill('sarah')
   await field.press('Escape')
   await expect(options).toHaveCount(0)
-  await expect(field).toHaveValue('Omar Reyes')                                             // abandoning a search keeps the choice
+  await expect(field).toHaveValue('Priya Nair')                                             // abandoning a search keeps the choice
 })

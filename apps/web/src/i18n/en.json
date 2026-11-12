@@ -214,6 +214,8 @@
       "submitted_for_review_button": "Submitted for review ✓",
       "submit_for_review": "Submit for review",
       "read_only_prefix": "Read-only — {{short}}.",
+      "ai_stub_heading": "AI is in test mode",
+      "ai_stub_body": "No AI provider is connected here, so AI drafts and replies are placeholder text. Don't use them in a real document.",
       "submitted_for_review_heading": "Submitted for review.",
       "submitted_for_review_body": "The document is locked for authoring while reviewers respond.",
       "lock_short_in_review": "in review",
@@ -1115,6 +1117,7 @@
       "menu_soon_badge": "soon"
     },
     "new_document": {
+      "assignee_no_capability": "No author capability recorded. An admin must give them the can-author capability first.",
       "step_label_1": "Type",
       "step_label_2": "Sources",
       "step_label_3": "Details",
@@ -2420,6 +2423,7 @@
       "system_unauth": "System / unauthenticated",
       "role_recorded_tooltip": "Role recorded at the time of this event.",
       "role_current_tooltip": "Role shown is the user's current role (not recorded on the entry).",
+      "role_footnote": "* The role was not recorded when this action was logged, so the user's current role is shown.",
       "actor_role_current_suffix": "(current, not recorded on entry)",
       "not_recorded": "not recorded",
       "no_details_recorded": "No additional details recorded.",
@@ -4352,6 +4356,9 @@
       "tab_ma_approval": "MA Approval",
       "tab_standards_doi": "Standards & DOI",
       "tab_final_output": "Final Output"
+    },
+    "assignee_combobox": {
+      "not_eligible": "Not eligible"
     },
     "module_disabled_screen": {
       "eyebrow": "Module paused",

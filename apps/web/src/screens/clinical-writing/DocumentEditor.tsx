@@ -940,6 +940,19 @@ export function DocumentEditor() {
         </div>
       </div>
 
+      {/* The AI provider isn't set up and the placeholder drafter is on (dev/CI): say so (CW-095). */}
+      {aiDraft.data?.aiStubMode && (
+        <div
+          role="status"
+          className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-rose-200 bg-rose-50 px-6 py-2 text-[13px] text-rose-900"
+          data-ai-stub-banner
+        >
+          <span aria-hidden="true" className="font-bold">!</span>
+          <span className="font-semibold">{t('page.document_editor.ai_stub_heading')}</span>
+          <span>{t('page.document_editor.ai_stub_body')}</span>
+        </div>
+      )}
+
       {/* Awaiting signature / signed / project closed: locked for authoring. */}
       {authoringLock && authoringLockKey !== 'in-review' && (
         <div

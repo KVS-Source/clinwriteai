@@ -33,6 +33,7 @@ import { DocumentService, hashSections } from './service.js'
 import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock } from '../../platform/document-type-policy/resolve.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
+import { stubAllowed } from '../../platform/ai-gateway/service.js'
 import { buildComplianceSummary } from '../checklist/compliance-summary.js'
 import { pdfFileName } from '../../platform/library/pdf-renderer.js'
 import { contentDisposition } from './source-routes.js'
@@ -1028,6 +1029,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return {
+      // True when no AI provider key is set and the dev/CI placeholder drafter is switched on: AI text
+      // in this deployment is placeholder text, and the editor says so (CW-095).
+      aiStubMode:         stubAllowed() && !process.env.ANTHROPIC_API_KEY?.trim(),
       state:              doc.aiDraftState,
       confidenceOverall:  doc.aiConfidenceOverall,
       lastPassNumber:     doc.aiLastPassNumber,

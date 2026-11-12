@@ -257,11 +257,15 @@ export function NewDocumentForm({
   // Prisma client predates the capabilities column returns no `capabilities`, so a contributor
   // without the field still counts as a writer.
   const assigneeOptions = useMemo((): AssigneeOption[] => {
-    // Project members who can author (a member without recorded capabilities counts as a writer, as below).
-    const fromMembers = members
+    // People who can hold R: those with the can-author capability. A member with no capabilities recorded at
+    // all is still listed, as "not eligible", so the PM sees why they can't be picked (CW-081); someone with
+    // other capabilities but not can-author (a reviewer, an approver) isn't a candidate and is left out.
+    return members
       .filter(m => m.capabilities.length === 0 || m.capabilities.includes('can-author'))
-      .map(m => ({ id: m.id, name: m.name, email: m.email, role: m.projectRole }))
-    return fromMembers
+      .map(m => ({
+        id: m.id, name: m.name, email: m.email, role: m.projectRole,
+        ...(m.capabilities.length === 0 && { ineligibleReason: t('page.new_document.assignee_no_capability') }),
+      }))
   }, [members])
 
   const create = useMutation({

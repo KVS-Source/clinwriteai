@@ -57,7 +57,9 @@ export function MasterLibrary() {
   const { t } = useTranslation()
 
   const queryClient = useQueryClient()
-  const canManage = usePlatformStore(s => s.hasRole)(['tenant-admin', 'admin'])
+  // Who sees New version and Withdraw: the Project Manager owns the library's content; admins may too (the API still
+  // limits everyone to their own tenant's items, and platform-wide items to platform admins).
+  const canManage = usePlatformStore(s => s.hasRole)(['pm', 'tenant-admin', 'admin'])
 
   // Filters start empty — nothing is pre-applied.
   const [search,      setSearch]      = useState('')

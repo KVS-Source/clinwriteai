@@ -648,8 +648,10 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  // Create a new VERSION of an existing section. Admin-only.
-  app.post('/sections/:id/versions', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  // Create a new VERSION of an existing section. Admins and Project Managers — the Master Library has no admin in the
+  // loop day to day, the PM is its content owner. A PM can change only their own tenant's items (canChange below);
+  // platform-wide items stay with platform admins.
+  app.post('/sections/:id/versions', { preHandler: requireAuth({ roles: ['admin', 'pm'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = updateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -706,7 +708,8 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  app.post('/sections/:id/retire', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  // Withdraw an item: same people and same own-tenant rule as a new version.
+  app.post('/sections/:id/retire', { preHandler: requireAuth({ roles: ['admin', 'pm'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = retireSchema.safeParse(request.body ?? {})
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })

@@ -138,6 +138,43 @@ describe('tenant isolation on /library/sections (CW-059)', () => {
     const { app } = await setup({ found: row('a', { isCurrent: false }) })
     expect((await app.inject({ method: 'POST', url: '/library/sections/a/retire', payload: {} })).statusCode).toBe(409)
   })
+
+  describe('a Project Manager (the content owner of the library)', () => {
+    it('withdraws an item of their own tenant, with the reason in the audit entry', async () => {
+      const { app, append, update } = await setup({ role: 'pm' })
+      const res = await app.inject({ method: 'POST', url: '/library/sections/a/retire', payload: { reason: 'Replaced by the new SOP' } })
+      expect(res.statusCode).toBe(200)
+      expect(update.mock.calls[0]![0].data).toMatchObject({ isCurrent: false })
+      expect(append).toHaveBeenCalledWith(expect.objectContaining({ action: 'library_section_retired', actorId: 'u1', details: expect.objectContaining({ reason: 'Replaced by the new SOP' }) }))
+    })
+
+    it('publishes a new version of an item of their own tenant', async () => {
+      const { app, create } = await setup({ role: 'pm' })
+      const res = await app.inject({ method: 'POST', url: '/library/sections/a/versions', payload: { body: 'Revised text' } })
+      expect(res.statusCode).toBe(201)
+      expect(create.mock.calls[0]![0].data).toMatchObject({ tenantId: 't1', version: 2, body: 'Revised text' })
+    })
+
+    it('is still refused on a platform-wide item (platform admins only)', async () => {
+      const { app, update } = await setup({ role: 'pm', found: row('a', { tenantId: null }) })
+      expect((await app.inject({ method: 'POST', url: '/library/sections/a/retire', payload: {} })).statusCode).toBe(403)
+      expect((await app.inject({ method: 'POST', url: '/library/sections/a/versions', payload: { body: 'x' } })).statusCode).toBe(403)
+      expect(update).not.toHaveBeenCalled()
+    })
+
+    it("cannot reach another tenant's item at all (404)", async () => {
+      const { app } = await setup({ role: 'pm', found: null })
+      expect((await app.inject({ method: 'POST', url: '/library/sections/a/retire', payload: {} })).statusCode).toBe(404)
+    })
+  })
+
+  it('still refuses a contributor, who only reads the library', async () => {
+    const { app, update, create } = await setup({ role: 'contributor' })
+    expect((await app.inject({ method: 'POST', url: '/library/sections/a/retire', payload: {} })).statusCode).toBe(403)
+    expect((await app.inject({ method: 'POST', url: '/library/sections/a/versions', payload: { body: 'x' } })).statusCode).toBe(403)
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
+  })
 })
 
 describe('GET /library with includeRetired (CW-062)', () => {

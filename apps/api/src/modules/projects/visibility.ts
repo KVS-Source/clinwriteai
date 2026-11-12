@@ -42,6 +42,11 @@ const SEE_ALL_ROLES: ReadonlySet<string> = new Set([
   'read-only',       // legacy alias of auditor
 ])
 
+/** True for roles that see every project and document (admins, auditors): no per-record lookup needed. */
+export function seesEverything(user: AuthenticatedUser): boolean {
+  return hasAnyRole(user, ...SEE_ALL_ROLES)
+}
+
 /**
  * Returns the set of project ids this user may see, or the sentinel 'all'
  * when the user bypasses scoping (admins + auditors).

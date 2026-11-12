@@ -24,6 +24,9 @@ function fakePrisma(opts: Opts, writes: string[]) {
     document: {
       findUnique: async () => ({ id: DOC, projectId: 'P-1', type: 'csr_full', status: 'in_review', stage: 'cross_functional_review', deletedAt: null, assigneeId: opts.assignee ?? 'someone-else', title: 'Doc' }),
       findFirst: async () => (opts.assignee === ME ? { id: DOC } : null),
+      // The caller works on this document, so it and its project are theirs to see (CW-020).
+      count: async () => 1,
+      findMany: async () => [{ projectId: 'P-1' }],
     },
     documentRaci: {
       findMany: async () => letters.map(letter => ({ id: `r-${letter}`, documentId: DOC, userId: ME, letter })),
@@ -33,7 +36,7 @@ function fakePrisma(opts: Opts, writes: string[]) {
       findUnique: async () => ({ id: 'm1', documentId: DOC, chairId: opts.chair ?? 'u-chair', status: 'in_progress', meetingRef: 'CRM-1', attendees: [], resolutions: [], transcript: null }),
     },
     tlfPackage: { findUnique: async ({ where }: Row) => (where.id ? { id: where.id, projectId: 'P-1' } : null) },
-    tlfItem:    { findUnique: async ({ where }: Row) => (where.id ? { id: where.id, packageId: 'pkg-1' } : null) },
+    tlfItem:    { findUnique: async ({ where }: Row) => (where.id ? { id: where.id, packageId: 'pkg-1', package: { projectId: 'P-1' } } : null) },
   }
   const prisma: Row = new Proxy({}, {
     get(_t, table: string) {

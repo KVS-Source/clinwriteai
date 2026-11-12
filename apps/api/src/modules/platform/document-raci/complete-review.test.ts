@@ -16,7 +16,7 @@ const row = (id: string, userId: string, letter: string, over: Partial<Row> = {}
 
 async function build(opts: { status: string; rows: Row[]; actor?: string; openMeetings?: number; openComments?: number }) {
   const { rows } = opts
-  const document = { id: DOC, status: opts.status }
+  const document = { id: DOC, status: opts.status, title: 'CSR', projectId: 'P-1' }
   const docUpdate = vi.fn(async ({ data }: { data: { status: string } }) => Object.assign(document, data))
   const append = vi.fn(async () => ({}))
   const app = Fastify()
@@ -27,9 +27,13 @@ async function build(opts: { status: string; rows: Row[]; actor?: string; openMe
       findMany: vi.fn(async () => rows),
       update: vi.fn(async ({ where, data }: { where: { id: string }; data: Partial<Row> }) => Object.assign(rows.find(r => r.id === where.id)!, data)),
     },
+    project: { findUnique: vi.fn(async () => ({ status: 'ongoing' })) },
+    user: { findMany: vi.fn(async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.map(id => ({ id, name: `Name ${id}` }))) },
     crmMeeting: { count: vi.fn(async () => opts.openMeetings ?? 0) },
     comment: { count: vi.fn(async () => opts.openComments ?? 0) },
   } as never)
+  const sent: Array<Record<string, unknown>> = []
+  app.decorate('notifications', { send: vi.fn(async (n: Record<string, unknown>) => { sent.push(n); return n }) } as never)
   app.decorate('audit', { append } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
@@ -39,7 +43,7 @@ async function build(opts: { status: string; rows: Row[]; actor?: string; openMe
   await app.register(documentRaciRoutes, { prefix: '/documents' })
   await app.ready()
   const complete = (id: string) => app.inject({ method: 'POST', url: `/documents/${DOC}/raci/${id}/complete`, payload: {} })
-  return { app, rows, document, docUpdate, append, complete }
+  return { app, rows, document, docUpdate, append, complete, sent }
 }
 
 describe('completing a review', () => {
@@ -130,5 +134,53 @@ describe('going back to authoring', () => {
       where: { documentId: DOC, removedAt: null },
       data:  expect.objectContaining({ submittedAt: null, reviewedAt: null, approvedAt: null }),
     })
+  })
+})
+
+describe('sequential review (FR-A-042)', () => {
+  const line = () => [
+    row('r1', 'u-first', 'C', { approvalOrder: 1 }), row('r2', 'u-c', 'C', { approvalOrder: 2 }), row('r3', 'u-last', 'C', { approvalOrder: 3 }),
+  ]
+
+  it("a Reviewer can't mark their review done while someone ahead of them hasn't", async () => {
+    const t = await build({ status: 'in_review', rows: line(), actor: 'u-c' })
+    const res = await t.complete('r2')
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'review_not_your_turn', waitingFor: [{ userId: 'u-first', name: 'Name u-first' }] })
+    expect(res.json().message).toContain('Name u-first must finish first')
+    expect(t.rows[1]!.reviewedAt).toBeNull()
+    expect(t.sent).toEqual([])
+    await t.app.close()
+  })
+
+  it('the first in line can finish, and the next one is told it is their turn', async () => {
+    const t = await build({ status: 'in_review', rows: line(), actor: 'u-first' })
+    const res = await t.complete('r1')
+    expect(res.statusCode).toBe(200)
+    expect(t.sent).toHaveLength(1)
+    expect(t.sent[0]).toMatchObject({ recipientId: 'u-c', kind: 'review_requested', linkPath: '/projects/P-1/clinical-writing/documents/doc-1/review', payload: { sequential: true } })
+    await t.app.close()
+  })
+
+  it('then the next one can finish, and the last one is told', async () => {
+    const rows = line(); rows[0]!.reviewedAt = new Date()
+    const t = await build({ status: 'in_review', rows, actor: 'u-c' })
+    expect((await t.complete('r2')).statusCode).toBe(200)
+    expect(t.sent.map(n => n.recipientId)).toEqual(['u-last'])
+    await t.app.close()
+  })
+
+  it('a parallel review (no places) lets anyone finish, and sends no "your turn" notices', async () => {
+    const t = await build({ status: 'in_review', rows: [row('r1', 'u-first', 'C'), row('r2', 'u-c', 'C')], actor: 'u-c' })
+    expect((await t.complete('r2')).statusCode).toBe(200)
+    expect(t.sent).toEqual([])
+    await t.app.close()
+  })
+
+  it("QC (Q) is not part of the line: it can finish whenever, whatever the Reviewers' places", async () => {
+    const rows = [row('r1', 'u-first', 'C', { approvalOrder: 1 }), row('rq', 'u-qc', 'Q')]
+    const t = await build({ status: 'in_review', rows, actor: 'u-qc' })
+    expect((await t.complete('rq')).statusCode).toBe(200)
+    await t.app.close()
   })
 })

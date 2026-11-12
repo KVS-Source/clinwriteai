@@ -58,7 +58,8 @@ async function build() {
       findUnique: vi.fn(async ({ where }: Row) => USERS[where.id] ?? null),
       updateMany: vi.fn(async () => ({ count: 1 })),
     },
-    session: { findUnique: vi.fn(async () => null) },          // no sessions exist: only the system-token path signs anyone in
+    session: { findUnique: vi.fn(async () => null) },
+    signatureChain: { findFirst: vi.fn(async () => null) },       // no signature chain is running (invites are refused while one is)          // no sessions exist: only the system-token path signs anyone in
     document: {
       findUnique: vi.fn(async ({ where }: Row) => docs.find(d => d.id === byDoc(where).id) ?? null),
       findFirst: vi.fn(async ({ where }: Row) => docs.find(d => d.id === byDoc(where).id && (where.deletedAt === undefined || d.deletedAt === where.deletedAt)) ?? null),

@@ -25,7 +25,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, hasAnyRole } from '../../../auth/rbac.js'
-import { actorCanEditDocumentRaci } from '../document-raci/access.js'
+import { actorCanEditDocumentRaci, signatureChainActive } from '../document-raci/access.js'
 import { PROJECT_CLOSED, documentProjectIsClosed, projectIsClosed } from '../../projects/closed.js'
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -83,6 +83,16 @@ export const guestInvitationRoutes: FastifyPluginAsync = async (app) => {
       select: { id: true },
     })
     if (!document) return reply.code(404).send({ error: 'document_not_found' })
+
+    // Like the RACI and the checklist, the circle of people around a document is fixed while its signature
+    // chain is running (CW-055): no new guest can be invited until the chain is done or cancelled.
+    // Links already issued keep working, and can still be withdrawn.
+    if (await signatureChainActive(app.prisma, documentId)) {
+      return reply.code(409).send({
+        error: 'signature_chain_active',
+        message: "A signature chain is in progress for this document, so new guests can't be invited. Cancel the chain first, or invite after it is signed.",
+      })
+    }
 
     const expiresInDays = parsed.data.expiresInDays ?? DEFAULT_DOCUMENT_EXPIRY_DAYS
     const expiresAt = new Date(Date.now() + expiresInDays * DAY_MS)

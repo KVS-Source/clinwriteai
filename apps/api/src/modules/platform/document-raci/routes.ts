@@ -22,6 +22,7 @@ import { DocumentService } from '../../clinical-writing/documents/service.js'
 import { listPendingCohort, nudgePendingCohort } from './nudge.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 import { canSeeDocument } from '../../projects/visibility.js'
+import { isSequentialReview, reviewersAhead, reviewersWhoseTurnItIs } from './review-order.js'
 
 const nudgeSchema = z.object({
   targetUserIds: z.array(z.string().min(1)).max(50).optional(),
@@ -73,6 +74,32 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
   const svc = new DocumentService(app.prisma)
   // A fixed chain: see signatureChainActive (access.ts). A person can still remove their own assignment.
   const activeChainBlocks = (documentId: string) => signatureChainActive(app.prisma, documentId)
+
+  // The Reviewer line of a document (see review-order.ts) and the tell-the-next-reviewer notification.
+  const reviewOrderRows = (documentId: string) => app.prisma.documentRaci.findMany({
+    where:  { documentId, letter: 'C' },
+    select: { userId: true, letter: true, approvalOrder: true, reviewedAt: true, removedAt: true },
+  })
+  const userNamesById = async (ids: string[]) => {
+    const users = ids.length ? await app.prisma.user.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } }) : []
+    return new Map(users.map(u => [u.id, u.name]))
+  }
+  const notifyReviewTurn = async (args: { documentId: string; title: string; projectId: string; userIds: string[]; sequential: boolean }) => {
+    for (const recipientId of args.userIds) {
+      try {
+        await app.notifications.send({
+          recipientId,
+          kind:     'review_requested',
+          title:    args.sequential ? `It's your turn to review "${args.title}"` : `Your review is needed on "${args.title}"`,
+          body:     args.sequential ? 'The reviewers before you have finished. Open Reviewer View to review.' : 'Open Reviewer View to review.',
+          linkPath: `/projects/${args.projectId}/clinical-writing/documents/${args.documentId}/review`,
+          payload:  { documentId: args.documentId, projectId: args.projectId, sequential: args.sequential },
+        })
+      } catch (err) {
+        app.log.warn({ err, documentId: args.documentId, recipientId }, 'review_requested notification failed')
+      }
+    }
+  }
   const CHAIN_ACTIVE = RACI_CHAIN_ACTIVE
 
   app.get('/:documentId/raci', { preHandler: requireAuth() }, async (request, reply) => {
@@ -522,13 +549,29 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
     // round that hasn't started; one made later has nothing left to affect.
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
-      select: { status: true },
+      select: { status: true, title: true, projectId: true },
     })
     if ((row.letter === 'C' || row.letter === 'Q') && doc?.status !== 'in_review' && doc?.status !== 'crm_in_progress') {
       return reply.code(409).send({
         error: 'not_in_review',
         message: 'Review can only be marked done while the document is in review.',
       })
+    }
+
+    // Sequential review (FR-A-042): a Reviewer marks their review done only after everyone ahead of them has.
+    const reviewRowsBefore = row.letter === 'C' ? await reviewOrderRows(documentId) : []
+    const sequentialReview = isSequentialReview(reviewRowsBefore)
+    const turnBefore = new Set(reviewersWhoseTurnItIs(reviewRowsBefore))
+    if (row.letter === 'C') {
+      const ahead = reviewersAhead(reviewRowsBefore, actor.id)
+      if (ahead.length > 0) {
+        const names = await userNamesById(ahead)
+        return reply.code(409).send({
+          error: 'review_not_your_turn',
+          message: `Reviews are in order. ${ahead.map(id => names.get(id) ?? id).join(', ')} must finish first.`,
+          waitingFor: ahead.map(id => ({ userId: id, name: names.get(id) ?? id })),
+        })
+      }
     }
 
     if (row.signatureRequired && !parsed.data.signatureId) {
@@ -561,6 +604,12 @@ export const documentRaciRoutes: FastifyPluginAsync = async (app) => {
       },
       ipAddress: request.ip ?? null,
     })
+
+    // In a sequential review, tell whoever's turn it now is.
+    if (row.letter === 'C' && sequentialReview) {
+      const after = reviewersWhoseTurnItIs(await reviewOrderRows(documentId))
+      await notifyReviewTurn({ documentId, title: doc?.title ?? 'a document', projectId: doc?.projectId ?? '', userIds: after.filter(id => !turnBefore.has(id)), sequential: true })
+    }
 
     // Evaluate the stage transition. If the gating cohort is complete AND
     // the state machine permits the move, flip Document.status here. The

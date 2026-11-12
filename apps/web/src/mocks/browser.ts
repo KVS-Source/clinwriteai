@@ -24,6 +24,7 @@ import { signatureHandlers } from './handlers/signatures'
 import { crmHandlers }       from './handlers/crm'
 import { referenceHandlers } from './handlers/reference'
 import { presenceHandlers }  from './handlers/presence'
+import { moduleACatchUpHandlers, pmDirectoryHandlers } from './handlers/moduleACatchUp'
 import { qaHandlers }        from './handlers/qa'
 import { publicationHandlers } from './handlers/publications'
 import { medContentHandlers }  from './handlers/medContent'
@@ -33,12 +34,12 @@ import { activeMockGroups, type ToggleName } from './toggles'
 
 const GROUPS: Record<ToggleName, unknown[]> = {
   AUTH: [...authHandlers],
-  PROJECTS: [...projectHandlers, ...platformHandlers],
+  PROJECTS: [...pmDirectoryHandlers, ...projectHandlers, ...platformHandlers],
   MODULE_A: [
     ...documentHandlers, ...checklistHandlers, ...commentHandlers,
     ...auditHandlers, ...voiceNoteHandlers, ...aiHandlers,
     ...signatureHandlers, ...crmHandlers, ...referenceHandlers,
-    ...presenceHandlers, ...qaHandlers,
+    ...presenceHandlers, ...qaHandlers, ...moduleACatchUpHandlers,
   ],
   MODULE_B: [...publicationHandlers],
   MODULE_C: [...medContentHandlers],

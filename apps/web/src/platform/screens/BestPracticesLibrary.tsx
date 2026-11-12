@@ -342,9 +342,9 @@ export function BestPracticesLibrary() {
           )}
         </SlidePanel>
 
-        {/* New best practice — opens in the same right-hand panel (not closed by an outside click, so nothing typed is lost) */}
+        {/* New best practice — opens in the same right-hand panel; a click outside it closes it, like every Master Library panel */}
         <SlidePanel open={drawerOpen && canAuthor} onClose={() => setDrawerOpen(false)}
-          title={t('page.best_practices_library.drawer_eyebrow')} storageKey="best-practice-new" defaultWidth={460} belowTopBar>
+          title={t('page.best_practices_library.drawer_eyebrow')} storageKey="best-practice-new" defaultWidth={460} belowTopBar closeOnOutsideClick>
           <div className="flex flex-col gap-3 px-5 py-5" aria-label={t('page.best_practices_library.drawer_aria')} data-new-bp-drawer>
             <label className="flex flex-col gap-1">
               <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.best_practices_library.field_name')}</span>

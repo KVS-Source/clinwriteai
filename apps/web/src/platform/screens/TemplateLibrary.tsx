@@ -255,8 +255,8 @@ export function TemplateLibrary() {
         </section>
       </div>
 
-      {/* Right-hand panel: the template's details and editor, or the New template form. Not closed by an
-          outside click, so a half-edited sections list isn't lost by accident. */}
+      {/* Right-hand panel: the template's details and editor, or the New template form. A click
+          outside it closes it, like every Master Library panel. */}
       <SlidePanel open={creating || !!selected} onClose={closePanel}
         title={creating ? 'New template' : selected?.label ?? ''}
         subtitle={selected && !creating && (
@@ -264,7 +264,7 @@ export function TemplateLibrary() {
             {selected.type} · v{selected.version} · {sectionCountOf(selected)} section{sectionCountOf(selected) === 1 ? '' : 's'} · Updated {formatDay(selected.updatedAt)}
           </span>
         )}
-        storageKey="template-detail" defaultWidth={760} belowTopBar expandable>
+        storageKey="template-detail" defaultWidth={760} belowTopBar closeOnOutsideClick>
         <div className="px-5 py-5" data-detail-panel>
           {creating
             ? <NewTemplateForm aiReady={aiReady} onCreated={(id) => { invalidate(); setCreating(false); setOpenId(id) }} />

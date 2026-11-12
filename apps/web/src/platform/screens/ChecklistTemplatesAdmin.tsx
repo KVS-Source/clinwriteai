@@ -378,8 +378,8 @@ export function ChecklistTemplatesAdmin() {
         </section>
       </div>
 
-      {/* The template's items and actions open in a right-hand panel. Not closed by an outside click, so a
-          half-typed item isn't lost by accident. */}
+      {/* The template's items and actions open in a right-hand panel; a click outside it closes it, like every
+          Master Library panel. */}
       <SlidePanel open={!!selected} onClose={closePanel}
         title={detail ? `${deliverableTypeLabel(detail.deliverableType)} · ${t('page.checklist_templates_admin.detail_version', { version: detail.version })}` : t('page.checklist_templates_admin.title')}
         subtitle={detail && (
@@ -387,7 +387,7 @@ export function ChecklistTemplatesAdmin() {
             {detail.projectId == null ? t('page.checklist_templates_admin.scope_platform_baseline') : t('page.checklist_templates_admin.scope_project', { projectId: detail.projectId })}
           </span>
         )}
-        storageKey="checklist-detail" defaultWidth={880} belowTopBar>
+        storageKey="checklist-detail" defaultWidth={880} belowTopBar closeOnOutsideClick>
         {selected && detailQ.isLoading && (
           <p className="px-5 py-10 text-sm text-slate-400">{t('page.checklist_templates_admin.loading_detail')}</p>
         )}

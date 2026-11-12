@@ -122,7 +122,7 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
   const label = 'font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500'
 
   return (
-    <SlidePanel open={open} onClose={onClose} title={t('page.regulatory_framework_admin.add_panel_title')} subtitle={t('page.regulatory_framework_admin.add_panel_subtitle')} defaultWidth={480}>
+    <SlidePanel open={open} onClose={onClose} title={t('page.regulatory_framework_admin.add_panel_title')} subtitle={t('page.regulatory_framework_admin.add_panel_subtitle')} defaultWidth={480} closeOnOutsideClick>
       <div className="flex flex-col gap-4 px-5 py-5" data-add-framework-form>
         <label className="flex min-w-0 flex-col gap-1.5">
           <span className={label}>{t('page.regulatory_framework_admin.field_code')}</span>

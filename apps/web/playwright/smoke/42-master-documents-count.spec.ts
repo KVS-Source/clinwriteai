@@ -26,7 +26,7 @@ type Lists = { library?: unknown[]; libraryTotal?: number; bestPractices?: unkno
 
 const DEFAULT_LISTS: Lists = {
   library: [item('L1', 'CSR Full'), item('L2', 'Protocol')],
-  bestPractices: many(3, i => ({ id: `bp-${i}`, title: `BP ${i}`, module: 'A' })),
+  bestPractices: many(3, i => ({ id: `bp-${i}`, name: `BP ${i}`, title: `BP ${i}`, module: 'A', body: 'Guidance.', version: 1, updatedAt: '2026-10-29T00:00:00Z', applicableDocTypes: [], frameworkRefs: [] })),
   templates: many(4, i => ({ id: `tpl-${i}`, type: `type-${i}`, label: `Template ${i}`, framework: 'ICH E3', version: 1, sections: [], updatedAt: '2026-10-29T00:00:00Z' })),
   policies: many(1, i => ({ id: `pol-${i}`, docType: 'CSR', smePrompt: '' })),
   checklists: many(5, i => ({ id: `chk-${i}`, deliverableType: 'CSR', projectId: null, version: i + 1, templateStatus: 'locked', itemCount: 3, instanceCount: 0 })),
@@ -124,8 +124,8 @@ test('the tab strip has no scroll arrows: it never scrolls up and down, and show
   expect(underline).toBe('2px')
 })
 
-// The right-hand panel has no Expand button on Checklists (nor on ICH Frameworks or AI Prompts, which never
-// had one); it can still be resized by dragging its edge. Templates keeps its Expand button.
+// No Master Library right-hand panel has an Expand button any more (Checklists, Templates; ICH Frameworks and
+// AI Prompts never had one). Panels can still be resized by dragging their edge.
 const expandButton = (page: Page) => page.getByRole('button', { name: /^(Expand|Shrink) panel$/ })
 
 test('the Checklists panel has no Expand button', async ({ page }) => {
@@ -142,8 +142,54 @@ test('the ICH Frameworks panel has no Expand button', async ({ page }) => {
   await expect(expandButton(page)).toHaveCount(0)
 })
 
-test('the Templates panel keeps its Expand button', async ({ page }) => {
+test('the Templates panel has no Expand button', async ({ page }) => {
   await open(page, {}, '/master-library/templates')
   await page.locator('[data-template-id="tpl-0"]').click({ timeout: 60_000 })
-  await expect(expandButton(page)).toHaveCount(1)
+  await expect(page.locator('[data-panel-trigger][data-template-active]')).toHaveCount(1)
+  await expect(expandButton(page)).toHaveCount(0)
+})
+
+// Every Master Library right-hand panel closes when you click outside it (on the page, not on another row
+// that opens a panel, which switches it instead).
+const panel = (page: Page) => page.locator('[data-slide-panel]:not([data-confirm-dialog])')
+async function clickOutside(page: Page) {
+  // The page heading, at its far left: never under a right-hand panel.
+  await page.locator('[data-master-library-heading] h1').click({ position: { x: 4, y: 4 } })
+}
+
+test.describe('a click outside closes the panel', () => {
+  const cases: Array<[string, string, string]> = [
+    ['Master Documents details', '/master-library/documents', '[data-library-row="L1"]'],
+    ['Best Practices details', '/master-library/best-practices', '[data-bp-card="bp-0"]'],
+    ['Templates details', '/master-library/templates', '[data-template-id="tpl-0"]'],
+    ['Templates — New template form', '/master-library/templates', '[data-action="new-template"]'],
+    ['Checklists details', '/master-library/checklists', '[data-template-row="chk-0"]'],
+    ['ICH Frameworks details', '/master-library/ich-frameworks', '[data-frameworks-table] tbody tr'],
+  ]
+  for (const [name, path, opener] of cases) {
+    test(name, async ({ page }) => {
+      await open(page, {}, path)
+      await page.locator(opener).first().click({ timeout: 60_000 })
+      await expect(panel(page)).toHaveCount(1)
+      await clickOutside(page)
+      await expect(panel(page)).toHaveCount(0)
+    })
+  }
+
+  test('clicking another row switches the panel instead of closing it', async ({ page }) => {
+    await open(page, {}, '/master-library/templates')
+    await page.locator('[data-template-id="tpl-0"]').click({ timeout: 60_000 })
+    await expect(page.locator('[data-template-id="tpl-0"]')).toHaveAttribute('data-template-active', 'true')
+    // Its left end: the right of the row is under the panel.
+    await page.locator('[data-template-id="tpl-1"]').click({ position: { x: 10, y: 10 } })
+    await expect(panel(page)).toHaveCount(1)
+    await expect(page.locator('[data-template-id="tpl-1"]')).toHaveAttribute('data-template-active', 'true')
+  })
+
+  test('a click inside the panel keeps it open', async ({ page }) => {
+    await open(page, {}, '/master-library/templates')
+    await page.locator('[data-template-id="tpl-0"]').click({ timeout: 60_000 })
+    await panel(page).locator('h2').click()
+    await expect(panel(page)).toHaveCount(1)
+  })
 })

@@ -766,7 +766,7 @@ function AdminActionPanel({ mode, item, onClose, onDone }: {
   }
 
   return (
-    <SlidePanel open={mode !== null} onClose={onClose} storageKey="library-admin" defaultWidth={460} belowTopBar
+    <SlidePanel open={mode !== null} onClose={onClose} storageKey="library-admin" defaultWidth={460} belowTopBar closeOnOutsideClick
       title={mode === 'withdraw' ? t('page.master_library.withdraw_panel_title') : t('page.master_library.version_panel_title')} subtitle={item.name}>
       <div className="flex flex-col gap-3 p-1" data-admin-panel={mode ?? undefined}>
         {mode === 'version' ? (

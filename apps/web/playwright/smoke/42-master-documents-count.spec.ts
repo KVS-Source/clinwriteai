@@ -7,7 +7,8 @@
 //   E2E_BASE_URL=http://localhost:5173 E2E_CHANNEL=msedge \
 //     npx playwright test playwright/smoke/42-master-documents-count.spec.ts
 //
-// /auth/me and every tab's list endpoint are answered inside the page. Any other API call that comes back
+// /auth/me, every tab's list endpoint, /library/count (the Master Documents count) and /library/enabled-modules
+// (Best Practices counts only enabled modules) are answered inside the page. Any other API call that comes back
 // 401 is turned into a 503.
 
 import { test, expect, type Page } from '@playwright/test'
@@ -26,7 +27,7 @@ type Lists = { library?: unknown[]; libraryTotal?: number; bestPractices?: unkno
 const DEFAULT_LISTS: Lists = {
   library: [item('L1', 'CSR Full'), item('L2', 'Protocol')],
   bestPractices: many(3, i => ({ id: `bp-${i}`, title: `BP ${i}`, module: 'A' })),
-  templates: many(4, i => ({ id: `tpl-${i}`, name: `Template ${i}`, sections: [] })),
+  templates: many(4, i => ({ id: `tpl-${i}`, type: `type-${i}`, label: `Template ${i}`, framework: 'ICH E3', version: 1, sections: [], updatedAt: '2026-10-29T00:00:00Z' })),
   policies: many(1, i => ({ id: `pol-${i}`, docType: 'CSR', smePrompt: '' })),
   checklists: many(5, i => ({ id: `chk-${i}`, deliverableType: 'CSR', projectId: null, version: i + 1, templateStatus: 'locked', itemCount: 3, instanceCount: 0 })),
   frameworks: many(6, i => ({ id: `fw-${i}`, name: `ICH E${i}`, description: '', jurisdiction: 'ICH', version: '1', effectiveDate: '2020-01-01', retiredAt: null, updatedAt: '2026-01-01' })),
@@ -43,6 +44,8 @@ async function open(page: Page, overrides: Lists = {}, path = '/master-library/d
       const path = new URL(url, window.location.origin).pathname
       if (/\/auth\/me$/.test(path)) return json(me)
       if (/\/library\/projects$/.test(path)) return json([{ id: 'P1', name: 'Final Project' }])
+      if (/\/library\/count$/.test(path)) return json({ total: lists.libraryTotal ?? (lists.library as unknown[]).length })
+      if (/\/library\/enabled-modules$/.test(path)) return json({ modules: ['A', 'B', 'C', 'D', 'E'] })
       if (/\/library\/best-practices$/.test(path)) return json(lists.bestPractices)
       if (/\/library$/.test(path)) return json(lists.library, 200, { 'X-Total-Count': String(lists.libraryTotal ?? (lists.library as unknown[]).length) })
       if (/\/document-templates$/.test(path)) return json(lists.templates)
@@ -119,4 +122,28 @@ test('the tab strip has no scroll arrows: it never scrolls up and down, and show
   // The active tab's underline is still drawn inside the strip.
   const underline = await tab(page, 'documents').evaluate(el => getComputedStyle(el, '::after').height)
   expect(underline).toBe('2px')
+})
+
+// The right-hand panel has no Expand button on Checklists (nor on ICH Frameworks or AI Prompts, which never
+// had one); it can still be resized by dragging its edge. Templates keeps its Expand button.
+const expandButton = (page: Page) => page.getByRole('button', { name: /^(Expand|Shrink) panel$/ })
+
+test('the Checklists panel has no Expand button', async ({ page }) => {
+  await open(page, {}, '/master-library/checklists')
+  await page.locator('[data-template-row="chk-0"]').click({ timeout: 60_000 })
+  await expect(page.locator('[data-slide-panel], [role="dialog"]').first()).toBeVisible()
+  await expect(expandButton(page)).toHaveCount(0)
+})
+
+test('the ICH Frameworks panel has no Expand button', async ({ page }) => {
+  await open(page, {}, '/master-library/ich-frameworks')
+  await page.locator('[data-frameworks-table] tbody tr').first().click({ timeout: 60_000 })
+  await expect(page.locator('[data-edit-drawer]')).toBeVisible()
+  await expect(expandButton(page)).toHaveCount(0)
+})
+
+test('the Templates panel keeps its Expand button', async ({ page }) => {
+  await open(page, {}, '/master-library/templates')
+  await page.locator('[data-template-id="tpl-0"]').click({ timeout: 60_000 })
+  await expect(expandButton(page)).toHaveCount(1)
 })

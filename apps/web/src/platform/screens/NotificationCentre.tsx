@@ -163,7 +163,6 @@ export function NotificationCentre() {
       const n = inbox.find(x => x.id === selectedId)
       if (n && !n.readAt && !needsSwitch(n)) markRead.mutate(n.id)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, filtered])
 
   const openLink = (path: string) => {

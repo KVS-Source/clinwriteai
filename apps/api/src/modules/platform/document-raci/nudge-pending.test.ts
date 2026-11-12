@@ -27,7 +27,7 @@ async function build(actor: Partial<AuthenticatedUser>, status = 'in_review') {
   app.decorate('audit', { append: vi.fn() } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    ;(req as unknown as { user: AuthenticatedUser }).user = { id: 'u-ann', email: 'x@x', role: 'contributor', modules: ['A'], tenantId: null, ...actor } as AuthenticatedUser
+    (req as unknown as { user: AuthenticatedUser }).user = { id: 'u-ann', email: 'x@x', role: 'contributor', modules: ['A'], tenantId: null, ...actor } as AuthenticatedUser
   })
   await app.register(documentRaciRoutes, { prefix: '/documents' })
   await app.ready()

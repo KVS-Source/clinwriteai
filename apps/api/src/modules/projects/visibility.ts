@@ -151,3 +151,23 @@ export async function canSeeDocument(prisma: PrismaClient, user: AuthenticatedUs
   if (projects.size === 0) return false
   return (await prisma.document.count({ where: { id: documentId, projectId: { in: [...projects] } } })) > 0
 }
+
+/**
+ * Which of `documentIds` the user may open — canSeeDocument for a whole list in one query (the
+ * Master Library asks it for a page of source documents). Same rules as canSeeDocument.
+ */
+export async function visibleDocumentIds(prisma: PrismaClient, user: AuthenticatedUser, documentIds: string[]): Promise<Set<string>> {
+  if (documentIds.length === 0) return new Set()
+  if (hasAnyRole(user, ...SEE_ALL_ROLES)) return new Set(documentIds)
+  const scope = documentVisibilityWhere(user)
+  let projectFilter: Prisma.DocumentWhereInput = {}
+  if (!scope) {
+    const projects = await visibleProjectIdsForUser(prisma, user)
+    if (projects !== 'all') {
+      if (projects.size === 0) return new Set()
+      projectFilter = { projectId: { in: [...projects] } }
+    }
+  }
+  const rows = await prisma.document.findMany({ where: { id: { in: documentIds }, ...(scope ?? {}), ...projectFilter }, select: { id: true } })
+  return new Set(rows.map(r => r.id))
+}

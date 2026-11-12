@@ -65,7 +65,7 @@ describe('sourceDocumentInfo — the source document\'s people', () => {
   // Authors, a Reviewer and an Approver; one Author did the editing; Sheetal pushed it.
   const names = new Map([['pm', 'Alex Thornton'], ['abh', 'Abhishek'], ['she', 'Sheetal'], ['raj', 'Raj'], ['sou', 'Sourabh'], ['old', 'Former Author']])
   const at = (h: number) => new Date(Date.UTC(2026, 10, 6, h))
-  const info = sourceDocumentInfo({
+  const build = (showTeam: boolean) => sourceDocumentInfo({
     createdBy: 'pm', createdAt: at(4),
     sections: [
       { lastEditedBy: 'she', lastEditedAt: at(6), humanSpanCount: 2 },
@@ -89,7 +89,9 @@ describe('sourceDocumentInfo — the source document\'s people', () => {
       { signerId: 'raj', signerName: 'Raj', meaning: 'reviewed', step: 3, timestampUtc: null, versionAtSigning: null },
     ],
     userNames: names,
+    showTeam,
   })
+  const info = build(true)
 
   it('names the document\'s creator, not whoever pushed it to the library', () => {
     expect(info).toMatchObject({ createdByName: 'Alex Thornton', createdAt: '2026-11-06T04:00:00.000Z' })
@@ -108,6 +110,12 @@ describe('sourceDocumentInfo — the source document\'s people', () => {
       { name: 'Abhishek', meaning: 'authored', signedAt: '2026-11-06T06:00:00.000Z', version: 'v0.8' },
       { name: 'Sourabh', meaning: 'approved', signedAt: '2026-11-06T07:00:00.000Z', version: 'v0.8' },
     ])
+  })
+  it('for someone outside the project: keeps the creator and the signatures, drops role holders and editors (bug 15)', () => {
+    const hidden = build(false)
+    expect(hidden).toMatchObject({ createdByName: 'Alex Thornton', teamHidden: true, team: [], editors: [], lastEditedByName: null, lastEditedAt: null })
+    expect(hidden.signatures).toEqual(info.signatures)
+    expect(info.teamHidden).toBe(false)
   })
   it('is attached to the library item pushed from that document', () => {
     const item = sectionToItem(row({ tags: ['type:document', 'source:doc-9'] }), { ...ctx(), sourceDocuments: new Map([['doc-9', info]]) })

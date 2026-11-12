@@ -1777,6 +1777,8 @@ export interface MasterLibrarySourceDocument {
   team:             { letter: string; name: string }[]
   /** Signatures of the completed signature chain, in chain order. */
   signatures:       { name: string; meaning: string; signedAt: string; version: string | null }[]
+  /** True when the reader isn't on the source project: team and editors are left out. */
+  teamHidden?:      boolean
 }
 
 export interface MasterLibraryItem {

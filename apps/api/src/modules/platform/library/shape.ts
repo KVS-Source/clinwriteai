@@ -73,6 +73,12 @@ export interface SourceDocumentInfo {
   team: { letter: string; name: string }[]
   /** Signatures of the completed signature chain, in chain order. */
   signatures: { name: string; meaning: string; signedAt: string; version: string | null }[]
+  /**
+   * True when the reader isn't on the source document's project: the role holders and editors are
+   * left out (colleagues' names across projects are personal data). The creator, the pusher and the
+   * signatures stay, as they are part of the signed record.
+   */
+  teamHidden: boolean
 }
 
 /** Raw rows for one document → SourceDocumentInfo. Pure, so it is tested without a database. */
@@ -83,6 +89,8 @@ export function sourceDocumentInfo(args: {
   raci: { userId: string; letter: string; removedAt: Date | null }[]
   signatures: { signerId: string; signerName: string; meaning: string; step: number; timestampUtc: Date | null; versionAtSigning: string | null }[]
   userNames: Map<string, string>
+  /** Whether the reader may see the role holders and editors (a member of the project, or admin/auditor). */
+  showTeam: boolean
 }): SourceDocumentInfo {
   const name = (id: string) => args.userNames.get(id) ?? 'Unknown user'
 
@@ -94,11 +102,11 @@ export function sourceDocumentInfo(args: {
     const seen = lastEditBy.get(s.lastEditedBy)
     if (!seen || s.lastEditedAt > seen) lastEditBy.set(s.lastEditedBy, s.lastEditedAt)
   }
-  const edits = [...lastEditBy.entries()].sort((a, b) => b[1].getTime() - a[1].getTime())
+  const edits = args.showTeam ? [...lastEditBy.entries()].sort((a, b) => b[1].getTime() - a[1].getTime()) : []
 
   // One entry per person and letter (a whole-document row and a section row are the same role here).
   const seenRole = new Set<string>()
-  const team = args.raci
+  const team = (args.showTeam ? args.raci : [])
     .filter(r => !r.removedAt)
     .filter(r => { const k = `${r.userId}|${r.letter}`; if (seenRole.has(k)) return false; seenRole.add(k); return true })
     .map(r => ({ letter: r.letter, name: name(r.userId) }))
@@ -111,6 +119,7 @@ export function sourceDocumentInfo(args: {
     lastEditedAt: edits[0] ? edits[0][1].toISOString() : null,
     editors: edits.map(([id]) => name(id)),
     team,
+    teamHidden: !args.showTeam,
     signatures: [...args.signatures]
       .filter(s => s.timestampUtc)
       .sort((a, b) => a.step - b.step)

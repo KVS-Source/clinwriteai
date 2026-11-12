@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { PrismaClient } from '@prisma/client'
 import type { AuthenticatedUser } from '../../auth/rbac.js'
-import { canSeeDocument, documentVisibilityWhere, visibleProjectIdsForUser } from './visibility.js'
+import { canSeeDocument, documentVisibilityWhere, visibleDocumentIds, visibleProjectIdsForUser } from './visibility.js'
 
 interface FakeRows {
   members?:     Array<{ userId: string; projectId: string; removedAt: Date | null; projectRole?: string | null }>
@@ -245,5 +245,47 @@ describe('documentVisibilityWhere / canSeeDocument', () => {
     // A PM on no project sees no document, without asking the database.
     const none = { ...fakePrisma({}), document: { findMany: async () => [], count: async () => { throw new Error('not expected') } } } as unknown as PrismaClient
     expect(await canSeeDocument(none, user('pm', 'pm-2'), 'DOC-1')).toBe(false)
+  })
+})
+
+// The Master Library asks "which of these source documents may this reader see the team of?" for a page
+// of documents at once (bug 15). Same rules as canSeeDocument, one query.
+describe('visibleDocumentIds', () => {
+  const unexpected = () => { throw new Error('not expected') }
+  it('admin / auditor: every id, no lookup', async () => {
+    const prisma = { document: { findMany: unexpected } } as unknown as PrismaClient
+    expect([...await visibleDocumentIds(prisma, user('tenant-admin', 'a'), ['d1', 'd2'])]).toEqual(['d1', 'd2'])
+    expect([...await visibleDocumentIds(prisma, user('auditor', 'b'), ['d1'])]).toEqual(['d1'])
+  })
+  it('nothing to look up → empty, no lookup', async () => {
+    const prisma = { document: { findMany: unexpected } } as unknown as PrismaClient
+    expect((await visibleDocumentIds(prisma, user('pm', 'pm-1'), [])).size).toBe(0)
+  })
+  it('a PM sees only documents of projects they are on; a PM on no project sees none, without a lookup', async () => {
+    const queries: unknown[] = []
+    const docs = [{ id: 'in', projectId: 'p-mine' }, { id: 'out', projectId: 'p-other' }]
+    const base = fakePrisma({ members: [{ userId: 'pm-1', projectId: 'p-mine', removedAt: null, projectRole: 'Project Manager' }] })
+    const prisma = {
+      ...base,
+      document: { findMany: async (args: { where: { id?: { in: string[] }; projectId?: { in: string[] } } }) => {
+        if (!args.where.id) return (base as unknown as { document: { findMany: (a: unknown) => Promise<unknown[]> } }).document.findMany(args)
+        queries.push(args)
+        return docs.filter(d => args.where.id!.in.includes(d.id) && (!args.where.projectId || args.where.projectId.in.includes(d.projectId))).map(d => ({ id: d.id }))
+      } },
+    } as unknown as PrismaClient
+    expect([...await visibleDocumentIds(prisma, user('pm', 'pm-1'), ['in', 'out'])]).toEqual(['in'])
+    const noneBase = fakePrisma({})
+    const none = { ...noneBase, document: { findMany: async (args: { where: { id?: unknown } }) => {
+      if (args.where.id) throw new Error('not expected')
+      return (noneBase as unknown as { document: { findMany: (a: unknown) => Promise<unknown[]> } }).document.findMany(args)
+    } } } as unknown as PrismaClient
+    expect((await visibleDocumentIds(none, user('pm', 'pm-2'), ['in'])).size).toBe(0)
+  })
+  it('a contributor sees only documents they work on (assignee, creator or a role), not a whole project', async () => {
+    let sent: { where: Record<string, unknown> } | undefined
+    const prisma = { document: { findMany: async (args: { where: Record<string, unknown> }) => { sent = args; return [{ id: 'mine' }] } } } as unknown as PrismaClient
+    expect([...await visibleDocumentIds(prisma, user('author', 'c-1'), ['mine', 'theirs'])]).toEqual(['mine'])
+    expect(sent!.where).toMatchObject({ id: { in: ['mine', 'theirs'] }, OR: expect.any(Array) })
+    expect(sent!.where).not.toHaveProperty('projectId')
   })
 })

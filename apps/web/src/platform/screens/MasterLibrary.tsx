@@ -11,8 +11,7 @@ import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { MASTER_DOCUMENT_ITEM_TYPES } from './MasterLibraryShell'
 import { usePlatformStore } from '../store/platformStore'
-import { documentsApi, projectsApi, describeApiError } from '../../api'
-import { raciApi } from '../../api/raci'
+import { describeApiError } from '../../api'
 import { api } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 import { SortIcon } from '../../components/ui/SortIcon'
@@ -30,9 +29,6 @@ const PAGE_SIZES = [10, 20, 50]
 // pushed, so the section entries from earlier pushes are kept in the database but not listed here.
 const LIST_ITEM_TYPES = MASTER_DOCUMENT_ITEM_TYPES
 const SEARCH_DEBOUNCE_MS = 300
-// Mirrors the API's AUTHORING_LOCKED_STATUSES. The web sends statuses with hyphens (in-review), the API with underscores.
-const AUTHORING_LOCKED = ['in-review', 'pending-signature', 'signed']
-const isAuthoringLocked = (status: string | undefined) => !!status && AUTHORING_LOCKED.includes(status.replace(/_/g, '-'))
 
 type SortKey = 'recent' | 'oldest' | 'name-asc' | 'name-desc'
 
@@ -46,9 +42,6 @@ function formatDateTime(iso: string): string {
   const d = new Date(iso)
   return `${formatDay(iso)}, ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`
 }
-
-const escapeHtml = (s: string) =>
-  s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 
 const labelClass = 'font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500'
 const selectClass = 'h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-[12px]'
@@ -104,7 +97,6 @@ export function MasterLibrary() {
   // The row whose details are open in the side panel. Kept as a snapshot so it stays open
   // while the list is paged or refiltered underneath it.
   const [selected, setSelected] = useState<MasterLibraryItem | null>(null)
-  const [pullOpen,   setPullOpen]   = useState(false)
   const [adminAction, setAdminAction] = useState<'version' | 'withdraw' | null>(null)
   const [toast,      setToast]      = useState<string | null>(null)
   // One timer for the toast: a new message replaces the old one and gets its full time (the old timer is cancelled).
@@ -115,16 +107,6 @@ export function MasterLibrary() {
     setToast(msg)
     toastTimer.current = setTimeout(() => setToast(null), 3600)
   }
-
-  // "Source: …" line stored beside a pulled section; read-only text in the destination.
-  const provenanceLine = (item: MasterLibraryItem): string =>
-    t('page.master_library.provenance_line', {
-      name:    item.name,
-      module:  item.module,
-      project: item.projectName,
-      date:    formatDay(item.pushedAt),
-      user:    item.pushedByName,
-    })
 
   const docTypeOptions = useMemo(
     () => Array.from(new Set([...BASE_DOC_TYPES, ...docTypes, ...items.map(i => i.docType)])).filter(Boolean),
@@ -152,7 +134,7 @@ export function MasterLibrary() {
   const active = selected ? (items.find(i => i.id === selected.id) ?? selected) : undefined
 
   // The list leaves each document's text out (it can be hundreds of KB); the full item is read once a row is opened.
-  // Everything that needs the text (Pull, New version) uses `activeItem` and waits until it has arrived.
+  // Everything that needs the text (New version) uses `activeItem` and waits until it has arrived.
   const detailQ = useQuery({
     queryKey: ['library-item', active?.id],
     queryFn:  () => platformApi.getLibraryItem(active!.id),
@@ -170,14 +152,8 @@ export function MasterLibrary() {
       .sort((a, b) => new Date(b.pushedAt).getTime() - new Date(a.pushedAt).getTime())
   }, [items, active])
 
-  const canPull = !!activeItem && activeItem.itemType === 'section' && !!activeItem.body && !activeItem.isWithdrawn
   const canAdminister = canManage && !!active && active.itemType !== 'best-practice' && !active.isWithdrawn
-  const pullLabel = !active ? t('page.master_library.pull_default')
-    : active.itemType !== 'section' ? t('page.master_library.pull_sections_only')
-    : active.isWithdrawn ? t('page.master_library.pull_withdrawn')
-    : !activeItem?.body ? t('page.master_library.pull_no_text')
-    : t('page.master_library.pull_default')
-  // A whole document can't be pulled, so its note doesn't talk about pulling.
+  // A section's note talks about pulling it into documents; a whole document's doesn't.
   const isSectionItem = active?.itemType === 'section'
   const immutabilityNote = active?.isArchived
     ? t(isSectionItem ? 'page.master_library.immutability_archived' : 'page.master_library.immutability_archived_document')
@@ -450,16 +426,6 @@ export function MasterLibrary() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              {/* Only a section's text can be pulled into a document. The library lists whole
-                  documents, so for those there is no pull button at all rather than a dead one. */}
-              {active.itemType === 'section' && (
-                <button type="button" disabled={!canPull} onClick={() => setPullOpen(true)}
-                  data-pull-button data-panel-trigger
-                  className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                  style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-                  title={pullLabel}
-                >{pullLabel}</button>
-              )}
               <button type="button" onClick={() => downloadPdf(active)}
                 className="h-9 rounded-md border px-4 text-[13px] font-semibold"
                 style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
@@ -486,16 +452,6 @@ export function MasterLibrary() {
           </div>
         )}
       </SlidePanel>
-
-      {activeItem && (
-        <PullPanel
-          open={pullOpen}
-          item={activeItem}
-          onClose={() => setPullOpen(false)}
-          onDone={(msg) => { setPullOpen(false); flash(msg) }}
-          provenanceLine={provenanceLine}
-        />
-      )}
 
       {activeItem && canAdminister && (
         <AdminActionPanel
@@ -554,7 +510,9 @@ function SourceDocumentCard({ info }: { info: MasterLibrarySourceDocument }) {
       </dl>
 
       <p className={`${labelClass} mt-3`}>{t('page.master_library.document_team')}</p>
-      {byRole.length === 0 ? (
+      {info.teamHidden ? (
+        <p className="mt-1 text-[12px] text-slate-500" data-team-hidden>{t('page.master_library.team_hidden')}</p>
+      ) : byRole.length === 0 ? (
         <p className="mt-1 text-[12px] text-slate-500">{t('page.master_library.no_team')}</p>
       ) : (
         <dl className="mt-2 grid grid-cols-[100px_1fr] gap-x-3 gap-y-1.5 text-[12px]" data-source-team>
@@ -581,148 +539,6 @@ function SourceDocumentCard({ info }: { info: MasterLibrarySourceDocument }) {
         </>
       )}
     </div>
-  )
-}
-
-// Pick project -> document -> section, then append the pulled text with a
-// read-only provenance line to that section and record the adoption.
-function PullPanel({ open, item, onClose, onDone, provenanceLine }: {
-  open: boolean
-  item: MasterLibraryItem
-  onClose: () => void
-  onDone: (message: string) => void
-  provenanceLine: (item: MasterLibraryItem) => string
-}) {
-  const { t } = useTranslation()
-  const [projectId,  setProjectId]  = useState('')
-  const [documentId, setDocumentId] = useState('')
-  const [sectionId,  setSectionId]  = useState('')
-  const [busy,       setBusy]       = useState(false)
-  const [failure,    setFailure]    = useState<string | null>(null)
-  const qc = useQueryClient()
-
-  // Reset the picker whenever it is reopened for a different item.
-  useEffect(() => { if (open) { setProjectId(''); setDocumentId(''); setSectionId(''); setFailure(null) } }, [open, item.id])
-
-  const projects = useQuery({ queryKey: ['library-pull', 'projects'], queryFn: () => projectsApi.list(), enabled: open })
-  const docs = useQuery({
-    queryKey: ['library-pull', 'documents', projectId],
-    queryFn: () => documentsApi.list(projectId),
-    enabled: open && !!projectId,
-  })
-  const doc = useQuery({
-    queryKey: ['library-pull', 'document', documentId],
-    queryFn: () => documentsApi.get(documentId),
-    enabled: open && !!documentId,
-  })
-
-  // Pulling text is editing the document, so it follows the same rule: only the
-  // document's Author (R), and only while it is open for authoring (action table
-  // row 6). The API refuses anyone else; this just says so before the click.
-  const rights = useQuery({
-    queryKey: ['library-pull', 'can-edit', documentId],
-    queryFn: () => raciApi.canEdit(documentId),
-    enabled: open && !!documentId,
-  })
-  const notAuthor = !!documentId && rights.data?.canEdit === false
-  const lockedStatus = doc.data && isAuthoringLocked(doc.data.status) ? doc.data.status : null
-  const blocked = notAuthor || !!lockedStatus
-
-  const sections = doc.data?.sections ?? []
-  const target = blocked ? undefined : sections.find(s => s.id === sectionId)
-
-  async function confirm() {
-    if (!target || !item.body) return
-    setBusy(true); setFailure(null)
-    try {
-      // Read the section again now, not from the copy loaded when the picker opened: the author (or someone else)
-      // may have changed it since, and saving the old copy plus the pulled text would overwrite that.
-      const fresh = await documentsApi.get(documentId)
-      if (isAuthoringLocked(fresh.status)) {
-        throw new Error(t('page.master_library.pull_doc_locked', { status: fresh.status.replace(/[_-]/g, ' ') }))
-      }
-      const freshSection = fresh.sections.find(s => s.id === sectionId)
-      if (!freshSection) throw new Error(t('page.master_library.pull_section_gone', { defaultValue: 'That section no longer exists in the document.' }))
-      if (freshSection.isLocked) throw new Error(t('page.master_library.pull_section_locked_now', { defaultValue: 'That section is locked by someone else right now. Try again in a moment.' }))
-      // Library text is plain text; keep its paragraphs and line breaks.
-      const paragraphs = item.body.split(/\n{2,}/).map(par => `<p>${escapeHtml(par.trim()).replace(/\n/g, '<br/>')}</p>`).join('')
-      const addition = paragraphs +
-        `<p data-provenance="library" data-library-item="${escapeHtml(item.id)}"><em>${escapeHtml(provenanceLine(item))}</em></p>`
-      await documentsApi.updateSection(documentId, sectionId, { contentHtml: `${freshSection.contentHtml ?? ''}${addition}` })
-      void qc.invalidateQueries({ queryKey: ['library-pull', 'document', documentId] })
-      void qc.invalidateQueries({ queryKey: ['document', documentId] })
-      // The text is already in the document, so a failure to record the adoption
-      // does not undo it — but it is no longer silent: the usage count would be
-      // short by one, so the author is told. The target is a Clinical Writing
-      // document, so the adopting module is A.
-      let adoptionRecorded = true
-      await platformApi.adoptLibrarySection(item.id, { adoptingModule: 'A', adoptingEntity: documentId }).catch(() => { adoptionRecorded = false })
-      onDone(t('page.master_library.pull_success', { title: doc.data?.title ?? t('page.master_library.pull_fallback_title'), section: target.number })
-        + (adoptionRecorded ? '' : ` ${t('page.master_library.pull_adoption_failed')}`))
-    } catch (err) {
-      setFailure(describeApiError(err).message)
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <SlidePanel open={open} onClose={onClose} title={t('page.master_library.pull_panel_title')} subtitle={item.name} storageKey="library-pull" defaultWidth={420} belowTopBar closeOnOutsideClick>
-      <div className="flex flex-col gap-3 p-1" data-pull-panel>
-        <p className="text-[12px] text-slate-600">
-          {t('page.master_library.pull_panel_hint')}
-        </p>
-
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>{t('page.master_library.pull_project')}</span>
-          <select className={selectClass} value={projectId} onChange={e => { setProjectId(e.target.value); setDocumentId(''); setSectionId('') }}>
-            <option value="">{projects.isLoading ? t('page.master_library.loading_short') : t('page.master_library.choose_project')}</option>
-            {(projects.data ?? []).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>{t('page.master_library.pull_document')}</span>
-          <select className={selectClass} value={documentId} disabled={!projectId}
-            onChange={e => { setDocumentId(e.target.value); setSectionId('') }}>
-            <option value="">{docs.isLoading ? t('page.master_library.loading_short') : docs.data && docs.data.length === 0 ? t('page.master_library.no_documents') : t('page.master_library.choose_document')}</option>
-            {(docs.data ?? []).map(d => (
-              <option key={d.id} value={d.id} disabled={isAuthoringLocked(d.status)}>
-                {d.title}{isAuthoringLocked(d.status) ? t('page.master_library.document_locked_suffix') : ''}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>{t('page.master_library.pull_section')}</span>
-          <select className={selectClass} value={sectionId} disabled={!documentId || blocked}
-            onChange={e => setSectionId(e.target.value)}>
-            <option value="">{doc.isLoading ? t('page.master_library.loading_short') : t('page.master_library.choose_section')}</option>
-            {sections.map(s => <option key={s.id} value={s.id} disabled={!!s.isLocked}>{s.number} {s.title}{s.isLocked ? t('page.master_library.section_locked_suffix') : ''}</option>)}
-          </select>
-        </label>
-
-        {notAuthor && <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-900" role="alert" data-pull-blocked="not-author">{t('page.master_library.pull_not_author')}</p>}
-        {lockedStatus && <p className="rounded-md bg-amber-50 p-2 text-[12px] text-amber-900" role="alert" data-pull-blocked="locked">{t('page.master_library.pull_doc_locked', { status: lockedStatus.replace(/[_-]/g, ' ') })}</p>}
-
-        {(projects.error || docs.error || doc.error) && (
-          <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert">
-            {describeApiError(projects.error ?? docs.error ?? doc.error).message}
-          </p>
-        )}
-        {failure && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert">{t('page.master_library.pull_failure', { message: failure })}</p>}
-
-        <div className="mt-1 flex items-center gap-2">
-          <button type="button" onClick={confirm} disabled={!target || busy} data-action="confirm-pull"
-            className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-            style={{ backgroundColor: PLATFORM_ACCENT.primary }}>
-            {busy ? t('page.master_library.pulling') : t('page.master_library.pull_section_action')}
-          </button>
-          <button type="button" onClick={onClose} className="h-9 rounded-md px-3 text-[13px] text-slate-600 hover:bg-slate-100">{t('button.cancel')}</button>
-        </div>
-      </div>
-    </SlidePanel>
   )
 }
 

@@ -7,12 +7,16 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser, Role } from '../../../auth/rbac.js'
 
 const access = vi.hoisted(() => ({ canEdit: true }))
-const visibility = vi.hoisted(() => ({ projects: 'all' as 'all' | Set<string> }))
+const visibility = vi.hoisted(() => ({ projects: 'all' as 'all' | Set<string>, docs: null as Set<string> | null }))
 vi.mock('../document-raci/access.js', async (orig) => ({
   ...(await orig<typeof import('../document-raci/access.js')>()),
   actorCanEditDocumentContent: vi.fn(async () => access.canEdit),
 }))
-vi.mock('../../projects/visibility.js', () => ({ visibleProjectIdsForUser: vi.fn(async () => visibility.projects) }))
+vi.mock('../../projects/visibility.js', () => ({
+  visibleProjectIdsForUser: vi.fn(async () => visibility.projects),
+  // The source documents the reader may see the team of (null: all of them).
+  visibleDocumentIds: vi.fn(async (_p: unknown, _u: unknown, ids: string[]) => visibility.docs ?? new Set(ids)),
+}))
 
 import { libraryRoutes } from './routes.js'
 
@@ -410,5 +414,40 @@ describe('GET /library/:id/pdf — size cap', () => {
     const res = await app.inject({ method: 'GET', url: '/library/a/pdf' })
     expect(res.statusCode).toBe(413)
     expect(res.json()).toMatchObject({ error: 'too_large' })
+  })
+})
+
+// Bug 15: the people on a source document are shown only to its project's members (and admin / auditor);
+// the signatures and the creator stay visible to everyone who can see the library entry.
+describe('GET /library/:id — source document team (bug 15)', () => {
+  afterEach(() => { visibility.docs = null })
+
+  async function open(canSeeTeam: boolean) {
+    visibility.docs = canSeeTeam ? null : new Set()
+    const { app, prisma } = await setup({ role: 'contributor', found: row('a', { tags: ['type:document', 'source:d1'] }) })
+    const raciFind = vi.fn(async () => [{ documentId: 'd1', userId: 'u1', letter: 'R', removedAt: null }])
+    const sectionFind = vi.fn(async () => [{ documentVersionId: 'v1', lastEditedBy: 'u1', lastEditedAt: new Date('2026-11-05T00:00:00Z'), humanSpanCount: 2 }])
+    Object.assign(prisma, {
+      documentRaci: { findMany: raciFind },
+      sectionContent: { findMany: sectionFind },
+      signatureChain: { findMany: vi.fn(async () => [{ documentId: 'd1', records: [
+        { signerId: 'u1', signerName: 'Dr A', meaning: 'approved', step: 1, timestampUtc: new Date('2026-11-06T00:00:00Z'), versionAtSigning: 'v1.0' },
+      ] }]) },
+    })
+    prisma.document.findMany.mockResolvedValue([{ id: 'd1', title: 'CSR', createdBy: 'u1', createdAt: new Date('2026-11-01T00:00:00Z'), currentVersionId: 'v1' }] as never)
+    const res = await app.inject({ method: 'GET', url: '/library/a' })
+    return { body: res.json(), raciFind, sectionFind }
+  }
+
+  it('a project member sees role holders and editors', async () => {
+    const { body } = await open(true)
+    expect(body.sourceDocument).toMatchObject({ teamHidden: false, team: [{ letter: 'R', name: 'Dr A' }], editors: ['Dr A'] })
+  })
+  it('someone outside the project sees the creator and the signatures, but no role holders or editors, and none are even read', async () => {
+    const { body, raciFind, sectionFind } = await open(false)
+    expect(body.sourceDocument).toMatchObject({ teamHidden: true, createdByName: 'Dr A', team: [], editors: [], lastEditedByName: null })
+    expect(body.sourceDocument.signatures).toEqual([{ name: 'Dr A', meaning: 'approved', signedAt: '2026-11-06T00:00:00.000Z', version: 'v1.0' }])
+    expect(raciFind).not.toHaveBeenCalled()
+    expect(sectionFind).not.toHaveBeenCalled()
   })
 })

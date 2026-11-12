@@ -7,6 +7,7 @@ import type { RegulatoryFramework, RegulatoryFrameworkStatus } from '@platform/t
 import { PLATFORM_ACCENT } from '@platform/types'
 import { ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { SortIcon } from '../../components/ui/SortIcon'
 import { platformApi } from '../api/platformApi'
 
@@ -262,9 +263,12 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
   const alreadySuperseded = active?.status === 'Deprecated'
   const canSave = !!active && !readOnly && !alreadySuperseded && newStatus === 'Deprecated' && !saving
 
-  const save = async () => {
+  // "Mark as superseded" first asks in a dialog (it can't be undone); the work happens once the user confirms.
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const save = () => { if (canSave && active) setConfirmOpen(true) }
+  const doSupersede = async () => {
+    setConfirmOpen(false)
     if (!canSave || !active) return
-    if (!window.confirm(t('page.regulatory_framework_admin.confirm_supersede', { code: active.code }))) return
     setSaving(true)
     setSaveError(null)
     setSaveResult(null)
@@ -512,6 +516,16 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
           </div>
         )}
       </SlidePanel>
+
+      <ConfirmDialog
+        open={confirmOpen && !!active}
+        tone="danger"
+        title={t('page.regulatory_framework_admin.confirm_supersede_title', { code: active?.code ?? '', defaultValue: 'Mark {{code}} as superseded?' })}
+        message={t('page.regulatory_framework_admin.confirm_supersede_body', { defaultValue: "This can't be undone. The framework stays in the registry and stays citable on historical submissions." })}
+        confirmLabel={t('page.regulatory_framework_admin.mark_superseded_confirm', { defaultValue: 'Mark as superseded' })}
+        onConfirm={() => void doSupersede()}
+        onCancel={() => setConfirmOpen(false)}
+      />
     </div>
   )
 }

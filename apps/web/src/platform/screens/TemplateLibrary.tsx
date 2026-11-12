@@ -15,11 +15,12 @@
 // super-admin facing, Phase 1 i18n is UI chrome).
 
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 import { SortIcon } from '../../components/ui/SortIcon'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { MultiSelect } from '../components/MultiSelect'
 import { PLATFORM_ACCENT } from '@platform/types'
 import {
@@ -289,8 +290,21 @@ function TemplateEditor({
   const [framework,    setFramework]    = useState(template.framework)
   const [sectionsText, setSectionsText] = useState(JSON.stringify(template.sections ?? [], null, 2))
   const [pdfFile,      setPdfFile]      = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  // Clears the chosen file everywhere: our copy of it AND the name the browser's file box is still showing.
+  const clearFile = () => { setPdfFile(null); if (fileInputRef.current) fileInputRef.current.value = '' }
   const [actionError,  setActionError]  = useState<string | null>(null)
   const [actionInfo,   setActionInfo]   = useState<string | null>(null)
+
+  // A success message ("Template saved", "Parser enqueued…") goes away by itself after 4 seconds. Each new message
+  // restarts the timer; errors stay until the next action.
+  useEffect(() => {
+    if (!actionInfo) return
+    const id = setTimeout(() => setActionInfo(null), 4000)
+    return () => clearTimeout(id)
+  }, [actionInfo])
+
+  const [confirmRetire, setConfirmRetire] = useState(false)
 
   const parse = useMemo(() => parseSections(sectionsText), [sectionsText])
   const sectionsOk = 'ok' in parse
@@ -320,7 +334,7 @@ function TemplateEditor({
     onSuccess: (res) => {
       setActionInfo(`Parser enqueued for ${res.fileName} — the sections will populate in a few moments. (job ${res.jobId})`)
       setActionError(null)
-      setPdfFile(null)
+      clearFile()
     },
     onError:   (err: unknown) => { setActionError(errMessage(err, 'Parser enqueue failed')); setActionInfo(null) },
   })
@@ -342,10 +356,7 @@ function TemplateEditor({
           </button>
           <button
             type="button"
-            onClick={() => {
-              if (!window.confirm(`Retire template "${template.label}"? The New Document wizard will stop offering this type until a replacement lands.`)) return
-              retire.mutate()
-            }}
+            onClick={() => setConfirmRetire(true)}
             disabled={retire.isPending}
             className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
             data-action="retire"
@@ -362,12 +373,14 @@ function TemplateEditor({
         <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3" data-parse-upload>
           <div className="flex items-center gap-2">
             <input
+              ref={fileInputRef}
               type="file"
               accept="application/pdf,.pdf"
               onChange={e => setPdfFile(e.currentTarget.files?.[0] ?? null)}
-              className="flex-1 text-[12px]"
+              className="min-w-0 flex-1 text-[12px]"
               data-field="template-pdf-file"
             />
+            {pdfFile && !parseFile.isPending && <ClearFileButton onClick={clearFile} />}
             <button
               type="button"
               onClick={() => parseFile.mutate()}
@@ -401,8 +414,19 @@ function TemplateEditor({
         />
       </Field>
 
-      <div className="grid grid-cols-3 gap-3">
-        <Field label="Label" help="Human-readable name shown in the New Document wizard dropdown.">
+      <ConfirmDialog
+        open={confirmRetire}
+        tone="danger"
+        title={`Retire template "${template.label}"?`}
+        message="The New Document wizard will stop offering this document type until a replacement is added."
+        confirmLabel="Retire"
+        busy={retire.isPending}
+        onConfirm={() => { setConfirmRetire(false); retire.mutate() }}
+        onCancel={() => setConfirmRetire(false)}
+      />
+
+      <div className="grid grid-cols-3 items-start gap-3">
+        <Field helpBelow label="Label" help="Human-readable name shown in the New Document wizard dropdown.">
           <input
             type="text"
             value={label}
@@ -411,7 +435,7 @@ function TemplateEditor({
             data-field="label"
           />
         </Field>
-        <Field label="Description" help="One-line hint shown under the dropdown.">
+        <Field helpBelow label="Description" help="One-line hint shown under the dropdown.">
           <input
             type="text"
             value={description}
@@ -420,7 +444,7 @@ function TemplateEditor({
             data-field="description"
           />
         </Field>
-        <Field label="Framework" help="e.g. 'ICH E3', 'ICH E6(R3)'.">
+        <Field helpBelow label="Framework" help="e.g. 'ICH E3', 'ICH E6(R3)'.">
           <input
             type="text"
             value={framework}
@@ -434,12 +458,28 @@ function TemplateEditor({
   )
 }
 
-function Field({ label, help, children }: { label: string; help?: string; children: React.ReactNode }) {
+// The × next to a chosen file: removes it so another can be picked (or none). The browser's own file box keeps showing the
+// old name unless its value is reset too, so callers clear both.
+function ClearFileButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button" onClick={onClick}
+      aria-label="Remove the selected file" title="Remove file"
+      className="flex h-7 w-7 flex-none items-center justify-center rounded-md border border-slate-300 bg-white text-[16px] leading-none text-slate-600 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"
+      data-action="clear-pdf"
+    >×</button>
+  )
+}
+
+// helpBelow puts the hint under the input instead of above it. Side-by-side fields use it: hints of different lengths
+// wrap onto different numbers of lines, and when they sit above, the inputs end up at different heights.
+function Field({ label, help, helpBelow = false, children }: { label: string; help?: string; helpBelow?: boolean; children: React.ReactNode }) {
   return (
     <label className="flex flex-col gap-1">
       <span className="text-[12px] font-semibold text-slate-800">{label}</span>
-      {help && <span className="text-[11px] text-slate-500">{help}</span>}
+      {help && !helpBelow && <span className="text-[11px] text-slate-500">{help}</span>}
       {children}
+      {help && helpBelow && <span className="text-[11px] text-slate-500">{help}</span>}
     </label>
   )
 }
@@ -455,6 +495,8 @@ function NewTemplateForm({ aiReady, onCreated }: { aiReady: boolean; onCreated: 
   const [description, setDescription] = useState('')
   const [framework,   setFramework]   = useState('')
   const [pdfFile,     setPdfFile]     = useState<File | null>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const clearFile = () => { setPdfFile(null); if (fileInputRef.current) fileInputRef.current.value = '' }
   const [error,       setError]       = useState<string | null>(null)
 
   const metaReady = docType.trim() && label.trim() && description.trim() && framework.trim()
@@ -497,7 +539,7 @@ function NewTemplateForm({ aiReady, onCreated }: { aiReady: boolean; onCreated: 
           <button
             key={m}
             type="button"
-            onClick={() => setMode(m)}
+            onClick={() => { setMode(m); if (m !== 'parse') clearFile() }}
             className={`rounded-md border px-3 py-1.5 text-[12px] font-semibold ${
               mode === m ? 'border-blue-600 bg-blue-600 text-white' : 'border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
             }`}
@@ -547,13 +589,17 @@ function NewTemplateForm({ aiReady, onCreated }: { aiReady: boolean; onCreated: 
 
       {mode === 'parse' && (
         <div className="mt-3 flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3">
-          <input
-            type="file"
-            accept="application/pdf,.pdf"
-            onChange={e => setPdfFile(e.currentTarget.files?.[0] ?? null)}
-            className="text-[12px]"
-            data-field="new-pdf"
-          />
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={e => setPdfFile(e.currentTarget.files?.[0] ?? null)}
+              className="min-w-0 flex-1 text-[12px]"
+              data-field="new-pdf"
+            />
+            {pdfFile && !parse.isPending && <ClearFileButton onClick={clearFile} />}
+          </div>
           {pdfFile && <p className="text-[11px] text-slate-600">Selected <span className="font-mono">{pdfFile.name}</span> · {(pdfFile.size / (1024 * 1024)).toFixed(2)} MB</p>}
         </div>
       )}

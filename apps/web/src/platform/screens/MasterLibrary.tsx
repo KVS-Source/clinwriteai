@@ -325,16 +325,15 @@ export function MasterLibrary() {
                 <PlainHead label={THERAPEUTIC_AREA_LABEL} />
                 <PlainHead label={t('page.master_library.col_version')} />
                 <PlainHead label={t('page.master_library.filter_project')} />
-                <PlainHead label={t('page.master_library.col_pushed_by')} />
                 <SortHead label={t('page.master_library.col_pushed_on')} asc="oldest" desc="recent" />
               </tr>
             </thead>
             <tbody>
               {isLoading && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_library')}</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_library')}</td></tr>
               )}
               {!isLoading && !error && items.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
                   {!filtersDirty ? t('page.master_library.empty_library') : t('page.master_library.empty_filters')}
                   {filtersDirty && (
                     <div><button type="button" onClick={resetFilters} className="mt-2 font-semibold text-slate-700 underline">{t('page.master_library.reset_filters')}</button></div>
@@ -359,7 +358,6 @@ export function MasterLibrary() {
                     <td className="px-4 py-3 text-slate-700">{(it.ta ?? []).join(', ') || '—'}</td>
                     <td className="px-4 py-3 font-mono text-[12px] text-slate-700">{it.version}</td>
                     <td className="px-4 py-3 text-slate-700">{it.projectName || '—'}</td>
-                    <td className="px-4 py-3 text-slate-700">{it.pushedByName || '—'}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(it.pushedAt)}</td>
                   </tr>
                 )

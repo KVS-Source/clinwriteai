@@ -3253,7 +3253,7 @@
       "signatures": "署名",
       "all_item_types": "すべての項目タイプ",
       "all_doc_types": "すべての文書タイプ",
-      "all_ta": "すべての領域",
+      "all_ta": "すべての治療領域",
       "n_selected": "{{label}} · {{count}}件選択中",
       "clear_selection": "選択を解除",
       "col_title": "タイトル",
@@ -3315,7 +3315,7 @@
       "download_pdf": "PDF をダウンロード",
       "immutability_default": "プルしたセクションは、プル先の文書で完全なプロベナンスチェーンを保持します。",
       "immutability_archived": "この項目は終了したプロジェクトのもので、読み取り専用です。プルやダウンロードは可能ですが、上書きはできません。",
-      "immutability_document": "署名済み文書の読み取り専用コピーです。再利用するには PDF をダウンロードしてください。",
+      "immutability_document": "署名済み文書の読み取り専用コピーです。",
       "immutability_archived_document": "この文書は終了したプロジェクトのもので、読み取り専用です。ダウンロードは可能ですが、上書きはできません。",
       "popup_blocked": "ポップアップがブロックされました — PDF をダウンロードするには、このサイトのポップアップを許可してください。",
 
@@ -3362,7 +3362,7 @@
       "meta_uploaded_by": "アップロード者",
       "meta_uploaded_at": "アップロード日時",
       "uploaded_byline": "アップロード {{date}} · {{user}}",
-      "immutability_uploaded": "これはアップロードされた文書の読み取り専用コピーです。再利用するには PDF をダウンロードしてください。"
+      "immutability_uploaded": "これはアップロードされた文書の読み取り専用コピーです。"
     },
 
     "best_practices_library": {

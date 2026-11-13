@@ -3065,7 +3065,7 @@
       "signatures": "Signatures",
       "all_item_types": "All item types",
       "all_doc_types": "All doc types",
-      "all_ta": "All areas",
+      "all_ta": "All therapeutic areas",
       "n_selected": "{{label}} · {{count}} selected",
       "clear_selection": "Clear selection",
       "col_title": "Title",
@@ -3127,7 +3127,7 @@
       "download_pdf": "Download PDF",
       "immutability_default": "Pulled sections retain their full provenance chain in the destination document.",
       "immutability_archived": "This item is from a closed project and is read-only. It can be pulled and downloaded but not overwritten.",
-      "immutability_document": "This is a read-only copy of the signed document. Use Download PDF to reuse it.",
+      "immutability_document": "This is a read-only copy of the signed document.",
       "immutability_archived_document": "This document is from a closed project and is read-only. It can be downloaded but not overwritten.",
       "popup_blocked": "Pop-up blocked — allow pop-ups for this site to download the PDF.",
       "pdf_subtitle": "ClinWrite.AI · Master Library",
@@ -3172,7 +3172,7 @@
       "meta_uploaded_by": "Uploaded by",
       "meta_uploaded_at": "Uploaded at",
       "uploaded_byline": "Uploaded {{date}} · {{user}}",
-      "immutability_uploaded": "This is a read-only copy of the uploaded document. Use Download PDF to reuse it."
+      "immutability_uploaded": "This is a read-only copy of the uploaded document."
     },
     "best_practices_library": {
       "all_reviews": "All reviews",

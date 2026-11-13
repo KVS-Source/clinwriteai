@@ -33,6 +33,7 @@ test('New prompt lists every doc type; one with a prompt already is greyed out',
   await expect(options).toHaveCount(11)                                   // placeholder + 10 doc types
   await expect(options.first()).toHaveText('Select a doc type')
   await expect(select.locator('option[value="csr_full"]')).toBeEnabled()
+  await expect(select.locator('option[value="csr_full"]')).toHaveText('CSR (Full)')                 // the name, not the code csr_full
   await expect(select.locator('option[value="protocol"]')).toBeDisabled()
   await expect(select.locator('option[value="protocol"]')).toContainText('prompt exists')
   await select.selectOption('csr_full')

@@ -80,7 +80,8 @@ function useTabCounts(): Partial<Record<string, number>> {
       : undefined,
     templates:        countOf(templates.data),
     'ai-prompts':     countOf(policies.data?.policies),     // one SME prompt per doc-type policy
-    checklists:       countOf(checklists.data),
+    // One per template (deliverable + scope), not per version — matches the list, which shows each template's latest version.
+    checklists:       Array.isArray(checklists.data) ? new Set(checklists.data.map(c => `${c.deliverableType}|${c.projectId ?? ''}`)).size : undefined,
     'ich-frameworks': countOf(frameworks.data),
     policies:         countOf(policies.data?.policies),
   }

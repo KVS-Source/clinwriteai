@@ -537,6 +537,22 @@
     },
 
     "checklist_hub": {
+      "guideline_items_progress": "チェックリスト項目 {{total}} 件中 {{done}} 件完了",
+      "guideline_no_items": "このガイドラインを引用するチェックリスト項目はありません。",
+      "guideline_e3_sections": "ICH E3 セクション：{{total}} 件中 {{done}} 件完了 → ICH E3 タブを開く",
+      "guideline_open_inputs": "入力タブで変更する →",
+      "item_complete": "完了",
+      "item_waived": "免除",
+      "item_pending": "未完了",
+      "item_mandatory": "必須",
+      "tab_guidelines_one": "ICH ガイドライン（{{count}}）",
+      "tab_guidelines_other": "ICH ガイドライン（{{count}}）",
+      "guidelines_empty": "この文書のチェックリストは ICH ガイドラインを引用していません。",
+      "guideline_superseded": "置き換え済み",
+      "guideline_source": "公式文書 ↗",
+      "guideline_meta": "ICH {{step}} · {{date}}",
+      "guideline_missing": "ICH フレームワーク登録にありません。スーパー管理者に ICH からの同期を依頼してください。",
+      "guideline_cited": "チェックリストでの表記：{{list}}",
       "not_allowed":               "このドキュメントのチェックリストにアクセスする権限がありません。",
       "tab_inputs":                "入力",
       "tab_ich_e3":                "ICH E3",
@@ -3096,6 +3112,8 @@
     },
 
     "checklist_templates_admin": {
+      "older_versions_one": "他 {{count}} 版",
+      "older_versions_other": "他 {{count}} 版",
       "all_deliverables": "すべての成果物",
       "all_scopes": "すべての範囲",
       "all_statuses": "すべてのステータス",
@@ -3123,7 +3141,7 @@
       "self_approval_note": "あなたはこの下書きの作成者のため、別のプロジェクトマネージャーが承認する必要があります。",
       "approved_notice_one": "承認しました。進行中の文書 {{count}} 件に新しい版があることを通知しました。",
       "approved_notice_other": "承認しました。進行中の文書 {{count}} 件に新しい版があることを通知しました。",
-      "versions_heading": "版（{{count}}）",
+      "versions_heading": "版の履歴（{{count}}）",
       "versions_col_version": "版",
       "versions_col_status": "状態",
       "versions_col_effective": "発効日",
@@ -3480,6 +3498,12 @@
     },
 
     "regulatory_framework_admin": {
+      "sync_button": "↻ ICH から同期",
+      "syncing": "ICH から同期中…",
+      "sync_hint": "ich.org から最新の ICH ガイドライン一覧（コード、タイトル、ICH ステップ、ステップ日付、PDF リンク）を取得します。",
+      "sync_result": "✓ ich.org から同期しました：ICH 項目 {{fetched}} 件を読み込み、{{created}} 件追加、{{updated}} 件更新、{{unchanged}} 件変更なし、{{skipped}} 件スキップ（ガイドライン未発行の作業部会）。",
+      "sync_failed": "ich.org に接続できませんでした。変更はありません。後でもう一度お試しください。",
+      "sync_forbidden": "ICH からの同期はスーパー管理者のみ可能です。",
       "last_rejected": "前回の申請は {{name}} により {{date}} に却下されました：{{reason}}",
       "rejected_result": "申請を却下しました。{{code}} は現行のままで、申請者に理由が通知されました。",
       "reject_confirm": "申請を却下",

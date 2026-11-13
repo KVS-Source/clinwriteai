@@ -5,6 +5,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type Role } from '../../../auth/rbac.js'
+import { syncIchGuidelines } from './ich-sync.js'
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -43,6 +44,27 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     const row = await app.prisma.regulatoryFramework.findUnique({ where: { id } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
     return row
+  })
+
+  // Import the real ICH guideline list from ich.org (see ./ich-sync.ts). Same people who can add a framework.
+  app.post('/sync-ich', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+    let result
+    try {
+      result = await syncIchGuidelines(app.prisma as never, request.user!.id)
+    } catch (err) {
+      request.log.warn({ err }, 'ICH sync failed')
+      return reply.code(502).send({ error: 'ich_unreachable', message: 'Could not reach ich.org. Nothing was changed. Try again later.' })
+    }
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'frameworks_synced_from_ich',
+      entityType: 'regulatory_framework',
+      entityId: 'ich',
+      details: { fetched: result.fetched, created: result.created.length, updated: result.updated.length, unchanged: result.unchanged, withdrawn: result.withdrawn, skipped: result.skipped.length },
+      ipAddress: request.ip ?? null,
+    })
+    return result
   })
 
   app.post('/', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {

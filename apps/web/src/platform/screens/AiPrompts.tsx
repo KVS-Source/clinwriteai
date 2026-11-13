@@ -23,7 +23,8 @@ import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
 import { DOCUMENT_TYPE_KEY, documentTypeLabel } from '../../utils/documentLabels'
 
 // Every document type, in the underscored form prompts are stored under (csr-full → csr_full).
-const DOC_TYPE_OPTIONS = Object.keys(DOCUMENT_TYPE_KEY).map(t => ({ value: t.replace(/-/g, '_'), label: documentTypeLabel(t) }))
+// Labels are looked up at render time — translations aren't loaded yet when this module is first imported.
+const DOC_TYPES = Object.keys(DOCUMENT_TYPE_KEY)
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
   if (err instanceof ApiError) {
@@ -333,11 +334,12 @@ function NewPromptForm({ aiReady, taken, onCreated }: { aiReady: boolean; taken:
           data-field="create-doc-type"
         >
           <option value="" disabled>Select a doc type</option>
-          {DOC_TYPE_OPTIONS.map(o => {
-            const exists = taken.includes(o.value)
+          {DOC_TYPES.map(type => {
+            const value  = type.replace(/-/g, '_')
+            const exists = taken.includes(value)
             return (
-              <option key={o.value} value={o.value} disabled={exists} className="text-slate-900">
-                {o.label} ({o.value}){exists ? ' — prompt exists' : ''}
+              <option key={value} value={value} disabled={exists} className="text-slate-900">
+                {documentTypeLabel(type)}{exists ? ' — prompt exists' : ''}
               </option>
             )
           })}

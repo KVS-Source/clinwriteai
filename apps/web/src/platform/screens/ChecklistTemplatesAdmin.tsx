@@ -215,9 +215,34 @@ export function ChecklistTemplatesAdmin() {
   const filtersDirty = search.trim() !== '' || deliverables.length > 0 || statuses.length > 0 || scopes.length > 0
   const resetFilters = () => { setSearch(''); setDeliverables([]); setStatuses([]); setScopes([]) }
 
+  // One row per template (deliverable + scope): its latest version, i.e. the highest version number. Older versions
+  // sit in the panel's version history. On a tie, the correctly-spelled version wins, then the draft.
+  const groupKey = (r: Template) => `${r.deliverableType}|${r.projectId ?? ''}`
+  const latestRows = useMemo(() => {
+    const best = new Map<string, Template>()
+    for (const r of listQ.data ?? []) {
+      const k = groupKey(r); const cur = best.get(k)
+      const better = !cur
+        || r.version > cur.version
+        || (r.version === cur.version && ((cur.legacySpelling && !r.legacySpelling)
+          || (!!cur.legacySpelling === !!r.legacySpelling && r.templateStatus === 'draft')))
+      if (better) best.set(k, r)
+    }
+    return [...best.values()]
+  }, [listQ.data])
+  const versionCount = useMemo(() => {
+    const n = new Map<string, number>()
+    for (const r of listQ.data ?? []) n.set(groupKey(r), (n.get(groupKey(r)) ?? 0) + 1)
+    return n
+  }, [listQ.data])
+  const selectedGroup = useMemo(() => {
+    const r = (listQ.data ?? []).find(x => x.id === selected)
+    return r ? groupKey(r) : null
+  }, [listQ.data, selected])
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
-    const rows = (listQ.data ?? []).filter(r => {
+    const rows = latestRows.filter(r => {
       if (deliverables.length > 0 && !deliverables.includes(r.deliverableType)) return false
       if (statuses.length > 0 && !statuses.includes(r.templateStatus)) return false
       if (scopes.length > 0 && !scopes.includes(r.projectId == null ? 'platform' : 'project')) return false
@@ -238,7 +263,7 @@ export function ChecklistTemplatesAdmin() {
       'oldest':           (x, y) => time(x.effectiveDate) - time(y.effectiveDate),
     }
     return [...rows].sort(by[sort])
-  }, [listQ.data, search, deliverables, statuses, scopes, sort, t])
+  }, [latestRows, search, deliverables, statuses, scopes, sort, t])
 
   useEffect(() => { setPage(1) }, [search, deliverables, statuses, scopes, sort, pageSize])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
@@ -338,7 +363,8 @@ export function ChecklistTemplatesAdmin() {
                 </td></tr>
               )}
               {pageRows.map(tpl => {
-                const isActive = tpl.id === selected
+                const isActive = groupKey(tpl) === selectedGroup
+                const older    = (versionCount.get(groupKey(tpl)) ?? 1) - 1
                 return (
                   <tr key={tpl.id} onClick={() => openRow(tpl.id)} tabIndex={0}
                     onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRow(tpl.id) } }}
@@ -356,6 +382,7 @@ export function ChecklistTemplatesAdmin() {
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">
                       v{tpl.version}
                       {tpl.isCurrent && <span className="ml-1.5 rounded bg-blue-50 px-1.5 py-0.5 text-[10px] font-semibold text-blue-700">{t('page.checklist_templates_admin.version_current')}</span>}
+                      {older > 0 && <span className="ml-1.5 text-[11px] text-slate-400" data-older-versions={older}>{t('page.checklist_templates_admin.older_versions', { count: older })}</span>}
                     </td>
                     <td className="px-4 py-3 text-slate-700">
                       {tpl.projectId == null ? t('page.checklist_templates_admin.scope_platform_baseline') : t('page.checklist_templates_admin.scope_project', { projectId: tpl.projectId })}
@@ -684,48 +711,6 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
       </div>
 
       <div className="bg-slate-50 pb-4">
-        {/* Template library (CW-029): every version of this template, its status and effective date. */}
-        {versions.length > 1 && (
-          <section className="mx-5 mt-4 overflow-hidden rounded-lg border border-slate-200 bg-white" data-template-versions>
-            <h3 className="border-b border-slate-100 px-4 py-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-              {t('page.checklist_templates_admin.versions_heading', { count: versions.length })}
-            </h3>
-            <table className="w-full text-left text-[12px]">
-              <thead className="text-[10px] uppercase tracking-wide text-slate-400">
-                <tr>
-                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_version')}</th>
-                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_status')}</th>
-                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_effective')}</th>
-                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_people')}</th>
-                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_reason')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {versions.map(v => (
-                  <tr
-                    key={v.id}
-                    onClick={() => props.onSelectVersion(v.id)}
-                    className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${v.id === template.id ? 'bg-blue-50/60' : ''}`}
-                    data-template-version-row={v.version}
-                  >
-                    <td className="px-4 py-1.5 font-semibold text-slate-900">v{v.version}</td>
-                    <td className="px-4 py-1.5">
-                      {v.templateStatus === 'draft'
-                        ? t('page.checklist_templates_admin.status_draft')
-                        : v.isCurrent ? t('page.checklist_templates_admin.version_current') : t('page.checklist_templates_admin.version_superseded')}
-                    </td>
-                    <td className="px-4 py-1.5 text-slate-600">{v.templateStatus === 'locked' ? fmtDate(v.effectiveDate) : '—'}</td>
-                    <td className="px-4 py-1.5 text-slate-600">
-                      {v.createdByName ?? v.createdBy}
-                      {v.approvedAt && <> → {v.approvedByName ?? v.approvedBy}</>}
-                    </td>
-                    <td className="px-4 py-1.5 text-slate-500">{v.changeReason}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </section>
-        )}
         {byStage.length === 0 && !isDraft && (
           <p className="px-5 py-10 text-sm text-slate-500">
             {t('page.checklist_templates_admin.empty_template')}
@@ -790,6 +775,50 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
             </section>
           )
         })}
+        {/* Template library (CW-029): every version of this template, its status and effective date. Collapsed by
+            default, below the last stage (Final Output). */}
+        {versions.length > 1 && (
+          <details className="group mx-5 mt-6 overflow-hidden rounded-lg border border-slate-200 bg-white" data-template-versions>
+            <summary className="flex cursor-pointer list-none items-center justify-between px-4 py-2 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500 hover:bg-slate-50 group-open:border-b group-open:border-slate-100 [&::-webkit-details-marker]:hidden" data-versions-toggle>
+              {t('page.checklist_templates_admin.versions_heading', { count: versions.length })}
+              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5" className="transition-transform group-open:rotate-180" aria-hidden="true"><path d="M3 4.5l3 3 3-3" /></svg>
+            </summary>
+            <table className="w-full text-left text-[12px]">
+              <thead className="text-[10px] uppercase tracking-wide text-slate-400">
+                <tr>
+                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_version')}</th>
+                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_status')}</th>
+                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_effective')}</th>
+                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_people')}</th>
+                  <th className="px-4 py-1.5 font-semibold">{t('page.checklist_templates_admin.versions_col_reason')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {versions.map(v => (
+                  <tr
+                    key={v.id}
+                    onClick={() => props.onSelectVersion(v.id)}
+                    className={`cursor-pointer border-t border-slate-100 hover:bg-slate-50 ${v.id === template.id ? 'bg-blue-50/60' : ''}`}
+                    data-template-version-row={v.version}
+                  >
+                    <td className="px-4 py-1.5 font-semibold text-slate-900">v{v.version}</td>
+                    <td className="px-4 py-1.5">
+                      {v.templateStatus === 'draft'
+                        ? t('page.checklist_templates_admin.status_draft')
+                        : v.isCurrent ? t('page.checklist_templates_admin.version_current') : t('page.checklist_templates_admin.version_superseded')}
+                    </td>
+                    <td className="px-4 py-1.5 text-slate-600">{v.templateStatus === 'locked' ? fmtDate(v.effectiveDate) : '—'}</td>
+                    <td className="px-4 py-1.5 text-slate-600">
+                      {v.createdByName ?? v.createdBy}
+                      {v.approvedAt && <> → {v.approvedByName ?? v.approvedBy}</>}
+                    </td>
+                    <td className="px-4 py-1.5 text-slate-500">{v.changeReason}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        )}
       </div>
     </div>
   )

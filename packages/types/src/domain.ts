@@ -2030,6 +2030,10 @@ export interface RegulatoryFramework {
   status:         RegulatoryFrameworkStatus
   lastUpdated:    string
   changeSummary:  string | null
+  /** Official text (for ICH guidelines, the PDF on database.ich.org). */
+  sourceUrl?:     string | null
+  /** quality | safety | efficacy | multidisciplinary for ICH guidelines. */
+  category?:      string
 }
 
 export interface SlideFigure {

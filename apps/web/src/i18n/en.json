@@ -468,6 +468,22 @@
       "removed_reason_label": "Reason: {{reason}}"
     },
     "checklist_hub": {
+      "guideline_items_progress": "{{done}} of {{total}} checklist items complete",
+      "guideline_no_items": "No checklist items cite this guideline.",
+      "guideline_e3_sections": "ICH E3 sections: {{done}} of {{total}} complete → open the ICH E3 tab",
+      "guideline_open_inputs": "Change these in the Inputs tab →",
+      "item_complete": "Complete",
+      "item_waived": "Waived",
+      "item_pending": "Pending",
+      "item_mandatory": "Mandatory",
+      "tab_guidelines_one": "ICH Guidelines ({{count}})",
+      "tab_guidelines_other": "ICH Guidelines ({{count}})",
+      "guidelines_empty": "This document's checklist doesn't cite any ICH guideline.",
+      "guideline_superseded": "Superseded",
+      "guideline_source": "Official text ↗",
+      "guideline_meta": "ICH {{step}} · {{date}}",
+      "guideline_missing": "Not in the ICH Frameworks registry. Ask a Super Admin to sync from ICH.",
+      "guideline_cited": "Cited by the checklist as: {{list}}",
       "not_allowed": "You don't have access to this document's checklist.",
       "tab_inputs": "Inputs",
       "tab_ich_e3": "ICH E3",
@@ -2909,6 +2925,8 @@
       "audit_immutability": "Audit records are immutable and cannot be edited, backdated or removed."
     },
     "checklist_templates_admin": {
+      "older_versions_one": "+{{count}} older",
+      "older_versions_other": "+{{count}} older",
       "all_deliverables": "All deliverables",
       "all_scopes": "All scopes",
       "all_statuses": "All statuses",
@@ -2936,7 +2954,7 @@
       "self_approval_note": "You authored this draft, so another Project Manager must approve it.",
       "approved_notice_one": "Approved. {{count}} in-flight document was told a newer version is available.",
       "approved_notice_other": "Approved. {{count}} in-flight documents were told a newer version is available.",
-      "versions_heading": "Versions ({{count}})",
+      "versions_heading": "Version History ({{count}})",
       "versions_col_version": "Version",
       "versions_col_status": "Status",
       "versions_col_effective": "Effective",
@@ -3287,6 +3305,12 @@
       "confirm_archive_action": "Confirm archive"
     },
     "regulatory_framework_admin": {
+      "sync_button": "↻ Sync from ICH",
+      "syncing": "Syncing from ICH…",
+      "sync_hint": "Fetch the current ICH guideline list from ich.org: codes, titles, ICH step, step date and PDF link.",
+      "sync_result": "✓ Synced from ich.org: {{fetched}} ICH entries read, {{created}} added, {{updated}} updated, {{unchanged}} unchanged, {{skipped}} skipped (working groups with no guideline yet).",
+      "sync_failed": "Could not reach ich.org. Nothing was changed. Try again later.",
+      "sync_forbidden": "Only Super Admin can sync frameworks from ICH.",
       "last_rejected": "The last request was rejected by {{name}} on {{date}}: {{reason}}",
       "rejected_result": "Request rejected. {{code}} stays current, and the requester has been told why.",
       "reject_confirm": "Reject request",

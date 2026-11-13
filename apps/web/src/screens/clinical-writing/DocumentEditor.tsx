@@ -413,6 +413,8 @@ export function DocumentEditor() {
   // Version chip dropdown — lists every version; picking an older one opens
   // the diff against the current version.
   const [versionMenuOpen, setVersionMenuOpen] = useState(false)
+  // The checklist panel's ICH Guidelines tab (Inputs and ICH E3 are their own panels).
+  const [checklistGuidelinesTab, setChecklistGuidelinesTab] = useState(false)
   const versionMenuRef = useRef<HTMLDivElement>(null)
   // Create-new-version inline form state. Hidden by default inside the
   // version dropdown; expands when the user clicks "Create new version".
@@ -1317,8 +1319,8 @@ export function DocumentEditor() {
             {(activePanel === 'checklist' || activePanel === 'ich-e3') && documentId && (
               <ChecklistHub
                 documentId={documentId}
-                tab={activePanel === 'ich-e3' ? 'ich-e3' : 'inputs'}
-                onTabChange={t => setActivePanel(t === 'ich-e3' ? 'ich-e3' : 'checklist')}
+                tab={activePanel === 'ich-e3' ? 'ich-e3' : checklistGuidelinesTab ? 'guidelines' : 'inputs'}
+                onTabChange={t => { setChecklistGuidelinesTab(t === 'guidelines'); setActivePanel(t === 'ich-e3' ? 'ich-e3' : 'checklist') }}
                 showIch={ichApplicable}
                 lockReason={authoringLock?.short ?? null}
               />

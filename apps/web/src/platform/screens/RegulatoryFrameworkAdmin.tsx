@@ -228,6 +228,20 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
   const [saveResult, setSaveResult] = useState<string | null>(null)
   const [saveError,  setSaveError]  = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [syncing,    setSyncing]    = useState(false)
+  const [syncResult, setSyncResult] = useState<string | null>(null)
+  const [syncError,  setSyncError]  = useState<string | null>(null)
+  const syncFromIch = async () => {
+    setSyncing(true); setSyncResult(null); setSyncError(null)
+    try {
+      const r = await platformApi.syncFrameworksFromIch()
+      await qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] })
+      setSyncResult(t('page.regulatory_framework_admin.sync_result', { fetched: r.fetched, created: r.created.length, updated: r.updated.length, unchanged: r.unchanged, skipped: r.skipped.length }))
+    } catch (err) {
+      // 403 → no permission; anything else (ich.org down, timeout) → the plain 'could not reach' message.
+      setSyncError((err as { status?: number })?.status === 403 ? t('page.regulatory_framework_admin.sync_forbidden') : t('page.regulatory_framework_admin.sync_failed'))
+    } finally { setSyncing(false) }
+  }
 
   const active = frameworks.find(f => f.id === openId) ?? null
 
@@ -418,6 +432,16 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
             {!readOnly && (
               <button
                 type="button"
+                onClick={() => { void syncFromIch() }}
+                disabled={syncing}
+                title={t('page.regulatory_framework_admin.sync_hint')}
+                className="h-10 flex-none rounded-md border border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                data-action="sync-ich"
+              >{syncing ? t('page.regulatory_framework_admin.syncing') : t('page.regulatory_framework_admin.sync_button')}</button>
+            )}
+            {!readOnly && (
+              <button
+                type="button"
                 data-add-framework
                 onClick={() => setAddOpen(true)}
                 className="h-10 flex-none rounded-md px-4 text-[13px] font-semibold text-white"
@@ -426,6 +450,8 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
             )}
           </div>
         </div>
+        {syncResult && <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} role="status" data-sync-result>{syncResult}</p>}
+        {syncError && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-sync-error>{syncError}</p>}
         {!readOnly && <AddFrameworkPanel open={addOpen} onClose={() => setAddOpen(false)} />}
 
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-frameworks-table data-count={frameworks.length}>

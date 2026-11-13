@@ -131,6 +131,11 @@ function taTagShape(r: TaxonomyRow): TATag {
   }
 }
 
+export interface IchSyncResult {
+  fetched: number; created: string[]; updated: string[]; unchanged: number; withdrawn: string[]
+  skipped: Array<{ code: string; reason: string }>
+}
+
 // sPM18 — the API's regulatory_frameworks row (GET/POST /admin/frameworks).
 interface FrameworkRow {
   id:            string
@@ -180,6 +185,8 @@ function frameworkShape(r: FrameworkRow): RegulatoryFramework {
     status:        r.retiredAt ? 'Deprecated' : 'Current',
     lastUpdated:   r.updatedAt,
     changeSummary: null,
+    sourceUrl:     r.sourceUrl,
+    category:      r.category,
   }
 }
 
@@ -363,6 +370,9 @@ export const platformApi = {
     api.delete<{ ok: true }>(`${TA_ADMIN}/${encodeURIComponent(tagId)}`),
 
   // sPM18 — Regulatory Frameworks
+  // Imports the real ICH guideline list from ich.org (codes, titles, ICH step, step date, PDF link).
+  syncFrameworksFromIch: () =>
+    api.post<IchSyncResult>('/admin/frameworks/sync-ich', {}),
   listFrameworks: () =>
     api.get<FrameworkRow[]>('/admin/frameworks?includeRetired=true').then(rows => rows.map(frameworkShape)),
   createFramework: (body: CreateFrameworkBody) =>

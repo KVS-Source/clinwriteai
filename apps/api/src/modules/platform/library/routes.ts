@@ -26,6 +26,10 @@ import { visibleDocumentIds, visibleProjectIdsForUser } from '../../projects/vis
 import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../document-raci/access.js'
 import { compareSections } from '../../clinical-writing/documents/service.js'
 import { htmlToPlainText } from './plain-text.js'
+import { PROJECT_CLOSED, projectIsClosed } from '../../projects/closed.js'
+import { extractTextFromBlob } from '../../clinical-writing/documents/extract-text.js'
+import { fileExtension } from '../uploads/source-files.js'
+import { generateBlobKey } from '../blob/local-storage.js'
 import { pdfFileName, renderLibraryItemPdf } from './pdf-renderer.js'
 import {
   BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, sourceDocumentInfo, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
@@ -61,6 +65,19 @@ const pushSchema = z.object({
   module:     z.enum(['A', 'B', 'C', 'D', 'E']),
   docType:    z.string().trim().min(1).max(80),
   version:    z.string().trim().min(1).max(20),
+})
+
+// A document uploaded from the PM's computer: PDF or Word, with the same tags a pushed document carries.
+const UPLOAD_EXTENSIONS: Record<string, RegExp> = {
+  pdf:  /^application\/pdf$/,
+  docx: /^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document$/,
+}
+const GENERIC_MIME = /^(application\/octet-stream|binary\/octet-stream)?$/    // Windows often sends no type for Office files
+const uploadFields = z.object({
+  title:     z.string().trim().min(1).max(200),
+  docType:   z.string().trim().min(1).max(80),
+  taTag:     z.string().trim().min(1),
+  projectId: z.string().trim().min(1),
 })
 
 const retireSchema = z.object({ reason: z.string().trim().min(1).max(500).optional() }).default({})
@@ -135,6 +152,13 @@ const PLATFORM_WIDE_TA = 'Platform-wide'
 
 // Longest text the PDF download will render (about 600 pages). Beyond it the request is refused rather than tying up memory.
 const PDF_MAX_CHARS = 2_000_000
+
+/** The stored original of an uploaded document: its blob key and file name, from the entry's tags. */
+function uploadedOriginal(tags: string[]): { key: string; fileName: string } | null {
+  const key = tags.find(t => t.startsWith('file:'))?.slice(5)
+  const fileName = tags.find(t => t.startsWith('filename:'))?.slice(9)
+  return key && fileName ? { key, fileName } : null
+}
 
 // Thrown inside the push transaction when the same document version turns out to be in the library already.
 class AlreadyPushedError extends Error {}
@@ -540,6 +564,76 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(sectionToItem(created, ctx))
   })
 
+  // POST /library/upload — a Project Manager adds a document from their computer (PDF or Word) to the Master
+  // Library, against one of their projects. Multipart: the fields (title, docType, taTag, projectId) first, then
+  // the file. The text is read out of the file so the library can search it; the original PDF is kept and is what
+  // "Download PDF" gives back. A later upload with the same title in the same project becomes the next version.
+  // Only a PM may upload (the screen shows the button to no one else); nothing here is signed or approved by a chain.
+  app.post('/upload', { preHandler: requireAuth({ roles: ['pm'], modules: ['A'] }) }, async (request, reply) => {
+    const user = request.user!
+    const file = await request.file().catch(() => undefined)
+    if (!file) return reply.code(400).send({ error: 'no_file', message: 'Choose a PDF or Word file to upload.' })
+    const field = (name: string) => {
+      const f = (file.fields as Record<string, { value?: unknown } | undefined>)[name]
+      return typeof f?.value === 'string' ? f.value : undefined
+    }
+    const ext = fileExtension(file.filename)
+    const typeOk = UPLOAD_EXTENSIONS[ext]?.test(file.mimetype) || (UPLOAD_EXTENSIONS[ext] && GENERIC_MIME.test(file.mimetype))
+    if (!typeOk) return reply.code(400).send({ error: 'unsupported_file', message: 'Only PDF (.pdf) and Word (.docx) files can be uploaded.' })
+
+    const parsed = uploadFields.safeParse({
+      title: field('title') ?? file.filename.replace(/\.[^.]+$/, ''), docType: field('docType'), taTag: field('taTag'), projectId: field('projectId'),
+    })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request', issues: parsed.error.issues })
+    const b = parsed.data
+
+    const project = await app.prisma.project.findUnique({ where: { id: b.projectId }, select: { id: true, tenantId: true, name: true } })
+    const visibleProjects = await visibleProjectIdsForUser(app.prisma, user)
+    if (!project || (visibleProjects !== 'all' && !visibleProjects.has(project.id))) return reply.code(404).send({ error: 'project_not_found' })
+    if (await projectIsClosed(app.prisma, project.id)) return reply.code(423).send(PROJECT_CLOSED)
+
+    const taTag = await resolveTa(app.prisma, b.taTag)
+    if (!taTag) return reply.code(400).send(invalidTaBody(b.taTag))
+
+    const buf = await file.toBuffer()
+    if (file.file.truncated) return reply.code(413).send({ error: 'too_large', message: 'The file is larger than 50 MB.' })
+    const extracted = await extractTextFromBlob(buf, UPLOAD_EXTENSIONS[ext] === UPLOAD_EXTENSIONS.pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', { maxChars: PDF_MAX_CHARS })
+    const body = extracted.text.trim()
+    if (!extracted.ok || !body) {
+      return reply.code(422).send({ error: 'no_text', message: 'No readable text was found in this file (a scanned PDF, for example). Upload a version with selectable text.' })
+    }
+
+    const tenantId = project.tenantId ?? user.tenantId
+    const blobKey = generateBlobKey(`library/${tenantId ?? 'platform'}`, ext)
+    await app.blob.put({ bucket: 'documents', key: blobKey, body: buf, contentType: file.mimetype || 'application/octet-stream', metadata: { originalFilename: file.filename, uploadedBy: user.id, projectId: project.id } })
+
+    const tags = ['module:A', `doctype:${b.docType}`, `project:${project.id}`, 'type:document', 'origin:upload', `file:${blobKey}`, `filename:${file.filename}`]
+    const { created, earlier } = await app.prisma.$transaction(async (tx) => {
+      // One upload of a title per project at a time (a double click, two tabs): the second waits and sees the first.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`library-upload:${tenantId ?? 'platform'}:${project.id}:${b.title}`}))`
+      const prior = await tx.librarySection.findFirst({
+        where: { tenantId, isCurrent: true, retiredAt: null, title: b.title, AND: [{ tags: { has: 'origin:upload' } }, { tags: { has: `project:${project.id}` } }] },
+      })
+      const next = await tx.librarySection.create({
+        data: { tenantId, taTag, tags, body, title: b.title, framework: b.docType, category: 'claim', version: (prior?.version ?? 0) + 1, approvedBy: user.id },
+      })
+      if (prior) await tx.librarySection.update({ where: { id: prior.id }, data: { isCurrent: false, supersededBy: next.id } })
+      return { created: next, earlier: prior }
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: user.id,
+      action: 'library_uploaded',
+      entityType: 'library_section',
+      entityId: created.id,
+      details: { projectId: project.id, title: b.title, docType: b.docType, taTag, fileName: file.filename, fileSizeBytes: buf.length, libraryVersion: created.version, ...(earlier && { supersedes: earlier.id }) },
+      ipAddress: request.ip ?? null,
+    })
+    const ctx = await fetchContext([created], user)
+    return reply.code(201).send(sectionToItem(created, ctx))
+  })
+
   // GET /library/by-document/:documentId — what of this document is already in the
   // library (the whole document and, from earlier pushes, single sections; current entries only). The Final
   // Document screen uses it to show "In Master Library" and to hide the push button.
@@ -565,6 +659,22 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
+    // An uploaded PDF gives back the very file that was uploaded (a Word file is rebuilt from its text, below).
+    const original = uploadedOriginal(row.tags)
+    if (original && original.fileName.toLowerCase().endsWith('.pdf')) {
+      try {
+        const file = await app.blob.get('documents', original.key)
+        return reply
+          .header('Content-Type', 'application/pdf')
+          .header('Content-Disposition', `attachment; filename="${pdfFileName(row.title)}"; filename*=UTF-8''${encodeURIComponent(original.fileName)}`)
+          .header('Content-Length', String(file.body.length))
+          .header('X-Content-Type-Options', 'nosniff')
+          .header('Cache-Control', 'no-store')
+          .send(file.body)
+      } catch (err) {
+        app.log.warn({ err, id }, 'uploaded library PDF could not be read from storage — rebuilding it from the text')
+      }
+    }
     if (!row.body.trim()) return reply.code(422).send({ error: 'empty', message: 'This item has no text to download.' })
     if (row.body.length > PDF_MAX_CHARS) {
       return reply.code(413).send({ error: 'too_large', message: 'This item is too long to download as a PDF.' })

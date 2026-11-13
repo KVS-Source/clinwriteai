@@ -1800,6 +1800,8 @@ export interface MasterLibraryItem {
   archivedReason?:   string
   // Withdrawn from the library by an admin (as opposed to archived because its project closed).
   isWithdrawn?:      boolean
+  // Added by a Project Manager from their computer, not pushed from a signed document.
+  uploaded?:         boolean
   // The library entry itself: who pushed this version (editedByName), who pushed the
   // first version and when (createdByName / createdAt), all ISO.
   editedByName?:     string

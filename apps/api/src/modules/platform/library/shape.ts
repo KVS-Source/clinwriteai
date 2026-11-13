@@ -22,7 +22,7 @@ export const KNOWN_MODULES = ['A', 'B', 'C', 'D', 'E'] as const
 export type LibModule = (typeof KNOWN_MODULES)[number] | 'platform'
 export type LibItemType = 'document' | 'section' | 'best-practice'
 
-const META_KEYS = ['module', 'doctype', 'project', 'source', 'type', 'category', 'effective', 'valid-until', 'docversion', 'fromdoc'] as const
+const META_KEYS = ['module', 'doctype', 'project', 'source', 'type', 'category', 'effective', 'valid-until', 'docversion', 'fromdoc', 'origin', 'file', 'filename'] as const
 
 export interface SectionRow {
   id: string
@@ -137,6 +137,8 @@ export interface ParsedTags {
   projectId: string | null
   sourceId: string | null
   isDocument: boolean
+  /** Added by upload from a PM's computer, not pushed from a signed document. */
+  uploaded: boolean
   category: string | null
   effective: string | null
   validUntil: string | null
@@ -147,7 +149,7 @@ export interface ParsedTags {
 export function parseTags(tags: string[]): ParsedTags {
   const out: ParsedTags = {
     module: 'platform', docTypes: [], projectId: null, sourceId: null,
-    isDocument: false, category: null, effective: null, validUntil: null, docVersion: null, plain: [],
+    isDocument: false, uploaded: false, category: null, effective: null, validUntil: null, docVersion: null, plain: [],
   }
   for (const raw of tags) {
     const i = raw.indexOf(':')
@@ -165,6 +167,7 @@ export function parseTags(tags: string[]): ParsedTags {
       case 'project':     out.projectId = value; break
       case 'source':      out.sourceId = value; break
       case 'type':        if (value === 'document') out.isDocument = true; break
+      case 'origin':      if (value === 'upload') out.uploaded = true; break
       case 'category':    out.category = value; break
       case 'effective':   out.effective = value; break
       case 'valid-until': out.validUntil = value; break
@@ -226,6 +229,7 @@ export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
     tags: t.plain,
     isArchived: archived,
     isWithdrawn: !!row.retiredAt,
+    uploaded: t.uploaded,
     ...(archived && {
       archivedReason: row.retiredAt ? 'Withdrawn from the library' : 'Source project is closed',
     }),

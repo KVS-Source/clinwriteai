@@ -102,7 +102,7 @@ export function MasterLibraryShell() {
   return (
     <MasterLibrarySlotContext.Provider value={headingSlot}>
     <div className="flex h-full min-h-0 flex-col bg-slate-50" data-screen="master-library">
-      <header className="flex-none border-b border-slate-200 bg-white px-5 pt-4">
+      <header className="relative flex-none border-b border-slate-200 bg-white px-5 pt-4">
         <div ref={setHeadingSlot} data-master-library-heading />
         {/* Scrolls sideways on narrow screens, but never up and down and with no scrollbar showing: the
             active tab's underline used to poke 1px below the strip, which put scroll arrows on its right. */}

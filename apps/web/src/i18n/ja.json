@@ -360,6 +360,7 @@
 
       "resolved_group_header":   "解決済み ({{count}})",
       "section_approvals_header":"セクション承認 ({{count}})",
+      "document_approvals_header":"文書の承認 ({{count}})",
       "add_comment":             "コメントを追加"
     },
 
@@ -4237,6 +4238,7 @@
       "end_failed": "会議を終了できませんでした。",
       "complete_pending": "会議が完了しました — ドキュメントのステータスを署名待ちに更新しています…",
       "complete_done": "✓ 会議が完了しました — すべてのコメントが解決されました。ドキュメントは署名待ちになりました。",
+      "complete_done_authoring": "✓ 会議が完了しました — すべてのコメントが解決されました。ドキュメントは作成中に戻りました。",
       "details_label": "会議の詳細",
       "version": "バージョン",
       "started": "開始",

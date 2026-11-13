@@ -318,6 +318,7 @@
       "error_already_resolved": "This comment was already resolved.",
       "resolved_group_header": "Resolved ({{count}})",
       "section_approvals_header": "Section approvals ({{count}})",
+      "document_approvals_header": "Document approvals ({{count}})",
       "add_comment": "Add comment"
     },
     "comment_composer": {
@@ -4023,8 +4024,9 @@
       "go_to_signature": "Go to E-Signature →",
       "start_failed": "Could not start the meeting.",
       "end_failed": "Could not end the meeting.",
-      "complete_pending": "Meeting complete — updating the document status to Pending signature…",
+      "complete_pending": "Meeting complete — updating the document status…",
       "complete_done": "✓ Meeting complete — all comments resolved. The document is now Pending signature.",
+      "complete_done_authoring": "✓ Meeting complete — all comments resolved. The document is back in authoring.",
       "details_label": "Meeting details",
       "version": "Version",
       "started": "Started",

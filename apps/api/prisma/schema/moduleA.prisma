@@ -340,6 +340,9 @@ model CrmMeeting {
   startedAt       DateTime?
   endedAt         DateTime?
   createdAt       DateTime @default(now())
+  // Where the document was when this meeting started, if not In Review: 'in_authoring' means
+  // completing / cancelling the meeting puts it back there. NULL = started from review.
+  returnToStatus  String?
   // AI Note-Taker (Phase 1 / sPM-ai-notetaker). Minutes rendered as HTML
   // by GPT/Claude from the uploaded transcript + resolutions. The audio is
   // never stored (DPDPA stance) — only the transcript + the minutes.

@@ -4,7 +4,6 @@ import { useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import type { TFunction } from 'i18next'
-import type { CommentSeverity } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { MyRaciRole } from './MyRaciRole'
 import { ReturnToAuthoring } from './ReturnToAuthoring'
@@ -16,8 +15,6 @@ import { useCanComment } from '../../hooks/useCanComment'
 import { useCanViewChecklist } from '../../hooks/useCanViewChecklist'
 import { useMyRaciLetters } from '../../hooks/useMyRaciLetters'
 import { withSectionMark } from '../../panels/CommentComposer'
-import { MentionTextarea, mentionPattern } from '../../panels/MentionTextarea'
-import type { MentionablePerson } from '../../api/documents'
 import { PLATFORM_USER_ROLE_LABEL, STATUS_META, type PlatformUserRole } from '@platform/types'
 import { EditorContent } from '@tiptap/react'
 import { useDocumentStore, useProjectStore } from '../../store'
@@ -40,7 +37,6 @@ const AVATAR: Record<string, { bg: string; fg: string }> = {
   PN: { bg: '#FEE2E2', fg: '#DC2626' }, AH: { bg: '#E0F2FE', fg: '#0369A1' },
   RT: { bg: '#FCE7F3', fg: '#9D174D' }, LP: { bg: '#F3F4F6', fg: '#374151' },
 }
-const NEUTRAL_AVATAR = { bg: '#DBEAFE', fg: '#1D4ED8' }
 
 // "Review due 05 Nov 2026 · 3 days remaining" from the due date set on Submit
 // for review; null when none was set. The date is a calendar day stored as UTC
@@ -146,12 +142,11 @@ export function ReviewerView() {
     }
   }, [activePanel, setActivePanel])
 
-  const [commentText,     setCommentText]     = useState('')
-  // People picked from the "@" list in the comment box; only those still named in the text are notified.
-  const [mentionPicked,   setMentionPicked]   = useState<MentionablePerson[]>([])
-  const [severity,        setSeverity]        = useState<CommentSeverity>('minor')
+  // Bumped by the toolbar's Add comment: tells the Comments panel to open its composer.
+  const [composeRequest, setComposeRequest] = useState(0)
+  // Closing the panel clears the request, so reopening it from the toolbar doesn't open the composer.
+  useEffect(() => { if (activePanel !== 'comments') setComposeRequest(0) }, [activePanel])
   const [flagged,         setFlagged]         = useState(false)
-  const [composerOpen,    setComposerOpen]    = useState(true)
   const [approveNote,     setApproveNote]     = useState<string | null>(null)
 
   const { data: document } = useQuery({
@@ -210,7 +205,6 @@ export function ReviewerView() {
     initials: me?.initials ?? '',
     role:     me ? (PLATFORM_USER_ROLE_LABEL[me.role as PlatformUserRole] ?? me.role) : '',
   }
-  const reviewerColours = AVATAR[reviewer.initials] ?? NEUTRAL_AVATAR
   // Only R, C, Q and A may add comments (action table row 15), and only C, Q and A may approve,
   // return or flag a section (rows 12 and 14). The API refuses everyone else.
   const { canGiveVerdict } = useSignatureAccess(documentId)
@@ -272,44 +266,6 @@ export function ReviewerView() {
   const sectionViewer = useRichTextEditor({ content: activeSectionData?.contentHtml ?? '', editable: false })
   const sectionIsBlank = !activeSectionData?.contentHtml || activeSectionData.contentHtml === '<p></p>'
 
-  // Plain comments post against the section being viewed; §11.4.1 remains the
-  // fallback for documents whose sections aren't loaded / don't exist.
-  const commentRef = activeRef ?? '§11.4.1'
-
-  const { data: mentionable = [] } = useQuery({
-    queryKey: ['comment-mentionable', documentId],
-    queryFn:  () => documentsApi.getMentionable(documentId!),
-    enabled:  !!documentId && canComment === true,
-    staleTime: 60_000,
-    retry: false,
-  })
-
-  const addCommentMut = useMutation({
-    mutationFn: () => {
-      const mentionedUserIds = [...new Set(mentionPicked.filter(p => mentionPattern(p.name).test(commentText)).map(p => p.id))]
-      return documentsApi.addComment(documentId!, {
-        sectionRef: commentRef,
-        text:       commentText,
-        severity,
-        ...(mentionedUserIds.length > 0 && { mentionedUserIds }),
-      })
-    },
-    onSuccess: () => {
-      setCommentText('')
-      setMentionPicked([])
-      setComposerOpen(false)   // posted — close the box; the prompt below reopens it
-      setActivePanel('comments')   // show the reviewer their comment in the drawer
-      qc.invalidateQueries({ queryKey: ['comments', documentId] })
-      qc.invalidateQueries({ queryKey: ['project-comments'] })
-      qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
-    },
-  })
-
-  const handlePostComment = () => {
-    if (!commentText.trim() || !documentId) return
-    addCommentMut.mutate()
-  }
-
   // Reviewer verdict posts (Phase 2.2). Sections are referenced by the
   // active section's human-readable number — the server's audit event
   // picks up `reviewer_approve` / `reviewer_request_changes` /
@@ -362,22 +318,10 @@ export function ReviewerView() {
 
   const handleFlagSection = () => setFlagged(v => !v)
 
-  // Cancel throws the draft away and collapses the box; opening it again (toolbar button or the
-  // prompt that replaces it) brings back an empty box and puts the cursor in it.
-  const cancelComposer = () => {
-    setCommentText('')
-    setMentionPicked([])
-    setSeverity('minor')
-    addCommentMut.reset()
-    setComposerOpen(false)
-  }
+  // Add comment (toolbar) opens the Comments panel on the right, with its composer ready: the section text stays unobstructed.
   const openComposer = () => {
-    addCommentMut.reset()   // drop the "posted" note from the last comment
-    setComposerOpen(true)
-    // The box may have been collapsed — wait for it to render before focusing.
-    window.setTimeout(() => {
-      (window.document.getElementById('reviewer-comment-textarea') as HTMLTextAreaElement | null)?.focus()
-    }, 0)
+    setActivePanel('comments')
+    setComposeRequest(n => n + 1)
   }
 
   if (!document) {
@@ -600,87 +544,6 @@ export function ReviewerView() {
                 </p>
               )}
 
-              {/* Comment composition box — Cancel collapses it; "Add comment" (or the prompt below) reopens it */}
-              {canComment !== true ? null : composerOpen ? (
-              <div
-                className="mt-4 flex flex-col gap-2.5 rounded-lg border bg-white p-3.5"
-                style={{ borderColor: '#2563EB', boxShadow: '0 0 0 3px rgba(37,99,235,0.12)' }}
-                data-comment-composer
-              >
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="flex h-5 w-5 flex-none items-center justify-center rounded-full font-mono text-[10px] font-bold" style={{ backgroundColor: reviewerColours.bg, color: reviewerColours.fg }} data-comment-author-initials>{reviewer.initials}</div>
-                  <p className="text-[13px] font-bold" data-comment-author>{reviewer.name}</p>
-                  <p className="font-mono text-[10px] tracking-wider text-slate-500">{reviewer.role}</p>
-                  <div className="flex-1" />
-                  <p className="text-[11px] text-slate-500">{t('page.reviewer_view.draft_label')}</p>
-                </div>
-                <MentionTextarea
-                  id="reviewer-comment-textarea"
-                  rows={3}
-                  value={commentText}
-                  onChange={setCommentText}
-                  people={mentionable}
-                  onMention={p => setMentionPicked(prev => prev.some(x => x.id === p.id) ? prev : [...prev, p])}
-                  placeholder={t('page.reviewer_view.comment_placeholder', { section: commentRef })}
-                  className="w-full rounded border p-2.5 text-sm outline-none focus:border-blue-600 focus:shadow-focus"
-                  style={{ borderColor: '#E2E8F0', resize: 'vertical' }}
-                />
-                {mentionable.length > 0 && <p className="-mt-1 text-[11px] text-slate-500" data-mention-hint>{t('page.comment_composer.mention_hint')}</p>}
-                {/* Tag/Severity + actions share one row so the composer uses one less
-                    line of vertical space. flex-1 spacer between them pushes
-                    Cancel / Post comment to the right edge. */}
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[11px] text-slate-500">{t('page.reviewer_view.tag_to')}</span>
-                  <span className="rounded px-1.5 py-0.5 text-[11px] font-semibold text-slate-900" style={{ backgroundColor: '#F1F5F9' }} data-comment-tag>{commentRef}</span>
-                  <span className="ml-1.5 text-[11px] text-slate-500">{t('page.reviewer_view.severity_label')}</span>
-                  <SeverityButton value="major"  active={severity === 'major'}  onClick={() => setSeverity('major')}  label={t('page.reviewer_view.severity_major')}  bg="#FEE2E2" fg="#DC2626" />
-                  <SeverityButton value="minor"  active={severity === 'minor'}  onClick={() => setSeverity('minor')}  label={t('page.reviewer_view.severity_minor')}  bg="#FFFBEB" fg="#B45309" />
-                  <SeverityButton value="query"  active={severity === 'query'}  onClick={() => setSeverity('query')}  label={t('page.reviewer_view.severity_query')}  bg="#EFF6FF" fg="#2563EB" />
-                  <div className="flex-1 min-w-[12px]" />
-                  <button
-                    type="button"
-                    onClick={cancelComposer}
-                    disabled={addCommentMut.isPending}
-                    className="text-xs font-semibold text-slate-500 hover:text-slate-700 disabled:opacity-50"
-                  >{t('page.reviewer_view.cancel')}</button>
-                  <button
-                    type="button"
-                    onClick={handlePostComment}
-                    disabled={!commentText.trim() || addCommentMut.isPending}
-                    className="rounded-md bg-blue-600 px-3.5 py-1.5 text-xs font-semibold text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {addCommentMut.isPending ? t('page.reviewer_view.posting') : t('page.reviewer_view.post_comment')}
-                  </button>
-                </div>
-                {addCommentMut.isError && (
-                  <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-[12px] text-red-700" role="alert">
-                    {(addCommentMut.error as { body?: { message?: string } } | null)?.body?.message
-                      ?? (addCommentMut.error as Error | null)?.message
-                      ?? t('page.reviewer_view.post_err_fallback')}
-                  </div>
-                )}
-                {addCommentMut.isSuccess && !addCommentMut.isPending && (
-                  <p className="text-[11px] font-semibold text-green-700">{t('page.reviewer_view.comment_posted_short')}</p>
-                )}
-              </div>
-              ) : (
-                <>
-                {addCommentMut.isSuccess && (
-                  <p className="mt-4 rounded-md border border-green-200 bg-green-50 px-3 py-2 text-[12px] font-semibold text-green-700" role="status" data-comment-posted>
-                    {t('page.reviewer_view.comment_posted_long')}
-                  </p>
-                )}
-                <button
-                  type="button"
-                  onClick={openComposer}
-                  className="mt-3 flex w-full items-center gap-2 rounded-lg border border-dashed border-slate-300 bg-white px-3.5 py-3 text-left text-[13px] font-semibold text-slate-600 transition-colors hover:border-blue-400 hover:bg-blue-50 hover:text-blue-700"
-                  data-open-composer
-                >
-                  {t('page.reviewer_view.add_comment_prompt', { suffix: commentRef ? t('page.reviewer_view.add_comment_prompt_section', { section: commentRef }) : '' })}
-                </button>
-                </>
-              )}
-
               {flagged && (
                 <div className="mt-3 rounded border px-3 py-2 text-[12px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309', borderColor: '#FDE68A' }}>
                   {t('page.reviewer_view.flagged_banner')}
@@ -740,27 +603,6 @@ export function ReviewerView() {
                 )}
                 <h3 className="text-sm font-bold text-slate-900">{activePanel === 'comments' ? t('page.reviewer_view.panel_comments_with_count', { count: openCommentCount }) : panelTitle}</h3>
                 <div className="flex-1" />
-                {/* Expand / shrink — not shown on the Audit Trail, same as the editor's panel
-                    (drag the left edge or double-click it to resize instead). */}
-                {!splitPanel && (
-                  <button
-                    type="button"
-                    onClick={panel.toggleExpanded}
-                    aria-label={panel.expanded ? t('page.reviewer_view.shrink_panel') : t('page.reviewer_view.expand_panel')}
-                    title={panel.expanded ? t('page.reviewer_view.shrink_panel') : t('page.reviewer_view.expand_panel')}
-                    className="flex h-6 w-6 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 transition-colors"
-                  >
-                    {panel.expanded ? (
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M7.5 1.5v3h3M4.5 10.5v-3h-3M7.5 4.5l3-3M4.5 7.5l-3 3"/>
-                      </svg>
-                    ) : (
-                      <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                        <path d="M7 1.5h3.5V5M5 10.5H1.5V7M10.5 1.5L7 5M1.5 10.5L5 7"/>
-                      </svg>
-                    )}
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={() => setActivePanel(null)}
@@ -777,7 +619,7 @@ export function ReviewerView() {
                   documentId={documentId}
                   sections={document?.sections ?? []}
                   activeSectionId={activeSection}
-                  onAddComment={canComment === true ? openComposer : undefined}
+                  composeRequest={composeRequest}
                 />
               )}
               {activePanel === 'checklist' && documentId && (
@@ -801,33 +643,5 @@ export function ReviewerView() {
         </div>
       </div>
     </div>
-  )
-}
-
-// --- Sub-component ---
-
-function SeverityButton({
-  active, onClick, label, bg, fg,
-}: {
-  value: CommentSeverity
-  active: boolean
-  onClick: () => void
-  label: string
-  bg: string
-  fg: string
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="rounded-full px-2.5 py-0.5 text-[11px] font-semibold transition-all"
-      style={{
-        backgroundColor: active ? bg : '#F8FAFC',
-        color:           active ? fg : '#64748B',
-        border:          active ? `1px solid ${fg}` : '1px solid #E2E8F0',
-      }}
-    >
-      {label}
-    </button>
   )
 }

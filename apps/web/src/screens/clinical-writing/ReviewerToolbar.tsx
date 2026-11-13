@@ -102,6 +102,7 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, canViewChecklist,
       <button
         type="button"
         onClick={onAddComment}
+        data-panel-trigger
         title={t('page.reviewer_toolbar.add_comment_tooltip')}
         data-action="toolbar-add-comment"
         className="flex h-7 flex-none items-center gap-1.5 rounded-md px-2.5 text-xs font-bold text-white transition-colors hover:bg-blue-700"

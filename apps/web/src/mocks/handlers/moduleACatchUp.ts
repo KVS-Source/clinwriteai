@@ -292,6 +292,18 @@ export const moduleACatchUpHandlers = [
   http.get(`${BASE}/document-type-policies`, async () => json({ policies: [] })),
   http.get(`${BASE}/admin/frameworks`, async () => json([])),
 
+  // --- Master Library: a PM uploads a document from their computer
+  http.post(`${BASE}/library/upload`, async ({ request }) => {
+    const form = await request.formData()
+    const file = form.get('file')
+    const title = String(form.get('title') ?? (file instanceof File ? file.name : 'Uploaded document'))
+    return json({
+      id: `lib-upload-${Date.now()}`, name: title, module: 'A', itemType: 'document', docType: String(form.get('docType') ?? ''), ta: [String(form.get('taTag') ?? '')],
+      version: 'v1.0', pushedAt: NOW(), pushedBy: ME, pushedByName: nameOf(ME), projectId: String(form.get('projectId') ?? ''), projectName: String(form.get('projectId') ?? ''),
+      tags: [], isArchived: false, isWithdrawn: false, uploaded: true, provenanceChain: [], editedByName: nameOf(ME), createdByName: nameOf(ME), createdAt: NOW(), updatedAt: NOW(),
+    }, 201)
+  }),
+
   // --- Guests
   http.get(`${BASE}/documents/:documentId/guest-invitations`, async () => json([])),
   http.get(`${BASE}/projects/:projectId/guest-invitations`, async () => json([])),

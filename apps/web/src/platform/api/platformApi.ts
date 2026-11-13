@@ -230,11 +230,9 @@ export const platformApi = {
   // What of a document is already in the library (whole document and/or single sections).
   libraryEntriesForDocument: (documentId: string) =>
     api.get<LibraryDocumentEntry[]>(`/library/by-document/${encodeURIComponent(documentId)}`),
-  // Admin: a new version of a library section, and withdrawing it.
-  versionLibrarySection: (itemId: string, body: { title?: string; body?: string }) =>
-    api.post<unknown>(`/library/sections/${itemId}/versions`, body),
-  withdrawLibrarySection: (itemId: string, reason?: string) =>
-    api.post<unknown>(`/library/sections/${itemId}/retire`, reason ? { reason } : {}),
+  // PM: add a document from the computer (PDF or Word). Multipart: the fields first, then the file.
+  uploadLibraryDocument: (form: FormData) =>
+    api.upload<MasterLibraryItem>('/library/upload', form),
   getLibraryItem: (itemId: string) =>
     api.get<MasterLibraryItem>(`/library/${itemId}`),
   // Records that a section was pulled into a document (usage count + audit).

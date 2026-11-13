@@ -11,7 +11,7 @@ import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { MASTER_DOCUMENT_ITEM_TYPES } from './MasterLibraryShell'
 import { usePlatformStore } from '../store/platformStore'
-import { describeApiError } from '../../api'
+import { describeApiError, projectsApi } from '../../api'
 import { api } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 import { SortIcon } from '../../components/ui/SortIcon'
@@ -52,7 +52,8 @@ export function MasterLibrary() {
   const queryClient = useQueryClient()
   // Who sees New version and Withdraw: the Project Manager owns the library's content; admins may too (the API still
   // limits everyone to their own tenant's items, and platform-wide items to platform admins).
-  const canManage = usePlatformStore(s => s.hasRole)(['pm', 'tenant-admin', 'admin'])
+  // Only a Project Manager adds documents to the library from their computer.
+  const canUpload = usePlatformStore(s => s.hasRole)(['pm'])
 
   // Filters start empty — nothing is pre-applied.
   const [search,      setSearch]      = useState('')
@@ -97,7 +98,7 @@ export function MasterLibrary() {
   // The row whose details are open in the side panel. Kept as a snapshot so it stays open
   // while the list is paged or refiltered underneath it.
   const [selected, setSelected] = useState<MasterLibraryItem | null>(null)
-  const [adminAction, setAdminAction] = useState<'version' | 'withdraw' | null>(null)
+  const [uploadOpen, setUploadOpen] = useState(false)
   const [toast,      setToast]      = useState<string | null>(null)
   // One timer for the toast: a new message replaces the old one and gets its full time (the old timer is cancelled).
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -133,17 +134,6 @@ export function MasterLibrary() {
 
   const active = selected ? (items.find(i => i.id === selected.id) ?? selected) : undefined
 
-  // The list leaves each document's text out (it can be hundreds of KB); the full item is read once a row is opened.
-  // Everything that needs the text (New version) uses `activeItem` and waits until it has arrived.
-  const detailQ = useQuery({
-    queryKey: ['library-item', active?.id],
-    queryFn:  () => platformApi.getLibraryItem(active!.id),
-    enabled:  !!active,
-    staleTime: 30_000,
-  })
-  const bodyReady = !detailQ.isLoading
-  const activeItem = active ? { ...active, body: detailQ.data?.body ?? active.body } : undefined
-
   // Other versions of the same item (same name, different version) — newest first.
   const versionHistory = useMemo(() => {
     if (!active) return []
@@ -152,12 +142,11 @@ export function MasterLibrary() {
       .sort((a, b) => new Date(b.pushedAt).getTime() - new Date(a.pushedAt).getTime())
   }, [items, active])
 
-  const canAdminister = canManage && !!active && active.itemType !== 'best-practice' && !active.isWithdrawn
   // A section's note talks about pulling it into documents; a whole document's doesn't.
   const isSectionItem = active?.itemType === 'section'
   const immutabilityNote = active?.isArchived
     ? t(isSectionItem ? 'page.master_library.immutability_archived' : 'page.master_library.immutability_archived_document')
-    : t(isSectionItem ? 'page.master_library.immutability_default' : 'page.master_library.immutability_document')
+    : t(isSectionItem ? 'page.master_library.immutability_default' : active?.uploaded ? 'page.master_library.immutability_uploaded' : 'page.master_library.immutability_document')
 
   // Download PDF: the server builds a PDF of the item's own text (title + body, no app
   // details) and the browser saves it as a file — no print dialog, no pop-up.
@@ -204,11 +193,22 @@ export function MasterLibrary() {
         {/* The heading goes up into the Master Library header (above the tabs); the breadcrumb and
             "who you are" line are gone — the top bar carries "Master Library / Master Documents". */}
         <MasterLibraryHeading>
-          {/* The item count is on the tab ("Master Documents (2)", MasterLibraryShell), not the title. */}
-          <h1 className="text-[20px] font-semibold text-slate-900">{t('page.master_library.tab_documents', { defaultValue: 'Master Documents' })}</h1>
-          <p className="mt-0.5 text-[13px] text-slate-500">
-            {t('page.master_library.subtitle_documents', { defaultValue: 'Signed documents pushed here from projects. Search and filter the library, and open any document to see its source, team and signatures.' })}
-          </p>
+          {/* The Upload button sits in the middle of the header, top to bottom (the header is `relative`, see
+              MasterLibraryShell), at its right edge; the text keeps clear of it. */}
+          <div className={canUpload ? 'pr-48' : undefined}>
+            {/* The item count is on the tab ("Master Documents (2)", MasterLibraryShell), not the title. */}
+            <h1 className="text-[20px] font-semibold text-slate-900">{t('page.master_library.tab_documents', { defaultValue: 'Master Documents' })}</h1>
+            <p className="mt-0.5 text-[13px] text-slate-500">
+              {t('page.master_library.subtitle_documents')}
+            </p>
+          </div>
+          {canUpload && (
+            <button type="button" onClick={() => setUploadOpen(true)} data-action="upload-document" data-panel-trigger
+              className="absolute right-5 top-1/2 h-9 -translate-y-1/2 whitespace-nowrap rounded-md px-4 text-[13px] font-semibold text-white"
+              style={{ backgroundColor: PLATFORM_ACCENT.primary }}>
+              {t('page.master_library.upload_button')}
+            </button>
+          )}
         </MasterLibraryHeading>
 
         {/* Filters — fill the card's width. At 1100px of content width and up it is one row (search
@@ -362,7 +362,7 @@ export function MasterLibrary() {
                 <span className="inline-flex items-center rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569' }}>{t('page.master_library.archived_tag')}</span>
               )}
             </span>
-            <span className="mt-1 block truncate font-mono text-[11px]" data-active-pushed>{t('page.master_library.pushed_byline', { date: formatDay(active.pushedAt), user: active.pushedByName })}</span>
+            <span className="mt-1 block truncate font-mono text-[11px]" data-active-pushed>{t(active.uploaded ? 'page.master_library.uploaded_byline' : 'page.master_library.pushed_byline', { date: formatDay(active.pushedAt), user: active.pushedByName })}</span>
           </>
         )}
         storageKey="library-detail" defaultWidth={520} belowTopBar closeOnOutsideClick>
@@ -389,8 +389,8 @@ export function MasterLibrary() {
               </dl>
               {/* The library entry: who pushed it and when. The source document's own people are below. */}
               <dl className="mt-1.5 grid grid-cols-[100px_1fr] gap-x-3 gap-y-1.5 text-[12px]" data-active-meta>
-                <dt className={labelClass}>{t('page.master_library.meta_pushed_by')}</dt><dd className="text-slate-800" data-meta-pushed-by>{active.editedByName ?? active.pushedByName}</dd>
-                <dt className={labelClass}>{t('page.master_library.meta_pushed_at')}</dt><dd className="text-slate-800">{formatDateTime(active.pushedAt)}</dd>
+                <dt className={labelClass}>{t(active.uploaded ? 'page.master_library.meta_uploaded_by' : 'page.master_library.meta_pushed_by')}</dt><dd className="text-slate-800" data-meta-pushed-by>{active.editedByName ?? active.pushedByName}</dd>
+                <dt className={labelClass}>{t(active.uploaded ? 'page.master_library.meta_uploaded_at' : 'page.master_library.meta_pushed_at')}</dt><dd className="text-slate-800">{formatDateTime(active.pushedAt)}</dd>
                 {(active.createdByName ?? active.pushedByName) !== (active.editedByName ?? active.pushedByName) && (
                   <>
                     <dt className={labelClass}>{t('page.master_library.meta_first_pushed_by')}</dt><dd className="text-slate-800">{active.createdByName}</dd>
@@ -431,18 +431,6 @@ export function MasterLibrary() {
                 style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
                 data-download-pdf
               >{t('page.master_library.download_pdf')}</button>
-              {canAdminister && (
-                <>
-                  <button type="button" onClick={() => setAdminAction('version')} data-action="new-version" data-panel-trigger disabled={!bodyReady}
-                    className="h-9 rounded-md border border-slate-300 px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
-                    {t('page.master_library.action_new_version')}
-                  </button>
-                  <button type="button" onClick={() => setAdminAction('withdraw')} data-action="withdraw" data-panel-trigger
-                    className="h-9 rounded-md border border-red-300 px-4 text-[13px] font-semibold text-red-800 hover:bg-red-50">
-                    {t('page.master_library.action_withdraw')}
-                  </button>
-                </>
-              )}
             </div>
 
             <p className="rounded-md p-2 text-[12px]"
@@ -453,14 +441,12 @@ export function MasterLibrary() {
         )}
       </SlidePanel>
 
-      {activeItem && canAdminister && (
-        <AdminActionPanel
-          mode={adminAction}
-          item={activeItem}
-          onClose={() => setAdminAction(null)}
-          onDone={(msg) => { setAdminAction(null); setSelected(null); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library'] }) }}
-        />
-      )}
+      <UploadPanel
+        open={uploadOpen}
+        onClose={() => setUploadOpen(false)}
+        docTypes={docTypeOptions}
+        onDone={(msg) => { setUploadOpen(false); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library'] }); void queryClient.invalidateQueries({ queryKey: ['library-projects'] }) }}
+      />
 
       {toast && (
         <div data-toast role="status"
@@ -542,40 +528,50 @@ function SourceDocumentCard({ info }: { info: MasterLibrarySourceDocument }) {
   )
 }
 
-// Admin actions on a library item: publish a new version, or withdraw it.
-// The API checks the admin's tenant — a tenant admin can't change another
-// tenant's item or a platform-wide one.
-function AdminActionPanel({ mode, item, onClose, onDone }: {
-  mode: 'version' | 'withdraw' | null
-  item: MasterLibraryItem
+// Add a document from the computer (Project Manager only): PDF or Word, against one of the PM's projects.
+// The API reads the text out of the file, keeps the original PDF, and files it like a pushed document.
+function UploadPanel({ open, onClose, docTypes, onDone }: {
+  open: boolean
   onClose: () => void
+  docTypes: string[]
   onDone: (message: string) => void
 }) {
   const { t } = useTranslation()
-  const [title,   setTitle]   = useState(item.name)
-  const [body,    setBody]    = useState(item.body ?? '')
-  const [reason,  setReason]  = useState('')
-  const [busy,    setBusy]    = useState(false)
-  const [failure, setFailure] = useState<string | null>(null)
+  const { labels: taLabels } = useTaLabels()
+  const { data: projects = [] } = useQuery({ queryKey: ['library-upload-projects'], queryFn: () => projectsApi.list(), enabled: open, staleTime: 60_000 })
+  const openProjects = projects.filter(p => p.status !== 'closed')
+  const fileInput = useRef<HTMLInputElement>(null)
+  const [file,      setFile]      = useState<File | null>(null)
+  const [title,     setTitle]     = useState('')
+  const [docType,   setDocType]   = useState('')
+  const [ta,        setTa]        = useState('')
+  const [projectId, setProjectId] = useState('')
+  const [busy,      setBusy]      = useState(false)
+  const [failure,   setFailure]   = useState<string | null>(null)
 
-  useEffect(() => {
-    if (mode) { setTitle(item.name); setBody(item.body ?? ''); setReason(''); setFailure(null) }
-  }, [mode, item.id, item.name, item.body])
+  const reset = () => { setFile(null); setTitle(''); setDocType(''); setTa(''); setProjectId(''); setFailure(null); if (fileInput.current) fileInput.current.value = '' }
+  useEffect(() => { if (!open) reset() }, [open])
 
-  const unchanged = title.trim() === item.name && body.trim() === (item.body ?? '').trim()
-  const canSubmit = mode === 'version' ? !!title.trim() && !!body.trim() && !unchanged : reason.trim().length >= 3
+  const accepted = (f: File) => /\.(pdf|docx)$/i.test(f.name)
+  const chooseFile = (f: File | undefined) => {
+    setFailure(null)
+    if (!f) { setFile(null); return }
+    if (!accepted(f)) { setFile(null); setFailure(t('page.master_library.upload_wrong_type')); if (fileInput.current) fileInput.current.value = ''; return }
+    setFile(f)
+    if (!title.trim()) setTitle(f.name.replace(/\.[^.]+$/, ''))
+  }
+  const canSubmit = !!file && !!title.trim() && !!docType && !!ta && !!projectId
 
   async function submit() {
-    if (!canSubmit || !mode) return
+    if (!canSubmit || !file) return
     setBusy(true); setFailure(null)
     try {
-      if (mode === 'version') {
-        await platformApi.versionLibrarySection(item.id, { title: title.trim(), body: body.trim() })
-        onDone(t('page.master_library.version_success', { name: title.trim() }))
-      } else {
-        await platformApi.withdrawLibrarySection(item.id, reason.trim())
-        onDone(t('page.master_library.withdraw_success', { name: item.name }))
-      }
+      // The fields go first, then the file: the API reads the fields from the file's part.
+      const form = new FormData()
+      form.append('title', title.trim()); form.append('docType', docType); form.append('taTag', ta); form.append('projectId', projectId)
+      form.append('file', file, file.name)
+      await platformApi.uploadLibraryDocument(form)
+      onDone(t('page.master_library.upload_success', { name: title.trim() }))
     } catch (err) {
       setFailure(describeApiError(err).message)
     } finally {
@@ -584,38 +580,47 @@ function AdminActionPanel({ mode, item, onClose, onDone }: {
   }
 
   return (
-    <SlidePanel open={mode !== null} onClose={onClose} storageKey="library-admin" defaultWidth={460} belowTopBar closeOnOutsideClick
-      title={mode === 'withdraw' ? t('page.master_library.withdraw_panel_title') : t('page.master_library.version_panel_title')} subtitle={item.name}>
-      <div className="flex flex-col gap-3 p-1" data-admin-panel={mode ?? undefined}>
-        {mode === 'version' ? (
-          <>
-            <p className="text-[12px] text-slate-600">{t('page.master_library.version_panel_hint')}</p>
-            <label className="flex flex-col gap-1">
-              <span className={labelClass}>{t('page.master_library.field_title')}</span>
-              <input className={selectClass} value={title} onChange={e => setTitle(e.currentTarget.value)} />
-            </label>
-            <label className="flex flex-col gap-1">
-              <span className={labelClass}>{t('page.master_library.field_text')}</span>
-              <textarea className="min-h-[200px] rounded-md border border-slate-300 bg-white p-2 text-[12px]" value={body} onChange={e => setBody(e.currentTarget.value)} />
-            </label>
-          </>
-        ) : (
-          <>
-            <p className="text-[12px] text-slate-600">{t('page.master_library.withdraw_panel_hint')}</p>
-            <label className="flex flex-col gap-1">
-              <span className={labelClass}>{t('page.master_library.withdraw_reason_label')}</span>
-              <textarea className="min-h-[100px] rounded-md border border-slate-300 bg-white p-2 text-[12px]" value={reason} onChange={e => setReason(e.currentTarget.value)} />
-            </label>
-          </>
-        )}
-        {failure && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert">{t('page.master_library.admin_failure', { message: failure })}</p>}
+    <SlidePanel open={open} onClose={onClose} storageKey="library-upload" defaultWidth={460} belowTopBar closeOnOutsideClick
+      title={t('page.master_library.upload_panel_title')} subtitle={t('page.master_library.upload_panel_subtitle')}>
+      <div className="flex flex-col gap-3 p-3" data-upload-panel>
+        <label className="flex flex-col gap-1">
+          <span className={labelClass}>{t('page.master_library.upload_field_file')}</span>
+          <input ref={fileInput} type="file" accept=".pdf,.docx,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={e => chooseFile(e.currentTarget.files?.[0])} data-upload-file
+            className="block w-full rounded-md border border-slate-300 bg-white p-1.5 text-[12px] file:mr-3 file:rounded file:border-0 file:bg-slate-100 file:px-3 file:py-1 file:text-[12px] file:font-semibold" />
+          <span className="text-[11px] text-slate-500">{t('page.master_library.upload_file_hint')}</span>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={labelClass}>{t('page.master_library.field_title')}</span>
+          <input className={selectClass} value={title} maxLength={200} onChange={e => setTitle(e.currentTarget.value)} data-upload-title />
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={labelClass}>{t('page.master_library.upload_field_doc_type')}</span>
+          <select className={selectClass} value={docType} onChange={e => setDocType(e.currentTarget.value)} data-upload-doctype>
+            <option value="">{t('page.master_library.upload_choose')}</option>
+            {docTypes.map(d => <option key={d} value={d}>{d}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={labelClass}>{t('page.master_library.upload_field_ta')}</span>
+          <select className={selectClass} value={ta} onChange={e => setTa(e.currentTarget.value)} data-upload-ta>
+            <option value="">{t('page.master_library.upload_choose')}</option>
+            {taLabels.map(l => <option key={l} value={l}>{l}</option>)}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1">
+          <span className={labelClass}>{t('page.master_library.upload_field_project')}</span>
+          <select className={selectClass} value={projectId} onChange={e => setProjectId(e.currentTarget.value)} data-upload-project>
+            <option value="">{t('page.master_library.upload_choose')}</option>
+            {openProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          </select>
+        </label>
+        {failure && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-upload-error>{failure}</p>}
         <div className="mt-1 flex items-center gap-2">
-          <button type="button" onClick={submit} disabled={!canSubmit || busy} data-action="confirm-admin"
+          <button type="button" onClick={submit} disabled={!canSubmit || busy} data-action="confirm-upload"
             className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-            style={{ backgroundColor: mode === 'withdraw' ? '#B91C1C' : PLATFORM_ACCENT.primary }}>
-            {mode === 'withdraw'
-              ? (busy ? t('page.master_library.withdrawing') : t('page.master_library.withdraw_submit'))
-              : (busy ? t('page.master_library.version_saving') : t('page.master_library.version_submit'))}
+            style={{ backgroundColor: PLATFORM_ACCENT.primary }}>
+            {busy ? t('page.master_library.uploading') : t('page.master_library.upload_submit')}
           </button>
           <button type="button" onClick={onClose} className="h-9 rounded-md px-3 text-[13px] text-slate-600 hover:bg-slate-100">{t('button.cancel')}</button>
         </div>

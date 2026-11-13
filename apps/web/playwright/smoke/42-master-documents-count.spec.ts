@@ -33,7 +33,7 @@ const DEFAULT_LISTS: Lists = {
   frameworks: many(6, i => ({ id: `fw-${i}`, name: `ICH E${i}`, description: '', jurisdiction: 'ICH', version: '1', effectiveDate: '2020-01-01', retiredAt: null, updatedAt: '2026-01-01' })),
 }
 
-async function open(page: Page, overrides: Lists = {}, path = '/master-library/documents') {
+async function open(page: Page, overrides: Lists = {}, path = '/master-library/documents', me: Record<string, unknown> = ME) {
   const lists = { ...DEFAULT_LISTS, ...overrides }
   await page.addInitScript(({ me, lists }) => {
     const real = window.fetch.bind(window)
@@ -55,7 +55,7 @@ async function open(page: Page, overrides: Lists = {}, path = '/master-library/d
       const res = await real(input, init)
       return res.status === 401 ? json({ error: 'e2e_no_session' }, 503) : res
     }
-  }, { me: ME, lists })
+  }, { me, lists })
   await page.goto(path)
 }
 
@@ -191,5 +191,29 @@ test.describe('a click outside closes the panel', () => {
     await page.locator('[data-template-id="tpl-0"]').click({ timeout: 60_000 })
     await panel(page).locator('h2').click()
     await expect(panel(page)).toHaveCount(1)
+  })
+})
+
+// Marking a framework superseded is a Project Manager's decision (POST /admin/frameworks/:id/retire is PM-only).
+test.describe('ICH Frameworks — who can mark a framework superseded', () => {
+  const openFramework = async (page: Page, me: Record<string, unknown>) => {
+    await open(page, {}, '/master-library/ich-frameworks', me)
+    await page.locator('[data-frameworks-table] tbody tr').first().click({ timeout: 60_000 })
+    await expect(page.locator('[data-edit-drawer]')).toBeVisible()
+  }
+
+  test('a Project Manager gets the status controls', async ({ page }) => {
+    await openFramework(page, ME)
+    await expect(page.locator('[data-status-select]')).toBeVisible()
+    await expect(page.locator('[data-save-framework]')).toBeVisible()
+    await expect(page.locator('[data-status-pm-only]')).toHaveCount(0)
+    await expect(page.getByText('Only Super Admin can change a framework status.')).toHaveCount(0)
+  })
+
+  test('anyone else sees that only a Project Manager can, and no controls', async ({ page }) => {
+    await openFramework(page, { ...ME, id: 'u-con', role: 'contributor' })
+    await expect(page.locator('[data-status-pm-only]')).toHaveText('Only a Project Manager can send a framework for approval to mark it superseded.')
+    await expect(page.locator('[data-status-select]')).toHaveCount(0)
+    await expect(page.locator('[data-save-framework]')).toHaveCount(0)
   })
 })

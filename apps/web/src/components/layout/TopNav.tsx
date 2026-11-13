@@ -97,6 +97,7 @@ const ROLE_COLOUR: Record<string, string> = {
   'pm':                        '#7C3AED',
   'contributor':               '#0D9488',
   'auditor':                   '#94A3B8',
+  'qc':                        '#0F766E',
   'guest':                     '#64748B',
   'ideation-lead':             '#0D9488',
   'ma-team-lead':              '#0D9488',

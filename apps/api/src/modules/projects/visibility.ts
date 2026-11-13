@@ -39,6 +39,7 @@ const SEE_ALL_ROLES: ReadonlySet<string> = new Set([
   'admin',           // legacy alias
   'super-admin',     // legacy alias
   'auditor',
+  'qc',              // QC reads all content, like an auditor
   'read-only',       // legacy alias of auditor
 ])
 

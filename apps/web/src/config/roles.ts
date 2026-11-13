@@ -13,7 +13,8 @@ export const isPlatformAdmin = (user: { role: string; tenantId?: string | null }
 
 /** Auditors only read Clinical Writing. The API refuses their writes (AUDITOR_READ_ONLY);
  *  this keeps screens from offering, or quietly attempting, what would be refused. */
-export const isReadOnlyRole = (role: string | null | undefined): boolean => role === 'auditor' || role === 'read-only'
+// QC reads all content like an Auditor (the API treats both as read-only).
+export const isReadOnlyRole = (role: string | null | undefined): boolean => role === 'auditor' || role === 'read-only' || role === 'qc'
 
 // A user may hold two roles (e.g. Project manager + Contributor); rights are the union, as on the
 // API (apps/api/src/auth/rbac.ts). An admin role is never combined, so admin checks on `role` hold.

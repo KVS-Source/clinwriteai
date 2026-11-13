@@ -1570,6 +1570,7 @@ export type PlatformUserRole =
   | 'pm'
   | 'contributor'
   | 'auditor'
+  | 'qc'          // Quality Control: reads all content, approves framework supersede requests
   | 'guest'
   // Legacy roles — still returned on users whose role field hasn't been
   // rewritten yet. Removed from this union once the cutover is complete.
@@ -2142,6 +2143,7 @@ export const PLATFORM_USER_ROLE_LABEL: Record<PlatformUserRole, string> = {
   'pm':                        'Project Manager',
   'contributor':               'Contributor',
   'auditor':                   'Auditor',
+  'qc':                        'QC',
   'guest':                     'Guest',
   // Legacy labels — kept for users whose role hasn't been rewritten yet.
   'admin':                     'Admin',

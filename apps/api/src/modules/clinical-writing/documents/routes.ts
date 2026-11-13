@@ -1161,7 +1161,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
     const actor = request.user!
     // Auditors are a view-only role, even if they were given an R row.
-    if (onlyRolesIn(actor, ['auditor', 'read-only'])) return reply.code(403).send(SUBMIT_FORBIDDEN)
+    if (onlyRolesIn(actor, ['auditor', 'read-only', 'qc'])) return reply.code(403).send(SUBMIT_FORBIDDEN)
     const authorRows = await app.prisma.documentRaci.findMany({
       where:  { documentId, letter: 'R', removedAt: null },
       select: { id: true, userId: true, sectionId: true, submittedAt: true, rejectedAt: true },

@@ -45,6 +45,7 @@ export const ROLE_OPTIONS: { value: string; labelKey: string; descriptionKey: st
   { value: 'pm',           labelKey: 'page.user_management_live.role_label_pm',           descriptionKey: 'page.user_management_live.role_desc_pm' },
   { value: 'contributor',  labelKey: 'page.user_management_live.role_label_contributor',  descriptionKey: 'page.user_management_live.role_desc_contributor' },
   { value: 'auditor',      labelKey: 'page.user_management_live.role_label_auditor',      descriptionKey: 'page.user_management_live.role_desc_auditor' },
+  { value: 'qc',           labelKey: 'page.user_management_live.role_label_qc',           descriptionKey: 'page.user_management_live.role_desc_qc' },
   { value: 'guest',        labelKey: 'page.user_management_live.role_label_guest',        descriptionKey: 'page.user_management_live.role_desc_guest' },
 ]
 
@@ -91,7 +92,7 @@ export const rolesOfUser = (u: Pick<AdminUser, 'role' | 'additionalRoles'>): str
 // apps/api/src/auth/role-combos.ts (the API is the real check): at most 2; an admin role is
 // never combined; Auditor + Contributor is not allowed.
 export const MAX_ROLES = 2
-export const ADDABLE_ROLES = ['tenant-admin', 'pm', 'contributor', 'auditor'] as const
+export const ADDABLE_ROLES = ['tenant-admin', 'pm', 'contributor', 'auditor', 'qc'] as const
 const CANON: Record<string, string> = {
   admin: 'tenant-admin', 'super-admin': 'tenant-admin', 'read-only': 'auditor',
   'clinical-writer': 'contributor', 'scientific-writer': 'contributor', 'medical-writer': 'contributor',
@@ -101,5 +102,6 @@ const canon = (r: string) => CANON[r] ?? r
 export function canCombine(held: string[], candidate: string): boolean {
   const all = [...held, candidate].map(canon)
   if (all.includes('tenant-admin') || all.includes('guest')) return all.length < 2
-  return !(all.includes('auditor') && all.includes('contributor'))
+  // Auditor or QC never author: neither is held with Contributor.
+  return !((all.includes('auditor') || all.includes('qc')) && all.includes('contributor'))
 }

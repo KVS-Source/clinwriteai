@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { MultiSelect } from '../components/MultiSelect'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { RegulatoryFramework, RegulatoryFrameworkStatus } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
@@ -9,7 +10,9 @@ import { ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui'
 import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
 import { SortIcon } from '../../components/ui/SortIcon'
-import { platformApi } from '../api/platformApi'
+import { platformApi, type FrameworkSupersedeRequest } from '../api/platformApi'
+import { usePlatformStore } from '../store'
+import { holdsRole } from '../../config/roles'
 
 const SCOPE_COLOURS: Record<string, string> = {
   A: '#2563EB', B: '#0D9488', C: '#7C3AED', D: '#B0200D', E: '#0D9488', platform: PLATFORM_ACCENT.primary,
@@ -192,6 +195,17 @@ const filterControl = 'h-10 w-full rounded-md border border-slate-300 bg-white p
 export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: boolean } = {}) {
   const { t } = useTranslation()
   const qc = useQueryClient()
+  // Marking a framework superseded is a two-person decision: a Project Manager sends it for approval, and
+  // another PM or a QC approves (the framework is superseded) or rejects it with a reason.
+  const me = usePlatformStore(s => s.currentUser)
+  const canChangeStatus = holdsRole(me, 'pm')                 // may send for approval
+  const canDecide = holdsRole(me, 'pm', 'qc')                 // may approve / reject someone else's request
+  const { data: pendingRequests = [] } = useQuery<FrameworkSupersedeRequest[]>({
+    queryKey: ['framework-requests', 'pending'],
+    queryFn:  () => platformApi.listFrameworkRequests({ status: 'pending' }),
+    retry:    false,
+  })
+  const pendingByFramework = useMemo(() => new Map(pendingRequests.map(r => [r.frameworkId, r])), [pendingRequests])
 
   const { data: frameworks = [], isLoading } = useQuery<RegulatoryFramework[]>({
     queryKey: ['regulatory-frameworks'],
@@ -207,7 +221,8 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0]!)
 
   // The framework opened in the right-hand panel, and the "Add framework" panel.
-  const [openId,   setOpenId]   = useState<string | null>(null)
+  const [searchParams] = useSearchParams()
+  const [openId,   setOpenId]   = useState<string | null>(() => searchParams.get('open'))
   const [newStatus,  setNewStatus]  = useState<RegulatoryFrameworkStatus>('Current')
   const [saving,     setSaving]     = useState(false)
   const [saveResult, setSaveResult] = useState<string | null>(null)
@@ -261,30 +276,88 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
   // The only status change the registry stores today is "superseded"
   // (POST /admin/frameworks/:id/retire). It is one-way — there is no un-retire.
   const alreadySuperseded = active?.status === 'Deprecated'
-  const canSave = !!active && !readOnly && !alreadySuperseded && newStatus === 'Deprecated' && !saving
+  const activePending = active ? pendingByFramework.get(active.id) ?? null : null
+  const canSave = !!active && !readOnly && !alreadySuperseded && !activePending && newStatus === 'Deprecated' && !saving
+  const [requestReason, setRequestReason] = useState('')
 
-  // "Mark as superseded" first asks in a dialog (it can't be undone); the work happens once the user confirms.
+  // The most recent decided request on the open framework (so a rejection and its reason stay visible).
+  const { data: activeHistory = [] } = useQuery<FrameworkSupersedeRequest[]>({
+    queryKey: ['framework-requests', 'framework', active?.id],
+    queryFn:  () => platformApi.listFrameworkRequests({ frameworkId: active!.id }),
+    enabled:  !!active,
+    retry:    false,
+  })
+  const lastDecided = activeHistory.find(r => r.status !== 'pending') ?? null
+
+  const refreshRequests = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['framework-requests'] }),
+      qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] }),
+    ])
+  }
+  const errorText = (e: unknown, fallbackKey: string) => {
+    if (e instanceof ApiError) {
+      const body = e.body as { message?: string } | null
+      if (body?.message) return body.message
+      if (e.status === 403) return t('page.regulatory_framework_admin.err_forbidden_status')
+    }
+    return t(fallbackKey)
+  }
+
+  // "Send for approval" asks first; nothing changes until another PM or a QC approves.
   const [confirmOpen, setConfirmOpen] = useState(false)
   const save = () => { if (canSave && active) setConfirmOpen(true) }
-  const doSupersede = async () => {
+  const doSendForApproval = async () => {
     setConfirmOpen(false)
     if (!canSave || !active) return
     setSaving(true)
     setSaveError(null)
     setSaveResult(null)
     try {
-      await platformApi.retireFramework(active.id)
-      await qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] })
-      setSaveResult(t('page.regulatory_framework_admin.save_success', { code: active.code }))
+      await platformApi.sendFrameworkForApproval(active.id, requestReason.trim() || undefined)
+      await refreshRequests()
+      setSaveResult(t('page.regulatory_framework_admin.sent_for_approval', { code: active.code, defaultValue: '{{code}} sent for approval. Every Project Manager and QC has been notified.' }))
       setNewStatus('Current')
+      setRequestReason('')
     } catch (e) {
-      setSaveError(
-        e instanceof ApiError && e.status === 403 ? t('page.regulatory_framework_admin.err_forbidden_status') :
-        e instanceof ApiError && e.status === 409 ? t('page.regulatory_framework_admin.err_already_superseded', { code: active.code }) :
-        t('page.regulatory_framework_admin.err_save_generic'),
-      )
+      setSaveError(errorText(e, 'page.regulatory_framework_admin.err_save_generic'))
     } finally {
       setSaving(false)
+    }
+  }
+
+  // Approve / reject someone else's request.
+  const [approveOpen, setApproveOpen] = useState(false)
+  const [rejecting, setRejecting] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+  const [deciding, setDeciding] = useState(false)
+  useEffect(() => { setRejecting(false); setRejectReason(''); setApproveOpen(false); setSaveError(null); setSaveResult(null) }, [openId])
+  const doApprove = async () => {
+    setApproveOpen(false)
+    if (!activePending || !active) return
+    setDeciding(true); setSaveError(null); setSaveResult(null)
+    try {
+      await platformApi.approveFrameworkRequest(activePending.id)
+      await refreshRequests()
+      setSaveResult(t('page.regulatory_framework_admin.approved_result', { code: active.code, defaultValue: '✓ Approved. {{code}} is now superseded. Written to the audit trail.' }))
+    } catch (e) {
+      setSaveError(errorText(e, 'page.regulatory_framework_admin.err_save_generic'))
+    } finally {
+      setDeciding(false)
+    }
+  }
+  const doReject = async () => {
+    if (!activePending || !active || rejectReason.trim().length < 3) return
+    setDeciding(true); setSaveError(null); setSaveResult(null)
+    try {
+      await platformApi.rejectFrameworkRequest(activePending.id, rejectReason.trim())
+      await refreshRequests()
+      setRejecting(false); setRejectReason('')
+      setSaveResult(t('page.regulatory_framework_admin.rejected_result', { code: active.code, defaultValue: 'Request rejected. {{code}} stays current, and the requester has been told why.' }))
+    } catch (e) {
+      setSaveError(errorText(e, 'page.regulatory_framework_admin.err_save_generic'))
+    } finally {
+      setDeciding(false)
     }
   }
 
@@ -396,7 +469,14 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
                     <td className="px-4 py-3 text-slate-800">{f.name}</td>
                     <td className="px-4 py-3 text-slate-700">{f.issuer}</td>
                     <td className="px-4 py-3"><ScopeDots scope={f.scope} /></td>
-                    <td className="px-4 py-3"><StatusChip status={f.status} /></td>
+                    <td className="px-4 py-3">
+                      <StatusChip status={f.status} />
+                      {pendingByFramework.has(f.id) && (
+                        <span className="ml-1.5 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800" data-pending-chip>
+                          {t('page.regulatory_framework_admin.pending_chip', { defaultValue: 'Pending approval' })}
+                        </span>
+                      )}
+                    </td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(f.lastUpdated)}</td>
                   </tr>
                 )
@@ -440,6 +520,11 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
           <div className="flex flex-col gap-4 px-5 py-5" data-edit-drawer data-active-framework={active.id}>
             <div className="flex items-center gap-2">
               <StatusChip status={active.status} />
+              {activePending && (
+                <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800" data-active-pending-chip>
+                  {t('page.regulatory_framework_admin.pending_chip', { defaultValue: 'Pending approval' })}
+                </span>
+              )}
               <ScopeDots scope={active.scope} />
             </div>
 
@@ -461,7 +546,62 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
               <p className="mt-2 font-mono text-[10px] text-slate-500" data-scope-unavailable>{t('page.regulatory_framework_admin.scope_unavailable')}</p>
             </fieldset>
 
-            {!readOnly && (alreadySuperseded ? (
+            {!readOnly && activePending && !alreadySuperseded && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-900" data-pending-request={activePending.id}>
+                <p className="font-semibold">{t('page.regulatory_framework_admin.pending_title', { defaultValue: 'Waiting for approval to mark as superseded' })}</p>
+                <p className="mt-0.5" data-pending-requested-by>
+                  {t('page.regulatory_framework_admin.pending_by', { name: activePending.requestedByName ?? '—', date: formatDay(activePending.requestedAt), defaultValue: 'Sent by {{name}} on {{date}}' })}
+                </p>
+                {activePending.reason && <p className="mt-0.5" data-pending-reason>{t('page.regulatory_framework_admin.reason_label', { defaultValue: 'Reason' })}: {activePending.reason}</p>}
+
+                {activePending.requestedBy === me.id ? (
+                  <p className="mt-2 text-amber-800" data-pending-own>{t('page.regulatory_framework_admin.pending_own', { defaultValue: 'Another Project Manager or a QC has to approve it.' })}</p>
+                ) : canDecide ? (
+                  rejecting ? (
+                    <div className="mt-2 flex flex-col gap-2" data-reject-form>
+                      <label className="flex flex-col gap-1">
+                        <span className="font-semibold">{t('page.regulatory_framework_admin.reject_reason_label', { defaultValue: 'Reason for rejecting (required)' })}</span>
+                        <textarea value={rejectReason} onChange={e => setRejectReason(e.currentTarget.value)} rows={3} maxLength={1000}
+                          data-reject-reason className="rounded-md border border-slate-300 bg-white p-2 text-[12px] text-slate-800" />
+                      </label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => void doReject()} disabled={deciding || rejectReason.trim().length < 3} data-action="confirm-reject"
+                          className="h-8 rounded-md bg-red-600 px-3 text-[12px] font-semibold text-white disabled:opacity-40">
+                          {t('page.regulatory_framework_admin.reject_confirm', { defaultValue: 'Reject request' })}
+                        </button>
+                        <button type="button" onClick={() => { setRejecting(false); setRejectReason('') }} className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700">
+                          {t('button.cancel')}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" onClick={() => setApproveOpen(true)} disabled={deciding} data-action="approve-request"
+                        className="h-8 rounded-md px-3 text-[12px] font-semibold text-white disabled:opacity-40" style={{ backgroundColor: PLATFORM_ACCENT.primary }}>
+                        {t('page.regulatory_framework_admin.approve_action', { defaultValue: 'Approve' })}
+                      </button>
+                      <button type="button" onClick={() => setRejecting(true)} disabled={deciding} data-action="reject-request"
+                        className="h-8 rounded-md border border-red-300 bg-white px-3 text-[12px] font-semibold text-red-700 disabled:opacity-40">
+                        {t('page.regulatory_framework_admin.reject_action', { defaultValue: 'Reject' })}
+                      </button>
+                    </div>
+                  )
+                ) : (
+                  <p className="mt-2" data-pending-readonly>{t('page.regulatory_framework_admin.pending_deciders', { defaultValue: 'A Project Manager or a QC decides.' })}</p>
+                )}
+              </div>
+            )}
+            {!readOnly && !activePending && !alreadySuperseded && lastDecided?.status === 'rejected' && (
+              <p className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600" data-last-rejection>
+                {t('page.regulatory_framework_admin.last_rejected', { name: lastDecided.decidedByName ?? '—', date: lastDecided.decidedAt ? formatDay(lastDecided.decidedAt) : '—', reason: lastDecided.rejectionReason ?? '', defaultValue: 'The last request was rejected by {{name}} on {{date}}: {{reason}}' })}
+              </p>
+            )}
+            {!readOnly && !canChangeStatus && !alreadySuperseded && !activePending && (
+              <p className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600" data-status-pm-only>
+                {t('page.regulatory_framework_admin.status_pm_only')}
+              </p>
+            )}
+            {!readOnly && !activePending && (canChangeStatus || alreadySuperseded) && (alreadySuperseded ? (
               <p className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600" data-superseded-note>
                 {t('page.regulatory_framework_admin.superseded_note')}
               </p>
@@ -488,12 +628,19 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
                   </select>
                 </label>
 
+                {newStatus === 'Deprecated' && (
+                  <label className="flex flex-col gap-1">
+                    <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.regulatory_framework_admin.request_reason_label', { defaultValue: 'Reason (optional)' })}</span>
+                    <textarea value={requestReason} onChange={e => setRequestReason(e.currentTarget.value)} rows={2} maxLength={1000}
+                      data-request-reason className="rounded-md border border-slate-300 p-2 text-[12px]" />
+                  </label>
+                )}
                 <div className="flex gap-2">
                   <button type="button" onClick={save} disabled={!canSave}
                     data-save-framework
                     className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-                  >{saving ? t('page.regulatory_framework_admin.saving') : t('page.regulatory_framework_admin.mark_superseded_action')}</button>
+                  >{saving ? t('page.regulatory_framework_admin.saving') : t('page.regulatory_framework_admin.send_for_approval_action', { defaultValue: 'Send for approval →' })}</button>
                   <button type="button" onClick={() => setNewStatus('Current')}
                     className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
                 </div>
@@ -519,12 +666,20 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
 
       <ConfirmDialog
         open={confirmOpen && !!active}
-        tone="danger"
-        title={t('page.regulatory_framework_admin.confirm_supersede_title', { code: active?.code ?? '', defaultValue: 'Mark {{code}} as superseded?' })}
-        message={t('page.regulatory_framework_admin.confirm_supersede_body', { defaultValue: "This can't be undone. The framework stays in the registry and stays citable on historical submissions." })}
-        confirmLabel={t('page.regulatory_framework_admin.mark_superseded_confirm', { defaultValue: 'Mark as superseded' })}
-        onConfirm={() => void doSupersede()}
+        title={t('page.regulatory_framework_admin.confirm_send_title', { code: active?.code ?? '', defaultValue: 'Send {{code}} for approval?' })}
+        message={t('page.regulatory_framework_admin.confirm_send_body', { defaultValue: 'Another Project Manager or a QC has to approve before it is marked superseded. Every Project Manager and QC is notified.' })}
+        confirmLabel={t('page.regulatory_framework_admin.send_for_approval_confirm', { defaultValue: 'Send for approval' })}
+        onConfirm={() => void doSendForApproval()}
         onCancel={() => setConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={approveOpen && !!active && !!activePending}
+        tone="danger"
+        title={t('page.regulatory_framework_admin.confirm_approve_title', { code: active?.code ?? '', defaultValue: 'Approve and mark {{code}} as superseded?' })}
+        message={t('page.regulatory_framework_admin.confirm_supersede_body', { defaultValue: "This can't be undone. The framework stays in the registry and stays citable on historical submissions." })}
+        confirmLabel={t('page.regulatory_framework_admin.approve_confirm', { defaultValue: 'Approve' })}
+        onConfirm={() => void doApprove()}
+        onCancel={() => setApproveOpen(false)}
       />
     </div>
   )

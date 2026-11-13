@@ -35,6 +35,20 @@ export interface MyNotification {
 
 // --- Request bodies ---
 
+export interface FrameworkSupersedeRequest {
+  id:              string
+  frameworkId:     string
+  status:          'pending' | 'approved' | 'rejected'
+  reason:          string | null
+  requestedBy:     string
+  requestedByName: string | null
+  requestedAt:     string
+  decidedBy:       string | null
+  decidedByName:   string | null
+  decidedAt:       string | null
+  rejectionReason: string | null
+}
+
 export interface LibraryListParams {
   q?: string
   module?: string[]
@@ -356,8 +370,20 @@ export const platformApi = {
   createFramework: (body: CreateFrameworkBody) =>
     api.post<FrameworkRow>('/admin/frameworks', body).then(frameworkShape),
   // Marks a framework superseded (sets retiredAt). Audited server-side; irreversible.
-  retireFramework: (frameworkId: string) =>
-    api.post<FrameworkRow>(`/admin/frameworks/${encodeURIComponent(frameworkId)}/retire`, {}).then(frameworkShape),
+  // Marking a framework superseded is a two-person decision: a PM sends it for approval, another PM or a
+  // QC approves (the framework is retired) or rejects with a reason. There is no direct retire.
+  sendFrameworkForApproval: (frameworkId: string, reason?: string) =>
+    api.post<FrameworkSupersedeRequest>(`/admin/frameworks/${encodeURIComponent(frameworkId)}/supersede-request`, reason ? { reason } : {}),
+  listFrameworkRequests: (params: { status?: 'pending' | 'approved' | 'rejected'; frameworkId?: string } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.status) qs.set('status', params.status)
+    if (params.frameworkId) qs.set('frameworkId', params.frameworkId)
+    return api.get<FrameworkSupersedeRequest[]>(`/admin/frameworks/supersede-requests${qs.size ? `?${qs}` : ''}`)
+  },
+  approveFrameworkRequest: (requestId: string) =>
+    api.post<FrameworkSupersedeRequest>(`/admin/frameworks/supersede-requests/${encodeURIComponent(requestId)}/approve`, {}),
+  rejectFrameworkRequest: (requestId: string, reason: string) =>
+    api.post<FrameworkSupersedeRequest>(`/admin/frameworks/supersede-requests/${encodeURIComponent(requestId)}/reject`, { reason }),
 
   // sB10 — Slide Deck (Scientific Writing)
   getSlideDeckJob: (publicationId: string, jobId: string) =>

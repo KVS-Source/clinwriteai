@@ -38,7 +38,7 @@ import { publicUser, type PublicUser } from './public-user.js'
 // UserManagementLive.tsx ROLE_OPTIONS).
 const ROLES = [
   // Canonical post-migration-48
-  'tenant-admin', 'pm', 'contributor', 'auditor', 'guest',
+  'tenant-admin', 'pm', 'contributor', 'auditor', 'qc', 'guest',
   // Legacy (still writable so pre-cutover rows don't get stuck)
   'admin', 'clinical-writer', 'scientific-writer',
   'medical-writer', 'regulatory-writer', 'ideation-lead', 'reviewer', 'read-only',

@@ -37,6 +37,9 @@ const KIND_KEYS: Record<string, string> = {
   'signature_requested':           'page.notification_centre.kind_signature_requested',
   'document_nudge':                'page.notification_centre.kind_document_nudge',
   'ai_quota_approaching':          'page.notification_centre.kind_ai_quota_approaching',
+  'framework_supersede_requested': 'page.notification_centre.kind_framework_supersede_requested',
+  'framework_supersede_approved':  'page.notification_centre.kind_framework_supersede_approved',
+  'framework_supersede_rejected':  'page.notification_centre.kind_framework_supersede_rejected',
   'account.inactivity_warning':    'page.notification_centre.kind_inactivity_warning',
   'account.inactivity_suspended':  'page.notification_centre.kind_inactivity_suspended',
 }

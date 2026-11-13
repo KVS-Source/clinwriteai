@@ -27,7 +27,7 @@ export const SIGNER_LETTERS = {
 } as const satisfies Record<string, SignatureMeaning>
 
 const ADMIN_ROLES: ReadonlySet<string> = new Set(['tenant-admin', 'admin', 'super-admin'])
-const AUDITOR_ROLES: ReadonlySet<string> = new Set(['auditor', 'read-only'])
+const AUDITOR_ROLES: ReadonlySet<string> = new Set(['auditor', 'read-only', 'qc'])   // QC reads like an auditor
 
 type DocRef = { id: string; projectId: string; assigneeId?: string | null }
 

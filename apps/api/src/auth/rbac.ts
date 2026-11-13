@@ -34,6 +34,7 @@ export type CanonicalRole =
   | 'pm'
   | 'contributor'
   | 'auditor'
+  | 'qc'        // Quality Control: reads all content (like Auditor), approves framework supersede requests
   | 'guest'
 
 // Legacy role strings. Still accepted in route guards; still appear in
@@ -185,7 +186,7 @@ export function _resetEnabledModulesCache(): void {
   enabledModulesCache = null
 }
 
-const READ_ONLY_ROLES: ReadonlySet<Role> = new Set<Role>(['auditor', 'read-only'])
+const READ_ONLY_ROLES: ReadonlySet<Role> = new Set<Role>(['auditor', 'read-only', 'qc'])
 const READ_METHODS: ReadonlySet<string> = new Set(['GET', 'HEAD', 'OPTIONS'])
 
 export const AUDITOR_READ_ONLY = {

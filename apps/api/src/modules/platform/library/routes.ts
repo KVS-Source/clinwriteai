@@ -24,8 +24,7 @@ import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
 import type { Prisma } from '@prisma/client'
 import { visibleDocumentIds, visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../document-raci/access.js'
-import { compareSections } from '../../clinical-writing/documents/service.js'
-import { htmlToPlainText } from './plain-text.js'
+import { pushDocumentToLibrary } from './auto-push.js'
 import { PROJECT_CLOSED, projectIsClosed } from '../../projects/closed.js'
 import { extractTextFromBlob } from '../../clinical-writing/documents/extract-text.js'
 import { fileExtension } from '../uploads/source-files.js'
@@ -150,8 +149,6 @@ const bestPracticeCreate = z.object({
 
 const PLATFORM_WIDE_TA = 'Platform-wide'
 
-// Thrown inside the push transaction when the same document version turns out to be in the library already.
-class AlreadyPushedError extends Error {}
 
 export const libraryRoutes: FastifyPluginAsync = async (app) => {
   // Rows with tenantId=null are platform-wide; a tenant row is only visible to
@@ -484,58 +481,16 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: 'ta_mismatch', message: `The therapeutic area must match the document's (${doc.therapeuticArea}).` })
     }
 
-    const sections = [...(doc.currentVersion?.sections ?? [])].sort(compareSections)
-    const docVersion = doc.currentVersion?.versionNumber ?? b.version
-    const body = sections.filter(s => htmlToPlainText(s.contentHtml)).map(s => `${s.sectionNumber} ${s.sectionTitle}\n${htmlToPlainText(s.contentHtml)}`).join('\n\n')
-    if (!body) return reply.code(422).send({ error: 'empty', message: 'This document has no content to push.' })
-
-    const sourceTag = `source:${doc.id}`
+    // Same push as the automatic one on signing (auto-push.ts): one entry per document version, checked under a
+    // lock so two pushes at the same moment can't both create one.
     const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { tenantId: true } })
-    const tenantId = project?.tenantId ?? user.tenantId
-    const tags = [
-      `module:${b.module}`, `doctype:${b.docType}`, `project:${doc.projectId}`, sourceTag, `fromdoc:${doc.id}`, `docversion:${docVersion}`,
-      'type:document',
-    ]
-
-    const alreadyPushed = () => reply.code(409).send({ error: 'already_pushed', message: `${docVersion} of this document is already in the Master Library.` })
-
-    // Quick answer for the common case. This check alone is not enough: two pushes of the same document at the
-    // same moment (a double click, two open tabs) can both pass it, so it is repeated under a lock below.
-    const earlierQuick = await app.prisma.librarySection.findFirst({
-      where: { tenantId, isCurrent: true, retiredAt: null, tags: { has: sourceTag } },
+    const outcome = await pushDocumentToLibrary(app.prisma, {
+      doc, taTag, module: b.module, docType: b.docType, tenantId: project?.tenantId ?? user.tenantId, approvedBy: user.id, fallbackVersion: b.version,
     })
-    if (earlierQuick?.tags.includes(`docversion:${docVersion}`)) return alreadyPushed()
-
-    let pushed: { created: SectionRow; earlier: SectionRow | null }
-    try {
-      pushed = await app.prisma.$transaction(async (tx) => {
-        // One push per source document at a time: the lock is held until this transaction ends, so a second
-        // push waits here and then sees the first one's entry. Needs no schema change.
-        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`library-push:${tenantId ?? 'platform'}:${sourceTag}`}))`
-        const earlier = await tx.librarySection.findFirst({
-          where: { tenantId, isCurrent: true, retiredAt: null, tags: { has: sourceTag } },
-        })
-        if (earlier?.tags.includes(`docversion:${docVersion}`)) throw new AlreadyPushedError()
-        const next = await tx.librarySection.create({
-          data: {
-            tenantId, taTag, tags, body,
-            title: doc.title,
-            framework: b.docType,
-            category: 'claim',
-            version: (earlier?.version ?? 0) + 1,
-            approvedBy: user.id,
-          },
-        })
-        if (earlier) {
-          await tx.librarySection.update({ where: { id: earlier.id }, data: { isCurrent: false, supersededBy: next.id } })
-        }
-        return { created: next, earlier }
-      })
-    } catch (err) {
-      if (err instanceof AlreadyPushedError) return alreadyPushed()
-      throw err
-    }
-    const { created, earlier } = pushed
+    const docVersion = outcome.documentVersion
+    if (outcome.status === 'empty') return reply.code(422).send({ error: 'empty', message: 'This document has no content to push.' })
+    if (outcome.status === 'already') return reply.code(409).send({ error: 'already_pushed', message: `${docVersion} of this document is already in the Master Library.` })
+    const { created, earlier } = outcome
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: user.id,

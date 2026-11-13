@@ -66,21 +66,12 @@ export interface LibraryListParams {
 
 export interface LibraryPage { items: MasterLibraryItem[]; total: number; nextCursor: string | null }
 
-export interface LibraryDocumentEntry {
-  id: string
-  name: string
-  sectionId: string | null          // null = the whole document
-  documentVersion: string | null
-  libraryVersion: string
-}
-
-export interface LibraryPushBody {
-  documentId: string
-  taTag: string
-  module: 'A' | 'B' | 'C' | 'D' | 'E'
-  docType: string
-  version: string
-}
+// What happened to a signed document's automatic push to the Master Library (GET /library/auto-push/:documentId).
+export type LibraryAutoPushStatus =
+  | { state: 'pushed'; entry: { id: string; addedAt: string; libraryVersion: string; documentVersion: string | null } }
+  | { state: 'skipped'; reason: string; missing?: string[]; at: string | null; documentVersion: string | null }
+  | { state: 'failed'; reason: string; at: string | null; documentVersion: string | null }
+  | { state: 'waiting' | 'not_signed'; documentVersion?: string | null }
 
 export interface InviteUserBody {
   name:     string
@@ -245,12 +236,9 @@ export const platformApi = {
     const { total } = await api.get<{ total: number }>(`/library/count${qs.size ? `?${qs}` : ''}`)
     return total
   },
-  // FR-A-080: push a signed, final document (or one of its sections) into the library.
-  pushToLibrary: (body: LibraryPushBody) =>
-    api.post<MasterLibraryItem>('/library/push', body),
-  // What of a document is already in the library (whole document and/or single sections).
-  libraryEntriesForDocument: (documentId: string) =>
-    api.get<LibraryDocumentEntry[]>(`/library/by-document/${encodeURIComponent(documentId)}`),
+  // FR-A-080: a signed document is pushed to the library by itself on signing; this says what happened.
+  libraryAutoPushStatus: (documentId: string) =>
+    api.get<LibraryAutoPushStatus>(`/library/auto-push/${encodeURIComponent(documentId)}`),
   // PM: add a document from the computer (PDF or Word). Multipart: the fields first, then the file.
   uploadLibraryDocument: (form: FormData) =>
     api.upload<MasterLibraryItem>('/library/upload', form),

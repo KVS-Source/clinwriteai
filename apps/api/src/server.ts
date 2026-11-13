@@ -467,6 +467,9 @@ async function buildServer() {
   const { libraryShareRoutes, sharedLibraryPublicRoutes } = await import('./modules/platform/library/share.js')
   await app.register(libraryShareRoutes, { prefix: '/library' })
   await app.register(sharedLibraryPublicRoutes, { prefix: '/shared-library' })
+  // Signed documents go into the library by themselves; GET /library/auto-push/:documentId reports it (auto-push.ts).
+  const { libraryAutoPushRoutes } = await import('./modules/platform/library/auto-push.js')
+  await app.register(libraryAutoPushRoutes, { prefix: '/library' })
 
   const { notificationsRoutes } = await import('./modules/platform/notifications/routes.js')
   await app.register(notificationsRoutes, { prefix: '/notifications' })

@@ -40,6 +40,7 @@ import { initialStatuses, recordsToRelease, sortForChain, type ChainType, type S
 import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain, requiredSigners } from './access.js'
 import { resetRaciRound } from '../../platform/document-raci/access.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
+import { autoPushSignedDocument } from '../../platform/library/auto-push.js'
 
 const initiateSchema = z.object({
   chainType: z.enum(['sequential', 'parallel', 'grouped']).default('grouped'),
@@ -294,6 +295,8 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
             details: { chainId: completedChain.id, versionNumber: final.versionNumber },
             ipAddress: request.ip ?? null,
           })
+          // The push waited for this snapshot (auto-push.ts); do it now.
+          await autoPushSignedDocument(app, documentId, { trigger: 'late_final_version', ipAddress: request.ip ?? null })
         }
       } catch (err) {
         app.log.warn({ err, documentId }, 'late v1.0 snapshot repair failed')
@@ -510,6 +513,13 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         app.log.error({ err, attempt, recordId: record.id, signatureAudit }, 'signature audit entry failed')
         if (attempt < 3) await new Promise(r => setTimeout(r, 150 * attempt))
       }
+    }
+
+    // The signed document goes into the Master Library by itself, after the signature is on the trail. Tags come
+    // from the document; a missing tag skips the push with a logged reason. Never throws, so it can't fail the
+    // signing; audited on the document (auto-push.ts). Without the v1.0 snapshot it waits for the late one.
+    if (result.chainStatus === 'complete') {
+      await autoPushSignedDocument(app, record.chain.documentId, { trigger: 'signing', signedBy: request.user!.id, ipAddress: request.ip ?? null })
     }
 
     return { ...result.signed, credentialHash: undefined, auditEntryId: auditEntry ? String(auditEntry.id) : null }

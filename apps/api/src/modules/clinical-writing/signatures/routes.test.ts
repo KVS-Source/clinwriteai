@@ -4,7 +4,17 @@
 
 import bcrypt from 'bcryptjs'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// The push to the Master Library on signing has its own tests (library/auto-push.test.ts); here only when it runs.
+const autoPush = vi.hoisted(() => ({ calls: [] as Array<{ documentId: string; trigger: string; signedBy?: string | null }> }))
+vi.mock('../../platform/library/auto-push.js', () => ({
+  autoPushSignedDocument: vi.fn(async (_app: unknown, documentId: string, opts: { trigger: string; signedBy?: string | null }) => {
+    autoPush.calls.push({ documentId, trigger: opts.trigger, signedBy: opts.signedBy })
+    return { state: 'pushed', libraryItemId: 'lib-1', created: true }
+  }),
+}))
+
 import { signatureRoutes } from './routes.js'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose in-memory Prisma double
@@ -165,7 +175,7 @@ const signAs = (password = PASSWORD) => ({ password, localTime: '10:00 IST' })
 
 describe('signature chain routes', () => {
   let t: Awaited<ReturnType<typeof build>>
-  beforeEach(async () => { t = await build() })
+  beforeEach(async () => { t = await build(); autoPush.calls.length = 0 })
 
   it('refuses to initiate before CRM is complete (document not pending_signature)', async () => {
     t.db.documents[0].status = 'in_review'
@@ -228,6 +238,8 @@ describe('signature chain routes', () => {
     expect(t.db.chains[0].status).toBe('complete')
     expect(t.db.documents[0]).toMatchObject({ status: 'signed', watermarked: false })
     expect(t.audit.map(a => a.action)).toEqual(['signature_initiated', 'signature_recorded', 'document_signed'])
+    // Pushed to the Master Library once — on the signature that completed the chain, not the first one.
+    expect(autoPush.calls).toEqual([{ documentId: 'DOC-1', trigger: 'signing', signedBy: USERS.reviewer.id }])
   })
 
   it('makes the document v1.0 (Final) on the last signature, a snapshot of the signed content', async () => {
@@ -310,6 +322,8 @@ describe('signature chain routes', () => {
     expect(list.statusCode).toBe(200)
     expect(t.db.versions.find(v => v.versionNumber === 'v1.0')).toMatchObject({ label: 'Final' })
     expect(t.audit.at(-1)).toMatchObject({ action: 'final_version_created_late' })
+    // The push that waited for the snapshot runs now.
+    expect(autoPush.calls.map(c => c.trigger)).toEqual(['signing', 'late_final_version'])
   })
 
   it('refuses a wrong password, audits the attempt, and leaves the record unsigned', async () => {

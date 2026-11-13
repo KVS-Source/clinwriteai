@@ -95,7 +95,7 @@ function auditDetail(row: AuditRow): string {
     else if (d.outcome === 'failed') parts.push('Request failed')
   }
   if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from ?? 'none')} → ${String(d.to ?? 'none')}`)
-  if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
+  if (typeof d.reason === 'string' && d.reason && !row.action.startsWith('library_auto_push')) parts.push(`Reason: ${d.reason}`)
   // A recorded signature says what the person signed as, and which step it was.
   if (row.action === 'signature_recorded' || row.action === 'document_signed') {
     if (typeof d.meaning === 'string' && d.meaning) parts.push(`Meaning: ${d.meaning}`)
@@ -107,6 +107,21 @@ function auditDetail(row: AuditRow): string {
       .map(r => (typeof r.name === 'string' && r.name) || (typeof r.email === 'string' && r.email) || '')
       .filter(Boolean)
     parts.push(`Master Library copy shared with ${names.join(', ') || 'no one'}`)
+  }
+  // Pushed to the Master Library by itself on signing (auto-push.ts): the entry and the tags used, or why not.
+  if (row.action === 'library_auto_pushed' || row.action === 'library_auto_push_skipped' || row.action === 'library_auto_push_failed') {
+    const tags = (d.tags ?? {}) as Record<string, unknown>
+    const tagText = [tags.therapeuticArea, tags.module && `Module ${String(tags.module)}`, tags.documentType, tags.version].filter(Boolean).join(', ')
+    if (row.action === 'library_auto_pushed') {
+      const when = d.trigger === 'signing' ? 'on signing' : d.trigger === 'late_final_version' ? 'once the final version was created' : '(document signed before auto-push)'
+      parts.push(`Pushed to Master Library automatically ${when}${typeof d.libraryItemId === 'string' ? ` · Entry ${d.libraryItemId}` : ''}${tagText ? ` · Tags: ${tagText}` : ''}`)
+    } else if (row.action === 'library_auto_push_skipped') {
+      const missing = Array.isArray(d.missing) ? (d.missing as string[]).map(m => m.replace(/_/g, ' ')).join(', ') : ''
+      parts.push(`Not pushed to Master Library: ${d.reason === 'missing_tags' ? `missing ${missing}` : d.reason === 'no_content' ? 'no content' : d.reason === 'final_version_missing' ? 'final version not created yet' : String(d.reason ?? 'unknown')}`)
+    } else {
+      parts.push(`Push to Master Library failed: ${String(d.reason ?? 'unknown error')}`)
+    }
+    if (typeof d.documentVersion === 'string' && d.documentVersion) parts.push(d.documentVersion)
   }
   if (row.action === 'final_document_exported') {
     parts.push(d.mode === 'signed' ? 'Signed copy' : 'Watermarked draft')

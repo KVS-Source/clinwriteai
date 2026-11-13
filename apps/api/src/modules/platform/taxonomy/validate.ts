@@ -36,5 +36,5 @@ export const sameTa =(a: string | null | undefined, b: string | null | undefined
 
 export const invalidTaBody = (label: string) => ({
   error: 'invalid_therapeutic_area',
-  message: `"${label}" is not an active therapeutic area. Pick one from Admin → TA Tags.`,
+  message: `"${label}" is not an active therapeutic area. Pick one from TA Tags (managed by Project Managers).`,
 })

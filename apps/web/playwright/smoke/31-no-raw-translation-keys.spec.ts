@@ -15,7 +15,6 @@ test.setTimeout(120_000)
 const SCREENS = [
   { path: '/home', section: 'quick-links' },
   { path: '/admin/raci' },
-  { path: '/admin/taxonomy' },
   { path: '/admin/checklist-templates' },
   { path: '/admin/frameworks' },
   { path: '/notifications' },

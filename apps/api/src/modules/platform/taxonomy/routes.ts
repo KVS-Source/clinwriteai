@@ -1,6 +1,6 @@
 // Taxonomy admin — therapeutic areas (TA tags).
 //
-// Admin surface (PRD sPM17). Admins curate the TA catalogue; every authed
+// Project Manager surface (PRD sPM17, moved from IT Admin). PMs curate the TA catalogue; every authed
 // user can read + validate. Projects / documents / module items store the
 // TA *label* as free text, so "in use" = rows whose TA matches the label
 // case-insensitively (see usageByLabel). The project + Module A document
@@ -10,17 +10,17 @@
 //   GET    /taxonomy/therapeutic-areas            — list active (?tree=true, ?includeArchived=true, ?includeUsage=true)
 //   GET    /taxonomy/therapeutic-areas/:code      — detail incl children
 //   GET    /taxonomy/therapeutic-areas/validate?code=X  — writer helper
-//   POST   /admin/taxonomy/therapeutic-areas      — admin create
-//   PATCH  /admin/taxonomy/therapeutic-areas/:code — admin update / archive / restore
-//   DELETE /admin/taxonomy/therapeutic-areas/:code — admin hard delete (unused tags only; FR-PM-031)
+//   POST   /admin/taxonomy/therapeutic-areas      — PM create
+//   PATCH  /admin/taxonomy/therapeutic-areas/:code — PM update / archive / restore
+//   DELETE /admin/taxonomy/therapeutic-areas/:code — PM hard delete (unused tags only; FR-PM-031)
 
 import type { FastifyPluginAsync } from 'fastify'
 import type { PrismaClient } from '@prisma/client'
 import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 
-// Tenant admins manage the catalogue too (PRD sPM17 access = Admin).
-const adminGate = requireAuth({ roles: ['admin'] })
+// Project Managers manage the catalogue (content standards). IT Admin no longer does.
+const pmGate = requireAuth({ roles: ['pm'] })
 
 type Usage = { projectCount: number; documentCount: number }
 
@@ -126,7 +126,7 @@ export const taxonomyRoutes: FastifyPluginAsync = async (app) => {
     return row
   })
 
-  app.post('/admin/taxonomy/therapeutic-areas', { preHandler: adminGate }, async (request, reply) => {
+  app.post('/admin/taxonomy/therapeutic-areas', { preHandler: pmGate }, async (request, reply) => {
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -167,7 +167,7 @@ export const taxonomyRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(row)
   })
 
-  app.patch('/admin/taxonomy/therapeutic-areas/:code', { preHandler: adminGate }, async (request, reply) => {
+  app.patch('/admin/taxonomy/therapeutic-areas/:code', { preHandler: pmGate }, async (request, reply) => {
     const { code } = request.params as { code: string }
     const parsed = updateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -252,7 +252,7 @@ export const taxonomyRoutes: FastifyPluginAsync = async (app) => {
 
   // Hard delete — only for tags nothing references (FR-PM-031 / AC-PM-025).
   // In-use tags must be archived via PATCH { status: 'archived' } instead.
-  app.delete('/admin/taxonomy/therapeutic-areas/:code', { preHandler: adminGate }, async (request, reply) => {
+  app.delete('/admin/taxonomy/therapeutic-areas/:code', { preHandler: pmGate }, async (request, reply) => {
     const { code } = request.params as { code: string }
     const existing = await app.prisma.therapeuticArea.findUnique({
       where: { code },

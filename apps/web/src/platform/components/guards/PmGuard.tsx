@@ -1,4 +1,4 @@
-// PmGuard — pages only a Project Manager uses (TA Tags). IT Admin is sent home, like any other role.
+// PmGuard - pages only a Project Manager uses (TA Tags). IT Admin is sent home, like any other role.
 import type { ReactNode } from 'react'
 import { Navigate } from 'react-router-dom'
 import { usePlatformStore } from '../../store'

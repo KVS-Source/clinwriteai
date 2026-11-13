@@ -249,6 +249,10 @@ export const platformApi = {
     api.upload<MasterLibraryItem>('/library/upload', form),
   getLibraryItem: (itemId: string) =>
     api.get<MasterLibraryItem>(`/library/${itemId}`),
+  // A Project Manager or Contributor shares a Master Document by email. Colleagues get a notification; anyone
+  // else (no account) gets an invitation whose link opens the document only after an emailed one-time code.
+  shareLibraryItem: (itemId: string, emails: string[]) =>
+    api.post<{ shared: Array<{ email: string; kind: 'user' | 'invite'; name?: string }>; failed: string[] }>(`/library/${encodeURIComponent(itemId)}/share`, { emails }),
   // Records that a section was pulled into a document (usage count + audit).
   adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/adopt`, body),

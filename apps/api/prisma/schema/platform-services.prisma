@@ -44,6 +44,35 @@ model LibrarySection {
   @@index([tags], type: Gin, map: "library_sections_tags_gin_idx")
 }
 
+// A Master Document shared with someone who has no account (Master Library "Share", migration 71) — e.g. a
+// CEO who must read it. The emailed link alone opens nothing: on opening it the reader asks for a one-time code,
+// which is emailed to the invited address only, and the document shows after the code is entered. A forwarded
+// link is useless to anyone without access to that inbox. Only hashes of the link token, the code and the
+// viewing session are stored. People who do have an account get a notification instead (no row here).
+model LibraryShare {
+  id             String    @id @default(cuid())
+  libraryItemId  String                                            // LibrarySection.id (loose, like adoptions)
+  tenantId       String?
+  email          String                                            // the invited address — codes go only here
+  sharedBy       String                                            // User.id
+  sharedAt       DateTime  @default(now())
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  tokenHash      String    @unique                                 // SHA-256 of the link token (the token is only in the email)
+  codeHash       String?                                           // SHA-256 of the current one-time code
+  codeSentAt     DateTime?
+  codeExpiresAt  DateTime?
+  codeAttempts   Int       @default(0)                             // wrong entries of the current code
+  codesSent      Int       @default(0)
+  sessionHash    String?                                           // SHA-256 of the current viewing session (one at a time)
+  sessionExpiresAt DateTime?
+  lastOpenedAt   DateTime?
+
+  @@map("library_shares")
+  @@index([libraryItemId])
+  @@index([email])
+}
+
 model LibraryAdoptionRecord {
   id              String   @id @default(uuid())
   libraryId       String                                             // FK to LibrarySection.id (loose — allows retirements)

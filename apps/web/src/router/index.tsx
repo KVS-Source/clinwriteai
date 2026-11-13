@@ -62,7 +62,8 @@ import { ArtefactUploadSourceCheck }    from '../screens/ideation-publishing/Art
 import { ContentCardTagging }           from '../screens/ideation-publishing/ContentCardTagging'
 import { PreReviewComplianceScreen }    from '../screens/ideation-publishing/PreReviewComplianceScreen'
 import { KOLReviewInterface }           from '../screens/ideation-publishing/KOLReviewInterface'
-import { GuestDocumentReview }          from '../screens/guest/GuestDocumentReview'
+import { SharedLibraryDocument }        from '../screens/guest/SharedLibraryDocument'
+import { GuestDocumentReview }         from '../screens/guest/GuestDocumentReview'
 import { MedicalAffairsApproval }       from '../screens/ideation-publishing/MedicalAffairsApproval'
 import { ContentCalendar }              from '../screens/ideation-publishing/ContentCalendar'
 import { PublishingMonitor }            from '../screens/ideation-publishing/PublishingMonitor'
@@ -334,5 +335,8 @@ export const router = createBrowserRouter([
   // in the path is the sole credential; see
   // apps/api/src/modules/platform/guest-invitations/redemption.ts.
   { path: '/guest/document/:token', element: <GuestDocumentReview /> },
+  // PUBLIC — a Master Library document shared with someone who has no account. The link alone opens nothing:
+  // the reader enters a one-time code emailed to the invited address (apps/api/.../library/share.ts).
+  { path: '/shared/library/:token', element: <SharedLibraryDocument /> },
   { path: '*', element: <Navigate to="/projects" replace /> },
 ])

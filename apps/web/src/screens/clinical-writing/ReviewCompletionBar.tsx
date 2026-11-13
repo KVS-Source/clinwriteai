@@ -39,6 +39,11 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
   const needsSignature = myOpen.some(r => r.signatureRequired)
   const isQc = myOpen.length > 0 && myOpen.every(r => r.letter === 'Q')
 
+  // My part is in (every row of mine is done) while others are still reviewing: say so in the
+  // button's place. The document moves on only when the whole cohort has finished.
+  const iMarkedDone = mine.length > 0 && mine.every(r => r.reviewedAt !== null) && !isReadOnlyUser(me)
+  const othersPending = cohort.filter(r => r.userId !== me?.id && r.reviewedAt === null && r.rejectedAt === null).map(r => r.userName ?? r.userId)
+
   const complete = useMutation({
     mutationFn: async () => {
       let last: Awaited<ReturnType<typeof raciApi.complete>> | null = null
@@ -72,6 +77,15 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
         {cohort.map(row => <PersonChip key={row.id} row={row} showPlace={sequential} />)}
         <div className="flex-1" />
 
+        {iMarkedDone && (
+          <span
+            className="whitespace-nowrap rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-[12px] font-semibold text-green-800"
+            title={othersPending.length > 0 ? t('page.reviewer_view.you_marked_done_waiting', { names: othersPending.join(', ') }) : undefined}
+            data-review-marked-by-you
+          >
+            {t('page.reviewer_view.you_marked_done')}
+          </span>
+        )}
         {canAct && !confirming && (
           <button
             type="button"

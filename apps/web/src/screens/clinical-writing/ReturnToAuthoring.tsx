@@ -80,16 +80,16 @@ export function ReturnToAuthoring({ documentId, status, onReturned }: {
         className="whitespace-nowrap rounded-md border px-3.5 py-2 text-[13px] font-semibold transition-colors hover:opacity-90"
         style={{ backgroundColor: '#FEF2F2', color: '#B91C1C', borderColor: '#FECACA' }}
       >
-        {t(row.letter === 'Q' ? 'page.reviewer_view.return_doc_button_q' : 'page.reviewer_view.return_doc_button')}
+        {t(row.letter === 'Q' ? 'page.reviewer_view.return_doc_button_q' : row.letter === 'A' ? 'page.reviewer_view.return_doc_button_a' : 'page.reviewer_view.return_doc_button')}
       </button>
 
       {open && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-labelledby="return-doc-title" data-return-dialog>
           <div className="w-full max-w-md rounded-lg border border-slate-200 bg-white p-5 shadow-xl">
-            <h2 id="return-doc-title" className="text-[15px] font-bold text-slate-900">{t('page.reviewer_view.return_doc_title')}</h2>
+            <h2 id="return-doc-title" className="text-[15px] font-bold text-slate-900">{t(row.letter === 'A' ? 'page.reviewer_view.return_doc_title_a' : 'page.reviewer_view.return_doc_title')}</h2>
             <p className="mt-1 text-[12px] leading-relaxed text-slate-600">{t('page.reviewer_view.return_doc_explainer')}</p>
             <label htmlFor="return-doc-note" className="mt-4 block text-[12px] font-semibold text-slate-700">
-              {t('page.reviewer_view.return_doc_note_label')}<span className="ml-0.5 text-red-600" aria-hidden="true">*</span>
+              {t(row.letter === 'A' ? 'page.reviewer_view.return_doc_note_label_a' : 'page.reviewer_view.return_doc_note_label')}<span className="ml-0.5 text-red-600" aria-hidden="true">*</span>
             </label>
             <textarea
               id="return-doc-note"
@@ -120,7 +120,7 @@ export function ReturnToAuthoring({ documentId, status, onReturned }: {
                 className="rounded-md bg-red-600 px-3 py-1.5 text-[13px] font-semibold text-white hover:bg-red-700 disabled:cursor-not-allowed disabled:bg-slate-300"
                 data-action="confirm-return"
               >
-                {returnMut.isPending ? t('page.reviewer_view.return_doc_returning') : t(row.letter === 'Q' ? 'page.reviewer_view.return_doc_button_q' : 'page.reviewer_view.return_doc_confirm')}
+                {returnMut.isPending ? t('page.reviewer_view.return_doc_returning') : t(row.letter === 'Q' ? 'page.reviewer_view.return_doc_button_q' : row.letter === 'A' ? 'page.reviewer_view.return_doc_confirm_a' : 'page.reviewer_view.return_doc_confirm')}
               </button>
             </div>
           </div>

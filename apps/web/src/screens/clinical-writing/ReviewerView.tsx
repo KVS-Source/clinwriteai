@@ -8,6 +8,8 @@ import type { CommentSeverity } from '@platform/types'
 import { documentsApi, projectsApi } from '../../api'
 import { MyRaciRole } from './MyRaciRole'
 import { ReturnToAuthoring } from './ReturnToAuthoring'
+import { ApproveDocument, APPROVE_DOCUMENT_REF } from './ApproveDocument'
+import { useDocumentTabAccess } from '../../hooks/useDocumentTabAccess'
 import { useCurrentUser } from '../../hooks'
 import { useDocumentPresence } from '../../hooks/usePresence'
 import { useCanComment } from '../../hooks/useCanComment'
@@ -59,6 +61,9 @@ function reviewDueLabel(reviewDueAt: string | null | undefined, t: TFunction): s
                  t('page.reviewer_view.review_due_days_overdue', { count: -days })
   return t('page.reviewer_view.review_due_label', { date: dateLabel, remaining })
 }
+
+// The per-section "Approve section" button is switched off: reviewers only review.
+const SHOW_APPROVE_SECTION = false
 
 const PANEL_TITLE_KEY: Record<string, string> = {
   comments:  'panel_comments',
@@ -209,6 +214,12 @@ export function ReviewerView() {
   // Only R, C, Q and A may add comments (action table row 15), and only C, Q and A may approve,
   // return or flag a section (rows 12 and 14). The API refuses everyone else.
   const { canGiveVerdict } = useSignatureAccess(documentId)
+  // An Approver (A, not also Reviewer / QC / Author) gets the Approver View: Approve document and
+  // Reject (with comments) for the whole document, no per-section approve and no CRM.
+  const tabAccess = useDocumentTabAccess(documentId)
+  const approverOnly = tabAccess?.approverOnly === true
+  // Reviewers, QC and Approvers have no Editor tab: "submit it from the Editor" isn't for them.
+  const cannotEdit = tabAccess?.editor === false
 
   // Keep this reviewer in the document's presence list ("N active" here and in the Editor).
   useDocumentPresence(documentId, activeSection)
@@ -237,6 +248,9 @@ export function ReviewerView() {
     : ''
   const alreadyApproved   = !!me && !!activeRef && commentList.some(
     c => c.verdict === 'approve' && c.reviewerId === me.id && c.sectionRef === activeRef,
+  )
+  const documentApprovedByMe = !!me && commentList.some(
+    c => c.verdict === 'approve' && c.reviewerId === me.id && c.sectionRef === APPROVE_DOCUMENT_REF,
   )
   const verdictBlockedReason = !hasSections ? t('page.reviewer_view.verdict_no_sections')
                              : !activeSectionData ? t('page.reviewer_view.verdict_select_section')
@@ -413,7 +427,17 @@ export function ReviewerView() {
             {/* Presence stack — live, same as the Editor (FR-A-053 / AC-A-037). */}
             {documentId && <PresenceStack documentId={documentId} currentUserId={me?.id} currentUserName={me?.name} />}
 
+            {canGiveVerdict && !!myLetters?.has('A') && (document.status === 'in-review' || document.status === 'crm-in-progress') && documentId && (
+              <ApproveDocument
+                documentId={documentId}
+                alreadyApproved={documentApprovedByMe}
+                onApproved={() => setApproveNote(t('page.reviewer_view.approve_document_done_toast'))}
+              />
+            )}
             {canGiveVerdict && (<>
+            {/* Reviewers (C / QC) only review: the per-section "Approve section" button is hidden.
+                Approval is the Approver's "Approve document" above. */}
+            {SHOW_APPROVE_SECTION && (
             <button
               type="button"
               onClick={handleApproveSection}
@@ -425,6 +449,7 @@ export function ReviewerView() {
             >
               {approveMut.isPending ? t('page.reviewer_view.approving') : alreadyApproved ? t('page.reviewer_view.approved_by_you') : awaitingRevision ? t('page.reviewer_view.awaiting_revision') : t('page.reviewer_view.approve_section')}
             </button>
+            )}
             {/* Return for revision (per-section verdict) is hidden; the action table's Return / reject is the button below.
             <button
               type="button"
@@ -448,7 +473,7 @@ export function ReviewerView() {
             )}
             </>)}
             {/* Review → Comments Resolution Meeting (PRD stage 5). */}
-            {(document.status === 'in-review' || document.status === 'crm-in-progress') && (
+            {!approverOnly && (document.status === 'in-review' || document.status === 'crm-in-progress') && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/crm`)}
@@ -480,8 +505,13 @@ export function ReviewerView() {
           className="flex flex-none flex-wrap items-center gap-x-3 gap-y-1 border-b border-blue-200 bg-blue-50 px-6 py-2 text-[13px] text-blue-900"
           data-notice="not-submitted"
         >
-          <span className="font-semibold">{t('page.reviewer_view.not_submitted_heading')}</span>
-          <span>{t('page.reviewer_view.not_submitted_body', { status: statusMeta.label })}</span>
+          {cannotEdit ? (<>
+            <span className="font-semibold">{t('page.reviewer_view.with_author_heading')}</span>
+            <span>{t('page.reviewer_view.with_author_body')}</span>
+          </>) : (<>
+            <span className="font-semibold">{t('page.reviewer_view.not_submitted_heading')}</span>
+            <span>{t('page.reviewer_view.not_submitted_body', { status: statusMeta.label })}</span>
+          </>)}
         </div>
       )}
 

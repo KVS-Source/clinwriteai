@@ -34,7 +34,6 @@ const PLATFORM_NAV: PlatformNavItem[] = [
   { labelKey: 'component.sidebar.platform_admin_panel',          href: '/admin',                     roles: ['admin'] as const, icon: <GearIcon /> },
   { labelKey: 'component.sidebar.platform_user_management',      href: '/admin/users',               roles: ['admin'] as const, icon: <UsersIcon /> },
   { labelKey: 'component.sidebar.platform_audit_trail',          href: '/admin/audit',               roles: ['admin'] as const, icon: <ClipboardIcon /> },
-  { labelKey: 'component.sidebar.platform_ta_tags',              href: '/admin/taxonomy',            roles: ['admin'] as const, icon: <TagIcon /> },
   { labelKey: 'component.sidebar.platform_raci_matrix',          href: '/admin/raci',                roles: ['admin'] as const, icon: <MatrixIcon /> },
   // Master Library (content standards) deliberately absent from the IT
   // Admin nav — admins are system operators, not content owners. The
@@ -53,9 +52,11 @@ const PLATFORM_NAV: PlatformNavItem[] = [
 const MASTER_LIBRARY_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
   { labelKey: 'component.sidebar.platform_master_library', href: '/master-library', icon: <BookIcon /> },
 ]
-// A PM doesn't get the Platform section but can read their projects' audit trail.
+// A PM doesn't get the Platform section but can read their projects' audit trail and manages the TA tags
+// (content standards, not IT admin — moved off the IT Admin nav).
 const PM_NAV: { labelKey: string; href: string; icon: ReactNode }[] = [
   { labelKey: 'component.sidebar.platform_audit_trail', href: '/admin/audit', icon: <ClipboardIcon /> },
+  { labelKey: 'component.sidebar.platform_ta_tags',     href: '/admin/taxonomy', icon: <TagIcon /> },
 ]
 const SUPER_ADMIN_NAV: PlatformNavItem[] = [
   { labelKey: 'component.sidebar.super_admin_panel',       href: '/super-admin',            roles: ['admin'] as const, icon: <ShieldCheckIcon /> },

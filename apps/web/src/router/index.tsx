@@ -95,7 +95,7 @@ import { DocumentTypePolicies }         from '../platform/screens/DocumentTypePo
 import { AiPrompts }                    from '../platform/screens/AiPrompts'
 import { TemplateLibrary }              from '../platform/screens/TemplateLibrary'
 import { MasterLibraryShell }           from '../platform/screens/MasterLibraryShell'
-import { AdminGuard, NonAdminGuard, SuperAdminGuard }  from '../platform/components/guards'
+import { AdminGuard, NonAdminGuard, PmGuard, SuperAdminGuard }  from '../platform/components/guards'
 import { PublicationLayout }            from '../components/layout/PublicationLayout'
 import { SubmissionLayout }             from '../components/layout/SubmissionLayout'
 import { ContentLayout }                from '../components/layout/ContentLayout'
@@ -142,7 +142,7 @@ export const router = createBrowserRouter([
       { path: 'super-admin/tenants',                  element: <SuperAdminGuard><TenantDirectory /></SuperAdminGuard> },
       { path: 'super-admin/tenants/:tenantId',        element: <SuperAdminGuard><TenantDetail /></SuperAdminGuard> },
       { path: 'super-admin/tenants/:tenantId/sso',    element: <SuperAdminGuard><SsoConnectionConfig /></SuperAdminGuard> },
-      { path: 'admin/taxonomy', element: <AdminGuard><TATagConfiguration /></AdminGuard> },
+      { path: 'admin/taxonomy', element: <PmGuard><TATagConfiguration /></PmGuard> },
       { path: 'admin/raci',     element: <AdminGuard><RACIMatrix /></AdminGuard> },
       { path: 'notifications',  element: <NotificationCentre /> },
       // /admin/frameworks previously served the read-only variant for

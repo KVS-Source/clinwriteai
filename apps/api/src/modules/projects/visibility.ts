@@ -31,6 +31,20 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { hasAnyRole, type AuthenticatedUser } from '../../auth/rbac.js'
 
+/**
+ * An active RACI row on the document, as a "works on it" test. An Approver (A) only gets the
+ * document once review and the CRM meeting are done, i.e. when it is awaiting signature or signed:
+ * until then they neither see it in their lists nor can open it. Any other letter counts at once.
+ */
+function raciWorksOn(userId: string): Prisma.DocumentWhereInput {
+  return {
+    OR: [
+      { raciRows: { some: { userId, removedAt: null, letter: { not: 'A' } } } },
+      { status: { in: ['pending_signature', 'signed'] }, raciRows: { some: { userId, removedAt: null, letter: 'A' } } },
+    ],
+  }
+}
+
 /** ProjectMember.projectRole written for the creating PM and for PMs added to a project. */
 export const PM_PROJECT_ROLE = 'Project Manager'
 
@@ -80,7 +94,7 @@ export async function visibleProjectIdsForUser(
         OR: [
           { assigneeId: user.id },
           ...(asPm ? [{ createdBy: user.id }] : []),
-          { raciRows: { some: { userId: user.id, removedAt: null } } },
+          raciWorksOn(user.id),
         ],
       },
       select: { projectId: true },
@@ -126,7 +140,7 @@ export function documentVisibilityWhere(user: AuthenticatedUser): Prisma.Documen
     OR: [
       { assigneeId: user.id },
       { createdBy: user.id },
-      { raciRows: { some: { userId: user.id, removedAt: null } } },
+      raciWorksOn(user.id),
     ],
   }
 }

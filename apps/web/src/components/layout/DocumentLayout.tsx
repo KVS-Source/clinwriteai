@@ -76,9 +76,12 @@ export function DocumentLayout() {
       { to: `${base}/diff`, label: t('component.document_layout.tab_version_diff'),              disabled: d.diff,   title: d.diff   ? lockReason : undefined },
     ]),
     ...(tabAccess?.review === false ? [] : [
-      { to: `${base}/review`, label: t('component.document_layout.tab_reviewer_view'),           disabled: d.review, title: d.review ? lockReason : undefined },
+      { to: `${base}/review`, label: t(tabAccess?.approverOnly ? 'component.document_layout.tab_approver_view' : 'component.document_layout.tab_reviewer_view'), disabled: d.review, title: d.review ? lockReason : undefined },
     ]),
-    { to: `${base}/crm`,    label: t('component.document_layout.tab_crm') },
+    // The Approver has no CRM tab.
+    ...(tabAccess?.crm === false ? [] : [
+      { to: `${base}/crm`,    label: t('component.document_layout.tab_crm') },
+    ]),
     { to: `${base}/sign`,   label: t('component.document_layout.tab_e_signature'),               disabled: d.sign },
     { to: `${base}/final`,  label: t('component.document_layout.tab_final_document') },
   ]

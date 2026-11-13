@@ -10,6 +10,7 @@ import { useSourceAccess } from '../../hooks/useSourceAccess'
 import { useCanViewVersions } from '../../hooks/useCanViewVersions'
 import { useCanViewChecklist } from '../../hooks/useCanViewChecklist'
 import { ApiError } from '../../api/client'
+import { raciApi } from '../../api/raci'
 import { useDocumentPresence } from '../../hooks/usePresence'
 import { useCurrentUser } from '../../hooks/useCurrentUser'
 import { useResizablePanel } from '../../hooks/useResizablePanel'
@@ -140,6 +141,19 @@ export function DocumentEditor() {
   // Close the panel if it was left open (e.g. from another document or persona).
   const canEditDocument = useCanEditDocument(documentId)
   const aiChatAllowed = canEditDocument === true
+
+  // With several authors the document stays In Authoring until every one has submitted, but each
+  // author's own part is theirs: once mine is in, the button says so (and waits for the others).
+  const { data: raciRows } = useQuery({
+    queryKey: documentRaciKey(documentId!),
+    queryFn:  () => raciApi.list(documentId!),
+    enabled:  !!documentId,
+    retry:    false,
+  })
+  const myAuthorRows = (raciRows ?? []).filter(r => r.letter === 'R' && r.userId === currentUser?.id && !r.removedAt && !r.rejectedAt)
+  const iSubmittedMyPart = myAuthorRows.length > 0 && myAuthorRows.every(r => r.submittedAt !== null)
+  const otherAuthorsPending = (raciRows ?? []).filter(r => r.letter === 'R' && r.userId !== currentUser?.id && !r.removedAt && !r.rejectedAt && r.submittedAt === null)
+    .map(r => r.userName ?? r.userId)
   useEffect(() => {
     if (canEditDocument === false && (activePanel === 'ai' || activePanel === 'voice')) setActivePanel(null)
   }, [canEditDocument, activePanel, setActivePanel])
@@ -928,6 +942,16 @@ export function DocumentEditor() {
                 data-submitted
               >
                 {t('page.document_editor.submitted_for_review_button')}
+              </button>
+            ) : canEditDocument && iSubmittedMyPart ? (
+              <button
+                type="button"
+                disabled
+                title={otherAuthorsPending.length > 0 ? t('page.document_editor.you_submitted_waiting', { names: otherAuthorsPending.join(', ') }) : undefined}
+                className="cursor-not-allowed rounded-md border border-green-200 bg-green-50 px-3.5 py-2 text-[13px] font-semibold text-green-800"
+                data-submitted-by-you
+              >
+                {t('page.document_editor.you_submitted_button')}
               </button>
             ) : canEditDocument && (
               <button

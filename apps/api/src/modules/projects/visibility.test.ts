@@ -12,7 +12,8 @@ interface FakeRows {
 }
 
 type MemberWhere = { userId: string; removedAt: null; OR?: Array<{ projectRole: null | { not: string } }> }
-type DocWhere = { OR: Array<{ assigneeId?: string; createdBy?: string; raciRows?: { some: { userId: string } } }> }
+type RaciClause = { OR: Array<{ raciRows: { some: { userId: string } } }> }
+type DocWhere = { OR: Array<{ assigneeId?: string; createdBy?: string } & Partial<RaciClause>> }
 
 // Tiny fake Prisma — only the findMany calls the helper makes. Each honours the filters the helper
 // sends (userId, removedAt, the PM-membership exclusion, the creator branch) so the rules are tested.
@@ -35,7 +36,9 @@ function fakePrisma(rows: FakeRows): PrismaClient {
     },
     document: {
       findMany: async ({ where }: { where: DocWhere }) => {
-        const userId = where.OR.find(c => c.raciRows)!.raciRows!.some.userId
+        // The "works on it" clause is { OR: [non-A letters, A once awaiting signature] }; the fake's
+        // raciDocs rows carry no letter, so they stand for the non-A branch.
+        const userId = where.OR.find(c => c.OR)!.OR![0]!.raciRows.some.userId
         const creatorCounts = where.OR.some(c => c.createdBy === userId)
         const ids = new Set<string>()
         for (const r of rows.raciDocs ?? []) if (r.userId === userId && r.removedAt === null) ids.add(r.projectId)
@@ -217,9 +220,25 @@ describe('documentVisibilityWhere / canSeeDocument', () => {
       OR: [
         { assigneeId: 'ravi' },
         { createdBy: 'ravi' },
-        { raciRows: { some: { userId: 'ravi', removedAt: null } } },
+        {
+          OR: [
+            { raciRows: { some: { userId: 'ravi', removedAt: null, letter: { not: 'A' } } } },
+            { status: { in: ['pending_signature', 'signed'] }, raciRows: { some: { userId: 'ravi', removedAt: null, letter: 'A' } } },
+          ],
+        },
       ],
     })
+  })
+
+  it('an Approver (A) only gets the document once review and CRM are done (pending signature or signed)', () => {
+    const where = documentVisibilityWhere(user('contributor', 'asha')) as { OR: Array<Record<string, unknown>> }
+    const raci = where.OR[2] as { OR: Array<{ status?: { in: string[] }; raciRows: { some: { letter: unknown } } }> }
+    // Any letter but A counts straight away.
+    expect(raci.OR[0]!.status).toBeUndefined()
+    expect(raci.OR[0]!.raciRows.some.letter).toEqual({ not: 'A' })
+    // A counts only from pending_signature.
+    expect(raci.OR[1]!.status).toEqual({ in: ['pending_signature', 'signed'] })
+    expect(raci.OR[1]!.raciRows.some.letter).toBe('A')
   })
 
   it('canSeeDocument counts the document under the contributor scope', async () => {

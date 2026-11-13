@@ -2,6 +2,7 @@ import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { MultiSelect } from '../components/MultiSelect'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTaLabels } from '../../hooks'
@@ -12,7 +13,7 @@ import { platformApi } from '../api/platformApi'
 import { MASTER_DOCUMENT_ITEM_TYPES } from './MasterLibraryShell'
 import { usePlatformStore } from '../store/platformStore'
 import { describeApiError, projectsApi } from '../../api'
-import { api } from '../../api/client'
+import { api, ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 import { SortIcon } from '../../components/ui/SortIcon'
 import { DateTimeRangeFilter, rangeToIso, toInputValue, type TimeZoneMode } from '../../components/ui/DateTimeRangeFilter'
@@ -52,8 +53,11 @@ export function MasterLibrary() {
   const queryClient = useQueryClient()
   // Who sees New version and Withdraw: the Project Manager owns the library's content; admins may too (the API still
   // limits everyone to their own tenant's items, and platform-wide items to platform admins).
-  // Only a Project Manager adds documents to the library from their computer.
-  const canUpload = usePlatformStore(s => s.hasRole)(['pm'])
+  // Only a Project Manager adds documents to the library from their computer. A PM or a Contributor (the
+  // writers and reviewers) may share them; Auditor, QC and IT Admin can't (the API enforces the same).
+  const hasRole = usePlatformStore(s => s.hasRole)
+  const canUpload = hasRole(['pm'])
+  const canShare = hasRole(['pm', 'contributor'])
 
   // Filters start empty — nothing is pre-applied.
   const [search,      setSearch]      = useState('')
@@ -148,23 +152,56 @@ export function MasterLibrary() {
     ? t(isSectionItem ? 'page.master_library.immutability_archived' : 'page.master_library.immutability_archived_document')
     : t(isSectionItem ? 'page.master_library.immutability_default' : active?.uploaded ? 'page.master_library.immutability_uploaded' : 'page.master_library.immutability_document')
 
-  // Download PDF: the server builds a PDF of the item's own text (title + body, no app
-  // details) and the browser saves it as a file — no print dialog, no pop-up.
-  async function downloadPdf(item: MasterLibraryItem) {
-    try {
-      const { blob, filename } = await api.download(`/library/${encodeURIComponent(item.id)}/pdf`)
-      const url = URL.createObjectURL(blob)
-      const link = document.createElement('a')
-      link.href = url
-      link.download = filename ?? `${item.name}.pdf`
-      document.body.appendChild(link)
-      link.click()
-      link.remove()
-      setTimeout(() => URL.revokeObjectURL(url), 10_000)
-    } catch (err) {
-      flash(`${t('page.master_library.pdf_failed')} ${describeApiError(err).message}`)
+  // A link from a "document shared with you" notification: /master-library/documents?item=<id> opens that
+  // document's details. The parameter is removed once read, so closing the panel doesn't reopen it.
+  const [searchParams, setSearchParams] = useSearchParams()
+  const linkedItemId = searchParams.get('item')
+  useEffect(() => {
+    if (!linkedItemId) return
+    let cancelled = false
+    platformApi.getLibraryItem(linkedItemId)
+      .then(it => { if (!cancelled) setSelected(it) })
+      .catch(() => { if (!cancelled) flash(t('page.master_library.shared_link_missing')) })
+      .finally(() => { if (!cancelled) setSearchParams(p => { p.delete('item'); return p }, { replace: true }) })
+    return () => { cancelled = true }
+  }, [linkedItemId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // View and Share each open their own side panel over the details panel. Closing it returns to the
+  // details. It also closes when another document is opened, or the details close.
+  const [overlay, setOverlay] = useState<'view' | 'share' | null>(null)
+  const viewing = overlay === 'view'
+  useEffect(() => { setOverlay(null) }, [active?.id])
+  // Esc closes only the panel on top, not the details panel under it: this listener runs first (capture) and
+  // marks the key handled, which the details panel respects.
+  useEffect(() => {
+    if (!overlay) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape' || e.defaultPrevented) return
+      e.preventDefault()
+      setOverlay(null)
     }
-  }
+    window.addEventListener('keydown', onKey, { capture: true })
+    return () => window.removeEventListener('keydown', onKey, { capture: true })
+  }, [overlay])
+  const pdfView = useQuery({
+    queryKey: ['library-pdf', active?.id],
+    queryFn: async () => {
+      const { blob } = await api.download(`/library/${encodeURIComponent(active!.id)}/pdf`)
+      // The browser shows the file only if it knows it is a PDF.
+      return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' })
+    },
+    enabled: viewing && !!active,
+    staleTime: 5 * 60_000,
+    retry: false,
+  })
+  // Object URL for the fetched PDF; revoked when it changes or the viewer closes.
+  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  useEffect(() => {
+    if (!viewing || !pdfView.data) { setPdfUrl(null); return }
+    const u = URL.createObjectURL(pdfView.data)
+    setPdfUrl(u)
+    return () => URL.revokeObjectURL(u)
+  }, [viewing, pdfView.data])
 
   // Switching the timezone keeps the range pointing at the same moments (as on the Audit Trail).
   function changeTz(next: TimeZoneMode) {
@@ -288,16 +325,15 @@ export function MasterLibrary() {
                 <PlainHead label={THERAPEUTIC_AREA_LABEL} />
                 <PlainHead label={t('page.master_library.col_version')} />
                 <PlainHead label={t('page.master_library.filter_project')} />
-                <PlainHead label={t('page.master_library.col_pushed_by')} />
                 <SortHead label={t('page.master_library.col_pushed_on')} asc="oldest" desc="recent" />
               </tr>
             </thead>
             <tbody>
               {isLoading && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_library')}</td></tr>
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_library')}</td></tr>
               )}
               {!isLoading && !error && items.length === 0 && (
-                <tr><td colSpan={7} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
                   {!filtersDirty ? t('page.master_library.empty_library') : t('page.master_library.empty_filters')}
                   {filtersDirty && (
                     <div><button type="button" onClick={resetFilters} className="mt-2 font-semibold text-slate-700 underline">{t('page.master_library.reset_filters')}</button></div>
@@ -322,7 +358,6 @@ export function MasterLibrary() {
                     <td className="px-4 py-3 text-slate-700">{(it.ta ?? []).join(', ') || '—'}</td>
                     <td className="px-4 py-3 font-mono text-[12px] text-slate-700">{it.version}</td>
                     <td className="px-4 py-3 text-slate-700">{it.projectName || '—'}</td>
-                    <td className="px-4 py-3 text-slate-700">{it.pushedByName || '—'}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(it.pushedAt)}</td>
                   </tr>
                 )
@@ -426,11 +461,18 @@ export function MasterLibrary() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
-              <button type="button" onClick={() => downloadPdf(active)}
+              {canShare && !active.isArchived && (
+                <button type="button" onClick={() => setOverlay('share')}
+                  className="h-9 rounded-md border px-4 text-[13px] font-semibold"
+                  style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
+                  data-action="share-document"
+                >{t('page.master_library.share_document')}</button>
+              )}
+              <button type="button" onClick={() => setOverlay('view')}
                 className="h-9 rounded-md border px-4 text-[13px] font-semibold"
                 style={{ borderColor: PLATFORM_ACCENT.primary, color: PLATFORM_ACCENT.primary }}
-                data-download-pdf
-              >{t('page.master_library.download_pdf')}</button>
+                data-action="view-document"
+              >{t('page.master_library.view_document')}</button>
             </div>
 
             <p className="rounded-md p-2 text-[12px]"
@@ -439,6 +481,29 @@ export function MasterLibrary() {
               data-active-archived={active.isArchived || undefined}>{immutabilityNote}</p>
           </div>
         )}
+      </SlidePanel>
+
+      {/* Document viewer — its own side panel, opened over the details panel by View. */}
+      {active && (
+        <SharePanel open={overlay === 'share'} item={active} onClose={() => setOverlay(null)}
+          onDone={(msg) => { setOverlay(null); flash(msg) }} />
+      )}
+
+      <SlidePanel open={viewing && !!active} onClose={() => setOverlay(null)} title={active?.name ?? ''}
+        subtitle={active && <span className="font-mono text-[11px] text-slate-500">{active.docType} · {active.version}</span>}
+        storageKey="library-viewer" defaultWidth={860} maxWidth={1400} expandable belowTopBar>
+        <div className="flex h-full flex-col bg-slate-100" data-document-viewer>
+          {pdfView.isLoading && <p className="p-4 text-[12px] text-slate-500" data-viewer-state="loading">{t('page.master_library.view_loading')}</p>}
+          {pdfView.isError && (
+            <p className="p-4 text-[12px] text-red-700" role="alert" data-viewer-state="error">
+              {t('page.master_library.view_failed')} {describeApiError(pdfView.error).message}
+            </p>
+          )}
+          {pdfUrl && (
+            <iframe key={pdfUrl} src={pdfUrl} title={active?.name ?? ''}
+              className="min-h-0 w-full flex-1 border-0 bg-white" data-viewer-frame />
+          )}
+        </div>
       </SlidePanel>
 
       <UploadPanel
@@ -525,6 +590,122 @@ function SourceDocumentCard({ info }: { info: MasterLibrarySourceDocument }) {
         </>
       )}
     </div>
+  )
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+const SHARE_MAX_RECIPIENTS = 20
+
+// Share a Master Document (Project Manager or Contributor) by email address. A colleague with an account gets a
+// notification linking to the document in the app. Anyone else — e.g. a CEO with no account — gets an invitation
+// whose link opens the document only after a one-time code emailed to that address is entered, so a forwarded
+// link is useless. Switched-off accounts are refused. The share is written to the document's audit trail.
+// SSO: when the organisation signs in through an identity provider, recipients will be checked against it
+// (not built yet — see apps/api/src/modules/platform/library/share.ts).
+function SharePanel({ open, item, onClose, onDone }: {
+  open: boolean
+  item: MasterLibraryItem
+  onClose: () => void
+  onDone: (message: string) => void
+}) {
+  const { t } = useTranslation()
+  const [emails,  setEmails]  = useState<string[]>([])
+  const [draft,   setDraft]   = useState('')
+  const [busy,    setBusy]    = useState(false)
+  const [failure, setFailure] = useState<string | null>(null)
+  const [refused, setRefused] = useState<string[]>([])
+
+  useEffect(() => { if (!open) { setEmails([]); setDraft(''); setFailure(null); setRefused([]) } }, [open, item.id])
+
+  // Adds what is typed (one address, or several separated by commas, semicolons or spaces). Returns the new
+  // list, or null when what is typed can't be added (the reason is shown).
+  const commit = (): string[] | null => {
+    const parts = draft.split(/[\s,;]+/).map(s => s.trim().toLowerCase()).filter(Boolean)
+    if (!parts.length) return emails
+    const bad = parts.filter(p => !EMAIL_RE.test(p))
+    if (bad.length) { setFailure(t('page.master_library.share_invalid_email', { email: bad[0] })); return null }
+    const next = [...new Set([...emails, ...parts])]
+    if (next.length > SHARE_MAX_RECIPIENTS) { setFailure(t('page.master_library.share_too_many', { max: SHARE_MAX_RECIPIENTS })); return null }
+    setEmails(next); setDraft(''); setFailure(null)
+    return next
+  }
+  const remove = (e: string) => { setEmails(list => list.filter(x => x !== e)); setRefused(r => r.filter(x => x !== e)) }
+
+  async function submit() {
+    const list = commit()
+    if (!list?.length) return
+    setBusy(true); setFailure(null); setRefused([])
+    try {
+      const res = await platformApi.shareLibraryItem(item.id, list)
+      if (res.failed.length && !res.shared.length) {
+        setRefused(res.failed)
+        setFailure(t('page.master_library.share_failed_all'))
+        return
+      }
+      const invited = res.shared.filter(r => r.kind === 'invite').length
+      onDone([
+        t('page.master_library.share_success', { count: res.shared.length, name: item.name }),
+        invited ? t('page.master_library.share_success_invited', { count: invited }) : '',
+        res.failed.length ? t('page.master_library.share_success_failed', { emails: res.failed.join(', ') }) : '',
+      ].filter(Boolean).join(' '))
+    } catch (err) {
+      const body = (err instanceof ApiError ? err.body : null) as { error?: string; emails?: string[] } | null
+      if (body?.error === 'recipients_not_allowed' && Array.isArray(body.emails)) {
+        setRefused(body.emails)
+        setFailure(t('page.master_library.share_not_allowed'))
+      } else {
+        setFailure(describeApiError(err).message)
+      }
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <SlidePanel open={open} onClose={onClose} storageKey="library-share" defaultWidth={460} belowTopBar
+      title={t('page.master_library.share_panel_title')} subtitle={item.name}>
+      <div className="flex flex-col gap-3 p-4" data-share-panel>
+        <p className="text-[12px] text-slate-600">{t('page.master_library.share_intro')}</p>
+        <label className="flex flex-col gap-1">
+          <span className={labelClass}>{t('page.master_library.share_field_emails')}</span>
+          <input type="email" multiple className={selectClass} value={draft} placeholder={t('page.master_library.share_placeholder')}
+            onChange={e => { setDraft(e.currentTarget.value); setFailure(null) }}
+            onKeyDown={e => { if (e.key === 'Enter' || e.key === ',' || e.key === ';') { e.preventDefault(); commit() } }}
+            onBlur={() => { if (draft.trim()) commit() }}
+            data-share-input />
+          <span className="text-[11px] text-slate-500">{t('page.master_library.share_hint', { max: SHARE_MAX_RECIPIENTS })}</span>
+        </label>
+
+        {emails.length > 0 && (
+          <ul className="flex flex-wrap gap-1.5" data-share-recipients>
+            {emails.map(e => {
+              const bad = refused.includes(e)
+              return (
+                <li key={e} className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[12px] ${bad ? 'bg-red-50 text-red-700 ring-1 ring-red-200' : 'bg-slate-100 text-slate-700'}`}
+                  data-share-recipient={e} data-share-refused={bad || undefined}>
+                  {e}
+                  <button type="button" onClick={() => remove(e)} aria-label={t('page.master_library.share_remove', { email: e })}
+                    className="ml-0.5 rounded-full px-1 text-slate-500 hover:bg-slate-200 hover:text-slate-900">×</button>
+                </li>
+              )
+            })}
+          </ul>
+        )}
+
+        {failure && <p role="alert" className="rounded-md bg-red-50 p-2 text-[12px] text-red-700" data-share-error>{failure}</p>}
+
+        <div className="flex items-center gap-2">
+          <button type="button" onClick={submit} disabled={busy || (!emails.length && !draft.trim())}
+            className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:opacity-50"
+            style={{ backgroundColor: PLATFORM_ACCENT.primary }} data-action="share-submit">
+            {busy ? t('page.master_library.share_sending') : t('page.master_library.share_submit')}
+          </button>
+          <button type="button" onClick={onClose} className="h-9 rounded-md border border-slate-300 px-4 text-[13px] font-semibold text-slate-700">
+            {t('page.master_library.share_cancel')}
+          </button>
+        </div>
+      </div>
+    </SlidePanel>
   )
 }
 

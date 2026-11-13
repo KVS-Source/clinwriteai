@@ -462,6 +462,11 @@ async function buildServer() {
 
   const { libraryRoutes } = await import('./modules/platform/library/routes.js')
   await app.register(libraryRoutes, { prefix: '/library' })
+  // Master Library "Share": POST /library/:id/share (PM / Contributor), and the public pages behind an
+  // invitation link — the reader proves the invited address with an emailed one-time code (share.ts).
+  const { libraryShareRoutes, sharedLibraryPublicRoutes } = await import('./modules/platform/library/share.js')
+  await app.register(libraryShareRoutes, { prefix: '/library' })
+  await app.register(sharedLibraryPublicRoutes, { prefix: '/shared-library' })
 
   const { notificationsRoutes } = await import('./modules/platform/notifications/routes.js')
   await app.register(notificationsRoutes, { prefix: '/notifications' })

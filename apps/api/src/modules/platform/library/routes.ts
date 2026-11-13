@@ -30,7 +30,7 @@ import { PROJECT_CLOSED, projectIsClosed } from '../../projects/closed.js'
 import { extractTextFromBlob } from '../../clinical-writing/documents/extract-text.js'
 import { fileExtension } from '../uploads/source-files.js'
 import { generateBlobKey } from '../blob/local-storage.js'
-import { pdfFileName, renderLibraryItemPdf } from './pdf-renderer.js'
+import { libraryItemPdf, PDF_MAX_CHARS } from './pdf-file.js'
 import {
   BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, sourceDocumentInfo, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
   type LibraryContext, type SectionRow,
@@ -149,16 +149,6 @@ const bestPracticeCreate = z.object({
 }).refine(b => b.validUntil >= b.effectiveFrom, { message: 'validUntil must not be before effectiveFrom', path: ['validUntil'] })
 
 const PLATFORM_WIDE_TA = 'Platform-wide'
-
-// Longest text the PDF download will render (about 600 pages). Beyond it the request is refused rather than tying up memory.
-const PDF_MAX_CHARS = 2_000_000
-
-/** The stored original of an uploaded document: its blob key and file name, from the entry's tags. */
-function uploadedOriginal(tags: string[]): { key: string; fileName: string } | null {
-  const key = tags.find(t => t.startsWith('file:'))?.slice(5)
-  const fileName = tags.find(t => t.startsWith('filename:'))?.slice(9)
-  return key && fileName ? { key, fileName } : null
-}
 
 // Thrown inside the push transaction when the same document version turns out to be in the library already.
 class AlreadyPushedError extends Error {}
@@ -659,33 +649,15 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
-    // An uploaded PDF gives back the very file that was uploaded (a Word file is rebuilt from its text, below).
-    const original = uploadedOriginal(row.tags)
-    if (original && original.fileName.toLowerCase().endsWith('.pdf')) {
-      try {
-        const file = await app.blob.get('documents', original.key)
-        return reply
-          .header('Content-Type', 'application/pdf')
-          .header('Content-Disposition', `attachment; filename="${pdfFileName(row.title)}"; filename*=UTF-8''${encodeURIComponent(original.fileName)}`)
-          .header('Content-Length', String(file.body.length))
-          .header('X-Content-Type-Options', 'nosniff')
-          .header('Cache-Control', 'no-store')
-          .send(file.body)
-      } catch (err) {
-        app.log.warn({ err, id }, 'uploaded library PDF could not be read from storage — rebuilding it from the text')
-      }
-    }
-    if (!row.body.trim()) return reply.code(422).send({ error: 'empty', message: 'This item has no text to download.' })
-    if (row.body.length > PDF_MAX_CHARS) {
-      return reply.code(413).send({ error: 'too_large', message: 'This item is too long to download as a PDF.' })
-    }
-    const pdf = await renderLibraryItemPdf({ title: row.title, body: row.body })
-    const name = pdfFileName(row.title)
+    const pdf = await libraryItemPdf(app, row)
+    if (!pdf.ok) return reply.code(pdf.code).send({ error: pdf.error, message: pdf.message })
     return reply
       .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`)
+      .header('Content-Disposition', `attachment; filename="${pdf.fileName}"; filename*=UTF-8''${encodeURIComponent(pdf.originalName)}`)
+      .header('Content-Length', String(pdf.body.length))
+      .header('X-Content-Type-Options', 'nosniff')
       .header('Cache-Control', 'no-store')
-      .send(pdf)
+      .send(pdf.body)
   })
 
   // GET /library/:id — one item for the detail panel.

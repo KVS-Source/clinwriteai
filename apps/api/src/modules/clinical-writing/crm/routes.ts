@@ -180,9 +180,12 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const hasComplete = meetings.some(m => m.status === 'complete')
     const hasOpen     = meetings.some(m => m.status === 'in_progress' || m.status === 'scheduled')
     if (doc.status === 'crm_in_progress' && hasComplete && !hasOpen) {
+      // A meeting held during authoring puts the document back there, as it was.
+      const lastComplete = meetings.filter(m => m.status === 'complete').sort((a, b) => (b.endedAt?.getTime() ?? 0) - (a.endedAt?.getTime() ?? 0))[0]
+      const target = lastComplete?.returnToStatus === 'in_authoring' ? 'in_authoring' : 'pending_signature'
       const moved = await app.prisma.document.updateMany({
         where: { id: documentId, status: 'crm_in_progress' },
-        data:  { status: 'pending_signature' },
+        data:  { status: target },
       })
       if (moved.count > 0) {
         await app.audit.append({
@@ -191,7 +194,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
           action:    'document_status_corrected',
           entityType: 'document',
           entityId:  documentId,
-          details:   { from: 'crm_in_progress', to: 'pending_signature', reason: 'crm_meeting_already_complete' },
+          details:   { from: 'crm_in_progress', to: target, reason: 'crm_meeting_already_complete' },
           ipAddress: request.ip ?? null,
         })
       }
@@ -231,10 +234,10 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     if (!byId.get(parsed.data.chairId)?.canChair) return reply.code(400).send(CRM_PEOPLE_INVALID('chair'))
     if (parsed.data.attendees.some(a => !byId.has(a.userId))) return reply.code(400).send(CRM_PEOPLE_INVALID('attendee'))
     if (isPastDay(parsed.data.scheduledDate)) return reply.code(422).send(DATE_IN_PAST)
-    if (doc.status !== 'in_review' && doc.status !== 'crm_in_progress') {
+    if (doc.status !== 'in_authoring' && doc.status !== 'in_review' && doc.status !== 'crm_in_progress') {
       return reply.code(422).send({
         error: 'wrong_status',
-        message: `CRM can only be scheduled when doc is in_review or crm_in_progress (current: ${doc.status})`,
+        message: `CRM can only be scheduled when doc is in_authoring, in_review or crm_in_progress (current: ${doc.status})`,
       })
     }
 
@@ -336,15 +339,18 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
 
     const now = new Date()
     const updated = await app.prisma.$transaction(async (tx) => {
+      // A meeting started during authoring remembers it: completing or cancelling it puts the
+      // document back in authoring, not on to signature.
+      const before = await tx.document.findUnique({ where: { id: meeting.documentId }, select: { status: true } })
       const m = await tx.crmMeeting.update({
         where: { id: meetingId },
-        data: { status: 'in_progress', startedAt: now },
+        data: { status: 'in_progress', startedAt: now, ...(before?.status === 'in_authoring' && { returnToStatus: 'in_authoring' }) },
       })
       // Flip the document to crm_in_progress — the state machine permits
-      // this from in_review. If the doc is already crm_in_progress (e.g.
+      // this from in_review and in_authoring. If the doc is already crm_in_progress (e.g.
       // a second meeting started on the same doc), the transition is a no-op.
       await tx.document.updateMany({
-        where: { id: meeting.documentId, status: 'in_review' },
+        where: { id: meeting.documentId, status: { in: ['in_review', 'in_authoring'] } },
         data: { status: 'crm_in_progress' },
       })
       return m
@@ -410,11 +416,12 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
         where: { id: meetingId },
         data: { status: 'complete', endedAt: now },
       })
-      // Advance doc to pending_signature. updateMany with the status
-      // predicate makes this a no-op if someone else already moved it.
+      // Advance doc to pending_signature — or, for a meeting held during authoring, back to
+      // in_authoring as it was. updateMany with the status predicate makes this a no-op if
+      // someone else already moved it.
       await tx.document.updateMany({
         where: { id: meeting.documentId, status: 'crm_in_progress' },
-        data: { status: 'pending_signature' },
+        data: { status: meeting.returnToStatus === 'in_authoring' ? 'in_authoring' : 'pending_signature' },
       })
       return m
     })
@@ -476,7 +483,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       if (otherActive === 0) {
         await tx.document.updateMany({
           where: { id: meeting.documentId, status: 'crm_in_progress' },
-          data: { status: 'in_review' },
+          data: { status: meeting.returnToStatus === 'in_authoring' ? 'in_authoring' : 'in_review' },
         })
       }
       return m

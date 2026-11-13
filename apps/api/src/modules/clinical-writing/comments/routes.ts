@@ -101,6 +101,13 @@ function auditDetail(row: AuditRow): string {
     if (typeof d.meaning === 'string' && d.meaning) parts.push(`Meaning: ${d.meaning}`)
     if (typeof d.step === 'number') parts.push(`Step ${d.step}`)
   }
+  // The document's Master Library copy was shared: with whom.
+  if (row.action === 'library_document_shared' && Array.isArray(d.recipients)) {
+    const names = (d.recipients as Array<{ name?: unknown; email?: unknown }>)
+      .map(r => (typeof r.name === 'string' && r.name) || (typeof r.email === 'string' && r.email) || '')
+      .filter(Boolean)
+    parts.push(`Master Library copy shared with ${names.join(', ') || 'no one'}`)
+  }
   if (row.action === 'final_document_exported') {
     parts.push(d.mode === 'signed' ? 'Signed copy' : 'Watermarked draft')
     if (typeof d.pages === 'number') parts.push(`${d.pages} pages`)

@@ -75,7 +75,7 @@ const TRANSCRIPT_SOURCE_KEY: Record<string, string> = {
 const STALE_MEETING_MS = 24 * 60 * 60 * 1000
 
 // Document statuses (UI hyphen-case) in which a CRM meeting may be scheduled.
-const SCHEDULABLE = new Set(['in-review', 'crm-in-progress'])
+const SCHEDULABLE = new Set(['in-authoring', 'in-review', 'crm-in-progress'])
 
 function apiMessage(err: unknown, fallback: string): string {
   if (err instanceof ApiError) {
@@ -747,7 +747,7 @@ export function CRMModule() {
           </p>
         ) : (
           <p className="rounded-md bg-green-50 p-2 text-[12px] text-green-800" data-crm-complete>
-            {t('page.crm_module.complete_done')}
+            {activeDoc?.status === 'in-authoring' ? t('page.crm_module.complete_done_authoring') : t('page.crm_module.complete_done')}
           </p>
         ))}
       </div>

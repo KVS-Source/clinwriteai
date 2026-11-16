@@ -1767,21 +1767,6 @@ export interface PlatformConfig {
   seats?:          { used: number; total: number }
 }
 
-export interface MasterLibrarySourceDocument {
-  createdByName:    string
-  createdAt:        string
-  lastEditedByName: string | null
-  lastEditedAt:     string | null
-  /** Everyone whose edits are in the current text, most recent first. */
-  editors:          string[]
-  /** Current role holders: letter R / A / C / Q / I and the person's name. */
-  team:             { letter: string; name: string }[]
-  /** Signatures of the completed signature chain, in chain order. */
-  signatures:       { name: string; meaning: string; signedAt: string; version: string | null }[]
-  /** True when the reader isn't on the source project: team and editors are left out. */
-  teamHidden?:      boolean
-}
-
 export interface MasterLibraryItem {
   id:                string
   name:              string
@@ -1808,9 +1793,8 @@ export interface MasterLibraryItem {
   createdByName?:    string
   createdAt?:        string
   updatedAt?:        string
-  // The Clinical Writing document it was pushed from: who created and edited it, its
-  // role holders and its signatures. Absent when the source isn't a Clinical Writing document.
-  sourceDocument?:   MasterLibrarySourceDocument
+  // The source document's people (creator, editors, RACI, signatures) are not carried here: the
+  // Master Library shows only the provenance chain and the version history (SME decision, 2026-11-16).
   provenanceChain:   string[]
   // Text of a pushed section — what "Pull into document" inserts. Absent for
   // whole documents and for items that carry no text.

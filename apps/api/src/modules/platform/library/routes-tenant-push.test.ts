@@ -417,37 +417,21 @@ describe('GET /library/:id/pdf — size cap', () => {
   })
 })
 
-// Bug 15: the people on a source document are shown only to its project's members (and admin / auditor);
-// the signatures and the creator stay visible to everyone who can see the library entry.
-describe('GET /library/:id — source document team (bug 15)', () => {
-  afterEach(() => { visibility.docs = null })
-
-  async function open(canSeeTeam: boolean) {
-    visibility.docs = canSeeTeam ? null : new Set()
-    const { app, prisma } = await setup({ role: 'contributor', found: row('a', { tags: ['type:document', 'source:d1'] }) })
-    const raciFind = vi.fn(async () => [{ documentId: 'd1', userId: 'u1', letter: 'R', removedAt: null }])
-    const sectionFind = vi.fn(async () => [{ documentVersionId: 'v1', lastEditedBy: 'u1', lastEditedAt: new Date('2026-11-05T00:00:00Z'), humanSpanCount: 2 }])
-    Object.assign(prisma, {
-      documentRaci: { findMany: raciFind },
-      sectionContent: { findMany: sectionFind },
-      signatureChain: { findMany: vi.fn(async () => [{ documentId: 'd1', records: [
-        { signerId: 'u1', signerName: 'Dr A', meaning: 'approved', step: 1, timestampUtc: new Date('2026-11-06T00:00:00Z'), versionAtSigning: 'v1.0' },
-      ] }]) },
-    })
-    prisma.document.findMany.mockResolvedValue([{ id: 'd1', title: 'CSR', createdBy: 'u1', createdAt: new Date('2026-11-01T00:00:00Z'), currentVersionId: 'v1' }] as never)
-    const res = await app.inject({ method: 'GET', url: '/library/a' })
-    return { body: res.json(), raciFind, sectionFind }
-  }
-
-  it('a project member sees role holders and editors', async () => {
-    const { body } = await open(true)
-    expect(body.sourceDocument).toMatchObject({ teamHidden: false, team: [{ letter: 'R', name: 'Dr A' }], editors: ['Dr A'] })
-  })
-  it('someone outside the project sees the creator and the signatures, but no role holders or editors, and none are even read', async () => {
-    const { body, raciFind, sectionFind } = await open(false)
-    expect(body.sourceDocument).toMatchObject({ teamHidden: true, createdByName: 'Dr A', team: [], editors: [], lastEditedByName: null })
-    expect(body.sourceDocument.signatures).toEqual([{ name: 'Dr A', meaning: 'approved', signedAt: '2026-11-06T00:00:00.000Z', version: 'v1.0' }])
+// SME decision (2026-11-16): a Master Library entry shows only its provenance chain and version history. The
+// source document's creator, editors, RACI role holders and signatures are neither sent nor even read.
+describe('GET /library/:id — no source-document people', () => {
+  it('names the source document in the provenance but carries no team, editors or signatures', async () => {
+    const { app, prisma } = await setup({ role: 'contributor', found: row('a', { tags: ['type:document', 'source:d1', 'docversion:v1.0'] }) })
+    const raciFind = vi.fn(async () => [])
+    const sectionFind = vi.fn(async () => [])
+    const chainFind = vi.fn(async () => [])
+    Object.assign(prisma, { documentRaci: { findMany: raciFind }, sectionContent: { findMany: sectionFind }, signatureChain: { findMany: chainFind } })
+    prisma.document.findMany.mockResolvedValue([{ id: 'd1', title: 'CSR' }] as never)
+    const body = (await app.inject({ method: 'GET', url: '/library/a' })).json()
+    expect(body.provenanceChain).toContain('Source: CSR (v1.0)')
+    expect(body).not.toHaveProperty('sourceDocument')
     expect(raciFind).not.toHaveBeenCalled()
     expect(sectionFind).not.toHaveBeenCalled()
+    expect(chainFind).not.toHaveBeenCalled()
   })
 })

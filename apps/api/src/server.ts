@@ -535,6 +535,9 @@ async function buildServer() {
   // metrics) are decorated first.
   await app.register(import('./modules/platform/compliance/plugin.js'))
 
+  // Automatic ICH sync — keeps the ICH Frameworks registry in step with ich.org once a day (ICH_AUTO_SYNC=off to stop).
+  await app.register(import('./modules/platform/frameworks/ich-auto-sync-plugin.js'))
+
   return app
 }
 

@@ -22,6 +22,11 @@ async function open(page: Page, syncFails = false, me: typeof PM = PM) {
       const path = new URL(url, location.origin).pathname
       const m = (init?.method ?? 'GET').toUpperCase()
       if (path.endsWith('/auth/me')) return json(me)
+      if (path.endsWith('/admin/frameworks/sync-ich/status')) {
+        return json(rows.length
+          ? { lastSyncedAt: new Date().toISOString(), lastTrigger: 'manual', autoSync: { enabled: true, everyHours: 24 } }
+          : { lastSyncedAt: '2026-11-16T06:30:00.000Z', lastTrigger: 'automatic', autoSync: { enabled: true, everyHours: 24 } })
+      }
       if (path.endsWith('/admin/frameworks/sync-ich') && m === 'POST') {
         if (syncFails) return json({ error: 'ich_unreachable', message: 'Could not reach ich.org. Nothing was changed. Try again later.' }, 502)
         rows.push(
@@ -47,6 +52,16 @@ test('Sync from ICH fills the table with real ICH guidelines and says what it di
   await expect(page.locator('[data-sync-result]')).toContainText('153 ICH entries read, 2 added, 0 updated, 0 unchanged, 1 skipped')
   await expect(page.locator('[data-frameworks-table] tbody tr', { hasText: 'ICH E6(R3)' })).toContainText('Good Clinical Practice (GCP)')
   await expect(page.locator('[data-frameworks-table] tbody tr', { hasText: 'ICH E3' })).toContainText('Structure and Content of Clinical Study Reports')
+})
+
+test('shows when the registry last synced from ICH and that it syncs by itself every day', async ({ page }) => {
+  await open(page)
+  const status = page.locator('[data-ich-sync-status]')
+  await expect(status).toContainText('Last synced from ICH', { timeout: 60_000 })
+  await expect(status).toContainText('(automatic)')
+  await expect(status).toContainText('automatically every day')
+  await page.locator('[data-action="sync-ich"]').click()
+  await expect(status).not.toContainText('(automatic)')            // a manual sync replaces it
 })
 
 test('when ich.org cannot be reached, it says so', async ({ page }) => {
@@ -100,4 +115,15 @@ test('Cancel clears the Add framework form, so reopening it starts empty', async
   await page.locator('[data-add-framework]').click()
   for (const f of ['code', 'name', 'issuer', 'version', 'source-url']) await expect(form.locator(`[data-input-${f}]`)).toHaveValue('')
   await expect(form.locator('[role="alert"]')).toHaveCount(0)
+})
+
+test('Cancel in a framework panel closes it, even when nothing was changed', async ({ page }) => {
+  await open(page)
+  await page.locator('[data-action="sync-ich"]').click({ timeout: 60_000 })
+  await page.locator('[data-frameworks-table] tbody tr', { hasText: 'ICH E3' }).click()
+  const cancel = page.locator('[data-cancel-framework]')
+  await expect(cancel).toBeVisible()
+  await expect(page.locator('[data-scope-checkboxes]')).toBeVisible()
+  await cancel.click()
+  await expect(page.locator('[data-scope-checkboxes]')).toBeHidden()
 })

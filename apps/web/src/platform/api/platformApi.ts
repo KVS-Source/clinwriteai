@@ -122,6 +122,13 @@ function taTagShape(r: TaxonomyRow): TATag {
   }
 }
 
+// When the registry last synced from ICH (button or the daily automatic sync) and whether the automatic sync is on.
+export interface IchSyncStatus {
+  lastSyncedAt: string | null
+  lastTrigger:  'manual' | 'automatic' | null
+  autoSync:     { enabled: boolean; everyHours: number }
+}
+
 export interface IchSyncResult {
   fetched: number; created: string[]; updated: string[]; unchanged: number; withdrawn: string[]
   skipped: Array<{ code: string; reason: string }>
@@ -366,6 +373,8 @@ export const platformApi = {
   // Imports the real ICH guideline list from ich.org (codes, titles, ICH step, step date, PDF link).
   syncFrameworksFromIch: () =>
     api.post<IchSyncResult>('/admin/frameworks/sync-ich', {}),
+  getIchSyncStatus: () =>
+    api.get<IchSyncStatus>('/admin/frameworks/sync-ich/status'),
   listFrameworks: () =>
     api.get<FrameworkRow[]>('/admin/frameworks?includeRetired=true').then(rows => rows.map(frameworkShape)),
   createFramework: (body: CreateFrameworkBody) =>

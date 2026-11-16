@@ -212,7 +212,7 @@ const PAGE_SIZES = [10, 20, 50]
 const filterControl = 'h-10 w-full rounded-md border border-slate-300 bg-white px-2.5 text-[12px] text-slate-800'
 
 export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: boolean } = {}) {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const qc = useQueryClient()
   // Marking a framework superseded is a two-person decision: a Project Manager sends it for approval, and
   // another PM or a QC approves (the framework is superseded) or rejects it with a reason.
@@ -244,6 +244,12 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
     queryKey: ['regulatory-frameworks'],
     queryFn:  () => platformApi.listFrameworks(),
   })
+  // When the registry last synced from ICH; it also syncs by itself once a day (API: ich-auto-sync.ts).
+  const { data: syncStatus } = useQuery({
+    queryKey: ['ich-sync-status'],
+    queryFn:  () => platformApi.getIchSyncStatus(),
+    retry:    false,
+  })
 
   // Filters, sort and paging — the same controls as Master Documents (the registry is small, so they run in the browser).
   const [search,   setSearch]   = useState('')
@@ -268,6 +274,7 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
     try {
       const r = await platformApi.syncFrameworksFromIch()
       await qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] })
+      await qc.invalidateQueries({ queryKey: ['ich-sync-status'] })
       setSyncResult(t('page.regulatory_framework_admin.sync_result', { fetched: r.fetched, created: r.created.length, updated: r.updated.length, unchanged: r.unchanged, skipped: r.skipped.length }))
     } catch (err) {
       // 403 → no permission; anything else (ich.org down, timeout) → the plain 'could not reach' message.
@@ -492,7 +499,18 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
             )}
           </div>
         </div>
-        {syncResult && <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} role="status" data-sync-result>{syncResult}</p>}
+        {syncStatus && (
+          <p className="font-mono text-[11px] text-slate-500" data-ich-sync-status data-auto-sync={syncStatus.autoSync.enabled ? 'on' : 'off'}>
+            {syncStatus.lastSyncedAt
+              ? t(syncStatus.lastTrigger === 'automatic' ? 'page.regulatory_framework_admin.last_synced_auto' : 'page.regulatory_framework_admin.last_synced_manual', {
+                  when: new Date(syncStatus.lastSyncedAt).toLocaleString(i18n.language, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                })
+              : t('page.regulatory_framework_admin.never_synced')}
+            {' · '}
+            {syncStatus.autoSync.enabled ? t('page.regulatory_framework_admin.auto_sync_on') : t('page.regulatory_framework_admin.auto_sync_off')}
+          </p>
+        )}
+        {syncResult && <p className="rounded-md p-2 text-[12px]"style={{ backgroundColor: '#F0FDF4', color: '#166534' }} role="status" data-sync-result>{syncResult}</p>}
         {syncError && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-sync-error>{syncError}</p>}
         {canManage && <AddFrameworkPanel open={addOpen} onClose={() => setAddOpen(false)} />}
 
@@ -710,7 +728,9 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
                     className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
                     style={{ backgroundColor: PLATFORM_ACCENT.primary }}
                   >{saving ? t('page.regulatory_framework_admin.saving') : t('page.regulatory_framework_admin.send_for_approval_action', { defaultValue: 'Send for approval →' })}</button>
-                  <button type="button" onClick={() => setNewStatus('Current')}
+                  {/* Cancel drops any unsent change and closes the panel. */}
+                  <button type="button" onClick={() => { setNewStatus('Current'); setRequestReason(''); setOpenId(null) }}
+                    data-cancel-framework
                     className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
                 </div>
                 <p className="font-mono text-[11px] text-slate-500" data-status-unavailable>

@@ -3356,6 +3356,11 @@
       "confirm_archive_action": "Confirm archive"
     },
     "regulatory_framework_admin": {
+      "last_synced_manual": "Last synced from ICH {{when}}",
+      "last_synced_auto": "Last synced from ICH {{when}} (automatic)",
+      "never_synced": "Not synced from ICH yet",
+      "auto_sync_on": "Checks ich.org for new and changed guidelines automatically every day",
+      "auto_sync_off": "Automatic daily sync is off",
       "scope_short_a": "Clinical",
       "scope_short_b": "Scientific",
       "scope_short_c": "Medical",

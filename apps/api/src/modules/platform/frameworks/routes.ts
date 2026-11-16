@@ -7,6 +7,7 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type Role } from '../../../auth/rbac.js'
 import { syncIchGuidelines } from './ich-sync.js'
+import { ICH_AUTO_SYNC_MAX_AGE_MS, ICH_SYNC_ACTION, ichAutoSyncEnabled, ichSyncAuditDetails, lastIchSync } from './ich-auto-sync.js'
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -49,7 +50,19 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     return row
   })
 
+  // When the registry last synced from ICH (button or automatic, from the audit trail) and whether it syncs by itself.
+  app.get('/sync-ich/status', { preHandler: requireAuth() }, async () => {
+    const last = await lastIchSync(app.prisma as never)
+    const auto = ichAutoSyncEnabled({ NODE_ENV: app.env?.NODE_ENV, ICH_AUTO_SYNC: process.env.ICH_AUTO_SYNC })
+    return {
+      lastSyncedAt: last?.at.toISOString() ?? null,
+      lastTrigger:  last?.trigger ?? null,
+      autoSync:     { enabled: auto, everyHours: ICH_AUTO_SYNC_MAX_AGE_MS / 3_600_000 },
+    }
+  })
+
   // Import the real ICH guideline list from ich.org (see ./ich-sync.ts). Same people who can add a framework.
+  // The same sync also runs by itself once a day (./ich-auto-sync.ts).
   app.post('/sync-ich', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     let result
     try {
@@ -61,10 +74,10 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
-      action: 'frameworks_synced_from_ich',
+      action: ICH_SYNC_ACTION,
       entityType: 'regulatory_framework',
       entityId: 'ich',
-      details: { fetched: result.fetched, created: result.created.length, updated: result.updated.length, unchanged: result.unchanged, withdrawn: result.withdrawn, skipped: result.skipped.length },
+      details: ichSyncAuditDetails(result, 'manual'),
       ipAddress: request.ip ?? null,
     })
     return result

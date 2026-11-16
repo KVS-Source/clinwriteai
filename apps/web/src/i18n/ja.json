@@ -3548,6 +3548,11 @@
     },
 
     "regulatory_framework_admin": {
+      "last_synced_manual": "ICH からの最終同期：{{when}}",
+      "last_synced_auto": "ICH からの最終同期：{{when}}（自動）",
+      "never_synced": "まだ ICH から同期されていません",
+      "auto_sync_on": "新規・変更されたガイドラインを毎日自動で ich.org から確認します",
+      "auto_sync_off": "毎日の自動同期はオフです",
       "scope_short_a": "臨床",
       "scope_short_b": "科学",
       "scope_short_c": "メディカル",

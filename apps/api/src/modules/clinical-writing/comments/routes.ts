@@ -412,11 +412,16 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
     // approved a document awaiting signature, the chain starts by itself. The approval is already saved,
     // so a failure here must not fail it (the chain can still be started by hand).
     let signatureChainStarted = false
+    // Set when every Approver has approved but a gate (checklist / content) stopped the chain: why.
+    let signatureChainBlockedReason: string | null = null
     if (parsed.data.verdict === 'approve' && parsed.data.sectionRef === APPROVE_DOCUMENT_REF) {
       try {
-        signatureChainStarted = (await recordApprovalAndMaybeStartChain(app, {
+        const auto = await recordApprovalAndMaybeStartChain(app, {
           documentId, actorId: request.user!.id, ipAddress: request.ip ?? null,
-        })).chainStarted
+        })
+        signatureChainStarted = auto.chainStarted
+        const blocked = auto.blocked as { message?: unknown } | undefined
+        signatureChainBlockedReason = typeof blocked?.message === 'string' ? blocked.message : null
       } catch (err) {
         request.log.warn({ err, documentId }, 'automatic signature chain start failed')
       }
@@ -440,7 +445,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
         request.log.warn({ err, recipientId: person.id, commentId: id }, 'mention notification failed')
       }
     }
-    return reply.code(201).send({ ...commentShape(created, reviewer), signatureChainStarted })
+    return reply.code(201).send({ ...commentShape(created, reviewer), signatureChainStarted, signatureChainBlockedReason })
   })
 
   app.patch('/:documentId/comments/:commentId/resolve', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {

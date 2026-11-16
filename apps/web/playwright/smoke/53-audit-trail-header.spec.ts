@@ -1,5 +1,5 @@
-// QA regression — the Audit Trail page names itself: the top bar says "Audit Trail" (not "Projects"), and
-// the page has a heading the same size as "Therapeutic area tags" on TA Tags.
+// QA regression — pages that are not project pages name themselves in the top bar: My Workspace, Audit Trail.
+// The Audit Trail page also has a heading the same size as "Therapeutic area tags" on TA Tags.
 //
 //   E2E_BASE_URL=http://localhost:5173 npx playwright test playwright/smoke/53-audit-trail-header.spec.ts
 //
@@ -49,4 +49,15 @@ test('in Japanese both say 監査証跡', async ({ page }) => {
   await open(page, '/admin/audit', 'ja')
   await expect(page.locator('[data-audit-title]')).toHaveText('監査証跡', { timeout: 60_000 })
   await expect(header(page)).toContainText('監査証跡')
+})
+
+test('My Workspace says My Workspace in the top bar, not Projects', async ({ page }) => {
+  await open(page, '/home')
+  await expect(header(page)).toContainText('My Workspace', { timeout: 60_000 })
+  await expect(header(page)).not.toContainText('Projects')
+})
+
+test('in Japanese the top bar on My Workspace says マイ ワークスペース', async ({ page }) => {
+  await open(page, '/home', 'ja')
+  await expect(header(page)).toContainText('マイ ワークスペース', { timeout: 60_000 })
 })

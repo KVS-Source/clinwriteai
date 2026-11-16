@@ -454,7 +454,7 @@ export async function resetRaciRound(
 ): Promise<void> {
   await db.documentRaci.updateMany({
     where: { documentId, removedAt: null },
-    data: { submittedAt: null, reviewedAt: null, approvedAt: null, signatureId: null, rejectedAt: null },
+    data: { submittedAt: null, reviewedAt: null, approvedAt: null, documentApprovedAt: null, signatureId: null, rejectedAt: null },
   })
 }
 

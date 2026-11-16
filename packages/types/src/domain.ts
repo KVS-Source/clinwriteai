@@ -1785,6 +1785,10 @@ export interface MasterLibrarySourceDocument {
 export interface MasterLibraryItem {
   id:                string
   name:              string
+  /** Set when the list was searched: matched on the title (or a tag), or only inside the document's text. */
+  searchMatch?:      'title' | 'text'
+  /** For a text match: the words around it, "…" where cut. */
+  matchExcerpt?:     string
   module:            ModuleKey
   itemType:          MasterLibraryItemType
   docType:           string

@@ -256,7 +256,7 @@ export function ReviewerView() {
     staleTime: 30_000,
   })
   const myApproverRows = raciRows.filter(r => r.letter === 'A' && r.userId === me?.id && !r.removedAt && !r.rejectedAt)
-  const documentApprovedByMe = myApproverRows.length > 0 && myApproverRows.every(r => r.approvedAt !== null)
+  const documentApprovedByMe = myApproverRows.length > 0 && myApproverRows.every(r => !!r.documentApprovedAt)
   const verdictBlockedReason = !hasSections ? t('page.reviewer_view.verdict_no_sections')
                              : !activeSectionData ? t('page.reviewer_view.verdict_select_section')
                              : null
@@ -386,8 +386,11 @@ export function ReviewerView() {
               <ApproveDocument
                 documentId={documentId}
                 alreadyApproved={documentApprovedByMe}
-                onApproved={started => {
-                  setApproveNote(t(started ? 'page.reviewer_view.approve_document_chain_started' : 'page.reviewer_view.approve_document_done_toast'))
+                onApproved={(started, blockedReason) => {
+                  setApproveNote(
+                    started ? t('page.reviewer_view.approve_document_chain_started')
+                    : blockedReason ? t('page.reviewer_view.approve_document_chain_blocked', { reason: blockedReason })
+                    : t('page.reviewer_view.approve_document_done_toast'))
                   // The last Approver's approval starts signing: take them to it.
                   if (started) navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/sign`)
                 }}

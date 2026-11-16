@@ -15,7 +15,7 @@ import { usePlatformStore } from '../store'
 import { holdsRole } from '../../config/roles'
 
 const SCOPE_COLOURS: Record<string, string> = {
-  A: '#2563EB', B: '#0D9488', C: '#7C3AED', D: '#B0200D', E: '#0D9488', platform: PLATFORM_ACCENT.primary,
+  A: '#2563EB', B: '#0D9488', C: '#7C3AED', D: '#B0200D', E: '#D97706',   // E had B's teal; each module needs its own colour here platform: PLATFORM_ACCENT.primary,
 }
 const SCOPE_LABEL_KEYS: Record<string, string> = {
   A: 'page.regulatory_framework_admin.scope_a',
@@ -30,16 +30,20 @@ const STATUS_OPTIONS: RegulatoryFrameworkStatus[] = ['Current', 'Draft revision'
 function StatusChip({ status }: { status: RegulatoryFrameworkStatus }) {
   const { t } = useTranslation()
   const meta =
-    status === 'Current'        ? { bg: '#F0FDF4', fg: '#166534', border: '#BBF7D0', label: t('page.regulatory_framework_admin.chip_current') } :
-    status === 'Updated'        ? { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', label: t('page.regulatory_framework_admin.chip_updated') } :
-    status === 'Draft revision' ? { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', label: t('page.regulatory_framework_admin.chip_draft_revision') } :
-                                  { bg: '#F1F5F9', fg: '#475569', border: '#CBD5E1', label: t('page.regulatory_framework_admin.chip_superseded') }
+    status === 'Current'        ? { bg: '#F0FDF4', fg: '#166534', border: '#BBF7D0', dot: '#16A34A', label: t('page.regulatory_framework_admin.chip_current') } :
+    status === 'Updated'        ? { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', dot: '#D97706', label: t('page.regulatory_framework_admin.chip_updated') } :
+    status === 'Draft revision' ? { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', dot: '#D97706', label: t('page.regulatory_framework_admin.chip_draft_revision') } :
+                                  { bg: '#F1F5F9', fg: '#475569', border: '#CBD5E1', dot: '#94A3B8', label: t('page.regulatory_framework_admin.chip_superseded') }
+  // One line, never wrapped: a status dot and the word (the old leading ✓ / ⚠ wrapped onto its own line).
   return (
     <span
-      className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
       style={{ backgroundColor: meta.bg, color: meta.fg, border: `1px solid ${meta.border}` }}
       data-status-chip={status}
-    >{meta.label}</span>
+    >
+      <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ backgroundColor: meta.dot }} aria-hidden="true" />
+      {meta.label}
+    </span>
   )
 }
 
@@ -71,7 +75,7 @@ const CATEGORY_KEYS: Record<string, string> = {
   publication: 'page.regulatory_framework_admin.category_publication',
 }
 
-// "+ Add framework" form — fields match POST /admin/frameworks (Super Admin only, audited).
+// "+ Add framework" form — fields match POST /admin/frameworks (Project Managers, audited).
 function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -82,6 +86,7 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
   const [category, setCategory]       = useState<string>('regulatory')
   const [effectiveDate, setEffective] = useState('')
   const [sourceUrl, setSourceUrl]     = useState('')
+  const [scope, setScope]             = useState<Array<'A' | 'B' | 'C' | 'D' | 'E'>>([])
   const [saving, setSaving]           = useState(false)
   const [error, setError]             = useState<string | null>(null)
 
@@ -90,8 +95,10 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
   const reset = () => {
     setCode(''); setFullName(''); setIssuer(''); setVersion(''); setCategory('regulatory')
-    setEffective(''); setSourceUrl(''); setError(null)
+    setEffective(''); setSourceUrl(''); setScope([]); setError(null)
   }
+  // Cancel, ×, Esc / outside click and a successful save all start the next "+ Add framework" with an empty form.
+  const close = () => { reset(); onClose() }
 
   const submit = async () => {
     if (!canSave) return
@@ -106,10 +113,10 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
         effectiveDate: new Date(`${effectiveDate}T00:00:00Z`).toISOString(),
         ...(fullName.trim()  && { description: fullName.trim() }),
         ...(sourceUrl.trim() && { sourceUrl: sourceUrl.trim() }),
+        scope,
       })
       await qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] })
-      reset()
-      onClose()
+      close()
     } catch (e) {
       setError(
         e instanceof ApiError && e.status === 409 ? t('page.regulatory_framework_admin.err_duplicate', { code: code.trim() }) :
@@ -125,7 +132,7 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
   const label = 'font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500'
 
   return (
-    <SlidePanel open={open} onClose={onClose} title={t('page.regulatory_framework_admin.add_panel_title')} subtitle={t('page.regulatory_framework_admin.add_panel_subtitle')} defaultWidth={480} closeOnOutsideClick>
+    <SlidePanel open={open} onClose={close} title={t('page.regulatory_framework_admin.add_panel_title')} subtitle={t('page.regulatory_framework_admin.add_panel_subtitle')} defaultWidth={480} closeOnOutsideClick>
       <div className="flex flex-col gap-4 px-5 py-5" data-add-framework-form>
         <label className="flex min-w-0 flex-col gap-1.5">
           <span className={label}>{t('page.regulatory_framework_admin.field_code')}</span>
@@ -163,6 +170,18 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
           {!urlValid && <span className="text-[11px] font-semibold" style={{ color: '#B45309' }}>{t('page.regulatory_framework_admin.err_url')}</span>}
         </label>
 
+        <fieldset className="rounded-md border border-slate-200 p-3" data-add-scope>
+          <legend className={label}>{t('page.regulatory_framework_admin.scope_legend')}</legend>
+          {(['A','B','C','D','E'] as const).map(m => (
+            <label key={m} className="mt-1 flex items-center gap-2 text-[12px] text-slate-700">
+              <input type="checkbox" checked={scope.includes(m)} data-add-scope-check={m} style={{ accentColor: SCOPE_COLOURS[m] }}
+                onChange={e => { const on = e.currentTarget.checked; setScope(s => (on ? [...s, m].sort() as typeof s : s.filter(x => x !== m))) }} />
+              <span className="font-mono font-semibold">{m}</span>
+              <span>{t(SCOPE_LABEL_KEYS[m])}</span>
+            </label>
+          ))}
+        </fieldset>
+
         {error && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-add-framework-error>{error}</p>}
 
         <div className="mt-2 flex gap-2 border-t border-slate-200 pt-4">
@@ -171,7 +190,7 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
             className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             style={{ backgroundColor: PLATFORM_ACCENT.primary }}
           >{saving ? t('page.regulatory_framework_admin.adding') : t('page.regulatory_framework_admin.add_framework_action')}</button>
-          <button type="button" onClick={onClose}
+          <button type="button" onClick={close}
             className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
         </div>
         <p className="font-mono text-[11px] text-slate-500">
@@ -200,6 +219,20 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
   const me = usePlatformStore(s => s.currentUser)
   const canChangeStatus = holdsRole(me, 'pm')                 // may send for approval
   const canDecide = holdsRole(me, 'pm', 'qc')                 // may approve / reject someone else's request
+  const canManage = !readOnly && holdsRole(me, 'pm')           // add, sync from ICH, edit scope
+  const canEditScope = canManage
+  const [scopeSaving, setScopeSaving] = useState(false)
+  const [scopeError,  setScopeError]  = useState<string | null>(null)
+  const toggleScope = async (frameworkId: string, current: string[], m: 'A' | 'B' | 'C' | 'D' | 'E', on: boolean) => {
+    const next = (on ? [...new Set([...current, m])] : current.filter(x => x !== m)).sort() as Array<'A' | 'B' | 'C' | 'D' | 'E'>
+    setScopeSaving(true); setScopeError(null)
+    try {
+      await platformApi.setFrameworkScope(frameworkId, next)
+      await qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] })
+    } catch {
+      setScopeError(t('page.regulatory_framework_admin.scope_save_failed'))
+    } finally { setScopeSaving(false) }
+  }
   const { data: pendingRequests = [] } = useQuery<FrameworkSupersedeRequest[]>({
     queryKey: ['framework-requests', 'pending'],
     queryFn:  () => platformApi.listFrameworkRequests({ status: 'pending' }),
@@ -215,7 +248,6 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
   // Filters, sort and paging — the same controls as Master Documents (the registry is small, so they run in the browser).
   const [search,   setSearch]   = useState('')
   const [statuses, setStatuses] = useState<string[]>([])
-  const [issuers,  setIssuers]  = useState<string[]>([])
   const [sort,     setSort]     = useState<SortKey>('code-asc')
   const [page,     setPage]     = useState(1)
   const [pageSize, setPageSize] = useState(PAGE_SIZES[0]!)
@@ -258,17 +290,14 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
     s === 'Draft revision' ? t('page.regulatory_framework_admin.chip_draft_revision') :
                              t('page.regulatory_framework_admin.chip_superseded')
   const statusOptions = STATUS_OPTIONS.map(s => ({ value: s, label: statusLabel(s) }))
-  // Issuers that appear in the registry (ICH, FDA, EMA …). The registry doesn't store a module scope yet, so Issuer is the second filter.
-  const issuerOptions = Array.from(new Set(frameworks.map(f => f.issuer).filter(Boolean))).sort((x, y) => x.localeCompare(y)).map(v => ({ value: v, label: v }))
 
-  const filtersDirty = search.trim() !== '' || statuses.length > 0 || issuers.length > 0
-  const resetFilters = () => { setSearch(''); setStatuses([]); setIssuers([]) }
+  const filtersDirty = search.trim() !== '' || statuses.length > 0
+  const resetFilters = () => { setSearch(''); setStatuses([]) }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     const rows = frameworks.filter(f => {
       if (statuses.length > 0 && !statuses.includes(f.status)) return false
-      if (issuers.length > 0 && !issuers.includes(f.issuer)) return false
       if (q && ![f.code, f.name, f.issuer].some(v => (v ?? '').toLowerCase().includes(q))) return false
       return true
     })
@@ -281,9 +310,9 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
       'oldest':      (x, y) => new Date(x.lastUpdated).getTime() - new Date(y.lastUpdated).getTime(),
     }
     return [...rows].sort(by[sort])
-  }, [frameworks, search, statuses, issuers, sort])
+  }, [frameworks, search, statuses, sort])
 
-  useEffect(() => { setPage(1) }, [search, statuses, issuers, sort, pageSize])
+  useEffect(() => { setPage(1) }, [search, statuses, sort, pageSize])
   const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
   const pageRows  = filtered.slice((Math.min(page, pageCount) - 1) * pageSize, Math.min(page, pageCount) * pageSize)
 
@@ -399,23 +428,36 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
           </p>
         </MasterLibraryHeading>
 
-        {/* Filters — search, Status, Issuer, reset and Add framework, in one row like Master Documents. */}
+        {/* Filters — search, the scope colour key, Status, reset, Sync and Add framework, in one row. */}
         <div className="[container-type:inline-size]" data-filter-panel>
-          <div className="flex flex-wrap items-center gap-3 [@container_(min-width:760px)]:flex-nowrap">
+          {/* One row when there is room (≥1200px); otherwise the scope key moves to its own row underneath. */}
+          <div className="flex flex-wrap items-center gap-3 [@container_(min-width:1200px)]:flex-nowrap">
             <input
               type="search" value={search} onChange={e => setSearch(e.currentTarget.value)}
               placeholder={t('page.regulatory_framework_admin.search_placeholder', { defaultValue: 'Search frameworks' })}
               aria-label={t('page.regulatory_framework_admin.search_placeholder', { defaultValue: 'Search frameworks' })}
               data-filter-search
-              className={`${filterControl} basis-full min-w-0 [@container_(min-width:760px)]:min-w-[180px] [@container_(min-width:760px)]:flex-[2_1_0%] [@container_(min-width:760px)]:basis-auto`}
+              className={`${filterControl} basis-full min-w-0 [@container_(min-width:760px)]:min-w-[180px] [@container_(min-width:760px)]:flex-[2_1_220px] [@container_(min-width:760px)]:basis-[220px]`}
             />
+            <div className="order-last flex basis-full flex-wrap items-center gap-1.5 [@container_(min-width:1200px)]:order-none [@container_(min-width:1200px)]:flex-none [@container_(min-width:1200px)]:basis-auto [@container_(min-width:1200px)]:flex-nowrap" data-scope-key>
+              <ul className="contents" aria-label={t('page.regulatory_framework_admin.scope_legend')} data-scope-legend>
+                {(['A', 'B', 'C', 'D', 'E'] as const).map(m => (
+                  <li
+                    key={m}
+                    title={t(SCOPE_LABEL_KEYS[m])}
+                    className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full border pl-1 pr-2.5 text-[11px] font-semibold"
+                    style={{ borderColor: `${SCOPE_COLOURS[m]}40`, backgroundColor: `${SCOPE_COLOURS[m]}10`, color: SCOPE_COLOURS[m] }}
+                    data-scope-legend-item={m}
+                  >
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full font-mono text-[10px] font-bold text-white" style={{ backgroundColor: SCOPE_COLOURS[m] }} aria-hidden="true">{m}</span>
+                    {t(`page.regulatory_framework_admin.scope_short_${m.toLowerCase()}`)}
+                  </li>
+                ))}
+              </ul>
+            </div>
             <div data-filter-status className="min-w-[150px] flex-[1_1_150px] [@container_(min-width:760px)]:flex-[1_1_0%]">
               <MultiSelect label={t('page.regulatory_framework_admin.status_label')} allLabel={t('page.regulatory_framework_admin.all_statuses', { defaultValue: 'All statuses' })}
                 options={statusOptions} value={statuses} onChange={setStatuses} optionAttr="data-status-option" className={filterControl} />
-            </div>
-            <div data-filter-issuer className="min-w-[150px] flex-[1_1_150px] [@container_(min-width:760px)]:flex-[1_1_0%]">
-              <MultiSelect label={t('page.regulatory_framework_admin.col_issuer')} allLabel={t('page.regulatory_framework_admin.all_issuers', { defaultValue: 'All issuers' })}
-                options={issuerOptions} value={issuers} onChange={setIssuers} optionAttr="data-issuer-option" className={filterControl} />
             </div>
             <button
               type="button" onClick={resetFilters} disabled={!filtersDirty}
@@ -429,7 +471,7 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
                 <path d="M2.5 2.5v2.8h2.8" />
               </svg>
             </button>
-            {!readOnly && (
+            {canManage && (
               <button
                 type="button"
                 onClick={() => { void syncFromIch() }}
@@ -439,7 +481,7 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
                 data-action="sync-ich"
               >{syncing ? t('page.regulatory_framework_admin.syncing') : t('page.regulatory_framework_admin.sync_button')}</button>
             )}
-            {!readOnly && (
+            {canManage && (
               <button
                 type="button"
                 data-add-framework
@@ -452,7 +494,7 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
         </div>
         {syncResult && <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} role="status" data-sync-result>{syncResult}</p>}
         {syncError && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-sync-error>{syncError}</p>}
-        {!readOnly && <AddFrameworkPanel open={addOpen} onClose={() => setAddOpen(false)} />}
+        {canManage && <AddFrameworkPanel open={addOpen} onClose={() => setAddOpen(false)} />}
 
         <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-frameworks-table data-count={frameworks.length}>
           <table className="w-full border-collapse text-[13px]">
@@ -554,14 +596,14 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
               <ScopeDots scope={active.scope} />
             </div>
 
-            <fieldset className="rounded-md border border-slate-200 p-3" data-scope-checkboxes disabled>
+            <fieldset className="rounded-md border border-slate-200 p-3" data-scope-checkboxes disabled={!canEditScope || scopeSaving}>
               <legend className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.regulatory_framework_admin.scope_legend')}</legend>
               {(['A','B','C','D','E'] as const).map(m => (
-                <label key={m} className="mt-1 flex items-center gap-2 text-[12px] text-slate-400">
+                <label key={m} className={`mt-1 flex items-center gap-2 text-[12px] ${canEditScope ? 'text-slate-700' : 'text-slate-500'}`}>
                   <input
                     type="checkbox"
                     checked={active.scope.includes(m)}
-                    readOnly
+                    onChange={e => { void toggleScope(active.id, active.scope, m, e.currentTarget.checked) }}
                     data-scope-check={m}
                     style={{ accentColor: SCOPE_COLOURS[m] }}
                   />
@@ -569,7 +611,8 @@ export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: bool
                   <span>{t(SCOPE_LABEL_KEYS[m])}</span>
                 </label>
               ))}
-              <p className="mt-2 font-mono text-[10px] text-slate-500" data-scope-unavailable>{t('page.regulatory_framework_admin.scope_unavailable')}</p>
+              {!canEditScope && <p className="mt-2 font-mono text-[10px] text-slate-500" data-scope-readonly>{t('page.regulatory_framework_admin.scope_admin_only')}</p>}
+              {scopeError && <p className="mt-2 text-[11px] text-red-700" role="alert" data-scope-error>{scopeError}</p>}
             </fieldset>
 
             {!readOnly && activePending && !alreadySuperseded && (

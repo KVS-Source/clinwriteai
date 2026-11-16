@@ -138,6 +138,7 @@ interface FrameworkRow {
   retiredAt:     string | null
   description:   string | null   // full name
   sourceUrl:     string | null
+  scope?:        string[]        // ClinWrite modules it applies to ('A'…'E'); migration 72
   updatedAt:     string
 }
 
@@ -160,10 +161,10 @@ export interface CreateFrameworkBody {
   effectiveDate: string          // ISO datetime
   description?:  string
   sourceUrl?:    string
+  scope?:        Array<'A' | 'B' | 'C' | 'D' | 'E'>
 }
 
-// The registry stores no scope or revision status yet: scope is empty and
-// status is Current / Deprecated (retired) only.
+// Status is Current / Deprecated (retired) only; scope is the modules the framework applies to.
 function frameworkShape(r: FrameworkRow): RegulatoryFramework {
   return {
     id:            r.id,
@@ -172,7 +173,7 @@ function frameworkShape(r: FrameworkRow): RegulatoryFramework {
     issuer:        r.jurisdiction,
     version:       r.version,
     effectiveDate: r.effectiveDate,
-    scope:         [],
+    scope:         (r.scope ?? []) as RegulatoryFramework['scope'],
     status:        r.retiredAt ? 'Deprecated' : 'Current',
     lastUpdated:   r.updatedAt,
     changeSummary: null,
@@ -369,6 +370,9 @@ export const platformApi = {
     api.get<FrameworkRow[]>('/admin/frameworks?includeRetired=true').then(rows => rows.map(frameworkShape)),
   createFramework: (body: CreateFrameworkBody) =>
     api.post<FrameworkRow>('/admin/frameworks', body).then(frameworkShape),
+  // Sets which ClinWrite modules a framework applies to (same people who can add a framework).
+  setFrameworkScope: (frameworkId: string, scope: Array<'A' | 'B' | 'C' | 'D' | 'E'>) =>
+    api.patch<FrameworkRow>(`/admin/frameworks/${encodeURIComponent(frameworkId)}`, { scope }).then(frameworkShape),
   // Marks a framework superseded (sets retiredAt). Audited server-side; irreversible.
   // Marking a framework superseded is a two-person decision: a PM sends it for approval, another PM or a
   // QC approves (the framework is retired) or rejects with a reason. There is no direct retire.

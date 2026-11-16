@@ -1,5 +1,6 @@
 // Regulatory framework registry — platform-wide catalogue of frameworks
-// that modules reference. Admins add and edit frameworks. Marking one superseded is a two-person content
+// that modules reference. Project Managers add, edit and sync frameworks (no Super Admin role is in use;
+// client-level admins only read). Marking one superseded is a two-person content
 // decision: a Project Manager sends it for approval and another PM or a QC approves or rejects it (below).
 
 import type { FastifyPluginAsync } from 'fastify'
@@ -15,6 +16,8 @@ const createSchema = z.object({
   effectiveDate: z.string().datetime(),
   description: z.string().optional(),
   sourceUrl: z.string().url().optional(),
+  // ClinWrite modules the framework applies to.
+  scope: z.array(z.enum(['A', 'B', 'C', 'D', 'E'])).max(5).transform(s => [...new Set(s)].sort()).optional(),
 })
 
 const updateSchema = createSchema.partial().omit({ name: true })
@@ -47,7 +50,7 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // Import the real ICH guideline list from ich.org (see ./ich-sync.ts). Same people who can add a framework.
-  app.post('/sync-ich', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  app.post('/sync-ich', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     let result
     try {
       result = await syncIchGuidelines(app.prisma as never, request.user!.id)
@@ -67,7 +70,7 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     return result
   })
 
-  app.post('/', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  app.post('/', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -85,6 +88,7 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
         effectiveDate: new Date(parsed.data.effectiveDate),
         description: parsed.data.description ?? null,
         sourceUrl: parsed.data.sourceUrl ?? null,
+        scope: parsed.data.scope ?? [],
         createdBy: request.user!.id,
       },
     })
@@ -101,7 +105,7 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  app.patch('/:id', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  app.patch('/:id', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = updateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })

@@ -281,11 +281,6 @@ export function MasterLibrary() {
                 align="left" buttonClassName="h-10 w-[220px]" />
             </div>
 
-            <label className="flex flex-none items-center gap-1.5 whitespace-nowrap text-[12px] text-slate-700" data-filter-withdrawn>
-              <input type="checkbox" checked={showWithdrawn} onChange={e => setShowWithdrawn(e.currentTarget.checked)} style={{ accentColor: PLATFORM_ACCENT.primary }} />
-              {t('page.master_library.show_withdrawn')}
-            </label>
-
             <button
               type="button"
               onClick={resetFilters}

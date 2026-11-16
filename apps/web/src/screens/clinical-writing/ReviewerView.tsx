@@ -7,7 +7,8 @@ import type { TFunction } from 'i18next'
 import { documentsApi, projectsApi } from '../../api'
 import { MyRaciRole } from './MyRaciRole'
 import { ReturnToAuthoring } from './ReturnToAuthoring'
-import { ApproveDocument, APPROVE_DOCUMENT_REF } from './ApproveDocument'
+import { ApproveDocument } from './ApproveDocument'
+import { raciApi } from '../../api/raci'
 import { useDocumentTabAccess } from '../../hooks/useDocumentTabAccess'
 import { useCurrentUser } from '../../hooks'
 import { useDocumentPresence } from '../../hooks/usePresence'
@@ -60,6 +61,8 @@ function reviewDueLabel(reviewDueAt: string | null | undefined, t: TFunction): s
 
 // The per-section "Approve section" button is switched off: reviewers only review.
 const SHOW_APPROVE_SECTION = false
+// The signature chain starts automatically after the last Approver approves: no manual start button here.
+const SHOW_START_CHAIN_BUTTON = false
 
 const PANEL_TITLE_KEY: Record<string, string> = {
   comments:  'panel_comments',
@@ -243,9 +246,17 @@ export function ReviewerView() {
   const alreadyApproved   = !!me && !!activeRef && commentList.some(
     c => c.verdict === 'approve' && c.reviewerId === me.id && c.sectionRef === activeRef,
   )
-  const documentApprovedByMe = !!me && commentList.some(
-    c => c.verdict === 'approve' && c.reviewerId === me.id && c.sectionRef === APPROVE_DOCUMENT_REF,
-  )
+  // My whole-document approval stands for this round only: it is the approvedAt on my Approver row,
+  // which a return to authoring clears. (Approve comments from earlier rounds stay in the list, so
+  // they must not decide this, or an Approver could never approve again after a rejection.)
+  const { data: raciRows = [] } = useQuery({
+    queryKey: ['document-raci', documentId],
+    queryFn:  () => raciApi.list(documentId!),
+    enabled:  !!documentId && !!me?.id,
+    staleTime: 30_000,
+  })
+  const myApproverRows = raciRows.filter(r => r.letter === 'A' && r.userId === me?.id && !r.removedAt && !r.rejectedAt)
+  const documentApprovedByMe = myApproverRows.length > 0 && myApproverRows.every(r => r.approvedAt !== null)
   const verdictBlockedReason = !hasSections ? t('page.reviewer_view.verdict_no_sections')
                              : !activeSectionData ? t('page.reviewer_view.verdict_select_section')
                              : null
@@ -375,7 +386,11 @@ export function ReviewerView() {
               <ApproveDocument
                 documentId={documentId}
                 alreadyApproved={documentApprovedByMe}
-                onApproved={() => setApproveNote(t('page.reviewer_view.approve_document_done_toast'))}
+                onApproved={started => {
+                  setApproveNote(t(started ? 'page.reviewer_view.approve_document_chain_started' : 'page.reviewer_view.approve_document_done_toast'))
+                  // The last Approver's approval starts signing: take them to it.
+                  if (started) navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/sign`)
+                }}
               />
             )}
             {canGiveVerdict && (<>
@@ -428,8 +443,9 @@ export function ReviewerView() {
                 {t('page.reviewer_view.crm_meeting')}
               </button>
             )}
-            {/* Review + CRM done → the owner starts the Part 11 chain (FR-A-066). */}
-            {document.status === 'pending-signature' && canStartSignatureChain && (
+            {/* The Part 11 chain now starts by itself once every Approver has approved, so nobody starts
+                it from here. (It can still be started by hand from the E-Signature screen if a gate blocked it.) */}
+            {SHOW_START_CHAIN_BUTTON && document.status === 'pending-signature' && canStartSignatureChain && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/sign`)}

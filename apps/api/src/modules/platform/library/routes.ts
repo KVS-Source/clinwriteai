@@ -20,10 +20,10 @@ import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { DATE_IN_PAST, isPastDay } from '../past-date.js'
 import { textExcerpt, wordStartPattern } from './search.js'
-import { enabledModules, requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
+import { enabledModules, requireAuth } from '../../../auth/rbac.js'
 import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
 import type { Prisma } from '@prisma/client'
-import { visibleDocumentIds, visibleProjectIdsForUser } from '../../projects/visibility.js'
+import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../document-raci/access.js'
 import { pushDocumentToLibrary } from './auto-push.js'
 import { PROJECT_CLOSED, projectIsClosed } from '../../projects/closed.js'
@@ -31,8 +31,9 @@ import { extractTextFromBlob } from '../../clinical-writing/documents/extract-te
 import { fileExtension } from '../uploads/source-files.js'
 import { generateBlobKey } from '../blob/local-storage.js'
 import { libraryItemPdf, PDF_MAX_CHARS } from './pdf-file.js'
+import { viewerWatermark } from './watermark.js'
 import {
-  BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, sourceDocumentInfo, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
+  BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
   type LibraryContext, type SectionRow,
 } from './shape.js'
 
@@ -172,7 +173,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
   const NOT_YOURS = { error: 'forbidden', message: 'Platform-wide library items can only be changed by a platform admin.' } as const
 
   // One batched lookup for the names/projects a page of rows refers to.
-  async function fetchContext(rows: SectionRow[], user: AuthenticatedUser): Promise<LibraryContext> {
+  async function fetchContext(rows: SectionRow[]): Promise<LibraryContext> {
     const projectIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('project:')).map(t => t.slice(8))))]
     const documentIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('source:')).map(t => sourceDocumentId(t.slice(7)))))]
     const titles = [...new Set(rows.filter(r => r.category !== 'best_practice').map(r => r.title))]
@@ -185,7 +186,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     }
     const [projects, documents, versions] = await Promise.all([
       projectIds.length ? app.prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true, status: true } }) : [],
-      documentIds.length ? app.prisma.document.findMany({ where: { id: { in: documentIds } }, select: { id: true, title: true, createdBy: true, createdAt: true, currentVersionId: true } }) : [],
+      documentIds.length ? app.prisma.document.findMany({ where: { id: { in: documentIds } }, select: { id: true, title: true } }) : [],
       titles.length ? app.prisma.librarySection.findMany({ where: { title: { in: titles }, AND: [tenantScope] }, select: { title: true, tenantId: true, version: true, createdAt: true, approvedBy: true } }) : [],
     ])
     const firstVersions = new Map<string, { createdAt: Date; by: string; version: number }>()
@@ -195,52 +196,17 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       if (!seen || v.version < seen.version) firstVersions.set(key, { createdAt: v.createdAt, by: v.approvedBy, version: v.version })
     }
 
-    // The source documents' people: role holders, who edited the current text, and the
-    // signatures of the completed chain. Ids from other modules match no Document row and
-    // simply get no entry.
-    const docIds = documents.map(d => d.id)
-    // Role holders and editors are shown only to people on the document's project (and admin / auditor);
-    // signatures are part of the signed record and are shown to everyone who can see the library entry.
-    const teamVisible = await visibleDocumentIds(app.prisma, user, docIds)
-    const teamDocIds = docIds.filter(id => teamVisible.has(id))
-    const versionIds = documents.filter(d => teamVisible.has(d.id)).map(d => d.currentVersionId).filter((v): v is string => !!v)
-    const [raciRows, sectionRows, chains] = await Promise.all([
-      teamDocIds.length ? app.prisma.documentRaci.findMany({ where: { documentId: { in: teamDocIds } }, select: { documentId: true, userId: true, letter: true, removedAt: true } }) : [],
-      versionIds.length ? app.prisma.sectionContent.findMany({ where: { documentVersionId: { in: versionIds } }, select: { documentVersionId: true, lastEditedBy: true, lastEditedAt: true, humanSpanCount: true } }) : [],
-      docIds.length ? app.prisma.signatureChain.findMany({
-        where: { documentId: { in: docIds }, status: 'complete' },
-        orderBy: { completedAt: 'desc' },
-        select: { documentId: true, records: { where: { status: 'signed' }, select: { signerId: true, signerName: true, meaning: true, step: true, timestampUtc: true, versionAtSigning: true } } },
-      }) : [],
-    ])
-    const latestChain = new Map<string, (typeof chains)[number]>()
-    for (const c of chains) if (!latestChain.has(c.documentId)) latestChain.set(c.documentId, c)   // newest first
-
-    const userIds = [...new Set([
-      ...rows.map(r => r.approvedBy), ...[...firstVersions.values()].map(f => f.by),
-      ...documents.map(d => d.createdBy), ...raciRows.map(r => r.userId),
-      ...sectionRows.flatMap(s => (s.lastEditedBy ? [s.lastEditedBy] : [])),
-      ...chains.flatMap(c => c.records.map(r => r.signerId)),
-    ])]
+    // Only the library entry's own people (who pushed each version). The source document's creator,
+    // editors, role holders and signatures are not shown in the Master Library (SME decision, 2026-11-16).
+    const userIds = [...new Set([...rows.map(r => r.approvedBy), ...[...firstVersions.values()].map(f => f.by)])]
     const users = userIds.length ? await app.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : []
     const userNames = new Map(users.map(u => [u.id, u.name]))
-
-    const sourceDocuments = new Map(documents.map(d => [d.id, sourceDocumentInfo({
-      createdBy: d.createdBy,
-      createdAt: d.createdAt,
-      sections: sectionRows.filter(s => s.documentVersionId === d.currentVersionId),
-      raci: raciRows.filter(r => r.documentId === d.id),
-      signatures: latestChain.get(d.id)?.records ?? [],
-      userNames,
-      showTeam: teamVisible.has(d.id),
-    })]))
 
     return {
       userNames,
       projects: new Map(projects.map(p => [p.id, { name: p.name, status: p.status }])),
       documents: new Map(documents.map(d => [d.id, d.title])),
       firstVersions,
-      sourceDocuments,
     }
   }
 
@@ -364,7 +330,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
         }
       }
     }
-    const ctx = await fetchContext(rows as unknown as SectionRow[], request.user!)
+    const ctx = await fetchContext(rows as unknown as SectionRow[])
 
     reply.header('X-Total-Count', String(total))
     reply.header('X-Next-Cursor', skip + rows.length < total ? String(skip + rows.length) : '')
@@ -558,7 +524,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
-    const ctx = await fetchContext([created], request.user!)
+    const ctx = await fetchContext([created])
     return reply.code(201).send(sectionToItem(created, ctx))
   })
 
@@ -637,7 +603,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       details: { ...(project && { projectId: project.id }), title: b.title, docType: b.docType, taTag, fileName: file.filename, fileSizeBytes: buf.length, libraryVersion: created.version, ...(earlier && { supersedes: earlier.id }) },
       ipAddress: request.ip ?? null,
     })
-    const ctx = await fetchContext([created], user)
+    const ctx = await fetchContext([created])
     return reply.code(201).send(sectionToItem(created, ctx))
   })
 
@@ -660,13 +626,14 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
-  // GET /library/:id/pdf — the item's title and text as a PDF file (Master Library
-  // "Download PDF"). Same visibility as reading the item.
+  // GET /library/:id/pdf — the item as a PDF, for the Master Library View (shown in the app's own viewer, never
+  // the browser's). Same visibility as reading the item.
   app.get('/:id/pdf', { preHandler: requireAuth() }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
-    const pdf = await libraryItemPdf(app, row)
+    // Every page carries the reader's email and the time (watermark.ts).
+    const pdf = await libraryItemPdf(app, row, { watermark: viewerWatermark(request.user!.email) })
     if (!pdf.ok) return reply.code(pdf.code).send({ error: pdf.error, message: pdf.message })
     return reply
       .header('Content-Type', 'application/pdf')
@@ -682,7 +649,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
-    return sectionToItem(row, await fetchContext([row], request.user!))
+    return sectionToItem(row, await fetchContext([row]))
   })
 
   app.get('/sections', { preHandler: requireAuth() }, async (request, reply) => {

@@ -3081,7 +3081,7 @@
     },
     "master_library": {
       "tab_documents": "Master Documents",
-      "subtitle_documents": "Signed documents pushed here from projects, and documents uploaded by Project Managers. Search and filter the library, and open any document to see its source, team and signatures.",
+      "subtitle_documents": "Signed documents pushed here from projects, and documents uploaded by Project Managers. Search and filter the library, and open any document to see where it came from and its versions.",
       "crumb_platform": "Platform",
       "crumb_master_library": "Master Library",
       "filters_at_defaults": "Filters are at defaults.",
@@ -3089,21 +3089,7 @@
       "meta_pushed_at": "Pushed at",
       "meta_first_pushed_by": "First pushed by",
       "meta_first_pushed_at": "First pushed at",
-      "meta_created_by": "Created by",
-      "meta_created_at": "Created at",
       "meta_updated": "Last updated",
-      "source_document": "Source document",
-      "last_edited_by": "Last edited by",
-      "edited_by": "Edited by",
-      "document_team": "Document team",
-      "no_team": "No one holds a role on this document.",
-      "team_hidden": "Your role doesn't include seeing the people on this document. The signatures below stay visible.",
-      "role_author": "Author",
-      "role_approver": "Approver",
-      "role_reviewer": "Reviewer",
-      "role_qc": "QC",
-      "role_informed": "Informed",
-      "signatures": "Signatures",
       "all_item_types": "All item types",
       "all_doc_types": "All doc types",
       "all_ta": "All areas",
@@ -3126,9 +3112,7 @@
       "filter_module": "Module",
       "filter_item_type": "Item type",
       "filter_doc_type": "Document type",
-      "filter_project": "Project",
       "filter_version": "Version",
-      "all_projects": "All projects",
       "all_versions": "All versions",
       "pushed_between": "Pushed between",
       "date_range_invalid": "From date is after To date.",
@@ -4148,6 +4132,7 @@
       "checking": "Checking…",
       "resend": "Send a new code",
       "read_only": "Read only",
+      "watermark_note": "Every page shows your email address and the time you opened it.",
       "private_note": "This link is only for you and works until {{date}}. Please don't forward it — anyone you forward it to can't get the code.",
       "err_link_invalid": "This link is not valid. Ask the person who shared the document to share it again.",
       "err_revoked": "This link no longer works. Ask the person who shared the document to share it again.",
@@ -4235,6 +4220,14 @@
     }
   },
   "component": {
+    "pdf_viewer": {
+      "loading": "Loading the document…",
+      "failed": "This document could not be displayed.",
+      "page_of": "Page {{page}} of {{total}}",
+      "zoom_in": "Zoom in",
+      "zoom_out": "Zoom out",
+      "fit_width": "Fit to width"
+    },
     "protocol_type_label": {
       "protocol": "Clinical Trial Protocol",
       "protocol_amendment": "Protocol Amendment"

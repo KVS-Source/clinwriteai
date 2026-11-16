@@ -3269,7 +3269,7 @@
 
     "master_library": {
       "tab_documents": "マスター文書",
-      "subtitle_documents": "プロジェクトから登録された署名済み文書と、プロジェクトマネージャーがアップロードした文書です。ライブラリを検索・絞り込みでき、各文書の元文書・チーム・署名を確認できます。",
+      "subtitle_documents": "プロジェクトから登録された署名済み文書と、プロジェクトマネージャーがアップロードした文書です。ライブラリを検索・絞り込みでき、各文書の出所とバージョン履歴を確認できます。",
       "crumb_platform": "プラットフォーム",
       "crumb_master_library": "マスターライブラリ",
       "filters_at_defaults": "フィルターは初期状態です。",
@@ -3277,21 +3277,7 @@
       "meta_pushed_at": "登録日時",
       "meta_first_pushed_by": "初回登録者",
       "meta_first_pushed_at": "初回登録日時",
-      "meta_created_by": "作成者",
-      "meta_created_at": "作成日時",
       "meta_updated": "最終更新",
-      "source_document": "元の文書",
-      "last_edited_by": "最終編集者",
-      "edited_by": "編集者",
-      "document_team": "文書チーム",
-      "no_team": "この文書で役割を持つ人はいません。",
-      "team_hidden": "この文書の担当者は、プロジェクトのメンバーのみが閲覧できます。署名は下に表示されます。",
-      "role_author": "著者",
-      "role_approver": "承認者",
-      "role_reviewer": "レビュアー",
-      "role_qc": "QC",
-      "role_informed": "情報共有",
-      "signatures": "署名",
       "all_item_types": "すべての項目タイプ",
       "all_doc_types": "すべての文書タイプ",
       "all_ta": "すべての治療領域",
@@ -3314,9 +3300,7 @@
       "filter_module": "モジュール",
       "filter_item_type": "項目タイプ",
       "filter_doc_type": "文書タイプ",
-      "filter_project": "プロジェクト",
       "filter_version": "バージョン",
-      "all_projects": "すべてのプロジェクト",
       "all_versions": "すべてのバージョン",
       "pushed_between": "プッシュ期間",
       "date_range_invalid": "開始日が終了日より後になっています。",
@@ -4359,6 +4343,7 @@
       "checking": "確認中…",
       "resend": "新しいコードを送信",
       "read_only": "閲覧のみ",
+      "watermark_note": "各ページには、あなたのメールアドレスと閲覧日時が表示されます。",
       "private_note": "このリンクはあなた専用で、{{date}} まで有効です。転送しないでください。転送先の人はコードを受け取れません。",
       "err_link_invalid": "このリンクは無効です。文書を共有した人にもう一度共有を依頼してください。",
       "err_revoked": "このリンクは使用できなくなりました。文書を共有した人にもう一度共有を依頼してください。",
@@ -4446,6 +4431,14 @@
   },
 
   "component": {
+    "pdf_viewer": {
+      "loading": "文書を読み込んでいます…",
+      "failed": "この文書を表示できませんでした。",
+      "page_of": "{{page}} / {{total}} ページ",
+      "zoom_in": "拡大",
+      "zoom_out": "縮小",
+      "fit_width": "幅に合わせる"
+    },
     "protocol_type_label": {
       "protocol": "治験実施計画書",
       "protocol_amendment": "治験実施計画書改訂"

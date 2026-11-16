@@ -49,83 +49,11 @@ export interface LibraryContext {
   documents?: Map<string, string>
   /** First version of each item (by tenant + title): who made it and when. */
   firstVersions?: Map<string, { createdAt: Date; by: string }>
-  /** The Clinical Writing document an item was pushed from: its people, by document id. */
-  sourceDocuments?: Map<string, SourceDocumentInfo>
 }
 
-/** RACI letters in the order the panel lists them. */
-const LETTER_ORDER = ['R', 'A', 'C', 'Q', 'I']
-
-/**
- * Who worked on the source document, as the library panel shows it. Names are resolved
- * already; the library is read by people outside the project, so this carries names and
- * roles only, never content.
- */
-export interface SourceDocumentInfo {
-  createdByName: string
-  createdAt: string
-  /** The last person whose own (non-AI) writing is in the current text, and when. */
-  lastEditedByName: string | null
-  lastEditedAt: string | null
-  /** Everyone whose own (non-AI) writing is in the current text, most recent first. */
-  editors: string[]
-  /** Current role holders on the document (removed rows left out), Authors first. */
-  team: { letter: string; name: string }[]
-  /** Signatures of the completed signature chain, in chain order. */
-  signatures: { name: string; meaning: string; signedAt: string; version: string | null }[]
-  /**
-   * True when the reader isn't on the source document's project: the role holders and editors are
-   * left out (colleagues' names across projects are personal data). The creator, the pusher and the
-   * signatures stay, as they are part of the signed record.
-   */
-  teamHidden: boolean
-}
-
-/** Raw rows for one document → SourceDocumentInfo. Pure, so it is tested without a database. */
-export function sourceDocumentInfo(args: {
-  createdBy: string
-  createdAt: Date
-  sections: { lastEditedBy: string | null; lastEditedAt: Date | null; humanSpanCount: number }[]
-  raci: { userId: string; letter: string; removedAt: Date | null }[]
-  signatures: { signerId: string; signerName: string; meaning: string; step: number; timestampUtc: Date | null; versionAtSigning: string | null }[]
-  userNames: Map<string, string>
-  /** Whether the reader may see the role holders and editors (a member of the project, or admin/auditor). */
-  showTeam: boolean
-}): SourceDocumentInfo {
-  const name = (id: string) => args.userNames.get(id) ?? 'Unknown user'
-
-  // Most recent edit per person, newest first. A section holding only AI text is left out: the
-  // AI drafter writes it under the name of whoever created the document, who didn't edit it.
-  const lastEditBy = new Map<string, Date>()
-  for (const s of args.sections) {
-    if (!s.lastEditedBy || !s.lastEditedAt || s.humanSpanCount === 0) continue
-    const seen = lastEditBy.get(s.lastEditedBy)
-    if (!seen || s.lastEditedAt > seen) lastEditBy.set(s.lastEditedBy, s.lastEditedAt)
-  }
-  const edits = args.showTeam ? [...lastEditBy.entries()].sort((a, b) => b[1].getTime() - a[1].getTime()) : []
-
-  // One entry per person and letter (a whole-document row and a section row are the same role here).
-  const seenRole = new Set<string>()
-  const team = (args.showTeam ? args.raci : [])
-    .filter(r => !r.removedAt)
-    .filter(r => { const k = `${r.userId}|${r.letter}`; if (seenRole.has(k)) return false; seenRole.add(k); return true })
-    .map(r => ({ letter: r.letter, name: name(r.userId) }))
-    .sort((a, b) => (LETTER_ORDER.indexOf(a.letter) - LETTER_ORDER.indexOf(b.letter)) || a.name.localeCompare(b.name))
-
-  return {
-    createdByName: name(args.createdBy),
-    createdAt: args.createdAt.toISOString(),
-    lastEditedByName: edits[0] ? name(edits[0][0]) : null,
-    lastEditedAt: edits[0] ? edits[0][1].toISOString() : null,
-    editors: edits.map(([id]) => name(id)),
-    team,
-    teamHidden: !args.showTeam,
-    signatures: [...args.signatures]
-      .filter(s => s.timestampUtc)
-      .sort((a, b) => a.step - b.step)
-      .map(s => ({ name: args.userNames.get(s.signerId) ?? s.signerName, meaning: s.meaning, signedAt: s.timestampUtc!.toISOString(), version: s.versionAtSigning })),
-  }
-}
+// The source document's people (creator, editors, RACI role holders, signatures) are not carried on a
+// library item (SME decision, 2026-11-16): the Master Library shows only the provenance chain and the
+// version history. Those names stay with the source document in its project, where each stage records them.
 
 /** The source document id inside a `source:` tag value (`<docId>` or `<docId>#<sectionId>`). */
 export const sourceDocumentId = (sourceId: string) => sourceId.split('#')[0]!
@@ -235,17 +163,12 @@ export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
     }),
     provenanceChain,
     // These describe the library entry: who pushed this version (editedByName), and who pushed
-    // the first one and when (createdByName / createdAt). The source document's own people
-    // are in sourceDocument.
+    // the first one and when (createdByName / createdAt).
     editedByName: pushedByName,
     createdAt: (first?.createdAt ?? row.createdAt ?? row.approvedAt).toISOString(),
     createdByName: first ? (ctx.userNames.get(first.by) ?? 'Unknown user') : pushedByName,
     updatedAt: row.updatedAt.toISOString(),
     body: row.body,
-    ...(() => {
-      const info = t.sourceId ? ctx.sourceDocuments?.get(sourceDocumentId(t.sourceId)) : undefined
-      return info ? { sourceDocument: info } : {}
-    })(),
   }
 }
 

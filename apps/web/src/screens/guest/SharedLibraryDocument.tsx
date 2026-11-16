@@ -3,14 +3,16 @@
 //
 // The link alone opens nothing. The reader asks for a one-time code, which the API emails to the invited
 // address only; the document shows after the code is entered. Someone the link is forwarded to can't get the
-// code. The viewing session lives only in this tab (sessionStorage), and the document is shown for reading —
-// there is no download button. API: apps/api/src/modules/platform/library/share.ts.
+// code. The viewing session lives only in this tab (sessionStorage). The document is drawn by our own viewer
+// (ProtectedPdfViewer), so no browser — Safari included — offers to download or print it, and every page carries
+// the reader's email and the time (stamped by the API). API: apps/api/src/modules/platform/library/share.ts.
 
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { apiConfig } from '../../api/client'
 import { PLATFORM_ACCENT } from '@platform/types'
+import { ProtectedPdfViewer } from '../../components/library/ProtectedPdfViewer'
 
 interface ShareInfo {
   title: string
@@ -72,7 +74,7 @@ export function SharedLibraryDocument() {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<string | null>(null)
   const [session, setSession] = useState<string | null>(() => readSession(token))
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
+  const [pdf, setPdf] = useState<Blob | null>(null)
   const codeInput = useRef<HTMLInputElement>(null)
 
   const describe = (f: Failure) => {
@@ -95,19 +97,17 @@ export function SharedLibraryDocument() {
   useEffect(() => {
     if (!info || !session) return
     let cancelled = false
-    let url: string | null = null
     call<Blob>(`/shared-library/${encodeURIComponent(token)}/pdf`, { session })
       .then(blob => {
         if (cancelled) return
-        url = URL.createObjectURL(blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' }))
-        setPdfUrl(url); setStep('reading')
+        setPdf(blob); setStep('reading')
       })
       .catch((f: Failure) => {
         if (cancelled) return
         writeSession(token, null); setSession(null); setStep('start')
         if (f.status !== 401) setNotice(describe(f))
       })
-    return () => { cancelled = true; if (url) URL.revokeObjectURL(url) }
+    return () => { cancelled = true }
   }, [info, session, token]) // eslint-disable-line react-hooks/exhaustive-deps
 
   async function requestCode() {
@@ -138,7 +138,7 @@ export function SharedLibraryDocument() {
 
   const fmt = (iso: string) => new Date(iso).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })
 
-  if (step === 'reading' && pdfUrl && info) {
+  if (step === 'reading' && pdf && info) {
     return (
       <div className="flex h-screen flex-col bg-slate-100" data-shared-reader>
         <header className="flex flex-none items-center gap-3 border-b border-slate-200 bg-white px-5 py-3">
@@ -149,11 +149,15 @@ export function SharedLibraryDocument() {
               {info.docType} · {info.version}{info.sharedByName ? ` · ${t('page.shared_library.shared_by', { name: info.sharedByName })}` : ''}
             </p>
           </div>
+          <span className="hidden max-w-[280px] text-right text-[11px] leading-tight text-slate-500 md:inline" data-shared-watermark-note>{t('page.shared_library.watermark_note')}</span>
           <span className="hidden rounded-md bg-slate-100 px-2 py-1 text-[11px] text-slate-600 sm:inline">{t('page.shared_library.read_only')}</span>
         </header>
-        {/* The browser's PDF toolbar (save / print) is hidden: a deterrent only — a determined reader can still
-            screenshot or print the page; what stops the link being passed on is the emailed code. */}
-        <iframe src={`${pdfUrl}#toolbar=0&navpanes=0`} title={info.title} className="min-h-0 w-full flex-1 border-0 bg-white" data-shared-frame />
+        {/* Our own viewer, not the browser's: no download or print button in any browser. Deterrent only — a
+            screenshot is still possible; the watermark makes a leaked copy traceable, and the emailed code stops
+            the link being passed on. */}
+        <div className="min-h-0 flex-1" data-shared-frame>
+          <ProtectedPdfViewer file={pdf} title={info.title} />
+        </div>
       </div>
     )
   }

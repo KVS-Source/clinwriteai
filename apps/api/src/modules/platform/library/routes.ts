@@ -31,6 +31,7 @@ import { extractTextFromBlob } from '../../clinical-writing/documents/extract-te
 import { fileExtension } from '../uploads/source-files.js'
 import { generateBlobKey } from '../blob/local-storage.js'
 import { libraryItemPdf, PDF_MAX_CHARS } from './pdf-file.js'
+import { viewerWatermark } from './watermark.js'
 import {
   BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
   type LibraryContext, type SectionRow,
@@ -625,13 +626,14 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
-  // GET /library/:id/pdf — the item's title and text as a PDF file (Master Library
-  // "Download PDF"). Same visibility as reading the item.
+  // GET /library/:id/pdf — the item as a PDF, for the Master Library View (shown in the app's own viewer, never
+  // the browser's). Same visibility as reading the item.
   app.get('/:id/pdf', { preHandler: requireAuth() }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
-    const pdf = await libraryItemPdf(app, row)
+    // Every page carries the reader's email and the time (watermark.ts).
+    const pdf = await libraryItemPdf(app, row, { watermark: viewerWatermark(request.user!.email) })
     if (!pdf.ok) return reply.code(pdf.code).send({ error: pdf.error, message: pdf.message })
     return reply
       .header('Content-Type', 'application/pdf')

@@ -579,7 +579,11 @@ model DocumentTemplate {
   label                     String                                     // 'CSR (Full)'
   description               String                                     // one-line shown in step 1 of the wizard
   framework                 String                                     // 'ICH E3', 'ICH E6(R3)', 'ICH E2F', …
-  sections                  Json                                       // [{ id, number, title, usOnly? }]
+  sections                  Json                                       // [{ id, number, title, usOnly?, + optional: level, parentId, instructions, guidance, templateText, defaultContentHtml, tables, … }]
+  // Everything about the template that is not its section list: page layout, styles, header / footer,
+  // table style, placeholder rules, writing standards, front / back matter, provenance. NULL for templates
+  // that only carry a section list. See docs/templates/protocol-ich-m11.template.json for the shape.
+  spec                      Json?
   requiredSourceCategories  String[]  @default([])                     // SOURCE_CATEGORIES.value entries
   version                   Int       @default(1)
   isCurrent                 Boolean   @default(true)                   // enforced at the service layer; see supersededBy

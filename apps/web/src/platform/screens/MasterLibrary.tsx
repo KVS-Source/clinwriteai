@@ -15,6 +15,7 @@ import { usePlatformStore } from '../store/platformStore'
 import { describeApiError } from '../../api'
 import { api, ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
+import { ProtectedPdfViewer } from '../../components/library/ProtectedPdfViewer'
 import { SortIcon } from '../../components/ui/SortIcon'
 import { DateTimeRangeFilter, rangeToIso, toInputValue, type TimeZoneMode } from '../../components/ui/DateTimeRangeFilter'
 
@@ -63,7 +64,6 @@ export function MasterLibrary() {
   const [search,      setSearch]      = useState('')
   const [docTypes,    setDocTypes]    = useState<string[]>([])
   const [tas,         setTas]         = useState<string[]>([])
-  const [project,     setProject]     = useState('')
   // "Pushed" date-and-time range, the same picker as the Audit Trail: values are YYYY-MM-DDTHH:mm in `tz`.
   const [rangeFrom,   setRangeFrom]   = useState('')
   const [rangeTo,     setRangeTo]     = useState('')
@@ -84,8 +84,8 @@ export function MasterLibrary() {
   const dateRangeInvalid = !!rangeFrom && !!rangeTo && rangeFrom > rangeTo
   const listParams = useMemo<LibraryListParams>(() => ({
     q: debouncedSearch, itemType: LIST_ITEM_TYPES, docType: docTypes, ta: tas,
-    projectId: project, from: rangeToIso(rangeFrom, 'start', tz), to: rangeToIso(rangeTo, 'end', tz), sort, includeRetired: showWithdrawn, limit: pageSize,
-  }), [debouncedSearch, docTypes, tas, project, rangeFrom, rangeTo, tz, sort, showWithdrawn, pageSize])
+    from: rangeToIso(rangeFrom, 'start', tz), to: rangeToIso(rangeTo, 'end', tz), sort, includeRetired: showWithdrawn, limit: pageSize,
+  }), [debouncedSearch, docTypes, tas, rangeFrom, rangeTo, tz, sort, showWithdrawn, pageSize])
 
   // Any change to a filter, the sort or the page size starts again from page 1.
   useEffect(() => { setPage(1) }, [listParams])
@@ -117,22 +117,16 @@ export function MasterLibrary() {
     () => Array.from(new Set([...BASE_DOC_TYPES, ...docTypes, ...items.map(i => i.docType)])).filter(Boolean),
     [items, docTypes],
   )
-  // Every project that has something in the library, whoever is signed in (not just the user's own projects).
-  const { data: projectList = [] } = useQuery({ queryKey: ['library-projects'], queryFn: () => platformApi.listLibraryProjects() })
-  const projectOptions = useMemo(
-    () => projectList.map(p => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name)),
-    [projectList],
-  )
 
   const activeFilterCount =
     (search.trim() ? 1 : 0) +
-    (docTypes.length ? 1 : 0) + (tas.length ? 1 : 0) + (project ? 1 : 0) +
+    (docTypes.length ? 1 : 0) + (tas.length ? 1 : 0) +
     (rangeFrom || rangeTo ? 1 : 0) + (showWithdrawn ? 1 : 0)
   const filtersDirty = activeFilterCount > 0
 
   function resetFilters() {
     setSearch(''); setDocTypes([]); setTas([])
-    setProject(''); setRangeFrom(''); setRangeTo('')
+    setRangeFrom(''); setRangeTo('')
     setSort('recent'); setShowWithdrawn(false)
   }
 
@@ -186,22 +180,14 @@ export function MasterLibrary() {
   const pdfView = useQuery({
     queryKey: ['library-pdf', active?.id],
     queryFn: async () => {
+      // Stamped by the API with the reader's email and the time; shown in our own viewer, never the browser's.
       const { blob } = await api.download(`/library/${encodeURIComponent(active!.id)}/pdf`)
-      // The browser shows the file only if it knows it is a PDF.
-      return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' })
+      return blob
     },
     enabled: viewing && !!active,
     staleTime: 5 * 60_000,
     retry: false,
   })
-  // Object URL for the fetched PDF; revoked when it changes or the viewer closes.
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
-  useEffect(() => {
-    if (!viewing || !pdfView.data) { setPdfUrl(null); return }
-    const u = URL.createObjectURL(pdfView.data)
-    setPdfUrl(u)
-    return () => URL.revokeObjectURL(u)
-  }, [viewing, pdfView.data])
 
   // Switching the timezone keeps the range pointing at the same moments (as on the Audit Trail).
   function changeTz(next: TimeZoneMode) {
@@ -269,11 +255,6 @@ export function MasterLibrary() {
                 options={taLabels.map(ta => ({ value: ta, label: ta }))} value={tas} onChange={setTas}
                 optionAttr="data-ta-chip" className={filterControl} />
             </div>
-            <div data-filter-project className="min-w-[130px] flex-[1_1_130px] [@container_(min-width:1100px)]:flex-[1_1_0%]">
-              <MultiSelect single label={t('page.master_library.filter_project')} allLabel={t('page.master_library.all_projects')}
-                options={projectOptions.map(p => ({ value: p.id, label: p.name }))} value={project ? [project] : []} onChange={v => setProject(v[0] ?? '')}
-                optionAttr="data-project-option" className={filterControl} />
-            </div>
 
             <div className="flex flex-none items-center gap-1.5" data-filter-dates>
               <DateTimeRangeFilter from={rangeFrom} to={rangeTo} tz={tz} invalid={dateRangeInvalid}
@@ -319,16 +300,15 @@ export function MasterLibrary() {
                 <PlainHead label={t('page.master_library.filter_doc_type')} />
                 <PlainHead label={THERAPEUTIC_AREA_LABEL} />
                 <PlainHead label={t('page.master_library.col_version')} />
-                <PlainHead label={t('page.master_library.filter_project')} />
                 <SortHead label={t('page.master_library.col_pushed_on')} asc="oldest" desc="recent" />
               </tr>
             </thead>
             <tbody>
               {isLoading && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_library')}</td></tr>
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_library')}</td></tr>
               )}
               {!isLoading && !error && items.length === 0 && (
-                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
+                <tr><td colSpan={5} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
                   {!filtersDirty ? t('page.master_library.empty_library') : t('page.master_library.empty_filters')}
                   {filtersDirty && (
                     <div><button type="button" onClick={resetFilters} className="mt-2 font-semibold text-slate-700 underline">{t('page.master_library.reset_filters')}</button></div>
@@ -359,7 +339,6 @@ export function MasterLibrary() {
                     <td className="px-4 py-3 text-slate-700">{it.docType || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{(it.ta ?? []).join(', ') || '—'}</td>
                     <td className="px-4 py-3 font-mono text-[12px] text-slate-700">{it.version}</td>
-                    <td className="px-4 py-3 text-slate-700">{it.projectName || '—'}</td>
                     <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(it.pushedAt)}</td>
                   </tr>
                 )
@@ -499,9 +478,10 @@ export function MasterLibrary() {
               {t('page.master_library.view_failed')} {describeApiError(pdfView.error).message}
             </p>
           )}
-          {pdfUrl && (
-            <iframe key={pdfUrl} src={pdfUrl} title={active?.name ?? ''}
-              className="min-h-0 w-full flex-1 border-0 bg-white" data-viewer-frame />
+          {viewing && pdfView.data && (
+            <div className="min-h-0 flex-1" data-viewer-frame>
+              <ProtectedPdfViewer file={pdfView.data} title={active?.name ?? ''} />
+            </div>
           )}
         </div>
       </SlidePanel>
@@ -510,7 +490,7 @@ export function MasterLibrary() {
         open={uploadOpen}
         onClose={() => setUploadOpen(false)}
         docTypes={docTypeOptions}
-        onDone={(msg) => { setUploadOpen(false); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library'] }); void queryClient.invalidateQueries({ queryKey: ['library-projects'] }) }}
+        onDone={(msg) => { setUploadOpen(false); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library'] }); }}
       />
 
       {toast && (

@@ -270,10 +270,6 @@ export const platformApi = {
   createBestPractice: (body: Partial<BestPractice>) =>
     api.post<BestPractice>('/library/best-practices', body),
 
-  // Projects that have documents in the library — the Master Library's Projects filter.
-  listLibraryProjects: () =>
-    api.get<Array<{ id: string; name: string }>>('/library/projects'),
-
   // sPM14 — Notifications: the signed-in user's own feed (API: modules/platform/notifications/routes.ts),
   // e.g. @mentions and signature requests. There is no preferences endpoint yet, so the screen has no
   // Preferences tab.
@@ -652,6 +648,19 @@ export interface DocumentTemplateSection {
   number:  string
   title:   string
   usOnly?: boolean
+  // Richer templates (the ICH M11 protocol) also carry the hierarchy and writing guidance. Optional, and
+  // any other field is kept as is: editing a section list must not strip them.
+  level?:        number
+  parentId?:     string | null
+  style?:        string | null
+  instructions?: string | null
+  guidance?:     string | null
+  templateText?: string | null
+  placeholder?:  string | null
+  defaultContentHtml?: string | null
+  hasSubsections?: boolean
+  tables?:       Array<Record<string, unknown>>
+  [extra: string]: unknown
 }
 
 export interface DocumentTemplateAdmin {
@@ -661,6 +670,8 @@ export interface DocumentTemplateAdmin {
   description:              string
   framework:                string
   sections:                 DocumentTemplateSection[]
+  /** Page layout, styles, standards, front / back matter (richer templates only); null otherwise. */
+  spec?:                    Record<string, unknown> | null
   requiredSourceCategories: string[]
   version:                  number
   isCurrent:                boolean
@@ -676,6 +687,7 @@ export interface DocumentTemplateCreateBody {
   description:               string
   framework:                 string
   sections?:                 DocumentTemplateSection[]
+  spec?:                     Record<string, unknown> | null
   requiredSourceCategories?: string[]
 }
 

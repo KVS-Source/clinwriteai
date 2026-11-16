@@ -270,10 +270,6 @@ export const platformApi = {
   createBestPractice: (body: Partial<BestPractice>) =>
     api.post<BestPractice>('/library/best-practices', body),
 
-  // Projects that have documents in the library — the Master Library's Projects filter.
-  listLibraryProjects: () =>
-    api.get<Array<{ id: string; name: string }>>('/library/projects'),
-
   // sPM14 — Notifications: the signed-in user's own feed (API: modules/platform/notifications/routes.ts),
   // e.g. @mentions and signature requests. There is no preferences endpoint yet, so the screen has no
   // Preferences tab.

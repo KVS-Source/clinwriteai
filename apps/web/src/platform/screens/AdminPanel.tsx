@@ -6,6 +6,7 @@ import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { describeApiError } from '../../api'
 import { usePlatformStore } from '../store'
+import { useTopNavSection } from '../../components/layout/topNavSection'
 
 type TabKey =
   | 'ai-engine' | 'voice' | 'ectd' | 'payment-gateways'
@@ -856,6 +857,8 @@ export function AdminPanel() {
   const setConfig   = usePlatformStore(s => s.setConfig)
 
   const [activeTab, setActiveTab] = useState<TabKey>('ai-engine')
+  // The top bar reads "Administrative Panel / <this tab>".
+  useTopNavSection('/admin', t(TABS.find(tab => tab.key === activeTab)?.labelKey ?? TABS[0]!.labelKey))
   const [otherUnsaved, setOtherUnsaved] = useState(false)   // edits on tabs that don't persist yet
   const [aiDraft,   setAiDraft]   = useState<AiDraft | null>(null)
   const [saveNote,  setSaveNote]  = useState<string | null>(null)
@@ -898,21 +901,9 @@ export function AdminPanel() {
     setOtherUnsaved(false)
   }
 
-  const activeTabLabelKey = useMemo(() => TABS.find(tab => tab.key === activeTab)?.labelKey ?? '', [activeTab])
-  const activeTabLabel = activeTabLabelKey ? t(activeTabLabelKey) : ''
-
   return (
     <div className="bg-slate-50" data-screen="admin-panel">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
-
-        {/* Breadcrumb */}
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.admin_panel.crumb_platform')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">{t('page.admin_panel.title')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span>{activeTabLabel}</span>
-        </nav>
 
         {/* Header */}
         <div className="flex flex-wrap items-start justify-between gap-6">

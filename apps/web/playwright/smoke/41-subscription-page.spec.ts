@@ -104,3 +104,14 @@ test('the empty message and button are Japanese in Japanese', async ({ page }) =
   await expect(page.locator('[data-invoices-empty]')).toHaveText('請求書はまだありません。')
   await expect(page.locator('[data-proceed-payment]')).toHaveText('トップアップをリクエスト')
 })
+
+test('the top bar says Subscription (not Projects), and there is no "Platform > Subscription" line above the heading', async ({ page }) => {
+  await open(page)
+  const screen = page.locator('[data-screen="subscription-payment"]')
+  await expect(screen.locator('h1')).toBeVisible({ timeout: 60_000 })
+  const header = page.locator('header').first()
+  await expect(header).toContainText('Subscription')
+  await expect(header).not.toContainText('Projects')
+  await expect(screen.locator('nav')).toHaveCount(0)
+  expect((await screen.innerText()).trimStart().startsWith('Subscription')).toBe(true)
+})

@@ -1,4 +1,4 @@
-// QA regression — Admin > User Management filter bar (status, role, search by name / email, clear)
+// QA regression — Admin > User Management filter bar (status, role, search by name, clear)
 // and sortable table columns.
 //
 //   E2E_BASE_URL=http://localhost:5173 npx playwright test playwright/smoke/19-user-management-filters.spec.ts
@@ -104,14 +104,14 @@ test('role filter narrows the rows', async ({ page }) => {
   expect(await rowIds(page)).toEqual(['emp-1001', 'emp-1004'])
 })
 
-test('search matches name and email, case-insensitively — not the internal user ID', async ({ page }) => {
+test('search matches the name only, case-insensitively — not the email or the internal user ID', async ({ page }) => {
   await openUserManagement(page)
   await search(page).fill('BRUNO')
   expect(await rowIds(page)).toEqual(['emp-1002'])
   await search(page).fill('emp-1003')
   await expect(page.locator('[data-user-row]')).toHaveCount(0)
-  await search(page).fill('esha.elango@')
-  expect(await rowIds(page)).toEqual(['emp-1005'])
+  await search(page).fill('esha.elango@')   // the email is masked on screen, so it isn't searched
+  await expect(page.locator('[data-user-row]')).toHaveCount(0)
 })
 
 test('filters combine (AND) and Clear filters resets all three', async ({ page }) => {
@@ -262,4 +262,14 @@ test('choosing a filter shows it in dark text; choosing "All …" brings the pla
   await expect(role(page).locator('option:checked')).toHaveText('Auditor')
   await role(page).selectOption('all')
   await expect(role(page).locator('option:checked')).toHaveText('All Roles')
+})
+
+test('the top bar says User Management (not Projects), and there is no "Admin > User Management" line above the heading', async ({ page }) => {
+  await openUserManagement(page)
+  const header = page.locator('header').first()
+  await expect(header).toContainText('User Management')
+  await expect(header).not.toContainText('Projects')
+  const screen = page.locator('[data-screen="user-management-live"]')
+  await expect(screen.locator('nav')).toHaveCount(0)
+  expect((await screen.innerText()).trimStart().startsWith('User Management')).toBe(true)
 })

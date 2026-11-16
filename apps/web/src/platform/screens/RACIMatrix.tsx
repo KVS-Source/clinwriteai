@@ -223,12 +223,6 @@ export function RACIMatrix() {
     <div className="bg-slate-50" data-screen="raci-matrix">
       <div className="flex flex-col gap-4 px-4 pb-12 pt-5 sm:px-8" style={{ maxWidth: 1440 }}>
 
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.raci_matrix.crumb_platform')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">{t('page.raci_matrix.crumb_raci_matrix')}</span>
-        </nav>
-
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.raci_matrix.title')}</h1>

@@ -17,6 +17,7 @@ import { useTranslation } from 'react-i18next'
 import { useAppLanguage } from '../../i18n/useAppLanguage'
 import { SUPPORTED_LANGUAGES, LANGUAGE_LABELS } from '../../i18n'
 import { chooseActiveRole, clearActiveRole, watchActiveRole } from '../../config/activeRole'
+import { useTopNavSectionFor } from './topNavSection'
 
 // Module slug → i18n key for the breadcrumb crumb between the project and
 // the document. Kept inline since this is the only consumer of the mapping;
@@ -222,16 +223,27 @@ export function TopNav() {
     ? MASTER_LIBRARY_TABS.find(tab => tab.slug === (masterLibraryMatch[1] ?? 'documents'))
     : null
 
-  // My Workspace, TA Tags and Audit Trail are not project pages: the header names them, rather than falling
-  // back to "Projects". Each uses its sidebar label, so the two always agree.
+  // My Workspace, the Administrative Panel, User Management, RACI Matrix, Notifications, Services, Subscription, Reports, TA Tags and Audit Trail are not project pages: the header names them, rather than falling
+  // back to "Projects". Each uses its sidebar label, so the two always agree; the Administrative Panel uses its page
+  // title (the sidebar says only "Admin Panel"). Exactly /admin: its sub-pages (users, audit, …) have their own.
   const onPage = (path: string) => pathname === path || pathname.startsWith(`${path}/`)
   const ownTitle = onPage('/home') ? t('component.sidebar.nav_my_workspace')
+    : pathname === '/admin' ? t('page.admin_panel.title')
+    : onPage('/admin/users') ? t('component.sidebar.platform_user_management')
+    : onPage('/admin/raci') ? t('component.sidebar.platform_raci_matrix')
+    : onPage('/notifications') ? t('component.sidebar.platform_notifications')
+    : onPage('/services') ? t('component.sidebar.platform_services')
+    : onPage('/admin/subscription') ? t('component.sidebar.platform_subscription')
+    : onPage('/reports') ? t('component.sidebar.platform_reports')
     : onPage('/admin/taxonomy') ? t('component.sidebar.platform_ta_tags')
     : onPage('/admin/audit') ? t('component.sidebar.platform_audit_trail')
     : null
+  // A page with its own tabs (Administrative Panel, Reports) adds the open one: "Administrative Panel / AI engine".
+  const ownSection = useTopNavSectionFor(pathname)
 
   const crumbs: Array<{ label: string; href: string | null }> = ownTitle ? [
     { label: ownTitle, href: null },
+    ...(ownSection ? [{ label: ownSection, href: null }] : []),
   ] : masterLibraryMatch ? [
     { label: t('page.master_library.crumb_master_library', { defaultValue: 'Master Library' }), href: masterLibraryTab ? '/master-library' : null },
     ...(masterLibraryTab ? [{ label: masterLibraryTab.label, href: null }] : []),

@@ -6,6 +6,7 @@ import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { apiConfig } from '../../api/client'
 import { usePlatformStore } from '../store'
+import { useTopNavSection } from '../../components/layout/topNavSection'
 
 const DEMO_ADMIN_EMAIL = 'j.hartley@genbioca.com'
 
@@ -43,6 +44,8 @@ export function ReportsAnalytics() {
     () => [{ id: 'dashboard', label: t('page.reports_analytics.nav_dashboard') }, ...reports.map(r => ({ id: r.type, label: r.label }))],
     [reports, t],
   )
+  // The top bar reads "Reports / <this report>".
+  useTopNavSection('/reports', navItems.find(n => n.id === activeNav)?.label ?? t('page.reports_analytics.nav_dashboard'))
 
   const dateSpanDays = useMemo(() => {
     if (!dateFrom || !dateTo) return 0
@@ -54,7 +57,6 @@ export function ReportsAnalytics() {
     ? t('page.reports_analytics.queue_report')
     : t('page.reports_analytics.generate_format', { format: format.toUpperCase() })
 
-  const heading = navItems.find(n => n.id === activeNav)?.label ?? t('page.reports_analytics.nav_dashboard')
 
   const savings = sub?.marketValueSavings ?? null
   const effectiveMultiple = savings && sub && sub.currentPeriod.estimatedSpend > 0
@@ -77,14 +79,6 @@ export function ReportsAnalytics() {
   return (
     <div className="bg-slate-50" data-screen="reports-analytics">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
-
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.reports_analytics.crumb_platform')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">{t('page.reports_analytics.crumb_reports')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span data-heading>{heading}</span>
-        </nav>
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>

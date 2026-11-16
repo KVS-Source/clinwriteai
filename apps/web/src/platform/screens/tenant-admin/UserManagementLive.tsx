@@ -159,7 +159,7 @@ export function UserManagementLive() {
     const filtered = users.filter(u =>
       (statusFilter === 'all' || u.status === statusFilter) &&
       (roleFilter === 'all' || rolesOfUser(u).includes(roleFilter)) &&
-      (!q || u.name.toLowerCase().includes(q) || u.email.toLowerCase().includes(q)),
+      (!q || u.name.toLowerCase().includes(q)),  // name only: emails are masked on screen, so matching them would show rows for no visible reason
     )
     if (!sort) return filtered
 
@@ -239,15 +239,9 @@ export function UserManagementLive() {
   return (
     <div className="bg-slate-50" data-screen="user-management-live">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.user_management_live.crumb_admin')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">{t('page.user_management_live.crumb_user_management')}</span>
-        </nav>
-
         <div className="flex items-start justify-between">
           <div>
-            <h1 className="text-[22px] font-bold text-slate-900">{t('page.user_management_live.title')}</h1>
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.user_management_live.title')}</h1>
             <p className="mt-1 text-[12px] text-slate-500">
               {isLoading
                 ? t('status.loading')
@@ -284,7 +278,7 @@ export function UserManagementLive() {
           </div>
         )}
 
-        {/* Filter bar: status, role, search (name / email), clear. */}
+        {/* Filter bar: status, role, search (by name), clear. */}
         <div className="flex flex-wrap items-center gap-3" data-section="user-filters">
           {/* With no filter chosen, each box shows a grey placeholder ("All Status"), like the search box. The
               placeholder is a hidden option (value ""), so the list itself offers "All …" and every value; choosing

@@ -179,12 +179,6 @@ export function NotificationCentre() {
     <div className="bg-slate-50" data-screen="notification-centre">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
 
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.notification_centre.crumb_platform')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">{t('page.notification_centre.crumb_notifications')}</span>
-        </nav>
-
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.notification_centre.title')}</h1>

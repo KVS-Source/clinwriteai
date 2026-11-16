@@ -222,7 +222,12 @@ export function TopNav() {
     ? MASTER_LIBRARY_TABS.find(tab => tab.slug === (masterLibraryMatch[1] ?? 'documents'))
     : null
 
-  const crumbs: Array<{ label: string; href: string | null }> = masterLibraryMatch ? [
+  // TA Tags is not a project page: its header names it, rather than falling back to "Projects".
+  const taTagsPage = pathname === '/admin/taxonomy' || pathname.startsWith('/admin/taxonomy/')
+
+  const crumbs: Array<{ label: string; href: string | null }> = taTagsPage ? [
+    { label: t('component.sidebar.platform_ta_tags'), href: null },
+  ] : masterLibraryMatch ? [
     { label: t('page.master_library.crumb_master_library', { defaultValue: 'Master Library' }), href: masterLibraryTab ? '/master-library' : null },
     ...(masterLibraryTab ? [{ label: masterLibraryTab.label, href: null }] : []),
   ] : [

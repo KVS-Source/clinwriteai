@@ -2364,7 +2364,6 @@
       "status_suspended": "Suspended"
     },
     "audit_trail_viewer_live": {
-      "crumb_admin": "Admin",
       "crumb_audit_trail": "Audit Trail",
       "immutability_notice": "This trail is append-only and hash-chained. Entries cannot be edited or deleted — corrections appear as new entries.",
       "pm_scope_notice": "Showing activity on your projects and their documents.",

@@ -2537,7 +2537,6 @@
     },
 
     "audit_trail_viewer_live": {
-      "crumb_admin": "管理",
       "crumb_audit_trail": "監査証跡",
       "immutability_notice": "この証跡は追記専用でハッシュチェーンにより保護されています。エントリの編集・削除はできません。訂正は新しいエントリとして記録されます。",
       "pm_scope_notice": "担当プロジェクトとそのドキュメントのアクティビティを表示しています。",

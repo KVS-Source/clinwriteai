@@ -71,5 +71,15 @@ export function initI18n(): typeof i18n {
   return i18n
 }
 
+// Dev only: when en.json / ja.json change, swap the new text into the running i18next instance and re-render,
+// instead of showing raw keys (e.g. "page.x.new_key") until a full page reload.
+if (import.meta.hot) {
+  import.meta.hot.accept(['./en.json', './ja.json'], ([en, ja]) => {
+    if (en) i18n.addResourceBundle('en', 'common', (en.default as object), true, true)
+    if (ja) i18n.addResourceBundle('ja', 'common', (ja.default as object), true, true)
+    void i18n.changeLanguage(i18n.language)
+  })
+}
+
 export { i18n }
 export default i18n

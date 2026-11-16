@@ -122,6 +122,13 @@ function taTagShape(r: TaxonomyRow): TATag {
   }
 }
 
+// When the registry last synced from ICH (button or the daily automatic sync) and whether the automatic sync is on.
+export interface IchSyncStatus {
+  lastSyncedAt: string | null
+  lastTrigger:  'manual' | 'automatic' | null
+  autoSync:     { enabled: boolean; everyHours: number }
+}
+
 export interface IchSyncResult {
   fetched: number; created: string[]; updated: string[]; unchanged: number; withdrawn: string[]
   skipped: Array<{ code: string; reason: string }>
@@ -138,6 +145,7 @@ interface FrameworkRow {
   retiredAt:     string | null
   description:   string | null   // full name
   sourceUrl:     string | null
+  scope?:        string[]        // ClinWrite modules it applies to ('A'…'E'); migration 72
   updatedAt:     string
 }
 
@@ -160,10 +168,10 @@ export interface CreateFrameworkBody {
   effectiveDate: string          // ISO datetime
   description?:  string
   sourceUrl?:    string
+  scope?:        Array<'A' | 'B' | 'C' | 'D' | 'E'>
 }
 
-// The registry stores no scope or revision status yet: scope is empty and
-// status is Current / Deprecated (retired) only.
+// Status is Current / Deprecated (retired) only; scope is the modules the framework applies to.
 function frameworkShape(r: FrameworkRow): RegulatoryFramework {
   return {
     id:            r.id,
@@ -172,7 +180,7 @@ function frameworkShape(r: FrameworkRow): RegulatoryFramework {
     issuer:        r.jurisdiction,
     version:       r.version,
     effectiveDate: r.effectiveDate,
-    scope:         [],
+    scope:         (r.scope ?? []) as RegulatoryFramework['scope'],
     status:        r.retiredAt ? 'Deprecated' : 'Current',
     lastUpdated:   r.updatedAt,
     changeSummary: null,
@@ -365,10 +373,15 @@ export const platformApi = {
   // Imports the real ICH guideline list from ich.org (codes, titles, ICH step, step date, PDF link).
   syncFrameworksFromIch: () =>
     api.post<IchSyncResult>('/admin/frameworks/sync-ich', {}),
+  getIchSyncStatus: () =>
+    api.get<IchSyncStatus>('/admin/frameworks/sync-ich/status'),
   listFrameworks: () =>
     api.get<FrameworkRow[]>('/admin/frameworks?includeRetired=true').then(rows => rows.map(frameworkShape)),
   createFramework: (body: CreateFrameworkBody) =>
     api.post<FrameworkRow>('/admin/frameworks', body).then(frameworkShape),
+  // Sets which ClinWrite modules a framework applies to (same people who can add a framework).
+  setFrameworkScope: (frameworkId: string, scope: Array<'A' | 'B' | 'C' | 'D' | 'E'>) =>
+    api.patch<FrameworkRow>(`/admin/frameworks/${encodeURIComponent(frameworkId)}`, { scope }).then(frameworkShape),
   // Marks a framework superseded (sets retiredAt). Audited server-side; irreversible.
   // Marking a framework superseded is a two-person decision: a PM sends it for approval, another PM or a
   // QC approves (the framework is retired) or rejects with a reason. There is no direct retire.

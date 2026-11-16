@@ -77,3 +77,11 @@ test('a Contributor does not see TA Tags', async ({ page }) => {
   await expect(page).toHaveURL(/\/home$/, { timeout: 60_000 })
   await expect(taLink(page)).toHaveCount(0)
 })
+
+test('the header names the page TA Tags, not Projects, and there is no "Platform > TA Tags" trail', async ({ page }) => {
+  await open(page, PM, '/admin/taxonomy')
+  const header = page.locator('header').first()
+  await expect(header).toContainText('TA Tags', { timeout: 60_000 })
+  await expect(header).not.toContainText('Projects')
+  await expect(page.locator('[data-screen="ta-tag-configuration"]')).not.toContainText('Platform')
+})

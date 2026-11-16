@@ -194,7 +194,10 @@ export function AllProjects() {
             data-action="new-project"
             className="flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-4 text-[13px] font-semibold text-white hover:bg-blue-700 transition-colors"
           >
-            <span className="text-base leading-none">+</span>
+            {/* A drawn plus, not a "+" character: the font sets that below the middle of the text. */}
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true" className="flex-none" data-new-project-icon>
+              <path d="M6 1.5v9M1.5 6h9" />
+            </svg>
             {t('page.all_projects.new_project')}
           </button>
         )}

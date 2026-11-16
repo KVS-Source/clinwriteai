@@ -210,6 +210,23 @@ describe('signature chain routes', () => {
     expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(201)
   })
 
+  it('SIGNATURE_SKIP_CONTENT_GATE=1 (test switch) opens the chain despite an empty section, but never in production', async () => {
+    const sections = t.db.documents[0].currentVersion.sections as Row[]
+    sections.push({ sectionId: 's2', sectionNumber: '2', sectionTitle: 'Synopsis', contentHtml: '<p></p>' })
+    const prev = { skip: process.env.SIGNATURE_SKIP_CONTENT_GATE, env: process.env.NODE_ENV }
+    try {
+      process.env.SIGNATURE_SKIP_CONTENT_GATE = '1'
+      process.env.NODE_ENV = 'production'
+      expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(409)
+      process.env.NODE_ENV = 'development'
+      expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(201)
+      expect(t.db.chains).toHaveLength(1)
+    } finally {
+      if (prev.skip === undefined) delete process.env.SIGNATURE_SKIP_CONTENT_GATE; else process.env.SIGNATURE_SKIP_CONTENT_GATE = prev.skip
+      if (prev.env === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prev.env
+    }
+  })
+
   it('runs initiate → sign → sign and marks the document signed with the watermark cleared', async () => {
     const chain = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
     const [step1, step2] = chain.records
@@ -414,11 +431,21 @@ describe('signature chain routes', () => {
     const own = await t.app.inject({ method: 'POST', url: `/signature-chains/${first.id}/cancel`, payload: { cancelReason: 'Started by mistake' } })
     expect(own.statusCode).toBe(200)
     t.db.documents[0].status = 'pending_signature'               // back to Pending signature
+    t.db.raciRows.filter(r => r.letter === 'A').forEach(r => { r.documentApprovedAt = new Date() })   // cancelling reset the round: approvers approve again
     t.as(USERS.author)
     const second = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
     t.as(USERS.owner)                                            // assignee, no RACI row, role clinical-writer
     const viaAssignee = await t.app.inject({ method: 'POST', url: `/signature-chains/${second.id}/cancel`, payload: { cancelReason: 'Assignee cancels' } })
     expect(viaAssignee.statusCode).toBe(200)
+  })
+
+  it('refuses to start the chain by hand while an Approver has not approved the document yet', async () => {
+    t.db.raciRows.push({ id: 'raci-a2', documentId: 'DOC-1', userId: 'u-late', letter: 'A', removedAt: null, documentApprovedAt: null })
+    t.as(USERS.author)
+    const res = await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'approvals_pending', pendingApprovers: 1 })
+    expect(t.db.chains).toHaveLength(0)
   })
 
   it('cancel requires a reason and returns the document to in_authoring', async () => {

@@ -222,7 +222,17 @@ export function TopNav() {
     ? MASTER_LIBRARY_TABS.find(tab => tab.slug === (masterLibraryMatch[1] ?? 'documents'))
     : null
 
-  const crumbs: Array<{ label: string; href: string | null }> = masterLibraryMatch ? [
+  // My Workspace, TA Tags and Audit Trail are not project pages: the header names them, rather than falling
+  // back to "Projects". Each uses its sidebar label, so the two always agree.
+  const onPage = (path: string) => pathname === path || pathname.startsWith(`${path}/`)
+  const ownTitle = onPage('/home') ? t('component.sidebar.nav_my_workspace')
+    : onPage('/admin/taxonomy') ? t('component.sidebar.platform_ta_tags')
+    : onPage('/admin/audit') ? t('component.sidebar.platform_audit_trail')
+    : null
+
+  const crumbs: Array<{ label: string; href: string | null }> = ownTitle ? [
+    { label: ownTitle, href: null },
+  ] : masterLibraryMatch ? [
     { label: t('page.master_library.crumb_master_library', { defaultValue: 'Master Library' }), href: masterLibraryTab ? '/master-library' : null },
     ...(masterLibraryTab ? [{ label: masterLibraryTab.label, href: null }] : []),
   ] : [

@@ -135,6 +135,10 @@ model DocumentRaci {
   submittedAt          DateTime?                                  // R clicks "Submit my part"
   reviewedAt           DateTime?                                  // C clicks "I'm done reviewing"
   approvedAt           DateTime?                                  // A clicks "Approve"
+  // The Approver's whole-document approval (Approver View's "Approve document"). Kept apart from
+  // approvedAt because a signature-required row can't carry approvedAt without a signatureId (DB
+  // check). Cleared with the rest of the round on a return to authoring.
+  documentApprovedAt   DateTime?
   signatureId          String?                                    // FK → signature_records.id when signature_required
   rejectedAt           DateTime?
   rejectionNote        String?

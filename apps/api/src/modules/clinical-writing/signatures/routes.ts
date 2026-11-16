@@ -32,12 +32,10 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { PASSWORD_MAX_LENGTH, verifyPassword } from '../../../auth/password.js'
 import { DocumentService, hashSections } from '../documents/service.js'
-import type { PrismaClient } from '@prisma/client'
-import { blockedBody, checkSignatureGate } from '../checklist/gates.js'
-import { checkSignableContent, contentBlockedBody } from './content-gate.js'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
-import { initialStatuses, recordsToRelease, sortForChain, type ChainType, type SignatureStatus } from './chain-progress.js'
-import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain, requiredSigners } from './access.js'
+import { recordsToRelease, type ChainType, type SignatureStatus } from './chain-progress.js'
+import { makeNotifySigners, startSignatureChain } from './start-chain.js'
+import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain } from './access.js'
 import { resetRaciRound } from '../../platform/document-raci/access.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 import { autoPushSignedDocument } from '../../platform/library/auto-push.js'
@@ -61,9 +59,6 @@ const signSchema = z.object({
   deviceInfo: z.string().optional(),
 })
 
-// What each signature records as its authentication method — exactly what happened.
-// Postgres advisory-lock key serialising signature-id allocation (arbitrary, unique to this use).
-const SIGNATURE_ID_LOCK_KEY = 7301001
 
 export const SIGNING_AUTH_METHOD = 'Login session + password re-entered at signing'
 export const SIGNING_TIME_SOURCE = 'Server clock (UTC)'
@@ -73,29 +68,7 @@ const cancelSchema = z.object({
 })
 
 export const signatureRoutes: FastifyPluginAsync = async (app) => {
-  // In-app notice to a signer that it's their turn (contract §9 "notifies next
-  // signer"). Never blocks or fails the signature itself.
-  const notifySigners = async (
-    signers: Array<{ signerId: string; step: number }>,
-    doc: { id: string; projectId: string; title: string },
-    startedBy?: string,
-  ) => {
-    if (!app.hasDecorator('notifications')) return
-    for (const s of signers) {
-      try {
-        await app.notifications.send({
-          recipientId: s.signerId,
-          kind:        'signature_requested',
-          title:       `Your signature is needed on "${doc.title}"`,
-          body:        `It's your turn to sign (step ${s.step}). Open the E-Signature tab to review and sign.`,
-          linkPath:    `/projects/${doc.projectId}/clinical-writing/documents/${doc.id}/sign`,
-          payload:     { documentId: doc.id, projectId: doc.projectId, step: s.step, ...(startedBy ? { startedBy } : {}) },
-        })
-      } catch (err) {
-        app.log.warn({ err, documentId: doc.id, signerId: s.signerId }, 'signature_requested notification failed')
-      }
-    }
-  }
+  const notifySigners = makeNotifySigners(app)
 
   // AC-A-046: the signed document becomes v1.0 — a "Final" snapshot of the exact content that was
   // signed. Never overwrites an existing v1.0. A failure is retried, then reported (versionNumber
@@ -144,113 +117,15 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         message: "Only the document's Author (R) or Approver (A) can start the signature chain.",
       })
     }
-    if (doc.status !== 'pending_signature') {
-      return reply.code(422).send({
-        error: 'wrong_status',
-        message: `Signature chain requires document in pending_signature (current: ${doc.status})`,
-      })
-    }
-    // Refuse concurrent chains — one active chain per doc at a time.
-    const activeChain = await app.prisma.signatureChain.findFirst({
-      where: { documentId, status: { in: ['initiated', 'in_progress'] } },
-    })
-    if (activeChain) {
-      return reply.code(409).send({ error: 'chain_already_active', chainId: activeChain.id })
-    }
-
-    // Gate A — the strongest gate. Every mandatory ChecklistInstanceItem
-    // across every stage must be Complete or Waived before a Part 11
-    // signature chain is allowed to open on this document.
-    const gate = await checkSignatureGate(app.prisma, documentId)
-    if (!gate.ok) {
-      return reply.code(409).send(blockedBody('signature', gate))
-    }
-
-    // Gate B — the text itself: no mandatory section empty or still holding a placeholder (CW-097).
-    {
-      const [version, waivers] = await Promise.all([
-        doc.currentVersionId
-          ? app.prisma.documentVersion.findUnique({ where: { id: doc.currentVersionId }, select: { sections: { select: { sectionId: true, sectionNumber: true, sectionTitle: true, contentHtml: true } } } })
-          : null,
-        app.prisma.ichSectionWaiver.findMany({ where: { documentId }, select: { sectionCode: true } }),
-      ])
-      const content = checkSignableContent({
-        documentType: doc.type, sections: version?.sections ?? [], waivedCodes: waivers.map(w => w.sectionCode),
-      })
-      if (!content.ok) return reply.code(409).send(contentBlockedBody(content))
-    }
-
-    // The chain needs at least one Approver: without an approval the document can't become signed.
-    // Everyone named on the document (Author, Reviewer, Approver, Informed) is pre-filled on the screen,
-    // but the starter may remove people, so naming is not enforced here. Anyone named who is left off is
-    // recorded in the audit entry below, so the omission is traceable.
-    if (!parsed.data.signers.some(s => s.meaning === 'approved')) {
-      return reply.code(422).send({
-        error: 'approver_required',
-        message: 'The signature chain needs at least one Approver. Add an Approver to the chain.',
-      })
-    }
-    const named = await requiredSigners(app.prisma, doc)
-    const omittedNamedSigners = named
-      .filter(r => !parsed.data.signers.some(s => s.signerId === r.userId && r.meanings.has(s.meaning)))
-      .map(r => ({ userId: r.userId, name: r.name, meanings: [...r.meanings] }))
-
-    // A grouped chain stores the signers group by group (Authors, Reviewers, Approvers, Informed), so the
-    // step numbers follow the signing order.
-    const signers = sortForChain(parsed.data.signers, parsed.data.chainType)
-    const startStatuses = initialStatuses(parsed.data.chainType, signers)
-    const created = await app.prisma.$transaction(async (tx) => {
-      // Take the ids under a lock held until commit, so two chains started at the same moment
-      // can't be handed the same ones.
-      await tx.$executeRawUnsafe(`SELECT pg_advisory_xact_lock(${SIGNATURE_ID_LOCK_KEY})`)
-      const sigIds = await reserveSignatureIds(tx, signers.length)
-      const chain = await tx.signatureChain.create({
-        data: {
-          documentId,
-          chainType: parsed.data.chainType,
-          status: 'in_progress',
-          initiatedBy: request.user!.id,
-        },
-      })
-      await tx.signatureRecord.createMany({
-        data: signers.map((s, idx) => ({
-          id: sigIds[idx]!,
-          chainId: chain.id,
-          signerId: s.signerId,
-          signerName: s.signerName,
-          signerRole: s.signerRole,
-          step: idx + 1,
-          meaning: s.meaning,
-          // Sequential chains: step 1 is awaiting; rest queued. Parallel chains: all awaiting from the start.
-          // Grouped chains: the whole first group is awaiting; the later groups are queued.
-          status: startStatuses[idx]!,
-          scopeSections: s.scopeSections,
-        })),
-      })
-      return chain
-    })
-
-    await app.audit.append({
-      timestamp: new Date().toISOString(),
-      actorId: request.user!.id,
-      action: 'signature_initiated',
-      entityType: 'document',
-      entityId: documentId,
-      details: { chainId: created.id, chainType: created.chainType, signerCount: signers.length, omittedNamedSigners },
+    const started = await startSignatureChain(app, {
+      doc,
+      actorId:   request.user!.id,
       ipAddress: request.ip ?? null,
+      chainType: parsed.data.chainType,
+      signers:   parsed.data.signers,
     })
-
-    const withRecords = await app.prisma.signatureChain.findUnique({
-      where: { id: created.id },
-      include: { records: { orderBy: { step: 'asc' } } },
-    })
-    // Tell whoever can sign now: step 1 of a sequential chain, everyone in a parallel one.
-    await notifySigners(
-      (withRecords?.records ?? []).filter(r => r.status === 'awaiting'),
-      { id: doc.id, projectId: doc.projectId, title: doc.title },
-      request.user!.id,
-    )
-    return reply.code(201).send(withRecords)
+    if (!started.ok) return reply.code(started.status).send(started.body)
+    return reply.code(201).send(started.chain)
   })
 
   app.get('/documents/:documentId/signature-chains', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -578,20 +453,3 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
 }
 
 // --- Helpers --------------------------------------------------------------
-
-// SIG-####-## format (datamodel §9.2 — 4-digit chain seq + 2-char step).
-// For simplicity we generate from current max; UNIQUE(chainId, step) is the
-// real safety net. The second component is a step-index-derived suffix.
-async function reserveSignatureIds(prisma: Pick<PrismaClient, '$queryRawUnsafe'>, count: number): Promise<string[]> {
-  const rows = await prisma.$queryRawUnsafe<Array<{ id: string }>>(
-    "SELECT \"id\" FROM signature_records WHERE \"id\" LIKE 'SIG-%' ORDER BY \"id\" DESC LIMIT 1",
-  )
-  const latest = rows[0]?.id
-  const chainSeq = latest ? Number(latest.replace('SIG-', '').split('-')[0]) + 1 : 1
-  const chainSeqStr = String(chainSeq).padStart(4, '0')
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
-  return Array.from({ length: count }, (_, i) => {
-    const stepSuffix = `${alphabet[Math.floor(i / 10) % 26]}${i % 10}`
-    return `SIG-${chainSeqStr}-${stepSuffix}`
-  })
-}

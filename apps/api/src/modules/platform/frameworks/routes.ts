@@ -1,11 +1,13 @@
 // Regulatory framework registry — platform-wide catalogue of frameworks
-// that modules reference. Admins add and edit frameworks. Marking one superseded is a two-person content
+// that modules reference. Project Managers add, edit and sync frameworks (no Super Admin role is in use;
+// client-level admins only read). Marking one superseded is a two-person content
 // decision: a Project Manager sends it for approval and another PM or a QC approves or rejects it (below).
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { requireAuth, type Role } from '../../../auth/rbac.js'
 import { syncIchGuidelines } from './ich-sync.js'
+import { ICH_AUTO_SYNC_MAX_AGE_MS, ICH_SYNC_ACTION, ichAutoSyncEnabled, ichSyncAuditDetails, lastIchSync } from './ich-auto-sync.js'
 
 const createSchema = z.object({
   name: z.string().min(1),
@@ -15,6 +17,8 @@ const createSchema = z.object({
   effectiveDate: z.string().datetime(),
   description: z.string().optional(),
   sourceUrl: z.string().url().optional(),
+  // ClinWrite modules the framework applies to.
+  scope: z.array(z.enum(['A', 'B', 'C', 'D', 'E'])).max(5).transform(s => [...new Set(s)].sort()).optional(),
 })
 
 const updateSchema = createSchema.partial().omit({ name: true })
@@ -46,8 +50,20 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     return row
   })
 
+  // When the registry last synced from ICH (button or automatic, from the audit trail) and whether it syncs by itself.
+  app.get('/sync-ich/status', { preHandler: requireAuth() }, async () => {
+    const last = await lastIchSync(app.prisma as never)
+    const auto = ichAutoSyncEnabled({ NODE_ENV: app.env?.NODE_ENV, ICH_AUTO_SYNC: process.env.ICH_AUTO_SYNC })
+    return {
+      lastSyncedAt: last?.at.toISOString() ?? null,
+      lastTrigger:  last?.trigger ?? null,
+      autoSync:     { enabled: auto, everyHours: ICH_AUTO_SYNC_MAX_AGE_MS / 3_600_000 },
+    }
+  })
+
   // Import the real ICH guideline list from ich.org (see ./ich-sync.ts). Same people who can add a framework.
-  app.post('/sync-ich', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  // The same sync also runs by itself once a day (./ich-auto-sync.ts).
+  app.post('/sync-ich', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     let result
     try {
       result = await syncIchGuidelines(app.prisma as never, request.user!.id)
@@ -58,16 +74,16 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: request.user!.id,
-      action: 'frameworks_synced_from_ich',
+      action: ICH_SYNC_ACTION,
       entityType: 'regulatory_framework',
       entityId: 'ich',
-      details: { fetched: result.fetched, created: result.created.length, updated: result.updated.length, unchanged: result.unchanged, withdrawn: result.withdrawn, skipped: result.skipped.length },
+      details: ichSyncAuditDetails(result, 'manual'),
       ipAddress: request.ip ?? null,
     })
     return result
   })
 
-  app.post('/', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  app.post('/', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     const parsed = createSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
 
@@ -85,6 +101,7 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
         effectiveDate: new Date(parsed.data.effectiveDate),
         description: parsed.data.description ?? null,
         sourceUrl: parsed.data.sourceUrl ?? null,
+        scope: parsed.data.scope ?? [],
         createdBy: request.user!.id,
       },
     })
@@ -101,7 +118,7 @@ export const frameworksRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  app.patch('/:id', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  app.patch('/:id', { preHandler: requireAuth({ roles: ['pm'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = updateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })

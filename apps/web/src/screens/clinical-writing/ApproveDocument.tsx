@@ -17,7 +17,9 @@ export const APPROVE_DOCUMENT_REF = 'Document'
 export function ApproveDocument({ documentId, alreadyApproved, onApproved }: {
   documentId: string
   alreadyApproved: boolean
-  onApproved: () => void
+  /** `chainStarted`: this was the last Approver, so the signature chain has started by itself. */
+  /** `blockedReason`: everyone approved, but a gate stopped the chain from starting; why. */
+  onApproved: (chainStarted: boolean, blockedReason: string | null) => void
 }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -31,13 +33,16 @@ export function ApproveDocument({ documentId, alreadyApproved, onApproved }: {
       severity:   'query',
       verdict:    'approve',
     }),
-    onSuccess: () => {
+    onSuccess: (res) => {
       setOpen(false)
       setComment('')
       qc.invalidateQueries({ queryKey: ['comments', documentId] })
       qc.invalidateQueries({ queryKey: ['project-comments'] })
       qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
-      onApproved()
+      qc.invalidateQueries({ queryKey: ['document-raci', documentId] })
+      qc.invalidateQueries({ queryKey: ['signature-chains', documentId] })
+      const r = res as { signatureChainStarted?: boolean; signatureChainBlockedReason?: string | null } | null
+      onApproved(r?.signatureChainStarted === true, r?.signatureChainBlockedReason ?? null)
     },
   })
 

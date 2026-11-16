@@ -20,6 +20,8 @@ export interface DocumentRaciRow {
   submittedAt: string | null
   reviewedAt: string | null
   approvedAt: string | null
+  /** An Approver's whole-document approval ("Approve document"); cleared with the round. */
+  documentApprovedAt?: string | null
   signatureId: string | null
   rejectedAt: string | null
   rejectionNote: string | null

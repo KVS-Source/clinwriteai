@@ -18,6 +18,7 @@ import { mentionableUsers, mentionNotification } from './mentions.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser, canSeeDocument } from '../../projects/visibility.js'
+import { APPROVE_DOCUMENT_REF, recordApprovalAndMaybeStartChain } from '../signatures/auto-start.js'
 import { COMMENT_LOCKED_ROLES, actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 
@@ -407,6 +408,25 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
+    // An Approver's whole-document approval counts towards the signature chain: once every Approver has
+    // approved a document awaiting signature, the chain starts by itself. The approval is already saved,
+    // so a failure here must not fail it (the chain can still be started by hand).
+    let signatureChainStarted = false
+    // Set when every Approver has approved but a gate (checklist / content) stopped the chain: why.
+    let signatureChainBlockedReason: string | null = null
+    if (parsed.data.verdict === 'approve' && parsed.data.sectionRef === APPROVE_DOCUMENT_REF) {
+      try {
+        const auto = await recordApprovalAndMaybeStartChain(app, {
+          documentId, actorId: request.user!.id, ipAddress: request.ip ?? null,
+        })
+        signatureChainStarted = auto.chainStarted
+        const blocked = auto.blocked as { message?: unknown } | undefined
+        signatureChainBlockedReason = typeof blocked?.message === 'string' ? blocked.message : null
+      } catch (err) {
+        request.log.warn({ err, documentId }, 'automatic signature chain start failed')
+      }
+    }
+
     const [reviewer] = await Promise.all([
       app.prisma.user.findUnique({ where: { id: created.reviewerId }, select: { name: true, initials: true } }),
     ])
@@ -425,7 +445,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
         request.log.warn({ err, recipientId: person.id, commentId: id }, 'mention notification failed')
       }
     }
-    return reply.code(201).send(commentShape(created, reviewer))
+    return reply.code(201).send({ ...commentShape(created, reviewer), signatureChainStarted, signatureChainBlockedReason })
   })
 
   app.patch('/:documentId/comments/:commentId/resolve', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {

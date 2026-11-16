@@ -654,21 +654,11 @@ export function AuditTrailViewerLive() {
   return (
     <div className="bg-slate-50" data-screen="audit-trail-viewer-live">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1280, padding: '20px 32px 48px' }}>
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          {!isPm && (
-            <>
-              <span>{t('page.audit_trail_viewer_live.crumb_admin')}</span>
-              <span style={{ color: '#CBD5E1' }}>&gt;</span>
-            </>
-          )}
-          <span className="font-semibold text-slate-900">{t('page.audit_trail_viewer_live.crumb_audit_trail')}</span>
-        </nav>
-
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            {/* H1 removed — the breadcrumb above already says "Audit Trail".
-                The immutability notice stays (compliance-visible, sPM15). */}
-            <p role="note" className="flex items-start gap-1.5 text-[12px] text-slate-500" data-section="immutability-notice">
+            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }} data-audit-title>{t('page.audit_trail_viewer_live.crumb_audit_trail')}</h1>
+            {/* The immutability notice stays (compliance-visible, sPM15). */}
+            <p role="note" className="mt-2 flex items-start gap-1.5 text-[12px] text-slate-500" data-section="immutability-notice">
               <svg aria-hidden width="13" height="13" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" className="mt-0.5 flex-none">
                 <rect x="3" y="7" width="10" height="7" rx="1.5" />
                 <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" />

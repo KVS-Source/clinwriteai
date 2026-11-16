@@ -281,11 +281,6 @@ export function MasterLibrary() {
                 align="left" buttonClassName="h-10 w-[220px]" />
             </div>
 
-            <label className="flex flex-none items-center gap-1.5 whitespace-nowrap text-[12px] text-slate-700" data-filter-withdrawn>
-              <input type="checkbox" checked={showWithdrawn} onChange={e => setShowWithdrawn(e.currentTarget.checked)} style={{ accentColor: PLATFORM_ACCENT.primary }} />
-              {t('page.master_library.show_withdrawn')}
-            </label>
-
             <button
               type="button"
               onClick={resetFilters}
@@ -353,6 +348,13 @@ export function MasterLibrary() {
                       {it.name}
                       {it.isWithdrawn && <span className="ml-2 rounded-md bg-red-50 px-1.5 py-0.5 text-[10px] font-semibold text-red-800">{t('page.master_library.withdrawn_tag')}</span>}
                       {it.isArchived && <span className="ml-2 rounded-md bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-600" data-archived-tag>{t('page.master_library.archived_tag')}</span>}
+                      {/* Found only inside the document: say so, with the words around it, so the row isn't a mystery. */}
+                      {it.searchMatch === 'text' && (
+                        <p className="mt-1 max-w-[640px] text-[12px] font-normal leading-snug text-slate-500" data-search-excerpt>
+                          <span className="font-semibold text-slate-600">{t('page.master_library.found_in_text')}</span>{' '}
+                          {it.matchExcerpt ? <MatchedWords text={it.matchExcerpt} term={debouncedSearch} /> : null}
+                        </p>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-slate-700">{it.docType || '—'}</td>
                     <td className="px-4 py-3 text-slate-700">{(it.ta ?? []).join(', ') || '—'}</td>
@@ -728,4 +730,14 @@ function UploadPanel({ open, onClose, docTypes, onDone }: {
       </div>
     </SlidePanel>
   )
+}
+
+// The excerpt with the searched word marked. Same rule as the API (search.ts): the term at the start of a word.
+function MatchedWords({ text, term }: { text: string; term: string }) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (!escaped) return <>{text}</>
+  const parts = text.split(new RegExp(`((?<![\\p{L}\\p{N}_])(?=[\\p{L}\\p{N}_])${escaped})`, 'iu'))
+  return <>{parts.map((part, i) => i % 2 === 1
+    ? <mark key={i} className="rounded-sm bg-amber-100 px-0.5 font-semibold text-slate-900" data-search-hit>{part}</mark>
+    : <span key={i}>{part}</span>)}</>
 }

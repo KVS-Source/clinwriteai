@@ -74,7 +74,9 @@ export function DocumentTabGuard({ tab, children }: Props) {
   if (docQuery.isLoading) return null
   if (!docQuery.data)     return <>{children}</>
 
-  if (isDisabled(tab, docQuery.data.status)) {
+  // An Approver acts in their Approver View while the document awaits signature.
+  const approverReviewOpen = tab === 'review' && tabAccess?.approverOnly === true && docQuery.data.status === 'pending-signature'
+  if (!approverReviewOpen && isDisabled(tab, docQuery.data.status)) {
     // A document awaiting signature opens on E-Signature, where the next step is; a signed one on its final copy.
     const landing = docQuery.data.status === 'pending-signature' ? 'sign' : 'final'
     return <Navigate to={`/projects/${projectId}/clinical-writing/documents/${documentId}/${landing}`} replace />

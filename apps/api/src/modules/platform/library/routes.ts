@@ -76,7 +76,8 @@ const uploadFields = z.object({
   title:     z.string().trim().min(1).max(200),
   docType:   z.string().trim().min(1).max(80),
   taTag:     z.string().trim().min(1),
-  projectId: z.string().trim().min(1),
+  // No longer asked for on the upload screen; still accepted from older clients.
+  projectId: z.string().trim().min(1).optional(),
 })
 
 const retireSchema = z.object({ reason: z.string().trim().min(1).max(500).optional() }).default({})
@@ -510,9 +511,9 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // POST /library/upload — a Project Manager adds a document from their computer (PDF or Word) to the Master
-  // Library, against one of their projects. Multipart: the fields (title, docType, taTag, projectId) first, then
+  // Library. Multipart: the fields (title, docType, taTag; projectId optional, no longer asked for) first, then
   // the file. The text is read out of the file so the library can search it; the original PDF is kept and is what
-  // "Download PDF" gives back. A later upload with the same title in the same project becomes the next version.
+  // View shows. A later upload with the same title becomes the next version.
   // Only a PM may upload (the screen shows the button to no one else); nothing here is signed or approved by a chain.
   app.post('/upload', { preHandler: requireAuth({ roles: ['pm'], modules: ['A'] }) }, async (request, reply) => {
     const user = request.user!
@@ -532,10 +533,15 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request', issues: parsed.error.issues })
     const b = parsed.data
 
-    const project = await app.prisma.project.findUnique({ where: { id: b.projectId }, select: { id: true, tenantId: true, name: true } })
-    const visibleProjects = await visibleProjectIdsForUser(app.prisma, user)
-    if (!project || (visibleProjects !== 'all' && !visibleProjects.has(project.id))) return reply.code(404).send({ error: 'project_not_found' })
-    if (await projectIsClosed(app.prisma, project.id)) return reply.code(423).send(PROJECT_CLOSED)
+    // The upload screen no longer asks for a project: the document belongs to the organisation's library. An older
+    // client may still send one; it is then checked and tagged as before.
+    let project: { id: string; tenantId: string | null } | null = null
+    if (b.projectId) {
+      project = await app.prisma.project.findUnique({ where: { id: b.projectId }, select: { id: true, tenantId: true } })
+      const visibleProjects = await visibleProjectIdsForUser(app.prisma, user)
+      if (!project || (visibleProjects !== 'all' && !visibleProjects.has(project.id))) return reply.code(404).send({ error: 'project_not_found' })
+      if (await projectIsClosed(app.prisma, project.id)) return reply.code(423).send(PROJECT_CLOSED)
+    }
 
     const taTag = await resolveTa(app.prisma, b.taTag)
     if (!taTag) return reply.code(400).send(invalidTaBody(b.taTag))
@@ -548,17 +554,21 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(422).send({ error: 'no_text', message: 'No readable text was found in this file (a scanned PDF, for example). Upload a version with selectable text.' })
     }
 
-    const tenantId = project.tenantId ?? user.tenantId
+    const tenantId = project?.tenantId ?? user.tenantId
     const blobKey = generateBlobKey(`library/${tenantId ?? 'platform'}`, ext)
-    await app.blob.put({ bucket: 'documents', key: blobKey, body: buf, contentType: file.mimetype || 'application/octet-stream', metadata: { originalFilename: file.filename, uploadedBy: user.id, projectId: project.id } })
+    await app.blob.put({ bucket: 'documents', key: blobKey, body: buf, contentType: file.mimetype || 'application/octet-stream', metadata: { originalFilename: file.filename, uploadedBy: user.id, ...(project && { projectId: project.id }) } })
 
-    const tags = ['module:A', `doctype:${b.docType}`, `project:${project.id}`, 'type:document', 'origin:upload', `file:${blobKey}`, `filename:${file.filename}`]
+    const projectTag = project ? `project:${project.id}` : null
+    const tags = ['module:A', `doctype:${b.docType}`, ...(projectTag ? [projectTag] : []), 'type:document', 'origin:upload', `file:${blobKey}`, `filename:${file.filename}`]
     const { created, earlier } = await app.prisma.$transaction(async (tx) => {
-      // One upload of a title per project at a time (a double click, two tabs): the second waits and sees the first.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`library-upload:${tenantId ?? 'platform'}:${project.id}:${b.title}`}))`
-      const prior = await tx.librarySection.findFirst({
-        where: { tenantId, isCurrent: true, retiredAt: null, title: b.title, AND: [{ tags: { has: 'origin:upload' } }, { tags: { has: `project:${project.id}` } }] },
+      // One upload of a title at a time (a double click, two tabs): the second waits and sees the first.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`library-upload:${tenantId ?? 'platform'}:${project?.id ?? '-'}:${b.title}`}))`
+      // The same title uploaded again becomes its next version: in the same project when one was given, otherwise
+      // among the uploads that have no project.
+      const candidates = await tx.librarySection.findMany({
+        where: { tenantId, isCurrent: true, retiredAt: null, title: b.title, AND: [{ tags: { has: 'origin:upload' } }, ...(projectTag ? [{ tags: { has: projectTag } }] : [])] },
       })
+      const prior = candidates.find(c => (projectTag ? true : !c.tags.some(t => t.startsWith('project:')))) ?? null
       const next = await tx.librarySection.create({
         data: { tenantId, taTag, tags, body, title: b.title, framework: b.docType, category: 'claim', version: (prior?.version ?? 0) + 1, approvedBy: user.id },
       })
@@ -572,7 +582,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       action: 'library_uploaded',
       entityType: 'library_section',
       entityId: created.id,
-      details: { projectId: project.id, title: b.title, docType: b.docType, taTag, fileName: file.filename, fileSizeBytes: buf.length, libraryVersion: created.version, ...(earlier && { supersedes: earlier.id }) },
+      details: { ...(project && { projectId: project.id }), title: b.title, docType: b.docType, taTag, fileName: file.filename, fileSizeBytes: buf.length, libraryVersion: created.version, ...(earlier && { supersedes: earlier.id }) },
       ipAddress: request.ip ?? null,
     })
     const ctx = await fetchContext([created], user)

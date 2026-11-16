@@ -584,10 +584,11 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
           </div>
           <nav className="flex flex-col gap-0.5">
             {masterLibraryItems.map(item => (
+              // No `end`: /master-library always lands on a tab (/master-library/documents, /templates …),
+              // and the entry stays highlighted on every one of them.
               <NavLink
                 key={item.href}
                 to={item.href}
-                end
                 data-platform-link={item.href}
                 className={({ isActive }) =>
                   `flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm transition-colors ${

@@ -189,6 +189,16 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
   })
   const openFlagCount = flagsQ.data?.flags.length ?? 0
 
+  // Count on the Comments button: open comments (approvals don't count). Same query key as the
+  // Comments panel, so it is a cache read once that has loaded. Shown even when it is 0.
+  const commentsQ = useQuery({
+    queryKey: ['comments', documentId],
+    queryFn:  () => documentsApi.getComments(documentId!),
+    enabled:  !!documentId,
+    retry:    false,
+  })
+  const openCommentCount = (commentsQ.data ?? []).filter(c => c.status === 'open' && c.verdict !== 'approve').length
+
   const toggle = (mode: NonNullable<PanelMode>) => setActivePanel(activePanel === mode ? null : mode)
   const citationMode    = useEditorStore(s => s.citationMode)
   const setCitationMode = useEditorStore(s => s.setCitationMode)
@@ -309,6 +319,7 @@ export function EditorToolbar({ editor, ichApplicable = true, documentType, canV
           <path d="M2 2.5h10v7H7.2L4.4 12V9.5H2z" />
         </svg>
         {t('page.editor_toolbar.comments_label')}
+        <span className="rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700" data-comment-count>{openCommentCount}</span>
       </button>
 
       {/* "Edit section" button removed in the autosave rollout — sections are

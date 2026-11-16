@@ -118,7 +118,7 @@ describe('nudgePendingCohort', () => {
     expect(r.decisions[0].status).toBe('nudged')
   })
 
-  it('nudges across both C and Q cohorts in in_review', async () => {
+  it('nudges only Reviewers (C) in in_review; QC is not part of the review', async () => {
     const prisma = makePrisma({
       docStatus: 'in_review',
       rows: [
@@ -127,7 +127,8 @@ describe('nudgePendingCohort', () => {
       ],
     })
     const r = await nudgePendingCohort(prisma, { documentId: 'd-1', actor: ACTOR })
-    expect(r.gatingLetters.sort()).toEqual(['C', 'Q'])
-    expect(r.decisions.map(d => d.status).sort()).toEqual(['nudged', 'nudged'])
+    expect(r.gatingLetters).toEqual(['C'])
+    expect(r.decisions.map(d => d.targetUserId)).toEqual(['u-c'])
+    expect(r.decisions.map(d => d.status)).toEqual(['nudged'])
   })
 })

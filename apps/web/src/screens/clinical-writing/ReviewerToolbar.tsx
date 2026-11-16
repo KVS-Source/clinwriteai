@@ -153,9 +153,8 @@ export function ReviewerToolbar({ onAddComment, onFlagSection, canViewChecklist,
       >
         <CommentIcon />
         {t('page.reviewer_toolbar.comments_label')}
-        {!!openCommentCount && (
-          <span className="rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700">{openCommentCount}</span>
-        )}
+        {/* Always shown, 0 included. */}
+        <span className="rounded-full bg-slate-200 px-1.5 text-[10px] font-bold text-slate-700" data-comment-count>{openCommentCount ?? 0}</span>
       </button>
 
       {/* Checklist (view-only) */}

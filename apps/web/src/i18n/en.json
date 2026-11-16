@@ -4134,6 +4134,7 @@
       "checking": "Checking…",
       "resend": "Send a new code",
       "read_only": "Read only",
+      "watermark_note": "Every page shows your email address and the time you opened it.",
       "private_note": "This link is only for you and works until {{date}}. Please don't forward it — anyone you forward it to can't get the code.",
       "err_link_invalid": "This link is not valid. Ask the person who shared the document to share it again.",
       "err_revoked": "This link no longer works. Ask the person who shared the document to share it again.",
@@ -4221,6 +4222,14 @@
     }
   },
   "component": {
+    "pdf_viewer": {
+      "loading": "Loading the document…",
+      "failed": "This document could not be displayed.",
+      "page_of": "Page {{page}} of {{total}}",
+      "zoom_in": "Zoom in",
+      "zoom_out": "Zoom out",
+      "fit_width": "Fit to width"
+    },
     "protocol_type_label": {
       "protocol": "Clinical Trial Protocol",
       "protocol_amendment": "Protocol Amendment"

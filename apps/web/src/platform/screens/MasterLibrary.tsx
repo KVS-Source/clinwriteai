@@ -15,6 +15,7 @@ import { usePlatformStore } from '../store/platformStore'
 import { describeApiError } from '../../api'
 import { api, ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
+import { ProtectedPdfViewer } from '../../components/library/ProtectedPdfViewer'
 import { SortIcon } from '../../components/ui/SortIcon'
 import { DateTimeRangeFilter, rangeToIso, toInputValue, type TimeZoneMode } from '../../components/ui/DateTimeRangeFilter'
 
@@ -186,22 +187,14 @@ export function MasterLibrary() {
   const pdfView = useQuery({
     queryKey: ['library-pdf', active?.id],
     queryFn: async () => {
+      // Stamped by the API with the reader's email and the time; shown in our own viewer, never the browser's.
       const { blob } = await api.download(`/library/${encodeURIComponent(active!.id)}/pdf`)
-      // The browser shows the file only if it knows it is a PDF.
-      return blob.type === 'application/pdf' ? blob : new Blob([blob], { type: 'application/pdf' })
+      return blob
     },
     enabled: viewing && !!active,
     staleTime: 5 * 60_000,
     retry: false,
   })
-  // Object URL for the fetched PDF; revoked when it changes or the viewer closes.
-  const [pdfUrl, setPdfUrl] = useState<string | null>(null)
-  useEffect(() => {
-    if (!viewing || !pdfView.data) { setPdfUrl(null); return }
-    const u = URL.createObjectURL(pdfView.data)
-    setPdfUrl(u)
-    return () => URL.revokeObjectURL(u)
-  }, [viewing, pdfView.data])
 
   // Switching the timezone keeps the range pointing at the same moments (as on the Audit Trail).
   function changeTz(next: TimeZoneMode) {
@@ -499,9 +492,10 @@ export function MasterLibrary() {
               {t('page.master_library.view_failed')} {describeApiError(pdfView.error).message}
             </p>
           )}
-          {pdfUrl && (
-            <iframe key={pdfUrl} src={pdfUrl} title={active?.name ?? ''}
-              className="min-h-0 w-full flex-1 border-0 bg-white" data-viewer-frame />
+          {viewing && pdfView.data && (
+            <div className="min-h-0 flex-1" data-viewer-frame>
+              <ProtectedPdfViewer file={pdfView.data} title={active?.name ?? ''} />
+            </div>
           )}
         </div>
       </SlidePanel>

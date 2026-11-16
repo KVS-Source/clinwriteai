@@ -35,6 +35,7 @@ import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 import { libraryItemPdf } from './pdf-file.js'
+import { sharedWatermark } from './watermark.js'
 import { versionLabel } from './shape.js'
 
 export const SHARE_MAX_RECIPIENTS = 20
@@ -327,7 +328,8 @@ export const sharedLibraryPublicRoutes: FastifyPluginAsync = async (app) => {
     const ok = typeof session === 'string' && session.length >= 30 && share.sessionHash && share.sessionExpiresAt
       && share.sessionExpiresAt.getTime() > Date.now() && sameHash(sha256(session), share.sessionHash)
     if (!ok) return reply.code(401).send({ error: 'code_required', message: 'Enter the code from your email to read this document.' })
-    const pdf = await libraryItemPdf(app, item)
+    // Every page carries the invited address and the time, so a copy that leaks can be traced.
+    const pdf = await libraryItemPdf(app, item, { watermark: sharedWatermark(share.email) })
     if (!pdf.ok) return reply.code(pdf.code).send({ error: pdf.error, message: pdf.message })
     return reply
       .header('Content-Type', 'application/pdf')

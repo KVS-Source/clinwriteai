@@ -181,7 +181,7 @@ describe('POST /library/upload', () => {
 })
 
 describe('Download PDF of an uploaded document', () => {
-  it('gives back the original PDF; a Word upload (or a missing file) is rebuilt from its text', async () => {
+  it('reads the original PDF and serves it stamped with the reader\'s watermark (one that can\'t be stamped is rebuilt from its text)', async () => {
     const stored = { id: 'u-1', tenantId: 't1', title: 'CSR Study 1', body: 'Study report text.', taTag: 'Oncology', framework: 'CSR', category: 'claim', version: 1, isCurrent: true, approvedBy: 'u1', approvedAt: new Date(), retiredAt: null, updatedAt: new Date(), supersededBy: null, usageCount: 0,
       tags: ['module:A', 'type:document', 'origin:upload', 'file:library/t1/2026-11-13/abc.pdf', 'filename:Final Report.pdf'] }
     const t = await setup()
@@ -189,8 +189,10 @@ describe('Download PDF of an uploaded document', () => {
     const res = await t.app.inject({ method: 'GET', url: '/library/u-1/pdf' })
     expect(res.statusCode).toBe(200)
     expect(res.headers['content-type']).toBe('application/pdf')
-    expect(res.rawPayload.equals(PDF)).toBe(true)
-    expect(res.headers['content-disposition']).toContain('Final%20Report.pdf')
+    // The fixture isn't a readable PDF, so it is rebuilt from the text and stamped; never served as stored.
+    expect(res.rawPayload.subarray(0, 5).toString()).toBe('%PDF-')
+    expect(res.rawPayload.equals(PDF)).toBe(false)
+    expect(res.headers['content-disposition']).toContain('CSR_Study_1.pdf')
     expect(t.blobGet).toHaveBeenCalledWith('documents', 'library/t1/2026-11-13/abc.pdf')
   })
 })

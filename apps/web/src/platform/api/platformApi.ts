@@ -652,6 +652,19 @@ export interface DocumentTemplateSection {
   number:  string
   title:   string
   usOnly?: boolean
+  // Richer templates (the ICH M11 protocol) also carry the hierarchy and writing guidance. Optional, and
+  // any other field is kept as is: editing a section list must not strip them.
+  level?:        number
+  parentId?:     string | null
+  style?:        string | null
+  instructions?: string | null
+  guidance?:     string | null
+  templateText?: string | null
+  placeholder?:  string | null
+  defaultContentHtml?: string | null
+  hasSubsections?: boolean
+  tables?:       Array<Record<string, unknown>>
+  [extra: string]: unknown
 }
 
 export interface DocumentTemplateAdmin {
@@ -661,6 +674,8 @@ export interface DocumentTemplateAdmin {
   description:              string
   framework:                string
   sections:                 DocumentTemplateSection[]
+  /** Page layout, styles, standards, front / back matter (richer templates only); null otherwise. */
+  spec?:                    Record<string, unknown> | null
   requiredSourceCategories: string[]
   version:                  number
   isCurrent:                boolean
@@ -676,6 +691,7 @@ export interface DocumentTemplateCreateBody {
   description:               string
   framework:                 string
   sections?:                 DocumentTemplateSection[]
+  spec?:                     Record<string, unknown> | null
   requiredSourceCategories?: string[]
 }
 

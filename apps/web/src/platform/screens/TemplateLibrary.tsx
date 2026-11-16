@@ -64,7 +64,9 @@ function parseSections(text: string): { ok: DocumentTemplateSection[] } | { err:
     if (ids.has(id))          return { err: `[${i}].id duplicate: ${id}` }
     ids.add(id)
     const usOnly = sec.usOnly === true ? true : undefined
-    out.push({ id, number, title, ...(usOnly ? { usOnly: true } : {}) })
+    // Keep every other field (hierarchy, guidance, tables…) as it came: saving must not strip them.
+    const { usOnly: _drop, ...rest } = sec
+    out.push({ ...rest, id, number, title, ...(usOnly ? { usOnly: true } : {}) })
   }
   return { ok: out }
 }

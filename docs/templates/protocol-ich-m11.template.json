@@ -1,0 +1,1445 @@
+{
+  "schemaVersion": 1,
+  "template": {
+    "type": "protocol",
+    "label": "Protocol",
+    "description": "Clinical Study Protocol — ICH M11-aligned working template for interventional trials of medicinal products.",
+    "framework": "ICH M11",
+    "documentStatusBanner": "DOCUMENT STATUS: DRAFT – NOT APPROVED FOR STUDY CONDUCT"
+  },
+  "provenance": {
+    "sourceFile": "docs/Clinical_Study_Protocol_ICH_M11_Working_Template.docx",
+    "stylesExtractedFrom": "the .docx style definitions (exact values, not estimated)",
+    "referenceFramework": "ICH M11 final guideline and template (19 November 2025); ICH E6(R3); ICH E8(R1); ICH E9 and E9(R1).",
+    "officialTemplateUrl": "https://database.ich.org/sites/default/files/ICH_Step4_M11_Final_Template_2025_1119.pdf",
+    "note": "An adapted working template, not the official ICH M11 file. Refer to official ICH/EMA/FDA publications for authoritative text."
+  },
+  "format": {
+    "page": {
+      "size": "Letter",
+      "widthIn": 8.5,
+      "heightIn": 11,
+      "orientation": "portrait",
+      "marginsIn": {
+        "top": 0.8,
+        "right": 1.25,
+        "bottom": 0.7,
+        "left": 1.25
+      },
+      "headerDistanceIn": 0.35,
+      "footerDistanceIn": 0.4
+    },
+    "fonts": {
+      "body": "Aptos",
+      "heading": "Aptos Display"
+    },
+    "styles": {
+      "normal": {
+        "word": "Normal",
+        "font": "Aptos",
+        "sizePt": 9,
+        "lineSpacing": 1.15,
+        "spaceAfterPt": 10
+      },
+      "title": {
+        "word": "Title",
+        "font": "Aptos Display",
+        "sizePt": 20,
+        "bold": true,
+        "color": "#143453",
+        "lineSpacing": 1,
+        "spaceAfterPt": 15,
+        "letterSpacingPt": 0.25,
+        "bottomBorder": {
+          "color": "#4F81BD",
+          "widthPt": 1,
+          "spacePt": 4
+        }
+      },
+      "heading1": {
+        "word": "Heading 1",
+        "outlineLevel": 1,
+        "font": "Aptos Display",
+        "sizePt": 13,
+        "bold": true,
+        "color": "#14466E",
+        "spaceBeforePt": 24,
+        "spaceAfterPt": 0,
+        "keepWithNext": true,
+        "keepLinesTogether": true
+      },
+      "heading2": {
+        "word": "Heading 2",
+        "outlineLevel": 2,
+        "font": "Aptos Display",
+        "sizePt": 10,
+        "bold": true,
+        "color": "#1C5A80",
+        "spaceBeforePt": 10,
+        "spaceAfterPt": 0,
+        "keepWithNext": true,
+        "keepLinesTogether": true
+      },
+      "runningHeader": {
+        "word": "Caption",
+        "font": "Aptos",
+        "sizePt": 9,
+        "bold": true,
+        "color": "#4F81BD",
+        "lineSpacing": 1,
+        "text": "CLINICAL STUDY PROTOCOL | CONTROLLED DRAFT TEMPLATE",
+        "alignment": "left"
+      },
+      "footer": {
+        "word": "Footer",
+        "font": "Aptos",
+        "sizePt": 9,
+        "lineSpacing": 1,
+        "spaceAfterPt": 0,
+        "alignment": "right",
+        "text": "Confidential • Draft for scientific and regulatory review | Page {PAGE}",
+        "fields": [
+          "PAGE"
+        ],
+        "tabStopsIn": {
+          "center": 3.25,
+          "right": 6.5
+        }
+      }
+    },
+    "tableStyle": {
+      "word": "Light Shading Accent 1",
+      "alignment": "center",
+      "textColor": "#365F91",
+      "borderColor": "#4F81BD",
+      "borderWidthPt": 1,
+      "borders": [
+        "top",
+        "bottom"
+      ],
+      "headerRow": {
+        "bold": true,
+        "borders": [
+          "top",
+          "bottom"
+        ]
+      },
+      "firstColumn": {
+        "bold": true
+      },
+      "bandedRows": {
+        "fill": "#D3DFEE",
+        "startsOnBodyRow": 1
+      },
+      "verticalBands": false,
+      "cellPaddingIn": {
+        "top": 0,
+        "right": 0.075,
+        "bottom": 0,
+        "left": 0.075
+      },
+      "paragraphSpacing": {
+        "beforePt": 0,
+        "afterPt": 0,
+        "lineSpacing": 1
+      }
+    },
+    "themePalette": {
+      "dark2": "#1F497D",
+      "accent1": "#4F81BD",
+      "accent2": "#C0504D",
+      "accent3": "#9BBB59",
+      "accent4": "#8064A2",
+      "accent5": "#4BACC6",
+      "accent6": "#F79646"
+    },
+    "pageBreaks": {
+      "after": "document-approval-and-version-history"
+    },
+    "numbering": {
+      "headings": "typed",
+      "note": "Heading numbers (1., 1.1) are part of the heading text, not automatic list numbering."
+    }
+  },
+  "placeholders": {
+    "informationRequired": "[Information Required]",
+    "authoringInstructionPrefix": "AUTHORING INSTRUCTIONS |",
+    "rules": [
+      "Each subsection starts with [Information Required] followed by what it must contain; replace it with the real content.",
+      "Each main section starts with an AUTHORING INSTRUCTIONS line; it is guidance for the writer, to be removed from the final document.",
+      "Other bracketed values in tables, for example [To be designated], [Per sponsor SOP], [Pending], [Date], [As applicable], [Time], [Section 10], are completed or removed by the author."
+    ],
+    "tableValues": [
+      "[To be designated]",
+      "[Per sponsor SOP]",
+      "[Pending]",
+      "[Date]",
+      "[As applicable]",
+      "[Time]",
+      "[Section 10]",
+      "[Primary]",
+      "[Secondary]"
+    ]
+  },
+  "writingStandards": [
+    {
+      "id": "citations-vancouver",
+      "rule": "Use a Vancouver-style numbered bibliography, in first-citation order.",
+      "appliesTo": "m11-12"
+    },
+    {
+      "id": "verified-sources",
+      "rule": "Insert verified sources only (verified DOI or URL).",
+      "appliesTo": "m11-12"
+    },
+    {
+      "id": "citation-numbering",
+      "rule": "Repeated citations retain their original number.",
+      "appliesTo": "m11-12"
+    },
+    {
+      "id": "superscript-distinct",
+      "rule": "Citation superscripts (numeric) must be distinct from alphabetic table footnotes.",
+      "appliesTo": "m11-12"
+    },
+    {
+      "id": "table-footnotes",
+      "rule": "Table footnotes use real alphabetic superscripts; replace the example markers.",
+      "appliesTo": "m11-1-3"
+    },
+    {
+      "id": "soa-reconciliation",
+      "rule": "All procedures in section 7 reconcile with Table 1 (Schedule of Activities).",
+      "appliesTo": "m11-7"
+    },
+    {
+      "id": "objectives-alignment",
+      "rule": "Objectives, endpoints, estimands and analyses are aligned (section 3 with section 10).",
+      "appliesTo": "m11-3"
+    },
+    {
+      "id": "statistics-guidance",
+      "rule": "Statistical methods are aligned to ICH E9 and E9(R1).",
+      "appliesTo": "m11-10"
+    },
+    {
+      "id": "eligibility-criteria",
+      "rule": "Inclusion criteria: numbered, objective, verifiable. Exclusion criteria: numbered, non-overlapping.",
+      "appliesTo": "m11-5"
+    },
+    {
+      "id": "toc-automatic",
+      "rule": "The Table of Contents is generated automatically; update all fields after editing.",
+      "appliesTo": "table-of-contents"
+    },
+    {
+      "id": "list-of-tables",
+      "rule": "Generate the list of tables, figures and appendices from captions and appendix headings, and update it after final pagination.",
+      "appliesTo": "list-of-tables-figures-and-appendices"
+    },
+    {
+      "id": "appendices",
+      "rule": "Include only applicable appendices; ensure references in the main text resolve.",
+      "appliesTo": "m11-13"
+    },
+    {
+      "id": "regional-requirements",
+      "rule": "Apply region-specific law and sponsor SOP for ethics and regulatory content.",
+      "appliesTo": "m11-11"
+    },
+    {
+      "id": "approvals-documented",
+      "rule": "Investigator agreement, ethics approval and sponsor approvals are documented as required by applicable rules and SOPs.",
+      "appliesTo": "document-approval-and-version-history"
+    }
+  ],
+  "frontMatter": [
+    {
+      "kind": "title",
+      "style": "Title",
+      "text": "CLINICAL STUDY PROTOCOL"
+    },
+    {
+      "kind": "paragraph",
+      "style": "Normal",
+      "text": "ICH M11-aligned working template | Interventional clinical trials of medicinal products",
+      "role": "subtitle"
+    },
+    {
+      "kind": "paragraph",
+      "style": "Normal",
+      "text": "DOCUMENT STATUS: DRAFT – NOT APPROVED FOR STUDY CONDUCT",
+      "role": "documentStatus"
+    },
+    {
+      "kind": "table",
+      "id": "document-metadata",
+      "columns": [
+        {
+          "header": "Document metadata",
+          "widthIn": 3
+        },
+        {
+          "header": "Enter information",
+          "widthIn": 3
+        }
+      ],
+      "headerRow": [
+        "Document metadata",
+        "Enter information"
+      ],
+      "rows": [
+        [
+          "Full study title",
+          "[Information Required]"
+        ],
+        [
+          "Short title / acronym",
+          "[Information Required]"
+        ],
+        [
+          "Protocol identifier",
+          "[Information Required]"
+        ],
+        [
+          "Version / date",
+          "[Information Required]"
+        ],
+        [
+          "Sponsor / legal entity",
+          "[Information Required]"
+        ],
+        [
+          "Investigational product",
+          "[Information Required]"
+        ],
+        [
+          "Phase / therapeutic area",
+          "[Information Required]"
+        ],
+        [
+          "Trial registration identifier(s)",
+          "[Information Required]"
+        ],
+        [
+          "Applicable jurisdictions",
+          "[Information Required]"
+        ]
+      ],
+      "role": "metadata"
+    },
+    {
+      "kind": "block",
+      "style": "Heading1",
+      "title": "Document approval and version history",
+      "id": "document-approval-and-version-history",
+      "tables": [
+        {
+          "columns": [
+            {
+              "header": "Function / signatory",
+              "widthIn": 2
+            },
+            {
+              "header": "Name / title",
+              "widthIn": 2
+            },
+            {
+              "header": "Signature / date",
+              "widthIn": 2
+            }
+          ],
+          "headerRow": [
+            "Function / signatory",
+            "Name / title",
+            "Signature / date"
+          ],
+          "rows": [
+            [
+              "Sponsor-authorized approver",
+              "[To be designated]",
+              "[Pending]"
+            ],
+            [
+              "Clinical / medical approver",
+              "[Per sponsor SOP]",
+              "[Pending]"
+            ],
+            [
+              "Biostatistics approver",
+              "[Per sponsor SOP]",
+              "[Pending]"
+            ]
+          ],
+          "role": "approvalSignatories"
+        },
+        {
+          "columns": [
+            {
+              "header": "Version",
+              "widthIn": 2
+            },
+            {
+              "header": "Date",
+              "widthIn": 2
+            },
+            {
+              "header": "Summary of changes",
+              "widthIn": 2
+            }
+          ],
+          "headerRow": [
+            "Version",
+            "Date",
+            "Summary of changes"
+          ],
+          "rows": [
+            [
+              "0.1",
+              "[Date]",
+              "Initial draft"
+            ]
+          ],
+          "role": "versionHistory"
+        }
+      ],
+      "note": "Investigator agreement, ethics approval, and sponsor approvals must be documented as required by applicable rules and SOPs; this page is illustrative."
+    },
+    {
+      "kind": "pageBreak"
+    },
+    {
+      "kind": "block",
+      "style": "Heading1",
+      "title": "Table of Contents",
+      "id": "table-of-contents",
+      "role": "tableOfContents",
+      "instruction": "In Microsoft Word: References → Table of Contents → Automatic Table. Update all fields after editing.",
+      "fieldType": "automatic"
+    },
+    {
+      "kind": "block",
+      "style": "Heading1",
+      "title": "List of Tables, Figures and Appendices",
+      "id": "list-of-tables-figures-and-appendices",
+      "role": "listOfTablesFiguresAppendices",
+      "instruction": "[Generate from captions and appendix headings; update after final pagination.]"
+    },
+    {
+      "kind": "block",
+      "style": "Heading1",
+      "title": "Abbreviations and Definitions",
+      "id": "abbreviations-and-definitions",
+      "tables": [
+        {
+          "columns": [
+            {
+              "header": "Abbreviation",
+              "widthIn": 3
+            },
+            {
+              "header": "Definition",
+              "widthIn": 3
+            }
+          ],
+          "headerRow": [
+            "Abbreviation",
+            "Definition"
+          ],
+          "rows": [
+            [
+              "AE",
+              "Adverse event"
+            ],
+            [
+              "SAE",
+              "Serious adverse event"
+            ],
+            [
+              "SoA",
+              "Schedule of Activities"
+            ],
+            [
+              "SAP",
+              "Statistical Analysis Plan"
+            ],
+            [
+              "IP",
+              "Investigational product"
+            ]
+          ],
+          "role": "abbreviations"
+        }
+      ]
+    }
+  ],
+  "sections": [
+    {
+      "id": "m11-1",
+      "number": "1",
+      "title": "Protocol Summary",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Provide a concise synopsis of the entire study.",
+      "hasSubsections": true,
+      "crossReferences": {
+        "scheduleOfActivities": "m11-1-3"
+      },
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Provide a concise synopsis of the entire study.</p>"
+    },
+    {
+      "id": "m11-1-1",
+      "number": "1.1",
+      "title": "Protocol Synopsis",
+      "level": 2,
+      "parentId": "m11-1",
+      "style": "Heading2",
+      "guidance": "Study design, population, sample size, treatment, duration, endpoints, analysis.",
+      "templateText": "[Information Required] Study design, population, sample size, treatment, duration, endpoints, analysis.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Study design, population, sample size, treatment, duration, endpoints, analysis.</p>"
+    },
+    {
+      "id": "m11-1-2",
+      "number": "1.2",
+      "title": "Schema",
+      "level": 2,
+      "parentId": "m11-1",
+      "style": "Heading2",
+      "guidance": "Insert a study design schematic with arms, allocation and follow-up.",
+      "templateText": "[Information Required] Insert a study design schematic with arms, allocation and follow-up.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Insert a study design schematic with arms, allocation and follow-up.</p>"
+    },
+    {
+      "id": "m11-1-3",
+      "number": "1.3",
+      "title": "Schedule of Activities",
+      "level": 2,
+      "parentId": "m11-1",
+      "style": "Heading2",
+      "guidance": "Populate the visit and assessment matrix below.",
+      "templateText": "[Information Required] Populate the visit and assessment matrix below.",
+      "placeholder": "[Information Required]",
+      "tables": [
+        {
+          "columns": [
+            {
+              "header": "Assessment",
+              "widthIn": 1
+            },
+            {
+              "header": "Screening",
+              "widthIn": 1
+            },
+            {
+              "header": "Baseline",
+              "widthIn": 1
+            },
+            {
+              "header": "Visit 2",
+              "widthIn": 1
+            },
+            {
+              "header": "End of Treatment",
+              "widthIn": 1
+            },
+            {
+              "header": "Follow-up",
+              "widthIn": 1
+            }
+          ],
+          "headerRow": [
+            "Assessment",
+            "Screening",
+            "Baseline",
+            "Visit 2",
+            "End of Treatment",
+            "Follow-up"
+          ],
+          "rows": [
+            [
+              "Consent",
+              "X",
+              "",
+              "",
+              "",
+              ""
+            ],
+            [
+              "Eligibility",
+              "X",
+              "X",
+              "",
+              "",
+              ""
+            ],
+            [
+              "Study intervention",
+              "",
+              "X",
+              "[As applicable]",
+              "[As applicable]",
+              ""
+            ],
+            [
+              "Efficacy assessment",
+              "[As applicable]",
+              "[As applicable]",
+              "[As applicable]",
+              "[As applicable]",
+              "[As applicable]"
+            ],
+            [
+              "Safety assessments",
+              "X",
+              "X",
+              "X",
+              "X",
+              "X"
+            ]
+          ],
+          "footnotes": {
+            "caption": "Table 1",
+            "text": "Table 1 footnotes: ᵃ Define visit windows. ᵇ Specify assessments conditional on eligibility or clinical indication. Replace example markers with real superscript footnotes.",
+            "markers": [
+              "a",
+              "b"
+            ],
+            "rule": "Replace example markers with real superscript footnotes. Table footnote markers are alphabetic and distinct from numeric citation superscripts."
+          },
+          "role": "scheduleOfActivities",
+          "caption": "Table 1"
+        }
+      ],
+      "defaultContentHtml": "<p>[Information Required] Populate the visit and assessment matrix below.</p>"
+    },
+    {
+      "id": "m11-2",
+      "number": "2",
+      "title": "Introduction",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Explain background, benefit–risk and scientific justification.",
+      "hasSubsections": true,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Explain background, benefit–risk and scientific justification.</p>"
+    },
+    {
+      "id": "m11-2-1",
+      "number": "2.1",
+      "title": "Background",
+      "level": 2,
+      "parentId": "m11-2",
+      "style": "Heading2",
+      "guidance": "Disease context, unmet need and prior evidence; add verified citations.",
+      "templateText": "[Information Required] Disease context, unmet need and prior evidence; add verified citations.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Disease context, unmet need and prior evidence; add verified citations.</p>"
+    },
+    {
+      "id": "m11-2-2",
+      "number": "2.2",
+      "title": "Investigational Product Overview",
+      "level": 2,
+      "parentId": "m11-2",
+      "style": "Heading2",
+      "guidance": "Mechanism, nonclinical and clinical experience; reference IB.",
+      "templateText": "[Information Required] Mechanism, nonclinical and clinical experience; reference IB.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Mechanism, nonclinical and clinical experience; reference IB.</p>"
+    },
+    {
+      "id": "m11-2-3",
+      "number": "2.3",
+      "title": "Benefit–Risk Assessment",
+      "level": 2,
+      "parentId": "m11-2",
+      "style": "Heading2",
+      "guidance": "Known and potential risks and anticipated benefits.",
+      "templateText": "[Information Required] Known and potential risks and anticipated benefits.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Known and potential risks and anticipated benefits.</p>"
+    },
+    {
+      "id": "m11-2-4",
+      "number": "2.4",
+      "title": "Rationale for Study Design",
+      "level": 2,
+      "parentId": "m11-2",
+      "style": "Heading2",
+      "guidance": "Choice of comparator, dose, endpoints and duration.",
+      "templateText": "[Information Required] Choice of comparator, dose, endpoints and duration.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Choice of comparator, dose, endpoints and duration.</p>"
+    },
+    {
+      "id": "m11-3",
+      "number": "3",
+      "title": "Study Objectives, Endpoints and Estimands",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Align objectives, endpoints, estimands and analyses.",
+      "hasSubsections": true,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Align objectives, endpoints, estimands and analyses.</p>"
+    },
+    {
+      "id": "m11-3-1",
+      "number": "3.1",
+      "title": "Primary Objective and Endpoint",
+      "level": 2,
+      "parentId": "m11-3",
+      "style": "Heading2",
+      "guidance": "Define objective, variable, assessment method and timepoint.",
+      "templateText": "[Information Required] Define objective, variable, assessment method and timepoint.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Define objective, variable, assessment method and timepoint.</p>"
+    },
+    {
+      "id": "m11-3-2",
+      "number": "3.2",
+      "title": "Secondary and Exploratory Objectives",
+      "level": 2,
+      "parentId": "m11-3",
+      "style": "Heading2",
+      "guidance": "List each objective and its corresponding endpoint.",
+      "templateText": "[Information Required] List each objective and its corresponding endpoint.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] List each objective and its corresponding endpoint.</p>"
+    },
+    {
+      "id": "m11-3-3",
+      "number": "3.3",
+      "title": "Estimands",
+      "level": 2,
+      "parentId": "m11-3",
+      "style": "Heading2",
+      "guidance": "Specify population, treatment condition, variable, intercurrent events strategy and summary measure.",
+      "templateText": "[Information Required] Specify population, treatment condition, variable, intercurrent events strategy and summary measure.",
+      "placeholder": "[Information Required]",
+      "tables": [
+        {
+          "columns": [
+            {
+              "header": "Objective",
+              "widthIn": 1.5
+            },
+            {
+              "header": "Endpoint",
+              "widthIn": 1.5
+            },
+            {
+              "header": "Time point",
+              "widthIn": 1.5
+            },
+            {
+              "header": "Estimand / analysis link",
+              "widthIn": 1.5
+            }
+          ],
+          "headerRow": [
+            "Objective",
+            "Endpoint",
+            "Time point",
+            "Estimand / analysis link"
+          ],
+          "rows": [
+            [
+              "[Primary]",
+              "[Information Required]",
+              "[Time]",
+              "[Section 10]"
+            ],
+            [
+              "[Secondary]",
+              "[Information Required]",
+              "[Time]",
+              "[Section 10]"
+            ]
+          ],
+          "role": "objectivesEndpointsEstimands"
+        }
+      ],
+      "defaultContentHtml": "<p>[Information Required] Specify population, treatment condition, variable, intercurrent events strategy and summary measure.</p>"
+    },
+    {
+      "id": "m11-4",
+      "number": "4",
+      "title": "Study Design",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Specify type, phase, arms, masking, allocation and duration.",
+      "hasSubsections": true,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Specify type, phase, arms, masking, allocation and duration.</p>"
+    },
+    {
+      "id": "m11-4-1",
+      "number": "4.1",
+      "title": "Overall Design",
+      "level": 2,
+      "parentId": "m11-4",
+      "style": "Heading2",
+      "guidance": "Randomization, blinding, control, setting and duration.",
+      "templateText": "[Information Required] Randomization, blinding, control, setting and duration.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Randomization, blinding, control, setting and duration.</p>"
+    },
+    {
+      "id": "m11-4-2",
+      "number": "4.2",
+      "title": "Scientific Rationale",
+      "level": 2,
+      "parentId": "m11-4",
+      "style": "Heading2",
+      "guidance": "Rationale for dose, comparator and assessments.",
+      "templateText": "[Information Required] Rationale for dose, comparator and assessments.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Rationale for dose, comparator and assessments.</p>"
+    },
+    {
+      "id": "m11-4-3",
+      "number": "4.3",
+      "title": "End of Study Definition",
+      "level": 2,
+      "parentId": "m11-4",
+      "style": "Heading2",
+      "guidance": "Define study end and individual participant completion.",
+      "templateText": "[Information Required] Define study end and individual participant completion.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Define study end and individual participant completion.</p>"
+    },
+    {
+      "id": "m11-4-4",
+      "number": "4.4",
+      "title": "Quality by Design",
+      "level": 2,
+      "parentId": "m11-4",
+      "style": "Heading2",
+      "guidance": "Identify critical-to-quality factors and proportionate mitigation.",
+      "templateText": "[Information Required] Identify critical-to-quality factors and proportionate mitigation.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Identify critical-to-quality factors and proportionate mitigation.</p>"
+    },
+    {
+      "id": "m11-5",
+      "number": "5",
+      "title": "Study Population",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Define selection and enrollment.",
+      "hasSubsections": true,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Define selection and enrollment.</p>"
+    },
+    {
+      "id": "m11-5-1",
+      "number": "5.1",
+      "title": "Inclusion Criteria",
+      "level": 2,
+      "parentId": "m11-5",
+      "style": "Heading2",
+      "guidance": "Numbered, objective, verifiable criteria.",
+      "templateText": "[Information Required] Numbered, objective, verifiable criteria.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Numbered, objective, verifiable criteria.</p>"
+    },
+    {
+      "id": "m11-5-2",
+      "number": "5.2",
+      "title": "Exclusion Criteria",
+      "level": 2,
+      "parentId": "m11-5",
+      "style": "Heading2",
+      "guidance": "Numbered, non-overlapping criteria.",
+      "templateText": "[Information Required] Numbered, non-overlapping criteria.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Numbered, non-overlapping criteria.</p>"
+    },
+    {
+      "id": "m11-5-3",
+      "number": "5.3",
+      "title": "Screening and Recruitment",
+      "level": 2,
+      "parentId": "m11-5",
+      "style": "Heading2",
+      "guidance": "Screening, rescreening and recruitment processes.",
+      "templateText": "[Information Required] Screening, rescreening and recruitment processes.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Screening, rescreening and recruitment processes.</p>"
+    },
+    {
+      "id": "m11-5-4",
+      "number": "5.4",
+      "title": "Withdrawal and Replacement",
+      "level": 2,
+      "parentId": "m11-5",
+      "style": "Heading2",
+      "guidance": "Withdrawal, follow-up, discontinuation and replacement rules.",
+      "templateText": "[Information Required] Withdrawal, follow-up, discontinuation and replacement rules.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Withdrawal, follow-up, discontinuation and replacement rules.</p>"
+    },
+    {
+      "id": "m11-6",
+      "number": "6",
+      "title": "Study Intervention and Concomitant Therapy",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Describe trial treatment and management.",
+      "hasSubsections": true,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Describe trial treatment and management.</p>"
+    },
+    {
+      "id": "m11-6-1",
+      "number": "6.1",
+      "title": "Trial Intervention",
+      "level": 2,
+      "parentId": "m11-6",
+      "style": "Heading2",
+      "guidance": "Formulation, route, regimen, dosing and duration.",
+      "templateText": "[Information Required] Formulation, route, regimen, dosing and duration.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Formulation, route, regimen, dosing and duration.</p>"
+    },
+    {
+      "id": "m11-6-2",
+      "number": "6.2",
+      "title": "Assignment and Blinding",
+      "level": 2,
+      "parentId": "m11-6",
+      "style": "Heading2",
+      "guidance": "Allocation concealment, randomization and emergency unblinding.",
+      "templateText": "[Information Required] Allocation concealment, randomization and emergency unblinding.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Allocation concealment, randomization and emergency unblinding.</p>"
+    },
+    {
+      "id": "m11-6-3",
+      "number": "6.3",
+      "title": "Preparation, Handling and Accountability",
+      "level": 2,
+      "parentId": "m11-6",
+      "style": "Heading2",
+      "guidance": "Storage, dispensing, returns and accountability.",
+      "templateText": "[Information Required] Storage, dispensing, returns and accountability.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Storage, dispensing, returns and accountability.</p>"
+    },
+    {
+      "id": "m11-6-4",
+      "number": "6.4",
+      "title": "Dose Modification and Discontinuation",
+      "level": 2,
+      "parentId": "m11-6",
+      "style": "Heading2",
+      "guidance": "Interruption, adjustment and stopping criteria.",
+      "templateText": "[Information Required] Interruption, adjustment and stopping criteria.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Interruption, adjustment and stopping criteria.</p>"
+    },
+    {
+      "id": "m11-6-5",
+      "number": "6.5",
+      "title": "Concomitant Therapy",
+      "level": 2,
+      "parentId": "m11-6",
+      "style": "Heading2",
+      "guidance": "Permitted and prohibited treatments; rescue medication.",
+      "templateText": "[Information Required] Permitted and prohibited treatments; rescue medication.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Permitted and prohibited treatments; rescue medication.</p>"
+    },
+    {
+      "id": "m11-6-6",
+      "number": "6.6",
+      "title": "Adherence",
+      "level": 2,
+      "parentId": "m11-6",
+      "style": "Heading2",
+      "guidance": "Compliance assessment and documentation.",
+      "templateText": "[Information Required] Compliance assessment and documentation.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Compliance assessment and documentation.</p>"
+    },
+    {
+      "id": "m11-7",
+      "number": "7",
+      "title": "Study Assessments and Procedures",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Ensure all procedures reconcile with Table 1 (SoA).",
+      "hasSubsections": true,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Ensure all procedures reconcile with Table 1 (SoA).</p>"
+    },
+    {
+      "id": "m11-7-1",
+      "number": "7.1",
+      "title": "Efficacy Assessments",
+      "level": 2,
+      "parentId": "m11-7",
+      "style": "Heading2",
+      "guidance": "Instruments, schedule, methods and central review.",
+      "templateText": "[Information Required] Instruments, schedule, methods and central review.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Instruments, schedule, methods and central review.</p>"
+    },
+    {
+      "id": "m11-7-2",
+      "number": "7.2",
+      "title": "Safety Assessments",
+      "level": 2,
+      "parentId": "m11-7",
+      "style": "Heading2",
+      "guidance": "Vitals, ECG, labs, examinations and other monitoring.",
+      "templateText": "[Information Required] Vitals, ECG, labs, examinations and other monitoring.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Vitals, ECG, labs, examinations and other monitoring.</p>"
+    },
+    {
+      "id": "m11-7-3",
+      "number": "7.3",
+      "title": "Pharmacokinetic / Pharmacodynamic Assessments",
+      "level": 2,
+      "parentId": "m11-7",
+      "style": "Heading2",
+      "guidance": "Sample collection and analysis, if applicable.",
+      "templateText": "[Information Required] Sample collection and analysis, if applicable.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Sample collection and analysis, if applicable.</p>"
+    },
+    {
+      "id": "m11-7-4",
+      "number": "7.4",
+      "title": "Patient-Reported Outcomes",
+      "level": 2,
+      "parentId": "m11-7",
+      "style": "Heading2",
+      "guidance": "Instruments, language and administration, if applicable.",
+      "templateText": "[Information Required] Instruments, language and administration, if applicable.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Instruments, language and administration, if applicable.</p>"
+    },
+    {
+      "id": "m11-7-5",
+      "number": "7.5",
+      "title": "Biological Samples",
+      "level": 2,
+      "parentId": "m11-7",
+      "style": "Heading2",
+      "guidance": "Collection, storage, future use, consent and disposition.",
+      "templateText": "[Information Required] Collection, storage, future use, consent and disposition.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Collection, storage, future use, consent and disposition.</p>"
+    },
+    {
+      "id": "m11-8",
+      "number": "8",
+      "title": "Adverse Events and Safety Reporting",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Specify collection, evaluation, reporting and follow-up.",
+      "hasSubsections": true,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Specify collection, evaluation, reporting and follow-up.</p>"
+    },
+    {
+      "id": "m11-8-1",
+      "number": "8.1",
+      "title": "AE and SAE Definitions",
+      "level": 2,
+      "parentId": "m11-8",
+      "style": "Heading2",
+      "guidance": "Use applicable regulatory definitions.",
+      "templateText": "[Information Required] Use applicable regulatory definitions.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Use applicable regulatory definitions.</p>"
+    },
+    {
+      "id": "m11-8-2",
+      "number": "8.2",
+      "title": "AE/SAE Collection and Follow-up",
+      "level": 2,
+      "parentId": "m11-8",
+      "style": "Heading2",
+      "guidance": "Observation period, severity, causality and outcomes.",
+      "templateText": "[Information Required] Observation period, severity, causality and outcomes.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Observation period, severity, causality and outcomes.</p>"
+    },
+    {
+      "id": "m11-8-3",
+      "number": "8.3",
+      "title": "Reporting Timelines and Procedures",
+      "level": 2,
+      "parentId": "m11-8",
+      "style": "Heading2",
+      "guidance": "Sponsor, investigator and regulatory reporting; per region/SOP.",
+      "templateText": "[Information Required] Sponsor, investigator and regulatory reporting; per region/SOP.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Sponsor, investigator and regulatory reporting; per region/SOP.</p>"
+    },
+    {
+      "id": "m11-8-4",
+      "number": "8.4",
+      "title": "AESIs, Pregnancy and Overdose",
+      "level": 2,
+      "parentId": "m11-8",
+      "style": "Heading2",
+      "guidance": "Specify study-specific procedures, where relevant.",
+      "templateText": "[Information Required] Specify study-specific procedures, where relevant.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Specify study-specific procedures, where relevant.</p>"
+    },
+    {
+      "id": "m11-8-5",
+      "number": "8.5",
+      "title": "Safety Oversight and Stopping Rules",
+      "level": 2,
+      "parentId": "m11-8",
+      "style": "Heading2",
+      "guidance": "DMC/DSMB and escalation, if applicable.",
+      "templateText": "[Information Required] DMC/DSMB and escalation, if applicable.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] DMC/DSMB and escalation, if applicable.</p>"
+    },
+    {
+      "id": "m11-9",
+      "number": "9",
+      "title": "Data Handling, Monitoring and Quality",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Describe source records and trial data governance.",
+      "hasSubsections": true,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Describe source records and trial data governance.</p>"
+    },
+    {
+      "id": "m11-9-1",
+      "number": "9.1",
+      "title": "Data Capture and Source Records",
+      "level": 2,
+      "parentId": "m11-9",
+      "style": "Heading2",
+      "guidance": "EDC/eCRF, EHR use, direct transfer and provenance.",
+      "templateText": "[Information Required] EDC/eCRF, EHR use, direct transfer and provenance.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] EDC/eCRF, EHR use, direct transfer and provenance.</p>"
+    },
+    {
+      "id": "m11-9-2",
+      "number": "9.2",
+      "title": "Data Quality and Validation",
+      "level": 2,
+      "parentId": "m11-9",
+      "style": "Heading2",
+      "guidance": "Edit checks, reconciliation, audit trail and corrections.",
+      "templateText": "[Information Required] Edit checks, reconciliation, audit trail and corrections.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Edit checks, reconciliation, audit trail and corrections.</p>"
+    },
+    {
+      "id": "m11-9-3",
+      "number": "9.3",
+      "title": "Monitoring and Oversight",
+      "level": 2,
+      "parentId": "m11-9",
+      "style": "Heading2",
+      "guidance": "Risk-based monitoring and deviations.",
+      "templateText": "[Information Required] Risk-based monitoring and deviations.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Risk-based monitoring and deviations.</p>"
+    },
+    {
+      "id": "m11-9-4",
+      "number": "9.4",
+      "title": "Privacy and Retention",
+      "level": 2,
+      "parentId": "m11-9",
+      "style": "Heading2",
+      "guidance": "Access controls, confidentiality and record retention.",
+      "templateText": "[Information Required] Access controls, confidentiality and record retention.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Access controls, confidentiality and record retention.</p>"
+    },
+    {
+      "id": "m11-10",
+      "number": "10",
+      "title": "Statistical Considerations",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Provide protocol-level statistical methods aligned to ICH E9/E9(R1).",
+      "hasSubsections": true,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Provide protocol-level statistical methods aligned to ICH E9/E9(R1).</p>"
+    },
+    {
+      "id": "m11-10-1",
+      "number": "10.1",
+      "title": "Hypotheses and Sample Size",
+      "level": 2,
+      "parentId": "m11-10",
+      "style": "Heading2",
+      "guidance": "Assumptions, effect size, power, type I error and attrition.",
+      "templateText": "[Information Required] Assumptions, effect size, power, type I error and attrition.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Assumptions, effect size, power, type I error and attrition.</p>"
+    },
+    {
+      "id": "m11-10-2",
+      "number": "10.2",
+      "title": "Analysis Sets",
+      "level": 2,
+      "parentId": "m11-10",
+      "style": "Heading2",
+      "guidance": "Specify analysis populations.",
+      "templateText": "[Information Required] Specify analysis populations.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Specify analysis populations.</p>"
+    },
+    {
+      "id": "m11-10-3",
+      "number": "10.3",
+      "title": "Primary Analysis",
+      "level": 2,
+      "parentId": "m11-10",
+      "style": "Heading2",
+      "guidance": "Endpoint, model, estimand, covariates and significance.",
+      "templateText": "[Information Required] Endpoint, model, estimand, covariates and significance.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Endpoint, model, estimand, covariates and significance.</p>"
+    },
+    {
+      "id": "m11-10-4",
+      "number": "10.4",
+      "title": "Secondary and Exploratory Analyses",
+      "level": 2,
+      "parentId": "m11-10",
+      "style": "Heading2",
+      "guidance": "Multiplicity and interpretation.",
+      "templateText": "[Information Required] Multiplicity and interpretation.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Multiplicity and interpretation.</p>"
+    },
+    {
+      "id": "m11-10-5",
+      "number": "10.5",
+      "title": "Missing Data and Sensitivity Analyses",
+      "level": 2,
+      "parentId": "m11-10",
+      "style": "Heading2",
+      "guidance": "Methods, assumptions and intercurrent events.",
+      "templateText": "[Information Required] Methods, assumptions and intercurrent events.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Methods, assumptions and intercurrent events.</p>"
+    },
+    {
+      "id": "m11-10-6",
+      "number": "10.6",
+      "title": "Interim Analyses",
+      "level": 2,
+      "parentId": "m11-10",
+      "style": "Heading2",
+      "guidance": "Timing, oversight and alpha control, if applicable.",
+      "templateText": "[Information Required] Timing, oversight and alpha control, if applicable.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Timing, oversight and alpha control, if applicable.</p>"
+    },
+    {
+      "id": "m11-11",
+      "number": "11",
+      "title": "Ethics and Regulatory Considerations",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Apply region-specific law and sponsor SOP.",
+      "hasSubsections": true,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Apply region-specific law and sponsor SOP.</p>"
+    },
+    {
+      "id": "m11-11-1",
+      "number": "11.1",
+      "title": "Ethics Committee and Regulatory Approval",
+      "level": 2,
+      "parentId": "m11-11",
+      "style": "Heading2",
+      "guidance": "Approvals before initiation.",
+      "templateText": "[Information Required] Approvals before initiation.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Approvals before initiation.</p>"
+    },
+    {
+      "id": "m11-11-2",
+      "number": "11.2",
+      "title": "Informed Consent",
+      "level": 2,
+      "parentId": "m11-11",
+      "style": "Heading2",
+      "guidance": "Process, reconsent and vulnerable participants.",
+      "templateText": "[Information Required] Process, reconsent and vulnerable participants.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Process, reconsent and vulnerable participants.</p>"
+    },
+    {
+      "id": "m11-11-3",
+      "number": "11.3",
+      "title": "Confidentiality",
+      "level": 2,
+      "parentId": "m11-11",
+      "style": "Heading2",
+      "guidance": "Privacy and participant identifiers.",
+      "templateText": "[Information Required] Privacy and participant identifiers.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Privacy and participant identifiers.</p>"
+    },
+    {
+      "id": "m11-11-4",
+      "number": "11.4",
+      "title": "Protocol Amendments and Deviations",
+      "level": 2,
+      "parentId": "m11-11",
+      "style": "Heading2",
+      "guidance": "Approval, communication and documentation.",
+      "templateText": "[Information Required] Approval, communication and documentation.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Approval, communication and documentation.</p>"
+    },
+    {
+      "id": "m11-11-5",
+      "number": "11.5",
+      "title": "Publication and Data Sharing",
+      "level": 2,
+      "parentId": "m11-11",
+      "style": "Heading2",
+      "guidance": "Sponsor policy and registration commitments.",
+      "templateText": "[Information Required] Sponsor policy and registration commitments.",
+      "placeholder": "[Information Required]",
+      "defaultContentHtml": "<p>[Information Required] Sponsor policy and registration commitments.</p>"
+    },
+    {
+      "id": "m11-12",
+      "number": "12",
+      "title": "References",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Use Vancouver-style numbered bibliography, in first-citation order. Insert verified sources only.",
+      "hasSubsections": false,
+      "citationStyle": "vancouver",
+      "referenceExamples": [
+        "1. [Author(s)]. [Article title]. [Journal abbreviation]. [Year];[Volume]([Issue]):[Pages]. doi:[Verified DOI].",
+        "2. [Organization]. [Guideline title]. [Version/year]. [Verified URL and access date if required by sponsor style]."
+      ],
+      "illustrativeParagraph": "Illustrative in-text citation formatting: Prior research supports the rationale.¹ Repeated citations retain their original number. Citation superscripts must be distinct from alphabetic table footnotes.",
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Use Vancouver-style numbered bibliography, in first-citation order. Insert verified sources only.</p>"
+    },
+    {
+      "id": "m11-13",
+      "number": "13",
+      "title": "Appendices",
+      "level": 1,
+      "parentId": null,
+      "style": "Heading1",
+      "instructions": "Include only applicable appendices; ensure references in main text resolve.",
+      "tables": [
+        {
+          "columns": [
+            {
+              "header": "Appendix",
+              "widthIn": 2
+            },
+            {
+              "header": "Title / content",
+              "widthIn": 2
+            },
+            {
+              "header": "Cross-reference",
+              "widthIn": 2
+            }
+          ],
+          "headerRow": [
+            "Appendix",
+            "Title / content",
+            "Cross-reference"
+          ],
+          "rows": [
+            [
+              "A",
+              "Detailed Schedule of Activities (if separate)",
+              "Section 1.3"
+            ],
+            [
+              "B",
+              "Laboratory tests and reference ranges",
+              "Section 7.2"
+            ],
+            [
+              "C",
+              "Assessment scales / questionnaires",
+              "Section 7.4"
+            ],
+            [
+              "D",
+              "Country-specific requirements",
+              "Section 11"
+            ],
+            [
+              "E",
+              "Additional statistical details (if appropriate)",
+              "Section 10"
+            ]
+          ],
+          "role": "appendixIndex",
+          "appendixCrossReferences": [
+            {
+              "appendix": "A",
+              "title": "Detailed Schedule of Activities (if separate)",
+              "crossReferenceSection": "1.3"
+            },
+            {
+              "appendix": "B",
+              "title": "Laboratory tests and reference ranges",
+              "crossReferenceSection": "7.2"
+            },
+            {
+              "appendix": "C",
+              "title": "Assessment scales / questionnaires",
+              "crossReferenceSection": "7.4"
+            },
+            {
+              "appendix": "D",
+              "title": "Country-specific requirements",
+              "crossReferenceSection": "11"
+            },
+            {
+              "appendix": "E",
+              "title": "Additional statistical details (if appropriate)",
+              "crossReferenceSection": "10"
+            }
+          ]
+        }
+      ],
+      "hasSubsections": false,
+      "defaultContentHtml": "<p>AUTHORING INSTRUCTIONS | Include only applicable appendices; ensure references in main text resolve.</p>"
+    }
+  ],
+  "backMatter": {
+    "kind": "provenance",
+    "style": "Heading1",
+    "title": "Reference Framework (template provenance)",
+    "paragraphs": [
+      {
+        "style": "Normal",
+        "text": "ICH M11 final guideline and template (19 November 2025); ICH E6(R3); ICH E8(R1); ICH E9 and E9(R1). Refer to official ICH/EMA/FDA publications for authoritative text. This is an adapted working template, not the official ICH M11 file."
+      },
+      {
+        "style": "Normal",
+        "text": "Official ICH M11 template: https://database.ich.org/sites/default/files/ICH_Step4_M11_Final_Template_2025_1119.pdf"
+      }
+    ]
+  }
+}

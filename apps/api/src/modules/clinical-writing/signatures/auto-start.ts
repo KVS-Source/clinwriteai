@@ -2,8 +2,9 @@
 // approved it, the chain starts by itself, with no one having to initiate it.
 //
 // An Approver's "Approve document" is a whole-document approve verdict (sectionRef 'Document'). It also
-// stamps their active A rows approvedAt, which is what this checks, and which a return to authoring
-// clears again (resetRaciRound), so every round starts with nobody approved. If a gate blocks the chain
+// stamps their active A rows documentApprovedAt (not approvedAt: a signature-required row can't carry
+// that without a signatureId), which is what this checks, and which a return to authoring clears again
+// (resetRaciRound), so every round starts with nobody approved. If a gate blocks the chain
 // (an unfinished mandatory checklist item, an empty section), nothing is started, the reason is audited,
 // and the Author or an Approver can still start it by hand from the E-Signature screen once it is fixed.
 
@@ -24,8 +25,8 @@ export async function recordApprovalAndMaybeStartChain(app: FastifyInstance, arg
 
   // Only an Approver's own approval counts, and only while the document awaits signature.
   const mine = await app.prisma.documentRaci.updateMany({
-    where: { documentId, userId: actorId, letter: 'A', removedAt: null, rejectedAt: null, approvedAt: null },
-    data:  { approvedAt: new Date() },
+    where: { documentId, userId: actorId, letter: 'A', removedAt: null, rejectedAt: null, documentApprovedAt: null },
+    data:  { documentApprovedAt: new Date() },
   })
   if (mine.count === 0) return { chainStarted: false }
   if (doc.status !== 'pending_signature') return { chainStarted: false }
@@ -33,9 +34,9 @@ export async function recordApprovalAndMaybeStartChain(app: FastifyInstance, arg
   // Everyone named Approver must have approved.
   const approvers = await app.prisma.documentRaci.findMany({
     where:  { documentId, letter: 'A', removedAt: null },
-    select: { approvedAt: true },
+    select: { documentApprovedAt: true },
   })
-  if (approvers.length === 0 || approvers.some(a => a.approvedAt === null)) return { chainStarted: false }
+  if (approvers.length === 0 || approvers.some(a => a.documentApprovedAt === null)) return { chainStarted: false }
 
   const signers = await defaultSigners(app.prisma, doc)
   const started = await startSignatureChain(app, {

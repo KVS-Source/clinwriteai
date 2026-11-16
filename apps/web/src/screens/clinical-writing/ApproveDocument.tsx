@@ -18,7 +18,8 @@ export function ApproveDocument({ documentId, alreadyApproved, onApproved }: {
   documentId: string
   alreadyApproved: boolean
   /** `chainStarted`: this was the last Approver, so the signature chain has started by itself. */
-  onApproved: (chainStarted: boolean) => void
+  /** `blockedReason`: everyone approved, but a gate stopped the chain from starting; why. */
+  onApproved: (chainStarted: boolean, blockedReason: string | null) => void
 }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -40,7 +41,8 @@ export function ApproveDocument({ documentId, alreadyApproved, onApproved }: {
       qc.invalidateQueries({ queryKey: ['document-audit', documentId] })
       qc.invalidateQueries({ queryKey: ['document-raci', documentId] })
       qc.invalidateQueries({ queryKey: ['signature-chains', documentId] })
-      onApproved((res as { signatureChainStarted?: boolean } | null)?.signatureChainStarted === true)
+      const r = res as { signatureChainStarted?: boolean; signatureChainBlockedReason?: string | null } | null
+      onApproved(r?.signatureChainStarted === true, r?.signatureChainBlockedReason ?? null)
     },
   })
 

@@ -1678,6 +1678,7 @@
       "approve_document_approving": "承認中…",
       "approve_document_done_toast": "文書を承認しました。すべての承認者が承認すると、署名が自動的に始まります。",
       "approve_document_chain_started": "すべての承認者が承認しました。署名が開始されました。",
+      "approve_document_chain_blocked": "すべての承認者が承認しましたが、署名を開始できませんでした: {{reason}} 作成者が修正した後、E-Signature タブから署名を開始できます。",
       "approve_document_failed": "承認を記録できませんでした。もう一度お試しください。",
       "approve_document_ref": "文書全体",
       "approved_document_by_you": "✓ 文書を承認済み",

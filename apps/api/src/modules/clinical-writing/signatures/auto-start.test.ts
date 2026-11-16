@@ -10,7 +10,7 @@ vi.mock('./start-chain.js', () => ({
 
 import { recordApprovalAndMaybeStartChain } from './auto-start.js'
 
-type Row = { userId: string; letter: string; approvedAt: Date | null; removedAt: Date | null; rejectedAt: Date | null }
+type Row = { userId: string; letter: string; documentApprovedAt: Date | null; removedAt: Date | null; rejectedAt: Date | null }
 
 function build(opts: { status?: string; rows: Row[] }) {
   const audit = vi.fn(async () => ({ id: 'a1' }))
@@ -20,9 +20,9 @@ function build(opts: { status?: string; rows: Row[] }) {
     prisma: {
       document: { findUnique: vi.fn(async () => doc) },
       documentRaci: {
-        updateMany: vi.fn(async ({ where, data }: { where: { userId: string; letter: string; approvedAt: null }; data: { approvedAt: Date } }) => {
-          const hit = opts.rows.filter(r => r.userId === where.userId && r.letter === where.letter && r.removedAt === null && r.rejectedAt === null && r.approvedAt === null)
-          hit.forEach(r => { r.approvedAt = data.approvedAt })
+        updateMany: vi.fn(async ({ where, data }: { where: { userId: string; letter: string; documentApprovedAt: null }; data: { documentApprovedAt: Date } }) => {
+          const hit = opts.rows.filter(r => r.userId === where.userId && r.letter === where.letter && r.removedAt === null && r.rejectedAt === null && r.documentApprovedAt === null)
+          hit.forEach(r => { r.documentApprovedAt = data.documentApprovedAt })
           return { count: hit.length }
         }),
         findMany: vi.fn(async () => opts.rows.filter(r => r.letter === 'A' && r.removedAt === null)),
@@ -31,7 +31,7 @@ function build(opts: { status?: string; rows: Row[] }) {
   } as unknown as FastifyInstance
   return { app, audit, rows: opts.rows }
 }
-const approver = (userId: string, approvedAt: Date | null = null): Row => ({ userId, letter: 'A', approvedAt, removedAt: null, rejectedAt: null })
+const approver = (userId: string, documentApprovedAt: Date | null = null): Row => ({ userId, letter: 'A', documentApprovedAt, removedAt: null, rejectedAt: null })
 const go = (app: FastifyInstance, actorId: string) => recordApprovalAndMaybeStartChain(app, { documentId: 'DOC-1', actorId, ipAddress: '1.1.1.1' })
 
 beforeEach(() => {
@@ -43,8 +43,8 @@ describe('automatic signature chain', () => {
   it('does not start while another Approver has not approved yet, but records this approval', async () => {
     const t = build({ rows: [approver('u-a1'), approver('u-a2')] })
     expect(await go(t.app, 'u-a1')).toEqual({ chainStarted: false })
-    expect(t.rows[0]!.approvedAt).not.toBeNull()
-    expect(t.rows[1]!.approvedAt).toBeNull()
+    expect(t.rows[0]!.documentApprovedAt).not.toBeNull()
+    expect(t.rows[1]!.documentApprovedAt).toBeNull()
     expect(startSignatureChain).not.toHaveBeenCalled()
   })
 

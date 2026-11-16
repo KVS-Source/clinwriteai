@@ -16,6 +16,11 @@ import { requiredSigners } from './access.js'
 // Postgres advisory-lock key serialising signature-id allocation (arbitrary, unique to this use).
 const SIGNATURE_ID_LOCK_KEY = 7301001
 
+/** Test switch for the content gate (see startSignatureChain). Off unless set, and never in production. */
+function skipContentGate(): boolean {
+  return process.env.SIGNATURE_SKIP_CONTENT_GATE === '1' && process.env.NODE_ENV !== 'production'
+}
+
 export type SignerInput = {
   signerId: string
   signerName: string
@@ -82,9 +87,9 @@ export async function startSignatureChain(app: FastifyInstance, args: {
   // itself at that moment; this also stops anyone starting it by hand before then.
   const approvers = await app.prisma.documentRaci.findMany({
     where:  { documentId, letter: 'A', removedAt: null },
-    select: { approvedAt: true },
+    select: { documentApprovedAt: true },
   })
-  const pendingApprovers = approvers.filter(a => a.approvedAt === null).length
+  const pendingApprovers = approvers.filter(a => a.documentApprovedAt === null).length
   if (pendingApprovers > 0) {
     return { ok: false, status: 409, body: {
       error:   'approvals_pending',
@@ -99,6 +104,7 @@ export async function startSignatureChain(app: FastifyInstance, args: {
   if (!gate.ok) return { ok: false, status: 409, body: blockedBody('signature', gate) as unknown as Record<string, unknown> }
 
   // Gate B — the text itself: no mandatory section empty or still holding a placeholder (CW-097).
+  let contentGateSkipped = 0
   {
     const [version, waivers] = await Promise.all([
       doc.currentVersionId
@@ -109,7 +115,17 @@ export async function startSignatureChain(app: FastifyInstance, args: {
     const content = checkSignableContent({
       documentType: doc.type, sections: version?.sections ?? [], waivedCodes: waivers.map(w => w.sectionCode),
     })
-    if (!content.ok) return { ok: false, status: 409, body: contentBlockedBody(content) as unknown as Record<string, unknown> }
+    if (!content.ok) {
+      // TEST ONLY: SIGNATURE_SKIP_CONTENT_GATE=1 lets a chain open on a document with empty sections or
+      // placeholders, to exercise the signing flow on sample data. Never honoured in production, off by
+      // default, and every use is logged and recorded in the audit entry.
+      if (skipContentGate()) {
+        contentGateSkipped = content.problems.length
+        app.log.warn({ documentId, problems: content.problems.length }, 'SIGNATURE_SKIP_CONTENT_GATE is on: opening a signature chain on incomplete content')
+      } else {
+        return { ok: false, status: 409, body: contentBlockedBody(content) as unknown as Record<string, unknown> }
+      }
+    }
   }
 
   // The chain needs at least one Approver: without an approval the document can't become signed.
@@ -168,7 +184,7 @@ export async function startSignatureChain(app: FastifyInstance, args: {
     action: 'signature_initiated',
     entityType: 'document',
     entityId: documentId,
-    details: { chainId: created.id, chainType: created.chainType, signerCount: signers.length, omittedNamedSigners, ...(args.automatic ? { automatic: true } : {}) },
+    details: { chainId: created.id, chainType: created.chainType, signerCount: signers.length, omittedNamedSigners, ...(args.automatic ? { automatic: true } : {}), ...(contentGateSkipped > 0 ? { contentGateSkipped } : {}) },
     ipAddress,
   })
 

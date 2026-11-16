@@ -86,7 +86,7 @@ export async function nudgePendingCohort(
     where: { documentId: args.documentId },
     select: {
       userId: true, letter: true, signatureRequired: true,
-      submittedAt: true, reviewedAt: true, approvedAt: true,
+      submittedAt: true, reviewedAt: true, approvedAt: true, documentApprovedAt: true,
       signatureId: true, rejectedAt: true, removedAt: true,
     },
   })
@@ -211,7 +211,7 @@ export async function listPendingCohort(
     where: { documentId },
     select: {
       userId: true, letter: true, signatureRequired: true,
-      submittedAt: true, reviewedAt: true, approvedAt: true,
+      submittedAt: true, reviewedAt: true, approvedAt: true, documentApprovedAt: true,
       signatureId: true, rejectedAt: true, removedAt: true,
     },
   })
@@ -250,7 +250,8 @@ export async function listPendingCohort(
 function hasCompleted(row: RaciRowForEval): boolean {
   if (row.letter === 'R') return row.submittedAt !== null
   if (row.letter === 'C' || row.letter === 'Q') return row.reviewedAt !== null
-  if (row.letter === 'A') return row.approvedAt !== null
+  // An Approver is done once they approved the document (documentApprovedAt) or completed their row (approvedAt).
+  if (row.letter === 'A') return row.approvedAt !== null || ((row as { documentApprovedAt?: Date | null }).documentApprovedAt ?? null) !== null
   return false
 }
 

@@ -68,6 +68,15 @@ describe('syncing into the registry', () => {
     expect(e3).toMatchObject({ jurisdiction: 'ICH', description: 'Structure and Content of Clinical Study Reports', version: 'Step 5', category: 'efficacy', createdBy: 'u-admin', retiredAt: null })
     expect((e3.effectiveDate as Date).toISOString().slice(0, 10)).toBe('1995-11-30')
     expect(prisma.db.find(x => x.name === 'ICH Q1F')!.retiredAt).toBeInstanceOf(Date)
+    // Default scope: efficacy / multidisciplinary → every module; quality / safety → Regulatory Writing.
+    expect(e3.scope).toEqual(['A', 'B', 'C', 'D', 'E'])
+    expect(prisma.db.find(x => x.name === 'ICH Q1A(R2)')!.scope).toEqual(['D'])
+  })
+
+  it('keeps a scope an admin already set', async () => {
+    const prisma = fakePrisma([{ name: 'ICH E3', description: 'old title', scope: ['A'] }])
+    await syncIchGuidelines(prisma, 'u-admin', fetchJson)
+    expect(prisma.db.find(x => x.name === 'ICH E3')!.scope).toEqual(['A'])
   })
 
   it('updates an existing ICH row in place, leaves unchanged ones alone, and never revives a superseded one', async () => {
@@ -85,6 +94,36 @@ describe('syncing into the registry', () => {
   })
 })
 
+describe('PATCH /:id scope', () => {
+  async function build(role: string) {
+    const prisma = fakePrisma([{ name: 'ICH E3' }]) as ReturnType<typeof fakePrisma> & { regulatoryFramework: Record<string, unknown> }
+    Object.assign(prisma.regulatoryFramework, { findUnique: vi.fn(async ({ where }: { where: { id: string } }) => prisma.db.find(r => r.id === where.id) ?? null) })
+    const app = Fastify()
+    app.decorate('prisma', prisma as never)
+    app.decorate('audit', { append: vi.fn(async () => {}) } as never)
+    app.decorateRequest('user', null)
+    app.addHook('onRequest', async (r) => { Object.assign(r, { user: { id: 'u-1', email: 'u@x.io', role, modules: ['A'], tenantId: null } as AuthenticatedUser }) })
+    await app.register(frameworksRoutes)
+    await app.ready()
+    return { app, prisma }
+  }
+  it('a Project Manager sets the modules a framework applies to (deduplicated, in order)', async () => {
+    const { app, prisma } = await build('pm')
+    const res = await app.inject({ method: 'PATCH', url: '/id-ICH E3', payload: { scope: ['D', 'A', 'D'] } })
+    expect(res.statusCode).toBe(200)
+    expect(prisma.db[0]!.scope).toEqual(['A', 'D'])
+    await app.close()
+  })
+  it('refuses an unknown module, and a client admin', async () => {
+    const { app } = await build('pm')
+    expect((await app.inject({ method: 'PATCH', url: '/id-ICH E3', payload: { scope: ['Z'] } })).statusCode).toBe(400)
+    await app.close()
+    const ta = await build('tenant-admin')
+    expect((await ta.app.inject({ method: 'PATCH', url: '/id-ICH E3', payload: { scope: ['A'] } })).statusCode).toBe(403)
+    await ta.app.close()
+  })
+})
+
 describe('POST /sync-ich', () => {
   async function build(role: string) {
     const app = Fastify()
@@ -96,13 +135,13 @@ describe('POST /sync-ich', () => {
     await app.ready()
     return app
   }
-  it.each([['pm'], ['qc'], ['contributor']])('%s cannot run it (403)', async (role) => {
+  it.each([['tenant-admin'], ['qc'], ['contributor']])('%s cannot run it (403)', async (role) => {
     const app = await build(role)
     expect((await app.inject({ method: 'POST', url: '/sync-ich' })).statusCode).toBe(403)
     await app.close()
   })
   it('says so, and changes nothing, when ich.org cannot be reached', async () => {
-    const app = await build('admin')
+    const app = await build('pm')
     const spy = vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('offline'))
     const res = await app.inject({ method: 'POST', url: '/sync-ich' })
     expect(res.statusCode).toBe(502)

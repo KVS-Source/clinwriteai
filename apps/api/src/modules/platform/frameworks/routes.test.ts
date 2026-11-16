@@ -1,7 +1,7 @@
 // Regulatory framework registry — marking a framework superseded is a two-person decision:
 //   a Project Manager sends it for approval (POST /:id/supersede-request), every other PM and QC is notified,
 //   and another PM or a QC approves (the framework is retired) or rejects it with a reason. The requester can't
-//   decide their own request, and there is no direct retire. Adding a framework stays admin-only.
+//   decide their own request, and there is no direct retire. Adding a framework is for Project Managers.
 
 import Fastify from 'fastify'
 import { describe, expect, it, vi } from 'vitest'
@@ -160,10 +160,20 @@ describe('reject', () => {
 })
 
 describe('add framework', () => {
-  it('stays admin-only: a PM cannot add one', async () => {
+  const body = { name: 'X', version: '1', jurisdiction: 'ICH', category: 'GCP', effectiveDate: '2026-01-01T00:00:00.000Z' }
+  it('a Project Manager adds one', async () => {
     const { app } = await build({ id: 'u-pm-a', role: 'pm' })
-    const res = await app.inject({ method: 'POST', url: '/', payload: { name: 'X', version: '1', jurisdiction: 'ICH', category: 'GCP', effectiveDate: '2026-01-01T00:00:00.000Z' } })
-    expect(res.statusCode).toBe(403)
+    const fw = app.prisma.regulatoryFramework as unknown as { findUnique: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> }
+    fw.findUnique.mockResolvedValueOnce(null)                                   // name not taken
+    fw.create.mockImplementationOnce(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'fw-new', ...data }))
+    const res = await app.inject({ method: 'POST', url: '/', payload: body })
+    expect(res.statusCode).toBeLessThan(300)
+    expect(fw.create).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ name: 'X', createdBy: 'u-pm-a' }) }))
+    await app.close()
+  })
+  it.each([['tenant-admin'], ['admin'], ['qc'], ['contributor']])('%s cannot add one (403)', async (role) => {
+    const { app } = await build({ id: 'u-x', role })
+    expect((await app.inject({ method: 'POST', url: '/', payload: body })).statusCode).toBe(403)
     await app.close()
   })
 })

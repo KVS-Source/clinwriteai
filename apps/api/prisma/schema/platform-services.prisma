@@ -211,6 +211,8 @@ model RegulatoryFramework {
   // Human-maintained reference URL — used by the UI to open the spec. Not
   // a canonical source of truth (contract compliance teams own that).
   sourceUrl       String?
+  // ClinWrite modules the framework applies to: 'A' Clinical … 'E' Ideation & Publishing (migration 72).
+  scope           String[] @default([])
 
   createdBy       String
   createdAt       DateTime @default(now())

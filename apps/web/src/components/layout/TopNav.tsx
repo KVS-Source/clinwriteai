@@ -222,9 +222,11 @@ export function TopNav() {
     ? MASTER_LIBRARY_TABS.find(tab => tab.slug === (masterLibraryMatch[1] ?? 'documents'))
     : null
 
-  // TA Tags and Audit Trail are not project pages: the header names them, rather than falling back to "Projects".
+  // My Workspace, TA Tags and Audit Trail are not project pages: the header names them, rather than falling
+  // back to "Projects". Each uses its sidebar label, so the two always agree.
   const onPage = (path: string) => pathname === path || pathname.startsWith(`${path}/`)
-  const ownTitle = onPage('/admin/taxonomy') ? t('component.sidebar.platform_ta_tags')
+  const ownTitle = onPage('/home') ? t('component.sidebar.nav_my_workspace')
+    : onPage('/admin/taxonomy') ? t('component.sidebar.platform_ta_tags')
     : onPage('/admin/audit') ? t('component.sidebar.platform_audit_trail')
     : null
 

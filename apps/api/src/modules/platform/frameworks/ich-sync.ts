@@ -12,6 +12,8 @@
 //   effectiveDate the date of the step ICH lists
 //   sourceUrl     the guideline PDF on database.ich.org (else the ICH page it is listed on)
 //   retiredAt     set when ICH lists the guideline as Withdrawn
+//   scope         on a new row only (an admin may change it later): Efficacy and Multidisciplinary → every
+//                 module; Quality and Safety → Regulatory Writing
 // Entries without a step date are working groups still in progress (no guideline yet); they are skipped and
 // reported. Rows not from ICH are never touched, and a framework already superseded stays superseded.
 
@@ -22,6 +24,9 @@ export type IchCategory = (typeof ICH_CATEGORIES)[number]
 export const ichPageUrl = (category: IchCategory) => `https://www.ich.org/page/${category}-guidelines`
 const ichApiUrl = (category: IchCategory) =>
   `${ICH_API_BASE}/api/v1/nodes?loadEntities%5B%5D=paragraph&alias=/page/${category}-guidelines`
+
+export const defaultIchScope = (category: IchCategory): string[] =>
+  category === 'efficacy' || category === 'multidisciplinary' ? ['A', 'B', 'C', 'D', 'E'] : ['D']
 
 export interface IchGuideline {
   code:      string           // 'E6(R3)'
@@ -138,7 +143,7 @@ export async function syncIchGuidelines(prisma: PrismaLike, actorId: string, fet
     }
     const row = existing.get(name)
     if (!row) {
-      await prisma.regulatoryFramework.create({ data: { name, jurisdiction: 'ICH', createdBy: actorId, ...data, retiredAt: withdrawn ? new Date() : null } })
+      await prisma.regulatoryFramework.create({ data: { name, jurisdiction: 'ICH', createdBy: actorId, scope: defaultIchScope(g.category), ...data, retiredAt: withdrawn ? new Date() : null } })
       result.created.push(name)
       if (withdrawn) result.withdrawn.push(name)
       continue

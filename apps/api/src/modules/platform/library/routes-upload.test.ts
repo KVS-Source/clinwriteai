@@ -31,7 +31,8 @@ async function setup(s: Setup = {}) {
   })
   const librarySection = {
     findFirst: vi.fn(async () => s.prior ?? null),
-    findMany: vi.fn(async () => []),
+    // The upload looks for an earlier upload of the same title (where.title); other look-ups get nothing.
+    findMany: vi.fn(async (args?: { where?: { title?: string } }) => (args?.where?.title && s.prior ? [{ tags: [], ...s.prior }] : [])),
     create: vi.fn(async ({ data }: { data: Record<string, unknown> }) => { created.push(data); return row(data) }),
     update: vi.fn(async (args: { where: { id: string }; data: Record<string, unknown> }) => { updated.push(args); return row({}) }),
     findUnique: vi.fn(async () => null),
@@ -98,11 +99,31 @@ describe('POST /library/upload', () => {
   })
 
   it('a later upload with the same title in the same project is the next version and supersedes the earlier one', async () => {
-    const t = await setup({ prior: { id: 'old-1', version: 2 } })
+    const t = await setup({ prior: { id: 'old-1', version: 2, tags: ['origin:upload', 'project:p1'] } })
     const res = await upload(t.app)
     expect(res.statusCode).toBe(201)
     expect(t.created[0]).toMatchObject({ version: 3 })
     expect(t.updated).toEqual([{ where: { id: 'old-1' }, data: { isCurrent: false, supersededBy: 'new-1' } }])
+  })
+
+  it('no project is needed (the screen no longer asks): the entry has no project tag and no project is looked up', async () => {
+    const t = await setup()
+    const res = await upload(t.app, { fields: { projectId: undefined } })
+    expect(res.statusCode).toBe(201)
+    expect((t.created[0]!.tags as string[]).some(x => x.startsWith('project:'))).toBe(false)
+    expect(t.created[0]).toMatchObject({ tenantId: 't1', version: 1 })
+    expect(t.append).toHaveBeenCalledWith(expect.objectContaining({ details: expect.not.objectContaining({ projectId: expect.anything() }) }))
+  })
+
+  it('without a project, the same title is the next version of an earlier upload that also has no project', async () => {
+    const t = await setup({ prior: { id: 'old-1', version: 1, tags: ['origin:upload'] } })
+    expect((await upload(t.app, { fields: { projectId: undefined } })).statusCode).toBe(201)
+    expect(t.created[0]).toMatchObject({ version: 2 })
+    // …but not of an upload filed under a project.
+    const u = await setup({ prior: { id: 'old-2', version: 4, tags: ['origin:upload', 'project:p1'] } })
+    expect((await upload(u.app, { fields: { projectId: undefined } })).statusCode).toBe(201)
+    expect(u.created[0]).toMatchObject({ version: 1 })
+    expect(u.updated).toEqual([])
   })
 
   it.each(['tenant-admin', 'contributor', 'auditor'] as Role[])('only a Project Manager can upload: %s gets 403 and nothing is stored', async (role) => {
@@ -123,9 +144,9 @@ describe('POST /library/upload', () => {
     expect(t.blobPut).not.toHaveBeenCalled()
   })
 
-  it('needs the document type, therapeutic area and project', async () => {
+  it('needs the document type and therapeutic area', async () => {
     const t = await setup()
-    for (const missing of ['docType', 'taTag', 'projectId']) {
+    for (const missing of ['docType', 'taTag']) {
       const res = await upload(t.app, { fields: { [missing]: undefined } })
       expect(res.statusCode).toBe(400)
       expect(res.json().error).toBe('validation')

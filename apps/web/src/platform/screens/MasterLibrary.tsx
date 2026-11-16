@@ -12,7 +12,7 @@ import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
 import { MASTER_DOCUMENT_ITEM_TYPES } from './MasterLibraryShell'
 import { usePlatformStore } from '../store/platformStore'
-import { describeApiError, projectsApi } from '../../api'
+import { describeApiError } from '../../api'
 import { api, ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui/SlidePanel'
 import { SortIcon } from '../../components/ui/SortIcon'
@@ -704,8 +704,8 @@ function SharePanel({ open, item, onClose, onDone }: {
   )
 }
 
-// Add a document from the computer (Project Manager only): PDF or Word, against one of the PM's projects.
-// The API reads the text out of the file, keeps the original PDF, and files it like a pushed document.
+// Add a document from the computer (Project Manager only): PDF or Word, to the organisation's library (no project
+// is asked for). The API reads the text out of the file, keeps the original PDF, and files it like a pushed document.
 function UploadPanel({ open, onClose, docTypes, onDone }: {
   open: boolean
   onClose: () => void
@@ -714,18 +714,15 @@ function UploadPanel({ open, onClose, docTypes, onDone }: {
 }) {
   const { t } = useTranslation()
   const { labels: taLabels } = useTaLabels()
-  const { data: projects = [] } = useQuery({ queryKey: ['library-upload-projects'], queryFn: () => projectsApi.list(), enabled: open, staleTime: 60_000 })
-  const openProjects = projects.filter(p => p.status !== 'closed')
   const fileInput = useRef<HTMLInputElement>(null)
   const [file,      setFile]      = useState<File | null>(null)
   const [title,     setTitle]     = useState('')
   const [docType,   setDocType]   = useState('')
   const [ta,        setTa]        = useState('')
-  const [projectId, setProjectId] = useState('')
-  const [busy,      setBusy]      = useState(false)
+  const [busy,     setBusy]      = useState(false)
   const [failure,   setFailure]   = useState<string | null>(null)
 
-  const reset = () => { setFile(null); setTitle(''); setDocType(''); setTa(''); setProjectId(''); setFailure(null); if (fileInput.current) fileInput.current.value = '' }
+  const reset = () => { setFile(null); setTitle(''); setDocType(''); setTa(''); setFailure(null); if (fileInput.current) fileInput.current.value = '' }
   useEffect(() => { if (!open) reset() }, [open])
 
   const accepted = (f: File) => /\.(pdf|docx)$/i.test(f.name)
@@ -736,7 +733,7 @@ function UploadPanel({ open, onClose, docTypes, onDone }: {
     setFile(f)
     if (!title.trim()) setTitle(f.name.replace(/\.[^.]+$/, ''))
   }
-  const canSubmit = !!file && !!title.trim() && !!docType && !!ta && !!projectId
+  const canSubmit = !!file && !!title.trim() && !!docType && !!ta
 
   async function submit() {
     if (!canSubmit || !file) return
@@ -744,7 +741,7 @@ function UploadPanel({ open, onClose, docTypes, onDone }: {
     try {
       // The fields go first, then the file: the API reads the fields from the file's part.
       const form = new FormData()
-      form.append('title', title.trim()); form.append('docType', docType); form.append('taTag', ta); form.append('projectId', projectId)
+      form.append('title', title.trim()); form.append('docType', docType); form.append('taTag', ta)
       form.append('file', file, file.name)
       await platformApi.uploadLibraryDocument(form)
       onDone(t('page.master_library.upload_success', { name: title.trim() }))
@@ -782,13 +779,6 @@ function UploadPanel({ open, onClose, docTypes, onDone }: {
           <select className={selectClass} value={ta} onChange={e => setTa(e.currentTarget.value)} data-upload-ta>
             <option value="">{t('page.master_library.upload_choose')}</option>
             {taLabels.map(l => <option key={l} value={l}>{l}</option>)}
-          </select>
-        </label>
-        <label className="flex flex-col gap-1">
-          <span className={labelClass}>{t('page.master_library.upload_field_project')}</span>
-          <select className={selectClass} value={projectId} onChange={e => setProjectId(e.currentTarget.value)} data-upload-project>
-            <option value="">{t('page.master_library.upload_choose')}</option>
-            {openProjects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
           </select>
         </label>
         {failure && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-upload-error>{failure}</p>}

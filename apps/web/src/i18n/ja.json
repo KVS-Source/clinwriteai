@@ -2538,7 +2538,6 @@
     },
 
     "audit_trail_viewer_live": {
-      "crumb_admin": "管理",
       "crumb_audit_trail": "監査証跡",
       "immutability_notice": "この証跡は追記専用でハッシュチェーンにより保護されています。エントリの編集・削除はできません。訂正は新しいエントリとして記録されます。",
       "pm_scope_notice": "担当プロジェクトとそのドキュメントのアクティビティを表示しています。",
@@ -3417,7 +3416,6 @@
       "upload_wrong_type": "アップロードできるのは PDF（.pdf）と Word（.docx）ファイルのみです。",
       "upload_field_doc_type": "文書タイプ",
       "upload_field_ta": "治療領域",
-      "upload_field_project": "プロジェクト",
       "upload_choose": "選択…",
       "upload_submit": "アップロード",
       "uploading": "アップロード中…",
@@ -3501,8 +3499,6 @@
     },
 
     "ta_tag_configuration": {
-      "crumb_platform": "プラットフォーム",
-      "crumb_ta_tags": "TA タグ",
       "title": "治療領域タグ",
       "user_byline": "{{name}} · プロジェクトマネージャー",
       "active_count_one": "有効 {{count}} 件",
@@ -3520,6 +3516,15 @@
       "col_status": "ステータス",
       "col_created": "作成日",
       "col_in_use": "使用状況",
+      "search_placeholder": "タグ名または略称で検索",
+      "all_statuses": "すべてのステータス",
+      "status_active": "有効",
+      "status_archived": "アーカイブ済み",
+      "all_usage": "使用状況：すべて",
+      "use_in_use": "使用中",
+      "use_unused": "未使用",
+      "empty_filtered": "この条件に一致するタグはありません。",
+      "empty_none": "TA タグはまだありません。",
       "col_actions": "操作",
       "in_use_note": "{{projects}} 件のプロジェクト · {{documents}} 件の文書 — 削除不可",
       "action_restore": "復元",

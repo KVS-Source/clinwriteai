@@ -23,9 +23,9 @@ describe('evaluateStageTransition — gating letter per status', () => {
     expect(r.nextStatus).toBe('in_review')
   })
 
-  it('in_review is gated by BOTH C and Q → pending_signature', () => {
+  it('in_review is gated by C (Reviewers) → pending_signature', () => {
     const r = evaluateStageTransition('in_review', [])
-    expect(r.gatingLetters).toEqual(['C', 'Q'])
+    expect(r.gatingLetters).toEqual(['C'])
     expect(r.gatingLetter).toBe('C')  // legacy single-letter alias
     expect(r.nextStatus).toBe('pending_signature')
   })
@@ -105,79 +105,46 @@ describe('evaluateStageTransition — cohort completion', () => {
   })
 })
 
-describe('evaluateStageTransition — Q (QC) + C share the in_review gate', () => {
-  it('cohort combines C and Q rows (both count toward total)', () => {
+describe('evaluateStageTransition — only Reviewers (C) gate review; QC (Q) is not counted', () => {
+  it('QC rows are not part of the cohort', () => {
     const rows = [
       row({ letter: 'C', reviewedAt: new Date() }),
       row({ letter: 'C', reviewedAt: new Date() }),
-      row({ letter: 'Q', reviewedAt: new Date() }),
+      row({ letter: 'Q', reviewedAt: null }),   // QC never holds review up
     ]
     const r = evaluateStageTransition('in_review', rows)
-    expect(r.cohortTotal).toBe(3)
-    expect(r.cohortDone).toBe(3)
+    expect(r.cohortTotal).toBe(2)
+    expect(r.cohortDone).toBe(2)
     expect(r.cohortComplete).toBe(true)
   })
 
-  it('Q not done blocks transition even when all C done', () => {
-    const rows = [
-      row({ letter: 'C', reviewedAt: new Date() }),
-      row({ letter: 'C', reviewedAt: new Date() }),
-      row({ letter: 'Q', reviewedAt: null }),  // QC not released yet
-    ]
-    const r = evaluateStageTransition('in_review', rows)
-    expect(r.cohortTotal).toBe(3)
-    expect(r.cohortDone).toBe(2)
-    expect(r.cohortComplete).toBe(false)
-  })
-
-  it('C not done blocks transition even when all Q done', () => {
+  it('C not done blocks transition, whatever QC has done', () => {
     const rows = [
       row({ letter: 'C', reviewedAt: null }),
       row({ letter: 'Q', reviewedAt: new Date() }),
     ]
     const r = evaluateStageTransition('in_review', rows)
-    expect(r.cohortDone).toBe(1)
-    expect(r.cohortTotal).toBe(2)
+    expect(r.cohortDone).toBe(0)
+    expect(r.cohortTotal).toBe(1)
     expect(r.cohortComplete).toBe(false)
   })
 
-  it('Q rejection blocks the gate (any rejected row stops progression)', () => {
+  it('a rejected QC row does not block the gate', () => {
     const rows = [
       row({ letter: 'C', reviewedAt: new Date() }),
       row({ letter: 'Q', rejectedAt: new Date() }),
     ]
     const r = evaluateStageTransition('in_review', rows)
-    expect(r.rejectedRows).toBe(1)
-    expect(r.cohortComplete).toBe(false)
-  })
-
-  it('removed Q row drops out of the cohort', () => {
-    const rows = [
-      row({ letter: 'C', reviewedAt: new Date() }),
-      row({ letter: 'Q', reviewedAt: null, removedAt: new Date() }),
-    ]
-    const r = evaluateStageTransition('in_review', rows)
-    expect(r.cohortTotal).toBe(1)
-    expect(r.cohortDone).toBe(1)
+    expect(r.rejectedRows).toBe(0)
     expect(r.cohortComplete).toBe(true)
   })
 
-  it('Q with signature required needs signatureId before counting as done', () => {
-    const rows = [
-      row({ letter: 'C', reviewedAt: new Date() }),
-      row({ letter: 'Q', reviewedAt: new Date(), signatureRequired: true, signatureId: null }),
-    ]
-    const r = evaluateStageTransition('in_review', rows)
-    expect(r.cohortDone).toBe(1)
-    expect(r.cohortComplete).toBe(false)
-  })
-
-  it('crm_in_progress is also gated by C+Q (same cohort shape)', () => {
+  it('crm_in_progress is gated by C only (same as in_review)', () => {
     const r = evaluateStageTransition('crm_in_progress', [
       row({ letter: 'C', reviewedAt: new Date() }),
-      row({ letter: 'Q', reviewedAt: new Date() }),
+      row({ letter: 'Q', reviewedAt: null }),
     ])
-    expect(r.gatingLetters).toEqual(['C', 'Q'])
+    expect(r.gatingLetters).toEqual(['C'])
     expect(r.cohortComplete).toBe(true)
     expect(r.nextStatus).toBe('pending_signature')
   })

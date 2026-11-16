@@ -371,7 +371,7 @@ export function ReviewerView() {
             {/* Presence stack — live, same as the Editor (FR-A-053 / AC-A-037). */}
             {documentId && <PresenceStack documentId={documentId} currentUserId={me?.id} currentUserName={me?.name} />}
 
-            {canGiveVerdict && !!myLetters?.has('A') && (document.status === 'in-review' || document.status === 'crm-in-progress') && documentId && (
+            {canGiveVerdict && !!myLetters?.has('A') && (document.status === 'in-review' || document.status === 'crm-in-progress' || document.status === 'pending-signature') && documentId && (
               <ApproveDocument
                 documentId={documentId}
                 alreadyApproved={documentApprovedByMe}
@@ -408,7 +408,8 @@ export function ReviewerView() {
             </button>
             */}
             {/* Whole document back to authoring, with a required note (C / Q / A only). */}
-            {documentId && (
+            {/* An Approver who has approved the document no longer sees Reject. */}
+            {documentId && !(approverOnly && documentApprovedByMe) && (
               <ReturnToAuthoring
                 documentId={documentId}
                 status={document.status}

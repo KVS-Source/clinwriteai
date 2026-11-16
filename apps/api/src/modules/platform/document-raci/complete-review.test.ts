@@ -47,8 +47,8 @@ async function build(opts: { status: string; rows: Row[]; actor?: string; openMe
 }
 
 describe('completing a review', () => {
-  it.each([['C', 'in_review'], ['Q', 'in_review'], ['C', 'crm_in_progress'], ['Q', 'crm_in_progress']])('%s finishes during %s, and it is audited', async (letter, status) => {
-    const t = await build({ status, rows: [row('r1', 'u-c', letter), row('r2', 'u-other', 'C')] })
+  it.each([['in_review'], ['crm_in_progress']])('a Reviewer finishes during %s, and it is audited', async (status) => {
+    const t = await build({ status, rows: [row('r1', 'u-c', 'C'), row('r2', 'u-other', 'C')] })
     const res = await t.complete('r1')
     expect(res.statusCode).toBe(200)
     expect(t.rows[0]!.reviewedAt).not.toBeNull()
@@ -118,9 +118,17 @@ describe('the last person finishing', () => {
   })
 
   it("doesn't move the document while someone else is still reviewing", async () => {
-    const t = await build({ status: 'crm_in_progress', rows: [row('r1', 'u-c', 'C'), row('r2', 'u-q', 'Q')] })
+    const t = await build({ status: 'crm_in_progress', rows: [row('r1', 'u-c', 'C'), row('r2', 'u-d', 'C')] })
     expect((await t.complete('r1')).json().transitioned).toBe(false)
     expect(t.document.status).toBe('crm_in_progress')
+    await t.app.close()
+  })
+
+  it('does not wait for QC (Q): only Reviewers (C) are counted', async () => {
+    const t = await build({ status: 'crm_in_progress', rows: [row('r1', 'u-c', 'C'), row('r2', 'u-q', 'Q')] })
+    const res = await t.complete('r1')
+    expect(res.json()).toMatchObject({ transitioned: true, transition: { cohortDone: 1, cohortTotal: 1, cohortComplete: true } })
+    expect(t.document.status).toBe('pending_signature')
     await t.app.close()
   })
 })

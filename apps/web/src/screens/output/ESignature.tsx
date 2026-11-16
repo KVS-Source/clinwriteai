@@ -488,7 +488,9 @@ export function ESignature() {
   // document is still being authored — the Reviewer View for someone who can't edit it (a reviewer or approver) —
   // else to the document list (the Editor and Reviewer View are locked from here on).
   const backTarget =
-    hadCrm ? { to: `/projects/${projectId}/clinical-writing/documents/${documentId}/crm`, label: t('page.e_signature.back_crm'), kind: 'crm' }
+    // An Approver (A only) has no CRM tab: back goes to their Approver View.
+    tabAccess?.approverOnly ? { to: `/projects/${projectId}/clinical-writing/documents/${documentId}/review`, label: t('page.e_signature.back_approver_view'), kind: 'approver-view' }
+    : hadCrm ? { to: `/projects/${projectId}/clinical-writing/documents/${documentId}/crm`, label: t('page.e_signature.back_crm'), kind: 'crm' }
     : editorLocked ? { to: `/projects/${projectId}/clinical-writing`, label: t('page.e_signature.back_documents'), kind: 'documents' }
     : backToReview ? { to: `/projects/${projectId}/clinical-writing/documents/${documentId}/review`, label: t('page.e_signature.back_reviewer_view'), kind: 'reviewer-view' }
     : { to: `/projects/${projectId}/clinical-writing/documents/${documentId}`, label: t('page.e_signature.back_editor'), kind: 'editor' }

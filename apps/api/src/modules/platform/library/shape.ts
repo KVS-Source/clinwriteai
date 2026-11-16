@@ -207,8 +207,8 @@ export function sectionToItem(row: SectionRow, ctx: LibraryContext) {
   const version = versionLabel(row.version)
   const first = ctx.firstVersions?.get(firstVersionKey(row))
 
+  // The project is not shown in the details (removed 2026-11-16); projectId / projectName stay for the filter.
   const provenanceChain = [
-    `Project: ${project?.name ?? 'Platform library'}`,
     `Module: ${t.module === 'platform' ? 'Platform' : `${t.module} · ${MODULE_NAME[t.module]}`}`,
     ...(t.sourceId ? [`Source: ${ctx.documents?.get(sourceDocumentId(t.sourceId)) ?? t.sourceId}${t.docVersion ? ` (${t.docVersion})` : ''}`] : []),
   ]

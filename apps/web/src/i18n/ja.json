@@ -3307,6 +3307,7 @@
       "next": "次へ",
       "title": "マスターライブラリ",
       "search_placeholder": "ドキュメントを検索",
+      "found_in_text": "本文で一致:",
       "search_aria": "ライブラリを検索",
       "filter_module": "モジュール",
       "filter_item_type": "項目タイプ",

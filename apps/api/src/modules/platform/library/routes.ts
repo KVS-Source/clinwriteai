@@ -19,6 +19,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { DATE_IN_PAST, isPastDay } from '../past-date.js'
+import { textExcerpt, wordStartPattern } from './search.js'
 import { enabledModules, requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
 import type { Prisma } from '@prisma/client'
@@ -243,17 +244,29 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     }
   }
 
+  // What a search term matches on the name: anywhere in the title (that's what the reader sees), or a tag.
+  const nameMatch = (term: string): Prisma.LibrarySectionWhereInput => ({ OR: [
+    { title: { contains: term, mode: 'insensitive' } },
+    { tags:  { has: term } },
+  ] })
+
+  // The items whose text has the term at the start of a word (search.ts): "test" finds tests and testing, not
+  // Gastrointestinal. Only from 3 characters: a one- or two-letter term matches almost everything and would scan
+  // every document's full text for nothing.
+  async function textMatchIds(term: string): Promise<string[]> {
+    if (term.length < 3) return []
+    const rows = await app.prisma.$queryRaw<Array<{ id: string }>>`SELECT id FROM library_sections WHERE body ~* ${wordStartPattern(term)}`
+    return rows.map(r => r.id)
+  }
+
   // The WHERE for the Master Library list — shared by the list itself and the cheap count the tab bar uses, so
   // the two can never disagree about what "the library" contains.
-  function buildListWhere(q: z.infer<typeof uiListQuery>, user: { role: string; tenantId: string | null }): { where: Prisma.LibrarySectionWhereInput } | { error: string } {
+  async function buildListWhere(q: z.infer<typeof uiListQuery>, user: { role: string; tenantId: string | null }): Promise<{ where: Prisma.LibrarySectionWhereInput } | { error: string }> {
     const and: Prisma.LibrarySectionWhereInput[] = [visibleTo(user)]
-    // The text of a whole document is searched too, but only from 3 characters: a one- or two-letter term matches
-    // almost everything, can't use the trigram index, and would scan every document's full text for nothing.
-    if (q.q) and.push({ OR: [
-      { title: { contains: q.q, mode: 'insensitive' } },
-      ...(q.q.length >= 3 ? [{ body: { contains: q.q, mode: 'insensitive' as const } }] : []),
-      { tags:  { has: q.q } },
-    ] })
+    if (q.q) {
+      const inText = await textMatchIds(q.q)
+      and.push({ OR: [...nameMatch(q.q).OR as Prisma.LibrarySectionWhereInput[], ...(inText.length ? [{ id: { in: inText } }] : [])] })
+    }
     if (q.module.length) and.push({ OR: q.module.map(m => m === 'platform'
       ? { NOT: { tags: { hasSome: ['A', 'B', 'C', 'D', 'E'].map(x => `module:${x}`) } } }
       : { tags: { has: `module:${m.toUpperCase()}` } }) })
@@ -289,7 +302,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
   app.get('/count', { preHandler: requireAuth() }, async (request, reply) => {
     const parsed = uiListQuery.safeParse(request.query)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
-    const built = buildListWhere(parsed.data, request.user!)
+    const built = await buildListWhere(parsed.data, request.user!)
     if ('error' in built) return reply.code(400).send({ error: 'validation', message: built.error })
     return { total: await app.prisma.librarySection.count({ where: built.where }) }
   })
@@ -302,7 +315,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
     const q = parsed.data
 
-    const built = buildListWhere(q, request.user!)
+    const built = await buildListWhere(q, request.user!)
     if ('error' in built) return reply.code(400).send({ error: 'validation', message: built.error })
     const { where } = built
 
@@ -313,18 +326,57 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       : [{ approvedAt: 'desc' }, { id: 'asc' }]
 
     const skip = Number(q.cursor ?? 0)
-    const [total, rows] = await Promise.all([
-      app.prisma.librarySection.count({ where }),
-      // Everything but `body`: the list never shows the text, so the database doesn't read it or send it to the API.
-      app.prisma.librarySection.findMany({ where, orderBy, skip, take: q.limit, select: LIST_COLUMNS }),
-    ])
+    let total: number
+    let rows: Array<Prisma.LibrarySectionGetPayload<{ select: typeof LIST_COLUMNS }>>
+    // Found in the text only, with the words around the match, so the row says why it's there.
+    const excerpts = new Map<string, string>()
+    const inTextIds = new Set<string>()
+    if (!q.q) {
+      ;[total, rows] = await Promise.all([
+        app.prisma.librarySection.count({ where }),
+        // Everything but `body`: the list never shows the text, so the database doesn't read it or send it to the API.
+        app.prisma.librarySection.findMany({ where, orderBy, skip, take: q.limit, select: LIST_COLUMNS }),
+      ])
+    } else {
+      // A search lists the items whose title matches first, then those found only in their text; each group in the
+      // chosen order. Paging runs across both, as one list.
+      const byName = { AND: [where, nameMatch(q.q)] }
+      const byText = { AND: [where, { NOT: nameMatch(q.q) }] }
+      const [nameTotal, textTotal] = await Promise.all([
+        app.prisma.librarySection.count({ where: byName }),
+        app.prisma.librarySection.count({ where: byText }),
+      ])
+      total = nameTotal + textTotal
+      const named = skip < nameTotal
+        ? await app.prisma.librarySection.findMany({ where: byName, orderBy, skip, take: q.limit, select: LIST_COLUMNS })
+        : []
+      const room = q.limit - named.length
+      const inText = room > 0 && textTotal > 0
+        ? await app.prisma.librarySection.findMany({ where: byText, orderBy, skip: Math.max(0, skip - nameTotal), take: room, select: LIST_COLUMNS })
+        : []
+      rows = [...named, ...inText]
+      for (const r of inText) inTextIds.add(r.id)
+      if (inText.length > 0) {
+        const bodies = await app.prisma.librarySection.findMany({ where: { id: { in: inText.map(r => r.id) } }, select: { id: true, body: true } })
+        for (const b of bodies) {
+          const excerpt = textExcerpt(b.body, q.q)
+          if (excerpt) excerpts.set(b.id, excerpt)
+        }
+      }
+    }
     const ctx = await fetchContext(rows as unknown as SectionRow[], request.user!)
 
     reply.header('X-Total-Count', String(total))
     reply.header('X-Next-Cursor', skip + rows.length < total ? String(skip + rows.length) : '')
     // A document's text can be hundreds of KB; sending it with every row made a page of 50 weigh megabytes. The list
     // leaves it out (the screen needs only the summary columns); GET /library/:id returns the full item with its text.
-    return rows.map(r => ({ ...sectionToItem({ ...r, body: '' } as unknown as SectionRow, ctx), body: undefined }))
+    return rows.map(r => ({
+      ...sectionToItem({ ...r, body: '' } as unknown as SectionRow, ctx),
+      body: undefined,
+      // Which group the row came from; the excerpt is extra, shown when the words around the match can be found.
+      ...(q.q && { searchMatch: inTextIds.has(r.id) ? 'text' as const : 'title' as const }),
+      ...(excerpts.has(r.id) && { matchExcerpt: excerpts.get(r.id) }),
+    }))
   })
 
   // GET /library/best-practices (registered before /:id so it isn't read as an id)

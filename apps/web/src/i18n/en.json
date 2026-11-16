@@ -3119,6 +3119,7 @@
       "next": "Next",
       "title": "Master Library",
       "search_placeholder": "Search Documents",
+      "found_in_text": "Found in text:",
       "search_aria": "Search the library",
       "filter_module": "Module",
       "filter_item_type": "Item type",

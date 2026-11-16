@@ -12,14 +12,14 @@ import { isReadOnlyUser } from '../../config/roles'
 import { documentRaciKey } from './MyRaciRole'
 import { isSequentialReview, reviewersAhead } from './reviewTurn'
 
-const REVIEW_LETTERS = new Set(['C', 'Q'])
+// Only Reviewers (C) are counted: QC is not part of the review.
+const REVIEW_LETTERS = new Set(['C'])
 
 export function ReviewCompletionBar({ documentId, projectId }: { documentId: string; projectId?: string }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const { data: me } = useCurrentUser()
   const [confirming, setConfirming] = useState(false)
-  const [allDone, setAllDone] = useState(false)
 
   const { data: rows = [] } = useQuery({
     queryKey: documentRaciKey(documentId),
@@ -50,9 +50,8 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
       for (const row of myOpen) last = await raciApi.complete(documentId, row.id)
       return last
     },
-    onSuccess: result => {
+    onSuccess: () => {
       setConfirming(false)
-      if (result?.transition.cohortComplete) setAllDone(true)
     },
     onSettled: () => {
       // The last person finishing can move the document on, so status and tabs refresh too.
@@ -132,11 +131,6 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
       {complete.isError && (
         <p role="alert" className="text-[12px] text-red-700" data-review-complete-error>
           {errorBody?.message ?? errorBody?.error ?? t('page.reviewer_view.complete_failed')}
-        </p>
-      )}
-      {(allDone || (cohort.length > 0 && doneCount === cohort.length)) && (
-        <p role="status" className="text-[12px] font-medium text-green-800" data-review-all-done>
-          {t('page.reviewer_view.review_all_done')}
         </p>
       )}
     </div>

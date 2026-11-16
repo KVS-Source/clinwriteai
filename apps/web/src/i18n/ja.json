@@ -4033,6 +4033,7 @@
       "authentication_value": "ログイン セッション + 署名時のパスワード再入力",
       "hash_value": "現行バージョンの SHA-256",
       "back_crm": "← CRM に戻る",
+      "back_approver_view": "← 承認者ビューに戻る",
       "back_documents": "← ドキュメント一覧に戻る",
       "back_editor": "← エディターに戻る",
       "back_reviewer_view": "← レビューアービューに戻る",

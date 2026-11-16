@@ -414,7 +414,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
                   value={r.signerId}
                   onChange={e => setRow(i, { signerId: e.currentTarget.value })}
                   disabled={r.locked}
-                  className="h-9 min-w-0 flex-1 rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
+                  className="h-9 min-w-0 flex-1 appearance-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
                   data-signer-select
                   title={help?.signer}
                 >
@@ -440,7 +440,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
                 value={r.meaning}
                 onChange={e => setRow(i, { meaning: e.currentTarget.value as Meaning })}
                 disabled={r.locked || !r.draft}
-                className="h-9 w-52 flex-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500"
+                className={`h-9 w-52 flex-none rounded-md border border-slate-300 px-2 text-[13px] disabled:bg-slate-50 disabled:text-slate-500 ${r.locked || !r.draft ? 'appearance-none' : ''}`}
                 data-meaning-select
               >
                 {MEANINGS.map(m => <option key={m.value} value={m.value}>{t(m.labelKey)}</option>)}

@@ -3822,6 +3822,7 @@
       "authentication_value": "Login session + password re-entered at signing",
       "hash_value": "SHA-256 of the current version",
       "back_crm": "← Back to CRM",
+      "back_approver_view": "← Back to Approver View",
       "back_documents": "← Back to documents",
       "back_editor": "← Back to Editor",
       "back_reviewer_view": "← Back to Reviewer View",

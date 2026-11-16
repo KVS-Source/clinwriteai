@@ -71,8 +71,9 @@ interface GateDef {
 const GATES: Record<DocumentStatus, GateDef> = {
   not_started:       { gatingLetters: ['R'],      nextStatus: 'in_authoring' },
   in_authoring:      { gatingLetters: ['R'],      nextStatus: 'in_review' },
-  in_review:         { gatingLetters: ['C', 'Q'], nextStatus: 'pending_signature' },
-  crm_in_progress:   { gatingLetters: ['C', 'Q'], nextStatus: 'pending_signature' },
+  // Only Reviewers (C) gate review: QC (Q) is not part of the review count and never holds it up.
+  in_review:         { gatingLetters: ['C'],      nextStatus: 'pending_signature' },
+  crm_in_progress:   { gatingLetters: ['C'],      nextStatus: 'pending_signature' },
   pending_signature: { gatingLetters: ['A'],      nextStatus: 'signed' },
   signed:            { gatingLetters: [],         nextStatus: null },
 }

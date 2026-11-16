@@ -3416,7 +3416,6 @@
       "upload_wrong_type": "アップロードできるのは PDF（.pdf）と Word（.docx）ファイルのみです。",
       "upload_field_doc_type": "文書タイプ",
       "upload_field_ta": "治療領域",
-      "upload_field_project": "プロジェクト",
       "upload_choose": "選択…",
       "upload_submit": "アップロード",
       "uploading": "アップロード中…",

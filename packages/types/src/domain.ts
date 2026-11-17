@@ -110,6 +110,8 @@ export interface Document {
   /** The assignee's RACI letters on this document (list route only), e.g. ['R']. */
   assigneeRaci?: string[]
   myRaci?: string[]
+  /** The caller is invited to a scheduled or running CRM meeting on this document. */
+  myCrmInvite?: boolean
   // --- Protocol metadata (migration 60). Present on every Document shape
   // but only populated for protocol / protocol-amendment documents via the
   // Protocol right-panel. Null / absent = "not yet set" (the panel treats
@@ -1818,8 +1820,8 @@ export interface MasterLibraryShareRecord {
   sharedAt:   string
 }
 
-/** One row of a Master Library document's Audit trail (GET /library/:id/audit): the source document's own trail
- *  plus the library entry's, newest first. Only what the panel shows — no raw details, IPs, hashes or tokens. */
+/** One row of a Master Library document's Audit trail (GET /library/:id/audit and /audit/full). Only what the
+ *  panel shows — no raw details, IPs, hashes or tokens. */
 export interface MasterLibraryAuditEntry {
   /** ISO 8601 UTC. */
   timestamp: string
@@ -1833,11 +1835,23 @@ export interface MasterLibraryAuditEntry {
   detail:    string
 }
 
+/** A page of entries, newest first (the library activity, or GET /library/:id/audit/full). */
 export interface MasterLibraryAuditPage {
   entries: MasterLibraryAuditEntry[]
   total:   number
   limit:   number
   offset:  number
+}
+
+/** GET /library/:id/audit — the details panel's Audit trail. */
+export interface MasterLibraryAuditTrail {
+  /** This version's Master Library activity: pushed / uploaded, new version, withdrawn, opened, shared,
+   *  invitation opened, locked out. Paged. */
+  library:            MasterLibraryAuditPage
+  /** "How it got here": key Clinical Writing milestones up to this version's push (empty for an upload). */
+  milestones:         MasterLibraryAuditEntry[]
+  /** The caller may read the source document's whole Clinical Writing trail (GET /library/:id/audit/full). */
+  fullTrailAvailable: boolean
 }
 
 export interface BestPractice {

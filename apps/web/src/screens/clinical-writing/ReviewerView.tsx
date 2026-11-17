@@ -8,6 +8,7 @@ import { documentsApi, projectsApi } from '../../api'
 import { MyRaciRole } from './MyRaciRole'
 import { ReturnToAuthoring } from './ReturnToAuthoring'
 import { ApproveAndSign } from './ApproveAndSign'
+import { CrmSummary } from './CrmSummary'
 import { signaturesApi } from '../../api/signatures'
 import { raciApi } from '../../api/raci'
 import { useDocumentTabAccess } from '../../hooks/useDocumentTabAccess'
@@ -441,8 +442,8 @@ export function ReviewerView() {
               />
             )}
             </>)}
-            {/* Review → Comments Resolution Meeting (PRD stage 5). */}
-            {!approverOnly && (document.status === 'in-review' || document.status === 'crm-in-progress') && (
+            {/* Review → Comments Resolution Meeting (PRD stage 5). An Approver only while invited to an open meeting. */}
+            {(!approverOnly || tabAccess?.crm === true) && (document.status === 'in-review' || document.status === 'crm-in-progress') && (
               <button
                 type="button"
                 onClick={() => navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/crm`)}
@@ -467,6 +468,11 @@ export function ReviewerView() {
           </div>
         </div>
       </div>
+
+      {/* What the CRM meeting decided, for the Approver signing the document. */}
+      {approverOnly && document.status === 'pending-signature' && documentId && (
+        <CrmSummary documentId={documentId} comments={commentList} />
+      )}
 
       {/* Not submitted yet: say so, instead of looking like a live review. */}
       {(document.status === 'in-authoring' || document.status === 'not-started') && (

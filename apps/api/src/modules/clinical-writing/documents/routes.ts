@@ -338,6 +338,16 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
             .sort((x, y) => RACI_ORDER.indexOf(x) - RACI_ORDER.indexOf(y))
         : []
 
+    // Documents with a scheduled or running CRM meeting the caller is invited to: an Approver gets that
+    // document's CRM while the meeting is open.
+    const invited = rows.length
+      ? await app.prisma.crmAttendee.findMany({
+          where:  { userId: request.user!.id, meeting: { documentId: { in: rows.map(r => r.id) }, status: { in: ['scheduled', 'in_progress'] } } },
+          select: { meeting: { select: { documentId: true } } },
+        })
+      : []
+    const invitedDocIds = new Set(invited.map(i => i.meeting.documentId))
+
     return rows.map(r => {
       const a = r.assigneeId ? assigneeById.get(r.assigneeId) : null
       return documentShapeMeta({
@@ -348,6 +358,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
         assigneeRaci: lettersFor(r.id, r.assigneeId),
         // The caller's own letters on this document — contributors see their role per document.
         myRaci: lettersFor(r.id, request.user!.id),
+        myCrmInvite: invitedDocIds.has(r.id),
       })
     })
   })

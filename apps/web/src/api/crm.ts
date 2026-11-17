@@ -11,7 +11,7 @@ export interface ScheduleMeetingBody {
   scheduledDate: string            // ISO datetime
   startTime: string                // e.g. '15:00 IST'
   endTime: string
-  attendees: Array<{ userId: string; roleInCrm: 'Chair' | 'Author' | 'Reviewer' | 'Observer' }>
+  attendees: Array<{ userId: string; roleInCrm: 'Chair' | 'Author' | 'Reviewer' | 'Approver' | 'Observer' }>
 }
 
 export interface CRMResolutionRow {

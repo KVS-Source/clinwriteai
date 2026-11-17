@@ -10,7 +10,7 @@ const doc = (id: string, assigneeId: string | null) => ({
   assigneeId, deletedAt: null, updatedAt: new Date('2026-10-30T10:00:00Z'), currentVersion: { versionNumber: 'v0.1' },
 })
 
-async function build(raci: Array<{ documentId: string; userId: string; letter: string }>) {
+async function build(raci: Array<{ documentId: string; userId: string; letter: string }>, invitedTo: string[] = []) {
   const raciFind = vi.fn(async () => raci)
   const app = Fastify()
   app.decorate('prisma', {
@@ -18,6 +18,7 @@ async function build(raci: Array<{ documentId: string; userId: string; letter: s
     document: { findMany: vi.fn(async () => [doc('d1', 'u1'), doc('d2', 'u2'), doc('d3', null)]) },
     user:     { findMany: vi.fn(async () => [{ id: 'u1', name: 'Elena', initials: 'EV' }, { id: 'u2', name: 'Ravi', initials: 'RA' }]) },
     documentRaci: { findMany: raciFind },
+    crmAttendee:  { findMany: vi.fn(async () => invitedTo.map(documentId => ({ meeting: { documentId } }))) },
   } as never)
   app.decorate('audit', { append: vi.fn(async () => ({})) } as never)
   app.decorateRequest('user', null)
@@ -62,6 +63,14 @@ describe('GET /projects/:projectId/documents assigneeRaci', () => {
     const { app, raciFind } = await build([])
     await app.inject({ method: 'GET', url: '/projects/p1/documents' })
     expect(raciFind).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({ removedAt: null, sectionId: null }) }))
+    await app.close()
+  })
+
+  it('myCrmInvite says which documents have an open CRM meeting the caller is invited to', async () => {
+    const { app } = await build([], ['d2'])
+    const res = await app.inject({ method: 'GET', url: '/projects/p1/documents' })
+    const byId = Object.fromEntries((res.json() as Array<{ id: string; myCrmInvite: boolean }>).map(d => [d.id, d.myCrmInvite]))
+    expect(byId).toEqual({ d1: false, d2: true, d3: false })
     await app.close()
   })
 })

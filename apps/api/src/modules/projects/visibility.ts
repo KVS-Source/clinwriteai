@@ -11,6 +11,8 @@
 //     - a project-level RACI letter (RaciAssignment: R, A, C or I on any activity)
 //
 // Working as PM vs not (a user holding PM + Contributor works as one at a time — auth/active-role.ts):
+//   - Working as PM only: ONLY the projects they manage (created, or added to as Project Manager). The
+//     sources above don't count — a RACI letter elsewhere is Contributor work.
 //   - The "Project Manager" membership (the project's creator, or a PM added to it) shows the project
 //     only while the user works as PM. Working as Contributor they see a project they manage only if
 //     they also hold a RACI role there (document or project level) or another membership.
@@ -29,7 +31,7 @@
 // (because the guest-invite seed also writes a ProjectMember row).
 
 import type { Prisma, PrismaClient } from '@prisma/client'
-import { hasAnyRole, type AuthenticatedUser } from '../../auth/rbac.js'
+import { hasAnyRole, onlyRolesIn, type AuthenticatedUser } from '../../auth/rbac.js'
 
 /**
  * An active RACI row on the document, as a "works on it" test. An Approver (A) only gets the
@@ -72,6 +74,17 @@ export async function visibleProjectIdsForUser(
 ): Promise<'all' | Set<string>> {
   if (hasAnyRole(user, ...SEE_ALL_ROLES)) return 'all'
   const asPm = hasAnyRole(user, 'pm')
+
+  // Working as PM only (a pure PM, or a PM + Contributor who switched to PM — the request is narrowed to 'pm'):
+  // just the projects they manage, i.e. created or were added to as Project Manager. Document roles (R/A/C/Q/I)
+  // in other projects are Contributor work, seen when working as Contributor.
+  if (onlyRolesIn(user, ['pm'])) {
+    const managed = await prisma.projectMember.findMany({
+      where: { userId: user.id, removedAt: null, projectRole: PM_PROJECT_ROLE },
+      select: { projectId: true },
+    })
+    return new Set(managed.map(r => r.projectId))
+  }
 
   const [members, legacyTeam, raciDocs, projectRaci] = await Promise.all([
     prisma.projectMember.findMany({

@@ -50,7 +50,7 @@ function fakePrisma() {
     { id: 'u-author2', name: 'Alf Author' }, { id: 'u-cons', name: 'Cora Consulted' }, { id: 'u-info', name: 'Ian Informed' }, { id: 'u-qc', name: 'Quinn QC' },
   ]
   // Project membership, used to decide which projects a PM can see.
-  const projectMembers: Row[] = [{ projectId: 'PROJ-1', userId: 'u-pm', removedAt: null }]
+  const projectMembers: Row[] = [{ projectId: 'PROJ-1', userId: 'u-pm', removedAt: null, projectRole: 'Project Manager' }]
   const chains: Row[] = []
   const records: Row[] = []
   const comments: Row[] = []

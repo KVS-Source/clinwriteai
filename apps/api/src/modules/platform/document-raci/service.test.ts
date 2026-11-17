@@ -175,6 +175,33 @@ describe('validateRaciInsert — section rules', () => {
     if (!r.ok) expect(r.failure.kind).toBe('duplicate_letter_on_section')
   })
 
+  it('lets a Reviewer (C) also be an Approver (A), either way round, on the whole document', async () => {
+    for (const [held, added] of [['C', 'A'], ['A', 'C']] as const) {
+      const r = await validateRaciInsert(
+        makePrisma({
+          user: { id: 'u-1', capabilities: ['can-review', 'can-approve'], role: 'contributor' },
+          existingRows: [{ letter: held, sectionId: null }],
+        }),
+        { ...baseInput, letter: added, sectionId: null, ...(added === 'A' && { signatureRequired: true, signatureMeaning: 'Medical approval' }) },
+      )
+      expect(r.ok).toBe(true)
+    }
+  })
+
+  it('still keeps every other pair apart: an Author (R) or QC (Q) cannot also review or approve', async () => {
+    for (const [held, added] of [['R', 'A'], ['R', 'C'], ['Q', 'A'], ['Q', 'C'], ['I', 'C']] as const) {
+      const r = await validateRaciInsert(
+        makePrisma({
+          user: { id: 'u-1', capabilities: ['can-author', 'can-review', 'can-approve', 'can-qc'], role: 'contributor' },
+          existingRows: [{ letter: held, sectionId: null }],
+        }),
+        { ...baseInput, letter: added, sectionId: null, ...(added === 'A' && { signatureRequired: true, signatureMeaning: 'Medical approval' }) },
+      )
+      expect(r.ok, `${held} + ${added}`).toBe(false)
+      if (!r.ok) expect(r.failure.kind).toBe('duplicate_letter_on_section')
+    }
+  })
+
   it('allows different letter on a different section', async () => {
     const r = await validateRaciInsert(
       makePrisma({

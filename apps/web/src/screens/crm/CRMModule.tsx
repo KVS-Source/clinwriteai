@@ -31,6 +31,7 @@ import { CommentResolutionPanel } from '../../panels/CommentResolutionPanel'
 import { cleanSectionRef } from '../../panels/CommentComposer'
 import { CRMDocumentViewer } from './CRMDocumentViewer'
 import { useSignatureAccess } from '../output/useSignatureAccess'
+import { documentHasCrmForMe } from '../../hooks/useProjectCrmAccess'
 
 const AVATAR_COLOURS: Record<string, { bg: string; fg: string }> = {
   MW: { bg: '#DBEAFE', fg: '#1D4ED8' },
@@ -447,11 +448,13 @@ export function CRMModule() {
   // meeting's draft changes; we re-derive via the getter below.
   const entries               = useCRMStore(s => s.entries)
 
-  const { data: projectDocs = [] } = useQuery({
+  const { data: allProjectDocs = [] } = useQuery({
     queryKey: ['documents', projectId],
     queryFn:  () => documentsApi.list(projectId!),
     enabled:  !!projectId,
   })
+  // Only documents with a CRM for me: an Approver-only person has none (same rule as the document tabs).
+  const projectDocs = useMemo(() => allProjectDocs.filter(documentHasCrmForMe), [allProjectDocs])
   // The document tab's own document, else ?doc=, else the first document
   // already in CRM, then in review.
   const activeDocId =

@@ -332,13 +332,19 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // against the same rule-set the document was created under.
   const docRow = await prisma.document.findUnique({
     where:  { id: documentId },
-    select: { aiInstructions: true, policyVersionAtCreate: true, aiPromptRecordId: true },
+    select: {
+      aiInstructions:       true,
+      policyVersionAtCreate: true,
+      aiPromptRecordId:     true,
+      bestPracticeRecordId: true,
+    },
   })
   const aiInstructions = docRow?.aiInstructions?.trim() || null
   const policy = await resolveForDocument(prisma, {
     docType:               type,
     policyVersionAtCreate: docRow?.policyVersionAtCreate ?? null,
-    aiPromptRecordId:      docRow?.aiPromptRecordId ?? null,
+    aiPromptRecordId:      docRow?.aiPromptRecordId      ?? null,
+    bestPracticeRecordId:  docRow?.bestPracticeRecordId  ?? null,
   })
   if (policy) {
     log.info({ documentId, policyId: policy.id, policyVersion: policy.version }, 'ai_initial_draft: policy resolved')

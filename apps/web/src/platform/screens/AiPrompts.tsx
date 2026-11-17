@@ -454,6 +454,80 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
     },
   })
 
+  // --- Parse SME prompt → section rules ------------------------------
+  // Mirrors the Doc Type Policies extract flow, but surfaces the parsed
+  // result right here in the AI Prompts screen so admins don't tab-hop.
+  // Extract returns the rules; a review modal shows them per-section;
+  // Save persists via updateDocumentTypePolicy ({ sectionRules }). A
+  // version-in-use 409 flips the saveRules call into a bump (same
+  // pattern as the SME save above).
+  type ParsedRulesMap = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+  const [parsedRules, setParsedRules] = useState<ParsedRulesMap | null>(null)
+  const [parseReviewOpen, setParseReviewOpen] = useState(false)
+  const [rulesBumpReason, setRulesBumpReason] = useState('')
+  const [rulesNeedBump, setRulesNeedBump] = useState(false)
+
+  const extract = useMutation({
+    mutationFn: () => platformApi.extractSectionRules(policy.docType),
+    onSuccess: (res) => {
+      setParsedRules(res.sectionRules)
+      setParseReviewOpen(true)
+      setActionError(null)
+      setActionInfo(
+        res.ruleCount === 0
+          ? 'AI found no per-section rules in this SME prompt — the parsed structure is empty. Most of the prompt may only carry whole-document guidance.'
+          : `AI parsed ${res.ruleCount} rule${res.ruleCount === 1 ? '' : 's'} across ${res.sectionCount} section${res.sectionCount === 1 ? '' : 's'}. Review + Save below to persist.`,
+      )
+    },
+    onError: (err: unknown) => { setActionError(errMessage(err, 'Parse failed')); setActionInfo(null) },
+  })
+
+  const saveRules = useMutation({
+    mutationFn: () => platformApi.updateDocumentTypePolicy(policy.docType, {
+      sectionRules: parsedRules ?? {},
+    }),
+    onSuccess: () => {
+      setActionInfo('Parsed rules saved to the policy.')
+      setActionError(null)
+      setParseReviewOpen(false)
+      setRulesNeedBump(false)
+      setParsedRules(null)
+      onSaved()
+    },
+    onError: (err: unknown) => {
+      if (isVersionInUse(err)) {
+        setRulesNeedBump(true)
+        setActionError(null)
+        setActionInfo(null)
+      } else {
+        setActionError(errMessage(err, 'Save rules failed'))
+        setActionInfo(null)
+      }
+    },
+  })
+
+  const bumpWithRules = useMutation({
+    mutationFn: () => platformApi.bumpDocumentTypePolicy(policy.docType, {
+      smePrompt:           policy.smePrompt,
+      bestPracticeDigest:  policy.bestPracticeDigest ?? undefined,
+      sectionRules:        parsedRules ?? {},
+      templateId:          policy.templateId,
+      checklistTemplateId: policy.checklistTemplateId,
+      ichFramework:        policy.ichFramework,
+      changeReason:        rulesBumpReason.trim(),
+    }),
+    onSuccess: () => {
+      setActionInfo('Parsed rules saved as a new policy version.')
+      setActionError(null)
+      setParseReviewOpen(false)
+      setRulesNeedBump(false)
+      setRulesBumpReason('')
+      setParsedRules(null)
+      onSaved()
+    },
+    onError: (err: unknown) => { setActionError(errMessage(err, 'Bump failed')); setActionInfo(null) },
+  })
+
   // Reset + Save actions get rendered in two spots — pinned in the sticky
   // header row so admins editing a 7k-char prompt never scroll past the
   // Save button, and repeated under the textarea for muscle-memory reach.
@@ -509,6 +583,45 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
         data-field="sme-prompt"
         placeholder="SME prompt for this document type — the role-specific preamble AI reads on every draft + rewrite."
       />
+
+      {/* Parsed structures — what the policy already carries beyond the
+          raw SME prompt. Count chips show the stored sectionRules + BP
+          digest size so admins see at a glance what the preview's "B"
+          block is composed from. The Parse button runs the SME prompt
+          through Claude and opens a review modal to persist. */}
+      {(() => {
+        const digestCount  = policy.bestPracticeDigest?.principles.length ?? 0
+        const storedRules  = (policy.sectionRules as Record<string, Array<{ severity: string; text: string }>> | null) ?? {}
+        const ruleSections = Object.keys(storedRules).length
+        const ruleTotal    = Object.values(storedRules).reduce((n, arr) => n + arr.length, 0)
+        return (
+          <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3" data-parsed-structures>
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Parsed structures</span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-chip="section-rules">
+                Section rules · {ruleSections} section{ruleSections === 1 ? '' : 's'} / {ruleTotal} rule{ruleTotal === 1 ? '' : 's'}
+              </span>
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-chip="bp-digest">
+                BP digest · {digestCount} principle{digestCount === 1 ? '' : 's'}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => extract.mutate()}
+              disabled={extract.isPending || !aiReady || !trimmed}
+              title={
+                !aiReady ? 'AI is not set up — configure an AI engine first.' :
+                !trimmed ? 'Enter + save an SME prompt first.' :
+                undefined
+              }
+              className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              data-action="extract-parse"
+            >
+              {extract.isPending ? 'Parsing…' : 'Parse SME prompt (AI) ✦'}
+            </button>
+          </section>
+        )
+      })()}
 
       {/* "What AI actually sees" preview — composed exactly like the API's
           renderPolicyPromptBlock: SME prompt + document-wide principles
@@ -625,6 +738,113 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
             >
               {bump.isPending ? 'Saving new version…' : 'Save as new version'}
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Parsed-rules review modal — opens when Extract succeeds.
+          Shows each section's rules as severity-tagged chips (not raw
+          JSON). Save persists to policy.sectionRules; a 409 version-
+          in-use flips into a bump prompt that re-posts the whole body
+          with the new rules + existing smePrompt / digest / pins. */}
+      {parseReviewOpen && parsedRules && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+          onClick={() => !saveRules.isPending && !bumpWithRules.isPending && setParseReviewOpen(false)}
+          data-modal="parsed-rules-review"
+        >
+          <div
+            className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-lg bg-white shadow-xl"
+            onClick={e => e.stopPropagation()}
+          >
+            <header className="border-b border-slate-200 px-5 py-3">
+              <h2 className="text-[16px] font-semibold text-slate-900">AI-parsed section rules</h2>
+              <p className="mt-0.5 text-[12px] text-slate-500">
+                Review what Claude pulled from the SME prompt. Saving replaces the policy's
+                <code className="mx-1 rounded bg-slate-100 px-1 font-mono text-[10px]">sectionRules</code>
+                field. Existing rules for sections not listed below are dropped.
+              </p>
+            </header>
+            <div className="flex-1 overflow-y-auto px-5 py-4">
+              {Object.keys(parsedRules).length === 0 ? (
+                <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-[13px] italic text-slate-500">
+                  AI found no per-section rules in this SME prompt. Saving will clear any existing rules —
+                  cancel if you want to keep the ones already stored.
+                </p>
+              ) : (
+                <ul className="flex flex-col gap-3">
+                  {Object.entries(parsedRules).map(([sectionKey, rules]) => (
+                    <li key={sectionKey} className="rounded-md border border-slate-200 p-3" data-parsed-section={sectionKey}>
+                      <p className="font-mono text-[11px] font-semibold text-slate-700">{sectionKey}</p>
+                      <ul className="mt-2 space-y-1.5 text-[12px]">
+                        {rules.map((r, i) => (
+                          <li key={i} className="flex gap-2">
+                            <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${
+                              r.severity === 'must'   ? 'bg-rose-100 text-rose-800' :
+                              r.severity === 'should' ? 'bg-amber-100 text-amber-800' :
+                                                         'bg-slate-100 text-slate-700'
+                            }`}>{r.severity}</span>
+                            <span className="text-slate-700">{r.text}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </li>
+                  ))}
+                </ul>
+              )}
+
+              {rulesNeedBump && (
+                <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3">
+                  <p className="text-[12px] text-amber-900">
+                    This policy version is already pinned by at least one document — saving these
+                    rules in place would change what AI sees for those docs. Save as a
+                    <strong> new version</strong> instead. Add a short reason (goes on the audit trail):
+                  </p>
+                  <textarea
+                    value={rulesBumpReason}
+                    onChange={e => setRulesBumpReason(e.currentTarget.value)}
+                    rows={2}
+                    placeholder="e.g. Added section-level guidance extracted from sponsor SME input."
+                    className="mt-2 w-full rounded-md border border-amber-300 px-3 py-2 text-[13px]"
+                    data-field="rules-bump-reason"
+                  />
+                </div>
+              )}
+            </div>
+            <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
+              <button
+                type="button"
+                onClick={() => { setParseReviewOpen(false); setRulesNeedBump(false); setRulesBumpReason('') }}
+                disabled={saveRules.isPending || bumpWithRules.isPending}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                data-action="parsed-rules-cancel"
+              >
+                Cancel
+              </button>
+              {!rulesNeedBump ? (
+                <button
+                  type="button"
+                  onClick={() => saveRules.mutate()}
+                  disabled={saveRules.isPending || !aiReady}
+                  title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
+                  className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                  data-action="parsed-rules-save"
+                >
+                  {saveRules.isPending ? 'Saving…' : 'Save to policy'}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => bumpWithRules.mutate()}
+                  disabled={bumpWithRules.isPending || !rulesBumpReason.trim() || !aiReady}
+                  title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
+                  className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+                  data-action="parsed-rules-bump"
+                >
+                  {bumpWithRules.isPending ? 'Saving new version…' : 'Save as new version'}
+                </button>
+              )}
+            </footer>
           </div>
         </div>
       )}

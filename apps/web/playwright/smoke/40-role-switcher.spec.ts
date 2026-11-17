@@ -72,7 +72,7 @@ test.describe('Role switcher', () => {
     if (await roles.count()) await expect(roles).toHaveText('Project Manager · Contributor')
 
     // The primary role is remembered for this user, so the API is told the same from here on.
-    expect(JSON.parse((await page.evaluate(k => localStorage.getItem(k), STORAGE_KEY))!)).toEqual({ userId: TWO_ROLES.id, role: 'pm' })
+    expect(JSON.parse((await page.evaluate(k => localStorage.getItem(k), STORAGE_KEY))!)).toEqual({ [TWO_ROLES.id]: 'pm' })
   })
 
   test('switching to Contributor reloads as Contributor, tells the API, and survives a reload', async ({ page }) => {
@@ -98,7 +98,32 @@ test.describe('Role switcher', () => {
   test('a choice saved for another user, or for a role not held, is not used', async ({ page }) => {
     await signIn(page, TWO_ROLES, { userId: 'someone-else', role: 'contributor' })
     await expect(trigger(page).locator('[data-current-role]')).toHaveAttribute('data-current-role', 'pm')
-    expect(JSON.parse((await page.evaluate(k => localStorage.getItem(k), STORAGE_KEY))!)).toEqual({ userId: TWO_ROLES.id, role: 'pm' })
+    // Each user keeps their own choice; the other user's is left as it was.
+    expect(JSON.parse((await page.evaluate(k => localStorage.getItem(k), STORAGE_KEY))!)).toEqual({ 'someone-else': 'contributor', [TWO_ROLES.id]: 'pm' })
+    const headers = await page.evaluate(() => (window as unknown as { __roleHeaders: Array<string | null> }).__roleHeaders)
+    expect(headers).not.toContain('contributor')
+  })
+
+  // QA bug: with two accounts open in two tabs, the second one overwrote the one remembered role, and the first
+  // tab then sent the other user's role, so the server answered as a role its screen wasn't showing.
+  test('another account in another tab does not change the role this tab works as', async ({ page }) => {
+    await signIn(page, TWO_ROLES)
+    await expect(trigger(page).locator('[data-current-role]')).toHaveAttribute('data-current-role', 'pm')
+    // The other tab (another user, also Contributor + PM) settles on Contributor.
+    await page.evaluate(k => {
+      const value = JSON.stringify({ ...JSON.parse(localStorage.getItem(k) ?? '{}'), 'u-sheetal': 'contributor' })
+      localStorage.setItem(k, value)
+      window.dispatchEvent(new StorageEvent('storage', { key: k, newValue: value }))
+    }, STORAGE_KEY)
+    await page.waitForTimeout(1000)
+    await expect(trigger(page).locator('[data-current-role]')).toHaveAttribute('data-current-role', 'pm')
+
+    // Every request from this tab still says Project Manager, including after a reload.
+    await page.reload()
+    await expect(trigger(page).locator('[data-current-role]')).toHaveAttribute('data-current-role', 'pm', { timeout: 60_000 })
+    const headers = await page.evaluate(() => (window as unknown as { __roleHeaders: Array<string | null> }).__roleHeaders)
+    expect(headers.length).toBeGreaterThan(0)
+    expect(headers.every(h => h === null || h === 'pm')).toBe(true)
   })
 
   test('a single-role user sees no switcher and sends no role header', async ({ page }) => {

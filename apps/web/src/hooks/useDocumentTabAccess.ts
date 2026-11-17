@@ -12,8 +12,10 @@ import { holdsRole } from '../config/roles'
 //    checklist) all live in Reviewer View. So anyone holding C, Q or A without R gets no Editor.
 //  - Reviewer View: everyone except a pure Author (R with no C/Q/A).
 //  - No letter at all (PM, auditor, admin, Informed): both tabs, read-only as the screens decide.
-//  - Working as Project Manager: always the Editor tab, whatever letters they also hold (a PM added to
-//    the project may hold A or C there too). What they may change there is still the server's decision.
+//  - Working as Project Manager: always the Editor and CRM tabs, whatever letters they also hold (a PM added
+//    to the project, e.g. a second PM, may hold A or C there too). What they may change is still the server's
+//    decision.
+//  - An Approver-only person who is not a PM gets the CRM tab while invited to a scheduled or running meeting.
 // undefined while the answer is loading; a failed lookup leaves both tabs open (the server
 // still decides what each screen may do).
 export type DocumentTabAccess = { editor: boolean; review: boolean; crm: boolean; approverOnly: boolean }
@@ -29,13 +31,15 @@ export function useDocumentTabAccess(documentId: string | undefined): DocumentTa
   const mine = new Set((rows ?? []).filter(r => r.userId === me?.id && !r.removedAt).map(r => r.letter))
   const access = tabAccessForLetters(mine, { pm: !!me && holdsRole(me, 'pm') })
   // An Approver-only person has the CRM tab while they are invited to a scheduled or running meeting.
+  // (Not looked up when they already have it, e.g. a PM.)
+  const needsInvite = access.approverOnly && !access.crm
   const { data: meetings, isLoading: meetingsLoading } = useQuery<CRMMeeting[]>({
     queryKey: ['crm-meetings', documentId],
     queryFn:  () => crmApi.getMeetings(documentId!),
-    enabled:  !!documentId && !!me?.id && !rowsLoading && access.approverOnly,
+    enabled:  !!documentId && !!me?.id && !rowsLoading && needsInvite,
   })
   if (meLoading || (!!me?.id && rowsLoading)) return undefined
-  if (!access.approverOnly) return access
+  if (!needsInvite) return access
   if (meetingsLoading) return undefined
   const invited = (meetings ?? []).some(m =>
     (m.status === 'scheduled' || m.status === 'in_progress')
@@ -43,18 +47,21 @@ export function useDocumentTabAccess(documentId: string | undefined): DocumentTa
   return invited ? { ...access, crm: true } : access
 }
 
-/** The tab rule on its own, from a user's active RACI letters on the document. */
+/** The tab rule on its own, from a user's active RACI letters on the document (and whether they work as PM). */
 export function tabAccessForLetters(letters: ReadonlySet<string>, opts: { pm?: boolean } = {}): DocumentTabAccess {
   const author = letters.has('R')
   const reviewSide = letters.has('C') || letters.has('Q') || letters.has('A')
   // An Approver (A) who is not also Author, Reviewer or QC: their tab is "Approver View"
   // and they have no CRM tab (the Comments Resolution Meeting is for the review team), except
-  // while they are invited to an open meeting (useDocumentTabAccess adds that).
+  // while they are invited to an open meeting (useDocumentTabAccess adds that) or work as PM.
   const approverOnly = letters.has('A') && !letters.has('R') && !letters.has('C') && !letters.has('Q')
   return {
+    // A Project Manager keeps the Editor and CRM tabs even when they are on the document as Approver (e.g. a second
+    // PM assigned as A): they run the project and the Comments Resolution Meeting. What they may change in the
+    // Editor is still decided by the server and their letters.
     editor: author || !reviewSide || !!opts.pm,
     review: reviewSide || !author,
-    crm: !approverOnly,
+    crm: !approverOnly || !!opts.pm,
     approverOnly,
   }
 }

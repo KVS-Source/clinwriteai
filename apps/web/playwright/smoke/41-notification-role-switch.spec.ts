@@ -96,7 +96,7 @@ test('switching from the warning opens the PM page as Project Manager', async ({
 
   await expect(page).toHaveURL(/\/projects\/PROJ-FINAL-PROJECT$/, { timeout: 60_000 })
   await expect(currentRole(page)).toHaveAttribute('data-current-role', 'pm', { timeout: 60_000 })
-  expect(JSON.parse((await page.evaluate(k => localStorage.getItem(k), STORAGE_KEY))!)).toEqual({ userId: 'u-sourabh', role: 'pm' })
+  expect(JSON.parse((await page.evaluate(k => localStorage.getItem(k), STORAGE_KEY))!)).toEqual({ 'u-sourabh': 'pm' })
   expect(await marked(page)).toContain('n-pm')
 })
 

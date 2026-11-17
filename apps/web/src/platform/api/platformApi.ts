@@ -3,7 +3,7 @@ import { api, ApiError } from '../../api/client'
 import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
   PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, MasterLibraryItem,
-  MasterLibraryShareRecord, MasterLibraryAuditPage, BestPractice,
+  MasterLibraryShareRecord, MasterLibraryAuditPage, MasterLibraryAuditTrail, BestPractice,
   AuditTrailEntry, RateCard, Subscription, ReportDefinition,
   ModuleHealthScore, TATag, RegulatoryFramework, SlideDeckJob, Slide,
   PlatformClient, PlatformAnalytics,
@@ -252,7 +252,7 @@ export const platformApi = {
     api.upload<MasterLibraryItem>('/library/upload', form),
   getLibraryItem: (itemId: string) =>
     api.get<MasterLibraryItem>(`/library/${itemId}`),
-  // A Project Manager or Contributor shares a Master Document by email. Colleagues get a notification; anyone
+  // A Project Manager (only) shares a Master Document by email. Colleagues get a notification; anyone
   // else (no account) gets an invitation whose link opens the document only after an emailed one-time code.
   shareLibraryItem: (itemId: string, emails: string[]) =>
     api.post<{ shared: Array<{ email: string; kind: 'user' | 'invite'; name?: string }>; failed: string[] }>(`/library/${encodeURIComponent(itemId)}/share`, { emails }),
@@ -261,7 +261,10 @@ export const platformApi = {
     api.get<MasterLibraryShareRecord[]>(`/library/${encodeURIComponent(itemId)}/shares`),
   // The document's whole audit trail (source document + library entry), newest first, a page at a time. Read-only.
   listLibraryItemAudit: (itemId: string, offset = 0, limit = 50) =>
-    api.get<MasterLibraryAuditPage>(`/library/${encodeURIComponent(itemId)}/audit?limit=${limit}&offset=${offset}`),
+    api.get<MasterLibraryAuditTrail>(`/library/${encodeURIComponent(itemId)}/audit?limit=${limit}&offset=${offset}`),
+  // The source document's whole Clinical Writing trail — only for people who may read it there (RACI, PM, auditor).
+  listLibraryItemFullAudit: (itemId: string, offset = 0, limit = 50) =>
+    api.get<MasterLibraryAuditPage>(`/library/${encodeURIComponent(itemId)}/audit/full?limit=${limit}&offset=${offset}`),
   // Records that a section was pulled into a document (usage count + audit).
   adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/adopt`, body),

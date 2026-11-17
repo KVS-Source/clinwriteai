@@ -44,6 +44,7 @@ const contextByRequest = new WeakMap<object, RequestAuditContext>()
 // COLLAPSE_WINDOW_MS are recorded once.
 const COLLAPSE_ACTIONS = new Set([
   'phi_document_accessed',
+  'library_document_viewed',
   'audit.verify',
   'audit.export',
   'audit_trail_exported',

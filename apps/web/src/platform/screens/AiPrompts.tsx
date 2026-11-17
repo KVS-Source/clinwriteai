@@ -1,24 +1,30 @@
-// AI Prompts — admin screen.
+// AI Prompts — admin screen (Phase-1 pointer refactor, migration 73).
 //
-// Lightweight companion to DocumentTypePolicies: lets admins maintain
-// the SME prompt per doc type without wading through the full policy
-// editor (BP digest, section rules, template pins, version bumping).
-// Mental model: one prompt per doc type. Behind the scenes the DB still
-// versions — if the admin edits a prompt whose current version has been
-// pinned by any Document, Save transparently bumps a new version with a
-// change reason so the audit trail stays intact. From the admin's POV
-// it's still "one textarea, one Save button" per doc type.
+// Prompts are their own entity (AiPromptRecord) with an explicit
+// draft → approved → retired workflow. Admins:
+//   - Start a new draft (either net-new docType or new version of existing).
+//   - Edit drafts in place.
+//   - Approve a draft: the previous approved row flips to retired +
+//     supersededBy = this row id, atomically server-side.
+//   - Retire a row (operator cleanup).
 //
-// Why a second screen for the same field? Day-to-day prompt tuning is
-// most of the admin's time; forcing them through a 5-section editor for
-// a one-line fix is friction. /admin/document-type-policies remains the
-// place to edit everything else.
+// The screen reads the list of latest-approved rows, lets admins open a
+// row to see its current approved content side-by-side with any live
+// draft for the same docType, and keeps the BP digest + section rules
+// render preview wired to the policy row (BP is still policy-scoped
+// until Phase 2 promotes it).
 
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
-import { platformApi, type BestPracticeDigest, type DocumentTypePolicy } from '../api/platformApi'
+import {
+  platformApi,
+  type AiPromptRecord,
+  type AiPromptSectionRules,
+  type BestPracticeDigest,
+  type DocumentTypePolicy,
+} from '../api/platformApi'
 import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
 import { DOCUMENT_TYPE_KEY, documentTypeLabel } from '../../utils/documentLabels'
 import { SlidePanel } from '../../components/ui/SlidePanel'
@@ -40,7 +46,7 @@ function renderWholeDocPrinciples(digest: BestPracticeDigest | null | undefined)
 }
 function renderAllSectionRules(
   digest: BestPracticeDigest | null | undefined,
-  rules:  Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>> | null | undefined,
+  rules:  AiPromptSectionRules | null | undefined,
 ): Array<{ sectionKey: string; block: string }> {
   const sectionKeys = new Set<string>()
   for (const p of (digest?.principles ?? [])) {
@@ -65,7 +71,7 @@ function renderPolicyBlock(args: {
   draft:    string
   version:  number
   digest:   BestPracticeDigest | null | undefined
-  rules:    Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>> | null | undefined
+  rules:    AiPromptSectionRules | null | undefined
 }): string {
   const parts: string[] = []
   const prompt = args.draft.trim()
@@ -81,12 +87,6 @@ function renderPolicyBlock(args: {
   return parts.join('\n')
 }
 
-// Fixed scaffolding the AI drafter (apps/worker/src/jobs/ai-initial-draft.ts)
-// prepends to every call. Admins can't change these — they're the
-// product-level guardrails (HTML output, no-fabrication, doc type +
-// section identity). We show them here so the policy block's role in
-// the full system prompt is honest + visible: "your prompt sits HERE,
-// after this scaffolding, before the per-call ask."
 function renderDrafterScaffolding(docType: string): string {
   return [
     `You are drafting a single section of a regulatory clinical writing deliverable.`,
@@ -100,9 +100,6 @@ function renderDrafterScaffolding(docType: string): string {
   ].join('\n')
 }
 
-// What the /ai-suggest route adds after the policy block when a writer
-// hits "AI Suggest" on a section. The exact intent prompt varies
-// ('tighten', 'explain', 'edit', 'custom'); we show a representative one.
 function renderUserTurnExample(): string {
   return [
     `--- (per-call user turn, rendered by /ai-suggest) ---`,
@@ -114,7 +111,6 @@ function renderUserTurnExample(): string {
 }
 
 // Every document type, in the underscored form prompts are stored under (csr-full → csr_full).
-// Labels are looked up at render time — translations aren't loaded yet when this module is first imported.
 const DOC_TYPES = Object.keys(DOCUMENT_TYPE_KEY)
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
@@ -127,62 +123,73 @@ function errMessage(err: unknown, fallback = 'Request failed'): string {
   return err instanceof Error ? err.message : fallback
 }
 
-function isVersionInUse(err: unknown): boolean {
-  if (!(err instanceof ApiError) || err.status !== 409) return false
-  const body = err.body as { error?: string } | null
-  return body?.error === 'version_in_use'
+type AiPromptRow = AiPromptRecord & { rules: AiPromptSectionRules }
+
+function toRow(r: AiPromptRecord): AiPromptRow {
+  return { ...r, rules: (r.sectionRules as AiPromptSectionRules | null) ?? {} }
 }
 
 export function AiPrompts() {
   const qc = useQueryClient()
-  const { data, isLoading, error } = useQuery({
+  // List of latest-approved rows (list screen). Drafts live per-docType and
+  // are fetched on-demand when a row is opened — avoids double-listing
+  // drafts next to approved rows at the top level.
+  const approvedQ = useQuery({
+    queryKey: ['ai-prompts-approved'],
+    queryFn:  () => platformApi.listAiPrompts(),
+  })
+  // Policy rows power the BP digest + preview block. Section rules on the
+  // policy still contribute to the preview until an approved AiPromptRecord
+  // carries them; after that the AiPromptRecord.sectionRules wins.
+  const policiesQ = useQuery({
     queryKey: ['document-type-policies'],
     queryFn:  () => platformApi.listDocumentTypePolicies(),
   })
-  const policies = useMemo(() => data?.policies ?? [], [data])
+  const approved = useMemo(
+    () => (approvedQ.data?.prompts ?? []).map(toRow),
+    [approvedQ.data],
+  )
+  const policies = useMemo(() => policiesQ.data?.policies ?? [], [policiesQ.data])
   const { data: readiness } = useAiReadiness()
   const aiReady = isAiReady(readiness)
 
-  // Row click sets selectedDocType AND opens the edit panel (openEditor
-  // below). No auto-pick on first load anymore — the list is the primary
-  // view, admins choose what they open explicitly.
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null)
-  const selected = policies.find(p => p.docType === selectedDocType) ?? null
-  // Both the create flow and the edit flow use non-modal right-edge slide
-  // panels so the list stays visible underneath. Width persists per-user in
-  // localStorage; the edit panel is wider by default because it holds a
-  // 24-row textarea + a preview block.
   const [newPanelOpen,  setNewPanelOpen]  = useState(false)
   const [editPanelOpen, setEditPanelOpen] = useState(false)
-  // Row click behaviour: set the selection + open the edit panel.
   const openEditor = (docType: string) => { setSelectedDocType(docType); setEditPanelOpen(true) }
 
   const [search, setSearch] = useState('')
 
-  const invalidate = () => qc.invalidateQueries({ queryKey: ['document-type-policies'] })
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ['ai-prompts-approved'] })
+    qc.invalidateQueries({ queryKey: ['ai-prompt-versions'] })
+  }
+
+  const policyFor = (docType: string) =>
+    policies.find(p => p.docType === docType) ?? null
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-5" data-screen="ai-prompts">
       <MasterLibraryHeading>
         <h1 className="text-[20px] font-semibold text-slate-900">AI Prompts</h1>
         <p className="mt-0.5 text-[13px] text-slate-500">
-          The SME prompt AI sees on every draft + rewrite. One per doc type — editing here updates
-          the same row the full Doc Type Policies screen edits. Everything else (Best-Practice
-          digest, section rules, template pins) is managed over there.
+          The SME prompt + section rules AI sees on every draft + rewrite. Drafts are editable in
+          place; Approve flips the previously-approved row to retired and starts a new version
+          — documents created before that keep using the version they were pinned to.
         </p>
       </MasterLibraryHeading>
 
       <AiReadinessBanner
         readiness={readiness}
-        context="Editing or creating prompts is blocked until an AI engine is configured — a prompt that never reaches a model is a trap for authors."
+        context="Editing, creating, or approving prompts is blocked until an AI engine is configured — a prompt that never reaches a model is a trap for authors."
       />
 
-      {isLoading && <p className="text-[13px] text-slate-500">Loading prompts…</p>}
-      {error && <p className="text-[13px] text-rose-700">{errMessage(error, 'Could not load prompts')}</p>}
+      {approvedQ.isLoading && <p className="text-[13px] text-slate-500">Loading prompts…</p>}
+      {approvedQ.error && <p className="text-[13px] text-rose-700">{errMessage(approvedQ.error, 'Could not load prompts')}</p>}
 
-      {!isLoading && !error && (
+      {!approvedQ.isLoading && !approvedQ.error && (
         <PromptList
-          policies={policies}
+          approved={approved}
           search={search}
           onSearch={setSearch}
           onOpen={openEditor}
@@ -194,7 +201,7 @@ export function AiPrompts() {
         open={newPanelOpen}
         onClose={() => setNewPanelOpen(false)}
         title="New AI prompt"
-        subtitle="Create a prompt for a doc type that doesn't have one yet."
+        subtitle="Start a draft for a doc type that doesn't have an approved prompt yet."
         storageKey="clinwrite.aiPrompts.newPanel.width"
         defaultWidth={560}
         minWidth={420}
@@ -203,9 +210,9 @@ export function AiPrompts() {
       >
         <NewPromptForm
           aiReady={aiReady}
-          taken={policies.map(p => p.docType)}
+          takenApproved={approved.map(r => r.docType)}
           onCreated={(docType) => {
-            invalidate()
+            invalidateAll()
             setSelectedDocType(docType)
             setNewPanelOpen(false)
             setEditPanelOpen(true)
@@ -215,24 +222,23 @@ export function AiPrompts() {
       </SlidePanel>
 
       <SlidePanel
-        open={editPanelOpen && !!selected}
+        open={editPanelOpen && !!selectedDocType}
         onClose={() => setEditPanelOpen(false)}
-        title={selected ? `Edit prompt — ${documentTypeLabel(selected.docType)}` : 'Edit prompt'}
-        subtitle={selected
-          ? <span className="font-mono text-[11px]">{selected.docType} · v{selected.version} · updated {formatRelativeShort(selected.updatedAt)}</span>
-          : undefined}
+        title={selectedDocType ? `Prompt — ${documentTypeLabel(selectedDocType)}` : 'Prompt'}
+        subtitle={selectedDocType ? <span className="font-mono text-[11px]">{selectedDocType}</span> : undefined}
         storageKey="clinwrite.aiPrompts.editPanel.width"
-        defaultWidth={720}
-        minWidth={480}
+        defaultWidth={760}
+        minWidth={520}
         maxWidth={1200}
         expandable
       >
-        {selected && (
-          <PromptEditor
-            key={selected.id}
-            policy={selected}
+        {selectedDocType && (
+          <PromptPanel
+            key={selectedDocType}
+            docType={selectedDocType}
+            policy={policyFor(selectedDocType)}
             aiReady={aiReady}
-            onSaved={invalidate}
+            onChanged={invalidateAll}
           />
         )}
       </SlidePanel>
@@ -240,9 +246,6 @@ export function AiPrompts() {
   )
 }
 
-// Relative short-time formatter — "2d ago", "3h ago", "just now". Used in
-// the list row and the edit panel subtitle. Falls back to the ISO date for
-// anything older than ~30 days.
 function formatRelativeShort(iso: string): string {
   const then = new Date(iso).getTime()
   if (Number.isNaN(then)) return iso
@@ -261,19 +264,16 @@ function formatRelativeShort(iso: string): string {
 // ---- list ---------------------------------------------------------------
 
 function PromptList({
-  policies, search, onSearch, onOpen, onNew,
+  approved, search, onSearch, onOpen, onNew,
 }: {
-  policies: DocumentTypePolicy[]
+  approved: AiPromptRow[]
   search:   string
   onSearch: (q: string) => void
   onOpen:   (docType: string) => void
   onNew:    () => void
 }) {
-  // Filter + sort client-side. Search matches both the slug and the
-  // human-readable label so admins can type either "protocol" or
-  // "Protocol Amendment".
   const q = search.trim().toLowerCase()
-  const visible = policies
+  const visible = approved
     .filter(p => {
       if (!q) return true
       const label = documentTypeLabel(p.docType).toLowerCase()
@@ -285,8 +285,8 @@ function PromptList({
     <div className="flex min-h-0 flex-1 flex-col gap-3" data-prompt-list>
       <header className="flex flex-wrap items-center gap-3">
         <p className="font-mono text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-          {policies.length} prompt{policies.length === 1 ? '' : 's'}
-          {q && visible.length !== policies.length && (
+          {approved.length} approved prompt{approved.length === 1 ? '' : 's'}
+          {q && visible.length !== approved.length && (
             <span className="ml-2 text-slate-400">· {visible.length} match{visible.length === 1 ? '' : 'es'}</span>
           )}
         </p>
@@ -311,11 +311,12 @@ function PromptList({
         </button>
       </header>
 
-      {policies.length === 0 && (
+      {approved.length === 0 && (
         <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 bg-white p-8 text-center" data-empty>
-          <p className="text-[13px] font-semibold text-slate-800">No prompts authored yet</p>
+          <p className="text-[13px] font-semibold text-slate-800">No approved prompts yet</p>
           <p className="max-w-md text-[12px] text-slate-500">
-            Create the first AI prompt for a doc type to steer every draft + rewrite call.
+            Draft and approve a prompt for a doc type to steer every draft + rewrite call.
+            Drafts don't reach AI until they're approved.
           </p>
           <button
             type="button"
@@ -328,7 +329,7 @@ function PromptList({
         </div>
       )}
 
-      {policies.length > 0 && visible.length === 0 && (
+      {approved.length > 0 && visible.length === 0 && (
         <p className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-center text-[13px] text-slate-500" data-no-matches>
           No prompts match "{search}".
         </p>
@@ -342,7 +343,7 @@ function PromptList({
                 <th className="w-[36%] px-3 py-2 font-semibold">Doc type</th>
                 <th className="w-[14%] px-3 py-2 font-semibold">Version</th>
                 <th className="w-[14%] px-3 py-2 font-semibold text-right">Prompt size</th>
-                <th className="w-[20%] px-3 py-2 font-semibold">Last updated</th>
+                <th className="w-[20%] px-3 py-2 font-semibold">Approved</th>
                 <th className="w-[16%] px-3 py-2 font-semibold">By</th>
               </tr>
             </thead>
@@ -362,15 +363,17 @@ function PromptList({
                       <span className="font-mono text-[10px] text-slate-500">{p.docType}</span>
                     </div>
                   </td>
-                  <td className="px-3 py-2 font-mono text-[12px] text-slate-700">v{p.version}</td>
+                  <td className="px-3 py-2 font-mono text-[12px] text-slate-700">
+                    v{p.version} <span className="ml-1 rounded bg-emerald-100 px-1 py-0.5 text-[9px] font-semibold uppercase text-emerald-800">approved</span>
+                  </td>
                   <td className="px-3 py-2 text-right font-mono text-[12px] text-slate-700">
                     {p.smePrompt.length.toLocaleString()}<span className="ml-1 text-slate-400">ch</span>
                   </td>
-                  <td className="px-3 py-2 text-slate-700" title={new Date(p.updatedAt).toLocaleString()}>
-                    {formatRelativeShort(p.updatedAt)}
+                  <td className="px-3 py-2 text-slate-700" title={p.approvedAt ? new Date(p.approvedAt).toLocaleString() : ''}>
+                    {p.approvedAt ? formatRelativeShort(p.approvedAt) : '—'}
                   </td>
-                  <td className="truncate px-3 py-2 font-mono text-[11px] text-slate-500" title={p.updatedBy}>
-                    {p.updatedBy}
+                  <td className="truncate px-3 py-2 font-mono text-[11px] text-slate-500" title={p.approvedBy ?? p.updatedBy}>
+                    {p.approvedBy ?? p.updatedBy}
                   </td>
                 </tr>
               ))}
@@ -382,193 +385,279 @@ function PromptList({
   )
 }
 
-// ---- editor -------------------------------------------------------------
+// ---- panel: approved summary + draft editor -----------------------------
 
-function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy; aiReady: boolean; onSaved: () => void }) {
-  const [draft,       setDraft]       = useState(policy.smePrompt)
+function PromptPanel({
+  docType, policy, aiReady, onChanged,
+}: {
+  docType:   string
+  policy:    DocumentTypePolicy | null
+  aiReady:   boolean
+  onChanged: () => void
+}) {
+  // Version history: draft (if any) + the approved row + retired. The
+  // panel shows the approved row as read-only (that's what AI uses) and
+  // the draft inline for editing / approval.
+  const versionsQ = useQuery({
+    queryKey: ['ai-prompt-versions', docType],
+    queryFn:  () => platformApi.listAiPromptVersions(docType),
+  })
+  const versions = useMemo(() => (versionsQ.data?.versions ?? []).map(toRow), [versionsQ.data])
+  const approved = versions.find(v => v.status === 'approved') ?? null
+  const draft    = versions.find(v => v.status === 'draft')    ?? null
+
+  if (versionsQ.isLoading) {
+    return <div className="p-4 text-[12px] text-slate-500">Loading versions…</div>
+  }
+
+  return (
+    <div className="flex flex-col gap-4 p-4" data-panel={docType}>
+      {approved ? (
+        <ApprovedSummary row={approved} />
+      ) : (
+        <div className="rounded-md border border-dashed border-amber-300 bg-amber-50 p-3 text-[12px] text-amber-900" data-no-approved>
+          No approved prompt for this doc type yet. The AI drafter falls back to the policy's
+          legacy <code className="rounded bg-amber-100 px-1 font-mono text-[10px]">smePrompt</code> until a draft here is approved.
+        </div>
+      )}
+
+      {draft ? (
+        <DraftEditor
+          key={draft.id}
+          draft={draft}
+          approved={approved}
+          policy={policy}
+          aiReady={aiReady}
+          onChanged={onChanged}
+        />
+      ) : (
+        <StartDraftFromApproved
+          docType={docType}
+          approved={approved}
+          aiReady={aiReady}
+          onStarted={onChanged}
+        />
+      )}
+    </div>
+  )
+}
+
+function ApprovedSummary({ row }: { row: AiPromptRow }) {
+  const ruleSections = Object.keys(row.rules).length
+  const ruleTotal    = Object.values(row.rules).reduce((n, arr) => n + arr.length, 0)
+  return (
+    <section className="rounded-md border border-emerald-200 bg-emerald-50/40 p-3" data-approved>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-emerald-800">Approved v{row.version}</span>
+          <span className="font-mono text-[10px] text-slate-500">
+            {row.approvedAt ? `approved ${formatRelativeShort(row.approvedAt)}` : ''}
+          </span>
+        </div>
+        <span className="font-mono text-[10px] text-slate-500">
+          {row.smePrompt.length.toLocaleString()} chars · {ruleSections} section{ruleSections === 1 ? '' : 's'} / {ruleTotal} rule{ruleTotal === 1 ? '' : 's'}
+        </span>
+      </div>
+      <details className="mt-2">
+        <summary className="cursor-pointer text-[11px] font-semibold text-emerald-900">Show approved SME prompt (read-only)</summary>
+        <pre className="mt-2 max-h-56 overflow-auto rounded border border-emerald-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-slate-800">
+          {row.smePrompt}
+        </pre>
+      </details>
+    </section>
+  )
+}
+
+function StartDraftFromApproved({
+  docType, approved, aiReady, onStarted,
+}: {
+  docType:   string
+  approved:  AiPromptRow | null
+  aiReady:   boolean
+  onStarted: () => void
+}) {
+  const [error, setError] = useState<string | null>(null)
+  const start = useMutation({
+    mutationFn: () => platformApi.createAiPromptDraft({
+      docType,
+      smePrompt:    approved?.smePrompt ?? '(write the SME prompt here)',
+      sectionRules: approved?.rules    ?? {},
+    }),
+    onSuccess: () => { setError(null); onStarted() },
+    onError:   (err: unknown) => setError(errMessage(err, 'Could not start a draft')),
+  })
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-3" data-no-draft>
+      <p className="text-[12px] text-slate-700">
+        No draft in progress for this doc type.{' '}
+        {approved
+          ? 'Start a new draft from the approved version — admins can edit it freely until the next Approve.'
+          : 'Start a blank draft to begin authoring.'}
+      </p>
+      {error && <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{error}</p>}
+      <div className="mt-3 flex justify-end">
+        <button
+          type="button"
+          onClick={() => start.mutate()}
+          disabled={start.isPending || !aiReady}
+          title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
+          className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          data-action="start-draft"
+        >
+          {start.isPending ? 'Starting…' : approved ? 'Start a new draft' : 'Start the first draft'}
+        </button>
+      </div>
+    </section>
+  )
+}
+
+// ---- draft editor -------------------------------------------------------
+
+function DraftEditor({
+  draft, approved, policy, aiReady, onChanged,
+}: {
+  draft:     AiPromptRow
+  approved:  AiPromptRow | null
+  policy:    DocumentTypePolicy | null
+  aiReady:   boolean
+  onChanged: () => void
+}) {
+  const [smePrompt, setSmePrompt]    = useState(draft.smePrompt)
+  const [rules,     setRules]        = useState<AiPromptSectionRules>(draft.rules)
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionInfo,  setActionInfo]  = useState<string | null>(null)
-  // When the current version is already pinned by any document, the API
-  // rejects PATCH with 409 version_in_use and expects a bump instead. We
-  // surface a change-reason prompt inline rather than looping the admin
-  // through the full policy editor.
-  const [needsBump,   setNeedsBump]   = useState(false)
-  const [bumpReason,  setBumpReason]  = useState('')
   const [previewOpen, setPreviewOpen] = useState(false)
+
+  const dirty = smePrompt !== draft.smePrompt || JSON.stringify(rules) !== JSON.stringify(draft.rules)
+  const trimmed = smePrompt.trim()
+
+  // BP digest still rides on the policy row (Phase 1). Preview renders
+  // the composed prompt: scaffolding + (SME + BP digest + sectionRules).
+  // Rules come from the draft, principles from the policy — matches the
+  // server-side resolver's mixing rule.
   const preview = useMemo(() => {
-    const scaffolding = renderDrafterScaffolding(policy.docType)
+    const scaffolding = renderDrafterScaffolding(draft.docType)
     const policyBlock = renderPolicyBlock({
-      draft,
-      version: policy.version,
-      digest:  policy.bestPracticeDigest,
-      rules:   policy.sectionRules as Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>> | null,
+      draft:   smePrompt,
+      version: draft.version,
+      digest:  policy?.bestPracticeDigest ?? null,
+      rules,
     })
     const userTurn = renderUserTurnExample()
     const composed = [scaffolding, policyBlock, userTurn].filter(Boolean).join('\n\n')
     return { scaffolding, policyBlock, userTurn, composed }
-  }, [draft, policy.docType, policy.version, policy.bestPracticeDigest, policy.sectionRules])
-
-  const dirty    = draft !== policy.smePrompt
-  const trimmed  = draft.trim()
+  }, [smePrompt, rules, draft.docType, draft.version, policy?.bestPracticeDigest])
 
   const save = useMutation({
-    mutationFn: () => platformApi.updateDocumentTypePolicy(policy.docType, { smePrompt: draft }),
-    onSuccess: () => {
-      setActionInfo('Prompt saved.')
-      setActionError(null)
-      setNeedsBump(false)
-      onSaved()
-    },
-    onError: (err: unknown) => {
-      if (isVersionInUse(err)) {
-        setNeedsBump(true)
-        setActionError(null)
-        setActionInfo(null)
-      } else {
-        setActionError(errMessage(err, 'Save failed'))
-        setActionInfo(null)
-      }
-    },
-  })
-
-  const bump = useMutation({
-    mutationFn: () => platformApi.bumpDocumentTypePolicy(policy.docType, {
-      smePrompt:           draft,
-      bestPracticeDigest:  policy.bestPracticeDigest ?? undefined,
-      sectionRules:        (policy.sectionRules as Parameters<typeof platformApi.bumpDocumentTypePolicy>[1]['sectionRules']) ?? undefined,
-      templateId:          policy.templateId,
-      checklistTemplateId: policy.checklistTemplateId,
-      ichFramework:        policy.ichFramework,
-      changeReason:        bumpReason.trim(),
+    mutationFn: () => platformApi.updateAiPromptDraft(draft.id, {
+      smePrompt,
+      sectionRules: rules,
     }),
     onSuccess: () => {
-      setActionInfo('Prompt saved as a new version — older documents keep using the previous one.')
+      setActionInfo('Draft saved.')
       setActionError(null)
-      setNeedsBump(false)
-      setBumpReason('')
-      onSaved()
+      onChanged()
     },
-    onError: (err: unknown) => {
-      setActionError(errMessage(err, 'Bump failed'))
-      setActionInfo(null)
-    },
+    onError: (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
   })
 
-  // --- Parse SME prompt → section rules ------------------------------
-  // Mirrors the Doc Type Policies extract flow, but surfaces the parsed
-  // result right here in the AI Prompts screen so admins don't tab-hop.
-  // Extract returns the rules; a review modal shows them per-section;
-  // Save persists via updateDocumentTypePolicy ({ sectionRules }). A
-  // version-in-use 409 flips the saveRules call into a bump (same
-  // pattern as the SME save above).
-  type ParsedRulesMap = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
-  const [parsedRules, setParsedRules] = useState<ParsedRulesMap | null>(null)
-  const [parseReviewOpen, setParseReviewOpen] = useState(false)
-  const [rulesBumpReason, setRulesBumpReason] = useState('')
-  const [rulesNeedBump, setRulesNeedBump] = useState(false)
+  const approve = useMutation({
+    mutationFn: () => platformApi.approveAiPrompt(draft.id),
+    onSuccess: () => {
+      setActionInfo(`Draft approved as v${draft.version}. AI starts using it for new documents immediately.`)
+      setActionError(null)
+      onChanged()
+    },
+    onError: (err: unknown) => { setActionError(errMessage(err, 'Approve failed')); setActionInfo(null) },
+  })
+
+  const retire = useMutation({
+    mutationFn: () => platformApi.retireAiPrompt(draft.id, 'Draft discarded by admin'),
+    onSuccess: () => {
+      setActionInfo('Draft discarded.')
+      setActionError(null)
+      onChanged()
+    },
+    onError: (err: unknown) => { setActionError(errMessage(err, 'Discard failed')); setActionInfo(null) },
+  })
 
   const extract = useMutation({
-    mutationFn: () => platformApi.extractSectionRules(policy.docType),
+    mutationFn: () => platformApi.extractSectionRulesForPrompt(draft.id),
     onSuccess: (res) => {
+      // Non-destructive: we show the parsed rules in a review modal and
+      // only persist on Save-rules. Match the Doc Type Policies flow.
       setParsedRules(res.sectionRules)
       setParseReviewOpen(true)
       setActionError(null)
       setActionInfo(
         res.ruleCount === 0
-          ? 'AI found no per-section rules in this SME prompt — the parsed structure is empty. Most of the prompt may only carry whole-document guidance.'
-          : `AI parsed ${res.ruleCount} rule${res.ruleCount === 1 ? '' : 's'} across ${res.sectionCount} section${res.sectionCount === 1 ? '' : 's'}. Review + Save below to persist.`,
+          ? 'AI found no per-section rules in this SME prompt — the parsed structure is empty.'
+          : `AI parsed ${res.ruleCount} rule${res.ruleCount === 1 ? '' : 's'} across ${res.sectionCount} section${res.sectionCount === 1 ? '' : 's'}. Review + Save to persist.`,
       )
     },
     onError: (err: unknown) => { setActionError(errMessage(err, 'Parse failed')); setActionInfo(null) },
   })
 
-  const saveRules = useMutation({
-    mutationFn: () => platformApi.updateDocumentTypePolicy(policy.docType, {
-      sectionRules: parsedRules ?? {},
-    }),
-    onSuccess: () => {
-      setActionInfo('Parsed rules saved to the policy.')
-      setActionError(null)
-      setParseReviewOpen(false)
-      setRulesNeedBump(false)
-      setParsedRules(null)
-      onSaved()
-    },
-    onError: (err: unknown) => {
-      if (isVersionInUse(err)) {
-        setRulesNeedBump(true)
-        setActionError(null)
-        setActionInfo(null)
-      } else {
-        setActionError(errMessage(err, 'Save rules failed'))
-        setActionInfo(null)
-      }
-    },
-  })
+  const [parsedRules,     setParsedRules]     = useState<AiPromptSectionRules | null>(null)
+  const [parseReviewOpen, setParseReviewOpen] = useState(false)
 
-  const bumpWithRules = useMutation({
-    mutationFn: () => platformApi.bumpDocumentTypePolicy(policy.docType, {
-      smePrompt:           policy.smePrompt,
-      bestPracticeDigest:  policy.bestPracticeDigest ?? undefined,
-      sectionRules:        parsedRules ?? {},
-      templateId:          policy.templateId,
-      checklistTemplateId: policy.checklistTemplateId,
-      ichFramework:        policy.ichFramework,
-      changeReason:        rulesBumpReason.trim(),
-    }),
-    onSuccess: () => {
-      setActionInfo('Parsed rules saved as a new policy version.')
-      setActionError(null)
-      setParseReviewOpen(false)
-      setRulesNeedBump(false)
-      setRulesBumpReason('')
-      setParsedRules(null)
-      onSaved()
-    },
-    onError: (err: unknown) => { setActionError(errMessage(err, 'Bump failed')); setActionInfo(null) },
-  })
+  const applyParsedRules = () => {
+    if (parsedRules) setRules(parsedRules)
+    setParseReviewOpen(false)
+    setParsedRules(null)
+    setActionInfo('Parsed rules merged into draft — review the preview, then Save.')
+  }
 
-  // Reset + Save actions get rendered in two spots — pinned in the sticky
-  // header row so admins editing a 7k-char prompt never scroll past the
-  // Save button, and repeated under the textarea for muscle-memory reach.
-  // Both call the same handlers; the UI treats them as one logical pair.
-  const actionButtons = !needsBump && (
-    <>
-      <button
-        type="button"
-        onClick={() => { setDraft(policy.smePrompt); setActionInfo(null); setActionError(null) }}
-        disabled={!dirty || save.isPending}
-        className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-        data-action="reset"
-      >
-        Reset
-      </button>
-      <button
-        type="button"
-        onClick={() => save.mutate()}
-        disabled={!dirty || !trimmed || save.isPending || !aiReady}
-        title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
-        className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-        data-action="save"
-      >
-        {save.isPending ? 'Saving…' : 'Save prompt'}
-      </button>
-    </>
-  )
+  const ruleSections = Object.keys(rules).length
+  const ruleTotal    = Object.values(rules).reduce((n, arr) => n + arr.length, 0)
 
   return (
-    // p-4 so editor content doesn't hug the SlidePanel's edges. The
-    // SlidePanel already renders the title + docType/version/updated
-    // subtitle, so the inner header here only shows transient state
-    // (char count, unsaved chip) + the action buttons.
-    <div className="flex flex-col gap-3 p-4" data-editor={policy.docType}>
-      <header className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-wrap items-center justify-end gap-3 border-b border-slate-200 bg-white px-4 py-2">
-        <div className="flex items-center gap-2 text-[11px] text-slate-500">
-          <span>{draft.length.toLocaleString()} chars</span>
-          {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">unsaved</span>}
+    <section className="flex flex-col gap-3 rounded-md border border-blue-200 bg-blue-50/30 p-3" data-draft={draft.id}>
+      <header className="sticky top-0 z-10 -mx-3 -mt-3 flex flex-wrap items-center justify-between gap-3 border-b border-blue-200 bg-blue-50/80 px-3 py-2 backdrop-blur">
+        <div className="flex items-center gap-2">
+          <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-widest text-amber-800">
+            Draft v{draft.version}
+          </span>
+          <span className="font-mono text-[10px] text-slate-500">
+            {smePrompt.length.toLocaleString()} chars
+          </span>
+          {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">unsaved</span>}
         </div>
-        <div className="flex items-center gap-2" data-header-actions>
-          {actionButtons}
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { setSmePrompt(draft.smePrompt); setRules(draft.rules); setActionInfo(null); setActionError(null) }}
+            disabled={!dirty || save.isPending}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            data-action="reset"
+          >
+            Reset
+          </button>
+          <button
+            type="button"
+            onClick={() => save.mutate()}
+            disabled={!dirty || !trimmed || save.isPending || !aiReady}
+            title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
+            className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            data-action="save"
+          >
+            {save.isPending ? 'Saving…' : 'Save draft'}
+          </button>
+          <button
+            type="button"
+            onClick={() => approve.mutate()}
+            disabled={dirty || !trimmed || approve.isPending || !aiReady}
+            title={
+              dirty    ? 'Save the draft before approving.' :
+              !aiReady ? 'AI is not set up — configure an AI engine first.' :
+              approved ? `Approve will retire v${approved.version} and make this the new approved prompt.`
+                       : 'Approve this draft as the first approved version.'
+            }
+            className="rounded-md border border-emerald-600 bg-emerald-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+            data-action="approve"
+          >
+            {approve.isPending ? 'Approving…' : approved ? `Approve v${draft.version} (retires v${approved.version})` : `Approve v${draft.version}`}
+          </button>
         </div>
       </header>
 
@@ -576,57 +665,40 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
       {actionInfo  && <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800">{actionInfo}</p>}
 
       <textarea
-        value={draft}
-        onChange={e => { setDraft(e.currentTarget.value); setActionInfo(null) }}
-        rows={24}
-        className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 font-mono text-[12px] leading-relaxed"
+        value={smePrompt}
+        onChange={e => { setSmePrompt(e.currentTarget.value); setActionInfo(null) }}
+        rows={20}
+        className="w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-[12px] leading-relaxed"
         data-field="sme-prompt"
-        placeholder="SME prompt for this document type — the role-specific preamble AI reads on every draft + rewrite."
+        placeholder="SME prompt — role-specific preamble the AI reads on every draft + rewrite."
       />
 
-      {/* Parsed structures — what the policy already carries beyond the
-          raw SME prompt. Count chips show the stored sectionRules + BP
-          digest size so admins see at a glance what the preview's "B"
-          block is composed from. The Parse button runs the SME prompt
-          through Claude and opens a review modal to persist. */}
-      {(() => {
-        const digestCount  = policy.bestPracticeDigest?.principles.length ?? 0
-        const storedRules  = (policy.sectionRules as Record<string, Array<{ severity: string; text: string }>> | null) ?? {}
-        const ruleSections = Object.keys(storedRules).length
-        const ruleTotal    = Object.values(storedRules).reduce((n, arr) => n + arr.length, 0)
-        return (
-          <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3" data-parsed-structures>
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Parsed structures</span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-chip="section-rules">
-                Section rules · {ruleSections} section{ruleSections === 1 ? '' : 's'} / {ruleTotal} rule{ruleTotal === 1 ? '' : 's'}
-              </span>
-              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-chip="bp-digest">
-                BP digest · {digestCount} principle{digestCount === 1 ? '' : 's'}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={() => extract.mutate()}
-              disabled={extract.isPending || !aiReady || !trimmed}
-              title={
-                !aiReady ? 'AI is not set up — configure an AI engine first.' :
-                !trimmed ? 'Enter + save an SME prompt first.' :
-                undefined
-              }
-              className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-              data-action="extract-parse"
-            >
-              {extract.isPending ? 'Parsing…' : 'Parse SME prompt (AI) ✦'}
-            </button>
-          </section>
-        )
-      })()}
+      <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3" data-parsed-structures>
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Parsed structures (draft)</span>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-chip="section-rules">
+            Section rules · {ruleSections} section{ruleSections === 1 ? '' : 's'} / {ruleTotal} rule{ruleTotal === 1 ? '' : 's'}
+          </span>
+          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-chip="bp-digest">
+            BP digest (policy) · {policy?.bestPracticeDigest?.principles.length ?? 0} principle{(policy?.bestPracticeDigest?.principles.length ?? 0) === 1 ? '' : 's'}
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => extract.mutate()}
+          disabled={extract.isPending || !aiReady || !trimmed}
+          title={
+            !aiReady ? 'AI is not set up — configure an AI engine first.' :
+            !trimmed ? 'Write an SME prompt first.' :
+            undefined
+          }
+          className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          data-action="extract-parse"
+        >
+          {extract.isPending ? 'Parsing…' : 'Parse SME prompt (AI) ✦'}
+        </button>
+      </section>
 
-      {/* "What AI actually sees" preview — composed exactly like the API's
-          renderPolicyPromptBlock: SME prompt + document-wide principles
-          (ordered must → should → nice) + per-section rules. Uses the
-          CURRENT draft so unsaved edits are reflected before Save. */}
       <section className="rounded-md border border-slate-200 bg-slate-50" data-preview-panel>
         <button
           type="button"
@@ -636,8 +708,8 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
           aria-expanded={previewOpen}
         >
           <span>
-            Preview — the full system prompt AI receives
-            {dirty && <span className="ml-2 font-mono text-[10px] font-normal text-amber-700">(from unsaved draft)</span>}
+            Preview — the full system prompt AI will receive{' '}
+            <span className="font-mono text-[10px] font-normal text-amber-700">(from unsaved draft)</span>
           </span>
           <span className="font-mono text-[10px] text-slate-500">
             {preview.composed.length.toLocaleString()} chars · {previewOpen ? '▾ hide' : '▸ show'}
@@ -647,45 +719,25 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
           <div className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3" data-preview-body>
             <p className="text-[11px] text-slate-500">
               The AI drafter composes every call from three parts.
-              Blue is <strong>your policy</strong> — what you edit here (plus the BP digest + section rules from the Doc Type Policies tab).
+              Blue is <strong>your policy</strong> (SME prompt + BP digest + section rules).
               Grey is <strong>fixed scaffolding</strong> — product guardrails the admin can't change.
             </p>
-
-            {/* A — fixed scaffolding (grey) */}
-            <PreviewBlock
-              tone="scaffolding"
-              label="A · System scaffolding (fixed — product guardrails)"
-              text={preview.scaffolding}
-            />
-
-            {/* B — the policy block (blue). Empty state when the policy
-                has no SME prompt / digest / rules. */}
+            <PreviewBlock tone="scaffolding" label="A · System scaffolding (fixed — product guardrails)" text={preview.scaffolding} />
             <PreviewBlock
               tone="policy"
               label={preview.policyBlock
                 ? 'B · Your policy block (SME prompt + BP digest + section rules)'
                 : 'B · Your policy block — EMPTY (nothing added to the system prompt yet)'}
-              text={preview.policyBlock || '(Add an SME prompt above, or add a BP digest / section rules on the Doc Type Policies tab, for this block to carry anything.)'}
+              text={preview.policyBlock || '(Add an SME prompt above, parse section rules, or add a BP digest on the Doc Type Policies tab.)'}
               muted={!preview.policyBlock}
             />
-
-            {/* C — per-call user turn (grey, representative) */}
-            <PreviewBlock
-              tone="scaffolding"
-              label="C · Per-call user turn (filled in by the API at request time)"
-              text={preview.userTurn}
-            />
-
-            <div className="flex items-center justify-between border-t border-slate-200 pt-2">
-              <p className="text-[11px] text-slate-500">
-                Policy block render mirrors the API&apos;s <code>renderPolicyPromptBlock</code> character-for-character
-                (parity-tested on the worker side).
-              </p>
+            <PreviewBlock tone="scaffolding" label="C · Per-call user turn (filled in by the API at request time)" text={preview.userTurn} />
+            <div className="flex items-center justify-end border-t border-slate-200 pt-2">
               <button
                 type="button"
                 onClick={() => navigator.clipboard?.writeText(preview.composed).then(
                   () => setActionInfo('Full composed prompt copied.'),
-                  ()  => setActionError('Could not copy to clipboard.'),
+                  () => setActionError('Could not copy to clipboard.'),
                 )}
                 className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
                 data-action="copy-preview"
@@ -697,60 +749,22 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
         )}
       </section>
 
-      {!needsBump && (
-        <div className="flex items-center justify-end gap-2" data-footer-actions>
-          {actionButtons}
-        </div>
-      )}
+      <div className="flex justify-end">
+        <button
+          type="button"
+          onClick={() => { if (confirm('Discard this draft? The approved version is unaffected.')) retire.mutate() }}
+          disabled={retire.isPending}
+          className="text-[11px] font-semibold text-rose-700 hover:text-rose-900 disabled:opacity-50"
+          data-action="discard-draft"
+        >
+          Discard draft
+        </button>
+      </div>
 
-      {needsBump && (
-        <div className="rounded-md border border-amber-300 bg-amber-50 p-3" data-bump-form>
-          <p className="text-[12px] text-amber-900">
-            This prompt is already used by at least one document, so saving it as an edit would
-            change what AI sees for documents that were drafted against the current version.
-            Save your change as a <strong>new version</strong> — older documents keep using the
-            prompt they were drafted with. Add a short reason (goes on the audit trail):
-          </p>
-          <textarea
-            value={bumpReason}
-            onChange={e => setBumpReason(e.currentTarget.value)}
-            rows={2}
-            placeholder="e.g. Updated endpoint wording after sponsor review."
-            className="mt-2 w-full rounded-md border border-amber-300 px-3 py-2 text-[13px]"
-            data-field="bump-reason"
-          />
-          <div className="mt-2 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={() => { setNeedsBump(false); setBumpReason('') }}
-              className="rounded-md border border-slate-300 bg-white px-3 py-1 text-[12px] text-slate-700"
-              data-action="bump-cancel"
-            >
-              Cancel
-            </button>
-            <button
-              type="button"
-              onClick={() => bump.mutate()}
-              disabled={bump.isPending || !bumpReason.trim() || !trimmed || !aiReady}
-              title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
-              className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-              data-action="bump-confirm"
-            >
-              {bump.isPending ? 'Saving new version…' : 'Save as new version'}
-            </button>
-          </div>
-        </div>
-      )}
-
-      {/* Parsed-rules review modal — opens when Extract succeeds.
-          Shows each section's rules as severity-tagged chips (not raw
-          JSON). Save persists to policy.sectionRules; a 409 version-
-          in-use flips into a bump prompt that re-posts the whole body
-          with the new rules + existing smePrompt / digest / pins. */}
       {parseReviewOpen && parsedRules && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
-          onClick={() => !saveRules.isPending && !bumpWithRules.isPending && setParseReviewOpen(false)}
+          onClick={() => setParseReviewOpen(false)}
           data-modal="parsed-rules-review"
         >
           <div
@@ -760,16 +774,14 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
             <header className="border-b border-slate-200 px-5 py-3">
               <h2 className="text-[16px] font-semibold text-slate-900">AI-parsed section rules</h2>
               <p className="mt-0.5 text-[12px] text-slate-500">
-                Review what Claude pulled from the SME prompt. Saving replaces the policy's
-                <code className="mx-1 rounded bg-slate-100 px-1 font-mono text-[10px]">sectionRules</code>
-                field. Existing rules for sections not listed below are dropped.
+                Review what Claude pulled from the SME prompt. Clicking <strong>Merge into draft</strong> replaces
+                the draft's section rules; existing rules for sections not listed below are dropped.
               </p>
             </header>
             <div className="flex-1 overflow-y-auto px-5 py-4">
               {Object.keys(parsedRules).length === 0 ? (
                 <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-[13px] italic text-slate-500">
-                  AI found no per-section rules in this SME prompt. Saving will clear any existing rules —
-                  cancel if you want to keep the ones already stored.
+                  AI found no per-section rules in this SME prompt — merging will clear any existing rules.
                 </p>
               ) : (
                 <ul className="flex flex-col gap-3">
@@ -792,73 +804,39 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
                   ))}
                 </ul>
               )}
-
-              {rulesNeedBump && (
-                <div className="mt-4 rounded-md border border-amber-300 bg-amber-50 p-3">
-                  <p className="text-[12px] text-amber-900">
-                    This policy version is already pinned by at least one document — saving these
-                    rules in place would change what AI sees for those docs. Save as a
-                    <strong> new version</strong> instead. Add a short reason (goes on the audit trail):
-                  </p>
-                  <textarea
-                    value={rulesBumpReason}
-                    onChange={e => setRulesBumpReason(e.currentTarget.value)}
-                    rows={2}
-                    placeholder="e.g. Added section-level guidance extracted from sponsor SME input."
-                    className="mt-2 w-full rounded-md border border-amber-300 px-3 py-2 text-[13px]"
-                    data-field="rules-bump-reason"
-                  />
-                </div>
-              )}
             </div>
             <footer className="flex justify-end gap-2 border-t border-slate-200 px-5 py-3">
               <button
                 type="button"
-                onClick={() => { setParseReviewOpen(false); setRulesNeedBump(false); setRulesBumpReason('') }}
-                disabled={saveRules.isPending || bumpWithRules.isPending}
-                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                onClick={() => setParseReviewOpen(false)}
+                className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50"
                 data-action="parsed-rules-cancel"
               >
                 Cancel
               </button>
-              {!rulesNeedBump ? (
-                <button
-                  type="button"
-                  onClick={() => saveRules.mutate()}
-                  disabled={saveRules.isPending || !aiReady}
-                  title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
-                  className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-                  data-action="parsed-rules-save"
-                >
-                  {saveRules.isPending ? 'Saving…' : 'Save to policy'}
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => bumpWithRules.mutate()}
-                  disabled={bumpWithRules.isPending || !rulesBumpReason.trim() || !aiReady}
-                  title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
-                  className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-                  data-action="parsed-rules-bump"
-                >
-                  {bumpWithRules.isPending ? 'Saving new version…' : 'Save as new version'}
-                </button>
-              )}
+              <button
+                type="button"
+                onClick={applyParsedRules}
+                className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
+                data-action="parsed-rules-merge"
+              >
+                Merge into draft
+              </button>
             </footer>
           </div>
         </div>
       )}
-    </div>
+    </section>
   )
 }
 
 // ---- new --------------------------------------------------------------
 
 function NewPromptForm({
-  aiReady, taken, onCreated, onCancel,
+  aiReady, takenApproved, onCreated, onCancel,
 }: {
-  aiReady:  boolean
-  taken:    string[]
+  aiReady:       boolean
+  takenApproved: string[]
   onCreated: (docType: string) => void
   onCancel?: () => void
 }) {
@@ -866,7 +844,7 @@ function NewPromptForm({
   const [smePrompt, setSmePrompt] = useState('')
   const [error,     setError]     = useState<string | null>(null)
   const create = useMutation({
-    mutationFn: () => platformApi.createDocumentTypePolicy({
+    mutationFn: () => platformApi.createAiPromptDraft({
       docType:   docType.trim().replace(/-/g, '_'),
       smePrompt: smePrompt.trim(),
     }),
@@ -876,7 +854,10 @@ function NewPromptForm({
   return (
     <div className="flex h-full flex-col gap-3 p-4" data-new-prompt>
       <p className="text-[12px] text-slate-500">
-        Pick a doc type and paste the SME prompt. Doc types that already have a prompt are greyed out; edit those from the list.
+        Pick a doc type and paste the SME prompt. Creating here starts a <strong>draft</strong> —
+        it won't reach AI until you approve it on the editor panel. Doc types that already have an
+        approved prompt are still allowed (the draft becomes the next pending version); types with
+        a pending draft are greyed out.
       </p>
       {error && <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{error}</p>}
       <select
@@ -888,11 +869,11 @@ function NewPromptForm({
       >
         <option value="" disabled>Select a doc type</option>
         {DOC_TYPES.map(type => {
-          const value  = type.replace(/-/g, '_')
-          const exists = taken.includes(value)
+          const value   = type.replace(/-/g, '_')
+          const hasApproved = takenApproved.includes(value)
           return (
-            <option key={value} value={value} disabled={exists} className="text-slate-900">
-              {documentTypeLabel(type)}{exists ? ' — prompt exists' : ''}
+            <option key={value} value={value} className="text-slate-900">
+              {documentTypeLabel(type)}{hasApproved ? ' — new version' : ''}
             </option>
           )
         })}
@@ -925,16 +906,13 @@ function NewPromptForm({
           className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
           data-action="create-prompt"
         >
-          {create.isPending ? 'Creating…' : 'Create prompt'}
+          {create.isPending ? 'Starting draft…' : 'Start draft'}
         </button>
       </div>
     </div>
   )
 }
 
-// One section of the composed-prompt preview. Blue background = policy
-// (user-owned); grey = system scaffolding (admin can't change). `muted`
-// greys out the text itself when the block is an empty-state hint.
 function PreviewBlock({
   tone, label, text, muted = false,
 }: {

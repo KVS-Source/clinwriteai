@@ -44,32 +44,57 @@ interface PrismaLike {
     findUnique(args: { where: { docType_version: { docType: string; version: number } } }): Promise<unknown>
     findFirst(args: { where: { docType: string; isCurrent: boolean; retiredAt: null } }): Promise<unknown>
   }
+  aiPromptRecord: {
+    findUnique(args: { where: { id: string } }): Promise<unknown>
+    findFirst(args: { where: { docType: string; status: 'approved' }; orderBy: { version: 'desc' } }): Promise<unknown>
+  }
 }
 
-/** Mirror of apps/api resolveForDocument. Pinned version first, else
- *  current policy for the doc type. Doc type is normalised to the
- *  underscored canonical form (ADR 0001). */
+/** Mirror of apps/api resolveForDocument.
+ *
+ *  Resolution precedence (first match wins):
+ *    1. Document has aiPromptRecordId pinned → load THAT exact row.
+ *    2. Latest approved AiPromptRecord for this docType.
+ *    3. DocumentTypePolicy pinned by policyVersionAtCreate.
+ *    4. Current DocumentTypePolicy for the docType.
+ *
+ *  BP digest still rides on the policy row for Phase 1. */
 export async function resolveForDocument(
   prisma: PrismaLike,
-  args:   { docType: string; policyVersionAtCreate: number | null },
+  args:   {
+    docType:                string
+    policyVersionAtCreate:  number | null
+    aiPromptRecordId?:      string | null
+  },
 ): Promise<PolicyRowForAi | null> {
   const docType = args.docType.replace(/-/g, '_')
-  const row = args.policyVersionAtCreate !== null
+
+  const promptRaw = args.aiPromptRecordId
+    ? await prisma.aiPromptRecord.findUnique({ where: { id: args.aiPromptRecordId } })
+    : await prisma.aiPromptRecord.findFirst({
+        where:   { docType, status: 'approved' },
+        orderBy: { version: 'desc' },
+      })
+  const promptRow = promptRaw ? (promptRaw as Record<string, unknown>) : null
+
+  const policyRaw = args.policyVersionAtCreate !== null
     ? await prisma.documentTypePolicy.findUnique({
         where: { docType_version: { docType, version: args.policyVersionAtCreate } },
       })
     : await prisma.documentTypePolicy.findFirst({
         where: { docType, isCurrent: true, retiredAt: null },
       })
-  if (!row) return null
-  const r = row as Record<string, unknown>
+  const policyRow = policyRaw ? (policyRaw as Record<string, unknown>) : null
+
+  if (!promptRow && !policyRow) return null
+
   return {
-    id:                 String(r.id),
-    docType:            String(r.docType),
-    version:            Number(r.version),
-    smePrompt:          String(r.smePrompt ?? ''),
-    bestPracticeDigest: (r.bestPracticeDigest as PolicyDigest)         ?? { principles: [] },
-    sectionRules:       (r.sectionRules       as PolicySectionRules)   ?? {},
+    id:                 String(promptRow?.id        ?? policyRow!.id),
+    docType:            String(promptRow?.docType   ?? policyRow!.docType),
+    version:            Number(promptRow?.version   ?? policyRow!.version),
+    smePrompt:          String(promptRow?.smePrompt ?? policyRow?.smePrompt ?? ''),
+    bestPracticeDigest: (policyRow?.bestPracticeDigest as PolicyDigest)                                       ?? { principles: [] },
+    sectionRules:       ((promptRow?.sectionRules ?? policyRow?.sectionRules) as PolicySectionRules)          ?? {},
   }
 }
 

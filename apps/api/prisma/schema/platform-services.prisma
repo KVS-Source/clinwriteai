@@ -154,6 +154,53 @@ model DocumentTypePolicy {
 }
 
 // --------------------------------------------------------------------------
+// AI Prompt — first-class versioned entity (migration 73, Phase 1 of the
+// pointer refactor). Carries the SME prompt + parsed section rules per
+// doc type with an explicit draft → approved → retired workflow:
+//
+//   Admin edits a 'draft' row without affecting any document already in
+//   flight. 'Approve' promotes the row to 'approved'; the previous
+//   approved row of the same docType flips to 'retired' + supersededBy
+//   points to the new one. Documents pin an aiPromptRecordId at create
+//   time so later approvals don't rewrite history (Document columns
+//   added in the same migration).
+//
+// DocumentTypePolicy.smePrompt + .sectionRules stay in place for now as
+// a backfill-safe read path; Phase 3 drops them once the AI assembly
+// has been fully migrated.
+// --------------------------------------------------------------------------
+
+model AiPromptRecord {
+  id             String    @id @default(uuid())
+  docType        String                                                // 'protocol' | 'csr_full' | …
+  version        Int                                                   // 1-based, unique per docType
+  status         String    @default("draft")                           // 'draft' | 'approved' | 'retired'
+
+  smePrompt      String
+  sectionRules   Json      @default("{}")                              // { <sectionKey>: [{severity,text}] }
+
+  // Chain pointer: on approve, the previously-approved row of the same
+  // docType is set to status='retired' + supersededBy = new row id.
+  supersededBy   String?
+  // When this row became the 'approved' one; also set on first direct approve.
+  effectiveDate  DateTime?
+  retiredAt      DateTime?
+  retireReason   String?
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("ai_prompt_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+// --------------------------------------------------------------------------
 // Notifications — in-app + email + SMS fan-out
 // --------------------------------------------------------------------------
 

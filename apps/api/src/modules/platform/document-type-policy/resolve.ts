@@ -39,29 +39,67 @@ export interface PolicyRowForAi {
   sectionRules:       SectionRules
 }
 
-/** Read the policy that applies to a document. Pinned version first,
- *  else current. Doc type is normalised to the underscored canonical
- *  form (ADR 0001) to match the write path. */
+/** Read the rule-set that applies to a document for AI assembly.
+ *
+ *  Resolution precedence (first match wins):
+ *    1. Document has aiPromptRecordId pinned → load THAT exact row. Keeps
+ *       smePrompt + sectionRules frozen even after admins approve newer
+ *       AI prompt versions. (Pin added in migration 73.)
+ *    2. Latest approved AiPromptRecord for this docType. Phase-1 default
+ *       for documents created after the pointer refactor. BP digest still
+ *       comes from the policy row (Phase 2 promotes BP separately).
+ *    3. DocumentTypePolicy pinned by policyVersionAtCreate → legacy path
+ *       for documents created before migration 73.
+ *    4. Current DocumentTypePolicy for the docType → bare fallback for
+ *       documents that predate even the policy pin (migration 65).
+ *
+ *  Null return → the caller falls back to the built-in prompts.
+ *
+ *  The identity of the returned `PolicyRowForAi` is: smePrompt + rules from
+ *  (1)/(2) if either hits, else from (3)/(4). The `version` + `id` fields
+ *  reflect whichever source they came from so audit + the preview panel
+ *  still render meaningful labels. */
 export async function resolveForDocument(
   prisma: PrismaClient,
-  args: { docType: string; policyVersionAtCreate: number | null },
+  args: {
+    docType:                 string
+    policyVersionAtCreate:   number | null
+    aiPromptRecordId?:       string | null               // migration 73 pin on Document
+  },
 ): Promise<PolicyRowForAi | null> {
   const docType = args.docType.replace(/-/g, '_')
-  const row = args.policyVersionAtCreate !== null
+
+  // 1 + 2: try the AiPromptRecord path first.
+  const promptRow = args.aiPromptRecordId
+    ? await prisma.aiPromptRecord.findUnique({ where: { id: args.aiPromptRecordId } })
+    : await prisma.aiPromptRecord.findFirst({
+        where:   { docType, status: 'approved' },
+        orderBy: { version: 'desc' },
+      })
+
+  // BP digest still rides on DocumentTypePolicy for Phase 1. Load the
+  // relevant policy row so the drafter still sees whole-doc principles +
+  // (where no AiPromptRecord-sourced rules exist) the policy's own
+  // sectionRules.
+  const policyRow = args.policyVersionAtCreate !== null
     ? await prisma.documentTypePolicy.findUnique({
         where: { docType_version: { docType, version: args.policyVersionAtCreate } },
       })
     : await prisma.documentTypePolicy.findFirst({
         where: { docType, isCurrent: true, retiredAt: null },
       })
-  if (!row) return null
+
+  if (!promptRow && !policyRow) return null
+
+  // Prefer the AiPromptRecord's smePrompt + sectionRules when present.
+  // Fall back to the policy row for the legacy shape.
   return {
-    id:                 row.id,
-    docType:            row.docType,
-    version:            row.version,
-    smePrompt:          row.smePrompt,
-    bestPracticeDigest: (row.bestPracticeDigest as unknown as BestPracticeDigest) ?? { principles: [] },
-    sectionRules:       (row.sectionRules       as unknown as SectionRules)       ?? {},
+    id:                 promptRow?.id        ?? policyRow!.id,
+    docType:            promptRow?.docType   ?? policyRow!.docType,
+    version:            promptRow?.version   ?? policyRow!.version,
+    smePrompt:          promptRow?.smePrompt ?? policyRow?.smePrompt ?? '',
+    bestPracticeDigest: (policyRow?.bestPracticeDigest as unknown as BestPracticeDigest) ?? { principles: [] },
+    sectionRules:       ((promptRow?.sectionRules ?? policyRow?.sectionRules) as unknown as SectionRules) ?? {},
   }
 }
 

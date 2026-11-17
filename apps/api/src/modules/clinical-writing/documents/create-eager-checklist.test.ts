@@ -63,6 +63,12 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
     documentTypePolicy: {
       findFirst: vi.fn(async () => null),
     },
+    // Phase-1 pointer refactor (migration 73): the create route now
+    // probes AiPromptRecord for a latest-approved row to pin on the
+    // Document. Null leaves the Document unpinned.
+    aiPromptRecord: {
+      findFirst: vi.fn(async () => null),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)

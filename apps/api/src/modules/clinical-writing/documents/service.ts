@@ -62,6 +62,15 @@ export interface CreateDocumentArgs {
    *  AI assembly for this doc keeps resolving against the version it was
    *  authored under. Null when no policy exists for the doc type. */
   policyVersionAtCreate?: number
+  /** Latest-approved AiPromptRecord.id for the doc type at creation time.
+   *  Phase-1 pin (migration 73). AI assembly reads THIS exact row so later
+   *  prompt-admin approvals don't rewrite how this doc gets drafted. Null
+   *  when no approved AiPromptRecord exists for the doc type yet. */
+  aiPromptRecordId?: string
+  /** AiPromptRecord.version at the time of pin — audit convenience so
+   *  the preview panel + history view can label the row without an extra
+   *  join. Must match the version of `aiPromptRecordId`. */
+  aiPromptVersionAtCreate?: number
 }
 
 export class DocumentService {
@@ -81,6 +90,8 @@ export class DocumentService {
           targetCompletionDate: args.targetCompletionDate ?? null,
           aiInstructions: args.aiInstructions ?? null,
           policyVersionAtCreate: args.policyVersionAtCreate ?? null,
+          aiPromptRecordId:       args.aiPromptRecordId       ?? null,
+          aiPromptVersionAtCreate: args.aiPromptVersionAtCreate ?? null,
           status: 'not_started',
           stage: 'study_start_up',
         },

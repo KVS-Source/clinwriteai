@@ -46,6 +46,7 @@ async function build(opts: {
       findUnique: vi.fn(async () => ({
         id: 'DOC-1', projectId: 'proj-1', type: 'protocol',
         policyVersionAtCreate: opts.policyVersionAtCreate ?? null,
+        aiPromptRecordId:      null,
         aiInstructions:        opts.aiInstructions        ?? null,
         deletedAt:             null,
         currentVersion: { sections },
@@ -61,6 +62,14 @@ async function build(opts: {
     documentTypePolicy: {
       findUnique: vi.fn(async () => opts.policyPinned ?? null),
       findFirst:  vi.fn(async () => opts.policyCurrent ?? null),
+    },
+    // Phase-1 pointer refactor (migration 73): resolver reads
+    // AiPromptRecord first. Tests here exercise the policy fallback so
+    // both lookups return null — the resolver falls through to the
+    // policy row.
+    aiPromptRecord: {
+      findUnique: vi.fn(async () => null),
+      findFirst:  vi.fn(async () => null),
     },
   } as never)
   app.decorate('audit', { append: vi.fn() } as never)

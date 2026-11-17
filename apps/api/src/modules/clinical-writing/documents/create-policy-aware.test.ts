@@ -74,6 +74,14 @@ async function build(opts: { policy?: PolicyRow | null } = {}) {
         return opts.policy ?? null
       }),
     },
+    // Phase-1 pointer refactor (migration 73): create route resolves
+    // the latest-approved AiPromptRecord for the docType. These tests
+    // don't exercise the pin path, so return null — the Document
+    // leaves aiPromptRecordId null and AI assembly falls back to the
+    // policy row's smePrompt.
+    aiPromptRecord: {
+      findFirst: vi.fn(async () => null),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)

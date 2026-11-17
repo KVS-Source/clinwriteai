@@ -76,6 +76,12 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
     documentTypePolicy: {
       findFirst: vi.fn(async () => null),
     },
+    // Phase-1 pointer refactor (migration 73): create route resolves
+    // the latest-approved AiPromptRecord. Returning null leaves the
+    // Document unpinned — AI falls back to the policy row's smePrompt.
+    aiPromptRecord: {
+      findFirst: vi.fn(async () => null),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: audit } as never)

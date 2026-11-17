@@ -45,6 +45,20 @@ model Publication {
   updatedAt            DateTime  @updatedAt
   deletedAt            DateTime?
 
+  // ---- Policy pins (migration 75, Phase M-B.1) ----
+  // Mirror of Module A Document's policyVersionAtCreate /
+  // aiPromptRecordId / bestPracticeRecordId pins. Captured when the
+  // publication is created so later admin approvals of newer
+  // AiPromptRecord / BestPracticeRecord versions don't retroactively
+  // change what AI sees for this manuscript. The resolver (built in
+  // Phase M-B.4) falls back to the current approved record when these
+  // are null — same shape as clinical writing.
+  pubTypePolicyVersionAtCreate Int?      @map("pub_type_policy_version_at_create")
+  publicationAiPromptRecordId  String?   @map("publication_ai_prompt_record_id")
+  publicationAiPromptVersionAtCreate Int? @map("publication_ai_prompt_version_at_create")
+  publicationBestPracticeRecordId        String?  @map("publication_best_practice_record_id")
+  publicationBestPracticeVersionAtCreate Int?     @map("publication_best_practice_version_at_create")
+
   aiFootprintSpans     AiFootprintSpan[]
   citations            Citation[]
   authors              PublicationAuthor[]
@@ -436,4 +450,159 @@ model Journal {
   @@map("journals")
   @@index([scope])
   @@index([isICMJE])
+}
+
+// --------------------------------------------------------------------------
+// Publication Policies — Phase M-B.1 (migration 75).
+//
+// Mirror of Module A's pointer-refactor architecture
+// (DocumentTypePolicy + AiPromptRecord + BestPracticeRecord). Keeps
+// Module A and B independently evolvable. Policy types use flat slugs
+// per subtype decision: 'manuscript_full_research',
+// 'manuscript_review_systematic', 'manuscript_review_narrative',
+// 'manuscript_case_report', 'abstract', 'poster', 'letter', 'pls'.
+// --------------------------------------------------------------------------
+
+model PublicationTypePolicy {
+  id                       String    @id @default(uuid())
+  docType                  String                                           // flat slug — see header
+  version                  Int                                              // 1-based, unique per docType
+  isCurrent                Boolean   @default(true)                         // flipped on bump + retire
+
+  // Pins to the three asset tables. Nullable when no asset is wired yet.
+  templateId               String?                                          // PublicationTemplate.id (pin override)
+  checklistTemplateId      String?                                          // PublicationChecklistTemplate.id (pin override)
+  guidelineKey             String?                                          // CONSORT | STROBE | PRISMA | MOOSE | ICMJE_RECOMMENDATIONS | …
+
+  // Legacy mirror fields — same role as DocumentTypePolicy.smePrompt /
+  // bestPracticeDigest / sectionRules: fallback for documents created
+  // before any approved AiPromptRecord / BestPracticeRecord for this
+  // docType exists. Dropped in Phase 3 of the pointer refactor once
+  // readers have migrated.
+  smePrompt                String    @default("")
+  bestPracticeDigest       Json      @default("{\"principles\":[]}")
+  sectionRules             Json      @default("{}")
+
+  effectiveDate            DateTime  @default(now())
+  retiredAt                DateTime?
+  retiredBy                String?
+  retireReason             String?
+  supersededBy             String?
+
+  createdBy                String
+  updatedBy                String
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@map("publication_type_policies")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
+}
+
+model PublicationAiPromptRecord {
+  id             String    @id @default(uuid())
+  docType        String                                                    // same slugs as PublicationTypePolicy
+  version        Int                                                       // 1-based, unique per docType
+  status         String    @default("draft")                               // 'draft' | 'approved' | 'retired'
+
+  smePrompt      String
+  sectionRules   Json      @default("{}")                                  // { <sectionKey>: [{severity, text}] }
+
+  supersededBy   String?
+  effectiveDate  DateTime?
+  retiredAt      DateTime?
+  retireReason   String?
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("publication_ai_prompt_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+model PublicationBestPracticeRecord {
+  id             String    @id @default(uuid())
+  docType        String                                                    // same slugs as PublicationTypePolicy
+  version        Int                                                       // 1-based, unique per docType
+  status         String    @default("draft")                               // 'draft' | 'approved' | 'retired'
+
+  digest         Json      @default("{\"principles\":[]}")                 // { principles: [{ scope, severity, text }] }
+  sourcePdfId    String?                                                   // DocumentUpload.id that produced this digest
+  distilledAt    DateTime?
+  distilledModel String?
+
+  supersededBy   String?
+  effectiveDate  DateTime?
+  retiredAt      DateTime?
+  retireReason   String?
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("publication_best_practice_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+model PublicationTemplate {
+  id             String    @id @default(uuid())
+  docType        String                                                    // same slugs as PublicationTypePolicy
+  version        Int       @default(1)
+  isCurrent      Boolean   @default(true)
+  label          String
+  description    String    @default("")
+
+  // sections: Array<{ id, number, title, instructions?, guidance?,
+  //                   requiredMinChars?, journalHint? }>
+  // id is the stable section key stored on PublicationSectionContent
+  // once Phase M-B.2 lands.
+  sections       Json      @default("[]")
+
+  retiredAt      DateTime?
+  retiredBy      String?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("publication_templates")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
+}
+
+model PublicationChecklistTemplate {
+  id             String    @id @default(uuid())
+  docType        String                                                    // same slugs
+  version        Int       @default(1)
+  isCurrent      Boolean   @default(true)
+
+  // items: Array<{ id, label, required, groupId, helpText? }>
+  // groupId matches SubmissionCheck group vocab (format / words /
+  // equator / figures / statements / plagiarism / refs) so UI can
+  // render consistent columns.
+  items          Json      @default("[]")
+
+  retiredAt      DateTime?
+  retiredBy      String?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("publication_checklist_templates")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
 }

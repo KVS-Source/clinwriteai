@@ -39,13 +39,17 @@ export interface Tab {
 // the atomic tools).
 // Also read by the top bar, which shows "Master Library / <active tab>" as its breadcrumb.
 export const MASTER_LIBRARY_TABS: Tab[] = [
-  { slug: 'documents',      label: 'Master Documents' },
-  { slug: 'best-practices', label: 'Best Practices'  },
-  { slug: 'templates',      label: 'Templates'       },
-  { slug: 'ai-prompts',     label: 'AI Prompts'      },
-  { slug: 'checklists',     label: 'Checklists'      },
-  { slug: 'ich-frameworks', label: 'ICH Frameworks'  },
-  { slug: 'policies',       label: 'Doc Type Policies' },
+  { slug: 'documents',             label: 'Master Documents' },
+  { slug: 'best-practices',        label: 'Best Practices'  },
+  { slug: 'templates',             label: 'Templates'       },
+  { slug: 'ai-prompts',            label: 'AI Prompts'      },
+  { slug: 'checklists',            label: 'Checklists'      },
+  { slug: 'ich-frameworks',        label: 'ICH Frameworks'  },
+  { slug: 'policies',              label: 'Doc Type Policies' },
+  // Phase M-B.1 — mirror of Doc Type Policies for Module B (manuscripts,
+  // abstracts, posters, reviews, letters, PLS). PM-only writes; reads
+  // allowed for any authed user so contributors can see what's wired.
+  { slug: 'publication-policies',  label: 'Publication Policies' },
 ]
 
 // Master Documents lists documents only (sections are pulled from inside them).
@@ -71,6 +75,7 @@ function useTabCounts(): Partial<Record<string, number>> {
   const enabled = useQuery({ queryKey: ['library-enabled-modules'], queryFn: () => platformApi.getEnabledModules(), retry: false, staleTime: 5 * 60_000 })
   const templates = useQuery({ queryKey: ['document-templates-admin'], queryFn: () => platformApi.listDocumentTemplatesAdmin(), ...opts })
   const policies = useQuery({ queryKey: ['document-type-policies'], queryFn: () => platformApi.listDocumentTypePolicies(), ...opts })
+  const pubPolicies = useQuery({ queryKey: ['publication-type-policies'], queryFn: () => platformApi.listPublicationTypePolicies(), ...opts })
   const checklists = useQuery({ queryKey: ['checklist-templates'], queryFn: () => documentsApi.listChecklistTemplates(), ...opts })
   const frameworks = useQuery({ queryKey: ['regulatory-frameworks'], queryFn: () => platformApi.listFrameworks(), ...opts })
   return {
@@ -84,6 +89,7 @@ function useTabCounts(): Partial<Record<string, number>> {
     checklists:       Array.isArray(checklists.data) ? new Set(checklists.data.map(c => `${c.deliverableType}|${c.projectId ?? ''}`)).size : undefined,
     'ich-frameworks': countOf(frameworks.data),
     policies:         countOf(policies.data?.policies),
+    'publication-policies': countOf(pubPolicies.data?.policies),
   }
 }
 

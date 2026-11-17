@@ -564,6 +564,64 @@ export const platformApi = {
     api.post<BestPracticeRecord>(`/best-practice-records/${encodeURIComponent(id)}/approve`, {}),
   retireBestPractice: (id: string, reason: string) =>
     api.post<BestPracticeRecord>(`/best-practice-records/${encodeURIComponent(id)}/retire`, { reason }),
+
+  // --- Publication (Module B) policy stack — Phase M-B.1 (migration 75) ---
+  listPublicationTypePolicies: () =>
+    api.get<{ policies: PublicationTypePolicy[] }>(`/publication-type-policies`),
+  getPublicationTypePolicy: async (docType: string): Promise<PublicationTypePolicy | null> => {
+    try {
+      return await api.get<PublicationTypePolicy>(`/publication-type-policies/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  createPublicationTypePolicy: (body: PublicationTypePolicyCreateBody) =>
+    api.post<PublicationTypePolicy>(`/publication-type-policies`, body),
+  updatePublicationTypePolicy: (docType: string, body: PublicationTypePolicyPatchBody) =>
+    api.patch<PublicationTypePolicy>(`/publication-type-policies/${encodeURIComponent(docType)}`, body),
+  retirePublicationTypePolicy: (docType: string, reason: string) =>
+    api.post<PublicationTypePolicy>(`/publication-type-policies/${encodeURIComponent(docType)}/retire`, { reason }),
+
+  listPublicationAiPrompts: () =>
+    api.get<{ prompts: PublicationAiPromptRecord[] }>(`/publication-ai-prompts`),
+  getPublicationAiPrompt: async (docType: string): Promise<PublicationAiPromptRecord | null> => {
+    try {
+      return await api.get<PublicationAiPromptRecord>(`/publication-ai-prompts/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  listPublicationAiPromptVersions: (docType: string) =>
+    api.get<{ versions: PublicationAiPromptRecord[] }>(`/publication-ai-prompts/${encodeURIComponent(docType)}/versions`),
+  createPublicationAiPromptDraft: (body: PublicationAiPromptCreateBody) =>
+    api.post<PublicationAiPromptRecord>(`/publication-ai-prompts`, body),
+  updatePublicationAiPromptDraft: (id: string, body: PublicationAiPromptPatchBody) =>
+    api.patch<PublicationAiPromptRecord>(`/publication-ai-prompts/${encodeURIComponent(id)}`, body),
+  approvePublicationAiPrompt: (id: string) =>
+    api.post<PublicationAiPromptRecord>(`/publication-ai-prompts/${encodeURIComponent(id)}/approve`, {}),
+  retirePublicationAiPrompt: (id: string, reason: string) =>
+    api.post<PublicationAiPromptRecord>(`/publication-ai-prompts/${encodeURIComponent(id)}/retire`, { reason }),
+
+  listPublicationBestPracticeRecords: () =>
+    api.get<{ records: PublicationBestPracticeRecord[] }>(`/publication-best-practice-records`),
+  getPublicationBestPracticeRecord: async (docType: string): Promise<PublicationBestPracticeRecord | null> => {
+    try {
+      return await api.get<PublicationBestPracticeRecord>(`/publication-best-practice-records/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  listPublicationBestPracticeVersions: (docType: string) =>
+    api.get<{ versions: PublicationBestPracticeRecord[] }>(`/publication-best-practice-records/${encodeURIComponent(docType)}/versions`),
+  updatePublicationBestPracticeDraft: (id: string, body: PublicationBestPracticePatchBody) =>
+    api.patch<PublicationBestPracticeRecord>(`/publication-best-practice-records/${encodeURIComponent(id)}`, body),
+  approvePublicationBestPractice: (id: string) =>
+    api.post<PublicationBestPracticeRecord>(`/publication-best-practice-records/${encodeURIComponent(id)}/approve`, {}),
+  retirePublicationBestPractice: (id: string, reason: string) =>
+    api.post<PublicationBestPracticeRecord>(`/publication-best-practice-records/${encodeURIComponent(id)}/retire`, { reason }),
   // One-shot admin upload for the Best Practices parser: pick a PDF,
   // the server stores it as a platform DocumentUpload (projectId=null,
   // sourceCategory='best_practice') AND enqueues distillation in the
@@ -819,6 +877,101 @@ export interface BestPracticeRecord {
 }
 
 export interface BestPracticePatchBody {
+  digest?: BestPracticeDigestShape
+}
+
+// --- Publication (Module B) policy stack — Phase M-B.1 (migration 75) ---
+// Mirror shapes of DocumentTypePolicy / AiPromptRecord / BestPracticeRecord
+// scoped to publication doctypes. Admin tab lives at
+// /master-library/publication-policies.
+export interface PublicationTypePolicy {
+  id:                   string
+  docType:              string
+  version:              number
+  isCurrent:            boolean
+  templateId:           string | null
+  checklistTemplateId:  string | null
+  guidelineKey:         string | null
+  smePrompt:            string
+  bestPracticeDigest:   unknown
+  sectionRules:         unknown
+  effectiveDate:        string
+  retiredAt:            string | null
+  retiredBy:            string | null
+  retireReason:         string | null
+  supersededBy:         string | null
+  createdBy:            string
+  updatedBy:            string
+  createdAt:            string
+  updatedAt:            string
+}
+
+export interface PublicationTypePolicyCreateBody {
+  docType:              string
+  smePrompt:            string
+  bestPracticeDigest?:  unknown
+  sectionRules?:        Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+  templateId?:          string | null
+  checklistTemplateId?: string | null
+  guidelineKey?:        string | null
+}
+
+export type PublicationTypePolicyPatchBody = Omit<PublicationTypePolicyCreateBody, 'docType' | 'smePrompt'> & {
+  smePrompt?: string
+}
+
+export interface PublicationAiPromptRecord {
+  id:            string
+  docType:       string
+  version:       number
+  status:        AiPromptStatus
+  smePrompt:     string
+  sectionRules:  unknown
+  supersededBy:  string | null
+  effectiveDate: string | null
+  retiredAt:     string | null
+  retireReason:  string | null
+  approvedBy:    string | null
+  approvedAt:    string | null
+  createdBy:     string
+  updatedBy:     string
+  createdAt:     string
+  updatedAt:     string
+}
+
+export interface PublicationAiPromptCreateBody {
+  docType:       string
+  smePrompt:     string
+  sectionRules?: AiPromptSectionRules
+}
+
+export interface PublicationAiPromptPatchBody {
+  smePrompt?:    string
+  sectionRules?: AiPromptSectionRules
+}
+
+export interface PublicationBestPracticeRecord {
+  id:             string
+  docType:        string
+  version:        number
+  status:         BestPracticeStatus
+  digest:         BestPracticeDigestShape
+  sourcePdfId:    string | null
+  distilledAt:    string | null
+  distilledModel: string | null
+  supersededBy:   string | null
+  effectiveDate:  string | null
+  retiredAt:      string | null
+  retireReason:   string | null
+  approvedBy:     string | null
+  approvedAt:     string | null
+  createdBy:      string
+  updatedBy:      string
+  createdAt:      string
+  updatedAt:      string
+}
+
+export interface PublicationBestPracticePatchBody {
   digest?: BestPracticeDigestShape
 }
 

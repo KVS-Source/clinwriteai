@@ -195,6 +195,11 @@ function PolicyEditor({ policy, aiReady, onChanged }: { policy: DocumentTypePoli
   const [actionInfo,          setActionInfo]          = useState<string | null>(null)
   const [bumpReason,          setBumpReason]          = useState('')
   const [bumpOpen,            setBumpOpen]            = useState(false)
+  // Overrides panel starts open when any pin is already set on the row,
+  // so admins who've explicitly overridden assets see their state first.
+  const [showOverrides,       setShowOverrides]       = useState(
+    !!(policy.templateId || policy.checklistTemplateId || policy.ichFramework),
+  )
 
   const rulesParse = useMemo(() => parseSectionRules(sectionRulesText), [sectionRulesText])
   const rulesOk    = 'ok' in rulesParse
@@ -392,35 +397,128 @@ function PolicyEditor({ policy, aiReady, onChanged }: { policy: DocumentTypePoli
         />
       </Field>
 
-      <div className="grid grid-cols-3 gap-3">
-        <Field label="Template id" help="Default template pinned on new docs of this type.">
-          <input
-            type="text"
-            value={templateId}
-            onChange={e => setTemplateId(e.currentTarget.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-[12px]"
-            data-field="template-id"
+      <section className="flex flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 p-3" data-applied-assets>
+        <header className="flex items-baseline justify-between">
+          <div>
+            <p className="text-[12px] font-semibold text-slate-800">Applied assets</p>
+            <p className="text-[11px] text-slate-500">
+              Template + Checklist auto-match the current asset tagged with <span className="font-mono">{policy.docType}</span> in the Templates / Checklists tabs.
+              Override here only when you need a specific non-current asset.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => setShowOverrides(v => !v)}
+            className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+            data-action="toggle-overrides"
+          >
+            {showOverrides ? 'Hide overrides' : 'Override…'}
+          </button>
+        </header>
+
+        <div className="grid grid-cols-3 gap-3">
+          <AssetChip
+            label="Template"
+            auto={policy.resolved?.template.auto
+              ? `${policy.resolved.template.auto.label} · v${policy.resolved.template.auto.version}`
+              : null}
+            pinned={policy.resolved?.template.pinned
+              ? `${policy.resolved.template.pinned.label} · v${policy.resolved.template.pinned.version}`
+              : null}
+            effective={policy.resolved?.template.effective ?? 'none'}
+            manageHref="/master-library/templates"
           />
-        </Field>
-        <Field label="Checklist template id" help="Default checklist pinned on new docs.">
-          <input
-            type="text"
-            value={checklistTemplateId}
-            onChange={e => setChecklistTemplateId(e.currentTarget.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-[12px]"
-            data-field="checklist-template-id"
+          <AssetChip
+            label="Checklist"
+            auto={policy.resolved?.checklist.auto
+              ? `v${policy.resolved.checklist.auto.version}`
+              : null}
+            pinned={policy.resolved?.checklist.pinned
+              ? `v${policy.resolved.checklist.pinned.version}`
+              : null}
+            effective={policy.resolved?.checklist.effective ?? 'none'}
+            manageHref="/master-library/checklists"
           />
-        </Field>
-        <Field label="ICH framework" help="e.g. 'ICH E3', 'ICH E6(R3)'.">
-          <input
-            type="text"
-            value={ichFramework}
-            onChange={e => setIchFramework(e.currentTarget.value)}
-            className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-[13px]"
-            data-field="ich-framework"
+          <AssetChip
+            label="ICH framework"
+            auto={null}
+            pinned={ichFramework || null}
+            effective={ichFramework ? 'pinned' : 'none'}
+            manageHref="/master-library/ich-frameworks"
           />
-        </Field>
+        </div>
+
+        {showOverrides && (
+          <div className="grid grid-cols-3 gap-3 border-t border-slate-200 pt-3" data-overrides-panel>
+            <Field label="Template id override" help="Leave blank to use the auto-matched current template.">
+              <input
+                type="text"
+                value={templateId}
+                onChange={e => setTemplateId(e.currentTarget.value)}
+                placeholder="(auto)"
+                className="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-[12px]"
+                data-field="template-id"
+              />
+            </Field>
+            <Field label="Checklist template id override" help="Leave blank for the platform baseline.">
+              <input
+                type="text"
+                value={checklistTemplateId}
+                onChange={e => setChecklistTemplateId(e.currentTarget.value)}
+                placeholder="(auto)"
+                className="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-[12px]"
+                data-field="checklist-template-id"
+              />
+            </Field>
+            <Field label="ICH framework" help="e.g. 'ICH E3', 'ICH E6(R3)'. No auto-match; pick manually from the ICH tab's catalogue.">
+              <input
+                type="text"
+                value={ichFramework}
+                onChange={e => setIchFramework(e.currentTarget.value)}
+                placeholder="ICH E3"
+                className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-[13px]"
+                data-field="ich-framework"
+              />
+            </Field>
+          </div>
+        )}
+      </section>
+    </div>
+  )
+}
+
+// Small helper — shows the auto-match or override state for a dependent
+// asset with a link back to the tab where the asset actually lives.
+function AssetChip({
+  label, auto, pinned, effective, manageHref,
+}: {
+  label:       string
+  auto:        string | null
+  pinned:      string | null
+  effective:   'auto' | 'pinned' | 'none'
+  manageHref:  string
+}) {
+  const [stateLabel, stateTone] =
+    effective === 'pinned' ? ['Overridden', 'bg-amber-100 text-amber-800']  as const :
+    effective === 'auto'   ? ['Auto-matched', 'bg-emerald-100 text-emerald-800'] as const :
+                             ['None', 'bg-slate-100 text-slate-700'] as const
+  const value = effective === 'pinned' ? pinned : effective === 'auto' ? auto : null
+  return (
+    <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-white p-3" data-asset-chip={label}>
+      <div className="flex items-center justify-between">
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
+        <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${stateTone}`}>{stateLabel}</span>
       </div>
+      <p className="text-[13px] font-semibold text-slate-800" data-asset-value>
+        {value ?? <span className="italic font-normal text-slate-400">No asset for this doc type yet</span>}
+      </p>
+      <a
+        href={manageHref}
+        className="text-[11px] font-semibold text-blue-700 hover:underline"
+        data-asset-manage-href={manageHref}
+      >
+        Manage in {label}s tab →
+      </a>
     </div>
   )
 }

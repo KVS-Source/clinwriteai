@@ -1,7 +1,7 @@
 import { THERAPEUTIC_AREA_LABEL } from '../../utils/labels'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useTaLabels } from '../../hooks'
-import { useMutation, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type {
   PublicationType, ReportingGuideline, CreatePublicationBody,
@@ -9,6 +9,37 @@ import type {
 import { publicationsApi } from '../../api'
 import { ApiError } from '../../api/client'
 import { usePlatformStore } from '../../platform/store'
+import { platformApi, type PublicationTypePolicy } from '../../platform/api/platformApi'
+
+// Phase M-B.6 — policy-aware wizard. Each PublicationTypePolicy
+// configured in Master Library drives a type card. The policy's
+// guidelineKey (CONSORT / STROBE / PRISMA / MOOSE / …) pre-selects
+// the reporting guideline step, and the policy's templateId pin
+// previews the section outline the create flow will seed.
+
+// Split a flat docType slug into (type, subtype) for the existing
+// create-body shape: 'manuscript_full_research' → type='manuscript',
+// subtype='full_research'. Single-segment slugs ('abstract',
+// 'poster', 'letter', 'pls') carry no subtype.
+function splitDocType(slug: string): { type: string; subtype?: string } {
+  const idx = slug.indexOf('_')
+  if (idx < 0) return { type: slug }
+  return { type: slug.slice(0, idx), subtype: slug.slice(idx + 1) }
+}
+
+function humanDocTypeLabel(slug: string): { label: string; sub: string } {
+  switch (slug) {
+    case 'manuscript_full_research':      return { label: 'Manuscript — Full research',      sub: 'Original research article' }
+    case 'manuscript_review_systematic':  return { label: 'Manuscript — Systematic review',  sub: 'Systematic review / meta-analysis' }
+    case 'manuscript_review_narrative':   return { label: 'Manuscript — Narrative review',   sub: 'Narrative / scoping review' }
+    case 'manuscript_case_report':        return { label: 'Manuscript — Case report',        sub: 'Single-patient case report' }
+    case 'abstract':                      return { label: 'Congress abstract',               sub: 'Oral / poster abstract' }
+    case 'poster':                        return { label: 'Congress poster',                 sub: 'Scientific congress poster' }
+    case 'letter':                        return { label: 'Letter / editorial',              sub: 'Commentary / response' }
+    case 'pls':                           return { label: 'Plain-language summary',          sub: 'Lay audience summary' }
+    default:                              return { label: slug.replace(/_/g, ' '),           sub: slug }
+  }
+}
 
 // --- Static config ---
 
@@ -162,6 +193,47 @@ export function NewPublicationWizard({ onClose }: WizardProps = {}) {
   const [keyMessage, setKeyMessage]       = useState('')
   const [inviteOpen, setInviteOpen]       = useState(false)
   const [inviteEmail, setInviteEmail]     = useState('')
+
+  // Phase M-B.6 — policy-aware type selector. Admins configure a
+  // PublicationTypePolicy per docType in Master Library; the wizard
+  // offers only configured types + preselects their pinned guideline.
+  // When no policies exist yet, the wizard falls back to the hardcoded
+  // TYPE_CARDS so the flow still works end-to-end.
+  const policiesQ = useQuery({
+    queryKey: ['publication-type-policies-wizard'],
+    queryFn:  () => platformApi.listPublicationTypePolicies(),
+  })
+  const policies = policiesQ.data?.policies ?? []
+  const [selectedDocType, setSelectedDocType] = useState<string | null>(null)
+  const selectedPolicy: PublicationTypePolicy | null = useMemo(
+    () => policies.find(p => p.docType === selectedDocType) ?? null,
+    [policies, selectedDocType],
+  )
+
+  // When a policy is picked, split its docType slug back into the
+  // (type, subtype) shape the existing create route expects, and
+  // auto-set the reporting guideline from the pinned guidelineKey.
+  useEffect(() => {
+    if (!selectedPolicy) return
+    const { type: t, subtype: st } = splitDocType(selectedPolicy.docType)
+    if (t === 'manuscript' || t === 'abstract' || t === 'poster' || t === 'letter' || t === 'pls'
+        || t === 'review' || t === 'plain-language-summary') {
+      setType(t as PublicationType)
+    }
+    if (st) {
+      if (st === 'original' || st === 'review' || st === 'case') setSubtype(st as ManuscriptSubtype)
+      else if (st === 'full_research')     setSubtype('original')
+      else if (st.includes('review'))      setSubtype('review')
+      else if (st.includes('case'))        setSubtype('case')
+    }
+    // Policy guideline wins when set.
+    if (selectedPolicy.guidelineKey) {
+      const key = selectedPolicy.guidelineKey as ReportingGuideline
+      if (key === 'CONSORT' || key === 'STROBE' || key === 'PRISMA' || key === 'CARE') {
+        setGuideline(key)
+      }
+    }
+  }, [selectedPolicy])
 
   const baaRequired = type === 'manuscript' && subtype === 'case'
   const baaBlocked  = baaRequired && baa === 'contact'
@@ -468,14 +540,104 @@ export function NewPublicationWizard({ onClose }: WizardProps = {}) {
           {step === 2 && (
             <div className="flex flex-col gap-5" data-step-body={2}>
               <p className="text-[17px] font-bold text-slate-900">What are you creating?</p>
+
+              {/* Phase M-B.6 — surface configured policies as the first-
+                  class choice. Each policy preselects its pinned guideline
+                  and (when a template is pinned) seeds the matching
+                  section outline on the new publication. Falls back to
+                  the legacy TYPE_CARDS when nothing is configured yet. */}
+              {policies.length > 0 && (
+                <section
+                  className="flex flex-col gap-3"
+                  style={{ backgroundColor: '#F0FDFA', border: '1px solid #0D9488', borderRadius: 8, padding: '14px 16px' }}
+                  data-configured-policies
+                >
+                  <div className="flex items-center justify-between">
+                    <p className="font-mono text-[10px] font-semibold uppercase tracking-widest" style={{ color: '#0F766E' }}>
+                      Configured publication types ({policies.length})
+                    </p>
+                    <p className="font-mono text-[10px]" style={{ color: '#64748B' }}>
+                      From Master Library · Publication Policies
+                    </p>
+                  </div>
+                  <div className="grid gap-2" style={{ gridTemplateColumns: '1fr 1fr' }}>
+                    {policies.map(p => {
+                      const active = selectedDocType === p.docType
+                      const meta   = humanDocTypeLabel(p.docType)
+                      return (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => setSelectedDocType(p.docType)}
+                          data-configured-type-card={p.docType}
+                          data-active={active || undefined}
+                          className="flex flex-col gap-1 text-left transition-colors"
+                          style={{
+                            padding:         12,
+                            borderRadius:    6,
+                            backgroundColor: active ? '#FFFFFF' : '#FFFFFF',
+                            border:          active ? '2px solid #0D9488' : '1px solid #99F6E4',
+                          }}
+                        >
+                          <span className="font-mono text-[9px] font-medium uppercase tracking-widest" style={{ color: active ? '#0F766E' : '#64748B' }}>
+                            {p.docType}
+                          </span>
+                          <span className="text-[13px] font-bold text-slate-900">{meta.label}</span>
+                          <span className="text-[11px] text-slate-500">{meta.sub}</span>
+                          <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+                            {p.guidelineKey && (
+                              <span className="rounded-full bg-indigo-100 px-2 py-0.5 font-mono font-semibold text-indigo-800">
+                                {p.guidelineKey}
+                              </span>
+                            )}
+                            {p.templateId && (
+                              <span className="rounded-full bg-sky-100 px-2 py-0.5 font-mono font-semibold text-sky-800">
+                                template pinned
+                              </span>
+                            )}
+                            {p.checklistTemplateId && (
+                              <span className="rounded-full bg-emerald-100 px-2 py-0.5 font-mono font-semibold text-emerald-800">
+                                checklist pinned
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      )
+                    })}
+                  </div>
+                  {selectedPolicy && (
+                    <p className="font-mono text-[10px]" style={{ color: '#0F766E' }}>
+                      Selected policy v{selectedPolicy.version}
+                      {selectedPolicy.guidelineKey ? ` · guideline ${selectedPolicy.guidelineKey} will be pinned on the new publication.` : '.'}
+                    </p>
+                  )}
+                </section>
+              )}
+
+              {policies.length === 0 && !policiesQ.isLoading && (
+                <section
+                  className="rounded-md border p-3 text-[12px]"
+                  style={{ backgroundColor: '#FFFBEB', borderColor: '#FDE68A', color: '#B45309' }}
+                  data-no-policies
+                >
+                  No publication type policies configured yet. The wizard falls back to the legacy
+                  type cards below, but the AI drafter + validation loop will use the policy's
+                  legacy columns only (no approved AI prompt / BP record will be pinned). Configure
+                  policies in <strong>Master Library → Publication Policies</strong>.
+                </section>
+              )}
+
+              <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+                {policies.length > 0 ? 'Or pick a legacy type (no policy)' : 'Legacy publication types'}
+              </p>
               <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr' }}>
                 {TYPE_CARDS.map(card => {
-                  const active = type === card.id
+                  const active = !selectedDocType && type === card.id
                   return (
                     <button
                       key={card.id}
                       type="button"
-                      onClick={() => setType(card.id)}
+                      onClick={() => { setSelectedDocType(null); setType(card.id) }}
                       data-type-card={card.id}
                       data-active={active || undefined}
                       className="flex items-start gap-3 text-left transition-colors"

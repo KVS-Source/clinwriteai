@@ -140,12 +140,22 @@ describe('POST /library/:id/share', () => {
     expect(t.append).not.toHaveBeenCalled()
   })
 
-  it('PM and Contributor may share; Auditor, QC and IT admin may not', async () => {
-    for (const [role, code] of [['pm', 200], ['contributor', 200], ['auditor', 403], ['qc', 403], ['tenant-admin', 403]] as Array<[Role, number]>) {
+  it('only a Project Manager may share; Contributor, Auditor, QC and IT admin get 403 and nothing is sent', async () => {
+    for (const [role, code] of [['pm', 200], ['contributor', 403], ['auditor', 403], ['qc', 403], ['tenant-admin', 403]] as Array<[Role, number]>) {
       const t = await setup({ role })
       expect((await share(t.app, ['raj@x.io'])).statusCode, role).toBe(code)
       await closeApp()
     }
+  })
+
+  it('a Contributor’s share is refused before anything happens: no notification, invitation, email or audit entry', async () => {
+    const t = await setup({ role: 'contributor' })
+    const res = await share(t.app, ['raj@x.io', 'ceo@acme.com'])
+    expect(res.statusCode).toBe(403)
+    expect(t.send).not.toHaveBeenCalled()
+    expect(t.shares).toHaveLength(0)
+    expect(t.mails).toHaveLength(0)
+    expect(t.append).not.toHaveBeenCalled()
   })
 
   it('an uploaded document (no source document) is audited on the library entry', async () => {

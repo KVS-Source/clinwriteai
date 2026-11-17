@@ -1,6 +1,6 @@
 // Master Library "Share" (2026-11-13).
 //
-// Who may share: a Project Manager or a Contributor (the writers and reviewers). Auditor, QC and IT Admin can't.
+// Who may share: a Project Manager only (SME decision, 2026-11-17). Contributor, Auditor, QC and IT Admin can't.
 //
 // Who it can go to — any email address:
 //   - a colleague with an active account in the sharer's organisation who can open the Master Library gets an
@@ -23,7 +23,7 @@
 // local account is still active. Today only local accounts are checked.
 //
 // Routes:
-//   POST /library/:id/share                 (signed in: PM or Contributor)
+//   POST /library/:id/share                 (signed in: Project Manager only)
 //   GET  /shared-library/:token             (public) what was shared, by whom, to which (masked) address
 //   POST /shared-library/:token/code        (public) email a one-time code to the invited address
 //   POST /shared-library/:token/verify      (public) check the code; returns a viewing session
@@ -48,7 +48,7 @@ export const SESSION_HOURS = 8                 // how long a verified reader can
 
 // Account roles that can open the Master Library in the app (IT Admin can't; guests are outsiders).
 const LIBRARY_ROLES = new Set(['pm', 'contributor', 'auditor', 'qc'])
-const SHARER_ROLES = ['pm', 'contributor'] as const
+const SHARER_ROLES = ['pm'] as const
 const INACTIVE = new Set(['suspended', 'deprovisioned'])
 
 const sha256 = (s: string) => createHash('sha256').update(s).digest('hex')

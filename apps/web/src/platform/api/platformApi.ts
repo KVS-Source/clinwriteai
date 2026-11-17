@@ -252,7 +252,7 @@ export const platformApi = {
     api.upload<MasterLibraryItem>('/library/upload', form),
   getLibraryItem: (itemId: string) =>
     api.get<MasterLibraryItem>(`/library/${itemId}`),
-  // A Project Manager or Contributor shares a Master Document by email. Colleagues get a notification; anyone
+  // A Project Manager (only) shares a Master Document by email. Colleagues get a notification; anyone
   // else (no account) gets an invitation whose link opens the document only after an emailed one-time code.
   shareLibraryItem: (itemId: string, emails: string[]) =>
     api.post<{ shared: Array<{ email: string; kind: 'user' | 'invite'; name?: string }>; failed: string[] }>(`/library/${encodeURIComponent(itemId)}/share`, { emails }),

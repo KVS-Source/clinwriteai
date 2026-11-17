@@ -32,6 +32,7 @@ import { actorManagesProject } from '../../projects/project-managers.js'
 import { DocumentService, hashSections } from './service.js'
 import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock } from '../../platform/document-type-policy/resolve.js'
+import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { stubAllowed } from '../../platform/ai-gateway/service.js'
 import { assignReviewOrder, reviewersWhoseTurnItIs } from '../../platform/document-raci/review-order.js'
@@ -420,15 +421,26 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
 
     // DocumentTypePolicy lookup — one row per doc type carrying the SME
     // prompt, best-practice digest, section rules, and the preferred
-    // templateId / checklistTemplateId. When present, its templateId acts
-    // as the default pick if the caller didn't pass one. The policy
-    // version is pinned on the Document so later bumps don't rewrite
-    // which rules this document was authored under. Policy docType uses
-    // the underscored canonical form (ADR 0001); documents may still
-    // arrive hyphenated from legacy clients.
+    // templateId / checklistTemplateId. Resolution order for the template
+    // (2026-11-10 auto-match):
+    //   1. caller's explicit templateId
+    //   2. policy's explicit pin (admin overrode)
+    //   3. auto-matched template whose `type == policy.docType` (no pin
+    //      needed — admins maintain templates in their own tab and the
+    //      wizard picks up the current one automatically)
+    //   4. undefined (no template seeded)
+    // Policy version is pinned on the Document so later bumps don't
+    // rewrite which rules this document was authored under.
     const policyDocType = parsed.data.type.replace(/-/g, '_')
     const policy = await policySvc.getCurrent(policyDocType)
-    const effectiveTemplateId = parsed.data.templateId ?? policy?.templateId ?? undefined
+    const resolved = policy
+      ? await resolvePolicyAssets(app.prisma, policy)
+      : null
+    const effectiveTemplateId =
+      parsed.data.templateId
+      ?? policy?.templateId
+      ?? resolved?.template.auto?.id
+      ?? undefined
 
     const { document, version } = await svc.create({
       projectId,

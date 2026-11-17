@@ -51,8 +51,15 @@ const MEANING_KEY: Record<ChainRecord['meaning'], string> = {
   acknowledged: 'page.e_signature.meaning_acknowledged',
 }
 
-// A grouped chain signs Authors, then Reviewers, then Approvers, then Informed.
+// A grouped chain signs Authors, then Reviewers, then Approvers, then Informed. An approvers_first chain
+// signs every Approver first, then Authors, Reviewers and Informed together (one group, shown by role).
 const GROUP_ORDER: Array<ChainRecord['meaning']> = ['authored', 'reviewed', 'approved', 'acknowledged']
+const APPROVERS_FIRST_ORDER: Array<ChainRecord['meaning']> = ['approved', 'authored', 'reviewed', 'acknowledged']
+const isGroupChain = (chainType: SignatureChain['chainType']) => chainType === 'grouped' || chainType === 'approvers_first'
+const displayOrder = (chainType: SignatureChain['chainType']) => (chainType === 'approvers_first' ? APPROVERS_FIRST_ORDER : GROUP_ORDER)
+// The signing group of a meaning (0 = first to sign).
+const signingGroupOf = (chainType: SignatureChain['chainType'], meaning: ChainRecord['meaning']) =>
+  chainType === 'approvers_first' ? (meaning === 'approved' ? 0 : 1) : GROUP_ORDER.indexOf(meaning)
 const GROUP_NAME_KEY: Record<ChainRecord['meaning'], string> = {
   authored: 'page.e_signature.group_authored',
   reviewed: 'page.e_signature.group_reviewed',
@@ -61,6 +68,7 @@ const GROUP_NAME_KEY: Record<ChainRecord['meaning'], string> = {
 }
 const CHAIN_LABEL_KEY: Record<SignatureChain['chainType'], string> = {
   grouped: 'page.e_signature.chain_grouped',
+  approvers_first: 'page.e_signature.chain_approvers_first',
   sequential: 'page.e_signature.chain_sequential',
   parallel: 'page.e_signature.chain_parallel',
 }
@@ -268,11 +276,14 @@ function PendingPanel({ record, previous, state, waitingOn }: { record: ChainRec
 
 // "Waiting on" for a person in a later group of a grouped chain: who in the nearest earlier group is yet to sign.
 function groupedWaitingOn(chainType: SignatureChain['chainType'], records: ChainRecord[], record: ChainRecord): string | undefined {
-  if (chainType !== 'grouped') return undefined
-  const mine = GROUP_ORDER.indexOf(record.meaning)
+  if (!isGroupChain(chainType)) return undefined
+  const mine = signingGroupOf(chainType, record.meaning)
   for (let g = mine - 1; g >= 0; g--) {
-    const unsigned = records.filter(r => GROUP_ORDER.indexOf(r.meaning) === g && r.status !== 'signed')
-    if (unsigned.length > 0) return i18n.t('page.e_signature.waiting_on_group', { group: i18n.t(GROUP_NAME_KEY[GROUP_ORDER[g]!]), names: unsigned.map(r => r.signerName).join(', ') })
+    const unsigned = records.filter(r => signingGroupOf(chainType, r.meaning) === g && r.status !== 'signed')
+    if (unsigned.length === 0) continue
+    // In an approvers_first chain the only earlier group is the Approvers.
+    const groupName = chainType === 'approvers_first' ? GROUP_NAME_KEY.approved : GROUP_NAME_KEY[GROUP_ORDER[g]!]
+    return i18n.t('page.e_signature.waiting_on_group', { group: i18n.t(groupName), names: unsigned.map(r => r.signerName).join(', ') })
   }
   return undefined
 }
@@ -698,14 +709,14 @@ export function ESignature() {
                 <MonoLabel>{t('page.e_signature.chain_label', { type: CHAIN_LABEL_KEY[chain.chainType] ? t(CHAIN_LABEL_KEY[chain.chainType]) : chain.chainType })}</MonoLabel>
                 <p className="text-xs text-slate-500">{t('page.e_signature.select_hint')}</p>
               </div>
-              {/* A grouped chain shows each role in its own labelled section; other chains keep their signing order. */}
-              {(chain.chainType === 'grouped'
-                ? GROUP_ORDER.map(meaning => ({ meaning: meaning as ChainRecord['meaning'] | null, rows: records.map((record, i) => ({ record, i })).filter(r => r.record.meaning === meaning) }))
+              {/* A group chain shows each role in its own labelled section; other chains keep their signing order. */}
+              {(isGroupChain(chain.chainType)
+                ? displayOrder(chain.chainType).map(meaning => ({ meaning: meaning as ChainRecord['meaning'] | null, rows: records.map((record, i) => ({ record, i })).filter(r => r.record.meaning === meaning) }))
                 : [{ meaning: null, rows: records.map((record, i) => ({ record, i })) }]
               ).filter(group => group.rows.length > 0).map(group => {
                 const rows = group.rows.map(({ record, i }) => (
                   <SignerRow
-                    grouped={chain.chainType === 'grouped'}
+                    grouped={isGroupChain(chain.chainType)}
                     key={record.id}
                     record={record}
                     state={states[i]}

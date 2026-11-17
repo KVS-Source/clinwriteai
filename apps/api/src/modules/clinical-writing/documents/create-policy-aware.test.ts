@@ -61,7 +61,13 @@ async function build(opts: { policy?: PolicyRow | null } = {}) {
       findFirst: vi.fn(async () => null),
       create:    vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({ id: 'raci-1', ...data })),
     },
-    documentTemplate: { findFirst: vi.fn(async () => null) },
+    // resolvePolicyAssets queries both templates (findUnique for a pinned
+    // id, findFirst for the auto-match by docType). Return null from each
+    // so the resolver reports effective='none' — this test suite only
+    // cares about the raw pin ↔ caller-override precedence, not the
+    // auto-match fallback.
+    documentTemplate:  { findUnique: vi.fn(async () => null), findFirst: vi.fn(async () => null) },
+    checklistTemplate: { findUnique: vi.fn(async () => null), findFirst: vi.fn(async () => null) },
     documentTypePolicy: {
       findFirst: vi.fn(async (arg: { where: Record<string, unknown> }) => {
         policyLookups.push(arg.where)

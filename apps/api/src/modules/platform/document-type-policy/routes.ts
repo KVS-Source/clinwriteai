@@ -26,6 +26,7 @@ import {
   digestOf,
   sectionRulesOf,
 } from './service.js'
+import { resolvePolicyAssets } from './resolve-assets.js'
 
 const MAX_BP_PDF_BYTES = 50 * 1024 * 1024    // 50 MB — same ceiling as source uploads
 
@@ -114,18 +115,27 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
     return app.aiGateway.isConfigured(engine.default)
   }
 
-  // GET /document-type-policies — list every current policy
+  // GET /document-type-policies — list every current policy.
+  // Each policy's response carries `resolved: { template, checklist }`
+  // so the admin UI can render auto-match chips without a separate
+  // per-row query. See resolve-assets.ts for the matching rules.
   app.get('/', { preHandler: readGate }, async () => {
     const rows = await svc.listAllCurrent()
-    return { policies: rows.map(r => shape(r as PolicyRow)) }
+    const policies = await Promise.all(rows.map(async r => ({
+      ...shape(r as PolicyRow),
+      resolved: await resolvePolicyAssets(app.prisma, r as PolicyRow),
+    })))
+    return { policies }
   })
 
-  // GET /document-type-policies/:docType — current policy for a doc type
+  // GET /document-type-policies/:docType — current policy for a doc type.
+  // Response shape includes `resolved` (see list route above).
   app.get('/:docType', { preHandler: readGate }, async (request, reply) => {
     const { docType } = request.params as { docType: string }
     const row = await svc.getCurrent(docType)
     if (!row) return reply.code(404).send({ error: 'not_found', message: `No current policy for '${docType}'` })
-    return shape(row as PolicyRow)
+    const resolved = await resolvePolicyAssets(app.prisma, row as PolicyRow)
+    return { ...shape(row as PolicyRow), resolved }
   })
 
   // GET /document-type-policies/:docType/versions — full history

@@ -66,6 +66,14 @@ const LETTER_TO_CAPABILITY: Record<RaciLetter, Capability | null> = {
 
 export const VALID_LETTERS: ReadonlyArray<RaciLetter> = ['R', 'A', 'C', 'I', 'Q']
 
+/**
+ * Letters one person may hold together on a document. Otherwise it's one letter per person: an Author (R) can't
+ * approve or QC their own work. A Reviewer (C) may also be an Approver (A): they review first, then approve.
+ * The web picker (RaciEditor) follows the same rule.
+ */
+export const canHoldTogether = (a: string, b: string) =>
+  (a === 'A' && b === 'C') || (a === 'C' && b === 'A')
+
 export async function validateRaciInsert(
   prisma: PrismaClient,
   input: RaciInsertInput,
@@ -131,8 +139,8 @@ export async function validateRaciInsert(
   })
 
   for (const existing of existingRows) {
-    // Rule 2: no two letters on the same (doc, user, section).
-    if (existing.sectionId === input.sectionId && existing.letter !== input.letter) {
+    // Rule 2: no two letters on the same (doc, user, section) — except a Reviewer (C) who is also an Approver (A).
+    if (existing.sectionId === input.sectionId && existing.letter !== input.letter && !canHoldTogether(existing.letter, input.letter)) {
       return {
         ok: false,
         failure: { kind: 'duplicate_letter_on_section', existingLetter: existing.letter as RaciLetter },

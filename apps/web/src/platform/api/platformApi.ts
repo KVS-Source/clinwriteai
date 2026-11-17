@@ -597,6 +597,25 @@ export interface AiReadiness {
   setupPath:     string            // e.g. '/admin' — where the CTA sends the admin
 }
 
+// Auto-match ↔ explicit pin resolution for a policy's dependent assets.
+// `auto`   → asset of the same docType the system found on its own
+// `pinned` → the asset the admin explicitly overrode to (via policy.templateId etc.)
+// `effective` → which one wins ('pinned' > 'auto' > 'none')
+export interface ResolvedTemplateAsset {
+  auto:      { id: string; label: string; version: number } | null
+  pinned:    { id: string; label: string; version: number } | null
+  effective: 'auto' | 'pinned' | 'none'
+}
+export interface ResolvedChecklistAsset {
+  auto:      { id: string; version: number } | null
+  pinned:    { id: string; version: number } | null
+  effective: 'auto' | 'pinned' | 'none'
+}
+export interface ResolvedPolicyAssets {
+  template:  ResolvedTemplateAsset
+  checklist: ResolvedChecklistAsset
+}
+
 export interface DocumentTypePolicy {
   id:                  string
   docType:             string
@@ -617,6 +636,10 @@ export interface DocumentTypePolicy {
   updatedBy:           string
   createdAt:           string
   updatedAt:           string
+  // Populated by the GET routes — the admin editor renders chips from
+  // this instead of asking the user to type template/checklist ids
+  // manually. Null-safe for older API builds that don't include it.
+  resolved?:           ResolvedPolicyAssets
 }
 
 // Shared body shape. `sectionRules` matches the API's Zod

@@ -114,6 +114,17 @@ async function build(opts: {
     document: {
       count: vi.fn(async () => opts.docCount ?? 0),
     },
+    // resolvePolicyAssets runs on every GET to populate the `resolved` field;
+    // return null from both helpers so the route reports effective='none' and
+    // these legacy tests keep asserting against the raw shape.
+    documentTemplate: {
+      findUnique: vi.fn(async () => null),
+      findFirst:  vi.fn(async () => null),
+    },
+    checklistTemplate: {
+      findUnique: vi.fn(async () => null),
+      findFirst:  vi.fn(async () => null),
+    },
     $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn((app as unknown as { prisma: unknown }).prisma)),
   } as never)
   app.decorate('audit', { append: audit } as never)

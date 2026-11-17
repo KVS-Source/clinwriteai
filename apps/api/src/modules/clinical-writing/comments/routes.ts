@@ -173,7 +173,8 @@ function renderAuditPdf(title: string, documentId: string, entries: ShapedAuditE
   })
 }
 
-function auditEntryShape(row: AuditRow, actorName: string | undefined) {
+// Exported: the Master Library details panel shows the same readable entries (library/audit-trail.ts).
+export function auditEntryShape(row: AuditRow, actorName: string | undefined) {
   const actor = actorName ?? (row.actorId.startsWith('system') ? 'System' : row.actorId)
   const isAi = row.action === 'ai_draft_accepted'
   return {

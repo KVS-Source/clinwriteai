@@ -1816,6 +1816,28 @@ export interface MasterLibraryShareRecord {
   sharedAt:   string
 }
 
+/** One row of a Master Library document's Audit trail (GET /library/:id/audit): the source document's own trail
+ *  plus the library entry's, newest first. Only what the panel shows — no raw details, IPs, hashes or tokens. */
+export interface MasterLibraryAuditEntry {
+  /** ISO 8601 UTC. */
+  timestamp: string
+  /** Who did it ("System" for automatic entries). */
+  actor:     string
+  /** Raw action name (e.g. 'library_document_shared'), for the label when there is no eventType. */
+  action:    string
+  /** Same event types as the Clinical Writing Audit Trail panel; null when it has no badge for the action. */
+  eventType: AuditEntry['eventType'] | null
+  /** Readable detail, as in the Clinical Writing Audit Trail panel. */
+  detail:    string
+}
+
+export interface MasterLibraryAuditPage {
+  entries: MasterLibraryAuditEntry[]
+  total:   number
+  limit:   number
+  offset:  number
+}
+
 export interface BestPractice {
   id:                 string
   module:             ModuleKey

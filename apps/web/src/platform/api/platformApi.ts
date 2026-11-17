@@ -3,7 +3,7 @@ import { api, ApiError } from '../../api/client'
 import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
   PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, MasterLibraryItem,
-  MasterLibraryShareRecord, BestPractice,
+  MasterLibraryShareRecord, MasterLibraryAuditPage, BestPractice,
   AuditTrailEntry, RateCard, Subscription, ReportDefinition,
   ModuleHealthScore, TATag, RegulatoryFramework, SlideDeckJob, Slide,
   PlatformClient, PlatformAnalytics,
@@ -259,6 +259,9 @@ export const platformApi = {
   // Everyone the document has ever been shared with, by whom and when (newest first, permanent).
   listLibraryItemShares: (itemId: string) =>
     api.get<MasterLibraryShareRecord[]>(`/library/${encodeURIComponent(itemId)}/shares`),
+  // The document's whole audit trail (source document + library entry), newest first, a page at a time. Read-only.
+  listLibraryItemAudit: (itemId: string, offset = 0, limit = 50) =>
+    api.get<MasterLibraryAuditPage>(`/library/${encodeURIComponent(itemId)}/audit?limit=${limit}&offset=${offset}`),
   // Records that a section was pulled into a document (usage count + audit).
   adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/adopt`, body),

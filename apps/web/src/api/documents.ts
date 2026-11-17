@@ -334,6 +334,8 @@ export const documentsApi = {
       // Approval cycle (CW-029): who authored this draft, and whether the caller may approve it.
       draftAuthors?: string[]
       canApprove?: boolean
+      // Whether the caller may change this template (Project Managers only; everyone else reads).
+      canEdit?: boolean
       items: Array<{
         id: string
         text: string

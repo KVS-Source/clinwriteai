@@ -238,7 +238,16 @@ describe('POST /checklist-templates/:id/approve — approval cycle (CW-029)', ()
     const author = await build('pm-a')
     expect((await author.app.inject({ method: 'GET', url: '/checklist-templates/tpl-2' })).json()).toMatchObject({ canApprove: false, createdByName: 'Alex Thornton', draftAuthors: ['Alex Thornton', 'pm-c'] })
     const other = await build('pm-b')
-    expect((await other.app.inject({ method: 'GET', url: '/checklist-templates/tpl-2' })).json()).toMatchObject({ canApprove: true })
+    expect((await other.app.inject({ method: 'GET', url: '/checklist-templates/tpl-2' })).json()).toMatchObject({ canApprove: true, canEdit: true })
+  })
+
+  it('lets a Contributor read a template (Master Library › Checklists) but not change or approve it', async () => {
+    const { app } = await build('reviewer')
+    const res = await app.inject({ method: 'GET', url: '/checklist-templates/tpl-2' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toMatchObject({ canEdit: false, canApprove: false })
+    expect((await app.inject({ method: 'POST', url: '/checklist-templates/tpl-2/approve', payload: {} })).statusCode).toBe(403)
+    expect((await app.inject({ method: 'POST', url: '/checklist-templates/tpl-2/bump-draft', payload: {} })).statusCode).toBe(403)
   })
 })
 

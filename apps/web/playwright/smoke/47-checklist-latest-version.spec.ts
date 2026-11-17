@@ -55,3 +55,40 @@ test('one row per checklist at its latest version; older ones in the version his
   await page.locator('[data-template-version-row="1"]').last().click()
   await expect(page.locator('[data-template-row="csr-old-3"]')).toHaveAttribute('data-template-active', 'true')   // the list row stays highlighted
 })
+
+// QA bug: a Contributor opening Master Library › Checklists saw "Failed to load templates" (the API refused every
+// read to non-PMs). Everyone may read the templates; only PMs get the buttons that change them.
+test('a Contributor sees the checklists read-only (no approve, new draft, project override or add item)', async ({ page }) => {
+  const CONTRIBUTOR = { ...PM, id: 'u-c', name: 'Abhi Contributor', role: 'contributor' }
+  const list = [row('csr-2', 'csr_full', 2, 'draft', false), row('dsur-1', 'dsur', 1, 'locked', true)]
+    .map(r => ({ ...r, canEdit: false, canApprove: false, items: [{ id: 'i1', text: 'Synopsis present', framework: 'ICH E3', frameworkMandatory: true, ownerRaci: 'R', stage: 'reporting', autoCompleteOn: null, sortOrder: 1 }] }))
+  await page.addInitScript(({ me, list }) => {
+    const json = (body: unknown, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } })
+    const real = window.fetch.bind(window)
+    window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+      const path = new URL(url, location.origin).pathname
+      if (path.endsWith('/auth/me')) return json(me)
+      if (path.endsWith('/checklist-templates')) return json(list)
+      const one = path.match(/\/checklist-templates\/([^/]+)$/)
+      if (one) return json(list.find(r => r.id === one[1]))
+      const res = await real(input, init)
+      return res.status === 401 ? json({ error: 'e2e_no_session' }, 503) : res
+    }
+  }, { me: CONTRIBUTOR, list })
+  await page.goto('/master-library/checklists')
+  await expect(page.locator('[data-template-row]')).toHaveCount(2, { timeout: 60_000 })
+  await expect(page.getByText('Failed to load templates')).toHaveCount(0)
+
+  await page.locator('[data-template-row="csr-2"]').click()
+  await expect(page.getByText('Synopsis present')).toBeVisible()
+  await expect(page.locator('[data-action="approve-template"]')).toHaveCount(0)
+  await expect(page.locator('[data-action="add-item"]')).toHaveCount(0)
+  await expect(page.locator('[data-action="edit-item"]')).toHaveCount(0)
+
+  await page.keyboard.press('Escape')                                     // the panel covers the list; close it first
+  await page.locator('[data-template-row="dsur-1"]').click()
+  await expect(page.getByText('Synopsis present')).toBeVisible()
+  await expect(page.locator('[data-action="bump-draft"]')).toHaveCount(0)
+  await expect(page.locator('[data-action="clone-to-project"]')).toHaveCount(0)
+})

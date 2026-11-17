@@ -19,6 +19,7 @@ import { DATE_IN_PAST, isPastDay } from '../../platform/past-date.js'
 import { requireAuth, hasAnyRole, type AuthenticatedUser } from '../../../auth/rbac.js'
 import type { PrismaClient } from '@prisma/client'
 import { fireAutoComplete } from '../checklist/auto-complete.js'
+import { startChainWhenReviewDone } from '../signatures/auto-start.js'
 import { actorCanResolveComments, actorHoldsLetter, actorCanScheduleCrm, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, CRM_SCHEDULE_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { crmPeople, CRM_PEOPLE_INVALID } from './people.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
@@ -159,6 +160,16 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     return attendee !== null && onlyI
   }
 
+  // The document has just reached pending_signature: start its signature chain (Approvers first). Never
+  // throws — the status move already happened, and the chain can be started by hand.
+  const startSigning = async (documentId: string, actorId: string, ipAddress: string | null) => {
+    try {
+      await startChainWhenReviewDone(app, { documentId, actorId, ipAddress })
+    } catch (err) {
+      app.log.warn({ err, documentId }, 'automatic signature chain start failed')
+    }
+  }
+
   // --- Meetings -----------------------------------------------------------
 
   app.get('/documents/:documentId/crm', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {
@@ -197,6 +208,7 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
           details:   { from: 'crm_in_progress', to: target, reason: 'crm_meeting_already_complete' },
           ipAddress: request.ip ?? null,
         })
+        if (target === 'pending_signature') await startSigning(documentId, request.user!.id, request.ip ?? null)
       }
     }
     return Promise.all(meetings.map(m => crmMeetingShape(app.prisma, m, ctx)))
@@ -410,6 +422,22 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       })
     }
 
+    // Signing follows this meeting, so every Reviewer (C) must have finished reviewing ("Mark review done")
+    // first. Not for a meeting held during authoring: the document goes back to authoring, not to signing.
+    const toSigning = meeting.returnToStatus !== 'in_authoring'
+    if (toSigning) {
+      const reviewing = await app.prisma.documentRaci.count({
+        where: { documentId: meeting.documentId, letter: 'C', removedAt: null, reviewedAt: null },
+      })
+      if (reviewing > 0) {
+        return reply.code(422).send({
+          error: 'reviews_pending',
+          message: `${reviewing} reviewer${reviewing === 1 ? ' has' : 's have'} not finished reviewing. Each reviewer must click Mark review done before the meeting can complete.`,
+          pendingReviewers: reviewing,
+        })
+      }
+    }
+
     const now = new Date()
     const updated = await app.prisma.$transaction(async (tx) => {
       const m = await tx.crmMeeting.update({
@@ -454,6 +482,10 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       },
       ipAddress: request.ip ?? null,
     })
+
+    // Review and CRM are done: signing starts, Approvers first. The meeting is already complete, so a
+    // failure here must not fail it (the chain can still be started by hand from the E-Signature tab).
+    if (toSigning) await startSigning(meeting.documentId, request.user!.id, request.ip ?? null)
 
     return updated
   })

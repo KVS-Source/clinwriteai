@@ -7,7 +7,8 @@ import type { TFunction } from 'i18next'
 import { documentsApi, projectsApi } from '../../api'
 import { MyRaciRole } from './MyRaciRole'
 import { ReturnToAuthoring } from './ReturnToAuthoring'
-import { ApproveDocument } from './ApproveDocument'
+import { ApproveAndSign } from './ApproveAndSign'
+import { signaturesApi } from '../../api/signatures'
 import { raciApi } from '../../api/raci'
 import { useDocumentTabAccess } from '../../hooks/useDocumentTabAccess'
 import { useCurrentUser } from '../../hooks'
@@ -257,6 +258,16 @@ export function ReviewerView() {
   })
   const myApproverRows = raciRows.filter(r => r.letter === 'A' && r.userId === me?.id && !r.removedAt && !r.rejectedAt)
   const documentApprovedByMe = myApproverRows.length > 0 && myApproverRows.every(r => !!r.documentApprovedAt)
+  // Approve & E-sign: once review and the CRM meeting are complete the document awaits signature and its
+  // chain asks every Approver first. My Approver record in that running chain, if any.
+  const { data: chains = [] } = useQuery({
+    queryKey: ['signature-chains', documentId],
+    queryFn:  () => signaturesApi.listChains(documentId!),
+    enabled:  !!documentId && !!me?.id && document?.status === 'pending-signature' && myApproverRows.length > 0,
+    retry:    false,
+  })
+  const approversFirstChain = chains.find(c => c.status === 'in_progress' && c.chainType === 'approvers_first')
+  const myApproveRecord = approversFirstChain?.records.find(r => r.signerId === me?.id && r.meaning === 'approved')
   const verdictBlockedReason = !hasSections ? t('page.reviewer_view.verdict_no_sections')
                              : !activeSectionData ? t('page.reviewer_view.verdict_select_section')
                              : null
@@ -382,18 +393,13 @@ export function ReviewerView() {
             {/* Presence stack — live, same as the Editor (FR-A-053 / AC-A-037). */}
             {documentId && <PresenceStack documentId={documentId} currentUserId={me?.id} currentUserName={me?.name} />}
 
-            {canGiveVerdict && !!myLetters?.has('A') && (document.status === 'in-review' || document.status === 'crm-in-progress' || document.status === 'pending-signature') && documentId && (
-              <ApproveDocument
+            {/* Approvers approve and sign in one step, only once the document awaits signature (review and
+                the CRM meeting complete). They stay here; nothing moves them to the E-Signature tab. */}
+            {canGiveVerdict && !!myLetters?.has('A') && document.status === 'pending-signature' && documentId && myApproveRecord && (
+              <ApproveAndSign
                 documentId={documentId}
-                alreadyApproved={documentApprovedByMe}
-                onApproved={(started, blockedReason) => {
-                  setApproveNote(
-                    started ? t('page.reviewer_view.approve_document_chain_started')
-                    : blockedReason ? t('page.reviewer_view.approve_document_chain_blocked', { reason: blockedReason })
-                    : t('page.reviewer_view.approve_document_done_toast'))
-                  // The last Approver's approval starts signing: take them to it.
-                  if (started) navigate(`/projects/${projectId}/clinical-writing/documents/${documentId}/sign`)
-                }}
+                record={myApproveRecord}
+                onSigned={() => setApproveNote(t('page.reviewer_view.approve_sign_done_toast'))}
               />
             )}
             {canGiveVerdict && (<>

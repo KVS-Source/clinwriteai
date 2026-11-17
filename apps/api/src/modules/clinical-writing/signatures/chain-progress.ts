@@ -17,7 +17,10 @@
 
 export type SignatureStatus = 'queued' | 'awaiting' | 'signed' | 'declined' | 'expired'
 export type ChainStatus     = 'in_progress' | 'complete' | 'cancelled'
-export type ChainType       = 'sequential' | 'parallel' | 'grouped'
+// grouped: Authors, then Reviewers, then Approvers, then Informed (chains started before 2026-11-17).
+// approvers_first: every Approver signs first (Approve & E-sign), then Authors, Reviewers and Informed
+// sign together. Both are group-by-group chains; only the groups differ.
+export type ChainType       = 'sequential' | 'parallel' | 'grouped' | 'approvers_first'
 
 export interface SignatureRecordLite {
   id:     string
@@ -101,25 +104,39 @@ export function signingGroup(meaning: string | undefined): number {
   return i === -1 ? SIGNING_GROUPS.length : i
 }
 
+/** Whether a chain signs group by group (grouped, approvers_first). */
+export function isGroupChain(chainType: ChainType | string): boolean {
+  return chainType === 'grouped' || chainType === 'approvers_first'
+}
+
 /**
- * The signers in the order the chain stores them (this decides each person's step number). Grouped
- * chains put the groups in order and keep the submitted order inside a group; the other types keep the
+ * A meaning's group in a group-by-group chain (0 = first to sign). approvers_first: Approvers are
+ * group 0 and everyone else (Authors, Reviewers, Informed) group 1. grouped: signingGroup above.
+ */
+export function groupFor(meaning: string | undefined, chainType: ChainType | string): number {
+  if (chainType === 'approvers_first') return meaning === 'approved' ? 0 : 1
+  return signingGroup(meaning)
+}
+
+/**
+ * The signers in the order the chain stores them (this decides each person's step number). Group chains
+ * put the groups in order and keep the submitted order inside a group; the other types keep the
  * submitted order untouched.
  */
 export function sortForChain<T extends { meaning: string }>(signers: ReadonlyArray<T>, chainType: ChainType): T[] {
-  if (chainType !== 'grouped') return [...signers]
+  if (!isGroupChain(chainType)) return [...signers]
   return signers
     .map((s, i) => ({ s, i }))
-    .sort((a, b) => signingGroup(a.s.meaning) - signingGroup(b.s.meaning) || a.i - b.i)
+    .sort((a, b) => groupFor(a.s.meaning, chainType) - groupFor(b.s.meaning, chainType) || a.i - b.i)
     .map(x => x.s)
 }
 
-/** Who is awaiting at the start. Sequential: the first. Parallel: everyone. Grouped: the whole first group. */
+/** Who is awaiting at the start. Sequential: the first. Parallel: everyone. Group chains: the whole first group. */
 export function initialStatuses(chainType: ChainType, signers: ReadonlyArray<{ meaning: string }>): Array<'awaiting' | 'queued'> {
   if (chainType === 'parallel') return signers.map(() => 'awaiting')
   if (chainType === 'sequential') return signers.map((_, i) => (i === 0 ? 'awaiting' : 'queued'))
-  const first = Math.min(...signers.map(s => signingGroup(s.meaning)))
-  return signers.map(s => (signingGroup(s.meaning) === first ? 'awaiting' : 'queued'))
+  const first = Math.min(...signers.map(s => groupFor(s.meaning, chainType)))
+  return signers.map(s => (groupFor(s.meaning, chainType) === first ? 'awaiting' : 'queued'))
 }
 
 /**
@@ -138,10 +155,11 @@ export function recordsToRelease(
     const next = records.find(r => r.step === signed.step + 1)
     return next && next.status === 'queued' ? [next] : []
   }
-  const group = signingGroup(signed.meaning)
-  if (records.some(r => signingGroup(r.meaning) === group && r.status !== 'signed')) return []
-  const queued = records.filter(r => r.status === 'queued' && signingGroup(r.meaning) > group)
+  const g = (r: SignatureRecordLite) => groupFor(r.meaning, chainType)
+  const group = g(signed)
+  if (records.some(r => g(r) === group && r.status !== 'signed')) return []
+  const queued = records.filter(r => r.status === 'queued' && g(r) > group)
   if (queued.length === 0) return []
-  const next = Math.min(...queued.map(r => signingGroup(r.meaning)))
-  return queued.filter(r => signingGroup(r.meaning) === next)
+  const next = Math.min(...queued.map(g))
+  return queued.filter(r => g(r) === next)
 }

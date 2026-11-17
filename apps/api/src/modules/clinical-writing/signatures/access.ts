@@ -102,19 +102,14 @@ export interface RequiredSigner {
 
 /**
  * Everyone who must sign: each active Author (R), Reviewer (C), Approver (A) and Informed (I) on the
- * document's RACI, plus the project team's Approvers. A person with two letters appears once.
+ * document's own RACI — the people its author assigned. A person with two letters appears once.
+ * Approvers on the project team are not added (2026-11-17): the signers are only who the author picked.
  */
 export async function requiredSigners(prisma: PrismaClient, doc: { id: string; projectId: string }): Promise<RequiredSigner[]> {
-  const [raciRows, teamApprovers] = await Promise.all([
-    prisma.documentRaci.findMany({
-      where: { documentId: doc.id, removedAt: null, letter: { in: Object.keys(SIGNER_LETTERS) } },
-      select: { userId: true, letter: true },
-    }),
-    prisma.projectTeamMember.findMany({
-      where: { projectId: doc.projectId, raci: 'A' },
-      select: { userId: true, name: true },
-    }),
-  ])
+  const raciRows = await prisma.documentRaci.findMany({
+    where: { documentId: doc.id, removedAt: null, letter: { in: Object.keys(SIGNER_LETTERS) } },
+    select: { userId: true, letter: true },
+  })
   const byId = new Map<string, RequiredSigner>()
   const add = (userId: string, meaning: SignatureMeaning, name?: string) => {
     const cur = byId.get(userId) ?? { userId, name: name ?? userId, meanings: new Set<SignatureMeaning>() }
@@ -123,7 +118,6 @@ export async function requiredSigners(prisma: PrismaClient, doc: { id: string; p
     byId.set(userId, cur)
   }
   for (const r of raciRows) add(r.userId, SIGNER_LETTERS[r.letter as keyof typeof SIGNER_LETTERS])
-  for (const t of teamApprovers) add(t.userId, 'approved', t.name)
 
   const unnamed = [...byId.values()].filter(s => s.name === s.userId).map(s => s.userId)
   if (unnamed.length > 0) {

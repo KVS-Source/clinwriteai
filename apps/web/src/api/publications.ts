@@ -193,6 +193,28 @@ export const publicationsApi = {
     api.post<{ jobId: string; publicationId: string; state: 'enqueued' }>(
       `/publications/${publicationId}/ai-initial-draft`, body,
     ),
+
+  // --- Section ai-suggest (Phase M-B.4) -----------------------------------
+  // Mirror of clinical ai-suggest — intent-templated rewrite / explain /
+  // tighten / custom / edit, with auto-attached source PDFs + policy
+  // block + SECTION_GROUNDING_RULES composed server-side.
+  aiSuggestSection: (
+    publicationId: string,
+    sectionId: string,
+    body: {
+      intent:        'draft_from_source' | 'tighten' | 'explain' | 'custom' | 'edit'
+      customPrompt?: string
+      currentContent?: string
+      selectionText?: string
+      scope?:        'section' | 'document' | 'source'
+      attachedSourceIds?: string[]
+      model?:        string
+    },
+  ) =>
+    api.post<{ responseText: string; model: string; recordId?: string; scope?: string }>(
+      `/publications/${publicationId}/sections/${encodeURIComponent(sectionId)}/ai-suggest`,
+      body,
+    ),
 }
 
 // --- Section + lock types ---

@@ -299,6 +299,30 @@ function SectionEditor({
     },
   })
 
+  // Phase M-B.4: per-section AI suggest. Three canned intents (tighten /
+  // explain / draft_from_source) run against the live draft text; the
+  // result replaces `draft` so the author can review + save. Custom
+  // / edit intents land with the richer editor UI in a later phase.
+  const [suggestIntent, setSuggestIntent] = useState<null | 'tighten' | 'explain' | 'draft_from_source'>(null)
+  const aiSuggest = useMutation({
+    mutationFn: (intent: 'tighten' | 'explain' | 'draft_from_source') =>
+      publicationsApi.aiSuggestSection(publicationId, section.sectionId, {
+        intent,
+        currentContent: draft,
+      }),
+    onMutate:  (intent) => { setSuggestIntent(intent); setActionError(null); setActionInfo(null) },
+    onSuccess: (res) => {
+      setDraft(res.responseText)
+      setDirty(true)
+      setSuggestIntent(null)
+      setActionInfo(`AI ${suggestIntent ?? 'suggest'} applied — review + save when ready.`)
+    },
+    onError: (err: unknown) => {
+      setSuggestIntent(null)
+      setActionError(errMessage(err, 'AI suggest failed'))
+    },
+  })
+
   // Lock lifecycle: acquire on focus, periodic heartbeat (re-acquire
   // every 60 s refreshes lastHeartbeatAt via the acquire path's
   // "extended" outcome — simpler than a dedicated heartbeat endpoint),
@@ -348,7 +372,7 @@ function SectionEditor({
             </span>
           ))}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">unsaved</span>}
           {save.isPending && <span className="text-[11px] text-slate-500">Saving…</span>}
           {lockHolder && (
@@ -356,6 +380,40 @@ function SectionEditor({
               Locked by {lockHolder.userId.slice(0, 8)}… ({lockHolder.expiresInSeconds}s)
             </span>
           )}
+          {/* Per-section AI suggest (Phase M-B.4). The "Draft from source"
+              intent runs even when the section is empty; tighten/explain
+              require existing content. Grounding rules + policy + source
+              PDFs are composed server-side. */}
+          <button
+            type="button"
+            onClick={() => aiSuggest.mutate('draft_from_source')}
+            disabled={aiSuggest.isPending}
+            className="rounded-md border border-blue-600 bg-white px-2 py-0.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            data-action="ai-draft-from-source"
+            title="Draft (or redraft) this section from the attached source PDFs."
+          >
+            {aiSuggest.isPending && suggestIntent === 'draft_from_source' ? 'Drafting…' : '✦ Draft'}
+          </button>
+          <button
+            type="button"
+            onClick={() => aiSuggest.mutate('tighten')}
+            disabled={aiSuggest.isPending || !draft.trim()}
+            className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            data-action="ai-tighten"
+            title="Rewrite the section for clarity, preserving every data point."
+          >
+            {aiSuggest.isPending && suggestIntent === 'tighten' ? 'Tightening…' : '✦ Tighten'}
+          </button>
+          <button
+            type="button"
+            onClick={() => aiSuggest.mutate('explain')}
+            disabled={aiSuggest.isPending || !draft.trim()}
+            className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            data-action="ai-explain"
+            title="Rewrite in plain English, preserving numeric values and references."
+          >
+            {aiSuggest.isPending && suggestIntent === 'explain' ? 'Explaining…' : '✦ Explain'}
+          </button>
         </div>
       </header>
 

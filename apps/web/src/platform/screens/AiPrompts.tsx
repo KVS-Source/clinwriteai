@@ -185,7 +185,7 @@ export function AiPrompts() {
       <SlidePanel
         open={editPanelOpen && !!selected}
         onClose={() => setEditPanelOpen(false)}
-        title={selected ? `Edit — ${documentTypeLabel(selected.docType)}` : 'Edit prompt'}
+        title={selected ? `Edit prompt — ${documentTypeLabel(selected.docType)}` : 'Edit prompt'}
         subtitle={selected
           ? <span className="font-mono text-[11px]">{selected.docType} · v{selected.version} · updated {formatRelativeShort(selected.updatedAt)}</span>
           : undefined}
@@ -445,22 +445,18 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
   )
 
   return (
-    <div className="flex flex-col gap-3" data-editor={policy.docType}>
-      <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 pb-2 pt-1">
-        <div>
-          <h2 className="text-[16px] font-semibold text-slate-900">{policy.docType}</h2>
-          <p className="text-[12px] text-slate-500">
-            Updated {new Date(policy.updatedAt).toLocaleString()} by {policy.updatedBy}
-          </p>
+    // p-4 so editor content doesn't hug the SlidePanel's edges. The
+    // SlidePanel already renders the title + docType/version/updated
+    // subtitle, so the inner header here only shows transient state
+    // (char count, unsaved chip) + the action buttons.
+    <div className="flex flex-col gap-3 p-4" data-editor={policy.docType}>
+      <header className="sticky top-0 z-10 -mx-4 -mt-4 flex flex-wrap items-center justify-end gap-3 border-b border-slate-200 bg-white px-4 py-2">
+        <div className="flex items-center gap-2 text-[11px] text-slate-500">
+          <span>{draft.length.toLocaleString()} chars</span>
+          {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">unsaved</span>}
         </div>
-        <div className="flex items-center gap-3">
-          <div className="flex items-center gap-2 text-[11px] text-slate-500">
-            <span>{draft.length.toLocaleString()} chars</span>
-            {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">unsaved</span>}
-          </div>
-          <div className="flex items-center gap-2" data-header-actions>
-            {actionButtons}
-          </div>
+        <div className="flex items-center gap-2" data-header-actions>
+          {actionButtons}
         </div>
       </header>
 

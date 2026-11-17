@@ -91,7 +91,7 @@ export function SharedLibraryDocument() {
       .then(d => { if (!cancelled) setInfo(d) })
       .catch((f: Failure) => { if (!cancelled) setFatal(describe(f)) })
     return () => { cancelled = true }
-  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [token])
 
   // With a session (just verified, or kept in this tab): fetch the document and show it.
   useEffect(() => {
@@ -108,7 +108,7 @@ export function SharedLibraryDocument() {
         if (f.status !== 401) setNotice(describe(f))
       })
     return () => { cancelled = true }
-  }, [info, session, token]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [info, session, token])
 
   async function requestCode() {
     setBusy(true); setNotice(null)

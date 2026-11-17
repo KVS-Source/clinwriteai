@@ -28,7 +28,8 @@ export interface SignatureRecord {
 export interface SignatureChain {
   id: string
   documentId: string
-  chainType: 'sequential' | 'parallel' | 'grouped'
+  // approvers_first: every Approver first (Approve & E-sign), then Authors, Reviewers and Informed together.
+  chainType: 'sequential' | 'parallel' | 'grouped' | 'approvers_first'
   status: 'initiated' | 'in_progress' | 'complete' | 'cancelled'
   initiatedBy: string
   initiatedAt: string
@@ -39,7 +40,7 @@ export interface SignatureChain {
 }
 
 export interface InitiateChainBody {
-  chainType?: 'sequential' | 'parallel' | 'grouped'
+  chainType?: 'sequential' | 'parallel' | 'grouped' | 'approvers_first'
   signers: Array<{
     signerId: string
     signerName: string
@@ -54,6 +55,8 @@ export interface SignRecordBody {
   password: string
   localTime: string
   deviceInfo?: string
+  // An Approver's optional comment from the Approve & E-sign dialog.
+  approvalComment?: string
 }
 
 export const signaturesApi = {

@@ -5,6 +5,7 @@ import { MonoLabel } from '../ui'
 import { usePlatformStore } from '../../platform/store'
 import { MODULE_LABELS, MODULE_SLUG_TO_KEY, isModuleEnabled, type ModuleSlug } from '../../config/modules'
 import { isAdminRole, isPlatformAdmin, holdsRole } from '../../config/roles'
+import { useShowProjectCrm } from '../../hooks/useProjectCrmAccess'
 
 // Module accent colours — design-system.md Decision 10 (Platform = navy per PM00 §7 rule 1)
 const MODULE_COLOURS: Record<string, string> = {
@@ -244,8 +245,10 @@ export function Sidebar({ activeModule = 'clinical-writing', collapsed = false, 
     publishing:   { label: t('component.sidebar.nav_publishing'),       href: `/projects/${projectId}/${activeModule}/publishing`,    icon: <FolderIcon /> },
   }
 
+  // An Approver-only person has no CRM on any of their documents, so no CRM link either.
+  const showCrm = useShowProjectCrm(projectId, activeModule === 'clinical-writing')
   const moduleNavItems: NavItem[] = projectId
-    ? (MODULE_NAV[activeModule] ?? ['home']).map(k => allNavItems[k])
+    ? (MODULE_NAV[activeModule] ?? ['home']).filter(k => k !== 'crm' || showCrm).map(k => allNavItems[k])
     : []
 
   // Sits right under the logo in both states (top-left is never covered by the dev tools button that floats bottom-left).

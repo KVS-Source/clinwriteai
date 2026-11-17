@@ -56,7 +56,7 @@ const FILTER_CHIP_KEYS: { key: FilterKey; labelKey: string }[] = [
 
 // Event badge palette. Translate the display label via AUDIT_ACTION_LABEL_KEYS;
 // the raw enum identifier stays as the event type key.
-const EVENT_BADGE_PALETTE: Record<EventType, { bg: string; fg: string }> = {
+export const EVENT_BADGE_PALETTE: Record<EventType, { bg: string; fg: string }> = {
   'content-edited':      { bg: '#EFF6FF', fg: '#2563EB' },
   'ai-draft':            { bg: '#F5F3FF', fg: '#7C3AED' },
   'comment-added':       { bg: '#FFFBEB', fg: '#B45309' },
@@ -70,7 +70,7 @@ const EVENT_BADGE_PALETTE: Record<EventType, { bg: string; fg: string }> = {
   'ai-requested':        { bg: '#F5F3FF', fg: '#7C3AED' },
 }
 
-const AUDIT_ACTION_LABEL_KEYS: Record<EventType, string> = {
+export const AUDIT_ACTION_LABEL_KEYS: Record<EventType, string> = {
   'content-edited':      'page.audit_trail_panel.badge_content_edited',
   'ai-draft':            'page.audit_trail_panel.badge_ai_draft',
   'comment-added':       'page.audit_trail_panel.badge_comment_added',
@@ -84,7 +84,7 @@ const AUDIT_ACTION_LABEL_KEYS: Record<EventType, string> = {
   'ai-requested':        'page.audit_trail_panel.badge_ai_requested',
 }
 
-const ACTION_PHRASE_KEYS: Record<EventType, string> = {
+export const ACTION_PHRASE_KEYS: Record<EventType, string> = {
   'content-edited':      'page.audit_trail_panel.phrase_content_edited',
   'ai-draft':            'page.audit_trail_panel.phrase_ai_draft',
   'comment-added':       'page.audit_trail_panel.phrase_comment_added',

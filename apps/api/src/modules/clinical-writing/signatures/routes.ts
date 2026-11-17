@@ -39,9 +39,13 @@ import { actorCanCancelChain, actorCanReadDocumentRecord, actorCanStartChain } f
 import { resetRaciRound } from '../../platform/document-raci/access.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 import { autoPushSignedDocument } from '../../platform/library/auto-push.js'
+import { nextCommentId } from '../comments/routes.js'
+import { APPROVE_DOCUMENT_REF } from './auto-start.js'
 
 const initiateSchema = z.object({
-  chainType: z.enum(['sequential', 'parallel', 'grouped']).default('grouped'),
+  // approvers_first (the default since 2026-11-17): Approvers sign first, then Authors, Reviewers and
+  // Informed together. grouped stays accepted for chains started the old way.
+  chainType: z.enum(['sequential', 'parallel', 'grouped', 'approvers_first']).default('approvers_first'),
   signers: z.array(z.object({
     signerId: z.string().min(1),
     signerName: z.string().min(1),
@@ -57,6 +61,8 @@ const signSchema = z.object({
   // Signer-side context, kept for reference (the server UTC time is authoritative).
   localTime: z.string().min(1),                 // '16:32 CET'
   deviceInfo: z.string().optional(),
+  // An Approver's optional comment from the Approve & E-sign dialog, kept with their approval.
+  approvalComment: z.string().trim().max(2000).optional(),
 })
 
 
@@ -293,6 +299,14 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         },
       })
 
+      // An Approver's signature is their approval of the document (Approve & E-sign).
+      if (record.meaning === 'approved') {
+        await tx.documentRaci.updateMany({
+          where: { documentId: record.chain.documentId, userId: record.signerId, letter: 'A', removedAt: null, documentApprovedAt: null },
+          data:  { documentApprovedAt: now },
+        })
+      }
+
       // 2. Release whoever is next: the next step (sequential), or the next group once the signed person's
       // group has fully signed (grouped). Parallel chains release nobody — everyone is already awaiting.
       let chainStatus = record.chain.status
@@ -326,9 +340,30 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
       return { signed, chainStatus, completedAt, released }
     })
 
-    // The next signer in a sequential chain is told it's their turn.
+    // Whoever was released is told it's their turn: the next step of a sequential chain, the next group
+    // of a group chain (approvers_first: Authors, Reviewers and Informed once every Approver has signed).
     if (result.released.length > 0) {
-      await notifySigners(result.released, { id: doc.id, projectId: doc.projectId, title: doc.title }, request.user!.id)
+      await notifySigners(result.released, { id: doc.id, projectId: doc.projectId, title: doc.title }, request.user!.id, record.chain.chainType)
+    }
+
+    // The Approver's approval shows in Comments like any approval, with their comment if they wrote one.
+    // The signature is already committed, so a failure here is logged and never fails it.
+    if (record.meaning === 'approved') {
+      for (let attempt = 0; attempt < 5; attempt++) {
+        try {
+          await app.prisma.comment.create({
+            data: {
+              id: await nextCommentId(app.prisma), documentId: doc.id, sectionRef: APPROVE_DOCUMENT_REF,
+              text: parsed.data.approvalComment ?? '', severity: 'query', verdict: 'approve', reviewerId: request.user!.id,
+            },
+          })
+          break
+        } catch (err) {
+          if ((err as { code?: string }).code === 'P2002') continue
+          app.log.warn({ err, documentId: doc.id, recordId }, 'approval comment after signing failed')
+          break
+        }
+      }
     }
 
     // Auto-complete items tagged autoCompleteOn='document_signed' —
@@ -372,6 +407,7 @@ export const signatureRoutes: FastifyPluginAsync = async (app) => {
         finalVersionNumber,
         finalSnapshotFailed,
         autoCompletedCount,
+        ...(record.meaning === 'approved' ? { approved: true, approvalComment: parsed.data.approvalComment ?? null } : {}),
       },
       ipAddress: request.ip ?? null,
     }

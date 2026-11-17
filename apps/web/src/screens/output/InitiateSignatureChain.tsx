@@ -44,12 +44,15 @@ const LETTER_MEANING: Record<string, Meaning> = { R: 'authored', C: 'reviewed', 
 // "by group" chain everyone in a group signs at once, and a group is released when the group before it
 // has fully signed.
 const SIGNER_ORDER: Meaning[] = ['authored', 'reviewed', 'approved', 'acknowledged']
-const groupIndex = (m: Meaning) => { const i = SIGNER_ORDER.indexOf(m); return i === -1 ? SIGNER_ORDER.length : i }
-const rowOrder = (r: SignerRow) => (r.draft ? SIGNER_ORDER.length + 1 : groupIndex(r.meaning))
+// The chain signs Approvers first, then Authors, Reviewers and Informed together (approvers_first), so the
+// rows show the Approvers first. SIGNER_ORDER still decides which meaning a person named twice signs with.
+const DISPLAY_ORDER: Meaning[] = ['approved', 'authored', 'reviewed', 'acknowledged']
+const groupIndex = (m: Meaning) => { const i = DISPLAY_ORDER.indexOf(m); return i === -1 ? DISPLAY_ORDER.length : i }
+const rowOrder = (r: SignerRow) => (r.draft ? DISPLAY_ORDER.length + 1 : groupIndex(r.meaning))
 
 // The order is always by group for now. The choice of order is hidden; the other two kinds are kept
 // (commented out) below and in the JSX so they can be switched back on.
-type ChainKind = 'grouped' | 'sequential' | 'parallel'
+type ChainKind = 'grouped' | 'sequential' | 'parallel' | 'approvers_first'
 // const CHAIN_KINDS: Array<{ value: ChainKind; label: string }> = [
 //   { value: 'grouped',    label: 'By group (Authors, then Reviewers, then Approvers, then Informed)' },
   // { value: 'sequential', label: 'Sequential (one after another)' },
@@ -207,8 +210,6 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
     for (const r of raciRows) {
       if (!map.has(r.userId)) map.set(r.userId, { id: r.userId, name: r.userName ?? r.userId, role: t(MEANING_ROLE_KEY[LETTER_MEANING[r.letter] ?? 'reviewed']) })
     }
-    // Project-team Approvers are pre-filled too, so their names must be known.
-    for (const t of project.data?.team ?? []) if (t.raci === 'A' && !map.has(t.userId)) map.set(t.userId, { id: t.userId, name: t.name, role: t.role })
     return [...map.values()].sort((a, b) => a.name.localeCompare(b.name))
   }, [assignable.isSuccess, assignable.data, members.data, project.data, raciRows, t])
 
@@ -220,9 +221,9 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
     [activeUsers.data],
   )
 
-  // Always grouped for now. To bring back the choice of order, use the state below and the radios in the JSX.
-  // const [chainType, setChainType] = useState<ChainKind>('grouped')
-  const chainType: ChainKind = 'grouped'
+  // Always Approvers first for now. To bring back the choice of order, use the state below and the radios in the JSX.
+  // const [chainType, setChainType] = useState<ChainKind>('approvers_first')
+  const chainType: ChainKind = 'approvers_first'
   const [rows, setRows] = useState<SignerRow[]>([])
   // Named people the starter took off the chain. They stay off when the RACI is re-read.
   const [removedIds, setRemovedIds] = useState<Set<string>>(() => new Set())
@@ -239,13 +240,13 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
       if (SIGNER_ORDER.indexOf(meaning) < SIGNER_ORDER.indexOf(cur.meaning) && doc) cur.meaning = meaning
     }
     for (const r of raciRows) { const m = LETTER_MEANING[r.letter]; if (m) add(r.userId, m, true) }
-    for (const t of project.data?.team ?? []) if (t.raci === 'A') add(t.userId, 'approved', false)
+    // Only the document's own RACI: Approvers on the project team are not signers (the server agrees).
     return [...byId.entries()]
       .map(([signerId, v]) => ({
         signerId, meaning: v.meaning, locked: true,
         source: (v.fromDocument && v.fromProject ? 'both' : v.fromDocument ? 'document' : 'project') as NamedSource,
       }))
-      .sort((a, b) => SIGNER_ORDER.indexOf(a.meaning) - SIGNER_ORDER.indexOf(b.meaning))
+      .sort((a, b) => groupIndex(a.meaning) - groupIndex(b.meaning))
   }, [raciRows, project.data])
 
   const settled = (q: { isSuccess: boolean; isError: boolean }) => q.isSuccess || q.isError
@@ -268,7 +269,7 @@ export function InitiateSignatureChain({ documentId, projectId, documentStatus }
   // A grouped chain signs group by group, so its rows are kept in group order (the order inside a group is
   // free). An unconfirmed row stays last, so it doesn't jump while its role is being chosen.
   useEffect(() => {
-    if (chainType !== 'grouped') return
+    if (chainType !== 'approvers_first') return
     setRows(prev => {
       const sorted = prev.map((r, i) => ({ r, i })).sort((a, b) => rowOrder(a.r) - rowOrder(b.r) || a.i - b.i).map(x => x.r)
       return sorted.every((r, i) => r === prev[i]) ? prev : sorted

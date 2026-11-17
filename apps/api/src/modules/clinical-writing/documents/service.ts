@@ -71,6 +71,11 @@ export interface CreateDocumentArgs {
    *  the preview panel + history view can label the row without an extra
    *  join. Must match the version of `aiPromptRecordId`. */
   aiPromptVersionAtCreate?: number
+  /** Latest-approved BestPracticeRecord.id for the doc type at creation
+   *  time. Phase-2 pin (migration 74). Mirrors aiPromptRecordId. */
+  bestPracticeRecordId?: string
+  /** BestPracticeRecord.version at the time of pin. */
+  bestPracticeVersionAtCreate?: number
 }
 
 export class DocumentService {
@@ -92,6 +97,8 @@ export class DocumentService {
           policyVersionAtCreate: args.policyVersionAtCreate ?? null,
           aiPromptRecordId:       args.aiPromptRecordId       ?? null,
           aiPromptVersionAtCreate: args.aiPromptVersionAtCreate ?? null,
+          bestPracticeRecordId:        args.bestPracticeRecordId        ?? null,
+          bestPracticeVersionAtCreate: args.bestPracticeVersionAtCreate ?? null,
           status: 'not_started',
           stage: 'study_start_up',
         },

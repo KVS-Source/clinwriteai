@@ -47,6 +47,7 @@ async function build(opts: {
         id: 'DOC-1', projectId: 'proj-1', type: 'protocol',
         policyVersionAtCreate: opts.policyVersionAtCreate ?? null,
         aiPromptRecordId:      null,
+        bestPracticeRecordId:  null,
         aiInstructions:        opts.aiInstructions        ?? null,
         deletedAt:             null,
         currentVersion: { sections },
@@ -69,6 +70,13 @@ async function build(opts: {
     // both lookups return null — the resolver falls through to the
     // policy row.
     aiPromptRecord: {
+      findUnique: vi.fn(async () => null),
+      findFirst:  vi.fn(async () => null),
+    },
+    // Phase-2 pointer refactor (migration 74): resolver also reads
+    // BestPracticeRecord. Same approach — null forces the policy
+    // fallback so these tests continue to assert the digest shape.
+    bestPracticeRecord: {
       findUnique: vi.fn(async () => null),
       findFirst:  vi.fn(async () => null),
     },

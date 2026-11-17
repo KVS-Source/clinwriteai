@@ -83,6 +83,10 @@ async function build(opts: { policy?: PolicyRow | null } = {}) {
     aiPromptRecord: {
       findFirst: vi.fn(async () => null),
     },
+    // Phase-2 pointer refactor (migration 74): same shape for BP.
+    bestPracticeRecord: {
+      findFirst: vi.fn(async () => null),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)

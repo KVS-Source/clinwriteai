@@ -41,35 +41,40 @@ export interface PolicyRowForAi {
 
 /** Read the rule-set that applies to a document for AI assembly.
  *
- *  Resolution precedence (first match wins):
- *    1. Document has aiPromptRecordId pinned → load THAT exact row. Keeps
- *       smePrompt + sectionRules frozen even after admins approve newer
- *       AI prompt versions. (Pin added in migration 73.)
- *    2. Latest approved AiPromptRecord for this docType. Phase-1 default
- *       for documents created after the pointer refactor. BP digest still
- *       comes from the policy row (Phase 2 promotes BP separately).
- *    3. DocumentTypePolicy pinned by policyVersionAtCreate → legacy path
- *       for documents created before migration 73.
- *    4. Current DocumentTypePolicy for the docType → bare fallback for
- *       documents that predate even the policy pin (migration 65).
+ *  Resolution precedence (first match wins per source entity):
+ *
+ *  SME prompt + section rules (AiPromptRecord — Phase 1, migration 73):
+ *    1. Document has aiPromptRecordId pinned → load THAT exact row.
+ *    2. Latest approved AiPromptRecord for this docType.
+ *    3. Legacy fallback → DocumentTypePolicy.smePrompt + .sectionRules.
+ *
+ *  BP digest (BestPracticeRecord — Phase 2, migration 74):
+ *    1. Document has bestPracticeRecordId pinned → load THAT exact row's digest.
+ *    2. Latest approved BestPracticeRecord for this docType → its digest.
+ *    3. Legacy fallback → DocumentTypePolicy.bestPracticeDigest.
+ *
+ *  DocumentTypePolicy row is loaded alongside (pinned by
+ *  policyVersionAtCreate, else current) so both the legacy fallback
+ *  paths above remain available until Phase 3 drops the columns.
  *
  *  Null return → the caller falls back to the built-in prompts.
  *
- *  The identity of the returned `PolicyRowForAi` is: smePrompt + rules from
- *  (1)/(2) if either hits, else from (3)/(4). The `version` + `id` fields
- *  reflect whichever source they came from so audit + the preview panel
- *  still render meaningful labels. */
+ *  The returned `PolicyRowForAi` mixes the sources transparently; the
+ *  `version` + `id` fields reflect whichever SME-prompt source they
+ *  came from so audit + the preview panel still render meaningful
+ *  labels. */
 export async function resolveForDocument(
   prisma: PrismaClient,
   args: {
     docType:                 string
     policyVersionAtCreate:   number | null
     aiPromptRecordId?:       string | null               // migration 73 pin on Document
+    bestPracticeRecordId?:   string | null               // migration 74 pin on Document
   },
 ): Promise<PolicyRowForAi | null> {
   const docType = args.docType.replace(/-/g, '_')
 
-  // 1 + 2: try the AiPromptRecord path first.
+  // AiPromptRecord path (Phase 1).
   const promptRow = args.aiPromptRecordId
     ? await prisma.aiPromptRecord.findUnique({ where: { id: args.aiPromptRecordId } })
     : await prisma.aiPromptRecord.findFirst({
@@ -77,10 +82,15 @@ export async function resolveForDocument(
         orderBy: { version: 'desc' },
       })
 
-  // BP digest still rides on DocumentTypePolicy for Phase 1. Load the
-  // relevant policy row so the drafter still sees whole-doc principles +
-  // (where no AiPromptRecord-sourced rules exist) the policy's own
-  // sectionRules.
+  // BestPracticeRecord path (Phase 2).
+  const bpRow = args.bestPracticeRecordId
+    ? await prisma.bestPracticeRecord.findUnique({ where: { id: args.bestPracticeRecordId } })
+    : await prisma.bestPracticeRecord.findFirst({
+        where:   { docType, status: 'approved' },
+        orderBy: { version: 'desc' },
+      })
+
+  // Legacy DocumentTypePolicy row (fallback for both SME + BP until Phase 3).
   const policyRow = args.policyVersionAtCreate !== null
     ? await prisma.documentTypePolicy.findUnique({
         where: { docType_version: { docType, version: args.policyVersionAtCreate } },
@@ -89,16 +99,18 @@ export async function resolveForDocument(
         where: { docType, isCurrent: true, retiredAt: null },
       })
 
-  if (!promptRow && !policyRow) return null
+  if (!promptRow && !bpRow && !policyRow) return null
 
-  // Prefer the AiPromptRecord's smePrompt + sectionRules when present.
-  // Fall back to the policy row for the legacy shape.
+  // Prefer the AiPromptRecord's smePrompt + sectionRules; prefer the
+  // BestPracticeRecord's digest; fall back to the policy row for anything
+  // missing. The `id` + `version` reflect the AI-prompt source so the
+  // preview panel's "SME PROMPT (policy v<N>)" label stays meaningful.
   return {
-    id:                 promptRow?.id        ?? policyRow!.id,
-    docType:            promptRow?.docType   ?? policyRow!.docType,
-    version:            promptRow?.version   ?? policyRow!.version,
+    id:                 promptRow?.id        ?? policyRow?.id        ?? bpRow!.id,
+    docType:            promptRow?.docType   ?? policyRow?.docType   ?? bpRow!.docType,
+    version:            promptRow?.version   ?? policyRow?.version   ?? bpRow!.version,
     smePrompt:          promptRow?.smePrompt ?? policyRow?.smePrompt ?? '',
-    bestPracticeDigest: (policyRow?.bestPracticeDigest as unknown as BestPracticeDigest) ?? { principles: [] },
+    bestPracticeDigest: ((bpRow?.digest ?? policyRow?.bestPracticeDigest) as unknown as BestPracticeDigest) ?? { principles: [] },
     sectionRules:       ((promptRow?.sectionRules ?? policyRow?.sectionRules) as unknown as SectionRules) ?? {},
   }
 }

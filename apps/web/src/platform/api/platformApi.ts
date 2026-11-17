@@ -540,6 +540,30 @@ export const platformApi = {
       sectionCount: number
       ruleCount:    number
     }>(`/ai-prompts/${encodeURIComponent(id)}/extract-section-rules`, {}),
+
+  // --- BestPracticeRecord (Phase-2 pointer refactor, migration 74) ------
+  // BP digest is its own versioned entity. The distill worker writes to
+  // a draft row for the docType; admin reviews + approves. Distillation
+  // itself is still triggered via the policy route's
+  // distill-best-practice-file endpoint — unchanged UI, new destination.
+  listBestPracticeRecords: () =>
+    api.get<{ records: BestPracticeRecord[] }>(`/best-practice-records`),
+  getBestPracticeRecord: async (docType: string): Promise<BestPracticeRecord | null> => {
+    try {
+      return await api.get<BestPracticeRecord>(`/best-practice-records/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  listBestPracticeVersions: (docType: string) =>
+    api.get<{ versions: BestPracticeRecord[] }>(`/best-practice-records/${encodeURIComponent(docType)}/versions`),
+  updateBestPracticeDraft: (id: string, body: BestPracticePatchBody) =>
+    api.patch<BestPracticeRecord>(`/best-practice-records/${encodeURIComponent(id)}`, body),
+  approveBestPractice: (id: string) =>
+    api.post<BestPracticeRecord>(`/best-practice-records/${encodeURIComponent(id)}/approve`, {}),
+  retireBestPractice: (id: string, reason: string) =>
+    api.post<BestPracticeRecord>(`/best-practice-records/${encodeURIComponent(id)}/retire`, { reason }),
   // One-shot admin upload for the Best Practices parser: pick a PDF,
   // the server stores it as a platform DocumentUpload (projectId=null,
   // sourceCategory='best_practice') AND enqueues distillation in the
@@ -753,6 +777,49 @@ export interface AiPromptCreateBody {
 export interface AiPromptPatchBody {
   smePrompt?:    string
   sectionRules?: AiPromptSectionRules
+}
+
+// --- BestPracticeRecord (platform/best-practice) --------------------------
+// Phase-2 pointer refactor (migration 74): BP digest becomes its own
+// versioned entity with the same draft → approved → retired workflow as
+// AiPromptRecord. The distill worker writes to a draft row; admin
+// reviews + approves.
+export type BestPracticeStatus = 'draft' | 'approved' | 'retired'
+
+export interface BestPracticeDigestShape {
+  principles:     Array<{
+    scope:    string                                     // 'whole-doc' | 'section:<key>'
+    severity: 'must' | 'should' | 'nice'
+    text:     string
+  }>
+  sourcePdfId?:   string
+  distilledAt?:   string
+  distilledModel?: string
+}
+
+export interface BestPracticeRecord {
+  id:             string
+  docType:        string
+  version:        number
+  status:         BestPracticeStatus
+  digest:         BestPracticeDigestShape
+  sourcePdfId:    string | null
+  distilledAt:    string | null
+  distilledModel: string | null
+  supersededBy:   string | null
+  effectiveDate:  string | null
+  retiredAt:      string | null
+  retireReason:   string | null
+  approvedBy:     string | null
+  approvedAt:     string | null
+  createdBy:      string
+  updatedBy:      string
+  createdAt:      string
+  updatedAt:      string
+}
+
+export interface BestPracticePatchBody {
+  digest?: BestPracticeDigestShape
 }
 
 // --- Template Library admin shape ---------------------------------------

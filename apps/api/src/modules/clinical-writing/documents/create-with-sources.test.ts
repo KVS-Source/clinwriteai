@@ -83,6 +83,10 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
     aiPromptRecord: {
       findFirst: vi.fn(async () => null),
     },
+    // Phase-2 pointer refactor (migration 74): same for BP.
+    bestPracticeRecord: {
+      findFirst: vi.fn(async () => null),
+    },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)
   app.decorate('audit', { append: audit } as never)

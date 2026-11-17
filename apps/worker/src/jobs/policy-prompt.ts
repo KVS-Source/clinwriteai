@@ -48,23 +48,32 @@ interface PrismaLike {
     findUnique(args: { where: { id: string } }): Promise<unknown>
     findFirst(args: { where: { docType: string; status: 'approved' }; orderBy: { version: 'desc' } }): Promise<unknown>
   }
+  bestPracticeRecord: {
+    findUnique(args: { where: { id: string } }): Promise<unknown>
+    findFirst(args: { where: { docType: string; status: 'approved' }; orderBy: { version: 'desc' } }): Promise<unknown>
+  }
 }
 
 /** Mirror of apps/api resolveForDocument.
  *
- *  Resolution precedence (first match wins):
+ *  Resolution precedence (per source entity):
+ *
+ *  SME prompt + section rules (AiPromptRecord — Phase 1):
  *    1. Document has aiPromptRecordId pinned → load THAT exact row.
  *    2. Latest approved AiPromptRecord for this docType.
- *    3. DocumentTypePolicy pinned by policyVersionAtCreate.
- *    4. Current DocumentTypePolicy for the docType.
+ *    3. Legacy fallback → DocumentTypePolicy.smePrompt + .sectionRules.
  *
- *  BP digest still rides on the policy row for Phase 1. */
+ *  BP digest (BestPracticeRecord — Phase 2):
+ *    1. Document has bestPracticeRecordId pinned → load THAT exact row's digest.
+ *    2. Latest approved BestPracticeRecord for this docType → its digest.
+ *    3. Legacy fallback → DocumentTypePolicy.bestPracticeDigest. */
 export async function resolveForDocument(
   prisma: PrismaLike,
   args:   {
     docType:                string
     policyVersionAtCreate:  number | null
     aiPromptRecordId?:      string | null
+    bestPracticeRecordId?:  string | null
   },
 ): Promise<PolicyRowForAi | null> {
   const docType = args.docType.replace(/-/g, '_')
@@ -77,6 +86,14 @@ export async function resolveForDocument(
       })
   const promptRow = promptRaw ? (promptRaw as Record<string, unknown>) : null
 
+  const bpRaw = args.bestPracticeRecordId
+    ? await prisma.bestPracticeRecord.findUnique({ where: { id: args.bestPracticeRecordId } })
+    : await prisma.bestPracticeRecord.findFirst({
+        where:   { docType, status: 'approved' },
+        orderBy: { version: 'desc' },
+      })
+  const bpRow = bpRaw ? (bpRaw as Record<string, unknown>) : null
+
   const policyRaw = args.policyVersionAtCreate !== null
     ? await prisma.documentTypePolicy.findUnique({
         where: { docType_version: { docType, version: args.policyVersionAtCreate } },
@@ -86,15 +103,15 @@ export async function resolveForDocument(
       })
   const policyRow = policyRaw ? (policyRaw as Record<string, unknown>) : null
 
-  if (!promptRow && !policyRow) return null
+  if (!promptRow && !bpRow && !policyRow) return null
 
   return {
-    id:                 String(promptRow?.id        ?? policyRow!.id),
-    docType:            String(promptRow?.docType   ?? policyRow!.docType),
-    version:            Number(promptRow?.version   ?? policyRow!.version),
+    id:                 String(promptRow?.id        ?? policyRow?.id        ?? bpRow!.id),
+    docType:            String(promptRow?.docType   ?? policyRow?.docType   ?? bpRow!.docType),
+    version:            Number(promptRow?.version   ?? policyRow?.version   ?? bpRow!.version),
     smePrompt:          String(promptRow?.smePrompt ?? policyRow?.smePrompt ?? ''),
-    bestPracticeDigest: (policyRow?.bestPracticeDigest as PolicyDigest)                                       ?? { principles: [] },
-    sectionRules:       ((promptRow?.sectionRules ?? policyRow?.sectionRules) as PolicySectionRules)          ?? {},
+    bestPracticeDigest: ((bpRow?.digest ?? policyRow?.bestPracticeDigest) as PolicyDigest)                     ?? { principles: [] },
+    sectionRules:       ((promptRow?.sectionRules ?? policyRow?.sectionRules) as PolicySectionRules)           ?? {},
   }
 }
 

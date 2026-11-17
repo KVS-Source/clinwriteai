@@ -82,6 +82,18 @@ model Document {
   aiPromptRecordId       String?   @map("ai_prompt_record_id")
   aiPromptVersionAtCreate Int?     @map("ai_prompt_version_at_create")
 
+  // ---- BestPracticeRecord pin (migration 74, pointer-refactor Phase 2) ----
+  // BP digest promoted to its own versioned entity. Document pins the
+  // approved BP row + version at create time so later admin approvals
+  // don't retroactively change what AI principles this doc was drafted
+  // under. Resolver order (mirrors AiPromptRecord):
+  //   1. bestPracticeRecordId pinned here
+  //   2. latest-approved BestPracticeRecord for this docType
+  //   3. legacy fallback → DocumentTypePolicy.bestPracticeDigest
+  // Null on documents created before migration 74.
+  bestPracticeRecordId        String?   @map("best_practice_record_id")
+  bestPracticeVersionAtCreate Int?      @map("best_practice_version_at_create")
+
   // ---- Protocol metadata (migration 60, 2026-11-04) ----
   // Captured on the "Protocol" right-panel when type is 'protocol' /
   // 'protocol-amendment'. Every column is nullable: the panel is a

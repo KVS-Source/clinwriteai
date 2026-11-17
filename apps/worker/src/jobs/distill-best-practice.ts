@@ -249,14 +249,65 @@ export const handleDistillBestPractice: JobHandler<DistillBpPayload, Report> = a
     return { status: 'failed', reason: 'ai_call_failed' }
   }
 
-  // 5. Persist the digest onto the policy row. updatedAt bumps, and the
-  // digest's distilledAt gives the admin screen a precise timestamp.
+  // 5. Persist the digest.
+  //
+  // Phase-2 of the pointer refactor (migration 74): BP now lives on its
+  // own BestPracticeRecord entity with a draft → approved workflow. The
+  // worker writes to a draft row for the policy's docType so an admin
+  // can review the parsed principles and promote them with Approve.
+  //
+  // We also mirror the digest onto policy.bestPracticeDigest for now —
+  // the legacy field still powers the existing Doc Type Policies editor
+  // digest-count chip and the resolver's legacy fallback path. Phase 3
+  // of the refactor drops this write once the UI has migrated.
   const digest: Digest = {
     principles,
     sourcePdfId:    uploadId,
     distilledAt:    new Date().toISOString(),
     distilledModel,
   }
+
+  // Draft upsert — one pending draft per docType. A second BP upload for
+  // the same docType overwrites the first (admin couldn't reasonably
+  // compare two pending drafts; the approved row holds steady until
+  // they decide).
+  const existingDraft = await prisma.bestPracticeRecord.findFirst({
+    where: { docType: policy.docType, status: 'draft' },
+  })
+  const now = new Date()
+  if (existingDraft) {
+    await prisma.bestPracticeRecord.update({
+      where: { id: existingDraft.id },
+      data: {
+        digest:         digest as unknown as object,
+        sourcePdfId:    uploadId,
+        distilledAt:    now,
+        distilledModel,
+        updatedBy:      actorId,
+      },
+    })
+  } else {
+    const last = await prisma.bestPracticeRecord.findFirst({
+      where:   { docType: policy.docType },
+      orderBy: { version: 'desc' },
+      select:  { version: true },
+    })
+    await prisma.bestPracticeRecord.create({
+      data: {
+        docType:        policy.docType,
+        version:        (last?.version ?? 0) + 1,
+        status:         'draft',
+        digest:         digest as unknown as object,
+        sourcePdfId:    uploadId,
+        distilledAt:    now,
+        distilledModel,
+        createdBy:      actorId,
+        updatedBy:      actorId,
+      },
+    })
+  }
+
+  // Legacy mirror — see above. Dropped in Phase 3.
   await prisma.documentTypePolicy.update({
     where: { id: policyId },
     data:  {
@@ -264,7 +315,7 @@ export const handleDistillBestPractice: JobHandler<DistillBpPayload, Report> = a
       updatedBy:          actorId,
     },
   })
-  log.info({ policyId, principleCount: principles.length, model: distilledModel }, 'bp distill: digest written')
+  log.info({ policyId, docType: policy.docType, principleCount: principles.length, model: distilledModel }, 'bp distill: digest written to draft BestPracticeRecord + legacy policy field')
   return { status: 'ok', principlesIn: principles.length }
 }
 

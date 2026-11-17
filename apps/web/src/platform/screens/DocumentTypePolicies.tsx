@@ -403,6 +403,7 @@ function PolicyEditor({ policy, aiReady, onChanged }: { policy: DocumentTypePoli
             digest on this policy once done.
           </p>
         </div>
+        <BestPracticeDraftStrip docType={policy.docType} aiReady={aiReady} onChanged={onChanged} />
       </Field>
 
       <Field label="Section rules (JSON)" help={`Keyed by section id, each a list of { severity, text }. ${rulesOk ? 'Valid.' : (rulesParse as { err: string }).err}`}>
@@ -645,6 +646,128 @@ function CreatePolicyPrompt({ aiReady, onCreated }: { aiReady: boolean; onCreate
           </button>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ---- Best-Practice draft strip ------------------------------------------
+// Phase-2 pointer refactor (migration 74): when the distill worker runs,
+// it writes to a draft BestPracticeRecord (keeping the previous approved
+// row live until an admin promotes the draft). This strip surfaces that
+// draft inline next to the digest field so the admin can review +
+// Approve / Discard without leaving the policy editor.
+//
+// Hidden when the docType has no draft row (no pending work for this
+// doc type yet).
+
+function BestPracticeDraftStrip({
+  docType, aiReady, onChanged,
+}: {
+  docType:   string
+  aiReady:   boolean
+  onChanged: () => void
+}) {
+  const qc = useQueryClient()
+  const versionsQ = useQuery({
+    queryKey: ['bp-versions', docType],
+    queryFn:  () => platformApi.listBestPracticeVersions(docType),
+    refetchInterval: 5_000,                                 // the distill worker completes async
+  })
+  const versions = versionsQ.data?.versions ?? []
+  const draft    = versions.find(v => v.status === 'draft')
+  const approved = versions.find(v => v.status === 'approved')
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionInfo,  setActionInfo]  = useState<string | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['bp-versions', docType] })
+    onChanged()
+  }
+
+  const approve = useMutation({
+    mutationFn: () => platformApi.approveBestPractice(draft!.id),
+    onSuccess:  () => { setActionInfo('Draft approved — AI starts using it for new documents immediately.'); setActionError(null); invalidate() },
+    onError:    (err: unknown) => { setActionError(errMessage(err, 'Approve failed')); setActionInfo(null) },
+  })
+
+  const discard = useMutation({
+    mutationFn: () => platformApi.retireBestPractice(draft!.id, 'Draft discarded by admin'),
+    onSuccess:  () => { setActionInfo('Draft discarded. The approved version is unaffected.'); setActionError(null); invalidate() },
+    onError:    (err: unknown) => { setActionError(errMessage(err, 'Discard failed')); setActionInfo(null) },
+  })
+
+  if (!draft && !approved) return null
+
+  return (
+    <div className="mt-2 flex flex-col gap-2" data-bp-draft-strip={docType}>
+      {approved && (
+        <div className="flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50/50 px-3 py-2 text-[12px]" data-bp-approved>
+          <div className="flex items-center gap-2">
+            <span className="rounded bg-emerald-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase text-emerald-800">
+              Approved v{approved.version}
+            </span>
+            <span className="font-mono text-[10px] text-slate-500">
+              {approved.digest?.principles?.length ?? 0} principle{(approved.digest?.principles?.length ?? 0) === 1 ? '' : 's'}
+              {approved.approvedAt ? ` · approved ${new Date(approved.approvedAt).toLocaleDateString()}` : ''}
+            </span>
+          </div>
+        </div>
+      )}
+      {draft && (
+        <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3" data-bp-draft={draft.id}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase text-amber-900">
+                Pending draft v{draft.version}
+              </span>
+              <span className="font-mono text-[10px] text-slate-600">
+                {draft.digest?.principles?.length ?? 0} principle{(draft.digest?.principles?.length ?? 0) === 1 ? '' : 's'}
+                {draft.distilledAt ? ` · parsed ${new Date(draft.distilledAt).toLocaleString()}` : ''}
+                {draft.distilledModel ? ` · model ${draft.distilledModel}` : ''}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(v => !v)}
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                data-action="toggle-bp-draft-preview"
+              >
+                {previewOpen ? 'Hide draft' : 'Preview draft'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { if (confirm(`Discard draft v${draft.version}? The approved version is unaffected.`)) discard.mutate() }}
+                disabled={discard.isPending}
+                className="rounded-md border border-rose-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                data-action="discard-bp-draft"
+              >
+                {discard.isPending ? 'Discarding…' : 'Discard'}
+              </button>
+              <button
+                type="button"
+                onClick={() => approve.mutate()}
+                disabled={approve.isPending || !aiReady}
+                title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
+                className="rounded-md border border-emerald-600 bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                data-action="approve-bp-draft"
+              >
+                {approve.isPending
+                  ? 'Approving…'
+                  : approved ? `Approve (retires v${approved.version})` : 'Approve'}
+              </button>
+            </div>
+          </div>
+          <p className="text-[11px] text-amber-900">
+            The parser produced a new BP digest. AI still reads the approved version
+            {approved ? ` (v${approved.version})` : ' (legacy policy field)'} until you approve this draft.
+          </p>
+          {previewOpen && <DigestPreview digest={draft.digest as unknown as BestPracticeDigest} />}
+          {actionError && <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{actionError}</p>}
+          {actionInfo  && <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800">{actionInfo}</p>}
+        </div>
+      )}
     </div>
   )
 }

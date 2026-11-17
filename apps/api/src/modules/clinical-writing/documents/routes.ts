@@ -464,6 +464,14 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       select:  { id: true, version: true },
     })
 
+    // Phase-2 pointer refactor (migration 74): mirror of the AiPrompt
+    // pin — latest approved BestPracticeRecord for this docType.
+    const bpPin = await app.prisma.bestPracticeRecord.findFirst({
+      where:   { docType: policyDocType, status: 'approved' },
+      orderBy: { version: 'desc' },
+      select:  { id: true, version: true },
+    })
+
     const { document, version } = await svc.create({
       projectId,
       type: parsed.data.type,
@@ -478,6 +486,8 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       policyVersionAtCreate: policy?.version,
       aiPromptRecordId:       promptPin?.id      ?? undefined,
       aiPromptVersionAtCreate: promptPin?.version ?? undefined,
+      bestPracticeRecordId:        bpPin?.id      ?? undefined,
+      bestPracticeVersionAtCreate: bpPin?.version ?? undefined,
     })
 
     if (sourceUploadIds.length) {
@@ -676,7 +686,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       where: { id: documentId },
       select: {
         id: true, type: true, aiInstructions: true, policyVersionAtCreate: true,
-        aiPromptRecordId: true, deletedAt: true,
+        aiPromptRecordId: true, bestPracticeRecordId: true, deletedAt: true,
         currentVersion: {
           select: {
             sections: {
@@ -696,6 +706,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       docType:               doc.type,
       policyVersionAtCreate: doc.policyVersionAtCreate ?? null,
       aiPromptRecordId:      doc.aiPromptRecordId ?? null,
+      bestPracticeRecordId:  doc.bestPracticeRecordId ?? null,
     }).catch((err) => {
       app.log.warn({ err, documentId }, 'section-context: policy resolve failed — returning no-policy shape')
       return null
@@ -2164,6 +2175,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       docType:               doc.type,
       policyVersionAtCreate: doc.policyVersionAtCreate ?? null,
       aiPromptRecordId:      doc.aiPromptRecordId ?? null,
+      bestPracticeRecordId:  doc.bestPracticeRecordId ?? null,
     }).catch((err) => {
       app.log.warn({ err, documentId }, 'policy resolve failed — falling back to no-policy prompt')
       return null

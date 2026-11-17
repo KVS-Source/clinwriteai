@@ -15,7 +15,7 @@
 // place to edit everything else.
 
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import { platformApi, type BestPracticeDigest, type DocumentTypePolicy } from '../api/platformApi'
@@ -111,22 +111,21 @@ export function AiPrompts() {
   const { data: readiness } = useAiReadiness()
   const aiReady = isAiReady(readiness)
 
+  // Row click sets selectedDocType AND opens the edit panel (openEditor
+  // below). No auto-pick on first load anymore — the list is the primary
+  // view, admins choose what they open explicitly.
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null)
-  // Open the first prompt once, on first load. After that, null means "+ New" was clicked — don't undo it.
-  const [autoPicked, setAutoPicked] = useState(false)
-  useEffect(() => {
-    if (autoPicked || policies.length === 0) return
-    setAutoPicked(true)
-    if (!selectedDocType) setSelectedDocType(policies[0]!.docType)
-  }, [policies, selectedDocType, autoPicked])
-
   const selected = policies.find(p => p.docType === selectedDocType) ?? null
-  // "+ New" opens a non-modal right-edge slide panel (resizeable + its width
-  // persists in localStorage) so admins can keep cross-referencing the list
-  // while composing. The inline NewPromptForm it replaced lived in the right
-  // pane and clobbered the editor view — users lost whatever prompt they
-  // were reading.
-  const [newPanelOpen, setNewPanelOpen] = useState(false)
+  // Both the create flow and the edit flow use non-modal right-edge slide
+  // panels so the list stays visible underneath. Width persists per-user in
+  // localStorage; the edit panel is wider by default because it holds a
+  // 24-row textarea + a preview block.
+  const [newPanelOpen,  setNewPanelOpen]  = useState(false)
+  const [editPanelOpen, setEditPanelOpen] = useState(false)
+  // Row click behaviour: set the selection + open the edit panel.
+  const openEditor = (docType: string) => { setSelectedDocType(docType); setEditPanelOpen(true) }
+
+  const [search, setSearch] = useState('')
 
   const invalidate = () => qc.invalidateQueries({ queryKey: ['document-type-policies'] })
 
@@ -150,19 +149,13 @@ export function AiPrompts() {
       {error && <p className="text-[13px] text-rose-700">{errMessage(error, 'Could not load prompts')}</p>}
 
       {!isLoading && !error && (
-        <div className="flex min-h-0 flex-1 gap-4">
-          <DocTypeList
-            policies={policies}
-            selected={selectedDocType}
-            onSelect={setSelectedDocType}
-            onNew={() => setNewPanelOpen(true)}
-          />
-          <div className="flex-1 overflow-y-auto">
-            {selected
-              ? <PromptEditor key={selected.id} policy={selected} aiReady={aiReady} onSaved={invalidate} />
-              : <EmptyState onNew={() => setNewPanelOpen(true)} hasAny={policies.length > 0} />}
-          </div>
-        </div>
+        <PromptList
+          policies={policies}
+          search={search}
+          onSearch={setSearch}
+          onOpen={openEditor}
+          onNew={() => setNewPanelOpen(true)}
+        />
       )}
 
       <SlidePanel
@@ -183,92 +176,177 @@ export function AiPrompts() {
             invalidate()
             setSelectedDocType(docType)
             setNewPanelOpen(false)
+            setEditPanelOpen(true)
           }}
           onCancel={() => setNewPanelOpen(false)}
         />
+      </SlidePanel>
+
+      <SlidePanel
+        open={editPanelOpen && !!selected}
+        onClose={() => setEditPanelOpen(false)}
+        title={selected ? `Edit — ${documentTypeLabel(selected.docType)}` : 'Edit prompt'}
+        subtitle={selected
+          ? <span className="font-mono text-[11px]">{selected.docType} · v{selected.version} · updated {formatRelativeShort(selected.updatedAt)}</span>
+          : undefined}
+        storageKey="clinwrite.aiPrompts.editPanel.width"
+        defaultWidth={720}
+        minWidth={480}
+        maxWidth={1200}
+        expandable
+      >
+        {selected && (
+          <PromptEditor
+            key={selected.id}
+            policy={selected}
+            aiReady={aiReady}
+            onSaved={invalidate}
+          />
+        )}
       </SlidePanel>
     </div>
   )
 }
 
-// Right-pane empty state shown when the admin hasn't picked a prompt yet
-// (or no prompts exist at all). Replaces the inline NewPromptForm that
-// used to render here; creation now lives in a dedicated SlidePanel.
-function EmptyState({ onNew, hasAny }: { onNew: () => void; hasAny: boolean }) {
-  return (
-    <div className="flex h-full flex-col items-center justify-center gap-3 rounded-md border border-dashed border-slate-300 bg-white p-8 text-center">
-      <p className="text-[14px] font-semibold text-slate-800">
-        {hasAny ? 'Pick a doc type on the left to edit its prompt' : 'No prompts yet'}
-      </p>
-      <p className="max-w-md text-[12px] text-slate-500">
-        {hasAny
-          ? 'Or create a prompt for a doc type that doesn\'t have one yet. The new-prompt panel opens on the right — it stays non-modal so you can still scroll the list while composing.'
-          : 'Create the first AI prompt for a doc type to steer every draft + rewrite call.'}
-      </p>
-      <button
-        type="button"
-        onClick={onNew}
-        className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
-        data-action="empty-state-new"
-      >
-        + New prompt
-      </button>
-    </div>
-  )
+// Relative short-time formatter — "2d ago", "3h ago", "just now". Used in
+// the list row and the edit panel subtitle. Falls back to the ISO date for
+// anything older than ~30 days.
+function formatRelativeShort(iso: string): string {
+  const then = new Date(iso).getTime()
+  if (Number.isNaN(then)) return iso
+  const ms = Date.now() - then
+  const sec = Math.round(ms / 1000)
+  if (sec < 60)         return 'just now'
+  const min = Math.round(sec / 60)
+  if (min < 60)         return `${min}m ago`
+  const hr = Math.round(min / 60)
+  if (hr < 24)          return `${hr}h ago`
+  const d = Math.round(hr / 24)
+  if (d < 30)           return `${d}d ago`
+  return new Date(iso).toLocaleDateString(undefined, { day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 // ---- list ---------------------------------------------------------------
 
-function DocTypeList({
-  policies, selected, onSelect, onNew,
+function PromptList({
+  policies, search, onSearch, onOpen, onNew,
 }: {
   policies: DocumentTypePolicy[]
-  selected: string | null
-  onSelect: (docType: string | null) => void
+  search:   string
+  onSearch: (q: string) => void
+  onOpen:   (docType: string) => void
   onNew:    () => void
 }) {
+  // Filter + sort client-side. Search matches both the slug and the
+  // human-readable label so admins can type either "protocol" or
+  // "Protocol Amendment".
+  const q = search.trim().toLowerCase()
+  const visible = policies
+    .filter(p => {
+      if (!q) return true
+      const label = documentTypeLabel(p.docType).toLowerCase()
+      return p.docType.toLowerCase().includes(q) || label.includes(q)
+    })
+    .sort((a, b) => a.docType.localeCompare(b.docType))
+
   return (
-    <aside className="w-64 shrink-0 overflow-y-auto rounded-md border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-          Doc types ({policies.length})
+    <div className="flex min-h-0 flex-1 flex-col gap-3" data-prompt-list>
+      <header className="flex flex-wrap items-center gap-3">
+        <p className="font-mono text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+          {policies.length} prompt{policies.length === 1 ? '' : 's'}
+          {q && visible.length !== policies.length && (
+            <span className="ml-2 text-slate-400">· {visible.length} match{visible.length === 1 ? '' : 'es'}</span>
+          )}
         </p>
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <input
+            type="search"
+            value={search}
+            onChange={e => onSearch(e.currentTarget.value)}
+            placeholder="Search by doc type (e.g. protocol, CSR)…"
+            className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] placeholder:text-slate-400"
+            data-field="search-prompts"
+          />
+        </div>
+        <div className="flex-1" />
         <button
           type="button"
           onClick={onNew}
-          className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+          className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
           data-action="new-prompt"
         >
-          + New
+          + New prompt
         </button>
-      </div>
+      </header>
+
       {policies.length === 0 && (
-        <p className="p-3 text-[12px] text-slate-500">
-          No prompts authored yet. Use <strong>+ New</strong> to add one.
+        <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 bg-white p-8 text-center" data-empty>
+          <p className="text-[13px] font-semibold text-slate-800">No prompts authored yet</p>
+          <p className="max-w-md text-[12px] text-slate-500">
+            Create the first AI prompt for a doc type to steer every draft + rewrite call.
+          </p>
+          <button
+            type="button"
+            onClick={onNew}
+            className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
+            data-action="empty-new"
+          >
+            + New prompt
+          </button>
+        </div>
+      )}
+
+      {policies.length > 0 && visible.length === 0 && (
+        <p className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-center text-[13px] text-slate-500" data-no-matches>
+          No prompts match "{search}".
         </p>
       )}
-      <ul>
-        {policies.map(p => (
-          <li key={p.id}>
-            <button
-              type="button"
-              onClick={() => onSelect(p.docType)}
-              className={`w-full border-b border-slate-100 px-3 py-2 text-left text-[13px] hover:bg-slate-50 ${
-                selected === p.docType ? 'bg-blue-50/60 font-semibold text-blue-800' : 'text-slate-800'
-              }`}
-              data-doc-type={p.docType}
-            >
-              <div className="flex items-baseline justify-between">
-                <span>{p.docType}</span>
-                <span className="font-mono text-[10px] text-slate-500">
-                  {p.smePrompt.length.toLocaleString()} ch
-                </span>
-              </div>
-            </button>
-          </li>
-        ))}
-      </ul>
-    </aside>
+
+      {visible.length > 0 && (
+        <div className="overflow-hidden rounded-md border border-slate-200 bg-white" data-table>
+          <table className="w-full table-fixed text-[13px]">
+            <thead className="bg-slate-50 text-left font-mono text-[10px] uppercase tracking-widest text-slate-500">
+              <tr>
+                <th className="w-[36%] px-3 py-2 font-semibold">Doc type</th>
+                <th className="w-[14%] px-3 py-2 font-semibold">Version</th>
+                <th className="w-[14%] px-3 py-2 font-semibold text-right">Prompt size</th>
+                <th className="w-[20%] px-3 py-2 font-semibold">Last updated</th>
+                <th className="w-[16%] px-3 py-2 font-semibold">By</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(p => (
+                <tr
+                  key={p.id}
+                  onClick={() => onOpen(p.docType)}
+                  className="cursor-pointer border-t border-slate-100 hover:bg-blue-50/60"
+                  data-row={p.docType}
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter') onOpen(p.docType) }}
+                >
+                  <td className="px-3 py-2">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-900">{documentTypeLabel(p.docType)}</span>
+                      <span className="font-mono text-[10px] text-slate-500">{p.docType}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[12px] text-slate-700">v{p.version}</td>
+                  <td className="px-3 py-2 text-right font-mono text-[12px] text-slate-700">
+                    {p.smePrompt.length.toLocaleString()}<span className="ml-1 text-slate-400">ch</span>
+                  </td>
+                  <td className="px-3 py-2 text-slate-700" title={new Date(p.updatedAt).toLocaleString()}>
+                    {formatRelativeShort(p.updatedAt)}
+                  </td>
+                  <td className="truncate px-3 py-2 font-mono text-[11px] text-slate-500" title={p.updatedBy}>
+                    {p.updatedBy}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
   )
 }
 

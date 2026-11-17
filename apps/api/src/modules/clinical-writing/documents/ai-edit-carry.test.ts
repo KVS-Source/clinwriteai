@@ -97,8 +97,8 @@ async function build({
     documentUpload:         { findMany: vi.fn(async () => []) },
     tlfPackage:             { findFirst: vi.fn(async () => null) },
     ichSectionWaiver:       { findMany: vi.fn(async () => []) },
-    sourceReference:        { count: vi.fn(async () => 0) },
-    sourceReferenceRemoval: { count: vi.fn(async () => 0) },
+    sourceReference:        { count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
+    sourceReferenceRemoval: { count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
     documentBriefOpenFlag:  { findMany: vi.fn(async () => []), createMany: vi.fn(async () => ({ count: 0 })) },
   } as never)
   app.decorate('aiGateway', { chat } as never)

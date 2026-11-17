@@ -1896,7 +1896,38 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // "Additional context" block the AI treats as reference-only.
     // attachedSourceIds forces scope='source' + narrows to the picked
     // uploads. Explicit attach beats the chip-era scope default.
-    const hasAttachments = (parsed.data.attachedSourceIds?.length ?? 0) > 0
+    //
+    // Reference auto-attach (FR-A-022 companion): source documents linked
+    // to THIS section via SourceReference are merged into the attached
+    // list regardless of the user's Scope toggle. The intent: when the
+    // author asks to edit a sentence that cites a source, or to pull a
+    // new fact into the section, AI must have the primary source to
+    // read from — otherwise it has to fabricate or guess. Removed
+    // references (SourceReferenceRemoval) are skipped. Silent fallback
+    // on query failure so AI edits still work even if the refs table
+    // query hiccups.
+    const explicitAttachedIds = parsed.data.attachedSourceIds ?? []
+    let sectionRefUploadIds: string[] = []
+    try {
+      const refs = await app.prisma.sourceReference.findMany({
+        where:  { documentId, sectionId: section.sectionId },
+        select: { id: true, uploadId: true },
+      })
+      const removedRows = await app.prisma.sourceReferenceRemoval
+        .findMany({
+          where:  { documentId, referenceId: { in: refs.map(r => r.id) } },
+          select: { referenceId: true },
+        })
+        .catch(() => [] as Array<{ referenceId: string }>)
+      const removed = new Set(removedRows.map(r => r.referenceId))
+      sectionRefUploadIds = Array.from(new Set(
+        refs.filter(r => !removed.has(r.id)).map(r => r.uploadId),
+      ))
+    } catch (err) {
+      app.log.warn({ err, documentId, sectionId: section.sectionId }, 'section references auto-attach: lookup failed')
+    }
+    const effectiveAttachedIds = Array.from(new Set([...explicitAttachedIds, ...sectionRefUploadIds]))
+    const hasAttachments = effectiveAttachedIds.length > 0
     const scope = hasAttachments ? 'source' : (parsed.data.scope ?? 'section')
     let additionalContext = ''
     // Images attached as source documents travel out-of-band as vision
@@ -1934,7 +1965,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       // a stub to the AI; attaching 1-2 docs gives richer context.
       try {
         const sourceIdFilter = hasAttachments
-          ? { uploadId: { in: parsed.data.attachedSourceIds! } }
+          ? { uploadId: { in: effectiveAttachedIds } }
           : {}
         const sources = await app.prisma.documentSource.findMany({
           where:  { documentId, ...sourceIdFilter },
@@ -2258,6 +2289,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             instructionChars:  promptTextForHistory.length,
             carryPromptUsed,
             policyVersionUsed: policy?.version ?? null,
+            // Auto-attached section references so investigations can trace
+            // which source uploads AI was handed when editing this section
+            // (independent of the user's Scope toggle).
+            autoAttachedRefUploads:    sectionRefUploadIds.length,
+            autoAttachedRefUploadIds:  sectionRefUploadIds,
             outcome,
             ...extra,
           },

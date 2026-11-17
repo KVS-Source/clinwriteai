@@ -70,8 +70,8 @@ async function build(opts: { responseText?: string } = {}) {
     documentUpload:         { findMany: vi.fn(async () => []) },
     tlfPackage:             { findFirst: vi.fn(async () => null) },
     ichSectionWaiver:       { findMany: vi.fn(async () => []) },
-    sourceReference:        { count: vi.fn(async () => 0) },
-    sourceReferenceRemoval: { count: vi.fn(async () => 0) },
+    sourceReference:        { count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
+    sourceReferenceRemoval: { count: vi.fn(async () => 0), findMany: vi.fn(async () => []) },
   } as never)
   app.decorate('aiGateway', { chat } as never)
   app.decorate('audit', { append: vi.fn(async (ev: Record<string, unknown>) => { audits.push(ev) }) } as never)

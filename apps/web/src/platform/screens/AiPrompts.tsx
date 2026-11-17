@@ -58,10 +58,10 @@ function renderAllSectionRules(
     return { sectionKey, block: ordered.map(r => `[${r.severity.toUpperCase()}] ${r.text}`).join('\n') }
   })
 }
-/** Compose the exact block the API's renderPolicyPromptBlock produces — but
- *  using the CURRENT draft (not the saved smePrompt) so the user sees
- *  pending edits reflected before they click Save. */
-function renderPolicyPreview(args: {
+/** The policy block proper — character-identical to what the API's
+ *  renderPolicyPromptBlock produces. Returns '' when the policy adds
+ *  nothing (no SME prompt, no principles, no rules). */
+function renderPolicyBlock(args: {
   draft:    string
   version:  number
   digest:   BestPracticeDigest | null | undefined
@@ -79,6 +79,38 @@ function renderPolicyPreview(args: {
     parts.push('', `SECTION RULES (${sectionKey})`, block)
   }
   return parts.join('\n')
+}
+
+// Fixed scaffolding the AI drafter (apps/worker/src/jobs/ai-initial-draft.ts)
+// prepends to every call. Admins can't change these — they're the
+// product-level guardrails (HTML output, no-fabrication, doc type +
+// section identity). We show them here so the policy block's role in
+// the full system prompt is honest + visible: "your prompt sits HERE,
+// after this scaffolding, before the per-call ask."
+function renderDrafterScaffolding(docType: string): string {
+  return [
+    `You are drafting a single section of a regulatory clinical writing deliverable.`,
+    `Document type: ${docType}.`,
+    `Section number: {will be filled in per section at call time}`,
+    `Section title: {will be filled in per section at call time}`,
+    `Write a thorough first-pass draft of this section ONLY (not the surrounding document) based strictly on the attached source documents.`,
+    `Return clean HTML with <p>, <ul>/<li>, and <table> as appropriate — no Markdown, no code fences, no commentary before or after the HTML.`,
+    `If the sources genuinely do not contain the information needed for this section, write a short <p>stating what is missing and what the writer should supply.</p>`,
+    `Do not invent numeric values, patient counts, dates, or citations. Quote figures only when they appear in the sources.`,
+  ].join('\n')
+}
+
+// What the /ai-suggest route adds after the policy block when a writer
+// hits "AI Suggest" on a section. The exact intent prompt varies
+// ('tighten', 'explain', 'edit', 'custom'); we show a representative one.
+function renderUserTurnExample(): string {
+  return [
+    `--- (per-call user turn, rendered by /ai-suggest) ---`,
+    `Rewrite section §<N> "<section title>" of the above document.`,
+    `Current content: <existing HTML>`,
+    `Instruction: <author's 'tighten' / 'explain' / custom prompt>`,
+    `Any attached scope context or source excerpts follow here.`,
+  ].join('\n')
 }
 
 // Every document type, in the underscored form prompts are stored under (csr-full → csr_full).
@@ -363,12 +395,18 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
   const [needsBump,   setNeedsBump]   = useState(false)
   const [bumpReason,  setBumpReason]  = useState('')
   const [previewOpen, setPreviewOpen] = useState(false)
-  const previewBlock = useMemo(() => renderPolicyPreview({
-    draft,
-    version: policy.version,
-    digest:  policy.bestPracticeDigest,
-    rules:   policy.sectionRules as Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>> | null,
-  }), [draft, policy.version, policy.bestPracticeDigest, policy.sectionRules])
+  const preview = useMemo(() => {
+    const scaffolding = renderDrafterScaffolding(policy.docType)
+    const policyBlock = renderPolicyBlock({
+      draft,
+      version: policy.version,
+      digest:  policy.bestPracticeDigest,
+      rules:   policy.sectionRules as Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>> | null,
+    })
+    const userTurn = renderUserTurnExample()
+    const composed = [scaffolding, policyBlock, userTurn].filter(Boolean).join('\n\n')
+    return { scaffolding, policyBlock, userTurn, composed }
+  }, [draft, policy.docType, policy.version, policy.bestPracticeDigest, policy.sectionRules])
 
   const dirty    = draft !== policy.smePrompt
   const trimmed  = draft.trim()
@@ -485,41 +523,63 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
           aria-expanded={previewOpen}
         >
           <span>
-            Preview — how AI will see this prompt
+            Preview — the full system prompt AI receives
             {dirty && <span className="ml-2 font-mono text-[10px] font-normal text-amber-700">(from unsaved draft)</span>}
           </span>
           <span className="font-mono text-[10px] text-slate-500">
-            {previewBlock.length.toLocaleString()} chars · {previewOpen ? '▾ hide' : '▸ show'}
+            {preview.composed.length.toLocaleString()} chars · {previewOpen ? '▾ hide' : '▸ show'}
           </span>
         </button>
         {previewOpen && (
-          <div className="border-t border-slate-200 px-3 py-3" data-preview-body>
-            <p className="mb-2 text-[11px] text-slate-500">
-              This is the <strong>exact</strong> text injected into the AI system prompt on every draft
-              + <code>/ai-suggest</code> rewrite for <span className="font-mono">{policy.docType}</span>.
-              Best-Practice digest + section rules are read from the stored policy (edit those on the full Doc Type Policies tab).
+          <div className="flex flex-col gap-2 border-t border-slate-200 px-3 py-3" data-preview-body>
+            <p className="text-[11px] text-slate-500">
+              The AI drafter composes every call from three parts.
+              Blue is <strong>your policy</strong> — what you edit here (plus the BP digest + section rules from the Doc Type Policies tab).
+              Grey is <strong>fixed scaffolding</strong> — product guardrails the admin can't change.
             </p>
-            <pre
-              className="max-h-96 overflow-auto rounded-md border border-slate-200 bg-white p-3 font-mono text-[11px] leading-relaxed text-slate-800"
-              data-preview-text
-            >
-              {previewBlock || <span className="italic text-slate-400">Nothing to preview — enter a prompt above.</span>}
-            </pre>
-            {previewBlock.length > 0 && (
-              <div className="mt-2 flex justify-end">
-                <button
-                  type="button"
-                  onClick={() => navigator.clipboard?.writeText(previewBlock).then(
-                    () => setActionInfo('Preview copied to clipboard.'),
-                    ()  => setActionError('Could not copy to clipboard.'),
-                  )}
-                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-                  data-action="copy-preview"
-                >
-                  Copy preview
-                </button>
-              </div>
-            )}
+
+            {/* A — fixed scaffolding (grey) */}
+            <PreviewBlock
+              tone="scaffolding"
+              label="A · System scaffolding (fixed — product guardrails)"
+              text={preview.scaffolding}
+            />
+
+            {/* B — the policy block (blue). Empty state when the policy
+                has no SME prompt / digest / rules. */}
+            <PreviewBlock
+              tone="policy"
+              label={preview.policyBlock
+                ? 'B · Your policy block (SME prompt + BP digest + section rules)'
+                : 'B · Your policy block — EMPTY (nothing added to the system prompt yet)'}
+              text={preview.policyBlock || '(Add an SME prompt above, or add a BP digest / section rules on the Doc Type Policies tab, for this block to carry anything.)'}
+              muted={!preview.policyBlock}
+            />
+
+            {/* C — per-call user turn (grey, representative) */}
+            <PreviewBlock
+              tone="scaffolding"
+              label="C · Per-call user turn (filled in by the API at request time)"
+              text={preview.userTurn}
+            />
+
+            <div className="flex items-center justify-between border-t border-slate-200 pt-2">
+              <p className="text-[11px] text-slate-500">
+                Policy block render mirrors the API&apos;s <code>renderPolicyPromptBlock</code> character-for-character
+                (parity-tested on the worker side).
+              </p>
+              <button
+                type="button"
+                onClick={() => navigator.clipboard?.writeText(preview.composed).then(
+                  () => setActionInfo('Full composed prompt copied.'),
+                  ()  => setActionError('Could not copy to clipboard.'),
+                )}
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                data-action="copy-preview"
+              >
+                Copy all
+              </button>
+            </div>
           </div>
         )}
       </section>
@@ -648,6 +708,31 @@ function NewPromptForm({
           {create.isPending ? 'Creating…' : 'Create prompt'}
         </button>
       </div>
+    </div>
+  )
+}
+
+// One section of the composed-prompt preview. Blue background = policy
+// (user-owned); grey = system scaffolding (admin can't change). `muted`
+// greys out the text itself when the block is an empty-state hint.
+function PreviewBlock({
+  tone, label, text, muted = false,
+}: {
+  tone:  'scaffolding' | 'policy'
+  label: string
+  text:  string
+  muted?: boolean
+}) {
+  const classes =
+    tone === 'policy'
+      ? { frame: 'border-blue-200 bg-blue-50/40', label: 'text-blue-900', pre: 'bg-white text-slate-800 border-blue-200' }
+      : { frame: 'border-slate-200 bg-white',    label: 'text-slate-700', pre: 'bg-slate-50 text-slate-700 border-slate-200' }
+  return (
+    <div className={`rounded-md border ${classes.frame} p-2`} data-preview-section={tone}>
+      <p className={`mb-1 font-mono text-[10px] font-semibold uppercase tracking-widest ${classes.label}`}>{label}</p>
+      <pre className={`max-h-56 overflow-auto rounded-md border ${classes.pre} p-2 font-mono text-[11px] leading-relaxed ${muted ? 'italic text-slate-400' : ''}`}>
+        {text}
+      </pre>
     </div>
   )
 }

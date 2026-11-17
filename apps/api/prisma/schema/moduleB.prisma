@@ -68,6 +68,25 @@ model Publication {
   publicationBestPracticeRecordId        String?  @map("publication_best_practice_record_id")
   publicationBestPracticeVersionAtCreate Int?     @map("publication_best_practice_version_at_create")
 
+  // ---- AI drafter state (migration 77, Phase M-B.3) ----
+  // Mirror of Document.aiDraftState. Lifecycle:
+  //   'idle'       — no AI draft in progress; the publication was created
+  //                  but no author has triggered the initial draft.
+  //   'drafting'   — publications.ai_initial_draft is actively drafting
+  //                  sections against the attached source material.
+  //   'validating' — the drafter has committed sections and the
+  //                  validation-pass loop is iterating toward the 85 %
+  //                  confidence target (see MIN_ITERATIONS / MAX_ITERATIONS
+  //                  in publications.ai_validation_pass).
+  //   'complete'   — chain finished. Either confidence hit 85 % or the
+  //                  iteration cap triggered; residual failing sections
+  //                  are surfaced via aiFlags on PublicationSectionContent.
+  aiDraftState         String    @default("idle")  @map("ai_draft_state")
+  // Author-provided directives that flow into every AI call for this
+  // publication (tone, language, structure hints). Mirrors
+  // Document.aiInstructions. Max 2000 chars enforced at the route edge.
+  aiInstructions       String?   @map("ai_instructions")
+
   aiFootprintSpans     AiFootprintSpan[]
   citations            Citation[]
   authors              PublicationAuthor[]

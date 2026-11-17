@@ -504,6 +504,81 @@ export const publicationsRoutes: FastifyPluginAsync = async (app) => {
   // manuscript editor via PUT /:id/section-totals). Sections without a
   // recorded total fall back to the "100% if any AI" approximation for
   // backwards compat; the response marks them with `estimated: true`.
+  // Phase M-B.3 — kick off the AI initial-draft worker. Idempotent:
+  // jobId=`pub-ai-initial-draft-<publicationId>` dedupes retries in
+  // BullMQ. Returns 202 with jobId so the SPA can poll aiDraftState
+  // for progress. Only allowed when state is 'idle' or 'complete' —
+  // re-running on an in-flight draft is a 409. aiInstructions (if
+  // supplied) is persisted on the Publication so the worker reads it.
+  const draftRequestSchema = z.object({
+    aiInstructions: z.string().max(2000).optional(),
+  })
+  app.post('/:publicationId/ai-initial-draft', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
+    const { publicationId } = request.params as { publicationId: string }
+    const parsed = draftRequestSchema.safeParse(request.body ?? {})
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+
+    const pub = await app.prisma.publication.findUnique({
+      where: { id: publicationId },
+      select: {
+        id: true, projectId: true, deletedAt: true,
+        aiDraftState: true, currentVersionId: true,
+      },
+    })
+    if (!pub || pub.deletedAt) return reply.code(404).send({ error: 'not_found' })
+    if (!pub.currentVersionId) {
+      return reply.code(409).send({
+        error:   'no_current_version',
+        message: 'Publication has no current version. Create flow should have seeded v0.1.',
+      })
+    }
+    if (pub.aiDraftState === 'drafting' || pub.aiDraftState === 'validating') {
+      return reply.code(409).send({
+        error:   'already_running',
+        state:   pub.aiDraftState,
+        message: `AI draft chain is already ${pub.aiDraftState} for this publication.`,
+      })
+    }
+
+    // Persist aiInstructions on the publication (if sent) so the worker
+    // picks it up. Updates are idempotent — same text re-written is a
+    // no-op. Reset aiDraftState to 'idle' so the worker's state machine
+    // walks cleanly from 'idle' → 'drafting' → 'validating' → 'complete'.
+    if (parsed.data.aiInstructions !== undefined) {
+      await app.prisma.publication.update({
+        where: { id: publicationId },
+        data:  {
+          aiInstructions: parsed.data.aiInstructions.trim() || null,
+          aiDraftState:   'idle',
+        },
+      })
+    }
+
+    const jobId = `pub-ai-initial-draft-${publicationId}`
+    try {
+      await app.queue.enqueue('publications.ai_initial_draft', {
+        publicationId,
+        projectId: pub.projectId,
+        actorId:   request.user!.id,
+      }, { jobId })
+    } catch (err) {
+      request.log.warn({ err, publicationId }, 'pub ai-initial-draft: enqueue failed')
+      return reply.code(503).send({ error: 'enqueue_failed', message: 'Could not enqueue the draft job.' })
+    }
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'publication_ai_initial_draft_enqueued',
+      entityType: 'publication',
+      entityId:   publicationId,
+      details:    { jobId, hasAiInstructions: parsed.data.aiInstructions !== undefined },
+      ipAddress:  request.ip ?? null,
+    })
+
+    return reply.code(202).send({ jobId, publicationId, state: 'enqueued' })
+  })
+
   app.get('/:publicationId/footprint', { preHandler: requireAuth({ modules: ['B'] }) }, async (request, reply) => {
     const { publicationId } = request.params as { publicationId: string }
     const pub = await app.prisma.publication.findUnique({ where: { id: publicationId } })

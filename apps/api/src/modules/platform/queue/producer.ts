@@ -33,6 +33,10 @@ export type QueueJobName =
   | 'platform.distill_best_practice'
   | 'platform.distill_template'
   | 'med_content.ai_slide_draft'
+  // Module B — manuscript initial-draft + validation-pass. Mirror
+  // of the clinical chain scoped to publications.
+  | 'publications.ai_initial_draft'
+  | 'publications.ai_validation_pass'
 
 export interface QueueJobOptions {
   /** Delay in milliseconds before the worker picks the job up. */

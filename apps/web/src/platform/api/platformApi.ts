@@ -599,6 +599,69 @@ export const platformApi = {
     }>(`/publication-type-policies/${encodeURIComponent(docType)}/distill-best-practice-file`, form)
   },
 
+  // --- Medical-content (Module C) policy stack --------------------------
+  listMedContentTypePolicies: () =>
+    api.get<{ policies: MedContentTypePolicy[] }>(`/med-content-type-policies`),
+  getMedContentTypePolicy: async (docType: string): Promise<MedContentTypePolicy | null> => {
+    try {
+      return await api.get<MedContentTypePolicy>(`/med-content-type-policies/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  createMedContentTypePolicy: (body: MedContentTypePolicyCreateBody) =>
+    api.post<MedContentTypePolicy>(`/med-content-type-policies`, body),
+  updateMedContentTypePolicy: (docType: string, body: MedContentTypePolicyPatchBody) =>
+    api.patch<MedContentTypePolicy>(`/med-content-type-policies/${encodeURIComponent(docType)}`, body),
+  retireMedContentTypePolicy: (docType: string, reason: string) =>
+    api.post<MedContentTypePolicy>(`/med-content-type-policies/${encodeURIComponent(docType)}/retire`, { reason }),
+  distillMedContentBestPracticeFile: (docType: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    return api.upload<{
+      jobId:     string
+      uploadId:  string
+      policyId:  string
+      docType:   string
+      version:   number
+      fileName:  string
+      sizeBytes: number
+    }>(`/med-content-type-policies/${encodeURIComponent(docType)}/distill-best-practice-file`, form)
+  },
+
+  listMedContentAiPrompts: () =>
+    api.get<{ prompts: MedContentAiPromptRecord[] }>(`/med-content-ai-prompts`),
+  getMedContentAiPrompt: async (docType: string): Promise<MedContentAiPromptRecord | null> => {
+    try {
+      return await api.get<MedContentAiPromptRecord>(`/med-content-ai-prompts/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  listMedContentAiPromptVersions: (docType: string) =>
+    api.get<{ versions: MedContentAiPromptRecord[] }>(`/med-content-ai-prompts/${encodeURIComponent(docType)}/versions`),
+  createMedContentAiPromptDraft: (body: MedContentAiPromptCreateBody) =>
+    api.post<MedContentAiPromptRecord>(`/med-content-ai-prompts`, body),
+  updateMedContentAiPromptDraft: (id: string, body: MedContentAiPromptPatchBody) =>
+    api.patch<MedContentAiPromptRecord>(`/med-content-ai-prompts/${encodeURIComponent(id)}`, body),
+  approveMedContentAiPrompt: (id: string) =>
+    api.post<MedContentAiPromptRecord>(`/med-content-ai-prompts/${encodeURIComponent(id)}/approve`, {}),
+  retireMedContentAiPrompt: (id: string, reason: string) =>
+    api.post<MedContentAiPromptRecord>(`/med-content-ai-prompts/${encodeURIComponent(id)}/retire`, { reason }),
+
+  listMedContentBestPracticeRecords: () =>
+    api.get<{ records: MedContentBestPracticeRecord[] }>(`/med-content-best-practice-records`),
+  listMedContentBestPracticeVersions: (docType: string) =>
+    api.get<{ versions: MedContentBestPracticeRecord[] }>(`/med-content-best-practice-records/${encodeURIComponent(docType)}/versions`),
+  updateMedContentBestPracticeDraft: (id: string, body: MedContentBestPracticePatchBody) =>
+    api.patch<MedContentBestPracticeRecord>(`/med-content-best-practice-records/${encodeURIComponent(id)}`, body),
+  approveMedContentBestPractice: (id: string) =>
+    api.post<MedContentBestPracticeRecord>(`/med-content-best-practice-records/${encodeURIComponent(id)}/approve`, {}),
+  retireMedContentBestPractice: (id: string, reason: string) =>
+    api.post<MedContentBestPracticeRecord>(`/med-content-best-practice-records/${encodeURIComponent(id)}/retire`, { reason }),
+
   listPublicationAiPrompts: () =>
     api.get<{ prompts: PublicationAiPromptRecord[] }>(`/publication-ai-prompts`),
   getPublicationAiPrompt: async (docType: string): Promise<PublicationAiPromptRecord | null> => {
@@ -988,6 +1051,105 @@ export interface PublicationBestPracticeRecord {
 }
 
 export interface PublicationBestPracticePatchBody {
+  digest?: BestPracticeDigestShape
+}
+
+// --- Medical-content (Module C) policy stack — Phase M-C.1 (migration 79)
+// Mirror shapes of PublicationTypePolicy / AiPromptRecord /
+// BestPracticeRecord scoped to medical content doctypes. Admin tab
+// lives at /master-library/med-content-policies.
+export type MedContentComplianceTrack = 'promotional' | 'non_promotional' | 'cme' | 'advisory'
+
+export interface MedContentTypePolicy {
+  id:                   string
+  docType:              string
+  version:              number
+  isCurrent:            boolean
+  templateId:           string | null
+  checklistTemplateId:  string | null
+  complianceTrack:      MedContentComplianceTrack | null
+  reviewTierFormula:    string | null
+  smePrompt:            string
+  bestPracticeDigest:   unknown
+  sectionRules:         unknown
+  effectiveDate:        string
+  retiredAt:            string | null
+  retiredBy:            string | null
+  retireReason:         string | null
+  supersededBy:         string | null
+  createdBy:            string
+  updatedBy:            string
+  createdAt:            string
+  updatedAt:            string
+}
+
+export interface MedContentTypePolicyCreateBody {
+  docType:              string
+  smePrompt:            string
+  bestPracticeDigest?:  unknown
+  sectionRules?:        Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+  templateId?:          string | null
+  checklistTemplateId?: string | null
+  complianceTrack?:     MedContentComplianceTrack | null
+  reviewTierFormula?:   string | null
+}
+
+export type MedContentTypePolicyPatchBody = Omit<MedContentTypePolicyCreateBody, 'docType' | 'smePrompt'> & {
+  smePrompt?: string
+}
+
+export interface MedContentAiPromptRecord {
+  id:            string
+  docType:       string
+  version:       number
+  status:        AiPromptStatus
+  smePrompt:     string
+  sectionRules:  unknown
+  supersededBy:  string | null
+  effectiveDate: string | null
+  retiredAt:     string | null
+  retireReason:  string | null
+  approvedBy:    string | null
+  approvedAt:    string | null
+  createdBy:     string
+  updatedBy:     string
+  createdAt:     string
+  updatedAt:     string
+}
+
+export interface MedContentAiPromptCreateBody {
+  docType:       string
+  smePrompt:     string
+  sectionRules?: AiPromptSectionRules
+}
+
+export interface MedContentAiPromptPatchBody {
+  smePrompt?:    string
+  sectionRules?: AiPromptSectionRules
+}
+
+export interface MedContentBestPracticeRecord {
+  id:             string
+  docType:        string
+  version:        number
+  status:         BestPracticeStatus
+  digest:         BestPracticeDigestShape
+  sourcePdfId:    string | null
+  distilledAt:    string | null
+  distilledModel: string | null
+  supersededBy:   string | null
+  effectiveDate:  string | null
+  retiredAt:      string | null
+  retireReason:   string | null
+  approvedBy:     string | null
+  approvedAt:     string | null
+  createdBy:      string
+  updatedBy:      string
+  createdAt:      string
+  updatedAt:      string
+}
+
+export interface MedContentBestPracticePatchBody {
   digest?: BestPracticeDigestShape
 }
 

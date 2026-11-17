@@ -299,6 +299,19 @@ async function buildServer() {
   await app.register(publicationAiPromptRoutes,      { prefix: '/publication-ai-prompts' })
   await app.register(publicationBestPracticeRoutes,  { prefix: '/publication-best-practice-records' })
 
+  // Medical-Writing Policy admin (Phase M-C.1, migration 79) — mirror
+  // of the publication policy stack scoped to medical content doctypes
+  // (hcp_slide_deck, mi_letter, pil, cme_module, disease_dossier,
+  // eu_ctr_pls, advisory_report). Writes PM-only + Module C gated.
+  const {
+    medContentTypePolicyRoutes,
+    medContentAiPromptRoutes,
+    medContentBestPracticeRoutes,
+  } = await import('./modules/medical-writing/policy/routes.js')
+  await app.register(medContentTypePolicyRoutes,    { prefix: '/med-content-type-policies' })
+  await app.register(medContentAiPromptRoutes,      { prefix: '/med-content-ai-prompts' })
+  await app.register(medContentBestPracticeRoutes,  { prefix: '/med-content-best-practice-records' })
+
   const { documentsUploadRoutes } = await import('./modules/clinical-writing/documents/upload-routes.js')
   await app.register(documentsUploadRoutes, { prefix: '/projects' })
   const { documentsSourceRoutes } = await import('./modules/clinical-writing/documents/source-routes.js')

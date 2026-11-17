@@ -22,6 +22,7 @@ import { handleAiValidationPass } from './jobs/ai-validation-pass.js'
 import { handleAiInitialDraftPublication } from './jobs/pub-ai-initial-draft.js'
 import { handleAiValidationPassPublication } from './jobs/pub-ai-validation-pass.js'
 import { handleDistillPublicationBestPractice } from './jobs/pub-distill-best-practice.js'
+import { handleDistillMedContentBestPractice } from './jobs/med-content-distill-best-practice.js'
 import { handleDistillBestPractice } from './jobs/distill-best-practice.js'
 import { handleDistillTemplate } from './jobs/distill-template.js'
 import { handleGenerateMedSlide } from './jobs/generate-med-slide.js'
@@ -119,6 +120,8 @@ const handlers = {
   // scoped to publication doctypes. Writes a draft
   // PublicationBestPracticeRecord for admin approval.
   'publications.distill_best_practice': handleDistillPublicationBestPractice,
+  // Module C — same BP distiller scoped to medical content doctypes.
+  'med_content.distill_best_practice':  handleDistillMedContentBestPractice,
   'clinical.presence_reaper': handlePresenceReaper,
   'compliance.access_review': handleAccessReviewCron,
   // Platform — one-off Best-Practice PDF → structured digest. Enqueued
@@ -164,6 +167,7 @@ const concurrency: Record<JobName, number> = {
   'publications.ai_initial_draft':   2,
   'publications.ai_validation_pass': 1,
   'publications.distill_best_practice': 1,
+  'med_content.distill_best_practice':  1,
   // Reaper is a single-UPDATE sweep; concurrency=1 avoids racing schedulers.
   'clinical.presence_reaper': 1,
   // One AI call per distillation; serial to keep provider pressure predictable.

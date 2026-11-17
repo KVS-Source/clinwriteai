@@ -96,6 +96,7 @@ import { ChecklistTemplatesAdmin }      from '../platform/screens/ChecklistTempl
 import { DocumentTypePolicies }         from '../platform/screens/DocumentTypePolicies'
 import { AiPrompts }                    from '../platform/screens/AiPrompts'
 import { PublicationPolicies }          from '../platform/screens/PublicationPolicies'
+import { MedContentPolicies }           from '../platform/screens/MedContentPolicies'
 import { TemplateLibrary }              from '../platform/screens/TemplateLibrary'
 import { MasterLibraryShell }           from '../platform/screens/MasterLibraryShell'
 import { AdminGuard, NonAdminGuard, PmGuard, SuperAdminGuard }  from '../platform/components/guards'
@@ -181,6 +182,7 @@ export const router = createBrowserRouter([
           { path: 'ich-frameworks',      element: <RegulatoryFrameworkAdmin /> },
           { path: 'policies',            element: <DocumentTypePolicies /> },
           { path: 'publication-policies', element: <PublicationPolicies /> },
+          { path: 'med-content-policies', element: <MedContentPolicies /> },
         ],
       },
       // Legacy admin URLs → Master Library equivalents. Keep around

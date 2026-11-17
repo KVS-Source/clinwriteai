@@ -58,6 +58,17 @@ model MedContentItem {
   archivedAt                DateTime?
   archiveReason             String?
 
+  // ---- Policy pins (migration 79, Phase M-C.1) ----
+  // Mirror of PublicationTypePolicy / AiPromptRecord / BestPracticeRecord
+  // pins on Publication. Captured on content create so later admin
+  // approvals of newer policy / prompt / BP versions don't rewrite the
+  // rule-set the content item was authored under.
+  medContentTypePolicyVersionAtCreate Int?      @map("med_content_type_policy_version_at_create")
+  medContentAiPromptRecordId          String?   @map("med_content_ai_prompt_record_id")
+  medContentAiPromptVersionAtCreate   Int?      @map("med_content_ai_prompt_version_at_create")
+  medContentBestPracticeRecordId      String?   @map("med_content_best_practice_record_id")
+  medContentBestPracticeVersionAtCreate Int?    @map("med_content_best_practice_version_at_create")
+
   claims                    ClaimsMatrixItem[]
   reviewTiers               ReviewTierRecord[]
   fkScores                  FkScoreRecord[]
@@ -375,4 +386,158 @@ model MedSlideFigure {
 
   @@map("med_slide_figures")
   @@index([slideId])
+}
+
+// --------------------------------------------------------------------------
+// Medical Content Policies — Phase M-C.1 (migration 79).
+//
+// Mirror of PublicationTypePolicy + AiPromptRecord + BestPracticeRecord
+// scoped to medical-writing doctypes. Flat slugs per content type:
+// 'hcp_slide_deck', 'mi_letter', 'pil', 'cme_module',
+// 'disease_dossier', 'eu_ctr_pls', 'advisory_report'.
+//
+// Each content item pins the three asset ids on create so later admin
+// approvals of newer policy / prompt / BP versions don't retroactively
+// change what the AI drafter / validator saw for an already-authored
+// item. Resolver (built in M-C.4) falls back to the current approved
+// record when the pin is null.
+// --------------------------------------------------------------------------
+
+model MedContentTypePolicy {
+  id                       String    @id @default(uuid())
+  docType                  String                                           // one of the 7 flat slugs
+  version                  Int                                              // 1-based, unique per docType
+  isCurrent                Boolean   @default(true)
+
+  templateId               String?                                          // MedContentTemplate.id (pin override)
+  checklistTemplateId      String?                                          // MedContentChecklistTemplate.id (pin override)
+  complianceTrack          String?                                          // optional pin: promotional | non_promotional | cme | advisory
+  reviewTierFormula        String?                                          // pinned formula id when customised (default: '≥70→A,40-69→B,<40→C')
+
+  // Legacy mirror fields — same role as DocumentTypePolicy's.
+  smePrompt                String    @default("")
+  bestPracticeDigest       Json      @default("{\"principles\":[]}")
+  sectionRules             Json      @default("{}")
+
+  effectiveDate            DateTime  @default(now())
+  retiredAt                DateTime?
+  retiredBy                String?
+  retireReason             String?
+  supersededBy             String?
+
+  createdBy                String
+  updatedBy                String
+  createdAt                DateTime  @default(now())
+  updatedAt                DateTime  @updatedAt
+
+  @@map("med_content_type_policies")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
+}
+
+model MedContentAiPromptRecord {
+  id             String    @id @default(uuid())
+  docType        String                                                    // same slugs as MedContentTypePolicy
+  version        Int
+  status         String    @default("draft")                               // 'draft' | 'approved' | 'retired'
+
+  smePrompt      String
+  sectionRules   Json      @default("{}")
+
+  supersededBy   String?
+  effectiveDate  DateTime?
+  retiredAt      DateTime?
+  retireReason   String?
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("med_content_ai_prompt_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+model MedContentBestPracticeRecord {
+  id             String    @id @default(uuid())
+  docType        String                                                    // same slugs
+  version        Int
+  status         String    @default("draft")
+
+  digest         Json      @default("{\"principles\":[]}")
+  sourcePdfId    String?                                                   // DocumentUpload.id
+  distilledAt    DateTime?
+  distilledModel String?
+
+  supersededBy   String?
+  effectiveDate  DateTime?
+  retiredAt      DateTime?
+  retireReason   String?
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("med_content_best_practice_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+model MedContentTemplate {
+  id             String    @id @default(uuid())
+  docType        String                                                    // same slugs
+  version        Int       @default(1)
+  isCurrent      Boolean   @default(true)
+  label          String
+  description    String    @default("")
+
+  // sections: Array<{ id, number, title, instructions?, guidance?, requiredMinChars? }>
+  // For hcp_slide_deck, the seed flow in M-C.2 writes MedSlide rows
+  // instead of MedContentSection rows; the template still carries the
+  // slide skeleton so the admin surface is uniform.
+  sections       Json      @default("[]")
+
+  retiredAt      DateTime?
+  retiredBy      String?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("med_content_templates")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
+}
+
+model MedContentChecklistTemplate {
+  id             String    @id @default(uuid())
+  docType        String                                                    // same slugs
+  version        Int       @default(1)
+  isCurrent      Boolean   @default(true)
+
+  // items: Array<{ id, label, required, groupId, helpText? }>
+  // Groups align with pre-MLR issue severities (must_fix / should_fix /
+  // note) so the UI can render consistent columns.
+  items          Json      @default("[]")
+
+  retiredAt      DateTime?
+  retiredBy      String?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("med_content_checklist_templates")
+  @@unique([docType, version])
+  @@index([docType, isCurrent])
 }

@@ -18,9 +18,67 @@ import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
-import { platformApi, type DocumentTypePolicy } from '../api/platformApi'
+import { platformApi, type BestPracticeDigest, type DocumentTypePolicy } from '../api/platformApi'
 import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
 import { DOCUMENT_TYPE_KEY, documentTypeLabel } from '../../utils/documentLabels'
+
+// --- Preview helpers (mirror of apps/api .../document-type-policy/resolve.ts
+// + schema.ts — kept in lock-step so the "AI sees it as…" panel shows
+// character-identical output to what Claude actually receives on every
+// draft + rewrite call. Pure functions; no DB, no clock. If the API's
+// render ever changes, update both — the parity-test on the worker side
+// (policy-prompt-parity.test.ts) already guards the server copy.)
+function sevOrder(s: 'must' | 'should' | 'nice'): number {
+  return s === 'must' ? 0 : s === 'should' ? 1 : 2
+}
+function renderWholeDocPrinciples(digest: BestPracticeDigest | null | undefined): string {
+  const whole = (digest?.principles ?? []).filter(p => p.scope === 'whole-doc')
+  if (whole.length === 0) return ''
+  const ordered = [...whole].sort((a, b) => sevOrder(a.severity) - sevOrder(b.severity))
+  return ordered.map(p => `[${p.severity.toUpperCase()}] ${p.text}`).join('\n')
+}
+function renderAllSectionRules(
+  digest: BestPracticeDigest | null | undefined,
+  rules:  Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>> | null | undefined,
+): Array<{ sectionKey: string; block: string }> {
+  const sectionKeys = new Set<string>()
+  for (const p of (digest?.principles ?? [])) {
+    const m = /^section:(.+)$/.exec(p.scope)
+    if (m) sectionKeys.add(m[1]!)
+  }
+  if (rules) for (const k of Object.keys(rules)) sectionKeys.add(k)
+  return Array.from(sectionKeys).sort().map(sectionKey => {
+    const fromDigest = (digest?.principles ?? [])
+      .filter(p => p.scope === `section:${sectionKey}`)
+      .map(p => ({ severity: p.severity, text: p.text }))
+    const fromRules = rules?.[sectionKey] ?? []
+    const all = [...fromDigest, ...fromRules]
+    const ordered = [...all].sort((a, b) => sevOrder(a.severity) - sevOrder(b.severity))
+    return { sectionKey, block: ordered.map(r => `[${r.severity.toUpperCase()}] ${r.text}`).join('\n') }
+  })
+}
+/** Compose the exact block the API's renderPolicyPromptBlock produces — but
+ *  using the CURRENT draft (not the saved smePrompt) so the user sees
+ *  pending edits reflected before they click Save. */
+function renderPolicyPreview(args: {
+  draft:    string
+  version:  number
+  digest:   BestPracticeDigest | null | undefined
+  rules:    Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>> | null | undefined
+}): string {
+  const parts: string[] = []
+  const prompt = args.draft.trim()
+  if (prompt.length > 0) {
+    parts.push(`SME PROMPT (policy v${args.version})`, prompt)
+  }
+  const whole = renderWholeDocPrinciples(args.digest)
+  if (whole) parts.push('', 'DOCUMENT-WIDE PRINCIPLES', whole)
+  const sectionBlocks = renderAllSectionRules(args.digest, args.rules)
+  for (const { sectionKey, block } of sectionBlocks) {
+    parts.push('', `SECTION RULES (${sectionKey})`, block)
+  }
+  return parts.join('\n')
+}
 
 // Every document type, in the underscored form prompts are stored under (csr-full → csr_full).
 // Labels are looked up at render time — translations aren't loaded yet when this module is first imported.
@@ -164,6 +222,13 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
   // through the full policy editor.
   const [needsBump,   setNeedsBump]   = useState(false)
   const [bumpReason,  setBumpReason]  = useState('')
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const previewBlock = useMemo(() => renderPolicyPreview({
+    draft,
+    version: policy.version,
+    digest:  policy.bestPracticeDigest,
+    rules:   policy.sectionRules as Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>> | null,
+  }), [draft, policy.version, policy.bestPracticeDigest, policy.sectionRules])
 
   const dirty    = draft !== policy.smePrompt
   const trimmed  = draft.trim()
@@ -270,6 +335,58 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
         data-field="sme-prompt"
         placeholder="SME prompt for this document type — the role-specific preamble AI reads on every draft + rewrite."
       />
+
+      {/* "What AI actually sees" preview — composed exactly like the API's
+          renderPolicyPromptBlock: SME prompt + document-wide principles
+          (ordered must → should → nice) + per-section rules. Uses the
+          CURRENT draft so unsaved edits are reflected before Save. */}
+      <section className="rounded-md border border-slate-200 bg-slate-50" data-preview-panel>
+        <button
+          type="button"
+          onClick={() => setPreviewOpen(v => !v)}
+          className="flex w-full items-center justify-between px-3 py-2 text-left text-[12px] font-semibold text-slate-800 hover:bg-slate-100"
+          data-action="toggle-preview"
+          aria-expanded={previewOpen}
+        >
+          <span>
+            Preview — how AI will see this prompt
+            {dirty && <span className="ml-2 font-mono text-[10px] font-normal text-amber-700">(from unsaved draft)</span>}
+          </span>
+          <span className="font-mono text-[10px] text-slate-500">
+            {previewBlock.length.toLocaleString()} chars · {previewOpen ? '▾ hide' : '▸ show'}
+          </span>
+        </button>
+        {previewOpen && (
+          <div className="border-t border-slate-200 px-3 py-3" data-preview-body>
+            <p className="mb-2 text-[11px] text-slate-500">
+              This is the <strong>exact</strong> text injected into the AI system prompt on every draft
+              + <code>/ai-suggest</code> rewrite for <span className="font-mono">{policy.docType}</span>.
+              Best-Practice digest + section rules are read from the stored policy (edit those on the full Doc Type Policies tab).
+            </p>
+            <pre
+              className="max-h-96 overflow-auto rounded-md border border-slate-200 bg-white p-3 font-mono text-[11px] leading-relaxed text-slate-800"
+              data-preview-text
+            >
+              {previewBlock || <span className="italic text-slate-400">Nothing to preview — enter a prompt above.</span>}
+            </pre>
+            {previewBlock.length > 0 && (
+              <div className="mt-2 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => navigator.clipboard?.writeText(previewBlock).then(
+                    () => setActionInfo('Preview copied to clipboard.'),
+                    ()  => setActionError('Could not copy to clipboard.'),
+                  )}
+                  className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                  data-action="copy-preview"
+                >
+                  Copy preview
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+      </section>
 
       {!needsBump && (
         <div className="flex items-center justify-end gap-2" data-footer-actions>

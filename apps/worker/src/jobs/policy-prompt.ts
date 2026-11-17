@@ -162,3 +162,14 @@ export function renderPolicyPromptBlock(
   }
   return parts.join('\n')
 }
+
+/** Fixed product-level grounding rules for every single-section AI call.
+ *  Mirror of apps/api resolve.ts SECTION_GROUNDING_RULES. Keep in
+ *  lock-step — parity test fails on drift. */
+export const SECTION_GROUNDING_RULES = [
+  'SECTION GROUNDING RULES (product guardrails — always applied)',
+  '- The attached source documents are the authoritative primary references for every fact, figure, date, numeric value, name, and citation in this section. Prefer verbatim quote or close paraphrase from the attachments over anything you can derive on your own.',
+  '- When the attached sources genuinely do not contain information the section needs, insert a bracketed placeholder — [TBD: what is needed] — rather than fabricating. Never invent numbers, patient counts, dates, trial identifiers, or citations.',
+  '- You are rewriting a single section only. Do not rewrite other sections or expand this one beyond its scope. Any "Additional context" below is reference material, not an edit target.',
+  '- Preserve existing reference markers (superscripts, [1], §9.4 Table 3, etc.) unless the instruction says otherwise. A new claim that cites an attached source needs a visible reference.',
+].join('\n')

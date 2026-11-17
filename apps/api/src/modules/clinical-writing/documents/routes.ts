@@ -31,7 +31,7 @@ import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES 
 import { actorManagesProject } from '../../projects/project-managers.js'
 import { DocumentService, hashSections } from './service.js'
 import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
-import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock } from '../../platform/document-type-policy/resolve.js'
+import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { stubAllowed } from '../../platform/ai-gateway/service.js'
@@ -2220,9 +2220,15 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // failure — a missing brief or Prisma hiccup must never fail the
     // user's AI request. See carry-prompt/decide.ts for the rollout
     // mechanic (empty env var = off everywhere).
+    // SECTION_GROUNDING_RULES is the product-level guardrail block —
+    // always prepended to section AI calls. States that attached source
+    // documents are authoritative, prohibits fabrication, scopes the
+    // model to single-section rewriting, and preserves reference
+    // markers. Admins see this in the AI Prompts preview panel.
+    const scaffold = SECTION_GROUNDING_RULES
     let promptWithScope = policyBlock
-      ? `${policyBlock}\n\n${legacyPromptWithScope}`
-      : legacyPromptWithScope
+      ? `${scaffold}\n\n${policyBlock}\n\n${legacyPromptWithScope}`
+      : `${scaffold}\n\n${legacyPromptWithScope}`
     let carryPromptUsed = false
     if (carryPromptEnabledFor(hyphenate(doc.type))) {
       try {
@@ -2247,8 +2253,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           }),
         })
         const systemWithPolicy = policyBlock
-          ? `${carry.systemPrompt}\n\n${policyBlock}`
-          : carry.systemPrompt
+          ? `${scaffold}\n\n${carry.systemPrompt}\n\n${policyBlock}`
+          : `${scaffold}\n\n${carry.systemPrompt}`
         promptWithScope = `${systemWithPolicy}\n\n---\n\n${carry.userPrompt}`
         carryPromptUsed = true
       } catch (err) {

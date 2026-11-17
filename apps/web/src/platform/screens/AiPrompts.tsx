@@ -87,6 +87,17 @@ function renderPolicyBlock(args: {
   return parts.join('\n')
 }
 
+// Fixed product-level grounding rules — mirror of
+// apps/api/src/modules/platform/document-type-policy/resolve.ts
+// SECTION_GROUNDING_RULES. Keep character-identical.
+const SECTION_GROUNDING_RULES_WEB = [
+  'SECTION GROUNDING RULES (product guardrails — always applied)',
+  '- The attached source documents are the authoritative primary references for every fact, figure, date, numeric value, name, and citation in this section. Prefer verbatim quote or close paraphrase from the attachments over anything you can derive on your own.',
+  '- When the attached sources genuinely do not contain information the section needs, insert a bracketed placeholder — [TBD: what is needed] — rather than fabricating. Never invent numbers, patient counts, dates, trial identifiers, or citations.',
+  '- You are rewriting a single section only. Do not rewrite other sections or expand this one beyond its scope. Any "Additional context" below is reference material, not an edit target.',
+  '- Preserve existing reference markers (superscripts, [1], §9.4 Table 3, etc.) unless the instruction says otherwise. A new claim that cites an attached source needs a visible reference.',
+].join('\n')
+
 function renderDrafterScaffolding(docType: string): string {
   return [
     `You are drafting a single section of a regulatory clinical writing deliverable.`,
@@ -97,6 +108,8 @@ function renderDrafterScaffolding(docType: string): string {
     `Return clean HTML with <p>, <ul>/<li>, and <table> as appropriate — no Markdown, no code fences, no commentary before or after the HTML.`,
     `If the sources genuinely do not contain the information needed for this section, write a short <p>stating what is missing and what the writer should supply.</p>`,
     `Do not invent numeric values, patient counts, dates, or citations. Quote figures only when they appear in the sources.`,
+    '',
+    SECTION_GROUNDING_RULES_WEB,
   ].join('\n')
 }
 

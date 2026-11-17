@@ -4,9 +4,14 @@
 // drift between them fails CI, not production.
 
 import { describe, expect, it } from 'vitest'
-import { renderPolicyPromptBlock as apiRender, type PolicyRowForAi as ApiPolicy } from './resolve.js'
+import {
+  renderPolicyPromptBlock as apiRender,
+  SECTION_GROUNDING_RULES as API_GROUNDING,
+  type PolicyRowForAi as ApiPolicy,
+} from './resolve.js'
 import {
   renderPolicyPromptBlock as workerRender,
+  SECTION_GROUNDING_RULES as WORKER_GROUNDING,
   type PolicyRowForAi as WorkerPolicy,
 } from '../../../../../worker/src/jobs/policy-prompt.js'
 
@@ -58,6 +63,16 @@ describe('renderPolicyPromptBlock — API ↔ worker parity', () => {
     const niceIx   = out.indexOf('[NICE]')
     expect(mustIx).toBeLessThan(shouldIx)
     expect(shouldIx).toBeLessThan(niceIx)
+  })
+
+  it('SECTION_GROUNDING_RULES is character-identical on API + worker', () => {
+    expect(WORKER_GROUNDING).toBe(API_GROUNDING)
+    // Sanity: the constant carries the four guardrails callers rely on.
+    expect(API_GROUNDING).toMatch(/SECTION GROUNDING RULES/)
+    expect(API_GROUNDING).toMatch(/authoritative primary references/)
+    expect(API_GROUNDING).toMatch(/\[TBD: what is needed\]/)
+    expect(API_GROUNDING).toMatch(/single section only/)
+    expect(API_GROUNDING).toMatch(/reference markers/)
   })
 
   it('surfaces section-scoped rules only when a sectionKey is passed', () => {

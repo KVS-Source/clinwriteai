@@ -492,6 +492,15 @@ export const platformApi = {
       `/document-type-policies/${encodeURIComponent(docType)}/distill-best-practice`,
       { uploadId },
     ),
+  // AI-extract section rules from the policy's SME prompt. Does NOT
+  // write to the policy — returns the parsed rules so the admin can
+  // review + Save on the editor to persist.
+  extractSectionRules: (docType: string) =>
+    api.post<{
+      sectionRules: Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+      sectionCount: number
+      ruleCount:    number
+    }>(`/document-type-policies/${encodeURIComponent(docType)}/extract-section-rules`, {}),
   // One-shot admin upload for the Best Practices parser: pick a PDF,
   // the server stores it as a platform DocumentUpload (projectId=null,
   // sourceCategory='best_practice') AND enqueues distillation in the

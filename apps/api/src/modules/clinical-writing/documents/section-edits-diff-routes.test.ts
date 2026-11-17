@@ -22,6 +22,7 @@ async function build(opts: { row?: Row; canSee?: boolean } = {}) {
   const app = Fastify()
   app.decorate('prisma', {
     // canSeeDocument: the diff is readable by anyone who can see the document.
+    crmAttendee: { findMany: async () => [] },
     document: { count: vi.fn(async () => (opts.canSee === false ? 0 : 1)) },
     editHistory: {
       findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {

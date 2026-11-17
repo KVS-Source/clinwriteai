@@ -51,6 +51,7 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
     projectMember:     { findMany: vi.fn(async () => memberOf.map(projectId => ({ projectId }))) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     document:          { findMany: vi.fn(async () => []) },
     documentUpload: {
       findMany: vi.fn(async ({ where }: { where: { id: { in: string[] }; projectId: string } }) =>

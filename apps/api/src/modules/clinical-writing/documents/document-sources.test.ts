@@ -21,6 +21,7 @@ async function build() {
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: async () => ({ status: 'ongoing' }) },
+    crmAttendee: { findMany: async () => [] },
 
     document: {
 

@@ -23,6 +23,7 @@ async function build(initial: DocRow, opts: { author?: boolean; role?: string } 
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: async () => ({ status: 'ongoing' }) },
+    crmAttendee: { findMany: async () => [] },
 
     document: {
 

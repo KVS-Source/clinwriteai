@@ -72,6 +72,7 @@ async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; call
     projectMember:     { findMany: vi.fn(async () => [{ projectId: 'p-1' }]) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     document:          { findMany: vi.fn(async () => [{ projectId: 'p-2' }]) },
   } as never)
   app.decorate('audit', { verifyChain, append } as never)

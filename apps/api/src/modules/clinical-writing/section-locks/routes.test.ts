@@ -25,6 +25,7 @@ async function build(opts: { seed?: Array<{ id: string; documentId: string; sect
 
   const prisma = {
     project: { findUnique: async () => ({ status: 'ongoing' }) },
+    crmAttendee: { findMany: async () => [] },
 
     document: {
 

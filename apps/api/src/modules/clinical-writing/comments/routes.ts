@@ -695,8 +695,9 @@ export const projectCommentsRoutes: FastifyPluginAsync = async (app) => {
     if (visible !== 'all' && !visible.has(projectId)) return reply.code(404).send({ error: 'not_found' })
 
     // Only comments on the documents this user can see (contributors: the ones they work on).
+    const docScope = await documentVisibilityWhere(app.prisma, request.user!)
     const docs = await app.prisma.document.findMany({
-      where: { projectId, deletedAt: null, ...(documentVisibilityWhere(request.user!) ?? {}) },
+      where: { projectId, deletedAt: null, ...(docScope ?? {}) },
       select: { id: true },
     })
     if (docs.length === 0) return []

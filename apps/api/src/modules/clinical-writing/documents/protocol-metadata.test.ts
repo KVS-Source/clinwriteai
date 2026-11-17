@@ -74,6 +74,7 @@ async function build(opts: {
   const app = Fastify()
 
   app.decorate('prisma', {
+    crmAttendee: { findMany: async () => [] },
     document: {
       findUnique: vi.fn(async () => state.row),
       count: vi.fn(async () => 1), // canSeeDocument — admin-bypass or match

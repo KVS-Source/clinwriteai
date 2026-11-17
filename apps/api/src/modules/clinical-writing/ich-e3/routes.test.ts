@@ -53,6 +53,7 @@ async function build(opts: Opts = {}) {
     // Project visibility for a PM (canSeeDocument): on proj-1.
     projectMember:     { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     raciAssignment:    { findMany: vi.fn(async () => []) },
     user:             { findMany: vi.fn(async () => [{ id: 'u-9', name: 'Dr A Rao' }]) },
     comment:          { findMany: vi.fn(async () => [{ sectionRef: '§5', verdict: null }, { sectionRef: '§5', verdict: 'approve' }]) },

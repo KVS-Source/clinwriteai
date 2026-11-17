@@ -29,6 +29,7 @@ async function build(actor: Partial<AuthenticatedUser>, opts: { memberOf?: strin
     },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     documentRaci: { findMany: vi.fn(async () => [{ userId: 'u-left' }]) },               // left, but still holds a letter
     document: { findMany: vi.fn(async ({ where }: Row) => (where.projectId ? [{ assigneeId: 'u-owner' }, { assigneeId: null }] : [])) },
     user: {

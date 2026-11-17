@@ -57,6 +57,7 @@ async function build(opts: {
     // canSeeDocument helper taps these: the PM is on proj-1.
     projectMember:  { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     documentRaci:   { findMany: vi.fn(async () => []) },
     raciAssignment: { findMany: vi.fn(async () => []) },
     documentTypePolicy: {

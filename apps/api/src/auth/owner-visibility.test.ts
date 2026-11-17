@@ -1,5 +1,5 @@
 // CW-020, second half: routes addressed through a CRM meeting, a TLF package / item or a project must
-// answer "not found" to someone who may not see the document or project behind them — the same as a
+// answer "not found" to someone who may not see the document or project behind them â€” the same as a
 // route addressed by :documentId. The real CRM and TLF routes run over a stand-in database.
 
 import Fastify from 'fastify'
@@ -27,6 +27,7 @@ async function build(user: string) {
   app.decorate('prisma', {
     projectMember:     { findMany: async ({ where }: { where: { userId: string } }) => (where.userId === 'pm' ? [{ projectId: 'P-IN' }] : []) },
     projectTeamMember: { findMany: async () => [] },
+    crmAttendee: { findMany: async () => [] },
     raciAssignment:    { findMany: async () => [] },
     project:           { findUnique: async () => ({ status: 'ongoing' }) },
     document: {

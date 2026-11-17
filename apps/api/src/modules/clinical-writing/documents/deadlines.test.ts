@@ -35,6 +35,7 @@ async function build(opts: {
     projectMember: { findMany: vi.fn(async () => (opts.memberOf ?? ['p-1']).map(projectId => ({ projectId }))) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     documentRaci: { findMany: vi.fn(async () => (opts.rRow ? [{ userId }] : [{ userId: 'another-author' }])) },
   } as never)
   app.decorate('audit', { append } as never)

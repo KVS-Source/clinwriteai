@@ -63,11 +63,11 @@ export function MasterLibrary() {
   const queryClient = useQueryClient()
   // Who sees New version and Withdraw: the Project Manager owns the library's content; admins may too (the API still
   // limits everyone to their own tenant's items, and platform-wide items to platform admins).
-  // Only a Project Manager adds documents to the library from their computer. A PM or a Contributor (the
-  // writers and reviewers) may share them; Auditor, QC and IT Admin can't (the API enforces the same).
+  // Only a Project Manager adds documents to the library from their computer. Only a Project Manager may
+  // share them (SME decision, 2026-11-17); Contributor, Auditor, QC and IT Admin can't (the API enforces the same).
   const hasRole = usePlatformStore(s => s.hasRole)
   const canUpload = hasRole(['pm'])
-  const canShare = hasRole(['pm', 'contributor'])
+  const canShare = hasRole(['pm'])
 
   // Filters start empty — nothing is pre-applied.
   const [search,      setSearch]      = useState('')
@@ -548,7 +548,7 @@ export function MasterLibrary() {
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const SHARE_MAX_RECIPIENTS = 20
 
-// Share a Master Document (Project Manager or Contributor) by email address. A colleague with an account gets a
+// Share a Master Document (Project Manager only) by email address. A colleague with an account gets a
 // notification linking to the document in the app. Anyone else — e.g. a CEO with no account — gets an invitation
 // whose link opens the document only after a one-time code emailed to that address is entered, so a forwarded
 // link is useless. Switched-off accounts are refused. The share is written to the document's audit trail.

@@ -16,7 +16,7 @@ const qc = (extra: Role[] = []): AuthenticatedUser =>
 describe('QC reads everything', () => {
   it('sees every project and every document', async () => {
     expect(await visibleProjectIdsForUser({} as never, qc())).toBe('all')
-    expect(documentVisibilityWhere(qc())).toBeNull()
+    expect(await documentVisibilityWhere({} as never, qc())).toBeNull()
   })
 
   it('cannot be put on a RACI, assigned a document, or open admin routes', () => {

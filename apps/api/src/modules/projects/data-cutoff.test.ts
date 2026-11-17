@@ -20,6 +20,7 @@ async function build(existing: Record<string, unknown> | null = null) {
     projectMember: { findMany: vi.fn(async () => [{ projectId: 'PROJ-CUT' }]) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     document: { findMany: vi.fn(async () => []) },
   } as never)
   app.decorate('audit', { append: vi.fn(async () => ({})) } as never)

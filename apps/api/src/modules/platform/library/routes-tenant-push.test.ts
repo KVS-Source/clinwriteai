@@ -371,6 +371,17 @@ describe('GET /library/:id/pdf', () => {
     await app.inject({ method: 'GET', url: '/library/a/pdf' })
     expect(JSON.stringify(findFirst.mock.calls[0])).toContain('"tenantId":"t1"')
   })
+
+  it('records who opened it in the Master Library (on the library entry), and nothing when it could not be opened', async () => {
+    const { app, append } = await setup({ found: row('a') })
+    expect((await app.inject({ method: 'GET', url: '/library/a/pdf' })).statusCode).toBe(200)
+    expect(append).toHaveBeenCalledTimes(1)
+    expect(append).toHaveBeenCalledWith(expect.objectContaining({ action: 'library_document_viewed', entityType: 'library_section', entityId: 'a' }))
+    await current?.close()
+    const hidden = await setup({ found: null })
+    await hidden.app.inject({ method: 'GET', url: '/library/a/pdf' })
+    expect(hidden.append).not.toHaveBeenCalled()
+  })
 })
 
 describe('pdfSafeText', () => {

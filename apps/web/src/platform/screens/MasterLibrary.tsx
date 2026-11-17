@@ -6,7 +6,7 @@ import { useSearchParams } from 'react-router-dom'
 import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTaLabels } from '../../hooks'
-import type { MasterLibraryItem, ModuleKey } from '@platform/types'
+import type { MasterLibraryAuditEntry, MasterLibraryItem, ModuleKey } from '@platform/types'
 import type { LibraryListParams } from '../api/platformApi'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { platformApi } from '../api/platformApi'
@@ -477,7 +477,7 @@ export function MasterLibrary() {
               )}
             </div>
 
-            <LibraryAuditTrail itemId={active.id} labelClass={labelClass} />
+            <LibraryAuditTrail itemId={active.id} uploaded={!!active.uploaded} labelClass={labelClass} />
 
             <div className="flex flex-wrap items-center gap-2">
               {canShare && !active.isArchived && (
@@ -762,66 +762,143 @@ function MatchedWords({ text, term }: { text: string; term: string }) {
     : <span key={i}>{part}</span>)}</>
 }
 
-// The details panel's Audit trail: every entry about the document over its whole life (the source document's trail
-// in Clinical Writing and the library entry's), newest first, a page at a time. Read-only, and deliberately no
-// export / download / print. Badges and phrases are the Clinical Writing Audit Trail panel's own.
+// The details panel's Audit trail, in three parts:
+//   - Master Library activity: this version's own record — pushed / uploaded, new version, withdrawn, opened in the
+//     Master Library, shared, invitation opened, locked out. A page at a time.
+//   - How it got here: the key Clinical Writing milestones up to this version's push (not shown for an upload).
+//   - Full Clinical Writing trail: on request, and offered only to people who may read that trail in Clinical
+//     Writing (RACI on the document, its PM, an auditor) — the API refuses everyone else.
+// Read-only, and deliberately no export / download / print. Badges and phrases are the Clinical Writing Audit Trail
+// panel's own.
 const AUDIT_PAGE_SIZE = 50
-function LibraryAuditTrail({ itemId, labelClass }: { itemId: string; labelClass: string }) {
+function LibraryAuditTrail({ itemId, uploaded, labelClass }: { itemId: string; uploaded: boolean; labelClass: string }) {
   const { t } = useTranslation()
+  const [showFull, setShowFull] = useState(false)
+  useEffect(() => { setShowFull(false) }, [itemId])
   const trail = useInfiniteQuery({
     queryKey: ['library-audit', itemId],
     queryFn: ({ pageParam }) => platformApi.listLibraryItemAudit(itemId, pageParam, AUDIT_PAGE_SIZE),
     initialPageParam: 0,
-    getNextPageParam: (last) => (last.offset + last.entries.length < last.total && last.entries.length ? last.offset + last.entries.length : undefined),
+    getNextPageParam: (last) => nextOffset(last.library),
   })
-  const entries = trail.data?.pages.flatMap(p => p.entries) ?? []
-  const total = trail.data?.pages[0]?.total ?? 0
+  const full = useInfiniteQuery({
+    queryKey: ['library-audit-full', itemId],
+    queryFn: ({ pageParam }) => platformApi.listLibraryItemFullAudit(itemId, pageParam, AUDIT_PAGE_SIZE),
+    initialPageParam: 0,
+    getNextPageParam: nextOffset,
+    enabled: showFull,
+  })
+  const first = trail.data?.pages[0]
+  const library = trail.data?.pages.flatMap(p => p.library.entries) ?? []
+  const milestones = first?.milestones ?? []
+  const fullEntries = full.data?.pages.flatMap(p => p.entries) ?? []
+  const subLabel = 'text-[11px] font-semibold text-slate-700'
+  const muted = 'mt-1 text-[12px] text-slate-500'
+
   return (
     <div className="rounded-md border border-slate-200 p-3" data-library-audit>
       <p className={labelClass}>{t('page.master_library.audit_trail')}</p>
       {trail.isLoading ? (
-        <p className="mt-1 text-[12px] text-slate-500" data-library-audit-state="loading">{t('page.master_library.audit_trail_loading')}</p>
-      ) : trail.error ? (
+        <p className={muted} data-library-audit-state="loading">{t('page.master_library.audit_trail_loading')}</p>
+      ) : trail.error || !first ? (
         <p className="mt-1 text-[12px] text-red-700" data-library-audit-state="error">{t('page.master_library.audit_trail_failed')}</p>
-      ) : !entries.length ? (
-        <p className="mt-1 text-[12px] text-slate-800" data-library-audit-state="empty">{t('page.master_library.audit_trail_empty')}</p>
       ) : (
-        <>
-          <ul className="mt-2 flex flex-col divide-y divide-slate-100">
-            {entries.map((e, i) => {
-              const rawAction = e.action.replace(/[._]/g, ' ').trim()
-              const palette = (e.eventType && EVENT_BADGE_PALETTE[e.eventType]) || { bg: '#F1F5F9', fg: '#475569' }
-              const labelKey = e.eventType ? AUDIT_ACTION_LABEL_KEYS[e.eventType] : undefined
-              const phraseKey = e.eventType ? ACTION_PHRASE_KEYS[e.eventType] : undefined
-              return (
-                <li key={i} className="flex flex-col gap-0.5 py-2 first:pt-0 last:pb-0" data-library-audit-row data-action={e.action}>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="font-mono text-[10px] text-slate-500" data-audit-when>{formatDateTimeIst(e.timestamp)}</span>
-                    <span className="whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wider"
-                      style={{ backgroundColor: palette.bg, color: palette.fg }}>
-                      {labelKey ? t(labelKey) : (rawAction || t('page.audit_trail_panel.badge_event_fallback')).toUpperCase()}
-                    </span>
-                  </div>
-                  <p className="text-[12px]">
-                    <span className="font-semibold text-slate-900" data-audit-who>{e.actor}</span>{' '}
-                    <span className="text-slate-500">{phraseKey ? t(phraseKey) : rawAction}</span>
-                  </p>
-                  <p className="text-[12px] leading-[1.5] text-slate-500" data-audit-detail>{e.detail}</p>
-                </li>
-              )
-            })}
-          </ul>
-          <div className="mt-2 flex items-center justify-between gap-2">
-            <span className="text-[11px] text-slate-500" data-library-audit-count>{t('page.master_library.audit_trail_count', { shown: entries.length, total })}</span>
-            {trail.hasNextPage && (
-              <button type="button" onClick={() => void trail.fetchNextPage()} disabled={trail.isFetchingNextPage}
-                className="text-[12px] font-semibold hover:underline disabled:opacity-50" style={{ color: PLATFORM_ACCENT.primary }}
-                data-action="library-audit-more">
-                {trail.isFetchingNextPage ? t('page.master_library.audit_trail_loading') : t('page.master_library.audit_trail_more')}
-              </button>
+        <div className="mt-2 flex flex-col gap-4">
+          <section data-library-audit-group="library">
+            <p className={subLabel}>{t('page.master_library.audit_library_activity')}</p>
+            {library.length ? (
+              <>
+                <AuditRows entries={library} />
+                <AuditMore shown={library.length} total={first.library.total} hasMore={!!trail.hasNextPage}
+                  loading={trail.isFetchingNextPage} onMore={() => void trail.fetchNextPage()} action="library-audit-more" />
+              </>
+            ) : (
+              <p className={muted} data-library-audit-state="empty">{t('page.master_library.audit_library_empty')}</p>
             )}
-          </div>
-        </>
+          </section>
+
+          <section data-library-audit-group="milestones">
+            <p className={subLabel}>{t('page.master_library.audit_milestones')}</p>
+            {milestones.length
+              ? <AuditRows entries={milestones} />
+              : <p className={muted} data-library-audit-state="no-milestones">{t(uploaded ? 'page.master_library.audit_milestones_uploaded' : 'page.master_library.audit_milestones_empty')}</p>}
+          </section>
+
+          {first.fullTrailAvailable && (
+            <section data-library-audit-group="full">
+              <button type="button" onClick={() => setShowFull(v => !v)}
+                className="text-[12px] font-semibold hover:underline" style={{ color: PLATFORM_ACCENT.primary }}
+                data-action="library-audit-full">
+                {t(showFull ? 'page.master_library.audit_full_hide' : 'page.master_library.audit_full_show')}
+              </button>
+              {showFull && (full.isLoading ? (
+                <p className={muted}>{t('page.master_library.audit_trail_loading')}</p>
+              ) : full.error ? (
+                <p className="mt-1 text-[12px] text-red-700">{t('page.master_library.audit_trail_failed')}</p>
+              ) : (
+                <>
+                  <p className="mt-1 text-[11px] text-slate-500">{t('page.master_library.audit_full_note')}</p>
+                  <AuditRows entries={fullEntries} />
+                  <AuditMore shown={fullEntries.length} total={full.data?.pages[0]?.total ?? 0} hasMore={!!full.hasNextPage}
+                    loading={full.isFetchingNextPage} onMore={() => void full.fetchNextPage()} action="library-audit-full-more" />
+                </>
+              ))}
+            </section>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function nextOffset(page: { offset: number; total: number; entries: unknown[] }): number | undefined {
+  const next = page.offset + page.entries.length
+  return page.entries.length && next < page.total ? next : undefined
+}
+
+function AuditRows({ entries }: { entries: MasterLibraryAuditEntry[] }) {
+  const { t } = useTranslation()
+  return (
+    <ul className="mt-1 flex flex-col divide-y divide-slate-100">
+      {entries.map((e, i) => {
+        const rawAction = e.action.replace(/[._]/g, ' ').trim()
+        const palette = (e.eventType && EVENT_BADGE_PALETTE[e.eventType]) || { bg: '#F1F5F9', fg: '#475569' }
+        const labelKey = e.eventType ? AUDIT_ACTION_LABEL_KEYS[e.eventType] : undefined
+        const phraseKey = e.eventType ? ACTION_PHRASE_KEYS[e.eventType] : undefined
+        const phrase = phraseKey ? t(phraseKey) : rawAction
+        return (
+          <li key={i} className="flex flex-col gap-0.5 py-2" data-library-audit-row data-action={e.action}>
+            <div className="flex items-center justify-between gap-2">
+              <span className="font-mono text-[10px] text-slate-500" data-audit-when>{formatDateTimeIst(e.timestamp)}</span>
+              <span className="whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wider"
+                style={{ backgroundColor: palette.bg, color: palette.fg }}>
+                {labelKey ? t(labelKey) : (rawAction || t('page.audit_trail_panel.badge_event_fallback')).toUpperCase()}
+              </span>
+            </div>
+            <p className="text-[12px]">
+              <span className="font-semibold text-slate-900" data-audit-who>{e.actor}</span>{' '}
+              <span className="text-slate-500">{phrase}</span>
+            </p>
+            {/* The detail only when it says more than the phrase (unmapped actions fall back to the same words). */}
+            {e.detail && e.detail !== phrase && <p className="text-[12px] leading-[1.5] text-slate-500" data-audit-detail>{e.detail}</p>}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function AuditMore({ shown, total, hasMore, loading, onMore, action }: { shown: number; total: number; hasMore: boolean; loading: boolean; onMore: () => void; action: string }) {
+  const { t } = useTranslation()
+  return (
+    <div className="mt-1 flex items-center justify-between gap-2">
+      <span className="text-[11px] text-slate-500" data-library-audit-count>{t('page.master_library.audit_trail_count', { shown, total })}</span>
+      {hasMore && (
+        <button type="button" onClick={onMore} disabled={loading}
+          className="text-[12px] font-semibold hover:underline disabled:opacity-50" style={{ color: PLATFORM_ACCENT.primary }}
+          data-action={action}>
+          {loading ? t('page.master_library.audit_trail_loading') : t('page.master_library.audit_trail_more')}
+        </button>
       )}
     </div>
   )

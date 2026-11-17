@@ -635,6 +635,16 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     // Every page carries the reader's email and the time (watermark.ts).
     const pdf = await libraryItemPdf(app, row, { watermark: viewerWatermark(request.user!.email) })
     if (!pdf.ok) return reply.code(pdf.code).send({ error: pdf.error, message: pdf.message })
+    // Who opened it in the Master Library — shown in the details panel's Audit trail (audit-trail.ts).
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: request.user!.id,
+      action: 'library_document_viewed',
+      entityType: 'library_section',
+      entityId: row.id,
+      details: { libraryVersion: row.version },
+      ipAddress: request.ip ?? null,
+    })
     return reply
       .header('Content-Type', 'application/pdf')
       .header('Content-Disposition', `attachment; filename="${pdf.fileName}"; filename*=UTF-8''${encodeURIComponent(pdf.originalName)}`)

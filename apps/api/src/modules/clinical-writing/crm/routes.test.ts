@@ -24,9 +24,10 @@ function fakePrisma() {
     { id: 'u-out', name: 'Olly Outsider', initials: 'OO', role: 'contributor' },
     { id: 'u-pm2', name: 'Pia Other-PM', initials: 'PO', role: 'pm' },   // a PM who can see the project but is not listed as a member
   ]
-  // Minimal where-matcher: equality, { not }, OR, null.
+  // Minimal where-matcher: equality, { not }, { in }, OR, null.
   const matches = (row: Row, where: Row = {}): boolean => Object.entries(where).every(([k, v]) => {
     if (k === 'OR') return (v as Row[]).some(w => matches(row, w))
+    if (v && typeof v === 'object' && 'in' in v) return (v.in as unknown[]).includes(row[k])
     if (v && typeof v === 'object' && 'not' in v) return row[k] !== null && row[k] !== undefined && row[k] !== v.not
     return v === null ? row[k] === null || row[k] === undefined : row[k] === v
   })
@@ -37,6 +38,7 @@ function fakePrisma() {
         return m && include?.resolutions ? { ...m, resolutions: resolutions.filter(r => r.meetingId === m.id) } : m ?? null
       },
       update: async ({ where, data }: Row) => Object.assign(meetings.find(m => m.id === where.id)!, data),
+      count: async ({ where }: Row) => meetings.filter(m => matches(m, where)).length,
       create: async ({ data }: Row) => { const m = { id: `m${meetings.length + 1}`, status: 'scheduled', ...data }; meetings.push(m); return m },
     },
     crmAttendee: {
@@ -232,6 +234,39 @@ describe('a project manager running a CRM', () => {
 
     expect((await app.inject({ method: 'POST', url: `/crm/${id}/complete` })).statusCode).toBe(200)
     expect(db.documents[0]!.status).toBe('pending_signature')
+  })
+
+  it('a meeting held during authoring puts the document back in authoring when it completes', async () => {
+    const { app, db } = await build({ id: 'u-pm', role: 'pm' })
+    db.documents[0]!.status = 'in_authoring'
+    db.meetings.length = 0
+
+    const scheduled = await app.inject({
+      method: 'POST', url: '/documents/DOC-1/crm',
+      payload: { chairId: 'u-pm', scheduledDate: '2099-11-10T09:00:00.000Z', startTime: '09:00', endTime: '10:00', attendees: [] },
+    })
+    expect(scheduled.statusCode).toBe(201)
+    const id = scheduled.json().id
+
+    expect((await app.inject({ method: 'POST', url: `/crm/${id}/start` })).statusCode).toBe(200)
+    expect(db.documents[0]!.status).toBe('crm_in_progress')
+    expect(db.meetings[0]!.returnToStatus).toBe('in_authoring')
+
+    expect((await app.inject({ method: 'POST', url: `/crm/${id}/complete` })).statusCode).toBe(200)
+    expect(db.documents[0]!.status).toBe('in_authoring')   // as it was, not on to signature
+  })
+
+  it('cancelling a meeting held during authoring also goes back to authoring', async () => {
+    const { app, db } = await build({ id: 'u-pm', role: 'pm' })
+    db.documents[0]!.status = 'in_authoring'
+    db.meetings.length = 0
+    const id = (await app.inject({
+      method: 'POST', url: '/documents/DOC-1/crm',
+      payload: { chairId: 'u-pm', scheduledDate: '2099-11-10T09:00:00.000Z', startTime: '09:00', endTime: '10:00', attendees: [] },
+    })).json().id
+    await app.inject({ method: 'POST', url: `/crm/${id}/start` })
+    expect((await app.inject({ method: 'POST', url: `/crm/${id}/cancel` })).statusCode).toBe(200)
+    expect(db.documents[0]!.status).toBe('in_authoring')
   })
 
   it('cannot start or complete a meeting someone else chairs', async () => {

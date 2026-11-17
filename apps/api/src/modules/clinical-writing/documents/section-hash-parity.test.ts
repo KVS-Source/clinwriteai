@@ -2,6 +2,7 @@
 // same content, or a restored version's stored hash would disagree with the app's. The worker file is imported
 // directly so the two cannot drift apart unnoticed.
 
+import { createHash } from 'node:crypto'
 import { describe, expect, it } from 'vitest'
 import { hashSections as apiHash } from './service.js'
 import { hashSections as workerHash, inDocumentOrder } from '../../../../../worker/src/jobs/section-hash.js'
@@ -25,7 +26,6 @@ describe('restore worker hash', () => {
   })
 
   it('is not the old separator-less hash (which disagreed with the API)', () => {
-    const { createHash } = require('node:crypto') as typeof import('node:crypto')
     const h = createHash('sha256')
     for (const s of [...SECTIONS].sort((a, b) => a.sectionId.localeCompare(b.sectionId))) { h.update(s.sectionId, 'utf8'); h.update(s.contentHtml, 'utf8') }
     expect(workerHash(SECTIONS)).not.toBe(h.digest('hex'))

@@ -10,15 +10,16 @@ import { ApiError } from '../../api/client'
 import { useCurrentUser } from '../../hooks'
 import { isReadOnlyUser } from '../../config/roles'
 import { documentRaciKey } from './MyRaciRole'
+import { isSequentialReview, reviewersAhead } from './reviewTurn'
 
-const REVIEW_LETTERS = new Set(['C', 'Q'])
+// Only Reviewers (C) are counted: QC is not part of the review.
+const REVIEW_LETTERS = new Set(['C'])
 
 export function ReviewCompletionBar({ documentId, projectId }: { documentId: string; projectId?: string }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const { data: me } = useCurrentUser()
   const [confirming, setConfirming] = useState(false)
-  const [allDone, setAllDone] = useState(false)
 
   const { data: rows = [] } = useQuery({
     queryKey: documentRaciKey(documentId),
@@ -30,9 +31,18 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
   // Someone reviewing section by section holds several rows, and finishes them together.
   const mine = cohort.filter(r => r.userId === me?.id)
   const myOpen = mine.filter(r => r.reviewedAt === null && r.rejectedAt === null)
+  // In a sequential review a Reviewer waits for everyone ahead of them (the API refuses otherwise).
+  const ahead = myOpen.some(r => r.letter === 'C') ? reviewersAhead(rows, me?.id) : []
+  const waiting = ahead.length > 0
+  const sequential = isSequentialReview(rows)
   const canAct = myOpen.length > 0 && !isReadOnlyUser(me)
   const needsSignature = myOpen.some(r => r.signatureRequired)
   const isQc = myOpen.length > 0 && myOpen.every(r => r.letter === 'Q')
+
+  // My part is in (every row of mine is done) while others are still reviewing: say so in the
+  // button's place. The document moves on only when the whole cohort has finished.
+  const iMarkedDone = mine.length > 0 && mine.every(r => r.reviewedAt !== null) && !isReadOnlyUser(me)
+  const othersPending = cohort.filter(r => r.userId !== me?.id && r.reviewedAt === null && r.rejectedAt === null).map(r => r.userName ?? r.userId)
 
   const complete = useMutation({
     mutationFn: async () => {
@@ -40,9 +50,8 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
       for (const row of myOpen) last = await raciApi.complete(documentId, row.id)
       return last
     },
-    onSuccess: result => {
+    onSuccess: () => {
       setConfirming(false)
-      if (result?.transition.cohortComplete) setAllDone(true)
     },
     onSettled: () => {
       // The last person finishing can move the document on, so status and tabs refresh too.
@@ -64,15 +73,24 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
         <span className="whitespace-nowrap text-[12px] font-semibold text-slate-700" data-review-progress>
           {t('page.reviewer_view.review_progress', { done: doneCount, total: cohort.length })}
         </span>
-        {cohort.map(row => <PersonChip key={row.id} row={row} />)}
+        {cohort.map(row => <PersonChip key={row.id} row={row} showPlace={sequential} />)}
         <div className="flex-1" />
 
+        {iMarkedDone && (
+          <span
+            className="whitespace-nowrap rounded-md border border-green-200 bg-green-50 px-3 py-1.5 text-[12px] font-semibold text-green-800"
+            title={othersPending.length > 0 ? t('page.reviewer_view.you_marked_done_waiting', { names: othersPending.join(', ') }) : undefined}
+            data-review-marked-by-you
+          >
+            {t('page.reviewer_view.you_marked_done')}
+          </span>
+        )}
         {canAct && !confirming && (
           <button
             type="button"
             onClick={() => { complete.reset(); setConfirming(true) }}
-            disabled={needsSignature}
-            title={needsSignature ? t('page.reviewer_view.complete_needs_signature') : undefined}
+            disabled={needsSignature || waiting}
+            title={waiting ? t('page.reviewer_view.waiting_for_reviewer', { names: ahead.map(a => a.name).join(', ') }) : needsSignature ? t('page.reviewer_view.complete_needs_signature') : undefined}
             className="whitespace-nowrap rounded-md bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
             data-action="complete-review"
           >
@@ -104,6 +122,9 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
         )}
       </div>
 
+      {canAct && waiting && (
+        <p className="text-[11px] text-amber-800" data-review-waiting>{t('page.reviewer_view.waiting_for_reviewer', { names: ahead.map(a => a.name).join(', ') })}</p>
+      )}
       {canAct && needsSignature && (
         <p className="text-[11px] text-amber-800" data-review-needs-signature>{t('page.reviewer_view.complete_needs_signature')}</p>
       )}
@@ -112,16 +133,11 @@ export function ReviewCompletionBar({ documentId, projectId }: { documentId: str
           {errorBody?.message ?? errorBody?.error ?? t('page.reviewer_view.complete_failed')}
         </p>
       )}
-      {(allDone || (cohort.length > 0 && doneCount === cohort.length)) && (
-        <p role="status" className="text-[12px] font-medium text-green-800" data-review-all-done>
-          {t('page.reviewer_view.review_all_done')}
-        </p>
-      )}
     </div>
   )
 }
 
-function PersonChip({ row }: { row: DocumentRaciRow }) {
+function PersonChip({ row, showPlace }: { row: DocumentRaciRow; showPlace: boolean }) {
   const { t } = useTranslation()
   const done = row.reviewedAt !== null
   const rejected = !done && row.rejectedAt !== null
@@ -134,6 +150,7 @@ function PersonChip({ row }: { row: DocumentRaciRow }) {
       data-review-person={row.userId}
       data-review-state={state}
     >
+      {showPlace && row.letter === 'C' && row.approvalOrder !== null && <span className="font-mono text-[10px] font-semibold" data-review-place>{row.approvalOrder}.</span>}
       <span className="font-mono text-[10px] font-semibold">{row.letter === 'Q' ? t('page.reviewer_view.letter_qc') : t('page.reviewer_view.letter_reviewer')}</span>
       <span className="font-medium">{row.userName ?? row.userId}</span>
       <span>{done ? `✓ ${t('page.reviewer_view.state_done')}` : rejected ? t('page.reviewer_view.state_rejected') : t('page.reviewer_view.state_pending')}</span>

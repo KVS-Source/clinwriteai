@@ -14,11 +14,17 @@
 // a one-line fix is friction. /admin/document-type-policies remains the
 // place to edit everything else.
 
+import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useEffect, useMemo, useState } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import { platformApi, type DocumentTypePolicy } from '../api/platformApi'
 import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
+import { DOCUMENT_TYPE_KEY, documentTypeLabel } from '../../utils/documentLabels'
+
+// Every document type, in the underscored form prompts are stored under (csr-full → csr_full).
+// Labels are looked up at render time — translations aren't loaded yet when this module is first imported.
+const DOC_TYPES = Object.keys(DOCUMENT_TYPE_KEY)
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
   if (err instanceof ApiError) {
@@ -47,9 +53,13 @@ export function AiPrompts() {
   const aiReady = isAiReady(readiness)
 
   const [selectedDocType, setSelectedDocType] = useState<string | null>(null)
+  // Open the first prompt once, on first load. After that, null means "+ New" was clicked — don't undo it.
+  const [autoPicked, setAutoPicked] = useState(false)
   useEffect(() => {
-    if (!selectedDocType && policies.length > 0) setSelectedDocType(policies[0]!.docType)
-  }, [policies, selectedDocType])
+    if (autoPicked || policies.length === 0) return
+    setAutoPicked(true)
+    if (!selectedDocType) setSelectedDocType(policies[0]!.docType)
+  }, [policies, selectedDocType, autoPicked])
 
   const selected = policies.find(p => p.docType === selectedDocType) ?? null
 
@@ -57,14 +67,14 @@ export function AiPrompts() {
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-5" data-screen="ai-prompts">
-      <header>
+      <MasterLibraryHeading>
         <h1 className="text-[20px] font-semibold text-slate-900">AI Prompts</h1>
         <p className="mt-0.5 text-[13px] text-slate-500">
           The SME prompt AI sees on every draft + rewrite. One per doc type — editing here updates
           the same row the full Doc Type Policies screen edits. Everything else (Best-Practice
           digest, section rules, template pins) is managed over there.
         </p>
-      </header>
+      </MasterLibraryHeading>
 
       <AiReadinessBanner
         readiness={readiness}
@@ -80,7 +90,7 @@ export function AiPrompts() {
           <div className="flex-1 overflow-y-auto">
             {selected
               ? <PromptEditor key={selected.id} policy={selected} aiReady={aiReady} onSaved={invalidate} />
-              : <NewPromptForm aiReady={aiReady} onCreated={(docType) => { invalidate(); setSelectedDocType(docType) }} />}
+              : <NewPromptForm aiReady={aiReady} taken={policies.map(p => p.docType)} onCreated={(docType) => { invalidate(); setSelectedDocType(docType) }} />}
           </div>
         </div>
       )}
@@ -296,7 +306,7 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
 
 // ---- new --------------------------------------------------------------
 
-function NewPromptForm({ aiReady, onCreated }: { aiReady: boolean; onCreated: (docType: string) => void }) {
+function NewPromptForm({ aiReady, taken, onCreated }: { aiReady: boolean; taken: string[]; onCreated: (docType: string) => void }) {
   const [docType,   setDocType]   = useState('')
   const [smePrompt, setSmePrompt] = useState('')
   const [error,     setError]     = useState<string | null>(null)
@@ -312,19 +322,28 @@ function NewPromptForm({ aiReady, onCreated }: { aiReady: boolean; onCreated: (d
     <div className="rounded-md border border-dashed border-slate-300 bg-white p-4" data-new-prompt>
       <h2 className="text-[14px] font-semibold text-slate-900">New prompt</h2>
       <p className="mt-0.5 text-[12px] text-slate-500">
-        Pick a doc type (underscored canonical form: <code>csr_full</code>, <code>protocol</code>, …)
-        and paste the SME prompt.
+        Pick a doc type and paste the SME prompt. Doc types that already have a prompt are greyed out; edit those from the list.
       </p>
       {error && <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{error}</p>}
       <div className="mt-3 flex flex-col gap-2">
-        <input
-          type="text"
+        <select
           value={docType}
           onChange={e => setDocType(e.currentTarget.value)}
-          placeholder="doc type (e.g. protocol)"
-          className="rounded-md border border-slate-300 px-3 py-1.5 font-mono text-[12px]"
+          aria-label="Doc type"
+          className={`rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] ${docType ? 'text-slate-900' : 'text-slate-400'}`}
           data-field="create-doc-type"
-        />
+        >
+          <option value="" disabled>Select a doc type</option>
+          {DOC_TYPES.map(type => {
+            const value  = type.replace(/-/g, '_')
+            const exists = taken.includes(value)
+            return (
+              <option key={value} value={value} disabled={exists} className="text-slate-900">
+                {documentTypeLabel(type)}{exists ? ' — prompt exists' : ''}
+              </option>
+            )
+          })}
+        </select>
         <textarea
           value={smePrompt}
           onChange={e => setSmePrompt(e.currentTarget.value)}

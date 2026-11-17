@@ -1570,6 +1570,7 @@ export type PlatformUserRole =
   | 'pm'
   | 'contributor'
   | 'auditor'
+  | 'qc'          // Quality Control: reads all content, approves framework supersede requests
   | 'guest'
   // Legacy roles — still returned on users whose role field hasn't been
   // rewritten yet. Removed from this union once the cutover is complete.
@@ -1766,22 +1767,13 @@ export interface PlatformConfig {
   seats?:          { used: number; total: number }
 }
 
-export interface MasterLibrarySourceDocument {
-  createdByName:    string
-  createdAt:        string
-  lastEditedByName: string | null
-  lastEditedAt:     string | null
-  /** Everyone whose edits are in the current text, most recent first. */
-  editors:          string[]
-  /** Current role holders: letter R / A / C / Q / I and the person's name. */
-  team:             { letter: string; name: string }[]
-  /** Signatures of the completed signature chain, in chain order. */
-  signatures:       { name: string; meaning: string; signedAt: string; version: string | null }[]
-}
-
 export interface MasterLibraryItem {
   id:                string
   name:              string
+  /** Set when the list was searched: matched on the title (or a tag), or only inside the document's text. */
+  searchMatch?:      'title' | 'text'
+  /** For a text match: the words around it, "…" where cut. */
+  matchExcerpt?:     string
   module:            ModuleKey
   itemType:          MasterLibraryItemType
   docType:           string
@@ -1797,15 +1789,16 @@ export interface MasterLibraryItem {
   archivedReason?:   string
   // Withdrawn from the library by an admin (as opposed to archived because its project closed).
   isWithdrawn?:      boolean
+  // Added by a Project Manager from their computer, not pushed from a signed document.
+  uploaded?:         boolean
   // The library entry itself: who pushed this version (editedByName), who pushed the
   // first version and when (createdByName / createdAt), all ISO.
   editedByName?:     string
   createdByName?:    string
   createdAt?:        string
   updatedAt?:        string
-  // The Clinical Writing document it was pushed from: who created and edited it, its
-  // role holders and its signatures. Absent when the source isn't a Clinical Writing document.
-  sourceDocument?:   MasterLibrarySourceDocument
+  // The source document's people (creator, editors, RACI, signatures) are not carried here: the
+  // Master Library shows only the provenance chain and the version history (SME decision, 2026-11-16).
   provenanceChain:   string[]
   // Text of a pushed section — what "Pull into document" inserts. Absent for
   // whole documents and for items that carry no text.
@@ -2025,6 +2018,10 @@ export interface RegulatoryFramework {
   status:         RegulatoryFrameworkStatus
   lastUpdated:    string
   changeSummary:  string | null
+  /** Official text (for ICH guidelines, the PDF on database.ich.org). */
+  sourceUrl?:     string | null
+  /** quality | safety | efficacy | multidisciplinary for ICH guidelines. */
+  category?:      string
 }
 
 export interface SlideFigure {
@@ -2140,6 +2137,7 @@ export const PLATFORM_USER_ROLE_LABEL: Record<PlatformUserRole, string> = {
   'pm':                        'Project Manager',
   'contributor':               'Contributor',
   'auditor':                   'Auditor',
+  'qc':                        'QC',
   'guest':                     'Guest',
   // Legacy labels — kept for users whose role hasn't been rewritten yet.
   'admin':                     'Admin',

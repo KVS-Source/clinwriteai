@@ -15,7 +15,6 @@ const CASES: Array<[string, string]> = [
   ['/admin', '/admin'],
   ['/admin/users', '/admin/users'],
   ['/admin/audit', '/admin/audit'],
-  ['/admin/taxonomy', '/admin/taxonomy'],
   ['/admin/raci', '/admin/raci'],
   ['/library', '/library'],
   ['/library/best-practices', '/library/best-practices'],

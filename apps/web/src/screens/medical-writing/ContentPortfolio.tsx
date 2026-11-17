@@ -6,16 +6,16 @@ import { useNavigate, useParams } from 'react-router-dom'
 import type { MedContentItem } from '@platform/types'
 import { MED_CONTENT_TYPE_META } from '@platform/types'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
-import expiryFixture from '../../data/contentExpiryRecords.json'
-import libraryCardsFixture from '../../data/medLibraryCards.json'
+import { platformApi } from '../../platform/api/platformApi'
+import { MED_STAGE_NAMES, fmtDay } from './medLabels'
 
 // --- Static scope + TA filter options ---
 
 const SCOPES = [
-  { id: 'all',              label: 'All projects' },
-  { id: 'proj-velora-301',  label: 'VELORA-301' },
-  { id: 'proj-velora-302',  label: 'VELORA-302' },
-  { id: 'proj-aurelia-101', label: 'AURELIA-101' },
+  { id: 'all',      label: 'All stages',                       stages: [1, 2, 3, 4, 5, 6] },
+  { id: 'drafting', label: 'Briefing & drafting (stages 1–3)', stages: [1, 2, 3] },
+  { id: 'mlr',      label: 'In MLR (stages 4–5)',              stages: [4, 5] },
+  { id: 'approved', label: 'Approved (stage 6)',               stages: [6] },
 ] as const
 type Scope = typeof SCOPES[number]['id']
 
@@ -23,20 +23,15 @@ type Scope = typeof SCOPES[number]['id']
 type Lane = {
   id:      'briefing' | 'authoring' | 'review' | 'approved'
   label:   string
-  statuses: MedContentItem['status'][]
+  stages:  number[]
 }
 
+// Columns by the stage the API reports for each item.
 const LANES: Lane[] = [
-  { id: 'briefing',  label: 'Briefing',   statuses: ['briefing'] },
-  { id: 'authoring', label: 'Authoring',  statuses: ['kol-session', 'in-authoring', 'pre-mlr'] },
-  { id: 'review',    label: 'MLR Review', statuses: ['in-mlr-review'] },
-  { id: 'approved',  label: 'Approved',   statuses: ['mlr-approved', 'formatting', 'final-output'] },
-]
-
-// Upcoming MLR deadlines (static + one derived)
-const UPCOMING_MLR = [
-  { label: 'CME Module MLR', date: '15 Oct 2026', overdue: true },
-  { label: 'PIL MLR submission', date: '25 Oct 2026', overdue: false },
+  { id: 'briefing',  label: MED_STAGE_NAMES[1]!,                 stages: [1] },
+  { id: 'authoring', label: 'Drafting & internal review',       stages: [2, 3] },
+  { id: 'review',    label: 'MLR submission & review',          stages: [4, 5] },
+  { id: 'approved',  label: MED_STAGE_NAMES[6]!,                 stages: [6] },
 ]
 
 // --- Helpers ---
@@ -66,49 +61,57 @@ export function ContentPortfolio() {
   const flash = (msg: string) => { setToast(msg); setTimeout(() => setToast(null), 4200) }
 
   const { data: items = [] } = useQuery({
-    queryKey: ['portfolio', projectId, scope],
-    queryFn:  () => medContentApi.getPortfolio(projectId!, scope),
+    queryKey: ['portfolio', projectId],
+    queryFn:  () => medContentApi.getPortfolio(projectId!),
     enabled:  !!projectId,
   })
 
   const { options: taOptions, isLoading: taLoading, isError: taError } = useTaFilterOptions(items.map(i => i.taTag))
 
   // Apply TA filter client-side
+  const scopeStages: readonly number[] = (SCOPES.find(sc => sc.id === scope) ?? SCOPES[0]).stages
   const filtered = useMemo(
-    () => taFilter === 'all' ? items : items.filter(i => i.taTag === taFilter),
-    [items, taFilter],
+    () => items.filter(i => scopeStages.includes(i.stage) && (taFilter === 'all' || i.taTag === taFilter)),
+    [items, taFilter, scopeStages],
   )
 
-  const lanes = LANES.map(l => ({ ...l, items: filtered.filter(i => l.statuses.includes(i.status)) }))
+  const lanes = LANES.map(l => ({ ...l, items: filtered.filter(i => l.stages.includes(i.stage)) }))
 
   // --- Right rail stats ---
 
   const totalItems = filtered.length
-  const approvedItems = filtered.filter(i => ['mlr-approved', 'final-output', 'formatting'].includes(i.status)).length
+  const approvedItems = filtered.filter(i => i.stage === 6).length
   const compliancePct = totalItems === 0 ? 0 : Math.round((approvedItems / totalItems) * 100)
 
   const now = new Date()
-  const expiryRows = (expiryFixture as { contentItemId: string; expiryDate: string }[])
-    .map(e => {
-      const item = filtered.find(i => i.id === e.contentItemId)
-      return item ? { itemId: e.contentItemId, itemLabel: item.title, expiry: e.expiryDate, days: daysBetween(e.expiryDate, now) } : null
-    })
-    .filter((r): r is { itemId: string; itemLabel: string; expiry: string; days: number } => !!r)
+  // Expiry dates from the items themselves (set when MLR approves).
+  const expiryRows = filtered
+    .filter(i => !!i.expiryDate)
+    .map(i => ({ itemId: i.id, itemLabel: i.title, expiry: i.expiryDate!, days: daysBetween(i.expiryDate!, now) }))
     .sort((a, b) => a.days - b.days)
 
   const nextExpiry = expiryRows[0]
 
-  const libraryCardCount = (libraryCardsFixture as unknown[]).length
+  // Items waiting on MLR: ready to submit (stage 4) or under review (stage 5).
+  const upcomingMlr = filtered.filter(i => i.stage === 4 || i.stage === 5)
+
+  // Approved Medical Writing entries in the Master Library.
+  const { data: libraryCardCount } = useQuery({
+    queryKey: ['library', 'count', 'module-C'],
+    queryFn:  () => platformApi.countLibrary({ module: ['C'] }),
+    retry:    false,
+  })
 
   const exportMsg = 'Compliance report generated — covers all content items across selected scope: MLR approval status, claims counts, expiry dates, WCAG results, 21 CFR Part 11 audit references. Downloading as PDF.'
 
   const openItem = (item: MedContentItem) => {
-    const base = `/projects/${item.projectId}/medical-writing`
-    if (item.status === 'briefing')       return navigate(`${base}/content/${item.id}`)
-    if (item.status === 'in-authoring')   return navigate(`${base}/content/${item.id}/editor`)
-    if (item.status === 'in-mlr-review')  return navigate(`${base}/content/${item.id}/mlr-review`)
-    if (item.status === 'mlr-approved' || item.status === 'final-output') return navigate(`${base}/content/${item.id}/final`)
-    return navigate(`${base}/content/${item.id}`)
+    const base = `/projects/${item.projectId}/medical-writing/content/${item.id}`
+    if (item.stage === 1) return navigate(base)
+    if (item.stage === 2 || item.stage === 3) return navigate(`${base}/editor`)
+    if (item.stage === 4) return navigate(`${base}/pre-mlr`)
+    if (item.stage === 5) return navigate(`${base}/mlr-review`)
+    if (item.stage === 6) return navigate(`${base}/final`)
+    return navigate(base)
   }
 
   return (
@@ -200,34 +203,30 @@ export function ContentPortfolio() {
                         <p className="text-[12px] font-semibold text-slate-800" style={{ lineHeight: 1.3 }}>{item.title}</p>
                         <p className="font-mono text-[10px] text-slate-500">{item.project ?? item.projectId} · {item.version}</p>
 
-                        {/* Contextual chips per fixture */}
-                        {item.id === 'mc-003' && (
-                          <p className="mt-1 rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }} data-mlr-overdue-banner>
-                            MLR overdue — due 15 Oct 2026
-                          </p>
-                        )}
-                        {item.id === 'mc-005' && (
-                          <span
-                            className="mt-1 inline-flex w-max rounded-md px-1.5 py-0.5 text-[10px] font-semibold"
-                            style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}
-                            title="Claims matrix needs ≥5 claims for tier calculation."
-                            data-tier-pending-chip
-                          >Tier assignment pending</span>
-                        )}
-                        {item.id === 'mc-002' && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>FK 7.2 ✓</span>
-                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F5F3FF', color: '#5B21B6' }}>PAO reviewer</span>
-                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#005F8E' }}>MLR Tier 3</span>
-                          </div>
-                        )}
-                        {item.id === 'mc-004' && (
-                          <div className="mt-1 flex flex-wrap gap-1">
-                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }}>MLR ✓</span>
-                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}>Expires 05 Oct 2028</span>
-                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F5F3FF', color: '#5B21B6' }}>8 claims</span>
-                          </div>
-                        )}
+                        {/* Chips from the item's own fields */}
+                        <div className="mt-1 flex flex-wrap gap-1" data-card-chips>
+                          {MED_CONTENT_TYPE_META[item.type]?.patientFacing && item.fkScore != null && (
+                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={item.fkPassed ? { backgroundColor: '#F0FDF4', color: '#15803D' } : { backgroundColor: '#FFFBEB', color: '#B45309' }} data-chip="fk">
+                              FK {Number(item.fkScore).toFixed(1)} {item.fkPassed ? '✓' : '✗'}
+                            </span>
+                          )}
+                          {item.reviewTier != null ? (
+                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#EFF6FF', color: '#005F8E' }} data-chip="tier">MLR Tier {item.reviewTier}</span>
+                          ) : item.stage >= 3 && item.stage < 6 ? (
+                            <span
+                              className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold"
+                              style={{ backgroundColor: '#FFFBEB', color: '#B45309' }}
+                              title="The tier is calculated from the claims matrix once claims are approved."
+                              data-tier-pending-chip
+                            >Tier assignment pending</span>
+                          ) : null}
+                          {item.stage === 6 && (
+                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#F0FDF4', color: '#15803D' }} data-chip="mlr">MLR ✓</span>
+                          )}
+                          {item.expiryDate && (
+                            <span className="rounded-md px-1.5 py-0.5 text-[10px] font-semibold" style={{ backgroundColor: '#FFFBEB', color: '#B45309' }} data-chip="expiry">Expires {fmtDay(item.expiryDate)}</span>
+                          )}
+                        </div>
                       </button>
                     )
                   })}
@@ -250,10 +249,11 @@ export function ContentPortfolio() {
               </div>
               <p className="mt-3 text-[11px] font-mono uppercase text-slate-500" style={{ letterSpacing: '0.08em' }}>Upcoming MLR</p>
               <ul className="mt-1 flex flex-col gap-1 text-[12px]">
-                {UPCOMING_MLR.map(u => (
-                  <li key={u.label} className="flex items-center gap-1.5">
-                    <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: u.overdue ? '#BE123C' : '#7C3AED' }} />
-                    <span className="text-slate-700">{u.label} — {u.date}{u.overdue ? ' (overdue)' : ''}</span>
+                {upcomingMlr.length === 0 && <li className="text-slate-500" data-upcoming-none>Nothing waiting on MLR.</li>}
+                {upcomingMlr.map(u => (
+                  <li key={u.id} className="flex items-center gap-1.5" data-upcoming-mlr={u.id}>
+                    <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#7C3AED' }} />
+                    <span className="text-slate-700">{u.title} — {u.stage === 4 ? 'ready to submit' : 'in MLR review'}</span>
                   </li>
                 ))}
               </ul>
@@ -264,7 +264,7 @@ export function ContentPortfolio() {
               <p className="font-mono text-[11px] uppercase text-slate-500" style={{ letterSpacing: '0.08em' }}>Content expiry</p>
               {nextExpiry ? (
                 <p className="mt-1 text-[12px] text-slate-700" data-next-expiry>
-                  Next expiry: <strong>MI Response</strong> — {formatDate(nextExpiry.expiry)} ({nextExpiry.days} days)
+                  Next expiry: <strong>{nextExpiry.itemLabel}</strong> — {formatDate(nextExpiry.expiry)} ({nextExpiry.days} days)
                 </p>
               ) : <p className="mt-1 text-[12px] text-slate-500">No items with expiry dates in this scope.</p>}
               <ul className="mt-2 flex flex-col gap-1 text-[12px]">
@@ -286,8 +286,8 @@ export function ContentPortfolio() {
             {/* Master library */}
             <section className="rounded-lg border border-slate-200 bg-white p-4" data-master-library-summary>
               <p className="font-mono text-[11px] uppercase text-slate-500" style={{ letterSpacing: '0.08em' }}>Master library</p>
-              <p className="mt-1 text-[20px] font-bold" style={{ color: '#7C3AED' }}>{libraryCardCount + 15} approved claim cards</p>
-              <p className="text-[11px]" style={{ color: '#64748B' }}>Across 3 projects</p>
+              <p className="mt-1 text-[20px] font-bold" style={{ color: '#7C3AED' }} data-library-count>{libraryCardCount == null ? '—' : libraryCardCount} approved Medical Writing entr{libraryCardCount === 1 ? 'y' : 'ies'}</p>
+              <p className="text-[11px]" style={{ color: '#64748B' }}>In the Master Library</p>
               <button
                 type="button"
                 onClick={() => flash('Master Library view — Module-level dashboard.')}

@@ -6,8 +6,8 @@ import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { useClaimsStore } from '../../modules/medical-writing/store'
 import { ApiError } from '../../api/client'
 import { useAiReadiness, isAiReady } from '../../platform/ai-readiness'
+import { useMedUser } from './medLabels'
 
-const CURRENT_USER_NAME = 'Dr Sarah Chen'
 
 // Stable empty-array fallback for useQuery — prevents React #185
 // (setter-in-useEffect loops on the transient `[]` default reference).
@@ -34,6 +34,7 @@ function statusMeta(s: ClaimStatus) {
 
 export function ClaimsMatrixPanel() {
   const { projectId } = useParams()
+  const { name: CURRENT_USER_NAME } = useMedUser()
   const navigate = useNavigate()
   const qc = useQueryClient()
 
@@ -333,7 +334,7 @@ export function ClaimsMatrixPanel() {
               {selectedClaim.similarityPct >= 80 && selectedClaim.approvedLibraryText ? (
                 <>
                   <p className="mt-3 text-[11px] font-mono uppercase text-slate-500" style={{ letterSpacing: '0.08em' }}>Matched approved claim</p>
-                  <p className="mt-1 font-mono text-[11px] text-slate-500">Master Library · VELORA-301 · Oncology · Oct 2026</p>
+                  <p className="mt-1 font-mono text-[11px] text-slate-500" data-library-match-source>Master Library · approved claim</p>
                   <blockquote
                     className="mt-2 rounded-md border-l-4 p-3 text-[13px]"
                     style={{ backgroundColor: '#F0FDF4', color: '#166534', borderLeftColor: '#16A34A' }}
@@ -341,7 +342,9 @@ export function ClaimsMatrixPanel() {
                   >
                     {selectedClaim.approvedLibraryText}
                   </blockquote>
-                  <p className="mt-2 text-[11px] text-slate-500">Approved 05 Oct 2026 · MLR approved · Expires 05 Oct 2028</p>
+                  {selectedClaim.adoptedAt && (
+                    <p className="mt-2 text-[11px] text-slate-500" data-adopted-at>Adopted into this item {new Date(selectedClaim.adoptedAt).toISOString().slice(0, 10)}</p>
+                  )}
                   <span
                     className="mt-2 inline-flex items-center rounded-md px-2 py-1 text-[11px] font-semibold"
                     style={{ backgroundColor: '#F0FDF4', color: '#166534' }}

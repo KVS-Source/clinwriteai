@@ -72,6 +72,17 @@ test.describe('Services', () => {
     expect(await screen.innerText()).not.toMatch(FAKE)
   })
 
+  test('the top bar says Services (not Projects), and there is no "Platform > Services" line above the heading', async ({ page }) => {
+    await open(page, '/services', view())
+    const screen = page.locator('[data-screen="services-dashboard"]')
+    await expect(screen.locator('h1')).toBeVisible({ timeout: 60_000 })
+    const header = page.locator('header').first()
+    await expect(header).toContainText('Services')
+    await expect(header).not.toContainText('Projects')
+    await expect(screen.locator('nav')).toHaveCount(0)
+    expect((await screen.innerText()).trimStart().startsWith('Services')).toBe(true)
+  })
+
   test('a tenant with a plan: its AI cap and renewal, no notice, and top-up is available', async ({ page }) => {
     await open(page, '/services', WITH_PLAN)
     await expect(page.locator('[data-stat="contracted"]')).toContainText('$200', { timeout: 60_000 })
@@ -136,4 +147,17 @@ test('Super Admin > Analytics: real AI tokens, and revenue shown as unknown rath
   await expect(page.locator('[data-revenue="arr"]')).toHaveText('—')
   await expect(page.locator('[data-revenue-note]')).toContainText('Billing not connected · 0 active subscriptions')
   await expect(page.locator('[data-revenue="churn"]')).toContainText('1')
+})
+
+test('Reports: the top bar says Reports (not Projects), and there is no "Platform > Reports > Dashboard" line', async ({ page }) => {
+  await open(page, '/reports', view())
+  const screen = page.locator('[data-screen="reports-analytics"]')
+  await expect(screen.locator('h1')).toBeVisible({ timeout: 60_000 })
+  const header = page.locator('header').first()
+  await expect(header).toContainText('Reports')
+  // …with the open report after it: "Reports / Dashboard".
+  await expect(header.locator('nav').first()).toHaveText(/^Reports\s*\/\s*Dashboard$/)
+  await expect(header).not.toContainText('Projects')
+  await expect(screen.locator('nav')).toHaveCount(0)
+  expect((await screen.innerText()).trimStart().startsWith('Reports')).toBe(true)
 })

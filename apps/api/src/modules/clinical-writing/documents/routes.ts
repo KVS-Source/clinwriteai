@@ -34,6 +34,8 @@ import { DocumentTypePolicyService } from '../../platform/document-type-policy/s
 import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock } from '../../platform/document-type-policy/resolve.js'
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
+import { stubAllowed } from '../../platform/ai-gateway/service.js'
+import { assignReviewOrder, reviewersWhoseTurnItIs } from '../../platform/document-raci/review-order.js'
 import { buildComplianceSummary } from '../checklist/compliance-summary.js'
 import { pdfFileName } from '../../platform/library/pdf-renderer.js'
 import { contentDisposition } from './source-routes.js'
@@ -233,9 +235,9 @@ function documentShapeFull(d: { type?: string; status?: string; stage?: string; 
   }
 }
 
-// Submit-for-review body. The due date is stored. The review type and the panel's
-// reviewer list have no column, so they are recorded on the audit trail only:
-// sequential order isn't enforced, and who reviews still comes from the RACI.
+// Submit-for-review body. The due date is stored. A sequential review puts the document's Reviewers (C)
+// in a line, in the order of the panel's reviewer list (see review-order.ts); who reviews still comes
+// from the RACI. Both are also recorded on the audit trail.
 // A malformed value is dropped, never a reason to refuse the submit.
 const submitBodySchema = z.object({
   dueDate:    z.string().trim().min(1).optional(),
@@ -1040,6 +1042,9 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     })
 
     return {
+      // True when no AI provider key is set and the dev/CI placeholder drafter is switched on: AI text
+      // in this deployment is placeholder text, and the editor says so (CW-095).
+      aiStubMode:         stubAllowed() && !process.env.ANTHROPIC_API_KEY?.trim(),
       state:              doc.aiDraftState,
       confidenceOverall:  doc.aiConfidenceOverall,
       lastPassNumber:     doc.aiLastPassNumber,
@@ -1168,7 +1173,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
 
     const actor = request.user!
     // Auditors are a view-only role, even if they were given an R row.
-    if (onlyRolesIn(actor, ['auditor', 'read-only'])) return reply.code(403).send(SUBMIT_FORBIDDEN)
+    if (onlyRolesIn(actor, ['auditor', 'read-only', 'qc'])) return reply.code(403).send(SUBMIT_FORBIDDEN)
     const authorRows = await app.prisma.documentRaci.findMany({
       where:  { documentId, letter: 'R', removedAt: null },
       select: { id: true, userId: true, sectionId: true, submittedAt: true, rejectedAt: true },
@@ -1275,6 +1280,37 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       return app.prisma.document.update({ where: { id: documentId }, data: submitData })
     })
 
+    // Sequential review (FR-A-042): put the Reviewers (C) in a line in the order the author saw in the panel
+    // (or clear the line for a parallel review), then tell whoever's turn it is. The submit has already
+    // gone through, so a failure here is logged and left in the audit entry, never turned into an error.
+    let reviewLine: Array<{ userId: string; place: number | null }> | null = null
+    try {
+      const reviewerRows = await app.prisma.documentRaci.findMany({
+        where: { documentId, letter: 'C', removedAt: null }, select: { userId: true }, orderBy: { assignedAt: 'asc' },
+      })
+      const places = assignReviewOrder({
+        reviewType: submitBody?.reviewType, reviewerIds: reviewerRows.map(r => r.userId),
+        payloadOrder: (submitBody?.reviewers ?? []).map(r => r.userId),
+      })
+      for (const [userId, place] of places) {
+        await app.prisma.documentRaci.updateMany({ where: { documentId, letter: 'C', userId, removedAt: null }, data: { approvalOrder: place } })
+      }
+      reviewLine = [...places].map(([userId, place]) => ({ userId, place }))
+      const turn = reviewersWhoseTurnItIs([...places].map(([userId, place]) => ({ userId, letter: 'C', approvalOrder: place, reviewedAt: null, removedAt: null })))
+      for (const recipientId of turn) {
+        await app.notifications.send({
+          recipientId,
+          kind:     'review_requested',
+          title:    places.get(recipientId) !== null ? `It's your turn to review "${doc.title}"` : `Your review is needed on "${doc.title}"`,
+          body:     'Open Reviewer View to review.',
+          linkPath: `/projects/${doc.projectId}/clinical-writing/documents/${documentId}/review`,
+          payload:  { documentId, projectId: doc.projectId, sequential: places.get(recipientId) !== null },
+        }).catch(err => app.log.warn({ err, documentId, recipientId }, 'review_requested notification failed'))
+      }
+    } catch (err) {
+      app.log.warn({ err, documentId }, 'could not set the review order or notify the reviewers')
+    }
+
     // Auto-advance stage: submitting for review implies the document has
     // left authoring and is now in the Cross-Functional Review stage.
     // Only moves forward (never backward), so a resubmit on a CRM-stage
@@ -1312,6 +1348,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
         stageTo: stageMove?.to ?? null,
         reviewDueAt: reviewDueAt?.toISOString() ?? null,
         ...reviewAssignment,
+        reviewLine,
         autoCompletedCount: autoReport?.completedCount ?? 0,
       },
       ipAddress: request.ip ?? null,

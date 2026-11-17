@@ -24,7 +24,7 @@ import { documentsApi } from '../../api/documents'
 import { useCanViewVersions } from '../../hooks/useCanViewVersions'
 import { useDocumentTabAccess } from '../../hooks/useDocumentTabAccess'
 
-export type GuardedTab = 'editor' | 'diff' | 'review' | 'sign'
+export type GuardedTab = 'editor' | 'diff' | 'review' | 'sign' | 'crm'
 
 interface Props {
   tab: GuardedTab
@@ -56,6 +56,11 @@ export function DocumentTabGuard({ tab, children }: Props) {
   // An Author (R) has no Reviewer View and a Reviewer (C) has no Editor: a deep link to
   // the other one lands on the tab that is theirs. Nothing is shown until that is known.
   if ((tab === 'editor' || tab === 'review') && tabAccess === undefined) return null
+  // The Approver has no CRM tab: a deep link goes to their Approver View.
+  if (tab === 'crm' && tabAccess === undefined) return null
+  if (tab === 'crm' && tabAccess?.crm === false) {
+    return <Navigate to={`/projects/${projectId}/clinical-writing/documents/${documentId}/review`} replace />
+  }
   if (tab === 'review' && tabAccess?.review === false) {
     return <Navigate to={`/projects/${projectId}/clinical-writing/documents/${documentId}`} replace />
   }
@@ -69,7 +74,9 @@ export function DocumentTabGuard({ tab, children }: Props) {
   if (docQuery.isLoading) return null
   if (!docQuery.data)     return <>{children}</>
 
-  if (isDisabled(tab, docQuery.data.status)) {
+  // An Approver acts in their Approver View while the document awaits signature.
+  const approverReviewOpen = tab === 'review' && tabAccess?.approverOnly === true && docQuery.data.status === 'pending-signature'
+  if (!approverReviewOpen && isDisabled(tab, docQuery.data.status)) {
     // A document awaiting signature opens on E-Signature, where the next step is; a signed one on its final copy.
     const landing = docQuery.data.status === 'pending-signature' ? 'sign' : 'final'
     return <Navigate to={`/projects/${projectId}/clinical-writing/documents/${documentId}/${landing}`} replace />

@@ -20,6 +20,7 @@ async function buildApp(opts: {
   rRowForActor?: boolean
   docExists?: boolean
   projExists?: boolean
+  chainActive?: boolean
 }) {
   const captured: { token?: string } = {}
   const inviteCreate = vi.fn(async (args: { data: Record<string, unknown> }) => ({
@@ -65,6 +66,7 @@ async function buildApp(opts: {
     documentRaci: {
       findFirst: vi.fn(async () => (opts.rRowForActor ? { id: 'raci-1' } : null)),
     },
+    signatureChain: { findFirst: vi.fn(async () => (opts.chainActive ? { id: 'chain-1' } : null)) },
     guestInvitation: {
       create: inviteCreate,
       update: inviteUpdate,
@@ -122,6 +124,18 @@ describe('POST /documents/:id/guest-invitations — doc-scoped invite', () => {
     expect(res.statusCode).toBe(403)
     expect(JSON.parse(res.body).error).toBe('guest_invite_forbidden')
     expect(inviteCreate).not.toHaveBeenCalled()
+  })
+
+  it('no new guest can be invited while a signature chain is running, even by an admin or the R (CW-055)', async () => {
+    for (const [actor, rRow] of [[ADMIN, false], [LEAD_R, true]] as const) {
+      const { app, inviteCreate } = await buildApp({ actor, rRowForActor: rRow, chainActive: true })
+      current = app
+      const res = await app.inject({ method: 'POST', url: `/documents/${DOC_ID}/guest-invitations`, payload: payload as never })
+      expect(res.statusCode).toBe(409)
+      expect(JSON.parse(res.body).error).toBe('signature_chain_active')
+      expect(inviteCreate).not.toHaveBeenCalled()
+      await app.close(); current = null
+    }
   })
 
   it('returns the full token in the response body (POST only)', async () => {

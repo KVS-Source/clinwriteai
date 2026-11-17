@@ -204,6 +204,8 @@ async function buildServer() {
 
   // ---------- Auth (SSO + JWT session + RBAC) ----------
   await app.register(import('./auth/plugin.js'))
+  // Every :documentId route answers 404 to someone who may not see the document (CW-020).
+  await app.register(import('./auth/document-access.js'))
 
   // ---------- Realtime (Socket.io presence channel) ----------
   await app.register(import('./modules/platform/realtime/plugin.js'))
@@ -460,6 +462,14 @@ async function buildServer() {
 
   const { libraryRoutes } = await import('./modules/platform/library/routes.js')
   await app.register(libraryRoutes, { prefix: '/library' })
+  // Master Library "Share": POST /library/:id/share (PM / Contributor), and the public pages behind an
+  // invitation link — the reader proves the invited address with an emailed one-time code (share.ts).
+  const { libraryShareRoutes, sharedLibraryPublicRoutes } = await import('./modules/platform/library/share.js')
+  await app.register(libraryShareRoutes, { prefix: '/library' })
+  await app.register(sharedLibraryPublicRoutes, { prefix: '/shared-library' })
+  // Signed documents go into the library by themselves; GET /library/auto-push/:documentId reports it (auto-push.ts).
+  const { libraryAutoPushRoutes } = await import('./modules/platform/library/auto-push.js')
+  await app.register(libraryAutoPushRoutes, { prefix: '/library' })
 
   const { notificationsRoutes } = await import('./modules/platform/notifications/routes.js')
   await app.register(notificationsRoutes, { prefix: '/notifications' })
@@ -524,6 +534,9 @@ async function buildServer() {
   // success) fresh. Mounted last so all dependencies (prisma + audit +
   // metrics) are decorated first.
   await app.register(import('./modules/platform/compliance/plugin.js'))
+
+  // Automatic ICH sync — keeps the ICH Frameworks registry in step with ich.org once a day (ICH_AUTO_SYNC=off to stop).
+  await app.register(import('./modules/platform/frameworks/ich-auto-sync-plugin.js'))
 
   return app
 }

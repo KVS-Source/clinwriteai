@@ -84,13 +84,21 @@ describe('GET /documents/:id/checklist', () => {
     expect(res.statusCode).toBe(403)
     expect(res.json().error).toBe('checklist_view_forbidden')
     expect(instanceFindUnique).not.toHaveBeenCalled()
-    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist/access` })).json()).toEqual({ canView: false })
+    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist/access` })).json()).toEqual({ canView: false, canEdit: false, chainActive: false })
   })
 
   it('stays open to an auditor', async () => {
     const { app } = await build([row({})], { id: 'u-other', role: 'auditor' })
     expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist` })).statusCode).toBe(200)
-    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist/access` })).json()).toEqual({ canView: true })
+    // An auditor reads the checklist but never changes it.
+    expect((await app.inject({ method: 'GET', url: `/documents/${DOC}/checklist/access` })).json()).toEqual({ canView: true, canEdit: false, chainActive: false })
+  })
+
+  it('tells the panel the Author may edit even before there are items, and nobody may during a signature chain (CW-079)', async () => {
+    const author = await build([], { id: 'u-owner' }, ['R'])
+    expect((await author.app.inject({ method: 'GET', url: `/documents/${DOC}/checklist/access` })).json()).toEqual({ canView: true, canEdit: true, chainActive: false })
+    const locked = await build([], { id: 'u-owner' }, ['R'], true)
+    expect((await locked.app.inject({ method: 'GET', url: `/documents/${DOC}/checklist/access` })).json()).toEqual({ canView: true, canEdit: false, chainActive: true })
   })
 
   it('shapes a removed item with a removal block and no waiver fields', async () => {

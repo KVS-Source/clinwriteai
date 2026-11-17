@@ -205,7 +205,7 @@ const healthServer = healthPort > 0 ? createServer(async (req, res) => {
   if (req.url === '/ready') {
     const started = Date.now()
     const checks: Record<string, { ok: boolean; latencyMs: number; error?: string }> = {}
-    async function check<T>(name: string, fn: () => Promise<T>, timeoutMs = 2000): Promise<void> {
+    const check = async <T>(name: string, fn: () => Promise<T>, timeoutMs = 2000): Promise<void> => {
       const t0 = Date.now()
       try {
         await Promise.race([

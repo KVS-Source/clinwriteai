@@ -4,7 +4,17 @@
 
 import bcrypt from 'bcryptjs'
 import Fastify, { type FastifyInstance } from 'fastify'
-import { beforeEach, describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
+
+// The push to the Master Library on signing has its own tests (library/auto-push.test.ts); here only when it runs.
+const autoPush = vi.hoisted(() => ({ calls: [] as Array<{ documentId: string; trigger: string; signedBy?: string | null }> }))
+vi.mock('../../platform/library/auto-push.js', () => ({
+  autoPushSignedDocument: vi.fn(async (_app: unknown, documentId: string, opts: { trigger: string; signedBy?: string | null }) => {
+    autoPush.calls.push({ documentId, trigger: opts.trigger, signedBy: opts.signedBy })
+    return { state: 'pushed', libraryItemId: 'lib-1', created: true }
+  }),
+}))
+
 import { signatureRoutes } from './routes.js'
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any -- loose in-memory Prisma double
@@ -17,6 +27,7 @@ const PASSWORD_HASH = bcrypt.hashSync(PASSWORD, 4)
 function fakePrisma() {
   const documents: Row[] = [{
     id: 'DOC-1', projectId: 'PROJ-1', assigneeId: 'u-owner', status: 'pending_signature', watermarked: true, signedAt: null,
+    type: 'protocol', currentVersionId: 'ver-2',
     currentVersion: { label: 'Draft', versionNumber: 'v0.2', sections: [{ sectionId: 's1', contentHtml: '<p>a</p>' }] },
   }]
   // Team Approvers (RACI='A') — the chain-init handler reads these to
@@ -73,12 +84,15 @@ function fakePrisma() {
     },
     // Version snapshot on the final signature (the document becomes v1.0).
     documentVersion: {
+      // The sections of the current version, read by the content gate (CW-097).
+      findUnique: async ({ where }: Row) => (where.id === 'ver-2' ? { sections: documents[0].currentVersion.sections } : null),
       findFirst: async ({ where }: Row) => versions.find(v => matches(v, where)) ?? null,
       findMany: async ({ where }: Row) => versions.filter(v => matches(v, where)),
       updateMany: async ({ where, data }: Row) => { const hit = versions.filter(v => matches(v, where)); hit.forEach(v => Object.assign(v, data)); return { count: hit.length } },
       create: async ({ data }: Row) => { const v = { id: `ver-${versions.length + 1}`, ...data }; versions.push(v); return v },
     },
     $executeRaw: async () => 1,
+    ichSectionWaiver: { findMany: async () => [] },
     signatureChain: {
       findFirst: async ({ where }: Row) => chains.find(c => matches(c, where)) ?? null,
       findUnique: async ({ where, include }: Row) => { const c = chains.find(x => x.id === where.id); return include ? withRecords(c) ?? null : c ?? null },
@@ -161,7 +175,7 @@ const signAs = (password = PASSWORD) => ({ password, localTime: '10:00 IST' })
 
 describe('signature chain routes', () => {
   let t: Awaited<ReturnType<typeof build>>
-  beforeEach(async () => { t = await build() })
+  beforeEach(async () => { t = await build(); autoPush.calls.length = 0 })
 
   it('refuses to initiate before CRM is complete (document not pending_signature)', async () => {
     t.db.documents[0].status = 'in_review'
@@ -176,6 +190,41 @@ describe('signature chain routes', () => {
     expect(res.json().records.map((r: Row) => r.status)).toEqual(['awaiting', 'queued'])
     const again = await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })
     expect(again.json().error).toBe('chain_already_active')
+  })
+
+  it('refuses to open a chain on a document with an empty section or a placeholder left (CW-097)', async () => {
+    const sections = t.db.documents[0].currentVersion.sections as Row[]
+    sections.push({ sectionId: 's2', sectionNumber: '2', sectionTitle: 'Synopsis', contentHtml: '<p></p>' })
+    const empty = await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })
+    expect(empty.statusCode).toBe(409)
+    expect(empty.json()).toMatchObject({ error: 'content_incomplete', problemCount: 1, problems: [{ section: '2 Synopsis', reason: 'empty' }] })
+    expect(empty.json().message).toContain('2 Synopsis (empty)')
+
+    sections[1]!.contentHtml = '<p>Primary endpoint [TBD] and [XX]</p>'
+    const marked = await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })
+    expect(marked.statusCode).toBe(409)
+    expect(marked.json().problems).toEqual([{ section: '2 Synopsis', reason: 'placeholders', placeholders: 2 }])
+    expect(t.db.chains).toHaveLength(0)
+
+    sections[1]!.contentHtml = '<p>Real text.</p>'
+    expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(201)
+  })
+
+  it('SIGNATURE_SKIP_CONTENT_GATE=1 (test switch) opens the chain despite an empty section, but never in production', async () => {
+    const sections = t.db.documents[0].currentVersion.sections as Row[]
+    sections.push({ sectionId: 's2', sectionNumber: '2', sectionTitle: 'Synopsis', contentHtml: '<p></p>' })
+    const prev = { skip: process.env.SIGNATURE_SKIP_CONTENT_GATE, env: process.env.NODE_ENV }
+    try {
+      process.env.SIGNATURE_SKIP_CONTENT_GATE = '1'
+      process.env.NODE_ENV = 'production'
+      expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(409)
+      process.env.NODE_ENV = 'development'
+      expect((await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).statusCode).toBe(201)
+      expect(t.db.chains).toHaveLength(1)
+    } finally {
+      if (prev.skip === undefined) delete process.env.SIGNATURE_SKIP_CONTENT_GATE; else process.env.SIGNATURE_SKIP_CONTENT_GATE = prev.skip
+      if (prev.env === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = prev.env
+    }
   })
 
   it('runs initiate → sign → sign and marks the document signed with the watermark cleared', async () => {
@@ -206,6 +255,8 @@ describe('signature chain routes', () => {
     expect(t.db.chains[0].status).toBe('complete')
     expect(t.db.documents[0]).toMatchObject({ status: 'signed', watermarked: false })
     expect(t.audit.map(a => a.action)).toEqual(['signature_initiated', 'signature_recorded', 'document_signed'])
+    // Pushed to the Master Library once — on the signature that completed the chain, not the first one.
+    expect(autoPush.calls).toEqual([{ documentId: 'DOC-1', trigger: 'signing', signedBy: USERS.reviewer.id }])
   })
 
   it('makes the document v1.0 (Final) on the last signature, a snapshot of the signed content', async () => {
@@ -288,6 +339,8 @@ describe('signature chain routes', () => {
     expect(list.statusCode).toBe(200)
     expect(t.db.versions.find(v => v.versionNumber === 'v1.0')).toMatchObject({ label: 'Final' })
     expect(t.audit.at(-1)).toMatchObject({ action: 'final_version_created_late' })
+    // The push that waited for the snapshot runs now.
+    expect(autoPush.calls.map(c => c.trigger)).toEqual(['signing', 'late_final_version'])
   })
 
   it('refuses a wrong password, audits the attempt, and leaves the record unsigned', async () => {
@@ -378,11 +431,21 @@ describe('signature chain routes', () => {
     const own = await t.app.inject({ method: 'POST', url: `/signature-chains/${first.id}/cancel`, payload: { cancelReason: 'Started by mistake' } })
     expect(own.statusCode).toBe(200)
     t.db.documents[0].status = 'pending_signature'               // back to Pending signature
+    t.db.raciRows.filter(r => r.letter === 'A').forEach(r => { r.documentApprovedAt = new Date() })   // cancelling reset the round: approvers approve again
     t.as(USERS.author)
     const second = (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })).json()
     t.as(USERS.owner)                                            // assignee, no RACI row, role clinical-writer
     const viaAssignee = await t.app.inject({ method: 'POST', url: `/signature-chains/${second.id}/cancel`, payload: { cancelReason: 'Assignee cancels' } })
     expect(viaAssignee.statusCode).toBe(200)
+  })
+
+  it('refuses to start the chain by hand while an Approver has not approved the document yet', async () => {
+    t.db.raciRows.push({ id: 'raci-a2', documentId: 'DOC-1', userId: 'u-late', letter: 'A', removedAt: null, documentApprovedAt: null })
+    t.as(USERS.author)
+    const res = await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: twoSigners })
+    expect(res.statusCode).toBe(409)
+    expect(res.json()).toMatchObject({ error: 'approvals_pending', pendingApprovers: 1 })
+    expect(t.db.chains).toHaveLength(0)
   })
 
   it('cancel requires a reason and returns the document to in_authoring', async () => {

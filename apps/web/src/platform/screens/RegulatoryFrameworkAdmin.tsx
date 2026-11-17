@@ -1,15 +1,21 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
+import { MultiSelect } from '../components/MultiSelect'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import type { RegulatoryFramework, RegulatoryFrameworkStatus } from '@platform/types'
 import { PLATFORM_ACCENT } from '@platform/types'
 import { ApiError } from '../../api/client'
 import { SlidePanel } from '../../components/ui'
-import { platformApi } from '../api/platformApi'
+import { ConfirmDialog } from '../../components/ui/ConfirmDialog'
+import { SortIcon } from '../../components/ui/SortIcon'
+import { platformApi, type FrameworkSupersedeRequest } from '../api/platformApi'
 import { usePlatformStore } from '../store'
+import { holdsRole } from '../../config/roles'
 
 const SCOPE_COLOURS: Record<string, string> = {
-  A: '#2563EB', B: '#0D9488', C: '#7C3AED', D: '#B0200D', E: '#0D9488', platform: PLATFORM_ACCENT.primary,
+  A: '#2563EB', B: '#0D9488', C: '#7C3AED', D: '#B0200D', E: '#D97706',   // E had B's teal; each module needs its own colour here platform: PLATFORM_ACCENT.primary,
 }
 const SCOPE_LABEL_KEYS: Record<string, string> = {
   A: 'page.regulatory_framework_admin.scope_a',
@@ -24,16 +30,20 @@ const STATUS_OPTIONS: RegulatoryFrameworkStatus[] = ['Current', 'Draft revision'
 function StatusChip({ status }: { status: RegulatoryFrameworkStatus }) {
   const { t } = useTranslation()
   const meta =
-    status === 'Current'        ? { bg: '#F0FDF4', fg: '#166534', border: '#BBF7D0', label: t('page.regulatory_framework_admin.chip_current') } :
-    status === 'Updated'        ? { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', label: t('page.regulatory_framework_admin.chip_updated') } :
-    status === 'Draft revision' ? { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', label: t('page.regulatory_framework_admin.chip_draft_revision') } :
-                                  { bg: '#F1F5F9', fg: '#475569', border: '#CBD5E1', label: t('page.regulatory_framework_admin.chip_superseded') }
+    status === 'Current'        ? { bg: '#F0FDF4', fg: '#166534', border: '#BBF7D0', dot: '#16A34A', label: t('page.regulatory_framework_admin.chip_current') } :
+    status === 'Updated'        ? { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', dot: '#D97706', label: t('page.regulatory_framework_admin.chip_updated') } :
+    status === 'Draft revision' ? { bg: '#FFFBEB', fg: '#B45309', border: '#FDE68A', dot: '#D97706', label: t('page.regulatory_framework_admin.chip_draft_revision') } :
+                                  { bg: '#F1F5F9', fg: '#475569', border: '#CBD5E1', dot: '#94A3B8', label: t('page.regulatory_framework_admin.chip_superseded') }
+  // One line, never wrapped: a status dot and the word (the old leading ✓ / ⚠ wrapped onto its own line).
   return (
     <span
-      className="inline-flex items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+      className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2.5 py-0.5 text-[11px] font-semibold"
       style={{ backgroundColor: meta.bg, color: meta.fg, border: `1px solid ${meta.border}` }}
       data-status-chip={status}
-    >{meta.label}</span>
+    >
+      <span className="h-1.5 w-1.5 flex-none rounded-full" style={{ backgroundColor: meta.dot }} aria-hidden="true" />
+      {meta.label}
+    </span>
   )
 }
 
@@ -65,7 +75,7 @@ const CATEGORY_KEYS: Record<string, string> = {
   publication: 'page.regulatory_framework_admin.category_publication',
 }
 
-// "+ Add framework" form — fields match POST /admin/frameworks (Super Admin only, audited).
+// "+ Add framework" form — fields match POST /admin/frameworks (Project Managers, audited).
 function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => void }) {
   const { t } = useTranslation()
   const qc = useQueryClient()
@@ -76,6 +86,7 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
   const [category, setCategory]       = useState<string>('regulatory')
   const [effectiveDate, setEffective] = useState('')
   const [sourceUrl, setSourceUrl]     = useState('')
+  const [scope, setScope]             = useState<Array<'A' | 'B' | 'C' | 'D' | 'E'>>([])
   const [saving, setSaving]           = useState(false)
   const [error, setError]             = useState<string | null>(null)
 
@@ -84,8 +95,10 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
 
   const reset = () => {
     setCode(''); setFullName(''); setIssuer(''); setVersion(''); setCategory('regulatory')
-    setEffective(''); setSourceUrl(''); setError(null)
+    setEffective(''); setSourceUrl(''); setScope([]); setError(null)
   }
+  // Cancel, ×, Esc / outside click and a successful save all start the next "+ Add framework" with an empty form.
+  const close = () => { reset(); onClose() }
 
   const submit = async () => {
     if (!canSave) return
@@ -100,10 +113,10 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
         effectiveDate: new Date(`${effectiveDate}T00:00:00Z`).toISOString(),
         ...(fullName.trim()  && { description: fullName.trim() }),
         ...(sourceUrl.trim() && { sourceUrl: sourceUrl.trim() }),
+        scope,
       })
       await qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] })
-      reset()
-      onClose()
+      close()
     } catch (e) {
       setError(
         e instanceof ApiError && e.status === 409 ? t('page.regulatory_framework_admin.err_duplicate', { code: code.trim() }) :
@@ -119,7 +132,7 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
   const label = 'font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500'
 
   return (
-    <SlidePanel open={open} onClose={onClose} title={t('page.regulatory_framework_admin.add_panel_title')} subtitle={t('page.regulatory_framework_admin.add_panel_subtitle')} defaultWidth={480}>
+    <SlidePanel open={open} onClose={close} title={t('page.regulatory_framework_admin.add_panel_title')} subtitle={t('page.regulatory_framework_admin.add_panel_subtitle')} defaultWidth={480} closeOnOutsideClick>
       <div className="flex flex-col gap-4 px-5 py-5" data-add-framework-form>
         <label className="flex min-w-0 flex-col gap-1.5">
           <span className={label}>{t('page.regulatory_framework_admin.field_code')}</span>
@@ -157,6 +170,18 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
           {!urlValid && <span className="text-[11px] font-semibold" style={{ color: '#B45309' }}>{t('page.regulatory_framework_admin.err_url')}</span>}
         </label>
 
+        <fieldset className="rounded-md border border-slate-200 p-3" data-add-scope>
+          <legend className={label}>{t('page.regulatory_framework_admin.scope_legend')}</legend>
+          {(['A','B','C','D','E'] as const).map(m => (
+            <label key={m} className="mt-1 flex items-center gap-2 text-[12px] text-slate-700">
+              <input type="checkbox" checked={scope.includes(m)} data-add-scope-check={m} style={{ accentColor: SCOPE_COLOURS[m] }}
+                onChange={e => { const on = e.currentTarget.checked; setScope(s => (on ? [...s, m].sort() as typeof s : s.filter(x => x !== m))) }} />
+              <span className="font-mono font-semibold">{m}</span>
+              <span>{t(SCOPE_LABEL_KEYS[m])}</span>
+            </label>
+          ))}
+        </fieldset>
+
         {error && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-add-framework-error>{error}</p>}
 
         <div className="mt-2 flex gap-2 border-t border-slate-200 pt-4">
@@ -165,7 +190,7 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
             className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
             style={{ backgroundColor: PLATFORM_ACCENT.primary }}
           >{saving ? t('page.regulatory_framework_admin.adding') : t('page.regulatory_framework_admin.add_framework_action')}</button>
-          <button type="button" onClick={onClose}
+          <button type="button" onClick={close}
             className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
         </div>
         <p className="font-mono text-[11px] text-slate-500">
@@ -176,239 +201,575 @@ function AddFrameworkPanel({ open, onClose }: { open: boolean; onClose: () => vo
   )
 }
 
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 function formatDay(iso: string): string {
   const d = new Date(iso)
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return `${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
+  return `${String(d.getUTCDate()).padStart(2, '0')} ${MONTHS[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
-export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: boolean } = {}) {
-  const { t } = useTranslation()
-  const currentUser = usePlatformStore(s => s.currentUser)
-  const qc = useQueryClient()
+type SortKey = 'code-asc' | 'code-desc' | 'issuer-asc' | 'issuer-desc' | 'recent' | 'oldest'
+const PAGE_SIZES = [10, 20, 50]
+const filterControl = 'h-10 w-full rounded-md border border-slate-300 bg-white px-2.5 text-[12px] text-slate-800'
 
-  const { data: frameworks = [] } = useQuery<RegulatoryFramework[]>({
+export function RegulatoryFrameworkAdmin({ readOnly = false }: { readOnly?: boolean } = {}) {
+  const { t, i18n } = useTranslation()
+  const qc = useQueryClient()
+  // Marking a framework superseded is a two-person decision: a Project Manager sends it for approval, and
+  // another PM or a QC approves (the framework is superseded) or rejects it with a reason.
+  const me = usePlatformStore(s => s.currentUser)
+  const canChangeStatus = holdsRole(me, 'pm')                 // may send for approval
+  const canDecide = holdsRole(me, 'pm', 'qc')                 // may approve / reject someone else's request
+  const canManage = !readOnly && holdsRole(me, 'pm')           // add, sync from ICH, edit scope
+  const canEditScope = canManage
+  const [scopeSaving, setScopeSaving] = useState(false)
+  const [scopeError,  setScopeError]  = useState<string | null>(null)
+  const toggleScope = async (frameworkId: string, current: string[], m: 'A' | 'B' | 'C' | 'D' | 'E', on: boolean) => {
+    const next = (on ? [...new Set([...current, m])] : current.filter(x => x !== m)).sort() as Array<'A' | 'B' | 'C' | 'D' | 'E'>
+    setScopeSaving(true); setScopeError(null)
+    try {
+      await platformApi.setFrameworkScope(frameworkId, next)
+      await qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] })
+    } catch {
+      setScopeError(t('page.regulatory_framework_admin.scope_save_failed'))
+    } finally { setScopeSaving(false) }
+  }
+  const { data: pendingRequests = [] } = useQuery<FrameworkSupersedeRequest[]>({
+    queryKey: ['framework-requests', 'pending'],
+    queryFn:  () => platformApi.listFrameworkRequests({ status: 'pending' }),
+    retry:    false,
+  })
+  const pendingByFramework = useMemo(() => new Map(pendingRequests.map(r => [r.frameworkId, r])), [pendingRequests])
+
+  const { data: frameworks = [], isLoading } = useQuery<RegulatoryFramework[]>({
     queryKey: ['regulatory-frameworks'],
     queryFn:  () => platformApi.listFrameworks(),
   })
+  // When the registry last synced from ICH; it also syncs by itself once a day (API: ich-auto-sync.ts).
+  const { data: syncStatus } = useQuery({
+    queryKey: ['ich-sync-status'],
+    queryFn:  () => platformApi.getIchSyncStatus(),
+    retry:    false,
+  })
 
-  const [selectedId, setSelectedId] = useState<string>('')
+  // Filters, sort and paging — the same controls as Master Documents (the registry is small, so they run in the browser).
+  const [search,   setSearch]   = useState('')
+  const [statuses, setStatuses] = useState<string[]>([])
+  const [sort,     setSort]     = useState<SortKey>('code-asc')
+  const [page,     setPage]     = useState(1)
+  const [pageSize, setPageSize] = useState(PAGE_SIZES[0]!)
+
+  // The framework opened in the right-hand panel, and the "Add framework" panel.
+  const [searchParams] = useSearchParams()
+  const [openId,   setOpenId]   = useState<string | null>(() => searchParams.get('open'))
   const [newStatus,  setNewStatus]  = useState<RegulatoryFrameworkStatus>('Current')
   const [saving,     setSaving]     = useState(false)
   const [saveResult, setSaveResult] = useState<string | null>(null)
   const [saveError,  setSaveError]  = useState<string | null>(null)
   const [addOpen, setAddOpen] = useState(false)
+  const [syncing,    setSyncing]    = useState(false)
+  const [syncResult, setSyncResult] = useState<string | null>(null)
+  const [syncError,  setSyncError]  = useState<string | null>(null)
+  const syncFromIch = async () => {
+    setSyncing(true); setSyncResult(null); setSyncError(null)
+    try {
+      const r = await platformApi.syncFrameworksFromIch()
+      await qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] })
+      await qc.invalidateQueries({ queryKey: ['ich-sync-status'] })
+      setSyncResult(t('page.regulatory_framework_admin.sync_result', { fetched: r.fetched, created: r.created.length, updated: r.updated.length, unchanged: r.unchanged, skipped: r.skipped.length }))
+    } catch (err) {
+      // 403 → no permission; anything else (ich.org down, timeout) → the plain 'could not reach' message.
+      setSyncError((err as { status?: number })?.status === 403 ? t('page.regulatory_framework_admin.sync_forbidden') : t('page.regulatory_framework_admin.sync_failed'))
+    } finally { setSyncing(false) }
+  }
 
-  const active = frameworks.find(f => f.id === selectedId) ?? frameworks[0] ?? null
+  const active = frameworks.find(f => f.id === openId) ?? null
 
-  const selectFramework = (id: string) => {
-    setSelectedId(id)
+  const openFramework = (id: string) => {
+    setOpenId(id)
     setNewStatus('Current')
     setSaveResult(null)
     setSaveError(null)
   }
 
-  const changedInLast12 = useMemo(
-    () => frameworks.filter(f => f.status !== 'Current' && f.status !== 'Deprecated').length,
-    [frameworks],
-  )
+  const statusLabel = (s: RegulatoryFrameworkStatus) =>
+    s === 'Current'        ? t('page.regulatory_framework_admin.chip_current') :
+    s === 'Updated'        ? t('page.regulatory_framework_admin.chip_updated') :
+    s === 'Draft revision' ? t('page.regulatory_framework_admin.chip_draft_revision') :
+                             t('page.regulatory_framework_admin.chip_superseded')
+  const statusOptions = STATUS_OPTIONS.map(s => ({ value: s, label: statusLabel(s) }))
+
+  const filtersDirty = search.trim() !== '' || statuses.length > 0
+  const resetFilters = () => { setSearch(''); setStatuses([]) }
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const rows = frameworks.filter(f => {
+      if (statuses.length > 0 && !statuses.includes(f.status)) return false
+      if (q && ![f.code, f.name, f.issuer].some(v => (v ?? '').toLowerCase().includes(q))) return false
+      return true
+    })
+    const by: Record<SortKey, (x: RegulatoryFramework, y: RegulatoryFramework) => number> = {
+      'code-asc':    (x, y) => x.code.localeCompare(y.code),
+      'code-desc':   (x, y) => y.code.localeCompare(x.code),
+      'issuer-asc':  (x, y) => x.issuer.localeCompare(y.issuer),
+      'issuer-desc': (x, y) => y.issuer.localeCompare(x.issuer),
+      'recent':      (x, y) => new Date(y.lastUpdated).getTime() - new Date(x.lastUpdated).getTime(),
+      'oldest':      (x, y) => new Date(x.lastUpdated).getTime() - new Date(y.lastUpdated).getTime(),
+    }
+    return [...rows].sort(by[sort])
+  }, [frameworks, search, statuses, sort])
+
+  useEffect(() => { setPage(1) }, [search, statuses, sort, pageSize])
+  const pageCount = Math.max(1, Math.ceil(filtered.length / pageSize))
+  const pageRows  = filtered.slice((Math.min(page, pageCount) - 1) * pageSize, Math.min(page, pageCount) * pageSize)
 
   // The only status change the registry stores today is "superseded"
   // (POST /admin/frameworks/:id/retire). It is one-way — there is no un-retire.
   const alreadySuperseded = active?.status === 'Deprecated'
-  const canSave = !!active && !readOnly && !alreadySuperseded && newStatus === 'Deprecated' && !saving
+  const activePending = active ? pendingByFramework.get(active.id) ?? null : null
+  const canSave = !!active && !readOnly && !alreadySuperseded && !activePending && newStatus === 'Deprecated' && !saving
+  const [requestReason, setRequestReason] = useState('')
 
-  const save = async () => {
+  // The most recent decided request on the open framework (so a rejection and its reason stay visible).
+  const { data: activeHistory = [] } = useQuery<FrameworkSupersedeRequest[]>({
+    queryKey: ['framework-requests', 'framework', active?.id],
+    queryFn:  () => platformApi.listFrameworkRequests({ frameworkId: active!.id }),
+    enabled:  !!active,
+    retry:    false,
+  })
+  const lastDecided = activeHistory.find(r => r.status !== 'pending') ?? null
+
+  const refreshRequests = async () => {
+    await Promise.all([
+      qc.invalidateQueries({ queryKey: ['framework-requests'] }),
+      qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] }),
+    ])
+  }
+  const errorText = (e: unknown, fallbackKey: string) => {
+    if (e instanceof ApiError) {
+      const body = e.body as { message?: string } | null
+      if (body?.message) return body.message
+      if (e.status === 403) return t('page.regulatory_framework_admin.err_forbidden_status')
+    }
+    return t(fallbackKey)
+  }
+
+  // "Send for approval" asks first; nothing changes until another PM or a QC approves.
+  const [confirmOpen, setConfirmOpen] = useState(false)
+  const save = () => { if (canSave && active) setConfirmOpen(true) }
+  const doSendForApproval = async () => {
+    setConfirmOpen(false)
     if (!canSave || !active) return
-    if (!window.confirm(t('page.regulatory_framework_admin.confirm_supersede', { code: active.code }))) return
     setSaving(true)
     setSaveError(null)
     setSaveResult(null)
     try {
-      await platformApi.retireFramework(active.id)
-      await qc.invalidateQueries({ queryKey: ['regulatory-frameworks'] })
-      setSaveResult(t('page.regulatory_framework_admin.save_success', { code: active.code }))
+      await platformApi.sendFrameworkForApproval(active.id, requestReason.trim() || undefined)
+      await refreshRequests()
+      setSaveResult(t('page.regulatory_framework_admin.sent_for_approval', { code: active.code, defaultValue: '{{code}} sent for approval. Every Project Manager and QC has been notified.' }))
       setNewStatus('Current')
+      setRequestReason('')
     } catch (e) {
-      setSaveError(
-        e instanceof ApiError && e.status === 403 ? t('page.regulatory_framework_admin.err_forbidden_status') :
-        e instanceof ApiError && e.status === 409 ? t('page.regulatory_framework_admin.err_already_superseded', { code: active.code }) :
-        t('page.regulatory_framework_admin.err_save_generic'),
-      )
+      setSaveError(errorText(e, 'page.regulatory_framework_admin.err_save_generic'))
     } finally {
       setSaving(false)
     }
   }
 
+  // Approve / reject someone else's request.
+  const [approveOpen, setApproveOpen] = useState(false)
+  const [rejecting, setRejecting] = useState(false)
+  const [rejectReason, setRejectReason] = useState('')
+  const [deciding, setDeciding] = useState(false)
+  useEffect(() => { setRejecting(false); setRejectReason(''); setApproveOpen(false); setSaveError(null); setSaveResult(null) }, [openId])
+  const doApprove = async () => {
+    setApproveOpen(false)
+    if (!activePending || !active) return
+    setDeciding(true); setSaveError(null); setSaveResult(null)
+    try {
+      await platformApi.approveFrameworkRequest(activePending.id)
+      await refreshRequests()
+      setSaveResult(t('page.regulatory_framework_admin.approved_result', { code: active.code, defaultValue: '✓ Approved. {{code}} is now superseded. Written to the audit trail.' }))
+    } catch (e) {
+      setSaveError(errorText(e, 'page.regulatory_framework_admin.err_save_generic'))
+    } finally {
+      setDeciding(false)
+    }
+  }
+  const doReject = async () => {
+    if (!activePending || !active || rejectReason.trim().length < 3) return
+    setDeciding(true); setSaveError(null); setSaveResult(null)
+    try {
+      await platformApi.rejectFrameworkRequest(activePending.id, rejectReason.trim())
+      await refreshRequests()
+      setRejecting(false); setRejectReason('')
+      setSaveResult(t('page.regulatory_framework_admin.rejected_result', { code: active.code, defaultValue: 'Request rejected. {{code}} stays current, and the requester has been told why.' }))
+    } catch (e) {
+      setSaveError(errorText(e, 'page.regulatory_framework_admin.err_save_generic'))
+    } finally {
+      setDeciding(false)
+    }
+  }
+
+  const sortFor = (asc: SortKey, desc: SortKey): 'asc' | 'desc' | null => sort === asc ? 'asc' : sort === desc ? 'desc' : null
+  const SortHead = ({ label, asc, desc }: { label: string; asc: SortKey; desc: SortKey }) => (
+    <th className="px-4 py-3 text-left" aria-sort={sort === asc ? 'ascending' : sort === desc ? 'descending' : 'none'}>
+      <button type="button" onClick={() => setSort(sort === asc ? desc : asc)} data-sort={asc}
+        className="inline-flex items-center gap-1.5 uppercase tracking-widest hover:text-slate-800">
+        {label}<SortIcon state={sortFor(asc, desc)} />
+      </button>
+    </th>
+  )
+  const PlainHead = ({ label }: { label: string }) => <th className="px-4 py-3 text-left uppercase tracking-widest">{label}</th>
+
   return (
     <div className="bg-slate-50" data-screen="regulatory-framework-admin" data-read-only={readOnly || undefined}>
-      <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
+      <div className="flex flex-col gap-4" style={{ maxWidth: 1600, padding: '20px 24px 48px' }}>
 
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.regulatory_framework_admin.crumb_super_admin')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">{t('page.regulatory_framework_admin.crumb_framework_registry')}</span>
-        </nav>
+        {/* The breadcrumb and "who you are" line are gone: the top bar shows "Master Library / ICH Frameworks". */}
+        <MasterLibraryHeading>
+          <h1 className="text-[20px] font-semibold text-slate-900">{t('page.regulatory_framework_admin.title')}</h1>
+          <p className="mt-0.5 text-[13px] text-slate-500" data-header-note>
+            {t('page.regulatory_framework_admin.header_note')}{' '}
+            <span data-access-note>{t('page.regulatory_framework_admin.access_note')}</span>
+          </p>
+        </MasterLibraryHeading>
 
-        <div className="flex flex-wrap items-start justify-between gap-6">
-          <div>
-            <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{t('page.regulatory_framework_admin.title')}</h1>
-            <p className="mt-1 max-w-[720px] text-[13px] text-slate-600" data-header-note>
-              {t('page.regulatory_framework_admin.header_note')}
-            </p>
-            <p className="mt-1 font-mono text-xs text-slate-500" data-current-user>
-              {t('page.regulatory_framework_admin.user_byline', {
-                name:   currentUser.name,
-                role:   readOnly ? t('page.regulatory_framework_admin.role_admin_readonly') : t('page.regulatory_framework_admin.role_super_admin'),
-                total:  frameworks.length,
-                changed: changedInLast12,
-              })}
-            </p>
-          </div>
-          {!readOnly && (
+        {/* Filters — search, the scope colour key, Status, reset, Sync and Add framework, in one row. */}
+        <div className="[container-type:inline-size]" data-filter-panel>
+          {/* One row when there is room (≥1200px); otherwise the scope key moves to its own row underneath. */}
+          <div className="flex flex-wrap items-center gap-3 [@container_(min-width:1200px)]:flex-nowrap">
+            <input
+              type="search" value={search} onChange={e => setSearch(e.currentTarget.value)}
+              placeholder={t('page.regulatory_framework_admin.search_placeholder', { defaultValue: 'Search frameworks' })}
+              aria-label={t('page.regulatory_framework_admin.search_placeholder', { defaultValue: 'Search frameworks' })}
+              data-filter-search
+              className={`${filterControl} basis-full min-w-0 [@container_(min-width:760px)]:min-w-[180px] [@container_(min-width:760px)]:flex-[2_1_220px] [@container_(min-width:760px)]:basis-[220px]`}
+            />
+            <div className="order-last flex basis-full flex-wrap items-center gap-1.5 [@container_(min-width:1200px)]:order-none [@container_(min-width:1200px)]:flex-none [@container_(min-width:1200px)]:basis-auto [@container_(min-width:1200px)]:flex-nowrap" data-scope-key>
+              <ul className="contents" aria-label={t('page.regulatory_framework_admin.scope_legend')} data-scope-legend>
+                {(['A', 'B', 'C', 'D', 'E'] as const).map(m => (
+                  <li
+                    key={m}
+                    title={t(SCOPE_LABEL_KEYS[m])}
+                    className="inline-flex h-7 items-center gap-1.5 whitespace-nowrap rounded-full border pl-1 pr-2.5 text-[11px] font-semibold"
+                    style={{ borderColor: `${SCOPE_COLOURS[m]}40`, backgroundColor: `${SCOPE_COLOURS[m]}10`, color: SCOPE_COLOURS[m] }}
+                    data-scope-legend-item={m}
+                  >
+                    <span className="flex h-5 w-5 items-center justify-center rounded-full font-mono text-[10px] font-bold text-white" style={{ backgroundColor: SCOPE_COLOURS[m] }} aria-hidden="true">{m}</span>
+                    {t(`page.regulatory_framework_admin.scope_short_${m.toLowerCase()}`)}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div data-filter-status className="min-w-[150px] flex-[1_1_150px] [@container_(min-width:760px)]:flex-[1_1_0%]">
+              <MultiSelect label={t('page.regulatory_framework_admin.status_label')} allLabel={t('page.regulatory_framework_admin.all_statuses', { defaultValue: 'All statuses' })}
+                options={statusOptions} value={statuses} onChange={setStatuses} optionAttr="data-status-option" className={filterControl} />
+            </div>
             <button
-              type="button"
-              data-add-framework
-              onClick={() => setAddOpen(true)}
-              className="h-9 rounded-md px-4 text-[13px] font-semibold text-white"
-              style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-            >{t('page.regulatory_framework_admin.add_framework_button')}</button>
-          )}
+              type="button" onClick={resetFilters} disabled={!filtersDirty}
+              title={filtersDirty ? t('page.master_library.reset_filters') : t('page.master_library.filters_at_defaults')}
+              aria-label={t('page.master_library.reset_filters')}
+              className="flex h-10 w-10 flex-none items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 hover:text-slate-900 disabled:cursor-default disabled:opacity-40 disabled:hover:bg-white"
+              data-action="reset-filters"
+            >
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M2.5 8a5.5 5.5 0 1 0 1.6-3.9" />
+                <path d="M2.5 2.5v2.8h2.8" />
+              </svg>
+            </button>
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => { void syncFromIch() }}
+                disabled={syncing}
+                title={t('page.regulatory_framework_admin.sync_hint')}
+                className="h-10 flex-none rounded-md border border-slate-300 bg-white px-4 text-[13px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                data-action="sync-ich"
+              >{syncing ? t('page.regulatory_framework_admin.syncing') : t('page.regulatory_framework_admin.sync_button')}</button>
+            )}
+            {canManage && (
+              <button
+                type="button"
+                data-add-framework
+                onClick={() => setAddOpen(true)}
+                className="h-10 flex-none rounded-md px-4 text-[13px] font-semibold text-white"
+                style={{ backgroundColor: PLATFORM_ACCENT.primary }}
+              >{t('page.regulatory_framework_admin.add_framework_button')}</button>
+            )}
+          </div>
         </div>
-        {!readOnly && <AddFrameworkPanel open={addOpen} onClose={() => setAddOpen(false)} />}
+        {syncStatus && (
+          <p className="font-mono text-[11px] text-slate-500" data-ich-sync-status data-auto-sync={syncStatus.autoSync.enabled ? 'on' : 'off'}>
+            {syncStatus.lastSyncedAt
+              ? t(syncStatus.lastTrigger === 'automatic' ? 'page.regulatory_framework_admin.last_synced_auto' : 'page.regulatory_framework_admin.last_synced_manual', {
+                  when: new Date(syncStatus.lastSyncedAt).toLocaleString(i18n.language, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }),
+                })
+              : t('page.regulatory_framework_admin.never_synced')}
+            {' · '}
+            {syncStatus.autoSync.enabled ? t('page.regulatory_framework_admin.auto_sync_on') : t('page.regulatory_framework_admin.auto_sync_off')}
+          </p>
+        )}
+        {syncResult && <p className="rounded-md p-2 text-[12px]"style={{ backgroundColor: '#F0FDF4', color: '#166534' }} role="status" data-sync-result>{syncResult}</p>}
+        {syncError && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-sync-error>{syncError}</p>}
+        {canManage && <AddFrameworkPanel open={addOpen} onClose={() => setAddOpen(false)} />}
 
-        <p
-          className="rounded-md p-3 text-[12px]"
-          style={{ backgroundColor: PLATFORM_ACCENT.bgTint, color: PLATFORM_ACCENT.primary }}
-          data-access-note
-        >
-          {t('page.regulatory_framework_admin.access_note')}
-        </p>
-
-        <div className="grid gap-4" style={{ gridTemplateColumns: readOnly ? '1fr' : '1fr 380px' }}>
-
-          <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-frameworks-table data-count={frameworks.length}>
-            <table className="w-full text-[13px]">
-              <thead style={{ backgroundColor: '#F8FAFC' }}>
-                <tr className="text-left text-[11px] font-semibold uppercase tracking-widest text-slate-500">
-                  <th className="px-4 py-2">{t('page.regulatory_framework_admin.col_code')}</th>
-                  <th className="px-4 py-2">{t('page.regulatory_framework_admin.col_full_name')}</th>
-                  <th className="px-4 py-2">{t('page.regulatory_framework_admin.col_issuer')}</th>
-                  <th className="px-4 py-2">{t('page.regulatory_framework_admin.col_scope')}</th>
-                  <th className="px-4 py-2">{t('page.regulatory_framework_admin.col_status')}</th>
-                  <th className="px-4 py-2">{t('page.regulatory_framework_admin.col_updated')}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {frameworks.map(f => (
+        <section className="overflow-hidden rounded-lg border border-slate-200 bg-white" data-frameworks-table data-count={frameworks.length}>
+          <table className="w-full border-collapse text-[13px]">
+            <thead className="border-b border-slate-200 bg-slate-50 font-mono text-[10px] font-semibold text-slate-500">
+              <tr>
+                <SortHead label={t('page.regulatory_framework_admin.col_code')} asc="code-asc" desc="code-desc" />
+                <PlainHead label={t('page.regulatory_framework_admin.col_full_name')} />
+                <SortHead label={t('page.regulatory_framework_admin.col_issuer')} asc="issuer-asc" desc="issuer-desc" />
+                <PlainHead label={t('page.regulatory_framework_admin.col_scope')} />
+                <PlainHead label={t('page.regulatory_framework_admin.col_status')} />
+                <SortHead label={t('page.regulatory_framework_admin.col_updated')} asc="oldest" desc="recent" />
+              </tr>
+            </thead>
+            <tbody>
+              {isLoading && (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="loading">{t('page.master_library.loading_short')}</td></tr>
+              )}
+              {!isLoading && pageRows.length === 0 && (
+                <tr><td colSpan={6} className="px-4 py-8 text-center text-[12px] text-slate-500" data-state="empty">
+                  {filtersDirty ? t('page.regulatory_framework_admin.empty_filtered', { defaultValue: 'No frameworks match these filters.' }) : t('page.regulatory_framework_admin.empty_registry', { defaultValue: 'No frameworks in the registry yet.' })}
+                  {filtersDirty && (
+                    <div><button type="button" onClick={resetFilters} className="mt-2 font-semibold text-slate-700 underline">{t('page.master_library.reset_filters')}</button></div>
+                  )}
+                </td></tr>
+              )}
+              {pageRows.map(f => {
+                const isActive = f.id === openId
+                return (
                   <tr
                     key={f.id}
-                    onClick={() => !readOnly && selectFramework(f.id)}
+                    onClick={() => openFramework(f.id)} tabIndex={0}
+                    onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openFramework(f.id) } }}
                     data-framework-row={f.id}
-                    data-selected={!readOnly && f.id === active?.id || undefined}
-                    className="cursor-pointer border-t border-slate-200 hover:bg-slate-50"
-                    style={{ backgroundColor: !readOnly && f.id === active?.id ? PLATFORM_ACCENT.bgTint : undefined }}
+                    data-selected={isActive || undefined}
+                    data-panel-trigger aria-current={isActive || undefined}
+                    className="cursor-pointer border-b border-slate-100 last:border-b-0 hover:bg-slate-50"
+                    style={{ backgroundColor: isActive ? PLATFORM_ACCENT.bgTint : undefined }}
                   >
                     <td className="px-4 py-3 font-mono text-[11px] font-semibold text-slate-800">{f.code}</td>
                     <td className="px-4 py-3 text-slate-800">{f.name}</td>
                     <td className="px-4 py-3 text-slate-700">{f.issuer}</td>
                     <td className="px-4 py-3"><ScopeDots scope={f.scope} /></td>
-                    <td className="px-4 py-3"><StatusChip status={f.status} /></td>
-                    <td className="px-4 py-3 font-mono text-[11px] text-slate-500">{formatDay(f.lastUpdated)}</td>
+                    <td className="px-4 py-3">
+                      <StatusChip status={f.status} />
+                      {pendingByFramework.has(f.id) && (
+                        <span className="ml-1.5 inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800" data-pending-chip>
+                          {t('page.regulatory_framework_admin.pending_chip', { defaultValue: 'Pending approval' })}
+                        </span>
+                      )}
+                    </td>
+                    <td className="whitespace-nowrap px-4 py-3 font-mono text-[12px] text-slate-700">{formatDay(f.lastUpdated)}</td>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-            <p className="border-t border-slate-200 p-2 font-mono text-[11px] text-slate-500" data-scope-hover-hint>
-              {t('page.regulatory_framework_admin.scope_hover_hint')}
-            </p>
-          </section>
+                )
+              })}
+            </tbody>
+          </table>
+          <p className="border-t border-slate-200 px-4 py-2 font-mono text-[11px] text-slate-500" data-scope-hover-hint>
+            {t('page.regulatory_framework_admin.scope_hover_hint')}
+          </p>
 
-          {!readOnly && active && (
-            <aside className="flex flex-col gap-3 rounded-lg border border-slate-200 bg-white p-5" data-edit-drawer data-active-framework={active.id}>
-              <div>
-                <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.regulatory_framework_admin.edit_eyebrow')}</p>
-                <p className="mt-1 text-[16px] font-bold text-slate-900" data-active-code>{active.code}</p>
-                <p className="text-[13px] text-slate-700" data-active-name>{active.name}</p>
-                <p className="mt-1 font-mono text-[11px] text-slate-500">
-                  <span data-active-issuer>{active.issuer}</span> · {t('page.regulatory_framework_admin.updated_prefix')} <span data-active-updated>{formatDay(active.lastUpdated)}</span>
-                </p>
-              </div>
-
-              <fieldset className="rounded-md border border-slate-200 p-3" data-scope-checkboxes disabled>
-                <legend className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.regulatory_framework_admin.scope_legend')}</legend>
-                {(['A','B','C','D','E'] as const).map(m => (
-                  <label key={m} className="mt-1 flex items-center gap-2 text-[12px] text-slate-400">
-                    <input
-                      type="checkbox"
-                      checked={active.scope.includes(m)}
-                      readOnly
-                      data-scope-check={m}
-                      style={{ accentColor: SCOPE_COLOURS[m] }}
-                    />
-                    <span className="font-mono font-semibold">{m}</span>
-                    <span>{t(SCOPE_LABEL_KEYS[m])}</span>
-                  </label>
-                ))}
-                <p className="mt-2 font-mono text-[10px] text-slate-500" data-scope-unavailable>{t('page.regulatory_framework_admin.scope_unavailable')}</p>
-              </fieldset>
-
-              {alreadySuperseded ? (
-                <p className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600" data-superseded-note>
-                  {t('page.regulatory_framework_admin.superseded_note')}
-                </p>
-              ) : (
-                <>
-                  <label className="flex flex-col gap-1">
-                    <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.regulatory_framework_admin.status_label')}</span>
-                    <select value={newStatus} onChange={(e) => setNewStatus(e.currentTarget.value as RegulatoryFrameworkStatus)}
-                      data-status-select
-                      className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
-                      {STATUS_OPTIONS.map(s => {
-                        const storable = s === 'Current' || s === 'Deprecated'
-                        const label = s === 'Deprecated'
-                          ? t('page.regulatory_framework_admin.option_superseded')
-                          : s === 'Current'        ? t('page.regulatory_framework_admin.option_current')
-                          : s === 'Updated'        ? t('page.regulatory_framework_admin.option_updated')
-                          :                          t('page.regulatory_framework_admin.option_draft_revision')
-                        return (
-                          <option key={s} value={s} disabled={!storable}>
-                            {storable ? label : t('page.regulatory_framework_admin.option_not_available', { label })}
-                          </option>
-                        )
-                      })}
-                    </select>
-                  </label>
-
-                  <div className="flex gap-2">
-                    <button type="button" onClick={save} disabled={!canSave}
-                      data-save-framework
-                      className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
-                      style={{ backgroundColor: PLATFORM_ACCENT.primary }}
-                    >{saving ? t('page.regulatory_framework_admin.saving') : t('page.regulatory_framework_admin.mark_superseded_action')}</button>
-                    <button type="button" onClick={() => setNewStatus('Current')}
-                      className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
-                  </div>
-                  <p className="font-mono text-[11px] text-slate-500" data-status-unavailable>
-                    {t('page.regulatory_framework_admin.status_unavailable')}
-                  </p>
-                </>
-              )}
-
-              {saveError && (
-                <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-save-error>{saveError}</p>
-              )}
-              {saveResult && (
-                <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-save-result>{saveResult}</p>
-              )}
-
-              <p className="font-mono text-[11px] text-slate-500" data-never-deleted-note>
-                {t('page.regulatory_framework_admin.never_deleted_note')}
-              </p>
-            </aside>
-          )}
-        </div>
+          <div className="flex items-center justify-between gap-3 border-t border-slate-200 px-4 py-3" data-pagination>
+            <select className="h-9 rounded-md border border-slate-300 bg-white px-2 text-[13px]" value={pageSize}
+              onChange={e => setPageSize(Number(e.target.value))} aria-label={t('page.master_library.rows_per_page')} data-page-size>
+              {PAGE_SIZES.map(n => <option key={n} value={n}>{n}</option>)}
+            </select>
+            <div className="flex items-center gap-3 font-mono text-[12px] text-slate-600">
+              <span>{t('page.master_library.page_status', { page: Math.min(page, pageCount), pages: pageCount, count: filtered.length })}</span>
+              <button type="button" onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} data-action="prev-page"
+                className="h-9 rounded-md border border-slate-300 px-3 text-[13px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                ‹ {t('page.master_library.previous')}
+              </button>
+              <button type="button" onClick={() => setPage(p => Math.min(pageCount, p + 1))} disabled={page >= pageCount} data-action="next-page"
+                className="h-9 rounded-md border border-slate-300 px-3 text-[13px] text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40">
+                {t('page.master_library.next')} ›
+              </button>
+            </div>
+          </div>
+        </section>
       </div>
+
+      {/* Details panel — opens on a row click; Admins (read-only) see the details without the status controls. */}
+      <SlidePanel open={!!active} onClose={() => setOpenId(null)}
+        title={active?.code ?? ''}
+        subtitle={active && (
+          <span className="mt-1 block truncate text-[12px] text-slate-500">
+            {active.name} · <span data-active-issuer>{active.issuer}</span> · {t('page.regulatory_framework_admin.updated_prefix')} <span data-active-updated>{formatDay(active.lastUpdated)}</span>
+          </span>
+        )}
+        storageKey="framework-detail" defaultWidth={460} belowTopBar closeOnOutsideClick>
+        {active && (
+          <div className="flex flex-col gap-4 px-5 py-5" data-edit-drawer data-active-framework={active.id}>
+            <div className="flex items-center gap-2">
+              <StatusChip status={active.status} />
+              {activePending && (
+                <span className="inline-flex items-center rounded-full border border-amber-300 bg-amber-50 px-2 py-0.5 text-[11px] font-semibold text-amber-800" data-active-pending-chip>
+                  {t('page.regulatory_framework_admin.pending_chip', { defaultValue: 'Pending approval' })}
+                </span>
+              )}
+              <ScopeDots scope={active.scope} />
+            </div>
+
+            <fieldset className="rounded-md border border-slate-200 p-3" data-scope-checkboxes disabled={!canEditScope || scopeSaving}>
+              <legend className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.regulatory_framework_admin.scope_legend')}</legend>
+              {(['A','B','C','D','E'] as const).map(m => (
+                <label key={m} className={`mt-1 flex items-center gap-2 text-[12px] ${canEditScope ? 'text-slate-700' : 'text-slate-500'}`}>
+                  <input
+                    type="checkbox"
+                    checked={active.scope.includes(m)}
+                    onChange={e => { void toggleScope(active.id, active.scope, m, e.currentTarget.checked) }}
+                    data-scope-check={m}
+                    style={{ accentColor: SCOPE_COLOURS[m] }}
+                  />
+                  <span className="font-mono font-semibold">{m}</span>
+                  <span>{t(SCOPE_LABEL_KEYS[m])}</span>
+                </label>
+              ))}
+              {!canEditScope && <p className="mt-2 font-mono text-[10px] text-slate-500" data-scope-readonly>{t('page.regulatory_framework_admin.scope_admin_only')}</p>}
+              {scopeError && <p className="mt-2 text-[11px] text-red-700" role="alert" data-scope-error>{scopeError}</p>}
+            </fieldset>
+
+            {!readOnly && activePending && !alreadySuperseded && (
+              <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-[12px] text-amber-900" data-pending-request={activePending.id}>
+                <p className="font-semibold">{t('page.regulatory_framework_admin.pending_title', { defaultValue: 'Waiting for approval to mark as superseded' })}</p>
+                <p className="mt-0.5" data-pending-requested-by>
+                  {t('page.regulatory_framework_admin.pending_by', { name: activePending.requestedByName ?? '—', date: formatDay(activePending.requestedAt), defaultValue: 'Sent by {{name}} on {{date}}' })}
+                </p>
+                {activePending.reason && <p className="mt-0.5" data-pending-reason>{t('page.regulatory_framework_admin.reason_label', { defaultValue: 'Reason' })}: {activePending.reason}</p>}
+
+                {activePending.requestedBy === me.id ? (
+                  <p className="mt-2 text-amber-800" data-pending-own>{t('page.regulatory_framework_admin.pending_own', { defaultValue: 'Another Project Manager or a QC has to approve it.' })}</p>
+                ) : canDecide ? (
+                  rejecting ? (
+                    <div className="mt-2 flex flex-col gap-2" data-reject-form>
+                      <label className="flex flex-col gap-1">
+                        <span className="font-semibold">{t('page.regulatory_framework_admin.reject_reason_label', { defaultValue: 'Reason for rejecting (required)' })}</span>
+                        <textarea value={rejectReason} onChange={e => setRejectReason(e.currentTarget.value)} rows={3} maxLength={1000}
+                          data-reject-reason className="rounded-md border border-slate-300 bg-white p-2 text-[12px] text-slate-800" />
+                      </label>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => void doReject()} disabled={deciding || rejectReason.trim().length < 3} data-action="confirm-reject"
+                          className="h-8 rounded-md bg-red-600 px-3 text-[12px] font-semibold text-white disabled:opacity-40">
+                          {t('page.regulatory_framework_admin.reject_confirm', { defaultValue: 'Reject request' })}
+                        </button>
+                        <button type="button" onClick={() => { setRejecting(false); setRejectReason('') }} className="h-8 rounded-md border border-slate-300 bg-white px-3 text-[12px] font-semibold text-slate-700">
+                          {t('button.cancel')}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="mt-2 flex gap-2">
+                      <button type="button" onClick={() => setApproveOpen(true)} disabled={deciding} data-action="approve-request"
+                        className="h-8 rounded-md px-3 text-[12px] font-semibold text-white disabled:opacity-40" style={{ backgroundColor: PLATFORM_ACCENT.primary }}>
+                        {t('page.regulatory_framework_admin.approve_action', { defaultValue: 'Approve' })}
+                      </button>
+                      <button type="button" onClick={() => setRejecting(true)} disabled={deciding} data-action="reject-request"
+                        className="h-8 rounded-md border border-red-300 bg-white px-3 text-[12px] font-semibold text-red-700 disabled:opacity-40">
+                        {t('page.regulatory_framework_admin.reject_action', { defaultValue: 'Reject' })}
+                      </button>
+                    </div>
+                  )
+                ) : (
+                  <p className="mt-2" data-pending-readonly>{t('page.regulatory_framework_admin.pending_deciders', { defaultValue: 'A Project Manager or a QC decides.' })}</p>
+                )}
+              </div>
+            )}
+            {!readOnly && !activePending && !alreadySuperseded && lastDecided?.status === 'rejected' && (
+              <p className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600" data-last-rejection>
+                {t('page.regulatory_framework_admin.last_rejected', { name: lastDecided.decidedByName ?? '—', date: lastDecided.decidedAt ? formatDay(lastDecided.decidedAt) : '—', reason: lastDecided.rejectionReason ?? '', defaultValue: 'The last request was rejected by {{name}} on {{date}}: {{reason}}' })}
+              </p>
+            )}
+            {!readOnly && !canChangeStatus && !alreadySuperseded && !activePending && (
+              <p className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600" data-status-pm-only>
+                {t('page.regulatory_framework_admin.status_pm_only')}
+              </p>
+            )}
+            {!readOnly && !activePending && (canChangeStatus || alreadySuperseded) && (alreadySuperseded ? (
+              <p className="rounded-md bg-slate-50 p-3 text-[12px] text-slate-600" data-superseded-note>
+                {t('page.regulatory_framework_admin.superseded_note')}
+              </p>
+            ) : (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.regulatory_framework_admin.status_label')}</span>
+                  <select value={newStatus} onChange={(e) => setNewStatus(e.currentTarget.value as RegulatoryFrameworkStatus)}
+                    data-status-select
+                    className="h-9 rounded-md border border-slate-300 px-3 text-[13px]">
+                    {STATUS_OPTIONS.map(s => {
+                      const storable = s === 'Current' || s === 'Deprecated'
+                      const label = s === 'Deprecated'
+                        ? t('page.regulatory_framework_admin.option_superseded')
+                        : s === 'Current'        ? t('page.regulatory_framework_admin.option_current')
+                        : s === 'Updated'        ? t('page.regulatory_framework_admin.option_updated')
+                        :                          t('page.regulatory_framework_admin.option_draft_revision')
+                      return (
+                        <option key={s} value={s} disabled={!storable}>
+                          {storable ? label : t('page.regulatory_framework_admin.option_not_available', { label })}
+                        </option>
+                      )
+                    })}
+                  </select>
+                </label>
+
+                {newStatus === 'Deprecated' && (
+                  <label className="flex flex-col gap-1">
+                    <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">{t('page.regulatory_framework_admin.request_reason_label', { defaultValue: 'Reason (optional)' })}</span>
+                    <textarea value={requestReason} onChange={e => setRequestReason(e.currentTarget.value)} rows={2} maxLength={1000}
+                      data-request-reason className="rounded-md border border-slate-300 p-2 text-[12px]" />
+                  </label>
+                )}
+                <div className="flex gap-2">
+                  <button type="button" onClick={save} disabled={!canSave}
+                    data-save-framework
+                    className="h-9 rounded-md px-4 text-[13px] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-40"
+                    style={{ backgroundColor: PLATFORM_ACCENT.primary }}
+                  >{saving ? t('page.regulatory_framework_admin.saving') : t('page.regulatory_framework_admin.send_for_approval_action', { defaultValue: 'Send for approval →' })}</button>
+                  {/* Cancel drops any unsent change and closes the panel. */}
+                  <button type="button" onClick={() => { setNewStatus('Current'); setRequestReason(''); setOpenId(null) }}
+                    data-cancel-framework
+                    className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px] font-semibold text-slate-700 hover:bg-slate-50">{t('button.cancel')}</button>
+                </div>
+                <p className="font-mono text-[11px] text-slate-500" data-status-unavailable>
+                  {t('page.regulatory_framework_admin.status_unavailable')}
+                </p>
+              </>
+            ))}
+
+            {saveError && (
+              <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800" role="alert" data-save-error>{saveError}</p>
+            )}
+            {saveResult && (
+              <p className="rounded-md p-2 text-[12px]" style={{ backgroundColor: '#F0FDF4', color: '#166534' }} data-save-result>{saveResult}</p>
+            )}
+
+            <p className="font-mono text-[11px] text-slate-500" data-never-deleted-note>
+              {t('page.regulatory_framework_admin.never_deleted_note')}
+            </p>
+          </div>
+        )}
+      </SlidePanel>
+
+      <ConfirmDialog
+        open={confirmOpen && !!active}
+        title={t('page.regulatory_framework_admin.confirm_send_title', { code: active?.code ?? '', defaultValue: 'Send {{code}} for approval?' })}
+        message={t('page.regulatory_framework_admin.confirm_send_body', { defaultValue: 'Another Project Manager or a QC has to approve before it is marked superseded. Every Project Manager and QC is notified.' })}
+        confirmLabel={t('page.regulatory_framework_admin.send_for_approval_confirm', { defaultValue: 'Send for approval' })}
+        onConfirm={() => void doSendForApproval()}
+        onCancel={() => setConfirmOpen(false)}
+      />
+      <ConfirmDialog
+        open={approveOpen && !!active && !!activePending}
+        tone="danger"
+        title={t('page.regulatory_framework_admin.confirm_approve_title', { code: active?.code ?? '', defaultValue: 'Approve and mark {{code}} as superseded?' })}
+        message={t('page.regulatory_framework_admin.confirm_supersede_body', { defaultValue: "This can't be undone. The framework stays in the registry and stays citable on historical submissions." })}
+        confirmLabel={t('page.regulatory_framework_admin.approve_confirm', { defaultValue: 'Approve' })}
+        onConfirm={() => void doApprove()}
+        onCancel={() => setApproveOpen(false)}
+      />
     </div>
   )
 }

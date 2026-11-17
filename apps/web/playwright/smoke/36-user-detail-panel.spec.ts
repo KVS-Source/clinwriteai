@@ -105,7 +105,7 @@ test('a row click opens User Detail: details list every role; no platform-role d
 test('Add another role adds Contributor alongside Project manager (the current role stays)', async ({ page }) => {
   await open(page)
   await openUser(page, 'u-pm')
-  await expect(select(page).locator('option')).toHaveText(['Select a role', /Tenant admin — can’t be combined/, 'Contributor', 'Auditor'])
+  await expect(select(page).locator('option')).toHaveText(['Select a role', /Tenant admin — can’t be combined/, 'Contributor', 'Auditor', 'QC'])
   await expect(select(page).locator('option', { hasText: 'Tenant admin' })).toBeDisabled()
   await select(page).selectOption('contributor')
   await panel(page).locator('[data-action="add-role"]').click()

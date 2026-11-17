@@ -35,6 +35,20 @@ export interface MyNotification {
 
 // --- Request bodies ---
 
+export interface FrameworkSupersedeRequest {
+  id:              string
+  frameworkId:     string
+  status:          'pending' | 'approved' | 'rejected'
+  reason:          string | null
+  requestedBy:     string
+  requestedByName: string | null
+  requestedAt:     string
+  decidedBy:       string | null
+  decidedByName:   string | null
+  decidedAt:       string | null
+  rejectionReason: string | null
+}
+
 export interface LibraryListParams {
   q?: string
   module?: string[]
@@ -52,21 +66,12 @@ export interface LibraryListParams {
 
 export interface LibraryPage { items: MasterLibraryItem[]; total: number; nextCursor: string | null }
 
-export interface LibraryDocumentEntry {
-  id: string
-  name: string
-  sectionId: string | null          // null = the whole document
-  documentVersion: string | null
-  libraryVersion: string
-}
-
-export interface LibraryPushBody {
-  documentId: string
-  taTag: string
-  module: 'A' | 'B' | 'C' | 'D' | 'E'
-  docType: string
-  version: string
-}
+// What happened to a signed document's automatic push to the Master Library (GET /library/auto-push/:documentId).
+export type LibraryAutoPushStatus =
+  | { state: 'pushed'; entry: { id: string; addedAt: string; libraryVersion: string; documentVersion: string | null } }
+  | { state: 'skipped'; reason: string; missing?: string[]; at: string | null; documentVersion: string | null }
+  | { state: 'failed'; reason: string; at: string | null; documentVersion: string | null }
+  | { state: 'waiting' | 'not_signed'; documentVersion?: string | null }
 
 export interface InviteUserBody {
   name:     string
@@ -117,6 +122,18 @@ function taTagShape(r: TaxonomyRow): TATag {
   }
 }
 
+// When the registry last synced from ICH (button or the daily automatic sync) and whether the automatic sync is on.
+export interface IchSyncStatus {
+  lastSyncedAt: string | null
+  lastTrigger:  'manual' | 'automatic' | null
+  autoSync:     { enabled: boolean; everyHours: number }
+}
+
+export interface IchSyncResult {
+  fetched: number; created: string[]; updated: string[]; unchanged: number; withdrawn: string[]
+  skipped: Array<{ code: string; reason: string }>
+}
+
 // sPM18 — the API's regulatory_frameworks row (GET/POST /admin/frameworks).
 interface FrameworkRow {
   id:            string
@@ -128,7 +145,19 @@ interface FrameworkRow {
   retiredAt:     string | null
   description:   string | null   // full name
   sourceUrl:     string | null
+  scope?:        string[]        // ClinWrite modules it applies to ('A'…'E'); migration 72
   updatedAt:     string
+}
+
+// The query string for the Master Library list and its count. A list value that contains a comma (or a percent sign) is
+// percent-encoded so it stays one value; the API decodes it.
+function libraryQuery(params: LibraryListParams): URLSearchParams {
+  const qs = new URLSearchParams()
+  for (const [k, v] of Object.entries(params)) {
+    const value = Array.isArray(v) ? v.map(x => String(x).replace(/%/g, '%25').replace(/,/g, '%2C')).join(',') : v
+    if (value !== undefined && value !== '' && value !== false) qs.set(k, String(value))
+  }
+  return qs
 }
 
 export interface CreateFrameworkBody {
@@ -139,10 +168,10 @@ export interface CreateFrameworkBody {
   effectiveDate: string          // ISO datetime
   description?:  string
   sourceUrl?:    string
+  scope?:        Array<'A' | 'B' | 'C' | 'D' | 'E'>
 }
 
-// The registry stores no scope or revision status yet: scope is empty and
-// status is Current / Deprecated (retired) only.
+// Status is Current / Deprecated (retired) only; scope is the modules the framework applies to.
 function frameworkShape(r: FrameworkRow): RegulatoryFramework {
   return {
     id:            r.id,
@@ -151,10 +180,12 @@ function frameworkShape(r: FrameworkRow): RegulatoryFramework {
     issuer:        r.jurisdiction,
     version:       r.version,
     effectiveDate: r.effectiveDate,
-    scope:         [],
+    scope:         (r.scope ?? []) as RegulatoryFramework['scope'],
     status:        r.retiredAt ? 'Deprecated' : 'Current',
     lastUpdated:   r.updatedAt,
     changeSummary: null,
+    sourceUrl:     r.sourceUrl,
+    category:      r.category,
   }
 }
 
@@ -201,42 +232,43 @@ export const platformApi = {
   // One page of the Master Library. Filters, search and sort run on the server;
   // the total and the next-page cursor come back in headers.
   listLibraryPage: async (params: LibraryListParams, cursor?: string): Promise<LibraryPage> => {
-    const qs = new URLSearchParams()
-    for (const [k, v] of Object.entries(params)) {
-      const value = Array.isArray(v) ? v.join(',') : v
-      if (value !== undefined && value !== '' && value !== false) qs.set(k, String(value))
-    }
+    const qs = libraryQuery(params)
     if (cursor) qs.set('cursor', cursor)
     const { data, headers } = await api.getWithHeaders<MasterLibraryItem[]>(`/library${qs.size ? `?${qs}` : ''}`)
     const total = Number(headers.get('X-Total-Count'))
     return { items: data, total: Number.isFinite(total) && headers.has('X-Total-Count') ? total : data.length, nextCursor: headers.get('X-Next-Cursor') || null }
   },
-  // FR-A-080: push a signed, final document (or one of its sections) into the library.
-  pushToLibrary: (body: LibraryPushBody) =>
-    api.post<MasterLibraryItem>('/library/push', body),
-  // What of a document is already in the library (whole document and/or single sections).
-  libraryEntriesForDocument: (documentId: string) =>
-    api.get<LibraryDocumentEntry[]>(`/library/by-document/${encodeURIComponent(documentId)}`),
-  // Admin: a new version of a library section, and withdrawing it.
-  versionLibrarySection: (itemId: string, body: { title?: string; body?: string }) =>
-    api.post<unknown>(`/library/sections/${itemId}/versions`, body),
-  withdrawLibrarySection: (itemId: string, reason?: string) =>
-    api.post<unknown>(`/library/sections/${itemId}/retire`, reason ? { reason } : {}),
+  // How many items the same filters match — one number, no rows (the tab bar's count).
+  countLibrary: async (params: LibraryListParams): Promise<number> => {
+    const qs = libraryQuery(params)
+    const { total } = await api.get<{ total: number }>(`/library/count${qs.size ? `?${qs}` : ''}`)
+    return total
+  },
+  // FR-A-080: a signed document is pushed to the library by itself on signing; this says what happened.
+  libraryAutoPushStatus: (documentId: string) =>
+    api.get<LibraryAutoPushStatus>(`/library/auto-push/${encodeURIComponent(documentId)}`),
+  // PM: add a document from the computer (PDF or Word). Multipart: the fields first, then the file.
+  uploadLibraryDocument: (form: FormData) =>
+    api.upload<MasterLibraryItem>('/library/upload', form),
   getLibraryItem: (itemId: string) =>
     api.get<MasterLibraryItem>(`/library/${itemId}`),
+  // A Project Manager or Contributor shares a Master Document by email. Colleagues get a notification; anyone
+  // else (no account) gets an invitation whose link opens the document only after an emailed one-time code.
+  shareLibraryItem: (itemId: string, emails: string[]) =>
+    api.post<{ shared: Array<{ email: string; kind: 'user' | 'invite'; name?: string }>; failed: string[] }>(`/library/${encodeURIComponent(itemId)}/share`, { emails }),
   // Records that a section was pulled into a document (usage count + audit).
   adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/adopt`, body),
+
+  // The writing modules (A–E) this caller's tenant has switched on — what the Best Practices filter offers.
+  getEnabledModules: () =>
+    api.get<{ modules: Array<'A' | 'B' | 'C' | 'D' | 'E'> }>('/library/enabled-modules'),
 
   // sPM09 — Best Practices
   listBestPractices: () =>
     api.get<BestPractice[]>('/library/best-practices'),
   createBestPractice: (body: Partial<BestPractice>) =>
     api.post<BestPractice>('/library/best-practices', body),
-
-  // Projects that have documents in the library — the Master Library's Projects filter.
-  listLibraryProjects: () =>
-    api.get<Array<{ id: string; name: string }>>('/library/projects'),
 
   // sPM14 — Notifications: the signed-in user's own feed (API: modules/platform/notifications/routes.ts),
   // e.g. @mentions and signature requests. There is no preferences endpoint yet, so the screen has no
@@ -334,13 +366,33 @@ export const platformApi = {
     api.delete<{ ok: true }>(`${TA_ADMIN}/${encodeURIComponent(tagId)}`),
 
   // sPM18 — Regulatory Frameworks
+  // Imports the real ICH guideline list from ich.org (codes, titles, ICH step, step date, PDF link).
+  syncFrameworksFromIch: () =>
+    api.post<IchSyncResult>('/admin/frameworks/sync-ich', {}),
+  getIchSyncStatus: () =>
+    api.get<IchSyncStatus>('/admin/frameworks/sync-ich/status'),
   listFrameworks: () =>
     api.get<FrameworkRow[]>('/admin/frameworks?includeRetired=true').then(rows => rows.map(frameworkShape)),
   createFramework: (body: CreateFrameworkBody) =>
     api.post<FrameworkRow>('/admin/frameworks', body).then(frameworkShape),
+  // Sets which ClinWrite modules a framework applies to (same people who can add a framework).
+  setFrameworkScope: (frameworkId: string, scope: Array<'A' | 'B' | 'C' | 'D' | 'E'>) =>
+    api.patch<FrameworkRow>(`/admin/frameworks/${encodeURIComponent(frameworkId)}`, { scope }).then(frameworkShape),
   // Marks a framework superseded (sets retiredAt). Audited server-side; irreversible.
-  retireFramework: (frameworkId: string) =>
-    api.post<FrameworkRow>(`/admin/frameworks/${encodeURIComponent(frameworkId)}/retire`, {}).then(frameworkShape),
+  // Marking a framework superseded is a two-person decision: a PM sends it for approval, another PM or a
+  // QC approves (the framework is retired) or rejects with a reason. There is no direct retire.
+  sendFrameworkForApproval: (frameworkId: string, reason?: string) =>
+    api.post<FrameworkSupersedeRequest>(`/admin/frameworks/${encodeURIComponent(frameworkId)}/supersede-request`, reason ? { reason } : {}),
+  listFrameworkRequests: (params: { status?: 'pending' | 'approved' | 'rejected'; frameworkId?: string } = {}) => {
+    const qs = new URLSearchParams()
+    if (params.status) qs.set('status', params.status)
+    if (params.frameworkId) qs.set('frameworkId', params.frameworkId)
+    return api.get<FrameworkSupersedeRequest[]>(`/admin/frameworks/supersede-requests${qs.size ? `?${qs}` : ''}`)
+  },
+  approveFrameworkRequest: (requestId: string) =>
+    api.post<FrameworkSupersedeRequest>(`/admin/frameworks/supersede-requests/${encodeURIComponent(requestId)}/approve`, {}),
+  rejectFrameworkRequest: (requestId: string, reason: string) =>
+    api.post<FrameworkSupersedeRequest>(`/admin/frameworks/supersede-requests/${encodeURIComponent(requestId)}/reject`, { reason }),
 
   // sB10 — Slide Deck (Scientific Writing)
   getSlideDeckJob: (publicationId: string, jobId: string) =>
@@ -619,6 +671,19 @@ export interface DocumentTemplateSection {
   number:  string
   title:   string
   usOnly?: boolean
+  // Richer templates (the ICH M11 protocol) also carry the hierarchy and writing guidance. Optional, and
+  // any other field is kept as is: editing a section list must not strip them.
+  level?:        number
+  parentId?:     string | null
+  style?:        string | null
+  instructions?: string | null
+  guidance?:     string | null
+  templateText?: string | null
+  placeholder?:  string | null
+  defaultContentHtml?: string | null
+  hasSubsections?: boolean
+  tables?:       Array<Record<string, unknown>>
+  [extra: string]: unknown
 }
 
 export interface DocumentTemplateAdmin {
@@ -628,6 +693,8 @@ export interface DocumentTemplateAdmin {
   description:              string
   framework:                string
   sections:                 DocumentTemplateSection[]
+  /** Page layout, styles, standards, front / back matter (richer templates only); null otherwise. */
+  spec?:                    Record<string, unknown> | null
   requiredSourceCategories: string[]
   version:                  number
   isCurrent:                boolean
@@ -643,6 +710,7 @@ export interface DocumentTemplateCreateBody {
   description:               string
   framework:                 string
   sections?:                 DocumentTemplateSection[]
+  spec?:                     Record<string, unknown> | null
   requiredSourceCategories?: string[]
 }
 

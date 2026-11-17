@@ -3,31 +3,12 @@ import { useQuery } from '@tanstack/react-query'
 import { useNavigate, useParams } from 'react-router-dom'
 import type { ContentExpiryRecord, MedLibraryCard } from '@platform/types'
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
+import { ApiError } from '../../api/client'
+import { projectsApi, documentsApi } from '../../api'
+import { useProjectPeople } from '../../hooks/useProjectPeople'
+import { fmtDay, fmtDayTime, frameworksFor, stageLabel, tierLabel, ver } from './medLabels'
 
-// --- Static provenance chain ---
-
-const CLINICAL_SOURCE = [
-  { label: 'VELORA-301 CSR v1.0', when: 'Signed 28 Oct 2026' },
-  { label: 'SmPC v2.1',           when: 'Approved 15 Sep 2026' },
-]
-
-const MODULE_C_MILESTONES = [
-  { label: 'Stage 1 briefing',       when: '12 Oct 2026 · Dr Sarah Chen' },
-  { label: 'Stage 2 KOL session',    when: '14 Oct 2026 · 4 KOL attendees' },
-  { label: 'Stage 3 draft v0.3',     when: '16 Oct 2026' },
-  { label: 'Pre-MLR check passed',   when: '17 Oct 2026' },
-  { label: 'MLR Approved',           when: '20 Oct 2026 · Tier 2 Standard' },
-]
-
-const FRAMEWORKS_APPLIED = ['21 CFR Part 11', 'IFPMA', 'EFPIA', 'ABPI Code 2023', 'WCAG 2.1 AA']
-
-const FILES_IN_PACKAGE = [
-  'Veloricept_HCP_Slide_Deck_v0.3.pdf',
-  'Veloricept_HCP_Slide_Deck_v0.3.pptx',
-  'Veloricept_HCP_Slide_Deck_v0.3.html',
-  'MLR_Review_Record.pdf',
-  'Compliance_Provenance_Record.pdf',
-]
+// Provenance, package files and frameworks are built from the item itself (see the component).
 
 const MODULE_CHIPS = [
   { id: 'D', label: 'Regulatory Writing · D',   bg: '#FFF7ED', fg: '#B45309' },
@@ -42,13 +23,6 @@ const FRAMEWORK_CARD = {
   taTag:              'Oncology',
   availableInModules: ['regulatory-writing', 'ideation-publishing'],
   origin:             'originally pushed at Stage 2 · confirmed at Final Output ✓',
-}
-
-function formatDate(iso: string | null | undefined): string {
-  if (!iso) return '—'
-  const d = new Date(iso)
-  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
-  return `${String(d.getUTCDate()).padStart(2, '0')} ${months[d.getUTCMonth()]} ${d.getUTCFullYear()}`
 }
 
 function shift(iso: string, deltaDays: number): string {
@@ -71,8 +45,58 @@ export function FinalOutput() {
 
   const libraryCards: MedLibraryCard[] = final?.libraryCards ?? []
   const expiryRecord: ContentExpiryRecord | undefined = final?.expiryRecord
-  const expiryDate = expiryRecord?.expiryDate ?? '2028-10-20'
+  const item = final?.contentItem
+  const expiryDate: string | null = expiryRecord?.expiryDate ?? item?.expiryDate ?? null
   const cardCount = libraryCards.length + 1 // + framework card
+
+  // The latest MLR decision (meaning + time), the latest Pre-MLR run, and the linked Clinical Writing source.
+  const { data: decision } = useQuery({
+    queryKey: ['mlr-decision-latest', contentId],
+    queryFn:  () => medContentApi.getLatestMLRDecision(contentId!).catch(e => { if (e instanceof ApiError && e.status === 404) return null; throw e }),
+    enabled:  !!contentId,
+    retry:    false,
+  })
+  const { data: preMlr } = useQuery({
+    queryKey: ['pre-mlr', contentId],
+    queryFn:  () => medContentApi.getPreMLR(contentId!).catch(e => { if (e instanceof ApiError && e.status === 404) return null; throw e }),
+    enabled:  !!contentId,
+    retry:    false,
+  })
+  const sourceProjectId = item?.sourceModuleAProjectId ?? undefined
+  const { data: sourceProject } = useQuery({
+    queryKey: ['project', sourceProjectId],
+    queryFn:  () => projectsApi.get(sourceProjectId!),
+    enabled:  !!sourceProjectId,
+    retry:    false,
+  })
+  const { data: sourceDocs = [] } = useQuery({
+    queryKey: ['documents', sourceProjectId],
+    queryFn:  () => documentsApi.list(sourceProjectId!),
+    enabled:  !!sourceProjectId,
+    retry:    false,
+  })
+  const { usersById } = useProjectPeople(projectId)
+  const ownerName = item?.ownerId ? (usersById.get(item.ownerId)?.name ?? null) : null
+
+  const approval = final?.approvals?.[0] ?? null
+  const approvedAtIso = decision?.timestampUtc ?? item?.approvedAt ?? approval?.decidedAt ?? null
+  const clinicalSources = sourceDocs
+    .filter(d => d.type === 'csr-full' || d.type === 'csr-synopsis' || d.type === 'ib')
+    .map(d => ({ label: `${d.title} ${ver(d.version)}`, when: String(d.status ?? '') }))
+  const milestones = [
+    { label: 'Created (Stage 1 · Briefing)', when: fmtDay(item?.createdAt) },
+    ...(preMlr ? [{ label: 'Pre-MLR check run', when: `${fmtDay((preMlr as unknown as { runAt?: string }).runAt)} · ${preMlr.passed ? 'passed' : 'not passed'}` }] : []),
+    ...(decision ? [{ label: decision.decision === 'approved' ? 'MLR approved' : `MLR decision: ${decision.decision.replace('_', ' ')}`, when: `${fmtDay(decision.timestampUtc)} · ${decision.decidedByName} · ${tierLabel(item?.reviewTier)}` }] : []),
+  ]
+  const fileBase = (item?.title ?? 'content').replace(/[^A-Za-z0-9]+/g, '_').replace(/^_+|_+$/g, '') || 'content'
+  const filesInPackage = item ? [
+    `${fileBase}_v${item.version.replace(/^v/i, '')}.pdf`,
+    `${fileBase}_v${item.version.replace(/^v/i, '')}.html`,
+    ...(item.type === 'hcp-slide-deck' ? [`${fileBase}_v${item.version.replace(/^v/i, '')}.pptx`] : []),
+    'MLR_Review_Record.pdf',
+    'Compliance_Provenance_Record.pdf',
+  ] : []
+  const frameworksApplied = frameworksFor(item?.complianceTrack)
 
   return (
     <div className="bg-slate-50" data-screen="final-output">
@@ -91,22 +115,30 @@ export function FinalOutput() {
           style={{ backgroundColor: '#F1F5F9', border: '1px solid #E2E8F0' }}
           data-status-banner
         >
-          <p className="text-[13px] font-semibold text-slate-800">This content is MLR-approved and locked for distribution.</p>
-          <p className="text-[11px]" style={{ color: '#64748B' }}>Stage 6 · 21 CFR Part 11 compliant · Expires {formatDate(expiryDate)}</p>
+          <p className="text-[13px] font-semibold text-slate-800" data-final-status>{item?.stage === 6 ? 'This content is MLR-approved and locked for distribution.' : 'This content is not MLR-approved yet.'}</p>
+          <p className="text-[11px]" style={{ color: '#64748B' }}>{stageLabel(item?.stage)} · 21 CFR Part 11 record · Expires {fmtDay(expiryDate)}</p>
           <button type="button" onClick={() => flash('Distribution log opened.')} className="mt-1 text-[11px] font-semibold text-violet-700 hover:underline">View distribution log →</button>
         </div>
 
         {/* Final Output Record */}
         <section className="rounded-lg border border-slate-200 bg-white p-5" data-final-output-record>
-          <h2 className="text-[16px] font-bold text-slate-900">Veloricept HCP Slide Deck</h2>
-          <p className="text-[11px]" style={{ color: '#64748B' }}>MLR Approved {formatDate('2026-10-20')} · Distribution: Congress, Rep Detail Aid</p>
+          <h2 className="text-[16px] font-bold text-slate-900" data-final-title>{item?.title ?? '…'}</h2>
+          <p className="text-[11px]" style={{ color: '#64748B' }} data-final-subtitle>
+            {approvedAtIso ? `MLR Approved ${fmtDay(approvedAtIso)}` : 'Not MLR-approved yet'} · Distribution: {item && item.channels.length > 0 ? item.channels.join(', ') : 'no channels set'}
+          </p>
 
           {/* MLR sign-off */}
           <div className="mt-3 rounded-md bg-slate-50 p-3" data-mlr-signoff>
             <p className="font-mono text-[11px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>MLR sign-off</p>
-            <p className="mt-1 text-[13px] font-semibold text-slate-800">Dr Rebecca Morton (MLR Lead)</p>
-            <p className="text-[12px] text-slate-700">Meaning: "I approve this content for external distribution"</p>
-            <p className="text-[11px]" style={{ color: '#64748B' }}>20 Oct 2026 14:22 UTC · e-signature on file · 21 CFR Part 11 record</p>
+            {decision || approval ? (
+              <>
+                <p className="mt-1 text-[13px] font-semibold text-slate-800" data-signoff-name>{decision?.decidedByName ?? approval?.name} (MLR Lead)</p>
+                {decision?.meaning && <p className="text-[12px] text-slate-700" data-signoff-meaning>Meaning: "{decision.meaning}"</p>}
+                <p className="text-[11px]" style={{ color: '#64748B' }} data-signoff-time>{fmtDayTime(decision?.timestampUtc ?? approval?.decidedAt)} · e-signature recorded · 21 CFR Part 11 record</p>
+              </>
+            ) : (
+              <p className="mt-1 text-[12px] text-slate-500" data-signoff-none>No MLR sign-off recorded yet.</p>
+            )}
           </div>
 
           {/* Distribution package */}
@@ -114,13 +146,13 @@ export function FinalOutput() {
             <p className="font-mono text-[11px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Distribution package</p>
             <button
               type="button"
-              onClick={() => flash('Download initiated. 5 files packaged.')}
+              onClick={() => flash(`Download initiated. ${filesInPackage.length} files packaged.`)}
               data-download-all
               className="mt-2 rounded-md px-3 py-1.5 text-[12px] font-semibold text-white"
               style={{ backgroundColor: '#7C3AED' }}
             >Download all (.zip)</button>
             <ul className="mt-2 text-[12px]" data-files-list>
-              {FILES_IN_PACKAGE.map(f => <li key={f} className="text-slate-700">{f}</li>)}
+              {filesInPackage.map(f => <li key={f} className="text-slate-700">{f}</li>)}
             </ul>
           </div>
 
@@ -142,17 +174,18 @@ export function FinalOutput() {
           <p className="text-[11px]" style={{ color: '#64748B' }}>Cross-module 21 CFR Part 11 audit chain</p>
 
           <div className="mt-3 rounded-md bg-slate-50 p-3">
-            <p className="font-mono text-[11px] uppercase" style={{ color: '#1D4ED8', letterSpacing: '0.08em' }}>Clinical Writing · Clinical Writing</p>
-            <ul className="mt-1 text-[12px]">
-              {CLINICAL_SOURCE.map(r => <li key={r.label} className="text-slate-700"><strong>{r.label}</strong> · {r.when}</li>)}
-              <li className="mt-1 font-mono text-[10px] text-slate-500">Audit references: AE-006 → AE-012</li>
+            <p className="font-mono text-[11px] uppercase" style={{ color: '#1D4ED8', letterSpacing: '0.08em' }}>Clinical Writing · source project {sourceProject ? (sourceProject.shortTitle || sourceProject.name) : '—'}</p>
+            <ul className="mt-1 text-[12px]" data-clinical-sources>
+              {clinicalSources.length === 0
+                ? <li className="text-slate-500">No CSR or IB in the linked Clinical Writing project.</li>
+                : clinicalSources.map(r => <li key={r.label} className="text-slate-700"><strong>{r.label}</strong>{r.when ? ` · ${r.when}` : ''}</li>)}
             </ul>
           </div>
 
           <div className="mt-3 rounded-md bg-slate-50 p-3">
-            <p className="font-mono text-[11px] uppercase" style={{ color: '#7C3AED', letterSpacing: '0.08em' }}>Medical Writing · Medical Writing</p>
+            <p className="font-mono text-[11px] uppercase" style={{ color: '#7C3AED', letterSpacing: '0.08em' }}>Medical Writing · this item</p>
             <ol className="mt-2 flex flex-col gap-2" data-provenance-timeline>
-              {MODULE_C_MILESTONES.map((m, i) => (
+              {milestones.map((m, i) => (
                 <li key={m.label} className="flex items-start gap-2" data-milestone={i + 1}>
                   <span className="mt-1 inline-block h-2 w-2 flex-none rounded-full" style={{ backgroundColor: '#7C3AED' }} />
                   <div>
@@ -167,7 +200,7 @@ export function FinalOutput() {
           <div className="mt-3">
             <p className="font-mono text-[11px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Compliance frameworks applied</p>
             <div className="mt-1 flex flex-wrap gap-1.5" data-frameworks-applied>
-              {FRAMEWORKS_APPLIED.map(f => (
+              {frameworksApplied.map(f => (
                 <span key={f} className="rounded-md px-2 py-0.5 text-[11px] font-semibold" style={{ backgroundColor: '#F1F5F9', color: '#475569', border: '1px solid #E2E8F0' }}>{f}</span>
               ))}
             </div>
@@ -180,23 +213,23 @@ export function FinalOutput() {
           <div className="mt-3 grid gap-3 md:grid-cols-2">
             <div>
               <p className="font-mono text-[11px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Expiry date</p>
-              <p className="text-[13px] font-semibold text-slate-800" data-expiry-date>{formatDate(expiryDate)}</p>
+              <p className="text-[13px] font-semibold text-slate-800" data-expiry-date>{fmtDay(expiryDate)}</p>
             </div>
             <div>
               <p className="font-mono text-[11px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>60-day alert</p>
               <p className="text-[13px] text-slate-800" data-alert-60>
-                {formatDate(shift(expiryDate, 60))} <span className="text-slate-500">· not yet sent</span>
+                {expiryDate ? fmtDay(shift(expiryDate, 60)) : '—'} <span className="text-slate-500">· not yet sent</span>
               </p>
             </div>
             <div>
               <p className="font-mono text-[11px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>30-day alert</p>
               <p className="text-[13px] text-slate-800" data-alert-30>
-                {formatDate(shift(expiryDate, 30))} <span className="text-slate-500">· not yet sent</span>
+                {expiryDate ? fmtDay(shift(expiryDate, 30)) : '—'} <span className="text-slate-500">· not yet sent</span>
               </p>
             </div>
             <div>
               <p className="font-mono text-[11px] uppercase" style={{ color: '#64748B', letterSpacing: '0.08em' }}>Alert recipients</p>
-              <p className="text-[13px] text-slate-800" data-alert-recipients>Dr Sarah Chen, Dr Rebecca Morton</p>
+              <p className="text-[13px] text-slate-800" data-alert-recipients>{ownerName ? `${ownerName} (content owner)` : 'Content owner'}</p>
             </div>
           </div>
           <button type="button" className="mt-3 text-[12px] font-semibold text-violet-700 hover:underline">Configure alerts →</button>
@@ -252,7 +285,7 @@ export function FinalOutput() {
             </div>
           </div>
 
-          <p className="mt-3 text-[11px]" style={{ color: '#64748B' }}>Expiry: {formatDate(expiryDate)} applies to all cards from this item.</p>
+          <p className="mt-3 text-[11px]" style={{ color: '#64748B' }}>Expiry: {fmtDay(expiryDate)} applies to all cards from this item.</p>
           <button type="button" onClick={() => navigate('/library')} className="mt-2 text-[12px] font-semibold text-violet-700 hover:underline">View in Master Library →</button>
         </section>
       </div>

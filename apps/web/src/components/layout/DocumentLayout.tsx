@@ -62,6 +62,11 @@ export function DocumentLayout() {
   // Author (R) has no Reviewer View and Reviewer (C) has no Editor; hidden, not greyed.
   const tabAccess = useDocumentTabAccess(documentId)
 
+  // An Approver (A only) acts in the Approver View while the document awaits signature (approve it
+  // or reject it back to the author), so that tab stays open for them at that status.
+  const approverReviewOpen = tabAccess?.approverOnly === true && status === 'pending-signature'
+  const reviewDisabled = d.review && !approverReviewOpen
+
   const lockReason =
     status === 'signed' ? t('component.document_layout.lock_signed')
     : status === 'pending-signature' ? t('component.document_layout.lock_pending_signature')
@@ -76,9 +81,12 @@ export function DocumentLayout() {
       { to: `${base}/diff`, label: t('component.document_layout.tab_version_diff'),              disabled: d.diff,   title: d.diff   ? lockReason : undefined },
     ]),
     ...(tabAccess?.review === false ? [] : [
-      { to: `${base}/review`, label: t('component.document_layout.tab_reviewer_view'),           disabled: d.review, title: d.review ? lockReason : undefined },
+      { to: `${base}/review`, label: t(tabAccess?.approverOnly ? 'component.document_layout.tab_approver_view' : 'component.document_layout.tab_reviewer_view'), disabled: reviewDisabled, title: reviewDisabled ? lockReason : undefined },
     ]),
-    { to: `${base}/crm`,    label: t('component.document_layout.tab_crm') },
+    // The Approver has no CRM tab.
+    ...(tabAccess?.crm === false ? [] : [
+      { to: `${base}/crm`,    label: t('component.document_layout.tab_crm') },
+    ]),
     { to: `${base}/sign`,   label: t('component.document_layout.tab_e_signature'),               disabled: d.sign },
     { to: `${base}/final`,  label: t('component.document_layout.tab_final_document') },
   ]

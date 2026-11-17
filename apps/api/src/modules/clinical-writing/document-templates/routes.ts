@@ -20,6 +20,7 @@
 import type { FastifyPluginAsync } from 'fastify'
 import type { MultipartFile } from '@fastify/multipart'
 import { z } from 'zod'
+import { Prisma } from '@prisma/client'
 import { requireAuth } from '../../../auth/rbac.js'
 import { generateBlobKey } from '../../platform/blob/local-storage.js'
 import { resolveAiEngineSettings } from '../../platform/config/ai-engine-settings.js'
@@ -33,12 +34,39 @@ const AI_NOT_CONFIGURED = {
 } as const
 
 // Mirrors the Zod shape the worker's parser produces + what the UI edits.
+// A section is { id, number, title } plus, for richer templates (the ICH M11 protocol), its place in the
+// hierarchy and the writing guidance. Every extra field is optional, so a plain section list still
+// validates, and `.passthrough()` keeps fields this schema doesn't know yet instead of silently
+// dropping them on save.
+const optionalText = (max: number) => z.string().max(max).nullable().optional()
 const sectionSchema = z.object({
   id:      z.string().min(1).max(80).regex(/^[a-zA-Z0-9_.\-§]+$/, 'id must be a slug'),
   number:  z.string().min(1).max(30),
   title:   z.string().min(1).max(300),
   usOnly:  z.boolean().optional(),
-})
+  level:        z.number().int().min(1).max(6).optional(),
+  parentId:     z.string().max(80).nullable().optional(),
+  style:        optionalText(60),
+  instructions: optionalText(2000),            // the section's AUTHORING INSTRUCTIONS line
+  guidance:     optionalText(2000),            // what the subsection must contain
+  templateText: optionalText(4000),            // the text the template starts the subsection with
+  placeholder:  optionalText(120),
+  defaultContentHtml: optionalText(20000),
+  hasSubsections: z.boolean().optional(),
+  tables:       z.array(z.record(z.string(), z.unknown())).max(20).optional(),
+  crossReferences: z.record(z.string(), z.unknown()).optional(),
+  citationStyle: optionalText(60),
+  referenceExamples: z.array(z.string().max(1000)).max(50).optional(),
+  illustrativeParagraph: optionalText(2000),
+}).passthrough()
+
+// The rest of a rich template (page layout, styles, standards, front / back matter, provenance). Free-form
+// JSON, size-capped; the shape is documented by docs/templates/protocol-ich-m11.template.json.
+const MAX_SPEC_BYTES = 500_000
+const specSchema = z.record(z.string(), z.unknown()).refine(
+  v => JSON.stringify(v).length <= MAX_SPEC_BYTES,
+  { message: `spec must be at most ${MAX_SPEC_BYTES} bytes of JSON` },
+)
 
 const createTemplateSchema = z.object({
   type:                     z.string().min(1).max(80),
@@ -47,6 +75,7 @@ const createTemplateSchema = z.object({
   framework:                z.string().min(1).max(80),
   sections:                 z.array(sectionSchema).max(200).default([]),
   requiredSourceCategories: z.array(z.string().min(1).max(80)).default([]),
+  spec:                     specSchema.nullable().optional(),
 })
 
 const updateTemplateSchema = createTemplateSchema.partial().omit({ type: true })
@@ -70,6 +99,7 @@ interface TemplateRow {
   description:              string
   framework:                string
   sections:                 unknown
+  spec?:                    unknown
   requiredSourceCategories: string[]
   version:                  number
   isCurrent:                boolean
@@ -88,6 +118,7 @@ function toApiShape(row: TemplateRow) {
     description:              row.description,
     framework:                row.framework,
     sections:                 row.sections,
+    spec:                     row.spec ?? null,
     requiredSourceCategories: row.requiredSourceCategories,
     version:                  row.version,
     isCurrent:                row.isCurrent,
@@ -147,6 +178,7 @@ export const documentTemplatesRoutes: FastifyPluginAsync = async (app) => {
         description:              parsed.data.description,
         framework:                parsed.data.framework,
         sections:                 parsed.data.sections as unknown as object,
+        ...(parsed.data.spec ? { spec: parsed.data.spec as unknown as object } : {}),
         requiredSourceCategories: parsed.data.requiredSourceCategories,
         createdBy:                request.user!.id,
       },
@@ -180,6 +212,8 @@ export const documentTemplatesRoutes: FastifyPluginAsync = async (app) => {
         ...(parsed.data.description              !== undefined && { description:              parsed.data.description }),
         ...(parsed.data.framework                !== undefined && { framework:                parsed.data.framework }),
         ...(parsed.data.sections                 !== undefined && { sections:                 parsed.data.sections as unknown as object }),
+        // spec: undefined leaves it alone (a section-only edit must not wipe it); null clears it.
+        ...(parsed.data.spec                     !== undefined && { spec: parsed.data.spec === null ? Prisma.JsonNull : parsed.data.spec as unknown as object }),
         ...(parsed.data.requiredSourceCategories !== undefined && { requiredSourceCategories: parsed.data.requiredSourceCategories }),
       },
     })

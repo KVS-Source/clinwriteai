@@ -27,7 +27,7 @@ async function build(actor: Partial<AuthenticatedUser>, status = 'in_review') {
   app.decorate('audit', { append: vi.fn() } as never)
   app.decorateRequest('user', null)
   app.addHook('onRequest', async (req) => {
-    ;(req as unknown as { user: AuthenticatedUser }).user = { id: 'u-ann', email: 'x@x', role: 'contributor', modules: ['A'], tenantId: null, ...actor } as AuthenticatedUser
+    (req as unknown as { user: AuthenticatedUser }).user = { id: 'u-ann', email: 'x@x', role: 'contributor', modules: ['A'], tenantId: null, ...actor } as AuthenticatedUser
   })
   await app.register(documentRaciRoutes, { prefix: '/documents' })
   await app.ready()
@@ -42,7 +42,7 @@ describe('GET /documents/:id/pending', () => {
     const res = await app.inject({ method: 'GET', url: '/documents/d-1/pending' })
     expect(res.statusCode).toBe(200)
     const body = res.json()
-    expect([...body.gatingLetters].sort()).toEqual(['C', 'Q'])
+    expect([...body.gatingLetters].sort()).toEqual(['C'])
     expect(body.pending).toEqual([{ userId: 'u-cara', name: 'Cara Reviewer', letter: 'C', remindedAt: '2026-11-06T08:00:00.000Z' }])
     // Quinn's QC row is done, so only the reviewer is waited on; reminders are read from the last 24 hours of this document
     const where = (notificationFindMany.mock.calls[0] as unknown as [{ where: { kind: string; payload: { path: string[]; equals: string } } }])[0].where

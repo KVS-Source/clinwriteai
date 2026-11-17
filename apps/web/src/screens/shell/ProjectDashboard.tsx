@@ -490,11 +490,10 @@ export function ProjectDashboard() {
                     <p className="text-sm font-semibold text-slate-500">{m.label}</p>
                   </div>
                   <p className="flex-1 text-xs leading-relaxed text-slate-500">{m.desc}</p>
+                  {/* No "Add module" button: it did nothing, and turning a module on is a Tenant Admin
+                      job (admins never open a project), not the project manager's (CW-088). */}
                   <div className="mt-auto flex items-center justify-between">
                     <span className="text-xs text-slate-500">{t('page.project_dashboard.not_active')}</span>
-                    <button type="button" className="rounded-md border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 hover:border-slate-300 transition-colors">
-                      + {t('page.project_dashboard.add_module')}
-                    </button>
                   </div>
                 </div>
               ))}

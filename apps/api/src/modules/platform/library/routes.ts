@@ -19,16 +19,21 @@
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
 import { DATE_IN_PAST, isPastDay } from '../past-date.js'
-import { requireAuth } from '../../../auth/rbac.js'
+import { textExcerpt, wordStartPattern } from './search.js'
+import { enabledModules, requireAuth } from '../../../auth/rbac.js'
 import { invalidTaBody, resolveTa } from '../taxonomy/validate.js'
 import type { Prisma } from '@prisma/client'
 import { visibleProjectIdsForUser } from '../../projects/visibility.js'
 import { actorCanEditDocumentContent, DOCUMENT_EDIT_FORBIDDEN } from '../document-raci/access.js'
-import { compareSections } from '../../clinical-writing/documents/service.js'
-import { htmlToPlainText } from './plain-text.js'
-import { pdfFileName, renderLibraryItemPdf } from './pdf-renderer.js'
+import { pushDocumentToLibrary } from './auto-push.js'
+import { PROJECT_CLOSED, projectIsClosed } from '../../projects/closed.js'
+import { extractTextFromBlob } from '../../clinical-writing/documents/extract-text.js'
+import { fileExtension } from '../uploads/source-files.js'
+import { generateBlobKey } from '../blob/local-storage.js'
+import { libraryItemPdf, PDF_MAX_CHARS } from './pdf-file.js'
+import { viewerWatermark } from './watermark.js'
 import {
-  BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, sourceDocumentInfo, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
+  BEST_PRACTICE_NAME, firstVersionKey, parseTags, sourceDocumentId, parseVersionLabel, sectionToBestPractice, sectionToItem, versionLabel,
   type LibraryContext, type SectionRow,
 } from './shape.js'
 
@@ -63,6 +68,20 @@ const pushSchema = z.object({
   version:    z.string().trim().min(1).max(20),
 })
 
+// A document uploaded from the PM's computer: PDF or Word, with the same tags a pushed document carries.
+const UPLOAD_EXTENSIONS: Record<string, RegExp> = {
+  pdf:  /^application\/pdf$/,
+  docx: /^application\/vnd\.openxmlformats-officedocument\.wordprocessingml\.document$/,
+}
+const GENERIC_MIME = /^(application\/octet-stream|binary\/octet-stream)?$/    // Windows often sends no type for Office files
+const uploadFields = z.object({
+  title:     z.string().trim().min(1).max(200),
+  docType:   z.string().trim().min(1).max(80),
+  taTag:     z.string().trim().min(1),
+  // No longer asked for on the upload screen; still accepted from older clients.
+  projectId: z.string().trim().min(1).optional(),
+})
+
 const retireSchema = z.object({ reason: z.string().trim().min(1).max(500).optional() }).default({})
 
 const adoptSchema = z.object({
@@ -71,7 +90,10 @@ const adoptSchema = z.object({
 })
 
 // ---- UI-facing reads (Master Library + Best Practices screens) --------------
-const csv = z.string().optional().transform(v => (v ? v.split(',').map(x => x.trim()).filter(Boolean) : []))
+// Lists travel as comma-separated text. A value that itself contains a comma (or a percent sign) is sent
+// percent-encoded by the web app ("," as %2C, "%" as %25), so it survives the split; plain values pass through as before.
+const csvValue = (x: string) => { try { return decodeURIComponent(x) } catch { return x } }
+const csv = z.string().optional().transform(v => (v ? v.split(',').map(x => csvValue(x.trim())).filter(Boolean) : []))
 // A real calendar day: '2026-13-01' or '2026-02-30' matches the pattern but used to reach the
 // database and come back as a 500 (CW-060), so it is a 400 here.
 const isoDay = z.string()
@@ -90,6 +112,10 @@ const rangeEdge = (v: string, edge: 'start' | 'end') =>
 
 const SORTS = ['recent', 'oldest', 'name-asc', 'name-desc'] as const
 const LIST_MAX = 200
+const LIST_COLUMNS = {
+  id: true, tenantId: true, title: true, taTag: true, framework: true, category: true, version: true, isCurrent: true,
+  usageCount: true, approvedBy: true, approvedAt: true, supersededBy: true, retiredAt: true, tags: true, createdAt: true, updatedAt: true,
+} as const
 
 const uiListQuery = z.object({
   q:          z.string().trim().max(200).optional(),
@@ -126,6 +152,7 @@ const bestPracticeCreate = z.object({
 
 const PLATFORM_WIDE_TA = 'Platform-wide'
 
+
 export const libraryRoutes: FastifyPluginAsync = async (app) => {
   // Rows with tenantId=null are platform-wide; a tenant row is only visible to
   // its own tenant. Platform admins (role='admin' + tenantId=null, post
@@ -150,10 +177,17 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const projectIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('project:')).map(t => t.slice(8))))]
     const documentIds = [...new Set(rows.flatMap(r => r.tags.filter(t => t.startsWith('source:')).map(t => sourceDocumentId(t.slice(7)))))]
     const titles = [...new Set(rows.filter(r => r.category !== 'best_practice').map(r => r.title))]
+    const rowTenants = [...new Set(rows.map(r => r.tenantId))]
+    const tenantScope: Prisma.LibrarySectionWhereInput = {
+      OR: [
+        ...(rowTenants.includes(null) ? [{ tenantId: null }] : []),
+        ...(rowTenants.some(t => t != null) ? [{ tenantId: { in: rowTenants.filter((t): t is string => t != null) } }] : []),
+      ],
+    }
     const [projects, documents, versions] = await Promise.all([
       projectIds.length ? app.prisma.project.findMany({ where: { id: { in: projectIds } }, select: { id: true, name: true, status: true } }) : [],
-      documentIds.length ? app.prisma.document.findMany({ where: { id: { in: documentIds } }, select: { id: true, title: true, createdBy: true, createdAt: true, currentVersionId: true } }) : [],
-      titles.length ? app.prisma.librarySection.findMany({ where: { title: { in: titles } }, select: { title: true, tenantId: true, version: true, createdAt: true, approvedBy: true } }) : [],
+      documentIds.length ? app.prisma.document.findMany({ where: { id: { in: documentIds } }, select: { id: true, title: true } }) : [],
+      titles.length ? app.prisma.librarySection.findMany({ where: { title: { in: titles }, AND: [tenantScope] }, select: { title: true, tenantId: true, version: true, createdAt: true, approvedBy: true } }) : [],
     ])
     const firstVersions = new Map<string, { createdAt: Date; by: string; version: number }>()
     for (const v of versions) {
@@ -162,64 +196,43 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       if (!seen || v.version < seen.version) firstVersions.set(key, { createdAt: v.createdAt, by: v.approvedBy, version: v.version })
     }
 
-    // The source documents' people: role holders, who edited the current text, and the
-    // signatures of the completed chain. Ids from other modules match no Document row and
-    // simply get no entry.
-    const docIds = documents.map(d => d.id)
-    const versionIds = documents.map(d => d.currentVersionId).filter((v): v is string => !!v)
-    const [raciRows, sectionRows, chains] = await Promise.all([
-      docIds.length ? app.prisma.documentRaci.findMany({ where: { documentId: { in: docIds } }, select: { documentId: true, userId: true, letter: true, removedAt: true } }) : [],
-      versionIds.length ? app.prisma.sectionContent.findMany({ where: { documentVersionId: { in: versionIds } }, select: { documentVersionId: true, lastEditedBy: true, lastEditedAt: true, humanSpanCount: true } }) : [],
-      docIds.length ? app.prisma.signatureChain.findMany({
-        where: { documentId: { in: docIds }, status: 'complete' },
-        orderBy: { completedAt: 'desc' },
-        select: { documentId: true, records: { where: { status: 'signed' }, select: { signerId: true, signerName: true, meaning: true, step: true, timestampUtc: true, versionAtSigning: true } } },
-      }) : [],
-    ])
-    const latestChain = new Map<string, (typeof chains)[number]>()
-    for (const c of chains) if (!latestChain.has(c.documentId)) latestChain.set(c.documentId, c)   // newest first
-
-    const userIds = [...new Set([
-      ...rows.map(r => r.approvedBy), ...[...firstVersions.values()].map(f => f.by),
-      ...documents.map(d => d.createdBy), ...raciRows.map(r => r.userId),
-      ...sectionRows.flatMap(s => (s.lastEditedBy ? [s.lastEditedBy] : [])),
-      ...chains.flatMap(c => c.records.map(r => r.signerId)),
-    ])]
+    // Only the library entry's own people (who pushed each version). The source document's creator,
+    // editors, role holders and signatures are not shown in the Master Library (SME decision, 2026-11-16).
+    const userIds = [...new Set([...rows.map(r => r.approvedBy), ...[...firstVersions.values()].map(f => f.by)])]
     const users = userIds.length ? await app.prisma.user.findMany({ where: { id: { in: userIds } }, select: { id: true, name: true } }) : []
     const userNames = new Map(users.map(u => [u.id, u.name]))
-
-    const sourceDocuments = new Map(documents.map(d => [d.id, sourceDocumentInfo({
-      createdBy: d.createdBy,
-      createdAt: d.createdAt,
-      sections: sectionRows.filter(s => s.documentVersionId === d.currentVersionId),
-      raci: raciRows.filter(r => r.documentId === d.id),
-      signatures: latestChain.get(d.id)?.records ?? [],
-      userNames,
-    })]))
 
     return {
       userNames,
       projects: new Map(projects.map(p => [p.id, { name: p.name, status: p.status }])),
       documents: new Map(documents.map(d => [d.id, d.title])),
       firstVersions,
-      sourceDocuments,
     }
   }
 
-  // GET /library — the Master Library screen. Filters, search, sort and
-  // paging all run in the database; the page size and total travel in headers
-  // so the body stays a plain array.
-  app.get('/', { preHandler: requireAuth() }, async (request, reply) => {
-    const parsed = uiListQuery.safeParse(request.query)
-    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
-    const q = parsed.data
+  // What a search term matches on the name: anywhere in the title (that's what the reader sees), or a tag.
+  const nameMatch = (term: string): Prisma.LibrarySectionWhereInput => ({ OR: [
+    { title: { contains: term, mode: 'insensitive' } },
+    { tags:  { has: term } },
+  ] })
 
-    const and: Prisma.LibrarySectionWhereInput[] = [visibleTo(request.user!)]
-    if (q.q) and.push({ OR: [
-      { title: { contains: q.q, mode: 'insensitive' } },
-      { body:  { contains: q.q, mode: 'insensitive' } },
-      { tags:  { has: q.q } },
-    ] })
+  // The items whose text has the term at the start of a word (search.ts): "test" finds tests and testing, not
+  // Gastrointestinal. Only from 3 characters: a one- or two-letter term matches almost everything and would scan
+  // every document's full text for nothing.
+  async function textMatchIds(term: string): Promise<string[]> {
+    if (term.length < 3) return []
+    const rows = await app.prisma.$queryRaw<Array<{ id: string }>>`SELECT id FROM library_sections WHERE body ~* ${wordStartPattern(term)}`
+    return rows.map(r => r.id)
+  }
+
+  // The WHERE for the Master Library list — shared by the list itself and the cheap count the tab bar uses, so
+  // the two can never disagree about what "the library" contains.
+  async function buildListWhere(q: z.infer<typeof uiListQuery>, user: { role: string; tenantId: string | null }): Promise<{ where: Prisma.LibrarySectionWhereInput } | { error: string }> {
+    const and: Prisma.LibrarySectionWhereInput[] = [visibleTo(user)]
+    if (q.q) {
+      const inText = await textMatchIds(q.q)
+      and.push({ OR: [...nameMatch(q.q).OR as Prisma.LibrarySectionWhereInput[], ...(inText.length ? [{ id: { in: inText } }] : [])] })
+    }
     if (q.module.length) and.push({ OR: q.module.map(m => m === 'platform'
       ? { NOT: { tags: { hasSome: ['A', 'B', 'C', 'D', 'E'].map(x => `module:${x}`) } } }
       : { tags: { has: `module:${m.toUpperCase()}` } }) })
@@ -233,7 +246,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       : []) })
     if (q.version) {
       const n = parseVersionLabel(q.version)
-      if (n === null) return reply.code(400).send({ error: 'validation', message: 'version must look like "v2.0"' })
+      if (n === null) return { error: 'version must look like "v2.0"' }
       and.push({ version: n })
     }
     if (q.from || q.to) and.push({ approvedAt: {
@@ -242,12 +255,35 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     } })
     // A withdrawn item is no longer "current", so showing withdrawn items means
     // current rows plus retired ones (CW-062).
-    const where: Prisma.LibrarySectionWhereInput = {
+    return { where: {
       ...(q.includeRetired === 'false'
         ? { isCurrent: true, retiredAt: null }
         : { OR: [{ isCurrent: true }, { retiredAt: { not: null } }] }),
       AND: and,
-    }
+    } }
+  }
+
+  // GET /library/count — how many items the same filters match, and nothing else. The tab bar needs only this number;
+  // it used to ask for a one-row list, which also looked up names, projects and signatures for that row.
+  app.get('/count', { preHandler: requireAuth() }, async (request, reply) => {
+    const parsed = uiListQuery.safeParse(request.query)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const built = await buildListWhere(parsed.data, request.user!)
+    if ('error' in built) return reply.code(400).send({ error: 'validation', message: built.error })
+    return { total: await app.prisma.librarySection.count({ where: built.where }) }
+  })
+
+  // GET /library — the Master Library screen. Filters, search, sort and
+  // paging all run in the database; the page size and total travel in headers
+  // so the body stays a plain array.
+  app.get('/', { preHandler: requireAuth() }, async (request, reply) => {
+    const parsed = uiListQuery.safeParse(request.query)
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
+    const q = parsed.data
+
+    const built = await buildListWhere(q, request.user!)
+    if ('error' in built) return reply.code(400).send({ error: 'validation', message: built.error })
+    const { where } = built
 
     const orderBy: Prisma.LibrarySectionOrderByWithRelationInput[] =
       q.sort === 'oldest'    ? [{ approvedAt: 'asc' },  { id: 'asc' }]
@@ -256,15 +292,57 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       : [{ approvedAt: 'desc' }, { id: 'asc' }]
 
     const skip = Number(q.cursor ?? 0)
-    const [total, rows] = await Promise.all([
-      app.prisma.librarySection.count({ where }),
-      app.prisma.librarySection.findMany({ where, orderBy, skip, take: q.limit }),
-    ])
-    const ctx = await fetchContext(rows)
+    let total: number
+    let rows: Array<Prisma.LibrarySectionGetPayload<{ select: typeof LIST_COLUMNS }>>
+    // Found in the text only, with the words around the match, so the row says why it's there.
+    const excerpts = new Map<string, string>()
+    const inTextIds = new Set<string>()
+    if (!q.q) {
+      ;[total, rows] = await Promise.all([
+        app.prisma.librarySection.count({ where }),
+        // Everything but `body`: the list never shows the text, so the database doesn't read it or send it to the API.
+        app.prisma.librarySection.findMany({ where, orderBy, skip, take: q.limit, select: LIST_COLUMNS }),
+      ])
+    } else {
+      // A search lists the items whose title matches first, then those found only in their text; each group in the
+      // chosen order. Paging runs across both, as one list.
+      const byName = { AND: [where, nameMatch(q.q)] }
+      const byText = { AND: [where, { NOT: nameMatch(q.q) }] }
+      const [nameTotal, textTotal] = await Promise.all([
+        app.prisma.librarySection.count({ where: byName }),
+        app.prisma.librarySection.count({ where: byText }),
+      ])
+      total = nameTotal + textTotal
+      const named = skip < nameTotal
+        ? await app.prisma.librarySection.findMany({ where: byName, orderBy, skip, take: q.limit, select: LIST_COLUMNS })
+        : []
+      const room = q.limit - named.length
+      const inText = room > 0 && textTotal > 0
+        ? await app.prisma.librarySection.findMany({ where: byText, orderBy, skip: Math.max(0, skip - nameTotal), take: room, select: LIST_COLUMNS })
+        : []
+      rows = [...named, ...inText]
+      for (const r of inText) inTextIds.add(r.id)
+      if (inText.length > 0) {
+        const bodies = await app.prisma.librarySection.findMany({ where: { id: { in: inText.map(r => r.id) } }, select: { id: true, body: true } })
+        for (const b of bodies) {
+          const excerpt = textExcerpt(b.body, q.q)
+          if (excerpt) excerpts.set(b.id, excerpt)
+        }
+      }
+    }
+    const ctx = await fetchContext(rows as unknown as SectionRow[])
 
     reply.header('X-Total-Count', String(total))
     reply.header('X-Next-Cursor', skip + rows.length < total ? String(skip + rows.length) : '')
-    return rows.map(r => sectionToItem(r, ctx))
+    // A document's text can be hundreds of KB; sending it with every row made a page of 50 weigh megabytes. The list
+    // leaves it out (the screen needs only the summary columns); GET /library/:id returns the full item with its text.
+    return rows.map(r => ({
+      ...sectionToItem({ ...r, body: '' } as unknown as SectionRow, ctx),
+      body: undefined,
+      // Which group the row came from; the excerpt is extra, shown when the words around the match can be found.
+      ...(q.q && { searchMatch: inTextIds.has(r.id) ? 'text' as const : 'title' as const }),
+      ...(excerpts.has(r.id) && { matchExcerpt: excerpts.get(r.id) }),
+    }))
   })
 
   // GET /library/best-practices (registered before /:id so it isn't read as an id)
@@ -280,6 +358,20 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     if (ids.length === 0) return []
     const projects = await app.prisma.project.findMany({ where: { id: { in: ids } }, select: { id: true, name: true } })
     return projects.map(p => ({ id: p.id, name: p.name })).sort((a, b) => a.name.localeCompare(b.name))
+  })
+
+  // The writing modules this caller's tenant has switched on: the tenant's own toggles intersected with
+  // the deployment kill-switch (FEATURE_MODULES_ENABLED). A platform user with no tenant gets every module
+  // the deployment has on. The Best Practices filter offers only these.
+  app.get('/enabled-modules', { preHandler: requireAuth() }, async (request) => {
+    const user = request.user!
+    const deployment = enabledModules()
+    const tenant = user.tenantId
+      ? await app.prisma.tenant.findUnique({ where: { id: user.tenantId }, select: { modulesEnabled: true } })
+      : null
+    const modules = (['A', 'B', 'C', 'D', 'E'] as const)
+      .filter(k => deployment.has(k) && (!tenant || tenant.modulesEnabled.includes(k)))
+    return { modules }
   })
 
   app.get('/best-practices', { preHandler: requireAuth() }, async (request, reply) => {
@@ -408,43 +500,16 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       return reply.code(400).send({ error: 'ta_mismatch', message: `The therapeutic area must match the document's (${doc.therapeuticArea}).` })
     }
 
-    const sections = [...(doc.currentVersion?.sections ?? [])].sort(compareSections)
-    const docVersion = doc.currentVersion?.versionNumber ?? b.version
-    const body = sections.filter(s => htmlToPlainText(s.contentHtml)).map(s => `${s.sectionNumber} ${s.sectionTitle}\n${htmlToPlainText(s.contentHtml)}`).join('\n\n')
-    if (!body) return reply.code(422).send({ error: 'empty', message: 'This document has no content to push.' })
-
-    const sourceTag = `source:${doc.id}`
+    // Same push as the automatic one on signing (auto-push.ts): one entry per document version, checked under a
+    // lock so two pushes at the same moment can't both create one.
     const project = await app.prisma.project.findUnique({ where: { id: doc.projectId }, select: { tenantId: true } })
-    const tenantId = project?.tenantId ?? user.tenantId
-    const tags = [
-      `module:${b.module}`, `doctype:${b.docType}`, `project:${doc.projectId}`, sourceTag, `fromdoc:${doc.id}`, `docversion:${docVersion}`,
-      'type:document',
-    ]
-
-    const earlier = await app.prisma.librarySection.findFirst({
-      where: { tenantId, isCurrent: true, retiredAt: null, tags: { has: sourceTag } },
+    const outcome = await pushDocumentToLibrary(app.prisma, {
+      doc, taTag, module: b.module, docType: b.docType, tenantId: project?.tenantId ?? user.tenantId, approvedBy: user.id, fallbackVersion: b.version,
     })
-    if (earlier?.tags.includes(`docversion:${docVersion}`)) {
-      return reply.code(409).send({ error: 'already_pushed', message: `${docVersion} of this document is already in the Master Library.` })
-    }
-
-    const created = await app.prisma.$transaction(async (tx) => {
-      const next = await tx.librarySection.create({
-        data: {
-          tenantId, taTag, tags, body,
-          title: doc.title,
-          framework: b.docType,
-          category: 'claim',
-          version: (earlier?.version ?? 0) + 1,
-          approvedBy: user.id,
-        },
-      })
-      if (earlier) {
-        await tx.librarySection.update({ where: { id: earlier.id }, data: { isCurrent: false, supersededBy: next.id } })
-      }
-      return next
-    })
-
+    const docVersion = outcome.documentVersion
+    if (outcome.status === 'empty') return reply.code(422).send({ error: 'empty', message: 'This document has no content to push.' })
+    if (outcome.status === 'already') return reply.code(409).send({ error: 'already_pushed', message: `${docVersion} of this document is already in the Master Library.` })
+    const { created, earlier } = outcome
     await app.audit.append({
       timestamp: new Date().toISOString(),
       actorId: user.id,
@@ -459,6 +524,85 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
+    const ctx = await fetchContext([created])
+    return reply.code(201).send(sectionToItem(created, ctx))
+  })
+
+  // POST /library/upload — a Project Manager adds a document from their computer (PDF or Word) to the Master
+  // Library. Multipart: the fields (title, docType, taTag; projectId optional, no longer asked for) first, then
+  // the file. The text is read out of the file so the library can search it; the original PDF is kept and is what
+  // View shows. A later upload with the same title becomes the next version.
+  // Only a PM may upload (the screen shows the button to no one else); nothing here is signed or approved by a chain.
+  app.post('/upload', { preHandler: requireAuth({ roles: ['pm'], modules: ['A'] }) }, async (request, reply) => {
+    const user = request.user!
+    const file = await request.file().catch(() => undefined)
+    if (!file) return reply.code(400).send({ error: 'no_file', message: 'Choose a PDF or Word file to upload.' })
+    const field = (name: string) => {
+      const f = (file.fields as Record<string, { value?: unknown } | undefined>)[name]
+      return typeof f?.value === 'string' ? f.value : undefined
+    }
+    const ext = fileExtension(file.filename)
+    const typeOk = UPLOAD_EXTENSIONS[ext]?.test(file.mimetype) || (UPLOAD_EXTENSIONS[ext] && GENERIC_MIME.test(file.mimetype))
+    if (!typeOk) return reply.code(400).send({ error: 'unsupported_file', message: 'Only PDF (.pdf) and Word (.docx) files can be uploaded.' })
+
+    const parsed = uploadFields.safeParse({
+      title: field('title') ?? file.filename.replace(/\.[^.]+$/, ''), docType: field('docType'), taTag: field('taTag'), projectId: field('projectId'),
+    })
+    if (!parsed.success) return reply.code(400).send({ error: 'validation', message: parsed.error.issues[0]?.message ?? 'invalid request', issues: parsed.error.issues })
+    const b = parsed.data
+
+    // The upload screen no longer asks for a project: the document belongs to the organisation's library. An older
+    // client may still send one; it is then checked and tagged as before.
+    let project: { id: string; tenantId: string | null } | null = null
+    if (b.projectId) {
+      project = await app.prisma.project.findUnique({ where: { id: b.projectId }, select: { id: true, tenantId: true } })
+      const visibleProjects = await visibleProjectIdsForUser(app.prisma, user)
+      if (!project || (visibleProjects !== 'all' && !visibleProjects.has(project.id))) return reply.code(404).send({ error: 'project_not_found' })
+      if (await projectIsClosed(app.prisma, project.id)) return reply.code(423).send(PROJECT_CLOSED)
+    }
+
+    const taTag = await resolveTa(app.prisma, b.taTag)
+    if (!taTag) return reply.code(400).send(invalidTaBody(b.taTag))
+
+    const buf = await file.toBuffer()
+    if (file.file.truncated) return reply.code(413).send({ error: 'too_large', message: 'The file is larger than 50 MB.' })
+    const extracted = await extractTextFromBlob(buf, UPLOAD_EXTENSIONS[ext] === UPLOAD_EXTENSIONS.pdf ? 'application/pdf' : 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', { maxChars: PDF_MAX_CHARS })
+    const body = extracted.text.trim()
+    if (!extracted.ok || !body) {
+      return reply.code(422).send({ error: 'no_text', message: 'No readable text was found in this file (a scanned PDF, for example). Upload a version with selectable text.' })
+    }
+
+    const tenantId = project?.tenantId ?? user.tenantId
+    const blobKey = generateBlobKey(`library/${tenantId ?? 'platform'}`, ext)
+    await app.blob.put({ bucket: 'documents', key: blobKey, body: buf, contentType: file.mimetype || 'application/octet-stream', metadata: { originalFilename: file.filename, uploadedBy: user.id, ...(project && { projectId: project.id }) } })
+
+    const projectTag = project ? `project:${project.id}` : null
+    const tags = ['module:A', `doctype:${b.docType}`, ...(projectTag ? [projectTag] : []), 'type:document', 'origin:upload', `file:${blobKey}`, `filename:${file.filename}`]
+    const { created, earlier } = await app.prisma.$transaction(async (tx) => {
+      // One upload of a title at a time (a double click, two tabs): the second waits and sees the first.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`library-upload:${tenantId ?? 'platform'}:${project?.id ?? '-'}:${b.title}`}))`
+      // The same title uploaded again becomes its next version: in the same project when one was given, otherwise
+      // among the uploads that have no project.
+      const candidates = await tx.librarySection.findMany({
+        where: { tenantId, isCurrent: true, retiredAt: null, title: b.title, AND: [{ tags: { has: 'origin:upload' } }, ...(projectTag ? [{ tags: { has: projectTag } }] : [])] },
+      })
+      const prior = candidates.find(c => (projectTag ? true : !c.tags.some(t => t.startsWith('project:')))) ?? null
+      const next = await tx.librarySection.create({
+        data: { tenantId, taTag, tags, body, title: b.title, framework: b.docType, category: 'claim', version: (prior?.version ?? 0) + 1, approvedBy: user.id },
+      })
+      if (prior) await tx.librarySection.update({ where: { id: prior.id }, data: { isCurrent: false, supersededBy: next.id } })
+      return { created: next, earlier: prior }
+    })
+
+    await app.audit.append({
+      timestamp: new Date().toISOString(),
+      actorId: user.id,
+      action: 'library_uploaded',
+      entityType: 'library_section',
+      entityId: created.id,
+      details: { ...(project && { projectId: project.id }), title: b.title, docType: b.docType, taTag, fileName: file.filename, fileSizeBytes: buf.length, libraryVersion: created.version, ...(earlier && { supersedes: earlier.id }) },
+      ipAddress: request.ip ?? null,
+    })
     const ctx = await fetchContext([created])
     return reply.code(201).send(sectionToItem(created, ctx))
   })
@@ -482,20 +626,22 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     })
   })
 
-  // GET /library/:id/pdf — the item's title and text as a PDF file (Master Library
-  // "Download PDF"). Same visibility as reading the item.
+  // GET /library/:id/pdf — the item as a PDF, for the Master Library View (shown in the app's own viewer, never
+  // the browser's). Same visibility as reading the item.
   app.get('/:id/pdf', { preHandler: requireAuth() }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!row) return reply.code(404).send({ error: 'not_found' })
-    if (!row.body.trim()) return reply.code(422).send({ error: 'empty', message: 'This item has no text to download.' })
-    const pdf = await renderLibraryItemPdf({ title: row.title, body: row.body })
-    const name = pdfFileName(row.title)
+    // Every page carries the reader's email and the time (watermark.ts).
+    const pdf = await libraryItemPdf(app, row, { watermark: viewerWatermark(request.user!.email) })
+    if (!pdf.ok) return reply.code(pdf.code).send({ error: pdf.error, message: pdf.message })
     return reply
       .header('Content-Type', 'application/pdf')
-      .header('Content-Disposition', `attachment; filename="${name}"; filename*=UTF-8''${encodeURIComponent(name)}`)
+      .header('Content-Disposition', `attachment; filename="${pdf.fileName}"; filename*=UTF-8''${encodeURIComponent(pdf.originalName)}`)
+      .header('Content-Length', String(pdf.body.length))
+      .header('X-Content-Type-Options', 'nosniff')
       .header('Cache-Control', 'no-store')
-      .send(pdf)
+      .send(pdf.body)
   })
 
   // GET /library/:id — one item for the detail panel.
@@ -573,8 +719,10 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  // Create a new VERSION of an existing section. Admin-only.
-  app.post('/sections/:id/versions', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  // Create a new VERSION of an existing section. Admins and Project Managers — the Master Library has no admin in the
+  // loop day to day, the PM is its content owner. A PM can change only their own tenant's items (canChange below);
+  // platform-wide items stay with platform admins.
+  app.post('/sections/:id/versions', { preHandler: requireAuth({ roles: ['admin', 'pm'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = updateSchema.safeParse(request.body)
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -631,7 +779,8 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     return reply.code(201).send(created)
   })
 
-  app.post('/sections/:id/retire', { preHandler: requireAuth({ roles: ['admin'] }) }, async (request, reply) => {
+  // Withdraw an item: same people and same own-tenant rule as a new version.
+  app.post('/sections/:id/retire', { preHandler: requireAuth({ roles: ['admin', 'pm'] }) }, async (request, reply) => {
     const { id } = request.params as { id: string }
     const parsed = retireSchema.safeParse(request.body ?? {})
     if (!parsed.success) return reply.code(400).send({ error: 'validation', issues: parsed.error.issues })
@@ -668,6 +817,11 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
 
     const section = await app.prisma.librarySection.findFirst({ where: { id, AND: [visibleTo(request.user!)] } })
     if (!section) return reply.code(404).send({ error: 'not_found' })
+    // An adoption into a Clinical Writing document says "this text went into that document", so only someone who may
+    // edit that document can record it (the same rule as the edit itself). Otherwise anyone could inflate usage counts.
+    if (parsed.data.adoptingModule === 'A' && !(await actorCanEditDocumentContent(app.prisma, request.user!, parsed.data.adoptingEntity))) {
+      return reply.code(403).send({ ...DOCUMENT_EDIT_FORBIDDEN, error: 'adopt_forbidden', message: 'Only the Author (R) of that document can record text adopted into it.' })
+    }
     if (section.retiredAt) {
       return reply.code(422).send({ error: 'retired', message: 'Cannot adopt a retired section' })
     }

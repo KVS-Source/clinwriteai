@@ -17,7 +17,7 @@ export interface CrmPerson {
 }
 
 const CHAIR_LETTERS = new Set(['R', 'C', 'A'])
-const NOT_IN_MEETINGS = ['admin', 'tenant-admin', 'super-admin', 'auditor', 'read-only', 'guest']
+const NOT_IN_MEETINGS = ['admin', 'tenant-admin', 'super-admin', 'auditor', 'read-only', 'qc', 'guest']
 
 // `callerPmId`: a PM who can see the project but is not one of its listed members may still chair and attend
 // a meeting they schedule, so the caller passes their own id when they are a PM.

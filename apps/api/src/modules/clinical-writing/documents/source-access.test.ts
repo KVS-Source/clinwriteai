@@ -100,7 +100,6 @@ const CANNOT_VIEW: Array<[string, Who]> = [
   ['a tenant admin holding R', { role: 'tenant-admin', letters: ['R'] }],
   ['a guest', { role: 'guest' }],
   ['a guest holding C', { role: 'guest', letters: ['C'] }],
-  ['a PM on another project', { role: 'pm', memberOfProject: false }],
 ]
 
 beforeEach(() => { process.env.FEATURE_MODULES_ENABLED = 'A,B,C,D,E' })
@@ -122,6 +121,17 @@ describe('viewing source documents', () => {
       expect(res.json().error).toBe('source_view_forbidden')
       await app.close()
     })
+  })
+
+  // A PM outside the project: the project's library refuses them, and (CW-020) its
+  // documents do not exist for them at all.
+  it.each(VIEW_ROUTES)('a PM on another project cannot $name', async ({ url }) => {
+    const { app } = await build({ role: 'pm', memberOfProject: false })
+    const res = await app.inject({ method: 'GET', url })
+    const documentRoute = url.startsWith('/documents/')
+    expect(res.statusCode).toBe(documentRoute ? 404 : 403)
+    expect(res.json().error).toBe(documentRoute ? 'not_found' : 'source_view_forbidden')
+    await app.close()
   })
 })
 

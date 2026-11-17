@@ -11,7 +11,9 @@ import { useCurrentUser } from './useCurrentUser'
 //  - No letter at all (PM, auditor, admin, Informed): both tabs, read-only as the screens decide.
 // undefined while the answer is loading; a failed lookup leaves both tabs open (the server
 // still decides what each screen may do).
-export function useDocumentTabAccess(documentId: string | undefined): { editor: boolean; review: boolean } | undefined {
+export type DocumentTabAccess = { editor: boolean; review: boolean; crm: boolean; approverOnly: boolean }
+
+export function useDocumentTabAccess(documentId: string | undefined): DocumentTabAccess | undefined {
   const { data: me, isLoading: meLoading } = useCurrentUser()
   const { data: rows, isLoading: rowsLoading } = useQuery<DocumentRaciRow[]>({
     queryKey:  ['document-raci', documentId],
@@ -25,11 +27,16 @@ export function useDocumentTabAccess(documentId: string | undefined): { editor: 
 }
 
 /** The tab rule on its own, from a user's active RACI letters on the document. */
-export function tabAccessForLetters(letters: ReadonlySet<string>): { editor: boolean; review: boolean } {
+export function tabAccessForLetters(letters: ReadonlySet<string>): DocumentTabAccess {
   const author = letters.has('R')
   const reviewSide = letters.has('C') || letters.has('Q') || letters.has('A')
+  // An Approver (A) who is not also Author, Reviewer or QC: their tab is "Approver View"
+  // and they have no CRM tab (the Comments Resolution Meeting is for the review team).
+  const approverOnly = letters.has('A') && !letters.has('R') && !letters.has('C') && !letters.has('Q')
   return {
     editor: author || !reviewSide,
     review: reviewSide || !author,
+    crm: !approverOnly,
+    approverOnly,
   }
 }

@@ -13,7 +13,7 @@ import { useDocumentStore, useProjectStore } from '../../store'
 import { SectionNavigator } from '../clinical-writing/SectionNavigator'
 import { EditorContent, useRichTextEditor } from '../clinical-writing/RichTextEditor'
 import { SlidePanel } from '../../components/ui/SlidePanel'
-import { LibraryPushedBadge, PushToLibraryButton } from '../../components/library/PushToLibraryButton'
+import { LibraryPushWarning, LibraryStatusLine, useLibraryAutoPush } from '../../components/library/LibraryAutoPushStatus'
 import { AuditTrailPanel } from '../../panels/AuditTrailPanel'
 import { useSignatureAccess } from './useSignatureAccess'
 
@@ -234,6 +234,8 @@ export function FinalDocument() {
 
   // Only a document whose status is "signed" gets the signed-and-locked treatment.
   const isSigned = document?.status === 'signed'
+  // A signed document is added to the Master Library by itself; this says when (or why not).
+  const libraryPush = useLibraryAutoPush(document)
   // Interim (unsigned) versions carry a watermark until final sign-off (FR-A-011).
   const showWatermark = !isSigned && document?.watermarked !== false
 
@@ -332,7 +334,6 @@ export function FinalDocument() {
                 {t(unsignedStatusKey)}
               </span>
             )}
-            <LibraryPushedBadge document={document} />
             {documentId && <MyRaciRole documentId={documentId} />}
           </div>
 
@@ -343,7 +344,6 @@ export function FinalDocument() {
                 {t('page.final_document.signed_at', { when: signedAtText.replace(/ (\d\d:\d\d UTC)$/, ' · $1') })}
               </div>
             )}
-            <PushToLibraryButton document={document} />
             <button
               type="button"
               disabled={signatureGap || pdfBusy}
@@ -389,6 +389,8 @@ export function FinalDocument() {
             ? t('page.final_document.banner_signed')
             : t('page.final_document.banner_unsigned', { status: t(unsignedStatusKey) })}
         </p>
+        {/* Signed documents go into the Master Library by themselves (no push button). */}
+        {isSigned && <LibraryStatusLine status={libraryPush.data} />}
         <div className="flex-1" />
         <button
           type="button"
@@ -400,6 +402,8 @@ export function FinalDocument() {
           {t('page.final_document.view_audit')}
         </button>
       </div>
+
+      {isSigned && <LibraryPushWarning status={libraryPush.data} />}
 
       {pdfError && (
         <div className="flex flex-none items-start justify-between gap-3 border-b border-red-200 bg-red-50 px-8 py-2.5 text-[13px] text-red-800" role="alert" data-final-pdf-error>

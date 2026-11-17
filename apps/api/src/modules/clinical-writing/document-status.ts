@@ -24,7 +24,7 @@ export const DOCUMENT_STATUSES = [
 
 const ALLOWED: Record<DocumentStatus, ReadonlyArray<DocumentStatus>> = {
   not_started: ['in_authoring'],
-  in_authoring: ['in_review'],
+  in_authoring: ['in_review', 'crm_in_progress'],   // a CRM meeting may be held during authoring
   in_review: ['crm_in_progress', 'in_authoring'],   // reviewer bounce
   crm_in_progress: ['pending_signature', 'in_authoring'],
   pending_signature: ['signed', 'in_authoring'],    // signer refusal returns to author

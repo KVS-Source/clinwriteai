@@ -135,6 +135,10 @@ model DocumentRaci {
   submittedAt          DateTime?                                  // R clicks "Submit my part"
   reviewedAt           DateTime?                                  // C clicks "I'm done reviewing"
   approvedAt           DateTime?                                  // A clicks "Approve"
+  // The Approver's whole-document approval (Approver View's "Approve document"). Kept apart from
+  // approvedAt because a signature-required row can't carry approvedAt without a signatureId (DB
+  // check). Cleared with the rest of the round on a return to authoring.
+  documentApprovedAt   DateTime?
   signatureId          String?                                    // FK → signature_records.id when signature_required
   rejectedAt           DateTime?
   rejectionNote        String?
@@ -340,6 +344,9 @@ model CrmMeeting {
   startedAt       DateTime?
   endedAt         DateTime?
   createdAt       DateTime @default(now())
+  // Where the document was when this meeting started, if not In Review: 'in_authoring' means
+  // completing / cancelling the meeting puts it back there. NULL = started from review.
+  returnToStatus  String?
   // AI Note-Taker (Phase 1 / sPM-ai-notetaker). Minutes rendered as HTML
   // by GPT/Claude from the uploaded transcript + resolutions. The audio is
   // never stored (DPDPA stance) — only the transcript + the minutes.

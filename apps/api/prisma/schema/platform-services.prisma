@@ -38,6 +38,39 @@ model LibrarySection {
   @@index([framework])
   @@index([category])
   @@index([tenantId, isCurrent])
+  // Master Library search (migration 68): trigram indexes serve  title/body ILIKE '%q%'  and a GIN index serves tags.
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "library_sections_title_trgm_idx")
+  @@index([body(ops: raw("gin_trgm_ops"))], type: Gin, map: "library_sections_body_trgm_idx")
+  @@index([tags], type: Gin, map: "library_sections_tags_gin_idx")
+}
+
+// A Master Document shared with someone who has no account (Master Library "Share", migration 71) — e.g. a
+// CEO who must read it. The emailed link alone opens nothing: on opening it the reader asks for a one-time code,
+// which is emailed to the invited address only, and the document shows after the code is entered. A forwarded
+// link is useless to anyone without access to that inbox. Only hashes of the link token, the code and the
+// viewing session are stored. People who do have an account get a notification instead (no row here).
+model LibraryShare {
+  id             String    @id @default(cuid())
+  libraryItemId  String                                            // LibrarySection.id (loose, like adoptions)
+  tenantId       String?
+  email          String                                            // the invited address — codes go only here
+  sharedBy       String                                            // User.id
+  sharedAt       DateTime  @default(now())
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  tokenHash      String    @unique                                 // SHA-256 of the link token (the token is only in the email)
+  codeHash       String?                                           // SHA-256 of the current one-time code
+  codeSentAt     DateTime?
+  codeExpiresAt  DateTime?
+  codeAttempts   Int       @default(0)                             // wrong entries of the current code
+  codesSent      Int       @default(0)
+  sessionHash    String?                                           // SHA-256 of the current viewing session (one at a time)
+  sessionExpiresAt DateTime?
+  lastOpenedAt   DateTime?
+
+  @@map("library_shares")
+  @@index([libraryItemId])
+  @@index([email])
 }
 
 model LibraryAdoptionRecord {
@@ -178,14 +211,37 @@ model RegulatoryFramework {
   // Human-maintained reference URL — used by the UI to open the spec. Not
   // a canonical source of truth (contract compliance teams own that).
   sourceUrl       String?
+  // ClinWrite modules the framework applies to: 'A' Clinical … 'E' Ideation & Publishing (migration 72).
+  scope           String[] @default([])
 
   createdBy       String
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
 
+  statusRequests  FrameworkStatusRequest[]
+
   @@map("regulatory_frameworks")
   @@index([jurisdiction])
   @@index([category])
+}
+
+// A request to mark a framework superseded (migration 69). A Project Manager sends it; another PM or a QC
+// approves (the framework's retiredAt is set) or rejects it with a reason. One pending request per framework.
+model FrameworkStatusRequest {
+  id              String    @id @default(uuid())
+  frameworkId     String    @map("framework_id")
+  framework       RegulatoryFramework @relation(fields: [frameworkId], references: [id], onDelete: Cascade)
+  requestedBy     String    @map("requested_by")
+  requestedAt     DateTime  @default(now()) @map("requested_at")
+  reason          String?
+  status          String    @default("pending")                // pending | approved | rejected
+  decidedBy       String?   @map("decided_by")
+  decidedAt       DateTime? @map("decided_at")
+  rejectionReason String?   @map("rejection_reason")
+
+  @@map("framework_status_requests")
+  @@index([frameworkId])
+  @@index([status])
 }
 
 // --------------------------------------------------------------------------
@@ -523,7 +579,11 @@ model DocumentTemplate {
   label                     String                                     // 'CSR (Full)'
   description               String                                     // one-line shown in step 1 of the wizard
   framework                 String                                     // 'ICH E3', 'ICH E6(R3)', 'ICH E2F', …
-  sections                  Json                                       // [{ id, number, title, usOnly? }]
+  sections                  Json                                       // [{ id, number, title, usOnly?, + optional: level, parentId, instructions, guidance, templateText, defaultContentHtml, tables, … }]
+  // Everything about the template that is not its section list: page layout, styles, header / footer,
+  // table style, placeholder rules, writing standards, front / back matter, provenance. NULL for templates
+  // that only carry a section list. See docs/templates/protocol-ich-m11.template.json for the shape.
+  spec                      Json?
   requiredSourceCategories  String[]  @default([])                     // SOURCE_CATEGORIES.value entries
   version                   Int       @default(1)
   isCurrent                 Boolean   @default(true)                   // enforced at the service layer; see supersededBy

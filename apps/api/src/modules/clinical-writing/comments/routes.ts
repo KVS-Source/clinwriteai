@@ -18,6 +18,7 @@ import { mentionableUsers, mentionNotification } from './mentions.js'
 import { actorCanExportDocumentAudit, actorCanReadDocumentRecord } from '../signatures/access.js'
 import type { StoredAuditEvent } from '../../../audit/repository.js'
 import { documentVisibilityWhere, visibleProjectIdsForUser, canSeeDocument } from '../../projects/visibility.js'
+import { APPROVE_DOCUMENT_REF, recordApprovalAndMaybeStartChain } from '../signatures/auto-start.js'
 import { COMMENT_LOCKED_ROLES, actorCanAddComment, actorCanGiveVerdict, actorCanResolveComments, actorCanViewComments, actorIsOnlyInformed, INFORMED_READ_ONLY, COMMENT_ADD_FORBIDDEN, COMMENT_RESOLVE_FORBIDDEN, COMMENT_VIEW_FORBIDDEN, documentsActorCanResolve, VERDICT_FORBIDDEN } from '../../platform/document-raci/access.js'
 import { PROJECT_CLOSED, documentProjectIsClosed } from '../../projects/closed.js'
 
@@ -95,11 +96,33 @@ function auditDetail(row: AuditRow): string {
     else if (d.outcome === 'failed') parts.push('Request failed')
   }
   if (d.from !== undefined && d.to !== undefined) parts.push(`${String(d.from ?? 'none')} → ${String(d.to ?? 'none')}`)
-  if (typeof d.reason === 'string' && d.reason) parts.push(`Reason: ${d.reason}`)
+  if (typeof d.reason === 'string' && d.reason && !row.action.startsWith('library_auto_push')) parts.push(`Reason: ${d.reason}`)
   // A recorded signature says what the person signed as, and which step it was.
   if (row.action === 'signature_recorded' || row.action === 'document_signed') {
     if (typeof d.meaning === 'string' && d.meaning) parts.push(`Meaning: ${d.meaning}`)
     if (typeof d.step === 'number') parts.push(`Step ${d.step}`)
+  }
+  // The document's Master Library copy was shared: with whom.
+  if (row.action === 'library_document_shared' && Array.isArray(d.recipients)) {
+    const names = (d.recipients as Array<{ name?: unknown; email?: unknown }>)
+      .map(r => (typeof r.name === 'string' && r.name) || (typeof r.email === 'string' && r.email) || '')
+      .filter(Boolean)
+    parts.push(`Master Library copy shared with ${names.join(', ') || 'no one'}`)
+  }
+  // Pushed to the Master Library by itself on signing (auto-push.ts): the entry and the tags used, or why not.
+  if (row.action === 'library_auto_pushed' || row.action === 'library_auto_push_skipped' || row.action === 'library_auto_push_failed') {
+    const tags = (d.tags ?? {}) as Record<string, unknown>
+    const tagText = [tags.therapeuticArea, tags.module && `Module ${String(tags.module)}`, tags.documentType, tags.version].filter(Boolean).join(', ')
+    if (row.action === 'library_auto_pushed') {
+      const when = d.trigger === 'signing' ? 'on signing' : d.trigger === 'late_final_version' ? 'once the final version was created' : '(document signed before auto-push)'
+      parts.push(`Pushed to Master Library automatically ${when}${typeof d.libraryItemId === 'string' ? ` · Entry ${d.libraryItemId}` : ''}${tagText ? ` · Tags: ${tagText}` : ''}`)
+    } else if (row.action === 'library_auto_push_skipped') {
+      const missing = Array.isArray(d.missing) ? (d.missing as string[]).map(m => m.replace(/_/g, ' ')).join(', ') : ''
+      parts.push(`Not pushed to Master Library: ${d.reason === 'missing_tags' ? `missing ${missing}` : d.reason === 'no_content' ? 'no content' : d.reason === 'final_version_missing' ? 'final version not created yet' : String(d.reason ?? 'unknown')}`)
+    } else {
+      parts.push(`Push to Master Library failed: ${String(d.reason ?? 'unknown error')}`)
+    }
+    if (typeof d.documentVersion === 'string' && d.documentVersion) parts.push(d.documentVersion)
   }
   if (row.action === 'final_document_exported') {
     parts.push(d.mode === 'signed' ? 'Signed copy' : 'Watermarked draft')
@@ -385,6 +408,25 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
       ipAddress: request.ip ?? null,
     })
 
+    // An Approver's whole-document approval counts towards the signature chain: once every Approver has
+    // approved a document awaiting signature, the chain starts by itself. The approval is already saved,
+    // so a failure here must not fail it (the chain can still be started by hand).
+    let signatureChainStarted = false
+    // Set when every Approver has approved but a gate (checklist / content) stopped the chain: why.
+    let signatureChainBlockedReason: string | null = null
+    if (parsed.data.verdict === 'approve' && parsed.data.sectionRef === APPROVE_DOCUMENT_REF) {
+      try {
+        const auto = await recordApprovalAndMaybeStartChain(app, {
+          documentId, actorId: request.user!.id, ipAddress: request.ip ?? null,
+        })
+        signatureChainStarted = auto.chainStarted
+        const blocked = auto.blocked as { message?: unknown } | undefined
+        signatureChainBlockedReason = typeof blocked?.message === 'string' ? blocked.message : null
+      } catch (err) {
+        request.log.warn({ err, documentId }, 'automatic signature chain start failed')
+      }
+    }
+
     const [reviewer] = await Promise.all([
       app.prisma.user.findUnique({ where: { id: created.reviewerId }, select: { name: true, initials: true } }),
     ])
@@ -403,7 +445,7 @@ export const commentsRoutes: FastifyPluginAsync = async (app) => {
         request.log.warn({ err, recipientId: person.id, commentId: id }, 'mention notification failed')
       }
     }
-    return reply.code(201).send(commentShape(created, reviewer))
+    return reply.code(201).send({ ...commentShape(created, reviewer), signatureChainStarted, signatureChainBlockedReason })
   })
 
   app.patch('/:documentId/comments/:commentId/resolve', { preHandler: requireAuth({ modules: ['A'] }) }, async (request, reply) => {

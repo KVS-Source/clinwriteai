@@ -19,7 +19,7 @@ import { PendingReminder } from './PendingReminder'
 import { DeadlineField } from './DeadlineField'
 import { useSourceAccess } from '../../hooks/useSourceAccess'
 import { useCanEditDocument } from '../../hooks/useCanEditDocument'
-import { LibraryPushedBadge, PushToLibraryButton } from '../../components/library/PushToLibraryButton'
+import { LibraryBadge } from '../../components/library/LibraryAutoPushStatus'
 import { raciApi, type DocumentRaciRow } from '../../api/raci'
 
 const TEAM_ORDER = ['R', 'A', 'C', 'Q', 'I'] as const
@@ -76,15 +76,8 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
     retry: false,
   })
 
-  // Master Library push: only a signed document can go in. The list row lacks some fields
-  // the push drawer needs (version, therapeutic area), so the full document is read.
+  // A signed document is added to the Master Library by itself; the status shows an "In Master Library" link.
   const isSigned = doc?.status === 'signed'
-  const fullDoc = useQuery({
-    queryKey: ['document', doc?.id],
-    queryFn: () => documentsApi.get(doc!.id),
-    enabled: !!doc && isSigned,
-    retry: false,
-  })
 
   // The document's role holders. Same query key as the tab-access hook, so it is usually cached.
   const raci = useQuery<DocumentRaciRow[]>({
@@ -179,7 +172,7 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
             <MetaSection label={t('page.document_detail_panel.status')}>
               <div className="flex flex-wrap items-center gap-2">
                 <StatusPill status={doc.status} />
-                {isSigned && <LibraryPushedBadge document={doc} />}
+                {isSigned && <LibraryBadge document={doc} />}
               </div>
             </MetaSection>
 
@@ -315,8 +308,6 @@ export function DocumentDetailPanel({ projectId, doc, typeLabel, stageLabel, ass
                     {t('page.document_detail_panel.raci_action')}
                   </button>
                 )}
-                {/* Shows itself only to the Author (R) of a signed document not yet in the library. */}
-                {isSigned && fullDoc.data && <PushToLibraryButton document={fullDoc.data} />}
               </div>
               {stage.data && !stage.data.terminal && canAdvance && !isSigned && (
                 <button

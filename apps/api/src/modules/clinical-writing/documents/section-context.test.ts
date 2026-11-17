@@ -50,9 +50,12 @@ async function build(opts: {
         deletedAt:             null,
         currentVersion: { sections },
       })),
+      findMany: vi.fn(async () => []),
+      count:    vi.fn(async () => 1),
     },
-    // canSeeDocument helper taps these; accept everything.
+    // canSeeDocument helper taps these: the PM is on proj-1.
     projectMember:  { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
+    projectTeamMember: { findMany: vi.fn(async () => []) },
     documentRaci:   { findMany: vi.fn(async () => []) },
     raciAssignment: { findMany: vi.fn(async () => []) },
     documentTypePolicy: {

@@ -62,7 +62,8 @@ import { ArtefactUploadSourceCheck }    from '../screens/ideation-publishing/Art
 import { ContentCardTagging }           from '../screens/ideation-publishing/ContentCardTagging'
 import { PreReviewComplianceScreen }    from '../screens/ideation-publishing/PreReviewComplianceScreen'
 import { KOLReviewInterface }           from '../screens/ideation-publishing/KOLReviewInterface'
-import { GuestDocumentReview }          from '../screens/guest/GuestDocumentReview'
+import { SharedLibraryDocument }        from '../screens/guest/SharedLibraryDocument'
+import { GuestDocumentReview }         from '../screens/guest/GuestDocumentReview'
 import { MedicalAffairsApproval }       from '../screens/ideation-publishing/MedicalAffairsApproval'
 import { ContentCalendar }              from '../screens/ideation-publishing/ContentCalendar'
 import { PublishingMonitor }            from '../screens/ideation-publishing/PublishingMonitor'
@@ -95,7 +96,7 @@ import { DocumentTypePolicies }         from '../platform/screens/DocumentTypePo
 import { AiPrompts }                    from '../platform/screens/AiPrompts'
 import { TemplateLibrary }              from '../platform/screens/TemplateLibrary'
 import { MasterLibraryShell }           from '../platform/screens/MasterLibraryShell'
-import { AdminGuard, NonAdminGuard, SuperAdminGuard }  from '../platform/components/guards'
+import { AdminGuard, NonAdminGuard, PmGuard, SuperAdminGuard }  from '../platform/components/guards'
 import { PublicationLayout }            from '../components/layout/PublicationLayout'
 import { SubmissionLayout }             from '../components/layout/SubmissionLayout'
 import { ContentLayout }                from '../components/layout/ContentLayout'
@@ -142,7 +143,7 @@ export const router = createBrowserRouter([
       { path: 'super-admin/tenants',                  element: <SuperAdminGuard><TenantDirectory /></SuperAdminGuard> },
       { path: 'super-admin/tenants/:tenantId',        element: <SuperAdminGuard><TenantDetail /></SuperAdminGuard> },
       { path: 'super-admin/tenants/:tenantId/sso',    element: <SuperAdminGuard><SsoConnectionConfig /></SuperAdminGuard> },
-      { path: 'admin/taxonomy', element: <AdminGuard><TATagConfiguration /></AdminGuard> },
+      { path: 'admin/taxonomy', element: <PmGuard><TATagConfiguration /></PmGuard> },
       { path: 'admin/raci',     element: <AdminGuard><RACIMatrix /></AdminGuard> },
       { path: 'notifications',  element: <NotificationCentre /> },
       // /admin/frameworks previously served the read-only variant for
@@ -203,6 +204,7 @@ export const router = createBrowserRouter([
           { path: 'settings', element: <ProjectSettings /> },
           {
             path: 'clinical-writing',
+            element: <ModuleGate slug="clinical-writing" />,
             children: [
               { index: true,          element: <ClinicalWritingHome /> },
               // /clinical-writing/new retired — slider on ClinicalWritingHome.
@@ -223,8 +225,8 @@ export const router = createBrowserRouter([
                   { index: true,      element: <DocumentTabGuard tab="editor"><DocumentEditor /></DocumentTabGuard> },
                   { path: 'diff',     element: <DocumentTabGuard tab="diff"><DiffView /></DocumentTabGuard> },
                   { path: 'review',   element: <DocumentTabGuard tab="review"><ReviewerView /></DocumentTabGuard> },
-                  { path: 'crm',      element: <CRMModule /> },
-                  { path: 'sign',     element: <DocumentTabGuard tab="sign"><ESignature /></DocumentTabGuard> },
+                  { path: 'crm',      element: <DocumentTabGuard tab="crm"><CRMModule /></DocumentTabGuard> },
+                  { path: 'sign',    element: <DocumentTabGuard tab="sign"><ESignature /></DocumentTabGuard> },
                   { path: 'final',    element: <FinalDocument /> },
                 ],
               },
@@ -333,5 +335,8 @@ export const router = createBrowserRouter([
   // in the path is the sole credential; see
   // apps/api/src/modules/platform/guest-invitations/redemption.ts.
   { path: '/guest/document/:token', element: <GuestDocumentReview /> },
+  // PUBLIC — a Master Library document shared with someone who has no account. The link alone opens nothing:
+  // the reader enters a one-time code emailed to the invited address (apps/api/.../library/share.ts).
+  { path: '/shared/library/:token', element: <SharedLibraryDocument /> },
   { path: '*', element: <Navigate to="/projects" replace /> },
 ])

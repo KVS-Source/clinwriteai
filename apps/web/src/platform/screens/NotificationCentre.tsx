@@ -37,6 +37,9 @@ const KIND_KEYS: Record<string, string> = {
   'signature_requested':           'page.notification_centre.kind_signature_requested',
   'document_nudge':                'page.notification_centre.kind_document_nudge',
   'ai_quota_approaching':          'page.notification_centre.kind_ai_quota_approaching',
+  'framework_supersede_requested': 'page.notification_centre.kind_framework_supersede_requested',
+  'framework_supersede_approved':  'page.notification_centre.kind_framework_supersede_approved',
+  'framework_supersede_rejected':  'page.notification_centre.kind_framework_supersede_rejected',
   'account.inactivity_warning':    'page.notification_centre.kind_inactivity_warning',
   'account.inactivity_suspended':  'page.notification_centre.kind_inactivity_suspended',
 }
@@ -95,6 +98,11 @@ export function NotificationCentre() {
   const [switching, setSwitching] = useState(false)
   // Only when arriving with ?open=<id>; otherwise the first notification is opened as before.
   const [autoOpened, setAutoOpened] = useState(() => !searchParams.get('open'))
+  useEffect(() => {
+    const onShow = (e: PageTransitionEvent) => { if (e.persisted) setSwitching(false) }
+    window.addEventListener('pageshow', onShow)
+    return () => window.removeEventListener('pageshow', onShow)
+  }, [])
   const [actionError, setActionError] = useState<string | null>(null)
 
   const filtered = useMemo(() => (filter === 'unread' ? inbox.filter(n => !n.readAt) : inbox), [inbox, filter])
@@ -158,7 +166,6 @@ export function NotificationCentre() {
       const n = inbox.find(x => x.id === selectedId)
       if (n && !n.readAt && !needsSwitch(n)) markRead.mutate(n.id)
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId, filtered])
 
   const openLink = (path: string) => {
@@ -171,12 +178,6 @@ export function NotificationCentre() {
   return (
     <div className="bg-slate-50" data-screen="notification-centre">
       <div className="flex flex-col gap-4" style={{ maxWidth: 1440, padding: '20px 32px 48px' }}>
-
-        <nav className="flex items-center gap-2 text-xs text-slate-500">
-          <span>{t('page.notification_centre.crumb_platform')}</span>
-          <span style={{ color: '#CBD5E1' }}>&gt;</span>
-          <span className="font-semibold text-slate-900">{t('page.notification_centre.crumb_notifications')}</span>
-        </nav>
 
         <div className="flex flex-wrap items-start justify-between gap-6">
           <div>

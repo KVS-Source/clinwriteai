@@ -14,11 +14,20 @@ const section = (id: string, over: Partial<SectionRow> = {}): SectionRow => ({
   tags: ['module:D'], updatedAt: new Date('2026-10-02T00:00:00Z'), ...over,
 })
 
-interface Setup { role?: Role | null; tenantId?: string | null; rows?: SectionRow[]; total?: number; ta?: string | null; dup?: boolean }
+interface Setup {
+  role?: Role | null; tenantId?: string | null; rows?: SectionRow[]; total?: number; ta?: string | null; dup?: boolean; tenantModules?: string[]
+  /** Ids the text search (body ~* …) finds. */
+  textIds?: string[]
+  /** Answers findMany / count by their arguments instead of with `rows` / `total`. */
+  findManyBy?: (args: { where: unknown; skip?: number; take?: number; select?: Record<string, boolean> }) => unknown[]
+  countBy?: (args: { where: unknown }) => number
+}
 
 async function build(setup: Setup = {}) {
-  const findMany = vi.fn(async () => setup.rows ?? [])
-  const count = vi.fn(async () => setup.total ?? (setup.rows ?? []).length)
+  const findMany = vi.fn(async (args: { where: unknown; skip?: number; take?: number; select?: Record<string, boolean> }) =>
+    setup.findManyBy ? setup.findManyBy(args) : setup.rows ?? [])
+  const count = vi.fn(async (args: { where: unknown }) => setup.countBy ? setup.countBy(args) : setup.total ?? (setup.rows ?? []).length)
+  const queryRaw = vi.fn(async (..._args: unknown[]) => (setup.textIds ?? []).map(id => ({ id })))
   const findFirst = vi.fn(async (args: { where: Record<string, unknown> }) =>
     'title' in args.where ? (setup.dup ? { id: 'dup' } : null) : (setup.rows ?? [])[0] ?? null)
   const create = vi.fn(async ({ data }: { data: Record<string, unknown> }) => section('new-1', {
@@ -29,9 +38,11 @@ async function build(setup: Setup = {}) {
   const app = Fastify()
   app.decorate('prisma', {
     librarySection: { findMany, count, findFirst, create },
+    $queryRaw: queryRaw,
     user: { findMany: vi.fn(async () => [{ id: 'u1', name: 'Dr James Hartley' }]) },
     project: { findMany: vi.fn(async () => [{ id: 'p1', name: 'VELORA-301', status: 'closed' }]) },
     document: { findMany: vi.fn(async () => []) },
+    tenant: { findUnique: vi.fn(async () => (setup.tenantModules ? { modulesEnabled: setup.tenantModules } : null)) },
     therapeuticArea: { findFirst: vi.fn(async () => (setup.ta === null ? null : { label: setup.ta ?? 'Oncology' })) },
   } as never)
   app.decorate('audit', { append } as never)
@@ -44,7 +55,7 @@ async function build(setup: Setup = {}) {
   })
   await app.register(libraryRoutes, { prefix: '/library' })
   await app.ready()
-  return { app, findMany, count, create, append }
+  return { app, findMany, count, create, append, queryRaw }
 }
 
 let current: FastifyInstance | null = null
@@ -76,7 +87,7 @@ describe('GET /library', () => {
 
   it('translates filters to database conditions', async () => {
     const { app, count } = await setup()
-    await app.inject({ method: 'GET', url: '/library?q=pfs&module=D,E&docType=NDA&ta=Oncology&projectId=p1&version=v2.0&from=2026-10-01&to=2026-10-31&itemType=section' })
+    await app.inject({ method: 'GET', url: '/library/count?q=pfs&module=D,E&docType=NDA&ta=Oncology&projectId=p1&version=v2.0&from=2026-10-01&to=2026-10-31&itemType=section' })
     const where = lastWhere(count) as { isCurrent: boolean; retiredAt: null; AND: Array<Record<string, unknown>> }
     expect(where).toMatchObject({ isCurrent: true, retiredAt: null })
     const flat = JSON.stringify(where.AND)
@@ -220,5 +231,204 @@ describe('best practices', () => {
     const res = await app.inject({ method: 'POST', url: '/library/best-practices', payload: { ...body, therapeuticArea: 'Nope' } })
     expect(res.statusCode).toBe(400)
     expect(res.json().error).toBe('invalid_therapeutic_area')
+  })
+})
+
+describe('GET /library/enabled-modules', () => {
+  it('requires a signed-in user', async () => {
+    const { app } = await setup({ role: null })
+    expect((await app.inject({ method: 'GET', url: '/library/enabled-modules' })).statusCode).toBe(401)
+  })
+
+  it("returns only the writing modules the caller's tenant has switched on", async () => {
+    const { app } = await setup({ tenantId: 't1', tenantModules: ['A', 'C'] })
+    const res = await app.inject({ method: 'GET', url: '/library/enabled-modules' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ modules: ['A', 'C'] })
+  })
+
+  it('a platform user with no tenant gets every module the deployment has on', async () => {
+    const { app } = await setup({ tenantId: null })
+    const res = await app.inject({ method: 'GET', url: '/library/enabled-modules' })
+    expect(res.json().modules).toEqual(expect.arrayContaining(['A']))
+  })
+
+  it('is not read as a library item id', async () => {
+    const { app } = await setup({ tenantId: 't1', tenantModules: ['B'] })
+    expect((await app.inject({ method: 'GET', url: '/library/enabled-modules' })).json()).toEqual({ modules: ['B'] })
+  })
+})
+
+describe('GET /library — lean list rows, scoped context, comma-safe filters', () => {
+  it('leaves the document text out of list rows, and GET /library/:id still returns it', async () => {
+    const { app } = await setup({ rows: [section('a', { body: 'The full text of a very long document' })] })
+    const list = (await app.inject({ method: 'GET', url: '/library' })).json()
+    expect(list[0]).toMatchObject({ id: 'a', name: 'Item a' })
+    expect(list[0]).not.toHaveProperty('body')
+    const one = (await app.inject({ method: 'GET', url: '/library/a' })).json()
+    expect(one.body).toBe('The full text of a very long document')
+  })
+
+  it("looks up first versions only among the tenants of the rows on the page, never other tenants' rows", async () => {
+    const { app, findMany } = await setup({ tenantId: 't1', rows: [section('a', { tenantId: 't1' })] })
+    await app.inject({ method: 'GET', url: '/library' })
+    // call 0 = the page itself, call 1 = fetchContext's title look-up
+    const lookup = (findMany.mock.calls[1]![0] as { where: { title: unknown; AND: unknown[] } }).where
+    expect(JSON.stringify(lookup.AND)).toBe('[{"OR":[{"tenantId":{"in":["t1"]}}]}]')
+  })
+
+  it('includes platform-wide rows (tenantId null) in that look-up only when the page has such rows', async () => {
+    const { app, findMany } = await setup({ rows: [section('a', { tenantId: null }), section('b', { tenantId: 't2' })] })
+    await app.inject({ method: 'GET', url: '/library' })
+    const lookup = (findMany.mock.calls[1]![0] as { where: { AND: unknown[] } }).where
+    expect(JSON.stringify(lookup.AND)).toBe('[{"OR":[{"tenantId":null},{"tenantId":{"in":["t2"]}}]}]')
+  })
+
+  it('keeps a comma inside a filter value: "Blog,Post" sent percent-encoded stays one doc type', async () => {
+    const { app, findMany } = await setup({ rows: [] })
+    // the web app encodes "," as %2C and "%" as %25 inside the value; the URL then carries it encoded once more
+    const res = await app.inject({ method: 'GET', url: '/library?docType=Blog%252CPost,CSR' })
+    expect(res.statusCode).toBe(200)
+    expect(JSON.stringify((findMany.mock.calls[0]![0] as { where: unknown }).where)).toContain('"hasSome":["doctype:Blog,Post","doctype:CSR"]')
+  })
+
+  it('still reads a plain list value exactly as before', async () => {
+    const { app, findMany } = await setup({ rows: [] })
+    await app.inject({ method: 'GET', url: '/library?docType=NDA,CSR' })
+    expect(JSON.stringify((findMany.mock.calls[0]![0] as { where: unknown }).where)).toContain('"hasSome":["doctype:NDA","doctype:CSR"]')
+  })
+})
+
+describe('GET /library/count and the lean list query', () => {
+  it('counts with the same filters as the list and does no other work', async () => {
+    const { app, findMany, count } = await setup({ rows: [section('a')], total: 7 })
+    const res = await app.inject({ method: 'GET', url: '/library/count?itemType=document&docType=CSR' })
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual({ total: 7 })
+    expect(findMany).not.toHaveBeenCalled()                       // no rows, no names/projects/signatures look-ups
+    const where = JSON.stringify((count.mock.calls[0]![0] as { where: unknown }).where)
+    expect(where).toContain('"type:document"')
+    expect(where).toContain('"doctype:CSR"')
+  })
+
+  it('count and list build the same WHERE', async () => {
+    const q = '?itemType=document&module=A&ta=Oncology&q=synopsis'
+    const one = await setup({ rows: [section('a')], total: 1 })
+    await one.app.inject({ method: 'GET', url: '/library/count' + q })
+    const countWhere = JSON.stringify((one.count.mock.calls[0]![0] as { where: unknown }).where)
+    await current?.close()
+    const two = await setup({ rows: [section('a')], total: 1 })
+    await two.app.inject({ method: 'GET', url: '/library' + q })
+    // A search splits that same WHERE into the title matches and the rest; both start from it.
+    for (const call of two.count.mock.calls) {
+      expect(JSON.stringify((call[0] as { where: { AND: unknown[] } }).where.AND[0])).toBe(countWhere)
+    }
+    await current?.close()
+    const three = await setup({ rows: [section('a')], total: 1 })
+    await three.app.inject({ method: 'GET', url: '/library?itemType=document&module=A' })
+    expect(JSON.stringify((three.findMany.mock.calls[0]![0] as { where: unknown }).where))
+      .toBe(JSON.stringify(((await (async () => { const c = await setup({}); await c.app.inject({ method: 'GET', url: '/library/count?itemType=document&module=A' }); return c.count.mock.calls[0]![0] })()) as { where: unknown }).where))
+  })
+
+  it('rejects a bad version the same way on both routes', async () => {
+    const { app } = await setup()
+    expect((await app.inject({ method: 'GET', url: '/library/count?version=banana' })).statusCode).toBe(400)
+    expect((await app.inject({ method: 'GET', url: '/library?version=banana' })).statusCode).toBe(400)
+  })
+
+  it('requires a signed-in user', async () => {
+    const { app } = await setup({ role: null })
+    expect((await app.inject({ method: 'GET', url: '/library/count' })).statusCode).toBe(401)
+  })
+
+  it('the list reads every column except the text', async () => {
+    const { app, findMany } = await setup({ rows: [section('a')] })
+    await app.inject({ method: 'GET', url: '/library' })
+    const select = (findMany.mock.calls[0]![0] as { select: Record<string, boolean> }).select
+    expect(select.title).toBe(true)
+    expect(select.tags).toBe(true)
+    expect(select).not.toHaveProperty('body')
+  })
+
+  it('searches the document text only from 3 characters; shorter terms look at title and tags', async () => {
+    const short = await setup({ rows: [] })
+    await short.app.inject({ method: 'GET', url: '/library/count?q=ab' })
+    const shortWhere = JSON.stringify((short.count.mock.calls[0]![0] as { where: unknown }).where)
+    expect(shortWhere).toContain('"title":{"contains":"ab"')
+    expect(short.queryRaw).not.toHaveBeenCalled()
+    await current?.close()
+
+    const long = await setup({ rows: [], textIds: ['t1', 't2'] })
+    await long.app.inject({ method: 'GET', url: '/library/count?q=abc' })
+    // The text is matched at the start of a word (body ~* '\mabc'), not anywhere inside one.
+    expect(long.queryRaw.mock.calls[0]!.slice(1)).toEqual(['\\mabc'])
+    const longWhere = JSON.stringify((long.count.mock.calls[0]![0] as { where: unknown }).where)
+    expect(longWhere).toContain('"id":{"in":["t1","t2"]}')
+    expect(longWhere).not.toContain('"body"')
+  })
+
+  describe('a search: title matches first, then the items found only in their text', () => {
+    // Five items: n1, n2 match by title; t1, t2, t3 only in their text.
+    const named = [section('n1', { title: 'Test plan' }), section('n2', { title: 'Latest test' })]
+    const textOnly = ['t1', 't2', 't3'].map(id => section(id, { title: `Doc ${id}` }))
+    const bodies: Record<string, string> = {
+      t1: 'Results: all tests passed at week 4.',
+      t2: 'Gastrointestinal events were tested twice.',
+      t3: 'Testing was repeated.',
+    }
+    const isText = (where: unknown) => JSON.stringify(where).includes('"NOT"')
+    const run = async (url: string) => {
+      const s = await setup({
+        textIds: ['t1', 't2', 't3'],
+        countBy: ({ where }) => (isText(where) ? textOnly.length : named.length),
+        findManyBy: ({ where, skip = 0, take = 20, select }) => {
+          const w = where as { id?: { in: string[] } }
+          if (select && 'body' in select) return (w.id?.in ?? []).map(id => ({ id, body: bodies[id] }))
+          return (isText(where) ? textOnly : named).slice(skip, skip + take)
+        },
+      })
+      const res = await s.app.inject({ method: 'GET', url })
+      return { res, ...s }
+    }
+
+    it('lists title matches before text matches, and says which is which', async () => {
+      const { res } = await run('/library?q=test&limit=20')
+      expect(res.headers['x-total-count']).toBe('5')
+      const items = res.json() as Array<{ id: string; searchMatch: string; matchExcerpt?: string }>
+      expect(items.map(i => i.id)).toEqual(['n1', 'n2', 't1', 't2', 't3'])
+      expect(items.slice(0, 2).every(i => i.searchMatch === 'title' && i.matchExcerpt === undefined)).toBe(true)
+      expect(items.slice(2).every(i => i.searchMatch === 'text')).toBe(true)
+    })
+
+    it('gives each text match the words around it', async () => {
+      const { res } = await run('/library?q=test&limit=20')
+      const byId = Object.fromEntries((res.json() as Array<{ id: string; matchExcerpt?: string }>).map(i => [i.id, i.matchExcerpt]))
+      expect(byId.t1).toBe('Results: all tests passed at week 4.')
+      expect(byId.t2).toContain('tested twice')
+      expect(byId.t3).toBe('Testing was repeated.')
+    })
+
+    it('pages across both groups as one list', async () => {
+      const first = await run('/library?q=test&limit=3')
+      expect((first.res.json() as Array<{ id: string }>).map(i => i.id)).toEqual(['n1', 'n2', 't1'])
+      expect(first.res.headers['x-next-cursor']).toBe('3')
+      await current?.close()
+
+      const second = await run('/library?q=test&limit=3&cursor=3')
+      expect((second.res.json() as Array<{ id: string }>).map(i => i.id)).toEqual(['t2', 't3'])
+      expect(second.res.headers['x-next-cursor']).toBe('')
+      // Past the title matches, it doesn't ask for them at all.
+      const askedForTitles = second.findMany.mock.calls.some(c => {
+        const where = JSON.stringify((c[0] as { where: unknown }).where)
+        return where.includes('"title":{"contains":"test"') && !isText((c[0] as { where: unknown }).where)
+      })
+      expect(askedForTitles).toBe(false)
+    })
+
+    it('without a search, rows carry no match information', async () => {
+      const { app } = await setup({ rows: [section('a')] })
+      const items = (await app.inject({ method: 'GET', url: '/library' })).json() as Array<Record<string, unknown>>
+      expect(items[0]).not.toHaveProperty('searchMatch')
+    })
   })
 })

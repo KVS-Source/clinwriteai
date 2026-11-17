@@ -5,11 +5,8 @@ import type { MLRComment, MLRDecision, MLRReviewer, MedContentItem } from '@plat
 import { medContentApi } from '../../modules/medical-writing/api/medContent'
 import { useMLRStore } from '../../modules/medical-writing/store'
 import { MLRCommentCard, ReviewTierBadge } from '../../components/ui'
+import { textOf, tierLabel, useMedUser } from './medLabels'
 
-// --- Static assumption: current user is the MLR Lead (Dr James Hartley) ---
-const CURRENT_USER_ID   = 'user-jh'
-const CURRENT_USER_NAME = 'Dr James Hartley'
-const CURRENT_USER_ROLE = 'MLR Lead'
 
 const DECISION_OPTIONS: {
   id:     MLRDecision
@@ -65,6 +62,29 @@ export function MLRReview() {
     queryFn:  () => medContentApi.get(contentId!),
     enabled:  !!contentId,
   })
+  // The signed-in user; the MLR Lead is the admin role (what the API's decision route checks).
+  const me = useMedUser()
+  const CURRENT_USER_ID   = me.id
+  const CURRENT_USER_NAME = me.name
+  const { data: deckData } = useQuery({
+    queryKey: ['med-slide-deck', contentId],
+    queryFn:  () => medContentApi.getSlideDeck(contentId!),
+    enabled:  !!contentId,
+    retry:    false,
+  })
+  const reviewSlides = deckData?.slides ?? []
+  const { data: reviewClaims = [] } = useQuery({
+    queryKey: ['med-claims', contentId],
+    queryFn:  () => medContentApi.getClaims(contentId!),
+    enabled:  !!contentId,
+    retry:    false,
+  })
+  const claimTally = {
+    approved: reviewClaims.filter(c => c.approvalStatus === 'approved').length,
+    modified: reviewClaims.filter(c => c.approvalStatus === 'modified').length,
+    mustFix:  reviewClaims.filter(c => c.approvalStatus === 'must-fix').length,
+    fresh:    reviewClaims.filter(c => c.approvalStatus === 'new').length,
+  }
 
   const { data: fetchedReviewers } = useQuery({
     queryKey: ['mlr-reviewers', contentId],
@@ -97,7 +117,7 @@ export function MLRReview() {
   const submittedCount = reviewers.filter(r => !!r.submittedAt).length
   const notSubmittedNames = reviewers.filter(r => !r.submittedAt).map(r => r.name)
   const allSubmitted = reviewers.length > 0 && notSubmittedNames.length === 0
-  const isMLRLead = CURRENT_USER_ROLE === 'MLR Lead'
+  const isMLRLead = me.isMlrLead
   const canSubmit = allSubmitted && isMLRLead && !!decisionDraft
 
   const submitDecisionMutation = useMutation({
@@ -149,7 +169,7 @@ export function MLRReview() {
           <div className="flex min-w-0 flex-col gap-1.5">
             <h1 className="text-[22px] font-bold text-slate-900" style={{ margin: 0 }}>{currentItem?.title ?? 'MLR Review'}</h1>
             <p className="font-mono text-xs" style={{ color: '#64748B' }}>
-              v{currentItem?.version ?? '0.0'} · Tier 2 Standard Review · IFPMA/EFPIA/ABPI/PhRMA
+              v{currentItem?.version ?? '0.0'} · <span data-header-tier>{tierLabel(currentItem?.reviewTier)}</span> · IFPMA/EFPIA/ABPI/PhRMA
             </p>
           </div>
           <div className="flex flex-none flex-col items-end gap-1">
@@ -200,16 +220,21 @@ export function MLRReview() {
                       className="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold"
                       style={{ backgroundColor: '#EFF6FF', color: '#1D4ED8' }}
                     >UNDER REVIEW</span>
-                    <span className="font-mono text-[11px] text-slate-500">Slide 12 · Primary endpoint · PFS</span>
+                    <span className="font-mono text-[11px] text-slate-500" data-review-slide-count>{reviewSlides.length} slide{reviewSlides.length === 1 ? '' : 's'} · v{currentItem?.version ?? '—'}</span>
                   </div>
-                  <h2 className="text-[18px] font-bold text-slate-900">Primary endpoint: progression-free survival</h2>
-                  <p className="mt-3 text-[13px] text-slate-800">
-                    Veloricept plus pembrolizumab significantly improved PFS vs pembrolizumab alone
-                    (HR 0.61; 95% CI 0.48–0.77; p&lt;0.001).
-                  </p>
-                  <div className="mt-4 flex h-40 items-center justify-center rounded-md bg-slate-50 text-[12px]" style={{ color: '#64748B' }}>
-                    Kaplan-Meier curve (TLF Fig 14.2.1 · Clinical Writing)
-                  </div>
+                  {reviewSlides.length === 0 ? (
+                    <p className="text-[13px] text-slate-500" data-review-empty>This item has no slides to review yet.</p>
+                  ) : (
+                    <ol className="flex flex-col gap-4" data-review-slides>
+                      {reviewSlides.map(sl => (
+                        <li key={sl.id} data-review-slide={sl.position}>
+                          <p className="font-mono text-[10px] text-slate-500">Slide {sl.position}</p>
+                          <h2 className="text-[16px] font-bold text-slate-900">{sl.title}</h2>
+                          <p className="mt-1 whitespace-pre-line text-[13px] text-slate-800">{textOf(sl.bodyHtml) || '—'}</p>
+                        </li>
+                      ))}
+                    </ol>
+                  )}
                 </section>
 
                 {/* Comments thread */}
@@ -302,12 +327,16 @@ export function MLRReview() {
             {/* Claims summary */}
             <section className="rounded-lg border border-slate-200 bg-white p-4" data-claims-summary>
               <h3 className="mb-1 text-[13px] font-bold text-slate-900">Claims Status</h3>
-              <ul className="text-[12px]">
-                <li>✓ 6 approved</li>
-                <li>~ 1 modified</li>
-                <li>! 1 must-fix</li>
-                <li>+ 1 new</li>
-              </ul>
+              {reviewClaims.length === 0 ? (
+                <p className="text-[12px] text-slate-500" data-claims-none>No claims recorded.</p>
+              ) : (
+                <ul className="text-[12px]" data-claims-tally>
+                  <li>✓ {claimTally.approved} approved</li>
+                  <li>~ {claimTally.modified} modified</li>
+                  <li>! {claimTally.mustFix} must-fix</li>
+                  <li>+ {claimTally.fresh} new</li>
+                </ul>
+              )}
               <button type="button" onClick={() => navigate(`/projects/${projectId}/medical-writing/claims-matrix`)} className="mt-2 text-[12px] font-semibold text-violet-700 hover:underline">Open Claims Matrix →</button>
             </section>
 
@@ -330,7 +359,7 @@ export function MLRReview() {
             {/* MLR Decision (Lead only) */}
             <section className="rounded-lg border border-slate-200 bg-white p-4" data-mlr-decision-panel>
               <h3 className="mb-2 text-[13px] font-bold text-slate-900">MLR Decision</h3>
-              {!isMLRLead && <p className="text-[12px] text-slate-500">Only the MLR Lead ({currentUserReviewer?.role ?? 'user'}) can submit the decision.</p>}
+              {!isMLRLead && <p className="text-[12px] text-slate-500" data-lead-only>Only the MLR Lead can submit the decision.</p>}
               <div className="flex flex-col gap-2">
                 {DECISION_OPTIONS.map(opt => {
                   const active = decisionDraft === opt.id
@@ -362,7 +391,7 @@ export function MLRReview() {
               {signStepOpen && (
                 <div className="mt-3 rounded-md border border-slate-300 bg-slate-50 p-3" data-sign-step>
                   <p className="text-[12px] font-semibold text-slate-800">Signatory: {CURRENT_USER_NAME}</p>
-                  <p className="text-[11px] text-slate-500">Role: MLR Lead</p>
+                  <p className="text-[11px] text-slate-500">Role: MLR Lead{currentUserReviewer ? ` · ${currentUserReviewer.role}` : ''}</p>
                   <p className="mt-2 text-[12px] text-slate-700">Decision: <strong>{DECISION_OPTIONS.find(o => o.id === decisionDraft)?.title}</strong></p>
                   <label className="mt-2 flex items-start gap-2 text-[12px] text-slate-700">
                     <input

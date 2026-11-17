@@ -72,8 +72,9 @@ export function sectionWordCount(contentHtml: string | null | undefined): number
 
 // Bracketed drafting markers a finished section must not contain: [TBD],
 // [TBC], [X] / [XX], [PLACEHOLDER], [REF], [INSERT …] and the AI drafter's
-// [STUB_…] text. Case-insensitive.
-const PLACEHOLDER_PATTERN = /\[\s*(?:TBD|TBC|X+|PLACEHOLDER|REF|INSERT\b[^\]]*|STUB_[^\]]*)\s*\]/gi
+// [STUB_…] text. [TBD: what is needed] counts too (that is how the AI marks what it
+// could not take from the sources). Case-insensitive.
+const PLACEHOLDER_PATTERN = /\[\s*(?:TBD\b[^\]]*|TBC\b[^\]]*|X+|PLACEHOLDER|REF|INSERT\b[^\]]*|STUB_[^\]]*)\s*\]/gi
 
 /** Number of placeholder markers left in the section's visible text. */
 export function sectionPlaceholderCount(contentHtml: string | null | undefined): number {

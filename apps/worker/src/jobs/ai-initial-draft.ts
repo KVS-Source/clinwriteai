@@ -31,6 +31,7 @@
 
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
+import { extractMissingItems } from './missing-items.js'
 import { resolveForDocument, renderPolicyPromptBlock, type PolicyRowForAi } from './policy-prompt.js'
 import type { JobHandler } from './types.js'
 
@@ -211,7 +212,8 @@ async function draftWithClaude(args: {
     `Section title: ${args.section.title}`,
     `Write a thorough first-pass draft of this section ONLY (not the surrounding document) based strictly on the attached source documents.`,
     `Return clean HTML with <p>, <ul>/<li>, and <table> as appropriate — no Markdown, no code fences, no commentary before or after the HTML.`,
-    `If the sources genuinely do not contain the information needed for this section, write a short <p>stating what is missing and what the writer should supply.</p>`,
+    `Where the sources do not contain a piece of information this section needs, write the section's usual structure and put a bracketed marker where the information belongs, in the form [TBD: what is needed], for example [TBD: study title from the protocol]. Use one marker per missing item.`,
+    `NEVER write a sentence or paragraph that explains the sources are incomplete, lack detail or do not contain the information (for example "the attached source does not contain ..."). The section must read as document text with [TBD: ...] markers in the gaps, not as a note about the sources. If the sources hold nothing for this section, output only its structure (headings, empty table rows, list stubs) with [TBD: ...] markers.`,
     `Do not invent numeric values, patient counts, dates, or citations. Quote figures only when they appear in the sources.`,
     authorBlock,
     policySection,
@@ -461,7 +463,8 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
         })
       })
       report.drafted++
-      log.info({ documentId, sectionId: sec.id, engine, length: contentHtml.length }, 'ai_initial_draft: section drafted')
+      const missing = extractMissingItems(contentHtml)
+      log.info({ documentId, sectionId: sec.id, engine, length: contentHtml.length, ...(missing.length > 0 && { missingItems: missing }) }, 'ai_initial_draft: section drafted')
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err)
       log.error({ documentId, sectionId: sec.id, err: message }, 'ai_initial_draft: section failed')

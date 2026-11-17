@@ -5,7 +5,9 @@
 //   - an admin role is never combined with anything — an admin never authors, reviews or signs;
 //   - Auditor + Contributor — an independent reviewer of the record doesn't author it;
 //   - Guest has no account to add roles to.
-// So the allowed pairs are Project Manager + Contributor and Project Manager + Auditor.
+//   - QC + Contributor — QC reads and checks content; it doesn't author it (same reason as Auditor).
+// So the allowed pairs are Project Manager + Contributor, Project Manager + Auditor and Project Manager + QC
+// (and QC + Auditor).
 
 export const MAX_ROLES_PER_USER = 2
 
@@ -19,14 +21,14 @@ const CANONICAL: Record<string, string> = {
 export const canonicalRole = (role: string) => CANONICAL[role] ?? role
 
 // Roles an admin may add as a user's second role.
-export const ADDABLE_ROLES = ['tenant-admin', 'pm', 'contributor', 'auditor'] as const
+export const ADDABLE_ROLES = ['tenant-admin', 'pm', 'contributor', 'auditor', 'qc'] as const
 
 export type RoleSetProblem =
   | { error: 'too_many_roles'; message: string }
   | { error: 'duplicate_role'; message: string }
   | { error: 'role_combination_not_allowed'; message: string }
 
-const LABEL: Record<string, string> = { 'tenant-admin': 'Tenant admin', pm: 'Project manager', contributor: 'Contributor', auditor: 'Auditor', guest: 'Guest' }
+const LABEL: Record<string, string> = { 'tenant-admin': 'Tenant admin', pm: 'Project manager', contributor: 'Contributor', auditor: 'Auditor', qc: 'QC', guest: 'Guest' }
 const label = (r: string) => LABEL[canonicalRole(r)] ?? r
 
 /** Why this set of roles can't be held together, or null when it can. */
@@ -49,6 +51,9 @@ export function roleSetProblem(roles: readonly string[]): RoleSetProblem | null 
   }
   if (pair('auditor', 'contributor')) {
     return { error: 'role_combination_not_allowed', message: `${label(a)} and ${label(b)} can’t be held together: an auditor doesn’t author the record they review.` }
+  }
+  if (pair('qc', 'contributor')) {
+    return { error: 'role_combination_not_allowed', message: `${label(a)} and ${label(b)} can’t be held together: QC doesn’t author the content it checks.` }
   }
   return null
 }

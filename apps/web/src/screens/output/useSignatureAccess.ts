@@ -15,7 +15,7 @@ import { useCurrentUser } from '../../hooks'
 import { rolesOf } from '../../config/roles'
 
 const ADMIN_ROLES   = new Set(['tenant-admin', 'admin', 'super-admin'])
-const AUDITOR_ROLES = new Set(['auditor', 'read-only'])
+const AUDITOR_ROLES = new Set(['auditor', 'read-only', 'qc'])
 
 export interface SignatureAccess {
   /** False until the user and the document's RACI have loaded — don't show a refusal before then. */

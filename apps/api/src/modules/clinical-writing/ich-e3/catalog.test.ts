@@ -114,6 +114,7 @@ describe('buildIchE3Report', () => {
 
     it.each([
       ['<p>Results [TBD] pending</p>', 1],
+      ['<p>Dose [TBD: dose from the protocol] and n=[TBC - enrolment]</p>', 2],
       ['<p>HR [XX] (95% CI [X]–[XX])</p>', 3],
       ['<p>See [INSERT Table 14.2.1] and [ref]</p>', 2],
       ['<ol><li>[STUB_claude-opus-4-7] Would respond to a prompt of length 207.71</li></ol>', 1],

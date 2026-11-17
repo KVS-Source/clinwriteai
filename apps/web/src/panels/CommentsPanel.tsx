@@ -22,6 +22,8 @@ interface Props {
   // List only the active section's comments (with a "Show all comments in document" switch).
   // Off by default: the Reviewer View keeps the document-wide list.
   scopeToSection?: boolean
+  // Bumped by a screen's own "Add comment" button to open this panel's composer.
+  composeRequest?: number
 }
 
 // "3 days ago" style age for an ISO timestamp.
@@ -267,13 +269,21 @@ function ApprovalCard({ comment }: { comment: Comment }) {
   )
 }
 
-export function CommentsPanel({ documentId, sections = [], activeSectionId = null, onAddComment, focusCommentId = null, scopeToSection = false }: Props) {
+export function CommentsPanel({ documentId, sections = [], activeSectionId = null, onAddComment, focusCommentId = null, scopeToSection = false, composeRequest = 0 }: Props) {
   const { t } = useTranslation()
   const qc = useQueryClient()
   const canComment = useCanComment(documentId)
   const [resolvingId, setResolvingId] = useState<string | null>(null)
-  const [composing, setComposing] = useState(false)
+  const [composing, setComposing] = useState(composeRequest > 0)
   const [postedNote, setPostedNote] = useState<string | null>(null)
+  // The screen's "Add comment" button was pressed: open the composer.
+  const seenComposeRequest = useRef(composeRequest)
+  useEffect(() => {
+    if (composeRequest === seenComposeRequest.current) return
+    seenComposeRequest.current = composeRequest
+    setPostedNote(null)
+    setComposing(true)
+  }, [composeRequest])
 
   const { data: comments = [] } = useQuery({
     queryKey: ['comments', documentId],
@@ -344,8 +354,10 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
   const focusIsResolved = resolvedComments.some(c => c.id === focusCommentId)
   const [showResolved, setShowResolved] = useState(false)
   useEffect(() => { if (focusIsResolved) setShowResolved(true) }, [focusIsResolved])
+  // Per-section approvals are retired (reviewers only review). What remains is an Approver's
+  // whole-document approval, which can carry a comment for the author.
   const approvals = useMemo(
-    () => scopedComments.filter((c: Comment) => c.verdict === 'approve'),
+    () => scopedComments.filter((c: Comment) => c.verdict === 'approve' && c.sectionRef === 'Document'),
     [scopedComments],
   )
   const issueCount = openComments.length + resolvedComments.length
@@ -422,7 +434,7 @@ export function CommentsPanel({ documentId, sections = [], activeSectionId = nul
       {approvals.length > 0 && (
         <div className="mb-2 mt-1" data-section="approvals">
           <p className="mb-1.5 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-            {t('page.comments_panel.section_approvals_header', { count: approvals.length })}
+            {t('page.comments_panel.document_approvals_header', { count: approvals.length })}
           </p>
           {approvals.map((c: Comment) => <ApprovalCard key={c.id} comment={c} />)}
         </div>

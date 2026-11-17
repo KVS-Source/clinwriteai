@@ -31,6 +31,20 @@
 import type { Prisma, PrismaClient } from '@prisma/client'
 import { hasAnyRole, type AuthenticatedUser } from '../../auth/rbac.js'
 
+/**
+ * An active RACI row on the document, as a "works on it" test. An Approver (A) only gets the
+ * document once review and the CRM meeting are done, i.e. when it is awaiting signature or signed:
+ * until then they neither see it in their lists nor can open it. Any other letter counts at once.
+ */
+function raciWorksOn(userId: string): Prisma.DocumentWhereInput {
+  return {
+    OR: [
+      { raciRows: { some: { userId, removedAt: null, letter: { not: 'A' } } } },
+      { status: { in: ['pending_signature', 'signed'] }, raciRows: { some: { userId, removedAt: null, letter: 'A' } } },
+    ],
+  }
+}
+
 /** ProjectMember.projectRole written for the creating PM and for PMs added to a project. */
 export const PM_PROJECT_ROLE = 'Project Manager'
 
@@ -39,8 +53,14 @@ const SEE_ALL_ROLES: ReadonlySet<string> = new Set([
   'admin',           // legacy alias
   'super-admin',     // legacy alias
   'auditor',
+  'qc',              // QC reads all content, like an auditor
   'read-only',       // legacy alias of auditor
 ])
+
+/** True for roles that see every project and document (admins, auditors): no per-record lookup needed. */
+export function seesEverything(user: AuthenticatedUser): boolean {
+  return hasAnyRole(user, ...SEE_ALL_ROLES)
+}
 
 /**
  * Returns the set of project ids this user may see, or the sentinel 'all'
@@ -74,7 +94,7 @@ export async function visibleProjectIdsForUser(
         OR: [
           { assigneeId: user.id },
           ...(asPm ? [{ createdBy: user.id }] : []),
-          { raciRows: { some: { userId: user.id, removedAt: null } } },
+          raciWorksOn(user.id),
         ],
       },
       select: { projectId: true },
@@ -120,14 +140,49 @@ export function documentVisibilityWhere(user: AuthenticatedUser): Prisma.Documen
     OR: [
       { assigneeId: user.id },
       { createdBy: user.id },
-      { raciRows: { some: { userId: user.id, removedAt: null } } },
+      raciWorksOn(user.id),
     ],
   }
 }
 
-/** Whether `user` may open the document (existence is the caller's concern). */
+/**
+ * Whether `user` may open the document (existence is the caller's concern).
+ *
+ *   admin | auditor → yes
+ *   contributor     → only documents they work on (documentVisibilityWhere); working on a
+ *                     document is itself what makes its project visible to them
+ *   pm              → every document, but only inside a project they can see. Without this a
+ *                     PM could open any document of any project by pasting its id (CW-020).
+ *
+ * requireAuth runs this for every route with a :documentId parameter, so a new document route
+ * is covered without remembering to call it.
+ */
 export async function canSeeDocument(prisma: PrismaClient, user: AuthenticatedUser, documentId: string): Promise<boolean> {
+  if (hasAnyRole(user, ...SEE_ALL_ROLES)) return true
   const scope = documentVisibilityWhere(user)
-  if (!scope) return true
-  return (await prisma.document.count({ where: { id: documentId, ...scope } })) > 0
+  if (scope) return (await prisma.document.count({ where: { id: documentId, ...scope } })) > 0
+  const projects = await visibleProjectIdsForUser(prisma, user)
+  if (projects === 'all') return true
+  if (projects.size === 0) return false
+  return (await prisma.document.count({ where: { id: documentId, projectId: { in: [...projects] } } })) > 0
+}
+
+/**
+ * Which of `documentIds` the user may open — canSeeDocument for a whole list in one query (the
+ * Master Library asks it for a page of source documents). Same rules as canSeeDocument.
+ */
+export async function visibleDocumentIds(prisma: PrismaClient, user: AuthenticatedUser, documentIds: string[]): Promise<Set<string>> {
+  if (documentIds.length === 0) return new Set()
+  if (hasAnyRole(user, ...SEE_ALL_ROLES)) return new Set(documentIds)
+  const scope = documentVisibilityWhere(user)
+  let projectFilter: Prisma.DocumentWhereInput = {}
+  if (!scope) {
+    const projects = await visibleProjectIdsForUser(prisma, user)
+    if (projects !== 'all') {
+      if (projects.size === 0) return new Set()
+      projectFilter = { projectId: { in: [...projects] } }
+    }
+  }
+  const rows = await prisma.document.findMany({ where: { id: { in: documentIds }, ...(scope ?? {}), ...projectFilter }, select: { id: true } })
+  return new Set(rows.map(r => r.id))
 }

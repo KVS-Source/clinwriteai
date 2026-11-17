@@ -16,7 +16,7 @@
 
 import type { FastifyPluginAsync } from 'fastify'
 import { z } from 'zod'
-import { requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
+import { hasAnyRole, requireAuth, type AuthenticatedUser } from '../../../auth/rbac.js'
 import { actorCanEditChecklist, actorCanEditDocumentRaci, actorCanViewChecklist, CHECKLIST_CHAIN_ACTIVE, CHECKLIST_VIEW_FORBIDDEN, signatureChainActive } from '../../platform/document-raci/access.js'
 import { buildComplianceSummary } from './compliance-summary.js'
 import { actorCanReadFinalDocument, FINAL_DOCUMENT_FORBIDDEN } from '../signatures/access.js'
@@ -531,6 +531,9 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
   // to the content admin (PM), not the IT Admin. modules: ['A'] keeps
   // the auditor-read-only sweep intact.
   const adminGate = requireAuth({ roles: ['pm'], modules: ['A'] })
+  // Reading is open to every Module A user: the Master Library "Checklists" tab is shown to everyone (like Templates
+  // and ICH Frameworks), and writers need to see what their documents inherit. Only PMs change templates.
+  const readGate = requireAuth({ modules: ['A'] })
 
   // CW-089: documents look their template up under the underscored type ("csr_full"), so a template stored
   // under the hyphenated spelling ("csr-full") is never used by any document. Editing one would look like
@@ -550,7 +553,7 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
   // overrides owned by projects in their tenant. Ordered: platform
   // baselines first, then project overrides, then by deliverable type and
   // version (desc so the latest is at the top).
-  app.get('/', { preHandler: adminGate }, async (request) => {
+  app.get('/', { preHandler: readGate }, async (request) => {
     const actor = request.user!
     // Resolve tenant-scoped visibility — platform admins see all projects.
     let allowedProjectIds: Set<string> | null = null
@@ -600,8 +603,9 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
   })
 
   // GET /checklist-templates/:id — detail with items ordered by stage, then
-  // by sortOrder. Admin only; same tenant visibility rule.
-  app.get('/:templateId', { preHandler: adminGate }, async (request, reply) => {
+  // by sortOrder. Any Module A user may read it; same tenant visibility rule. canEdit says whether the caller may
+  // change it (PM only).
+  app.get('/:templateId', { preHandler: readGate }, async (request, reply) => {
     const { templateId } = request.params as { templateId: string }
     const actor = request.user!
 
@@ -647,7 +651,8 @@ export const checklistTemplateAdminRoutes: FastifyPluginAsync = async (app) => {
       createdByName: nameOf(template.createdBy),
       createdAt: template.createdAt.toISOString(),
       draftAuthors: authors.map(nameOf),
-      canApprove: template.templateStatus === 'draft' && !authors.includes(actor.id),
+      canEdit: hasAnyRole(actor, 'pm'),
+      canApprove: hasAnyRole(actor, 'pm') && template.templateStatus === 'draft' && !authors.includes(actor.id),
       instanceCount: template._count.instances,
       items: template.items.map(it => ({
         id: it.id,

@@ -3,7 +3,7 @@ import { api, ApiError } from '../../api/client'
 import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
   PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, MasterLibraryItem,
-  BestPractice,
+  MasterLibraryShareRecord, MasterLibraryAuditPage, BestPractice,
   AuditTrailEntry, RateCard, Subscription, ReportDefinition,
   ModuleHealthScore, TATag, RegulatoryFramework, SlideDeckJob, Slide,
   PlatformClient, PlatformAnalytics,
@@ -256,6 +256,12 @@ export const platformApi = {
   // else (no account) gets an invitation whose link opens the document only after an emailed one-time code.
   shareLibraryItem: (itemId: string, emails: string[]) =>
     api.post<{ shared: Array<{ email: string; kind: 'user' | 'invite'; name?: string }>; failed: string[] }>(`/library/${encodeURIComponent(itemId)}/share`, { emails }),
+  // Everyone the document has ever been shared with, by whom and when (newest first, permanent).
+  listLibraryItemShares: (itemId: string) =>
+    api.get<MasterLibraryShareRecord[]>(`/library/${encodeURIComponent(itemId)}/shares`),
+  // The document's whole audit trail (source document + library entry), newest first, a page at a time. Read-only.
+  listLibraryItemAudit: (itemId: string, offset = 0, limit = 50) =>
+    api.get<MasterLibraryAuditPage>(`/library/${encodeURIComponent(itemId)}/audit?limit=${limit}&offset=${offset}`),
   // Records that a section was pulled into a document (usage count + audit).
   adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/adopt`, body),
@@ -486,6 +492,15 @@ export const platformApi = {
       `/document-type-policies/${encodeURIComponent(docType)}/distill-best-practice`,
       { uploadId },
     ),
+  // AI-extract section rules from the policy's SME prompt. Does NOT
+  // write to the policy — returns the parsed rules so the admin can
+  // review + Save on the editor to persist.
+  extractSectionRules: (docType: string) =>
+    api.post<{
+      sectionRules: Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+      sectionCount: number
+      ruleCount:    number
+    }>(`/document-type-policies/${encodeURIComponent(docType)}/extract-section-rules`, {}),
   // One-shot admin upload for the Best Practices parser: pick a PDF,
   // the server stores it as a platform DocumentUpload (projectId=null,
   // sourceCategory='best_practice') AND enqueues distillation in the

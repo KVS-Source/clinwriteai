@@ -53,6 +53,7 @@ function fakePrisma() {
   const projectMembers: Row[] = [{ projectId: 'PROJ-1', userId: 'u-pm', removedAt: null, projectRole: 'Project Manager' }]
   const chains: Row[] = []
   const records: Row[] = []
+  const comments: Row[] = []
   const versions: Row[] = [{ id: 'ver-2', documentId: 'DOC-1', versionNumber: 'v0.2', isCurrent: true }]
   const matches = (row: Row, where: Row = {}): boolean => Object.entries(where).every(([k, v]) => {
     if (k === 'NOT') return !matches(row, v)
@@ -127,11 +128,16 @@ function fakePrisma() {
       findFirst: async ({ where }: Row) => raciRows.find(r => matches(r, where)) ?? null,
       updateMany: async ({ where, data }: Row) => { const hit = raciRows.filter(r => matches(r, where)); hit.forEach(r => Object.assign(r, data)); return { count: hit.length } },
     },
+    // An Approver's approval comment, written after an approvers_first signature.
+    comment: {
+      findMany: async () => comments.map(c => ({ id: c.id })),
+      create: async ({ data }: Row) => { comments.push(data); return data },
+    },
     $queryRawUnsafe: async () => [],
     $executeRawUnsafe: async () => 0,
     $transaction: async (fn: (tx: Row) => unknown) => fn(prisma),
   }
-  return { prisma, documents, chains, records, versions, raciRows, projectMembers, projectTeamMembers }
+  return { prisma, documents, chains, records, versions, raciRows, projectMembers, projectTeamMembers, comments }
 }
 
 const USERS = {
@@ -549,6 +555,13 @@ describe('signature chain — who may start it', () => {
     expect((await startAs(USERS.author, withApprover)).statusCode).toBe(201)
   })
 
+  it('does not count an Approver on the project team who is not on the document\'s own RACI', async () => {
+    t.db.projectTeamMembers.push({ projectId: 'PROJ-1', userId: 'u-team-approver', name: 'Tess Team', role: 'Clinical PM', raci: 'A' })
+    expect((await startAs(USERS.author, all4)).statusCode).toBe(201)
+    const init = t.audit.find(a => a.action === 'signature_initiated')!
+    expect(init.details.omittedNamedSigners).toEqual([])                       // not "left off": never a signer
+  })
+
   it('lets the starter add extra signers on top of the named people', async () => {
     const extra = { ...all4, signers: [...all4.signers, { signerId: 'u-extra', signerName: 'Eve Extra', signerRole: 'Reviewer', meaning: 'reviewed' }] }
     const res = await startAs(USERS.author, extra)
@@ -637,11 +650,6 @@ describe('signature chain — grouped order (Authors, then Reviewers, then Appro
   const sign = (who: Row, recordId: string) => { t.as(who); return t.app.inject({ method: 'POST', url: `/signature-records/${recordId}/sign`, payload: signAs() }) }
   const status = (chain: Row) => Object.fromEntries(t.db.records.filter(r => r.chainId === chain.id).map(r => [r.signerId, r.status]))
 
-  it('is the default order when none is given', async () => {
-    const res = await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: { signers } })
-    expect(res.statusCode).toBe(201)
-    expect(res.json().chainType).toBe('grouped')
-  })
 
   it('stores the groups in order and has the whole first group awaiting, everyone else queued', async () => {
     const chain = await start()
@@ -685,5 +693,79 @@ describe('signature chain — grouped order (Authors, then Reviewers, then Appro
     await sign(USERS.author, rec('u-author'))
     await sign(USERS.author2, rec('u-author2'))
     expect(status(chain)).toMatchObject({ 'u-reviewer': 'awaiting', 'u-info': 'queued' })     // straight to the Approvers
+  })
+})
+
+describe('signature chain — approvers first (Approve & E-sign), then Authors, Reviewers and Informed together', () => {
+  let t: Awaited<ReturnType<typeof build>>
+  beforeEach(async () => {
+    t = await build()
+    t.db.raciRows.push(
+      { id: 'raci-a2', documentId: 'DOC-1', userId: 'u-author2', letter: 'A', removedAt: null, documentApprovedAt: null },
+      { id: 'raci-c',  documentId: 'DOC-1', userId: 'u-cons',    letter: 'C', removedAt: null },
+      { id: 'raci-i',  documentId: 'DOC-1', userId: 'u-info',    letter: 'I', removedAt: null },
+    )
+    t.db.raciRows.find(r => r.id === 'raci-2')!.documentApprovedAt = null
+    t.as(USERS.author)
+  })
+  const signers = [
+    { signerId: 'u-info',     signerName: 'Ian Informed',   signerRole: 'Informed', meaning: 'acknowledged' },
+    { signerId: 'u-reviewer', signerName: 'Rob Reviewer',   signerRole: 'Approver', meaning: 'approved' },
+    { signerId: 'u-cons',     signerName: 'Cora Consulted', signerRole: 'Reviewer', meaning: 'reviewed' },
+    { signerId: 'u-author',   signerName: 'Ann Author',     signerRole: 'Author',   meaning: 'authored' },
+    { signerId: 'u-author2',  signerName: 'Alf Author',     signerRole: 'Approver', meaning: 'approved' },
+  ]
+  const start = async () => (await t.app.inject({ method: 'POST', url: '/documents/DOC-1/signature-chains', payload: { signers } })).json()
+  const sign = (who: Row, recordId: string, extra: Row = {}) => { t.as(who); return t.app.inject({ method: 'POST', url: `/signature-records/${recordId}/sign`, payload: { ...signAs(), ...extra } }) }
+  const status = (chain: Row) => Object.fromEntries(t.db.records.filter(r => r.chainId === chain.id).map(r => [r.signerId, r.status]))
+
+  it('is the default order, and starts without any separate approval first', async () => {
+    const chain = await start()
+    expect(chain.chainType).toBe('approvers_first')
+    expect(chain.records.map((r: Row) => r.meaning)).toEqual(['approved', 'approved', 'acknowledged', 'reviewed', 'authored'])
+    expect(status(chain)).toEqual({ 'u-reviewer': 'awaiting', 'u-author2': 'awaiting', 'u-info': 'queued', 'u-cons': 'queued', 'u-author': 'queued' })
+  })
+
+  it('tells each Approver to Approve & E-sign, with a link to the document, not the E-Signature tab', async () => {
+    await start()
+    const toApprovers = t.notices.filter(n => ['u-reviewer', 'u-author2'].includes(n.recipientId))
+    expect(toApprovers).toHaveLength(2)
+    for (const n of toApprovers) {
+      expect(n.title).toContain('approval is needed')
+      expect(n.linkPath).toBe('/projects/PROJ-1/clinical-writing/documents/DOC-1/review')
+    }
+  })
+
+  it('an Approver\'s signature is their approval: recorded on their RACI row, in Comments with their comment, and in the audit entry', async () => {
+    const chain = await start()
+    const mine = chain.records.find((r: Row) => r.signerId === 'u-reviewer').id
+    expect((await sign(USERS.reviewer, mine, { approvalComment: 'Good to go.' })).statusCode).toBe(200)
+    expect(t.db.raciRows.find(r => r.id === 'raci-2')!.documentApprovedAt).toBeInstanceOf(Date)
+    expect(t.db.raciRows.find(r => r.id === 'raci-a2')!.documentApprovedAt).toBeNull()   // the other Approver hasn't yet
+    expect(t.db.comments).toEqual([expect.objectContaining({ sectionRef: 'Document', verdict: 'approve', text: 'Good to go.', reviewerId: 'u-reviewer' })])
+    expect(t.audit.at(-1)).toMatchObject({ action: 'signature_recorded', details: { meaning: 'approved', approved: true, approvalComment: 'Good to go.' } })
+  })
+
+  it('Authors, Reviewers and Informed wait for every Approver, then are released together and told', async () => {
+    const chain = await start()
+    const rec = (id: string) => chain.records.find((r: Row) => r.signerId === id).id
+    expect((await sign(USERS.author, rec('u-author'))).json().error).toBe('not_awaiting')
+
+    await sign(USERS.reviewer, rec('u-reviewer'))
+    expect(status(chain)).toMatchObject({ 'u-author': 'queued', 'u-cons': 'queued', 'u-info': 'queued' })
+
+    t.notices.length = 0
+    expect((await sign(USERS.author2, rec('u-author2'))).statusCode).toBe(200)
+    expect(status(chain)).toMatchObject({ 'u-author': 'awaiting', 'u-cons': 'awaiting', 'u-info': 'awaiting' })
+    expect(t.notices.map(n => n.recipientId).sort()).toEqual(['u-author', 'u-cons', 'u-info'])
+    expect(t.notices.every(n => n.linkPath.endsWith('/sign'))).toBe(true)
+
+    // They sign in any order; the last one makes the document signed.
+    await sign(USERS.info, rec('u-info'))
+    await sign(USERS.cons, rec('u-cons'))
+    expect(t.db.documents[0].status).toBe('pending_signature')
+    expect((await sign(USERS.author, rec('u-author'))).statusCode).toBe(200)
+    expect(t.db.documents[0].status).toBe('signed')
+    expect(t.db.comments).toHaveLength(2)   // one approval per Approver, none for the others
   })
 })

@@ -272,6 +272,8 @@ export interface CRMMeeting {
   endedAt?: string
   /** scheduled → in_progress (Start) → complete (End) · or cancelled. */
   status?: 'scheduled' | 'in_progress' | 'complete' | 'cancelled'
+  /** Started during authoring: completing it put the document back in authoring, not on to signing. */
+  heldDuringAuthoring?: boolean
   chair: TeamMember
   attendees: TeamMember[]
   commentIds: string[]
@@ -1803,6 +1805,39 @@ export interface MasterLibraryItem {
   // Text of a pushed section — what "Pull into document" inserts. Absent for
   // whole documents and for items that carry no text.
   body?:             string
+}
+
+/** One row of a Master Library document's share history (GET /library/:id/shares), newest first. One row per
+ *  person per share; a re-share is a new row. Never carries link tokens, codes or hashes. */
+export interface MasterLibraryShareRecord {
+  /** The address the document was shared with. */
+  sharedWith: string
+  /** Name of the user who shared it; null when that account no longer exists. */
+  sharedBy:   string | null
+  /** ISO 8601 UTC. */
+  sharedAt:   string
+}
+
+/** One row of a Master Library document's Audit trail (GET /library/:id/audit): the source document's own trail
+ *  plus the library entry's, newest first. Only what the panel shows — no raw details, IPs, hashes or tokens. */
+export interface MasterLibraryAuditEntry {
+  /** ISO 8601 UTC. */
+  timestamp: string
+  /** Who did it ("System" for automatic entries). */
+  actor:     string
+  /** Raw action name (e.g. 'library_document_shared'), for the label when there is no eventType. */
+  action:    string
+  /** Same event types as the Clinical Writing Audit Trail panel; null when it has no badge for the action. */
+  eventType: AuditEntry['eventType'] | null
+  /** Readable detail, as in the Clinical Writing Audit Trail panel. */
+  detail:    string
+}
+
+export interface MasterLibraryAuditPage {
+  entries: MasterLibraryAuditEntry[]
+  total:   number
+  limit:   number
+  offset:  number
 }
 
 export interface BestPractice {

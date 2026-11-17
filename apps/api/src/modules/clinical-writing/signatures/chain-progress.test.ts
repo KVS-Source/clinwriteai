@@ -141,3 +141,42 @@ describe('grouped chains: Authors, then Reviewers, then Approvers, then Informed
     expect(recordsToRelease(records, 'sequential', 'rec-1').map(r => r.id)).toEqual(['rec-2'])
   })
 })
+
+describe('approvers_first chains: every Approver, then Authors, Reviewers and Informed together', () => {
+  const signers = [
+    { id: 'a1', meaning: 'authored' }, { id: 'r1', meaning: 'reviewed' }, { id: 'p1', meaning: 'approved' },
+    { id: 'i1', meaning: 'acknowledged' }, { id: 'p2', meaning: 'approved' },
+  ]
+  const rec = (id: string, meaning: string, status: SignatureRecordLite['status'], step: number): SignatureRecordLite => ({ id, step, status, signerId: `u-${id}`, meaning })
+
+  it('stores the Approvers first, then everyone else, keeping the submitted order inside each group', () => {
+    expect(sortForChain(signers, 'approvers_first').map(s => s.id)).toEqual(['p1', 'p2', 'a1', 'r1', 'i1'])
+  })
+
+  it('starts with every Approver awaiting and everyone else queued', () => {
+    const sorted = sortForChain(signers, 'approvers_first')
+    expect(initialStatuses('approvers_first', sorted)).toEqual(['awaiting', 'awaiting', 'queued', 'queued', 'queued'])
+  })
+
+  it('releases nobody while another Approver is still to sign', () => {
+    const records = [rec('p1', 'approved', 'signed', 1), rec('p2', 'approved', 'awaiting', 2), rec('a1', 'authored', 'queued', 3)]
+    expect(recordsToRelease(records, 'approvers_first', 'p1')).toEqual([])
+  })
+
+  it('releases Authors, Reviewers and Informed all at once when the last Approver signs', () => {
+    const records = [
+      rec('p1', 'approved', 'signed', 1), rec('p2', 'approved', 'signed', 2),
+      rec('a1', 'authored', 'queued', 3), rec('r1', 'reviewed', 'queued', 4), rec('i1', 'acknowledged', 'queued', 5),
+    ]
+    expect(recordsToRelease(records, 'approvers_first', 'p2').map(r => r.id)).toEqual(['a1', 'r1', 'i1'])
+  })
+
+  it('releases nothing more once the second group signs', () => {
+    const records = [rec('p1', 'approved', 'signed', 1), rec('a1', 'authored', 'signed', 2), rec('r1', 'reviewed', 'awaiting', 3)]
+    expect(recordsToRelease(records, 'approvers_first', 'a1')).toEqual([])
+  })
+
+  it('leaves the old grouped order as it was, for chains already running', () => {
+    expect(sortForChain(signers, 'grouped').map(s => s.id)).toEqual(['a1', 'r1', 'p1', 'p2', 'i1'])
+  })
+})

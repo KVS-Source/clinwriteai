@@ -14,6 +14,7 @@
   "page.audit_trail_viewer.col_ip",
   "page.audit_trail_viewer_live.sort_id",
   "page.audit_trail_viewer_live.tooltip_utc",
+  "page.checklist_hub.guideline_meta",
   "page.checklist_hub.summary_ich_e3",
   "page.checklist_hub.tab_ich_e3",
   "page.checklist_panel.error_with_http",
@@ -34,6 +35,7 @@
   "page.literature_citation_panel.pubmed_badge",
   "page.literature_citation_panel.pubmed_check",
   "page.master_library.role_qc",
+  "page.master_library.share_placeholder",
   "page.meddra_panel.pt_code",
   "page.notification_centre.col_sms",
   "page.onboarding_wizard.stage_a_crm",
@@ -50,5 +52,6 @@
   "page.super_admin_panel.stat_arr",
   "page.super_admin_panel.stat_mrr",
   "page.tenant_directory.display_name_placeholder",
-  "page.tenant_directory.slug_placeholder"
+  "page.tenant_directory.slug_placeholder",
+  "page.user_management_live.role_label_qc"
 ]

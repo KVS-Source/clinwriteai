@@ -27,6 +27,7 @@ import {
   sectionRulesOf,
 } from './service.js'
 import { resolvePolicyAssets } from './resolve-assets.js'
+import { extractSectionRulesWithClaude, buildStubSectionRules } from './ai-extract-section-rules.js'
 
 const MAX_BP_PDF_BYTES = 50 * 1024 * 1024    // 50 MB — same ceiling as source uploads
 
@@ -389,6 +390,71 @@ export const documentTypePolicyRoutes: FastifyPluginAsync = async (app) => {
       fileName:  file.filename,
       sizeBytes: buf.length,
     })
+  })
+
+  // POST /document-type-policies/:docType/extract-section-rules —
+  // run the SME prompt through Claude and get back a sectionRules JSON
+  // object. Does NOT write to the policy automatically — returns the
+  // extracted shape so the admin reviews the draft, edits, then clicks
+  // Save on the policy editor to persist. Keeps the human-in-the-loop
+  // step that the BP distiller's auto-write skips (BP writes straight to
+  // the digest because PDFs are vetted source documents; the SME prompt
+  // is admin free-text and the extractor is best-effort inference).
+  app.post('/:docType/extract-section-rules', { preHandler: writeGate }, async (request, reply) => {
+    if (!(await assertAiReady())) return reply.code(503).send(AI_NOT_CONFIGURED)
+    const { docType } = request.params as { docType: string }
+
+    const policy = await svc.getCurrent(docType)
+    if (!policy) return reply.code(404).send({ error: 'no_current_policy' })
+    if (!policy.smePrompt.trim()) {
+      return reply.code(422).send({
+        error:   'empty_sme_prompt',
+        message: 'Nothing to extract from — this policy has no SME prompt yet. Save a prompt first, then try again.',
+      })
+    }
+
+    const engine = await resolveAiEngineSettings(app.prisma)
+    const apiKey = process.env.ANTHROPIC_API_KEY?.trim() ?? ''
+    const stubAllowed = process.env.AI_ALLOW_STUB === '1'
+
+    let rules: Awaited<ReturnType<typeof extractSectionRulesWithClaude>>
+    try {
+      rules = apiKey
+        ? await extractSectionRulesWithClaude({
+            prisma:    app.prisma,
+            docType:   policy.docType,
+            smePrompt: policy.smePrompt,
+            model:     engine.default,
+            apiKey,
+          })
+        : stubAllowed
+          ? buildStubSectionRules()
+          : (() => { throw new Error('ai_not_configured') })()
+    } catch (err) {
+      app.log.warn({ err, docType }, 'section-rules extract: Claude call failed')
+      return reply.code(502).send({
+        error:   'ai_call_failed',
+        message: err instanceof Error ? err.message : 'AI extraction failed',
+      })
+    }
+
+    const sectionCount = Object.keys(rules).length
+    const ruleCount    = Object.values(rules).reduce((n, arr) => n + arr.length, 0)
+
+    await app.audit.append({
+      timestamp:  new Date().toISOString(),
+      actorId:    request.user!.id,
+      action:     'document_type_policy.section_rules_extracted',
+      entityType: 'document_type_policy',
+      entityId:   policy.id,
+      details:    {
+        docType, version: policy.version, sectionCount, ruleCount,
+        extractionEngine: apiKey ? engine.default : 'stub',
+      },
+      ipAddress:  request.ip ?? null,
+    })
+
+    return { sectionRules: rules, sectionCount, ruleCount }
   })
 
   // POST /document-type-policies/:docType/retire — retire the current

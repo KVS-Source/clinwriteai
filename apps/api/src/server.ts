@@ -467,6 +467,9 @@ async function buildServer() {
   const { libraryShareRoutes, sharedLibraryPublicRoutes } = await import('./modules/platform/library/share.js')
   await app.register(libraryShareRoutes, { prefix: '/library' })
   await app.register(sharedLibraryPublicRoutes, { prefix: '/shared-library' })
+  // The details panel's Audit trail: the document's whole life, read-only (audit-trail.ts).
+  const { libraryAuditRoutes } = await import('./modules/platform/library/audit-trail.js')
+  await app.register(libraryAuditRoutes, { prefix: '/library' })
   // Signed documents go into the library by themselves; GET /library/auto-push/:documentId reports it (auto-push.ts).
   const { libraryAutoPushRoutes } = await import('./modules/platform/library/auto-push.js')
   await app.register(libraryAutoPushRoutes, { prefix: '/library' })

@@ -201,6 +201,47 @@ export const libraryShareRoutes: FastifyPluginAsync = async (app) => {
       failed,
     })
   })
+
+  // GET /library/:id/shares — the document's share history for the details panel: one row per person per share,
+  // newest first, with only who it went to, who shared it and when.
+  //
+  // Built from the 'library_document_shared' audit entries written above, not from library_shares: re-sharing
+  // revokes the earlier invitation row, while the audit trail is append-only and hash-chained, so a re-share adds
+  // a row and never overwrites one. Every share made since sharing shipped (2026-11-13) is already in it, so there
+  // is nothing to backfill. Only addresses that were actually sent to are listed (failed sends are not in
+  // `recipients`). Same visibility as reading the item.
+  app.get('/:id/shares', { preHandler: requireAuth() }, async (request, reply) => {
+    const user = request.user! as AuthenticatedUser
+    const { id } = request.params as { id: string }
+    const row = await app.prisma.librarySection.findFirst({ where: { id, AND: [libraryVisibleTo(user)] }, select: { id: true, tags: true } })
+    if (!row) return reply.code(404).send({ error: 'not_found' })
+    return reply.send(await shareHistory(app, row))
+  })
+}
+
+export const SHARE_HISTORY_MAX = 1000
+
+export interface ShareHistoryEntry { sharedWith: string; sharedBy: string | null; sharedAt: string }
+
+/** One row per recipient of every share of this library entry, newest first. `sharedBy` is null for a removed account. */
+export async function shareHistory(app: FastifyInstance, row: { id: string; tags: string[] }): Promise<ShareHistoryEntry[]> {
+  const target = auditTarget(row)
+  const { rows: events } = await app.audit.pageForEntity(target.entityType, target.entityId, { action: 'library_document_shared', limit: SHARE_HISTORY_MAX })
+  const mine = events.filter(e => e.details?.libraryItemId === row.id)
+  const sharerIds = [...new Set(mine.map(e => e.actorId))]
+  const sharers = sharerIds.length
+    ? await app.prisma.user.findMany({ where: { id: { in: sharerIds } }, select: { id: true, name: true } })
+    : []
+  const nameOf = new Map(sharers.map(u => [u.id, u.name]))
+  const out: ShareHistoryEntry[] = []
+  for (const e of mine) {   // already newest first
+    const recipients = Array.isArray(e.details.recipients) ? e.details.recipients as Array<{ email?: unknown }> : []
+    for (const r of recipients) {
+      if (typeof r?.email !== 'string') continue
+      out.push({ sharedWith: r.email, sharedBy: nameOf.get(e.actorId) ?? null, sharedAt: e.timestamp })
+    }
+  }
+  return out
 }
 
 // --------------------------------------------------------------------------------------------------------------

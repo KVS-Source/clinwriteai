@@ -3,7 +3,7 @@ import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { MultiSelect } from '../components/MultiSelect'
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import { useSearchParams } from 'react-router-dom'
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query'
+import { keepPreviousData, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useTranslation } from 'react-i18next'
 import { useTaLabels } from '../../hooks'
 import type { MasterLibraryItem, ModuleKey } from '@platform/types'
@@ -18,6 +18,7 @@ import { SlidePanel } from '../../components/ui/SlidePanel'
 import { ProtectedPdfViewer } from '../../components/library/ProtectedPdfViewer'
 import { SortIcon } from '../../components/ui/SortIcon'
 import { DateTimeRangeFilter, rangeToIso, toInputValue, type TimeZoneMode } from '../../components/ui/DateTimeRangeFilter'
+import { ACTION_PHRASE_KEYS, AUDIT_ACTION_LABEL_KEYS, EVENT_BADGE_PALETTE } from '../../panels/AuditTrailPanel'
 
 const MODULE_COLOURS: Record<ModuleKey, string> = {
   A: '#2563EB', B: '#0D9488', C: '#7C3AED', D: '#B0200D', E: '#0D9488', platform: PLATFORM_ACCENT.primary,
@@ -43,6 +44,14 @@ function formatDay(iso: string): string {
 function formatDateTime(iso: string): string {
   const d = new Date(iso)
   return `${formatDay(iso)}, ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`
+}
+
+// India Standard Time is always UTC+05:30 (no daylight saving), so shift the instant and reuse the UTC formatter's
+// fields. Used for the Share history "When" column.
+const IST_OFFSET_MS = (5 * 60 + 30) * 60_000
+function formatDateTimeIst(iso: string): string {
+  const shifted = new Date(new Date(iso).getTime() + IST_OFFSET_MS).toISOString()
+  return formatDateTime(shifted).replace(/ UTC$/, ' IST')
 }
 
 const labelClass = 'font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500'
@@ -158,7 +167,7 @@ export function MasterLibrary() {
       .catch(() => { if (!cancelled) flash(t('page.master_library.shared_link_missing')) })
       .finally(() => { if (!cancelled) setSearchParams(p => { p.delete('item'); return p }, { replace: true }) })
     return () => { cancelled = true }
-  }, [linkedItemId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [linkedItemId])
 
   // View and Share each open their own side panel over the details panel. Closing it returns to the
   // details. It also closes when another document is opened, or the details close.
@@ -187,6 +196,12 @@ export function MasterLibrary() {
     enabled: viewing && !!active,
     staleTime: 5 * 60_000,
     retry: false,
+  })
+  // Share history: every share of this document by anyone, newest first (from the audit trail, so it's permanent).
+  const shareHistory = useQuery({
+    queryKey: ['library-shares', active?.id],
+    queryFn: () => platformApi.listLibraryItemShares(active!.id),
+    enabled: !!active,
   })
 
   // Switching the timezone keeps the range pointing at the same moments (as on the Audit Trail).
@@ -439,6 +454,31 @@ export function MasterLibrary() {
               )}
             </div>
 
+            <div className="rounded-md border border-slate-200 p-3" data-share-history>
+              <p className={labelClass}>{t('page.master_library.share_history')}</p>
+              {shareHistory.isLoading ? (
+                <p className="mt-1 text-[12px] text-slate-500" data-share-history-state="loading">{t('page.master_library.share_history_loading')}</p>
+              ) : shareHistory.error ? (
+                <p className="mt-1 text-[12px] text-red-700" data-share-history-state="error">{t('page.master_library.share_history_failed')}</p>
+              ) : !shareHistory.data?.length ? (
+                <p className="mt-1 text-[12px] text-slate-800" data-share-history-state="empty">{t('page.master_library.share_history_empty')}</p>
+              ) : (
+                <ul className="mt-2 flex flex-col divide-y divide-slate-100">
+                  {shareHistory.data.map((s, i) => (
+                    <li key={i} className="py-1.5 first:pt-0 last:pb-0" data-share-history-row>
+                      <dl className="grid grid-cols-[100px_1fr] gap-x-3 gap-y-0.5 text-[12px]">
+                        <dt className={labelClass}>{t('page.master_library.shared_with')}</dt><dd className="break-all text-slate-800" data-shared-with>{s.sharedWith}</dd>
+                        <dt className={labelClass}>{t('page.master_library.shared_by')}</dt><dd className="text-slate-800" data-shared-by>{s.sharedBy ?? t('page.master_library.shared_by_unknown')}</dd>
+                        <dt className={labelClass}>{t('page.master_library.shared_at')}</dt><dd className="text-slate-800" data-shared-at>{formatDateTimeIst(s.sharedAt)}</dd>
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            <LibraryAuditTrail itemId={active.id} labelClass={labelClass} />
+
             <div className="flex flex-wrap items-center gap-2">
               {canShare && !active.isArchived && (
                 <button type="button" onClick={() => setOverlay('share')}
@@ -465,7 +505,7 @@ export function MasterLibrary() {
       {/* Document viewer — its own side panel, opened over the details panel by View. */}
       {active && (
         <SharePanel open={overlay === 'share'} item={active} onClose={() => setOverlay(null)}
-          onDone={(msg) => { setOverlay(null); flash(msg) }} />
+          onDone={(msg) => { setOverlay(null); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library-shares', active.id] }) }} />
       )}
 
       <SlidePanel open={viewing && !!active} onClose={() => setOverlay(null)} title={active?.name ?? ''}
@@ -720,4 +760,69 @@ function MatchedWords({ text, term }: { text: string; term: string }) {
   return <>{parts.map((part, i) => i % 2 === 1
     ? <mark key={i} className="rounded-sm bg-amber-100 px-0.5 font-semibold text-slate-900" data-search-hit>{part}</mark>
     : <span key={i}>{part}</span>)}</>
+}
+
+// The details panel's Audit trail: every entry about the document over its whole life (the source document's trail
+// in Clinical Writing and the library entry's), newest first, a page at a time. Read-only, and deliberately no
+// export / download / print. Badges and phrases are the Clinical Writing Audit Trail panel's own.
+const AUDIT_PAGE_SIZE = 50
+function LibraryAuditTrail({ itemId, labelClass }: { itemId: string; labelClass: string }) {
+  const { t } = useTranslation()
+  const trail = useInfiniteQuery({
+    queryKey: ['library-audit', itemId],
+    queryFn: ({ pageParam }) => platformApi.listLibraryItemAudit(itemId, pageParam, AUDIT_PAGE_SIZE),
+    initialPageParam: 0,
+    getNextPageParam: (last) => (last.offset + last.entries.length < last.total && last.entries.length ? last.offset + last.entries.length : undefined),
+  })
+  const entries = trail.data?.pages.flatMap(p => p.entries) ?? []
+  const total = trail.data?.pages[0]?.total ?? 0
+  return (
+    <div className="rounded-md border border-slate-200 p-3" data-library-audit>
+      <p className={labelClass}>{t('page.master_library.audit_trail')}</p>
+      {trail.isLoading ? (
+        <p className="mt-1 text-[12px] text-slate-500" data-library-audit-state="loading">{t('page.master_library.audit_trail_loading')}</p>
+      ) : trail.error ? (
+        <p className="mt-1 text-[12px] text-red-700" data-library-audit-state="error">{t('page.master_library.audit_trail_failed')}</p>
+      ) : !entries.length ? (
+        <p className="mt-1 text-[12px] text-slate-800" data-library-audit-state="empty">{t('page.master_library.audit_trail_empty')}</p>
+      ) : (
+        <>
+          <ul className="mt-2 flex flex-col divide-y divide-slate-100">
+            {entries.map((e, i) => {
+              const rawAction = e.action.replace(/[._]/g, ' ').trim()
+              const palette = (e.eventType && EVENT_BADGE_PALETTE[e.eventType]) || { bg: '#F1F5F9', fg: '#475569' }
+              const labelKey = e.eventType ? AUDIT_ACTION_LABEL_KEYS[e.eventType] : undefined
+              const phraseKey = e.eventType ? ACTION_PHRASE_KEYS[e.eventType] : undefined
+              return (
+                <li key={i} className="flex flex-col gap-0.5 py-2 first:pt-0 last:pb-0" data-library-audit-row data-action={e.action}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-mono text-[10px] text-slate-500" data-audit-when>{formatDateTimeIst(e.timestamp)}</span>
+                    <span className="whitespace-nowrap rounded px-1.5 py-0.5 font-mono text-[9px] font-medium tracking-wider"
+                      style={{ backgroundColor: palette.bg, color: palette.fg }}>
+                      {labelKey ? t(labelKey) : (rawAction || t('page.audit_trail_panel.badge_event_fallback')).toUpperCase()}
+                    </span>
+                  </div>
+                  <p className="text-[12px]">
+                    <span className="font-semibold text-slate-900" data-audit-who>{e.actor}</span>{' '}
+                    <span className="text-slate-500">{phraseKey ? t(phraseKey) : rawAction}</span>
+                  </p>
+                  <p className="text-[12px] leading-[1.5] text-slate-500" data-audit-detail>{e.detail}</p>
+                </li>
+              )
+            })}
+          </ul>
+          <div className="mt-2 flex items-center justify-between gap-2">
+            <span className="text-[11px] text-slate-500" data-library-audit-count>{t('page.master_library.audit_trail_count', { shown: entries.length, total })}</span>
+            {trail.hasNextPage && (
+              <button type="button" onClick={() => void trail.fetchNextPage()} disabled={trail.isFetchingNextPage}
+                className="text-[12px] font-semibold hover:underline disabled:opacity-50" style={{ color: PLATFORM_ACCENT.primary }}
+                data-action="library-audit-more">
+                {trail.isFetchingNextPage ? t('page.master_library.audit_trail_loading') : t('page.master_library.audit_trail_more')}
+              </button>
+            )}
+          </div>
+        </>
+      )}
+    </div>
+  )
 }

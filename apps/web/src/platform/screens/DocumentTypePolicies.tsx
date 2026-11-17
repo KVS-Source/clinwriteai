@@ -250,6 +250,24 @@ function PolicyEditor({ policy, aiReady, onChanged }: { policy: DocumentTypePoli
     onError:   (err: unknown) => { setActionError(errMessage(err, 'Parser enqueue failed')); setActionInfo(null) },
   })
 
+  // AI extract section rules from the SME prompt. Loads the result into the
+  // textarea so the admin can review + edit, then click Save on the editor
+  // header to persist. Does NOT auto-save — SME prompt extraction is
+  // inference, not a vetted source like a BP PDF, so the human is in the loop.
+  const extractRules = useMutation({
+    mutationFn: () => platformApi.extractSectionRules(policy.docType),
+    onSuccess: (res) => {
+      setSectionRulesText(JSON.stringify(res.sectionRules, null, 2))
+      setActionError(null)
+      setActionInfo(
+        res.ruleCount === 0
+          ? 'AI found no per-section rules in the SME prompt. The extracted JSON is empty — this prompt may only carry whole-document guidance.'
+          : `AI extracted ${res.ruleCount} rule${res.ruleCount === 1 ? '' : 's'} across ${res.sectionCount} section${res.sectionCount === 1 ? '' : 's'}. Review the JSON and click Save to persist.`,
+      )
+    },
+    onError:   (err: unknown) => { setActionError(errMessage(err, 'Extract failed')); setActionInfo(null) },
+  })
+
   const onRetire = () => {
     const reason = window.prompt('Reason for retiring this policy (required):', '')
     if (!reason || !reason.trim()) return
@@ -388,6 +406,25 @@ function PolicyEditor({ policy, aiReady, onChanged }: { policy: DocumentTypePoli
       </Field>
 
       <Field label="Section rules (JSON)" help={`Keyed by section id, each a list of { severity, text }. ${rulesOk ? 'Valid.' : (rulesParse as { err: string }).err}`}>
+        <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-[11px] text-slate-600" data-extract-rules-strip>
+          <span>
+            Section rules aren't auto-parsed from the SME prompt. Click <strong>Extract from SME prompt</strong> to let AI surface per-section guidance into this JSON — then review + Save.
+          </span>
+          <button
+            type="button"
+            onClick={() => extractRules.mutate()}
+            disabled={extractRules.isPending || !aiReady || !policy.smePrompt.trim()}
+            title={
+              !policy.smePrompt.trim() ? 'Save an SME prompt first, then extract.' :
+              !aiReady                 ? 'AI is not set up — configure an AI engine first.' :
+              undefined
+            }
+            className="shrink-0 rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            data-action="extract-section-rules"
+          >
+            {extractRules.isPending ? 'Extracting…' : 'Extract from SME prompt (AI)'}
+          </button>
+        </div>
         <textarea
           value={sectionRulesText}
           onChange={e => setSectionRulesText(e.currentTarget.value)}

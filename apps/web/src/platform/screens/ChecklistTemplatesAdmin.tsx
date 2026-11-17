@@ -619,10 +619,12 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
   // Approval cycle (CW-029): an author of the draft can't approve it. The API says so (canApprove).
   // A template filed under the old spelling is read-only: no document uses it (CW-089).
   const legacy        = template.legacySpelling
-  const canChange     = isDraft && !legacy
+  // Only Project Managers change templates; everyone else gets a read-only view (no edit / approve / new draft / override).
+  const canEdit       = template.canEdit !== false
+  const canChange     = isDraft && !legacy && canEdit
   const showApprove   = canChange
   const selfAuthored  = canChange && template.canApprove === false
-  const canBump    = template.templateStatus === 'locked' && !legacy
+  const canBump    = template.templateStatus === 'locked' && !legacy && canEdit
   const versions = [...props.versions].sort((a, b) => b.version - a.version)
 
   return (
@@ -691,7 +693,7 @@ function TemplateDetailView(props: TemplateDetailViewProps) {
           {/* Project override — allowed from any locked template (baseline
               or an existing project override). Hidden on drafts to keep the
               workflow linear: approve the current draft first. */}
-          {!isDraft && (
+          {!isDraft && canEdit && (
             <button
               type="button"
               onClick={props.onCloneToProject}

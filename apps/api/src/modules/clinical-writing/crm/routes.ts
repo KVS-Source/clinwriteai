@@ -105,6 +105,7 @@ async function crmMeetingShape(
     id: string; documentId: string; meetingRef: string; chairId: string
     status: string; scheduledDate: Date; startTime: string; endTime: string
     startedAt: Date | null; endedAt: Date | null; createdAt: Date
+    returnToStatus?: string | null
     attendees: Array<{ userId: string; roleInCrm: string }>
     resolutions: Array<{ commentId: string }>
   },
@@ -131,6 +132,8 @@ async function crmMeetingShape(
     startedAt: meeting.startedAt?.toISOString(),
     endedAt: meeting.endedAt?.toISOString(),
     status: meeting.status,             // scheduled | in_progress | complete | cancelled
+    // Started during authoring: completing it put the document back in authoring, not on to signing.
+    heldDuringAuthoring: meeting.returnToStatus === 'in_authoring',
     chair: toTeamMember(meeting.chairId, byId.get(meeting.chairId) ?? null, 'A', 'Chair'),
     attendees: meeting.attendees.map(a => toTeamMember(a.userId, byId.get(a.userId) ?? null, a.roleInCrm === 'Chair' ? 'A' : a.roleInCrm === 'Author' ? 'R' : 'C', a.roleInCrm)),
     commentIds: ctx.allCommentIds,

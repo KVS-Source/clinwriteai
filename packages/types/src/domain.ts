@@ -272,6 +272,8 @@ export interface CRMMeeting {
   endedAt?: string
   /** scheduled → in_progress (Start) → complete (End) · or cancelled. */
   status?: 'scheduled' | 'in_progress' | 'complete' | 'cancelled'
+  /** Started during authoring: completing it put the document back in authoring, not on to signing. */
+  heldDuringAuthoring?: boolean
   chair: TeamMember
   attendees: TeamMember[]
   commentIds: string[]

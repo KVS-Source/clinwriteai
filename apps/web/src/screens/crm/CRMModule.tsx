@@ -646,8 +646,15 @@ export function CRMModule() {
     return <div className="flex h-full items-center justify-center"><p className="font-mono text-sm text-slate-400">{projectDocs.length === 0 && !meetingsLoading ? t('page.crm_module.no_documents') : t('page.crm_module.loading_meeting')}</p></div>
   }
 
-  // No live meeting (none yet, or the last one was cancelled) → schedule.
-  if (!meeting || meeting.status === 'cancelled') {
+  // A completed meeting from an earlier round: the document went back (returned to authoring, or its
+  // signature chain cancelled) and is in review or authoring again, so this round needs its own meeting.
+  // A meeting held during authoring is meant to leave the document in authoring, so it still shows.
+  const previousRound = meeting?.status === 'complete' && (
+    activeDoc?.status === 'in-review' || (activeDoc?.status === 'in-authoring' && !meeting.heldDuringAuthoring)
+  )
+
+  // No live meeting (none yet, the last one was cancelled, or it belongs to an earlier round) → schedule.
+  if (!meeting || meeting.status === 'cancelled' || previousRound) {
     const canSchedule = SCHEDULABLE.has(String(activeDoc?.status))
     return (
       <div className="flex h-full flex-col items-center justify-center gap-4 overflow-y-auto p-10 text-center" data-screen="crm-module">

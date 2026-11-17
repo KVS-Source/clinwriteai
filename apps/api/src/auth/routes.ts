@@ -284,9 +284,15 @@ export const authRoutes: FastifyPluginAsync = async (app) => {
     if (!(process.env.AUTH_BYPASS_EMAIL ?? '').trim()) return reply.code(404).send({ error: 'not_found' })
     const users = await app.prisma.user.findMany({
       orderBy: { createdAt: 'desc' },
-      select: { id: true, name: true, email: true, role: true, modules: true, status: true, lastActiveAt: true, tenantId: true },
+      select: { id: true, name: true, email: true, role: true, additionalRoles: true, modules: true, status: true, lastActiveAt: true, tenantId: true },
     })
-    return users.map(({ lastActiveAt, ...u }) => ({ ...u, lastActive: lastActiveAt?.toISOString() ?? null }))
+    // roles: every role held, primary first, so the switcher can file a Contributor + PM under Project Managers
+    // and show both.
+    return users.map(({ lastActiveAt, additionalRoles, ...u }) => ({
+      ...u,
+      roles: [u.role, ...(additionalRoles ?? []).filter(r => r !== u.role)],
+      lastActive: lastActiveAt?.toISOString() ?? null,
+    }))
   })
 }
 

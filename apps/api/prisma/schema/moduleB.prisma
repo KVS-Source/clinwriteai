@@ -45,6 +45,15 @@ model Publication {
   updatedAt            DateTime  @updatedAt
   deletedAt            DateTime?
 
+  // ---- Versioning pin (migration 76, Phase M-B.2) ----
+  // Points to the PublicationVersion that is 'isCurrent=true' for this
+  // publication. Analogue of Document.currentVersionId. Null during
+  // the brief window between Publication.create and the v0.1 insert in
+  // the same transaction.
+  currentVersionId     String?   @unique @map("current_version_id")
+  currentVersion       PublicationVersion? @relation("PublicationCurrentVersion", fields: [currentVersionId], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  versions             PublicationVersion[] @relation("PublicationVersions")
+
   // ---- Policy pins (migration 75, Phase M-B.1) ----
   // Mirror of Module A Document's policyVersionAtCreate /
   // aiPromptRecordId / bestPracticeRecordId pins. Captured when the
@@ -605,4 +614,79 @@ model PublicationChecklistTemplate {
   @@map("publication_checklist_templates")
   @@unique([docType, version])
   @@index([docType, isCurrent])
+}
+
+// --------------------------------------------------------------------------
+// Publication versioning — Phase M-B.2 (migration 76).
+//
+// Mirror of Module A's DocumentVersion + SectionContent + SectionLock
+// with no cross-module coupling. Publication.currentVersionId points
+// to the row that's isCurrent=true. Bumping a new version flips the
+// previous one's isCurrent to false in the same transaction.
+//
+// PublicationSectionContent carries aiFlags + aiConfidence so the
+// validation-pass worker (Phase M-B.3) can score each section with the
+// same 85% rubric used in clinical writing.
+// --------------------------------------------------------------------------
+
+model PublicationVersion {
+  id              String   @id @default(uuid())
+  publicationId   String
+  versionNumber   String                                                   // "v0.1", "v0.2", …
+  label           String                                                   // "Draft" | "For Review" | "Final"
+  contentHash     String                                                   // sha256 of all sections — audit chain
+  isCurrent       Boolean  @default(true)
+  createdBy       String
+  createdAt       DateTime @default(now())
+  // Carries {fromVersionId, sections[], reason} when this version came
+  // from a restore operation. Null for normal bumps.
+  restoreSource   Json?
+
+  publication     Publication                 @relation("PublicationVersions", fields: [publicationId], references: [id], onDelete: Cascade)
+  sections        PublicationSectionContent[]
+  currentOf       Publication?                @relation("PublicationCurrentVersion")
+
+  @@map("publication_versions")
+  @@unique([publicationId, versionNumber])
+  @@index([publicationId])
+}
+
+model PublicationSectionContent {
+  id                     String   @id @default(uuid())
+  publicationVersionId   String
+  sectionId              String                                            // 'methods', 'results', 's3_2_results', …
+  sectionNumber          String                                            // Vancouver-style or free-text ("1", "2.1")
+  sectionTitle           String
+  contentHtml            String   @default("")
+  wordCount              Int      @default(0)
+  aiSpanCount            Int      @default(0)
+  humanSpanCount         Int      @default(0)
+  lastEditedBy           String?
+  lastEditedAt           DateTime?
+
+  // AI confidence (0-100) computed by the ai_validation_pass worker
+  // using the same rubric as Module A's SectionContent. Null until the
+  // first validation pass evaluates this section.
+  aiConfidence           Int?       @map("ai_confidence")
+  aiFlags                String[]   @default([]) @map("ai_flags")
+
+  version                PublicationVersion @relation(fields: [publicationVersionId], references: [id], onDelete: Cascade)
+
+  @@map("publication_section_contents")
+  @@unique([publicationVersionId, sectionId])
+  @@index([publicationVersionId])
+}
+
+model PublicationSectionLock {
+  id                String   @id @default(uuid())
+  publicationId     String
+  sectionId         String
+  userId            String
+  acquiredAt        DateTime @default(now())
+  lastHeartbeatAt   DateTime @default(now())
+
+  @@map("publication_section_locks")
+  @@unique([publicationId, sectionId])
+  @@index([userId])
+  @@index([lastHeartbeatAt])
 }

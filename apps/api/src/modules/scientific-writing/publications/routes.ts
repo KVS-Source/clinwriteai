@@ -21,6 +21,7 @@ import { z } from 'zod'
 import { requireAuth } from '../../../auth/rbac.js'
 import { buildGppReport } from './gpp/builder.js'
 import { renderGppReportPdf } from './gpp/pdf-renderer.js'
+import { initialisePublicationVersion, type PublicationSectionPayload } from './section-service.js'
 import {
   canAdvancePublication,
   InvalidPublicationStageError,
@@ -28,6 +29,22 @@ import {
   PUBLICATION_STAGES,
   type PublicationStage,
 } from '../publication-stage.js'
+
+// Fallback IMRAD skeleton used when the publication's docType has no
+// template configured yet. Keeps the create flow usable end-to-end
+// before any admin wires a PublicationTemplate. Phase M-B.6 wizard
+// overhaul replaces this with the template picker.
+const FALLBACK_IMRAD_SECTIONS: PublicationSectionPayload[] = [
+  { sectionId: 'title',       sectionNumber: '0', sectionTitle: 'Title & authors' },
+  { sectionId: 'abstract',    sectionNumber: '1', sectionTitle: 'Abstract' },
+  { sectionId: 'intro',       sectionNumber: '2', sectionTitle: 'Introduction' },
+  { sectionId: 'methods',     sectionNumber: '3', sectionTitle: 'Methods' },
+  { sectionId: 'results',     sectionNumber: '4', sectionTitle: 'Results' },
+  { sectionId: 'discussion',  sectionNumber: '5', sectionTitle: 'Discussion' },
+  { sectionId: 'conclusion',  sectionNumber: '6', sectionTitle: 'Conclusion' },
+  { sectionId: 'references',  sectionNumber: '7', sectionTitle: 'References' },
+  { sectionId: 'disclosures', sectionNumber: '8', sectionTitle: 'Disclosures' },
+]
 
 const createSchema = z.object({
   type: z.string().min(1),
@@ -161,6 +178,46 @@ export const publicationsProjectScopedRoutes: FastifyPluginAsync = async (app) =
     const responsible = parsed.data.teamRoles.find(r => r.raci === 'R')
     const ownerId = responsible?.userId ?? request.user!.id
 
+    // Phase M-B.1/2 wiring — resolve the publication-type policy for
+    // this doc type, pin its template + AI/BP record ids on the new
+    // Publication, and seed v0.1 from the template's section skeleton.
+    // Falls back to the legacy fixed-IMRAD skeleton when no policy or
+    // template is wired yet (so this works end-to-end before any admin
+    // has configured a policy).
+    const policyDocType = (parsed.data.subtype ? `${parsed.data.type}_${parsed.data.subtype}` : parsed.data.type)
+      .toLowerCase()
+      .replace(/-/g, '_')
+    const policy = await app.prisma.publicationTypePolicy.findFirst({
+      where: { docType: policyDocType, isCurrent: true, retiredAt: null },
+    })
+    const promptPin = await app.prisma.publicationAiPromptRecord.findFirst({
+      where:   { docType: policyDocType, status: 'approved' },
+      orderBy: { version: 'desc' },
+      select:  { id: true, version: true },
+    })
+    const bpPin = await app.prisma.publicationBestPracticeRecord.findFirst({
+      where:   { docType: policyDocType, status: 'approved' },
+      orderBy: { version: 'desc' },
+      select:  { id: true, version: true },
+    })
+
+    let sections: PublicationSectionPayload[] = FALLBACK_IMRAD_SECTIONS
+    if (policy?.templateId) {
+      const tmpl = await app.prisma.publicationTemplate.findUnique({
+        where: { id: policy.templateId },
+      })
+      if (tmpl) {
+        const tmplSections = tmpl.sections as unknown as Array<{ id: string; number?: string; title: string }>
+        if (Array.isArray(tmplSections) && tmplSections.length > 0) {
+          sections = tmplSections.map((s, i) => ({
+            sectionId:     String(s.id ?? `s${i + 1}`),
+            sectionNumber: String(s.number ?? i + 1),
+            sectionTitle:  String(s.title ?? `Section ${i + 1}`),
+          }))
+        }
+      }
+    }
+
     const created = await app.prisma.$transaction(async (tx) => {
       const pub = await tx.publication.create({
         data: {
@@ -177,7 +234,20 @@ export const publicationsProjectScopedRoutes: FastifyPluginAsync = async (app) =
           sourceDocumentLabel: sourceLabel,
           ownerId,
           createdBy: request.user!.id,
+          // Phase M-B.1 pins
+          pubTypePolicyVersionAtCreate:           policy?.version ?? null,
+          publicationAiPromptRecordId:            promptPin?.id      ?? null,
+          publicationAiPromptVersionAtCreate:     promptPin?.version ?? null,
+          publicationBestPracticeRecordId:        bpPin?.id      ?? null,
+          publicationBestPracticeVersionAtCreate: bpPin?.version ?? null,
         },
+      })
+
+      // Phase M-B.2 — seed v0.1 and its section_contents from the template.
+      await initialisePublicationVersion(tx, {
+        publicationId: pub.id,
+        actorId:       request.user!.id,
+        sections,
       })
 
       // Materialise authors + exactly 4 ICMJE criterion rows per author.

@@ -367,6 +367,13 @@ async function buildServer() {
   await app.register(publicationsProjectScopedRoutes, { prefix: '/projects' })
   await app.register(publicationsRoutes, { prefix: '/publications' })
 
+  // Phase M-B.2 — publication versioning, section-content save, section
+  // locks. Mirrors clinical-writing section-locks + document-version
+  // routes for publications.
+  const { publicationSectionRoutes } =
+    await import('./modules/scientific-writing/publications/section-routes.js')
+  await app.register(publicationSectionRoutes, { prefix: '/publications' })
+
   const { citationsRoutes, pubmedRoutes } = await import('./modules/scientific-writing/citations/routes.js')
   await app.register(citationsRoutes, { prefix: '/publications' })
   // pubmedRoutes mounts at root — the client's citation-search endpoint

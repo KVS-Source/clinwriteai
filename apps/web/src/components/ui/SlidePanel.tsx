@@ -165,7 +165,7 @@ export function SlidePanel({
       {/* Header */}
       <div className="flex flex-none items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
         <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[16px] font-bold text-slate-900">{title}</h2>
+          <h2 className="truncate text-[16px] font-bold text-slate-900" title={title}>{title}</h2>
           {subtitle && (typeof subtitle === 'string'
             ? <p className="mt-0.5 truncate text-[12px] text-slate-500">{subtitle}</p>
             : <div className="mt-0.5 text-[12px] text-slate-500">{subtitle}</div>)}
@@ -213,7 +213,9 @@ export function SlidePanel({
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto">{children}</div>
+      {/* The one scroll area: min-h-0 lets it shrink inside the column, and overscroll-contain keeps the page behind
+          from scrolling once the panel reaches its end. */}
+      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">{children}</div>
     </aside>
   )
 }

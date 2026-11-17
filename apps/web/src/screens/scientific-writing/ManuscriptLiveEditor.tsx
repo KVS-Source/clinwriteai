@@ -28,13 +28,15 @@ function errMessage(err: unknown, fallback = 'Request failed'): string {
 // Severity palette for aiFlags chips. Groups the known flag codes by
 // visual weight; unknown codes fall through to the neutral style.
 const FLAG_PALETTE: Record<string, string> = {
-  'completeness:too_short':  'bg-rose-100 text-rose-800',
-  'ai:guideline_gap':        'bg-amber-100 text-amber-800',
-  'ai:unsupported_claim':    'bg-rose-100 text-rose-800',
-  'ai:template_mismatch':    'bg-amber-100 text-amber-800',
-  'ai:coherence_issue':      'bg-amber-100 text-amber-800',
-  'ai:self_critique':        'bg-slate-100 text-slate-700',
-  'icmje:author_incomplete': 'bg-rose-100 text-rose-800',
+  'completeness:too_short':      'bg-rose-100 text-rose-800',
+  'ai:guideline_gap':            'bg-amber-100 text-amber-800',
+  'ai:unsupported_claim':        'bg-rose-100 text-rose-800',
+  'ai:template_mismatch':        'bg-amber-100 text-amber-800',
+  'ai:coherence_issue':          'bg-amber-100 text-amber-800',
+  'ai:self_critique':            'bg-slate-100 text-slate-700',
+  'icmje:author_incomplete':     'bg-rose-100 text-rose-800',
+  'disclosure:das_missing':      'bg-amber-100 text-amber-800',
+  'disclosure:funding_missing':  'bg-amber-100 text-amber-800',
 }
 
 function flagChipClass(code: string): string {
@@ -44,14 +46,16 @@ function flagChipClass(code: string): string {
 function flagLabel(code: string): string {
   // Human-readable glosses. Keep aligned with the worker's rubric.
   switch (code) {
-    case 'completeness:too_short':  return 'Too short'
-    case 'ai:guideline_gap':        return 'Guideline gap'
-    case 'ai:unsupported_claim':    return 'Unsupported claim'
-    case 'ai:template_mismatch':    return 'Template mismatch'
-    case 'ai:coherence_issue':      return 'Coherence'
-    case 'ai:self_critique':        return 'Review'
-    case 'icmje:author_incomplete': return 'ICMJE'
-    default:                         return code
+    case 'completeness:too_short':     return 'Too short'
+    case 'ai:guideline_gap':           return 'Guideline gap'
+    case 'ai:unsupported_claim':       return 'Unsupported claim'
+    case 'ai:template_mismatch':       return 'Template mismatch'
+    case 'ai:coherence_issue':         return 'Coherence'
+    case 'ai:self_critique':           return 'Review'
+    case 'icmje:author_incomplete':    return 'ICMJE'
+    case 'disclosure:das_missing':     return 'DAS missing'
+    case 'disclosure:funding_missing': return 'Funding missing'
+    default:                            return code
   }
 }
 

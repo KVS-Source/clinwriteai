@@ -8,13 +8,16 @@
 //
 // Checks (in order):
 //   1. Completeness (deterministic) — stripped HTML ≥ MIN_CONTENT_CHARS.
-//   2. Guideline compliance (LLM-gated) — Claude checks that items
+//   2. ICMJE / authorship (deterministic) — every PublicationAuthor has
+//      confirmed all four ICMJE criteria (met=true on PubIcmjeCriterion).
+//   3. Disclosure scan (deterministic, Phase M-B.7):
+//      a. data-availability statement present somewhere in the body
+//      b. funding statement present somewhere in the body
+//   4. Guideline compliance (LLM-gated) — Claude checks that items
 //      required by the policy's guidelineKey (CONSORT/STROBE/PRISMA/
 //      MOOSE/ICMJE/CARE/SPIRIT/ARRIVE) are present across the draft.
-//   3. Citation grounding (LLM-gated) — Claude verifies drafted claims
+//   5. Citation grounding (LLM-gated) — Claude verifies drafted claims
 //      against attached source PDFs and flags unsupported assertions.
-//   4. ICMJE / disclosures (deterministic) — every PublicationAuthor
-//      has acknowledged all four ICMJE criteria.
 //
 // Loop control (same thresholds as Module A):
 //   CONFIDENCE_TARGET = 85, MIN_ITERATIONS = 3, MAX_ITERATIONS = 5.
@@ -56,6 +59,9 @@ const FLAG_WEIGHTS: Readonly<Record<string, number>> = {
   'ai:unsupported_claim':     30,
   'ai:guideline_gap':         30,
   'icmje:author_incomplete':  25,
+  // Phase M-B.7 — deterministic disclosure checks.
+  'disclosure:das_missing':      20,
+  'disclosure:funding_missing':  20,
 }
 const AI_UNKNOWN_WEIGHT = 15
 
@@ -313,7 +319,41 @@ export const handleAiValidationPassPublication: JobHandler<PubAiValidationPassPa
     }
   }
 
-  // --- 3+4. LLM (guideline + citation grounding + self-critique) ---------
+  // --- 3. Disclosure scans (deterministic, Phase M-B.7) ------------------
+  // Scan the whole-document body for data-availability + funding
+  // disclosures. Missing ones flag the 'disclosures' section if one
+  // exists, else the first section — same fallback as the ICMJE check.
+  // Phrase lists cover common wording; false negatives are acceptable
+  // (admin can force-approve) — false positives are the risk to avoid.
+  const DAS_PATTERNS = [
+    /data\s+availability/i,
+    /data\s+sharing\s+statement/i,
+    /underlying\s+data/i,
+    /supporting\s+data\s+(are|will be|is)\s+available/i,
+  ]
+  const FUNDING_PATTERNS = [
+    /\bfunding\b/i,
+    /\bfunded\s+by\b/i,
+    /\bsponsored\s+by\b/i,
+    /\bgrant\s+(number|no\.|#)/i,
+    /\bno\s+external\s+funding\b/i,
+  ]
+  const wholeDocText = rows.map(r => stripTags(r.contentHtml ?? '')).join('\n\n')
+  const disclosureTarget = rows.find(r => r.sectionId === 'disclosures') ?? rows[0]!
+  if (wholeDocText.length > 0) {
+    if (!DAS_PATTERNS.some(re => re.test(wholeDocText))) {
+      flagsBySection.get(disclosureTarget.sectionId)!.push('disclosure:das_missing')
+      ;(reasonsBySection.get(disclosureTarget.sectionId) ?? reasonsBySection.set(disclosureTarget.sectionId, []).get(disclosureTarget.sectionId)!)
+        .push('No data-availability statement found. Journals (ICMJE, PLoS, Nature family) require one; add a sentence covering where / how the underlying data can be obtained.')
+    }
+    if (!FUNDING_PATTERNS.some(re => re.test(wholeDocText))) {
+      flagsBySection.get(disclosureTarget.sectionId)!.push('disclosure:funding_missing')
+      ;(reasonsBySection.get(disclosureTarget.sectionId) ?? reasonsBySection.set(disclosureTarget.sectionId, []).get(disclosureTarget.sectionId)!)
+        .push('No funding disclosure found. Add a funding statement (grant numbers + sponsor, or explicitly "No external funding").')
+    }
+  }
+
+  // --- 4+5. LLM (guideline + citation grounding + self-critique) ---------
   let modelUsed: string | null = null
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim()
   const hasDraftedContent = rows.some(r => stripTags(r.contentHtml ?? '').length >= MIN_CONTENT_CHARS)

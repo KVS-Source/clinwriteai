@@ -154,6 +154,73 @@ export const publicationsApi = {
     api.post<{ downloadId: string; fileCount: number; createdAt: string }>(
       `/publications/${publicationId}/final/download`, {},
     ),
+
+  // --- Sections + versioning + locks (Phase M-B.2) ------------------------
+  getSections: (publicationId: string) =>
+    api.get<{ publicationId: string; sections: PublicationSectionRow[] }>(
+      `/publications/${publicationId}/sections`,
+    ),
+  saveSection: (publicationId: string, sectionId: string, contentHtml: string) =>
+    api.patch<{ id: string; sectionId: string; contentHtml: string; wordCount: number; lastEditedAt: string | null }>(
+      `/publications/${publicationId}/sections/${encodeURIComponent(sectionId)}`,
+      { contentHtml },
+    ),
+  acquireSectionLock: (publicationId: string, sectionId: string) =>
+    api.post<SectionLockResult>(
+      `/publications/${publicationId}/sections/${encodeURIComponent(sectionId)}/lock`, {},
+    ),
+  releaseSectionLock: (publicationId: string, sectionId: string) =>
+    api.delete<{ released: boolean }>(
+      `/publications/${publicationId}/sections/${encodeURIComponent(sectionId)}/lock`,
+    ),
+  listLocks: (publicationId: string) =>
+    api.get<{ publicationId: string; staleSeconds: number; locks: Array<{ sectionId: string; holder: SectionLockHolder }> }>(
+      `/publications/${publicationId}/locks`,
+    ),
+  listVersions: (publicationId: string) =>
+    api.get<{
+      publicationId: string
+      currentVersionId: string | null
+      versions: Array<{ id: string; versionNumber: string; label: string; isCurrent: boolean; createdBy: string; createdAt: string }>
+    }>(`/publications/${publicationId}/versions`),
+  bumpVersion: (publicationId: string, body: { label: string; newVersionNumber: string; note?: string }) =>
+    api.post<{ id: string; versionNumber: string; label: string; createdAt: string }>(
+      `/publications/${publicationId}/versions/bump`, body,
+    ),
+
+  // --- AI initial draft (Phase M-B.3) -------------------------------------
+  startAiInitialDraft: (publicationId: string, body: { aiInstructions?: string } = {}) =>
+    api.post<{ jobId: string; publicationId: string; state: 'enqueued' }>(
+      `/publications/${publicationId}/ai-initial-draft`, body,
+    ),
+}
+
+// --- Section + lock types ---
+
+export interface PublicationSectionRow {
+  id:            string
+  sectionId:     string
+  sectionNumber: string
+  sectionTitle:  string
+  contentHtml:   string
+  wordCount:     number
+  aiConfidence:  number | null
+  aiFlags:       string[]
+  lastEditedBy:  string | null
+  lastEditedAt:  string | null
+}
+
+export interface SectionLockHolder {
+  userId:           string
+  acquiredAt:       string
+  lastHeartbeatAt:  string
+  expiresInSeconds: number
+}
+
+export interface SectionLockResult {
+  outcome:      'acquired' | 'extended' | 'stolen' | 'conflict'
+  holder:       SectionLockHolder
+  staleSeconds: number
 }
 
 // --- Final output types ---

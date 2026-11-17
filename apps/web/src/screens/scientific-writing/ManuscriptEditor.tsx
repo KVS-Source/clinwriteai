@@ -694,6 +694,7 @@ export function ManuscriptEditor() {
   const pubBase = `/projects/${projectId}/scientific-writing/publications/${publicationId}`
   const subNavTabs: SubNavTab[] = [
     { to: pubBase,                       label: 'Manuscript',          end: true },
+    { to: `${pubBase}/edit`,             label: 'Edit sections' },
     { to: `${pubBase}/authors`,          label: 'Authors' },
     { to: `${pubBase}/submission`,       label: 'Submission Readiness' },
     { to: `${pubBase}/peer-review`,      label: 'Peer Review' },

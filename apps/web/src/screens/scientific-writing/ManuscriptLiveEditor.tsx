@@ -1,0 +1,389 @@
+// ManuscriptLiveEditor — the functional section editor for publications.
+//
+// Sits alongside the richer (currently cosmetic) ManuscriptEditor. This
+// screen is the working surface for M-B.2 + M-B.3 end-to-end: real
+// section fetch, real save, real section-lock lifecycle, real AI
+// initial-draft trigger with aiDraftState polling.
+//
+// Scope deliberately narrow — one textarea per section, autosave on blur,
+// lock acquire on focus / release on blur. The cosmetic ManuscriptEditor
+// keeps its sidebar / panels / toolbar; later phases unify the two.
+
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
+import { useParams } from 'react-router-dom'
+import { ApiError } from '../../api/client'
+import { publicationsApi, type PublicationSectionRow, type SectionLockHolder } from '../../api/publications'
+
+function errMessage(err: unknown, fallback = 'Request failed'): string {
+  if (err instanceof ApiError) {
+    const body = err.body as { message?: string; error?: string } | null
+    if (body?.message) return body.message
+    if (body?.error)   return body.error
+    return String(err.status)
+  }
+  return err instanceof Error ? err.message : fallback
+}
+
+// Severity palette for aiFlags chips. Groups the known flag codes by
+// visual weight; unknown codes fall through to the neutral style.
+const FLAG_PALETTE: Record<string, string> = {
+  'completeness:too_short':  'bg-rose-100 text-rose-800',
+  'ai:guideline_gap':        'bg-amber-100 text-amber-800',
+  'ai:unsupported_claim':    'bg-rose-100 text-rose-800',
+  'ai:template_mismatch':    'bg-amber-100 text-amber-800',
+  'ai:coherence_issue':      'bg-amber-100 text-amber-800',
+  'ai:self_critique':        'bg-slate-100 text-slate-700',
+  'icmje:author_incomplete': 'bg-rose-100 text-rose-800',
+}
+
+function flagChipClass(code: string): string {
+  return FLAG_PALETTE[code] ?? 'bg-slate-100 text-slate-700'
+}
+
+function flagLabel(code: string): string {
+  // Human-readable glosses. Keep aligned with the worker's rubric.
+  switch (code) {
+    case 'completeness:too_short':  return 'Too short'
+    case 'ai:guideline_gap':        return 'Guideline gap'
+    case 'ai:unsupported_claim':    return 'Unsupported claim'
+    case 'ai:template_mismatch':    return 'Template mismatch'
+    case 'ai:coherence_issue':      return 'Coherence'
+    case 'ai:self_critique':        return 'Review'
+    case 'icmje:author_incomplete': return 'ICMJE'
+    default:                         return code
+  }
+}
+
+function confidenceColor(confidence: number | null): string {
+  if (confidence === null) return 'bg-slate-100 text-slate-500 italic'
+  if (confidence >= 85)    return 'bg-emerald-100 text-emerald-800'
+  if (confidence >= 60)    return 'bg-amber-100 text-amber-800'
+  return 'bg-rose-100 text-rose-800'
+}
+
+// ---- main screen -----------------------------------------------------------
+
+export function ManuscriptLiveEditor() {
+  const { publicationId } = useParams()
+  const qc = useQueryClient()
+
+  const pubQ = useQuery({
+    queryKey: ['publication', publicationId],
+    queryFn:  () => publicationsApi.get(publicationId!),
+    enabled:  !!publicationId,
+    // Poll aiDraftState while the chain is in flight so the UI
+    // reflects progression without manual refresh.
+    refetchInterval: (query) => {
+      const state = (query.state.data as { aiDraftState?: string } | undefined)?.aiDraftState
+      return state === 'drafting' || state === 'validating' ? 4_000 : false
+    },
+  })
+
+  const sectionsQ = useQuery({
+    queryKey: ['publication-sections', publicationId],
+    queryFn:  () => publicationsApi.getSections(publicationId!),
+    enabled:  !!publicationId,
+    // Also refresh while AI draft / validation is in flight — section
+    // content and aiConfidence / aiFlags change as the worker runs.
+    refetchInterval: () => {
+      const pub = qc.getQueryData<{ aiDraftState?: string }>(['publication', publicationId])
+      return (pub?.aiDraftState === 'drafting' || pub?.aiDraftState === 'validating') ? 4_000 : false
+    },
+  })
+
+  const locksQ = useQuery({
+    queryKey: ['publication-locks', publicationId],
+    queryFn:  () => publicationsApi.listLocks(publicationId!),
+    enabled:  !!publicationId,
+    refetchInterval: 20_000,
+  })
+
+  const sections = sectionsQ.data?.sections ?? []
+  const publication = pubQ.data as { id: string; title: string; aiDraftState?: string; aiInstructions?: string | null } | undefined
+  const aiDraftState = publication?.aiDraftState ?? 'idle'
+  const locksBySection = useMemo(() => {
+    const m = new Map<string, SectionLockHolder>()
+    for (const l of locksQ.data?.locks ?? []) m.set(l.sectionId, l.holder)
+    return m
+  }, [locksQ.data])
+
+  const [aiInstructionsDraft, setAiInstructionsDraft] = useState('')
+  useEffect(() => { setAiInstructionsDraft(publication?.aiInstructions ?? '') }, [publication?.aiInstructions])
+
+  const startDraft = useMutation({
+    mutationFn: () => publicationsApi.startAiInitialDraft(publicationId!, {
+      aiInstructions: aiInstructionsDraft.trim() || undefined,
+    }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['publication', publicationId] })
+    },
+  })
+
+  if (!publicationId) {
+    return <p className="p-6 text-[13px] text-rose-700">Missing publicationId in route.</p>
+  }
+
+  return (
+    <div className="flex flex-col gap-4 p-6" data-screen="manuscript-live-editor">
+      <header className="flex flex-wrap items-start justify-between gap-4 border-b border-slate-200 pb-4">
+        <div>
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+            Live editor (M-B.2/3 wiring)
+          </p>
+          <h1 className="text-[20px] font-semibold text-slate-900">
+            {publication?.title ?? 'Loading…'}
+          </h1>
+          <p className="mt-0.5 text-[12px] text-slate-500">
+            Edit section content, save on blur, acquire a section lock on focus. AI drafter + 85%
+            validation loop sit above.
+          </p>
+        </div>
+
+        <div className="flex flex-col items-end gap-2">
+          <AiDraftStateBadge state={aiDraftState} />
+          <button
+            type="button"
+            onClick={() => startDraft.mutate()}
+            disabled={startDraft.isPending || aiDraftState === 'drafting' || aiDraftState === 'validating'}
+            className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            data-action="start-ai-draft"
+            title={
+              aiDraftState === 'drafting'   ? 'Drafter is already running.' :
+              aiDraftState === 'validating' ? 'Validation loop is running.'  :
+              'Enqueue publications.ai_initial_draft for this publication.'
+            }
+          >
+            {startDraft.isPending
+              ? 'Enqueuing…'
+              : aiDraftState === 'complete'
+                ? 'Redraft with AI'
+                : 'Draft with AI'}
+          </button>
+          {startDraft.error && (
+            <p className="max-w-[260px] rounded-md border border-rose-200 bg-rose-50 px-2 py-1 text-right text-[11px] text-rose-700">
+              {errMessage(startDraft.error, 'Enqueue failed')}
+            </p>
+          )}
+        </div>
+      </header>
+
+      <section className="rounded-md border border-slate-200 bg-slate-50 p-3" data-ai-instructions>
+        <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+          AI instructions (optional · persisted)
+        </p>
+        <textarea
+          value={aiInstructionsDraft}
+          onChange={e => setAiInstructionsDraft(e.currentTarget.value)}
+          rows={3}
+          maxLength={2000}
+          placeholder="Tone, language, structure hints the drafter should respect — e.g. “target audience: UK NHS cardiologists; keep abstract under 300 words.”"
+          className="w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-[12px] leading-relaxed"
+          data-field="ai-instructions"
+        />
+        <p className="mt-1 text-[11px] text-slate-500">
+          Flows into every section draft + section rewrite (Phase M-B.4). Cleared by clicking Draft
+          with AI with an empty box above.
+        </p>
+      </section>
+
+      {sectionsQ.isLoading && <p className="text-[13px] text-slate-500">Loading sections…</p>}
+      {sectionsQ.error && (
+        <p className="text-[13px] text-rose-700">{errMessage(sectionsQ.error, 'Could not load sections')}</p>
+      )}
+
+      {!sectionsQ.isLoading && sections.length === 0 && (
+        <p className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-center text-[13px] text-slate-500">
+          No sections for this publication yet. The create flow should have seeded v0.1 — if you see
+          this, either the publication predates Phase M-B.2 or the create route hit the no-policy /
+          no-template fallback but the sections still didn't land.
+        </p>
+      )}
+
+      {sections.map(section => (
+        <SectionEditor
+          key={section.id}
+          publicationId={publicationId}
+          section={section}
+          lockHolder={locksBySection.get(section.sectionId) ?? null}
+        />
+      ))}
+    </div>
+  )
+}
+
+function AiDraftStateBadge({ state }: { state: string }) {
+  const palette: Record<string, string> = {
+    idle:       'bg-slate-100 text-slate-700',
+    drafting:   'bg-blue-100 text-blue-800 animate-pulse',
+    validating: 'bg-amber-100 text-amber-800 animate-pulse',
+    complete:   'bg-emerald-100 text-emerald-800',
+  }
+  return (
+    <span
+      className={`inline-flex rounded-full px-2 py-0.5 font-mono text-[10px] font-semibold uppercase tracking-widest ${palette[state] ?? 'bg-slate-100 text-slate-700'}`}
+      data-ai-draft-state={state}
+    >
+      AI draft · {state}
+    </span>
+  )
+}
+
+// ---- per-section editor ----------------------------------------------------
+
+function SectionEditor({
+  publicationId, section, lockHolder,
+}: {
+  publicationId: string
+  section:       PublicationSectionRow
+  lockHolder:    SectionLockHolder | null
+}) {
+  const qc = useQueryClient()
+  const [draft, setDraft] = useState(section.contentHtml)
+  const [dirty, setDirty] = useState(false)
+  const [lockConflict, setLockConflict] = useState<SectionLockHolder | null>(null)
+  const [actionInfo, setActionInfo]     = useState<string | null>(null)
+  const [actionError, setActionError]   = useState<string | null>(null)
+  const heartbeatRef = useRef<number | null>(null)
+
+  // Refresh local draft when the server version changes (e.g. AI draft wrote).
+  // Only if the local value matches the previous server value (not dirty) —
+  // otherwise we'd clobber the author's unsaved edit.
+  const lastServerHtmlRef = useRef(section.contentHtml)
+  useEffect(() => {
+    if (section.contentHtml !== lastServerHtmlRef.current) {
+      lastServerHtmlRef.current = section.contentHtml
+      if (!dirty) setDraft(section.contentHtml)
+    }
+  }, [section.contentHtml, dirty])
+
+  const acquireLock = useMutation({
+    mutationFn: () => publicationsApi.acquireSectionLock(publicationId, section.sectionId),
+    onSuccess: () => {
+      setLockConflict(null)
+      qc.invalidateQueries({ queryKey: ['publication-locks', publicationId] })
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ApiError && err.status === 423) {
+        const body = err.body as { holder?: SectionLockHolder } | null
+        if (body?.holder) setLockConflict(body.holder)
+      }
+    },
+  })
+
+  const releaseLock = useMutation({
+    mutationFn: () => publicationsApi.releaseSectionLock(publicationId, section.sectionId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['publication-locks', publicationId] })
+    },
+  })
+
+  const save = useMutation({
+    mutationFn: () => publicationsApi.saveSection(publicationId, section.sectionId, draft),
+    onSuccess: () => {
+      setDirty(false)
+      lastServerHtmlRef.current = draft
+      setActionInfo('Saved.')
+      setActionError(null)
+      qc.invalidateQueries({ queryKey: ['publication-sections', publicationId] })
+    },
+    onError: (err: unknown) => {
+      if (err instanceof ApiError && err.status === 423) {
+        const body = err.body as { holder?: SectionLockHolder } | null
+        if (body?.holder) setLockConflict(body.holder)
+        setActionError('Could not save — someone else holds this section.')
+      } else {
+        setActionError(errMessage(err, 'Save failed'))
+      }
+      setActionInfo(null)
+    },
+  })
+
+  // Lock lifecycle: acquire on focus, periodic heartbeat (re-acquire
+  // every 60 s refreshes lastHeartbeatAt via the acquire path's
+  // "extended" outcome — simpler than a dedicated heartbeat endpoint),
+  // release on blur.
+  const onFocus = () => {
+    acquireLock.mutate()
+    if (heartbeatRef.current === null) {
+      heartbeatRef.current = window.setInterval(() => {
+        acquireLock.mutate()
+      }, 60_000) as unknown as number
+    }
+  }
+  const onBlur = () => {
+    if (heartbeatRef.current !== null) {
+      window.clearInterval(heartbeatRef.current)
+      heartbeatRef.current = null
+    }
+    if (dirty) save.mutate()
+    else       releaseLock.mutate()
+  }
+  useEffect(() => () => {
+    if (heartbeatRef.current !== null) {
+      window.clearInterval(heartbeatRef.current)
+    }
+  }, [])
+
+  const isLockedByOther = !!lockConflict || (!!lockHolder && lockHolder.userId && !acquireLock.data)
+
+  return (
+    <section className="rounded-md border border-slate-200 bg-white p-3" data-section-editor={section.sectionId}>
+      <header className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="font-semibold text-slate-900 text-[13px]">
+            §{section.sectionNumber} {section.sectionTitle}
+          </p>
+          <span className="font-mono text-[10px] text-slate-500">{section.wordCount} words</span>
+          <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${confidenceColor(section.aiConfidence)}`}
+                data-chip="confidence"
+                title="Overall AI confidence from the last validation pass">
+            {section.aiConfidence === null ? '— confidence' : `${section.aiConfidence}% confidence`}
+          </span>
+          {section.aiFlags.map(f => (
+            <span key={f} className={`rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${flagChipClass(f)}`}
+                  data-flag={f}
+                  title={f}>
+              {flagLabel(f)}
+            </span>
+          ))}
+        </div>
+        <div className="flex items-center gap-2">
+          {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-800">unsaved</span>}
+          {save.isPending && <span className="text-[11px] text-slate-500">Saving…</span>}
+          {lockHolder && (
+            <span className="rounded-full bg-rose-50 border border-rose-200 px-2 py-0.5 font-mono text-[10px] font-semibold text-rose-800" data-lock-holder>
+              Locked by {lockHolder.userId.slice(0, 8)}… ({lockHolder.expiresInSeconds}s)
+            </span>
+          )}
+        </div>
+      </header>
+
+      {isLockedByOther && lockConflict && (
+        <p className="mb-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">
+          Another editor ({lockConflict.userId}) holds this section. Your edits will be rejected
+          until their lock expires or they release it.
+        </p>
+      )}
+
+      <textarea
+        value={draft}
+        onChange={e => { setDraft(e.currentTarget.value); setDirty(true); setActionInfo(null) }}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        rows={10}
+        className="w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-[12px] leading-relaxed"
+        data-field={`content-${section.sectionId}`}
+        placeholder={`Section ${section.sectionNumber} content — HTML allowed.`}
+      />
+
+      {actionInfo  && <p className="mt-1 text-[11px] text-emerald-700">{actionInfo}</p>}
+      {actionError && <p className="mt-1 text-[11px] text-rose-700">{actionError}</p>}
+      <p className="mt-1 font-mono text-[10px] text-slate-400">
+        {section.lastEditedAt
+          ? `Last edited ${new Date(section.lastEditedAt).toLocaleString()} by ${section.lastEditedBy ?? '—'}`
+          : 'Never edited'}
+      </p>
+    </section>
+  )
+}

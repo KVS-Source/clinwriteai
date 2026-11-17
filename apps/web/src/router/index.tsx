@@ -28,6 +28,7 @@ import { FinalDocument }        from '../screens/output/FinalDocument'
 import { ScientificWritingHome } from '../screens/scientific-writing/ScientificWritingHome'
 import { NewPublicationWizard } from '../screens/scientific-writing/NewPublicationWizard'
 import { ManuscriptEditor }    from '../screens/scientific-writing/ManuscriptEditor'
+import { ManuscriptLiveEditor } from '../screens/scientific-writing/ManuscriptLiveEditor'
 import { AuthorManagement }    from '../screens/scientific-writing/AuthorManagement'
 import { JournalSubmissionReadiness } from '../screens/scientific-writing/JournalSubmissionReadiness'
 import { CongressAbstractExport } from '../screens/scientific-writing/CongressAbstractExport'
@@ -246,6 +247,7 @@ export const router = createBrowserRouter([
                 element: <PublicationLayout />,
                 children: [
                   { index: true,             element: <ManuscriptEditor /> },
+                  { path: 'edit',            element: <ManuscriptLiveEditor /> },
                   { path: 'literature',      element: <PlaceholderScreen name="Literature & Citation Panel (B04)" /> },
                   { path: 'authors',         element: <AuthorManagement /> },
                   { path: 'submission',      element: <JournalSubmissionReadiness /> },

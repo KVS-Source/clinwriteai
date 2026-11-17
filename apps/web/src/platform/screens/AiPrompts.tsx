@@ -211,18 +211,51 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
     },
   })
 
+  // Reset + Save actions get rendered in two spots — pinned in the sticky
+  // header row so admins editing a 7k-char prompt never scroll past the
+  // Save button, and repeated under the textarea for muscle-memory reach.
+  // Both call the same handlers; the UI treats them as one logical pair.
+  const actionButtons = !needsBump && (
+    <>
+      <button
+        type="button"
+        onClick={() => { setDraft(policy.smePrompt); setActionInfo(null); setActionError(null) }}
+        disabled={!dirty || save.isPending}
+        className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        data-action="reset"
+      >
+        Reset
+      </button>
+      <button
+        type="button"
+        onClick={() => save.mutate()}
+        disabled={!dirty || !trimmed || save.isPending || !aiReady}
+        title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
+        className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+        data-action="save"
+      >
+        {save.isPending ? 'Saving…' : 'Save prompt'}
+      </button>
+    </>
+  )
+
   return (
     <div className="flex flex-col gap-3" data-editor={policy.docType}>
-      <header className="flex items-baseline justify-between border-b border-slate-200 pb-2">
+      <header className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 pb-2 pt-1">
         <div>
           <h2 className="text-[16px] font-semibold text-slate-900">{policy.docType}</h2>
           <p className="text-[12px] text-slate-500">
             Updated {new Date(policy.updatedAt).toLocaleString()} by {policy.updatedBy}
           </p>
         </div>
-        <div className="flex items-center gap-2 text-[11px] text-slate-500">
-          <span>{draft.length.toLocaleString()} chars</span>
-          {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">unsaved</span>}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-[11px] text-slate-500">
+            <span>{draft.length.toLocaleString()} chars</span>
+            {dirty && <span className="rounded bg-amber-100 px-1.5 py-0.5 font-semibold text-amber-800">unsaved</span>}
+          </div>
+          <div className="flex items-center gap-2" data-header-actions>
+            {actionButtons}
+          </div>
         </div>
       </header>
 
@@ -239,26 +272,8 @@ function PromptEditor({ policy, aiReady, onSaved }: { policy: DocumentTypePolicy
       />
 
       {!needsBump && (
-        <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={() => { setDraft(policy.smePrompt); setActionInfo(null); setActionError(null) }}
-            disabled={!dirty || save.isPending}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            data-action="reset"
-          >
-            Reset
-          </button>
-          <button
-            type="button"
-            onClick={() => save.mutate()}
-            disabled={!dirty || !trimmed || save.isPending || !aiReady}
-            title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
-            className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            data-action="save"
-          >
-            {save.isPending ? 'Saving…' : 'Save prompt'}
-          </button>
+        <div className="flex items-center justify-end gap-2" data-footer-actions>
+          {actionButtons}
         </div>
       )}
 

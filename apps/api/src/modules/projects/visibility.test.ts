@@ -11,7 +11,7 @@ interface FakeRows {
   projectRaci?: Array<{ projectId: string; responsibleId?: string; accountableId?: string; consultedIds?: string[]; informedIds?: string[] }>
 }
 
-type MemberWhere = { userId: string; removedAt: null; OR?: Array<{ projectRole: null | { not: string } }> }
+type MemberWhere = { userId: string; removedAt: null; projectRole?: string; OR?: Array<{ projectRole: null | { not: string } }> }
 type RaciClause = { OR: Array<{ raciRows: { some: { userId: string } } }> }
 type DocWhere = { OR: Array<{ assigneeId?: string; createdBy?: string } & Partial<RaciClause>> }
 
@@ -25,6 +25,7 @@ function fakePrisma(rows: FakeRows): PrismaClient {
         return (rows.members ?? [])
           .filter(r => r.userId === where.userId && r.removedAt === null)
           .filter(r => !excluded || (r.projectRole ?? null) !== excluded.not)
+          .filter(r => where.projectRole === undefined || r.projectRole === where.projectRole)
           .map(r => ({ projectId: r.projectId }))
       },
     },
@@ -169,10 +170,20 @@ describe('PM + Contributor: projects depend on the role in use', () => {
     projectRaci: [{ projectId: 'p-proj-raci', consultedIds: ['u-1'] }, { projectId: 'p-other', responsibleId: 'someone-else' }],
   }
 
-  it('working as PM: every project he created or manages, plus those where he has a RACI role', async () => {
+  it('working as PM: only the projects he created or was added to as PM — not those where he has a RACI role', async () => {
     expect(await visibleProjectIdsForUser(fakePrisma(rows), user('pm'))).toEqual(
-      new Set(['p-mine', 'p-mine-with-raci', 'p-raci', 'p-doc-i-created', 'p-proj-raci']),
+      new Set(['p-mine', 'p-mine-with-raci']),
     )
+  })
+
+  it('working as PM: a removed PM membership, or a non-PM membership, does not show the project', async () => {
+    const r = await visibleProjectIdsForUser(fakePrisma({
+      members: [
+        { userId: 'u-1', projectId: 'p-removed', removedAt: new Date(), projectRole: 'Project Manager' },
+        { userId: 'u-1', projectId: 'p-writer', removedAt: null, projectRole: 'Lead Writer' },
+      ],
+    }), user('pm'))
+    expect(r).toEqual(new Set())
   })
 
   it('working as Contributor: only projects where he has a RACI role — not the ones he manages', async () => {

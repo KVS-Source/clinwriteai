@@ -352,6 +352,8 @@ function ScheduleMeetingForm({ documentId, onScheduled }: { documentId: string; 
   const [endTime, setEndTime] = useState('16:00')
   const [attendees, setAttendees] = useState<string[]>([])
   const chair = chairId || chairChoices.find(p => p.id === me?.id)?.id || chairChoices[0]?.id || ''
+  // The document's Approvers are always invited (the API adds them too); attending is optional.
+  const isApprover = (p: { letters: string[] }) => p.letters.includes('A')
 
   const schedule = useMutation({
     mutationFn: () => {
@@ -362,7 +364,8 @@ function ScheduleMeetingForm({ documentId, onScheduled }: { documentId: string; 
         endTime,
         attendees: [
           { userId: chair, roleInCrm: 'Chair' },
-          ...attendees.filter(id => id !== chair).map(userId => ({ userId, roleInCrm: 'Reviewer' as const })),
+          ...people.filter(p => p.id !== chair && (attendees.includes(p.id) || isApprover(p)))
+            .map(p => ({ userId: p.id, roleInCrm: isApprover(p) && !p.letters.some(l => l === 'R' || l === 'C' || l === 'Q') ? 'Approver' as const : 'Reviewer' as const })),
         ],
       }
       return crmApi.createMeeting(documentId, body)
@@ -401,7 +404,8 @@ function ScheduleMeetingForm({ documentId, onScheduled }: { documentId: string; 
             <label key={p.id} className="flex items-center gap-2 text-[12px] text-slate-700">
               <input
                 type="checkbox"
-                checked={attendees.includes(p.id)}
+                checked={attendees.includes(p.id) || isApprover(p)}
+                disabled={isApprover(p)}
                 onChange={e => {
                   // Read before the updater runs — React clears currentTarget
                   // after the handler, so reading it inside the updater crashed.
@@ -410,9 +414,11 @@ function ScheduleMeetingForm({ documentId, onScheduled }: { documentId: string; 
                 }}
               />
               {p.name}
+              {isApprover(p) && <span className="text-[11px] text-slate-400" data-crm-approver-invited>{t('page.crm_module.approver_auto_invited')}</span>}
             </label>
           ))}
         </div>
+        {people.some(p => p.id !== chair && isApprover(p)) && <p className="text-[11px] text-slate-500">{t('page.crm_module.approvers_invited_hint')}</p>}
       </div>
       {schedule.isError && <p className="rounded-md bg-red-50 p-2 text-[12px] text-red-800">{apiMessage(schedule.error, t('page.crm_module.schedule_failed'))}</p>}
       <div className="flex justify-end">

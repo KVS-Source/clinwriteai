@@ -83,7 +83,7 @@ export function DocumentLayout() {
     ...(tabAccess?.review === false ? [] : [
       { to: `${base}/review`, label: t(tabAccess?.approverOnly ? 'component.document_layout.tab_approver_view' : 'component.document_layout.tab_reviewer_view'), disabled: reviewDisabled, title: reviewDisabled ? lockReason : undefined },
     ]),
-    // The Approver has no CRM tab.
+    // The Approver has no CRM tab, except while invited to an open meeting.
     ...(tabAccess?.crm === false ? [] : [
       { to: `${base}/crm`,    label: t('component.document_layout.tab_crm') },
     ]),

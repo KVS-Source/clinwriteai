@@ -1,6 +1,7 @@
 // The project-level CRM (the sidebar's "CRM" link and its page) follows the document tabs' rule
 // (useDocumentTabAccess): an Approver-only person (A and not also Author, Reviewer or QC) has no CRM.
-// A document where the user holds no letter (a PM, an admin) keeps its CRM, as before.
+// A document where the user holds no letter (a PM, an admin) keeps its CRM, as before. An Approver
+// invited to a scheduled or running meeting on the document has its CRM while that meeting is open.
 
 import { useQuery } from '@tanstack/react-query'
 import type { Document } from '@platform/types'
@@ -8,9 +9,9 @@ import { documentsApi } from '../api'
 import { tabAccessForLetters } from './useDocumentTabAccess'
 
 /** Whether the signed-in user gets the CRM for this document, from its myRaci letters. */
-export function documentHasCrmForMe(doc: Pick<Document, 'myRaci'>): boolean {
+export function documentHasCrmForMe(doc: Pick<Document, 'myRaci' | 'myCrmInvite'>): boolean {
   const letters = doc.myRaci ?? []
-  return letters.length === 0 || tabAccessForLetters(new Set(letters)).crm
+  return letters.length === 0 || doc.myCrmInvite === true || tabAccessForLetters(new Set(letters)).crm
 }
 
 /** Show the sidebar's CRM link: true until the documents have loaded, then only if any document has a CRM for me. */

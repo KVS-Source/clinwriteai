@@ -68,7 +68,7 @@ async function buildApp(setup: Setup = {}): Promise<{ app: FastifyInstance; call
   const app = Fastify()
   app.decorate('prisma', {
     $queryRawUnsafe,
-    // Project visibility for a PM: a member of p-1, and working on a document in p-2.
+    // Project visibility for a PM: the PM of p-1. Working on a document in p-2 doesn't count while working as PM.
     projectMember:     { findMany: vi.fn(async () => [{ projectId: 'p-1' }]) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
@@ -240,7 +240,7 @@ describe('a project manager', () => {
       expect(c.sql).toContain(`a.entity_type = 'project'`)
       expect(c.sql).toContain(`a.details->>'documentId'`)
       expect(c.sql).toContain('crm_meetings m')
-      expect(c.params[0]).toEqual(['p-1', 'p-2'])
+      expect(c.params[0]).toEqual(['p-1'])
     }
   })
 
@@ -248,7 +248,7 @@ describe('a project manager', () => {
     for (const tenantId of [null, 'TENANT-ACME']) {
       const { app, calls } = await setupApp({ role: 'pm', tenantId })
       await app.inject({ method: 'GET', url: '/admin/audit/export' })
-      expect(calls[0]!.params[0]).toEqual(['p-1', 'p-2'])
+      expect(calls[0]!.params[0]).toEqual(['p-1'])
       expect(calls[0]!.sql).not.toContain('u."tenantId"')
       await app.close()
     }

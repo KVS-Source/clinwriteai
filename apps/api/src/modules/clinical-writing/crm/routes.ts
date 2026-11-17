@@ -33,13 +33,13 @@ const scheduleSchema = z.object({
   endTime: z.string().min(1),
   attendees: z.array(z.object({
     userId: z.string(),
-    roleInCrm: z.enum(['Chair', 'Author', 'Reviewer', 'Observer']),
+    roleInCrm: z.enum(['Chair', 'Author', 'Reviewer', 'Approver', 'Observer']),
   })).default([]),
 })
 
 const addAttendeeSchema = z.object({
   userId: z.string().min(1),
-  roleInCrm: z.enum(['Chair', 'Author', 'Reviewer', 'Observer']),
+  roleInCrm: z.enum(['Chair', 'Author', 'Reviewer', 'Approver', 'Observer']),
 })
 
 const resolveSchema = z.object({
@@ -135,7 +135,7 @@ async function crmMeetingShape(
     // Started during authoring: completing it put the document back in authoring, not on to signing.
     heldDuringAuthoring: meeting.returnToStatus === 'in_authoring',
     chair: toTeamMember(meeting.chairId, byId.get(meeting.chairId) ?? null, 'A', 'Chair'),
-    attendees: meeting.attendees.map(a => toTeamMember(a.userId, byId.get(a.userId) ?? null, a.roleInCrm === 'Chair' ? 'A' : a.roleInCrm === 'Author' ? 'R' : 'C', a.roleInCrm)),
+    attendees: meeting.attendees.map(a => toTeamMember(a.userId, byId.get(a.userId) ?? null, a.roleInCrm === 'Chair' || a.roleInCrm === 'Approver' ? 'A' : a.roleInCrm === 'Author' ? 'R' : 'C', a.roleInCrm)),
     commentIds: ctx.allCommentIds,
     resolvedIds,
     activeId: null as string | null,
@@ -263,6 +263,14 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
     const attendeeSet = new Map<string, string>()
     for (const a of parsed.data.attendees) attendeeSet.set(a.userId, a.roleInCrm)
     attendeeSet.set(parsed.data.chairId, 'Chair')
+    // Every Approver (A) of the document is invited automatically (attendance is optional). An
+    // Approver-only person attends as 'Approver' even if the form sent them as someone else.
+    const approverOnly = (p: { letters: string[] }) => p.letters.includes('A') && !p.letters.some(l => l === 'R' || l === 'C' || l === 'Q')
+    const approverIds = people.filter(p => p.letters.includes('A')).map(p => p.id)
+    for (const p of people) {
+      if (!p.letters.includes('A') || attendeeSet.get(p.id) === 'Chair') continue
+      if (!attendeeSet.has(p.id) || approverOnly(p)) attendeeSet.set(p.id, 'Approver')
+    }
 
     const created = await app.prisma.$transaction(async (tx) => {
       const meeting = await tx.crmMeeting.create({
@@ -299,6 +307,27 @@ export const crmRoutes: FastifyPluginAsync = async (app) => {
       },
       ipAddress: request.ip ?? null,
     })
+
+    // Tell the Approvers they are invited. The meeting is already saved, so a failed notification must not fail it.
+    const notifyIds = approverIds.filter(id => id !== request.user!.id)
+    if (notifyIds.length > 0 && app.hasDecorator('notifications')) {
+      const day = new Date(parsed.data.scheduledDate).toISOString().slice(0, 10)
+      for (const recipientId of notifyIds) {
+        try {
+          await app.notifications.send({
+            recipientId,
+            kind:     'crm.meeting_invited',
+            severity: 'info',
+            title:    `You're invited to ${meetingRef} for "${doc.title}"`,
+            body:     `${day}, ${parsed.data.startTime}–${parsed.data.endTime}. Attending is optional.`,
+            linkPath: `/projects/${doc.projectId}/clinical-writing/documents/${documentId}/crm`,
+            payload:  { documentId, projectId: doc.projectId, meetingId: created.id, meetingRef },
+          })
+        } catch (err) {
+          request.log.warn({ err, documentId, recipientId }, 'crm invite notification failed')
+        }
+      }
+    }
 
     return reply.code(201).send(created)
   })

@@ -110,6 +110,8 @@ export interface Document {
   /** The assignee's RACI letters on this document (list route only), e.g. ['R']. */
   assigneeRaci?: string[]
   myRaci?: string[]
+  /** The caller is invited to a scheduled or running CRM meeting on this document. */
+  myCrmInvite?: boolean
   // --- Protocol metadata (migration 60). Present on every Document shape
   // but only populated for protocol / protocol-amendment documents via the
   // Protocol right-panel. Null / absent = "not yet set" (the panel treats

@@ -60,6 +60,7 @@ async function build(who: Who = {}) {
     projectMember: { findMany: vi.fn(async () => (who.memberOfProject === false ? [] : [{ projectId: P }])) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
   } as never)
   app.decorate('blob', blob as never)
   app.decorate('audit', { append: vi.fn(async () => undefined) } as never)

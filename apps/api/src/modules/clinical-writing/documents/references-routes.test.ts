@@ -60,6 +60,7 @@ async function build(
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: vi.fn(async () => ({ id: 'proj-1' })) },
+    crmAttendee: { findMany: async () => [] },
     document: {
 
       count: async () => 1,

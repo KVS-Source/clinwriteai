@@ -17,6 +17,7 @@ async function build(opts: { status?: string; role?: AuthenticatedUser['role']; 
     projectMember: { findMany: vi.fn(async () => (opts.memberOf ?? ['p-1']).map(projectId => ({ projectId }))) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     document: { findMany: vi.fn(async () => []) },
     user: { findMany: vi.fn(async () => [{ id: 'u-pm', name: 'Alex Thornton' }]) },
   } as never)

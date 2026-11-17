@@ -36,6 +36,7 @@ async function build(o: Opts = {}) {
     projectMember:     { findMany: vi.fn(async () => (o.pmMember ? [{ projectId: 'p-1' }] : [])) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     user:              { findMany: vi.fn(async () => []) },
     checklistInstance: { findUnique: vi.fn(async () => ({ templateVersion: 1, items: [] })) },
     ichSectionWaiver:  { findMany: vi.fn(async () => []) },

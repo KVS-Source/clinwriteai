@@ -47,6 +47,7 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
     projectMember:     { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     document:          { findMany: vi.fn(async () => []) },
     documentUpload: { findMany: vi.fn(async () => []) },
     documentSource: { createMany: vi.fn(async () => ({ count: 0 })) },
@@ -61,6 +62,16 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
     // lookup; returning null keeps the template fallbacks these tests
     // actually cover.
     documentTypePolicy: {
+      findFirst: vi.fn(async () => null),
+    },
+    // Phase-1 pointer refactor (migration 73): the create route now
+    // probes AiPromptRecord for a latest-approved row to pin on the
+    // Document. Null leaves the Document unpinned.
+    aiPromptRecord: {
+      findFirst: vi.fn(async () => null),
+    },
+    // Phase-2 pointer refactor (migration 74): same for BP.
+    bestPracticeRecord: {
       findFirst: vi.fn(async () => null),
     },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),

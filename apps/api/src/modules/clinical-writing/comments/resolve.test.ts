@@ -20,6 +20,7 @@ async function build(opts: { maxSeq?: number | null; docExists?: boolean; failCr
   const app = Fastify()
   app.decorate('prisma', {
     project: { findUnique: async () => ({ status: 'ongoing' }) },
+    crmAttendee: { findMany: async () => [] },
 
     document: { count: async () => 1,  findUnique: vi.fn(async () => (opts.docExists === false ? null : { id: 'doc-b' })) },
     comment: {

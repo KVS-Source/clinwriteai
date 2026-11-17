@@ -154,6 +154,105 @@ model DocumentTypePolicy {
 }
 
 // --------------------------------------------------------------------------
+// AI Prompt — first-class versioned entity (migration 73, Phase 1 of the
+// pointer refactor). Carries the SME prompt + parsed section rules per
+// doc type with an explicit draft → approved → retired workflow:
+//
+//   Admin edits a 'draft' row without affecting any document already in
+//   flight. 'Approve' promotes the row to 'approved'; the previous
+//   approved row of the same docType flips to 'retired' + supersededBy
+//   points to the new one. Documents pin an aiPromptRecordId at create
+//   time so later approvals don't rewrite history (Document columns
+//   added in the same migration).
+//
+// DocumentTypePolicy.smePrompt + .sectionRules stay in place for now as
+// a backfill-safe read path; Phase 3 drops them once the AI assembly
+// has been fully migrated.
+// --------------------------------------------------------------------------
+
+model AiPromptRecord {
+  id             String    @id @default(uuid())
+  docType        String                                                // 'protocol' | 'csr_full' | …
+  version        Int                                                   // 1-based, unique per docType
+  status         String    @default("draft")                           // 'draft' | 'approved' | 'retired'
+
+  smePrompt      String
+  sectionRules   Json      @default("{}")                              // { <sectionKey>: [{severity,text}] }
+
+  // Chain pointer: on approve, the previously-approved row of the same
+  // docType is set to status='retired' + supersededBy = new row id.
+  supersededBy   String?
+  // When this row became the 'approved' one; also set on first direct approve.
+  effectiveDate  DateTime?
+  retiredAt      DateTime?
+  retireReason   String?
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("ai_prompt_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+// --------------------------------------------------------------------------
+// BestPracticeRecord — Phase-2 of the pointer refactor (migration 74).
+//
+// The BP digest (AI-distilled principles from BP PDFs) moves off
+// DocumentTypePolicy onto its own versioned entity with a
+// draft → approved → retired workflow. Each PDF upload runs the
+// distiller which writes to the draft row for the docType (one draft at
+// a time per docType); an admin reviews + approves to make it the live
+// digest that AI reads. Documents pin bestPracticeRecordId +
+// bestPracticeVersionAtCreate so later approvals don't rewrite the
+// principles a given document was drafted against.
+//
+// DocumentTypePolicy.bestPracticeDigest keeps the current approved
+// digest's JSON (legacy fallback) until Phase 3 drops the column.
+// --------------------------------------------------------------------------
+
+model BestPracticeRecord {
+  id             String    @id @default(uuid())
+  docType        String                                                // 'protocol' | 'csr_full' | …
+  version        Int                                                   // 1-based, unique per docType
+  status         String    @default("draft")                           // 'draft' | 'approved' | 'retired'
+
+  // The structured digest JSON. Shape: { principles: Array<{ scope, severity, text }> }
+  // + optional sourcePdfId, distilledAt, distilledModel breadcrumbs the
+  // worker writes on distillation. Mirrors the legacy
+  // DocumentTypePolicy.bestPracticeDigest shape so the resolver can mix
+  // old + new rows transparently.
+  digest         Json      @default("{\"principles\":[]}")
+
+  // Breadcrumbs the distiller sets; null when a draft was hand-authored.
+  sourcePdfId    String?                                               // DocumentUpload.id of the PDF that produced this digest
+  distilledAt    DateTime?
+  distilledModel String?
+
+  supersededBy   String?
+  effectiveDate  DateTime?
+  retiredAt      DateTime?
+  retireReason   String?
+  approvedBy     String?
+  approvedAt     DateTime?
+
+  createdBy      String
+  updatedBy      String
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@map("best_practice_records")
+  @@unique([docType, version])
+  @@index([docType, status])
+  @@index([status])
+}
+
+// --------------------------------------------------------------------------
 // Notifications — in-app + email + SMS fan-out
 // --------------------------------------------------------------------------
 

@@ -51,6 +51,7 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
     projectMember:     { findMany: vi.fn(async () => memberOf.map(projectId => ({ projectId }))) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     document:          { findMany: vi.fn(async () => []) },
     documentUpload: {
       findMany: vi.fn(async ({ where }: { where: { id: { in: string[] }; projectId: string } }) =>
@@ -74,6 +75,16 @@ async function build(userOver: Partial<AuthenticatedUser> = {}, memberOf: string
     // path. Returning null leaves templateId + policyVersionAtCreate at
     // the caller's defaults (same shape as pre-policy behaviour).
     documentTypePolicy: {
+      findFirst: vi.fn(async () => null),
+    },
+    // Phase-1 pointer refactor (migration 73): create route resolves
+    // the latest-approved AiPromptRecord. Returning null leaves the
+    // Document unpinned — AI falls back to the policy row's smePrompt.
+    aiPromptRecord: {
+      findFirst: vi.fn(async () => null),
+    },
+    // Phase-2 pointer refactor (migration 74): same for BP.
+    bestPracticeRecord: {
       findFirst: vi.fn(async () => null),
     },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),

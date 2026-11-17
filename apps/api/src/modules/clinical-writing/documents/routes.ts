@@ -31,7 +31,7 @@ import { addTemplateSections, resolveTemplateSections, SIGNATURE_BOUND_STATUSES 
 import { actorManagesProject } from '../../projects/project-managers.js'
 import { DocumentService, hashSections } from './service.js'
 import { DocumentTypePolicyService } from '../../platform/document-type-policy/service.js'
-import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock } from '../../platform/document-type-policy/resolve.js'
+import { resolveForDocument as resolvePolicyForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES } from '../../platform/document-type-policy/resolve.js'
 import { resolvePolicyAssets } from '../../platform/document-type-policy/resolve-assets.js'
 import { containsAiPlaceholder, AI_PLACEHOLDER_REFUSAL } from './ai-placeholder.js'
 import { stubAllowed } from '../../platform/ai-gateway/service.js'
@@ -304,7 +304,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Contributors and guests only see the documents they work on.
-    const docScope = documentVisibilityWhere(request.user!)
+    const docScope = await documentVisibilityWhere(app.prisma, request.user!)
     const rows = await app.prisma.document.findMany({
       where: { projectId, deletedAt: null, ...(docScope ?? {}) },
       orderBy: { updatedAt: 'desc' },
@@ -453,6 +453,25 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       ?? resolved?.template.auto?.id
       ?? undefined
 
+    // Phase-1 pointer refactor (migration 73): pin the latest-approved
+    // AiPromptRecord for this docType at creation so AI assembly reads a
+    // stable row even after admins approve newer prompt versions. Null
+    // when no approved row exists yet — the resolver falls back to the
+    // policy row's smePrompt in that case.
+    const promptPin = await app.prisma.aiPromptRecord.findFirst({
+      where:   { docType: policyDocType, status: 'approved' },
+      orderBy: { version: 'desc' },
+      select:  { id: true, version: true },
+    })
+
+    // Phase-2 pointer refactor (migration 74): mirror of the AiPrompt
+    // pin — latest approved BestPracticeRecord for this docType.
+    const bpPin = await app.prisma.bestPracticeRecord.findFirst({
+      where:   { docType: policyDocType, status: 'approved' },
+      orderBy: { version: 'desc' },
+      select:  { id: true, version: true },
+    })
+
     const { document, version } = await svc.create({
       projectId,
       type: parsed.data.type,
@@ -465,6 +484,10 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
       targetCompletionDate: parsed.data.targetCompletionDate ? new Date(parsed.data.targetCompletionDate) : undefined,
       aiInstructions: parsed.data.aiInstructions?.trim() || undefined,
       policyVersionAtCreate: policy?.version,
+      aiPromptRecordId:       promptPin?.id      ?? undefined,
+      aiPromptVersionAtCreate: promptPin?.version ?? undefined,
+      bestPracticeRecordId:        bpPin?.id      ?? undefined,
+      bestPracticeVersionAtCreate: bpPin?.version ?? undefined,
     })
 
     if (sourceUploadIds.length) {
@@ -662,7 +685,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const doc = await app.prisma.document.findUnique({
       where: { id: documentId },
       select: {
-        id: true, type: true, aiInstructions: true, policyVersionAtCreate: true, deletedAt: true,
+        id: true, type: true, aiInstructions: true, policyVersionAtCreate: true,
+        aiPromptRecordId: true, bestPracticeRecordId: true, deletedAt: true,
         currentVersion: {
           select: {
             sections: {
@@ -681,6 +705,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const policy = await resolvePolicyForDocument(app.prisma, {
       docType:               doc.type,
       policyVersionAtCreate: doc.policyVersionAtCreate ?? null,
+      aiPromptRecordId:      doc.aiPromptRecordId ?? null,
+      bestPracticeRecordId:  doc.bestPracticeRecordId ?? null,
     }).catch((err) => {
       app.log.warn({ err, documentId }, 'section-context: policy resolve failed — returning no-policy shape')
       return null
@@ -1870,7 +1896,38 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // "Additional context" block the AI treats as reference-only.
     // attachedSourceIds forces scope='source' + narrows to the picked
     // uploads. Explicit attach beats the chip-era scope default.
-    const hasAttachments = (parsed.data.attachedSourceIds?.length ?? 0) > 0
+    //
+    // Reference auto-attach (FR-A-022 companion): source documents linked
+    // to THIS section via SourceReference are merged into the attached
+    // list regardless of the user's Scope toggle. The intent: when the
+    // author asks to edit a sentence that cites a source, or to pull a
+    // new fact into the section, AI must have the primary source to
+    // read from — otherwise it has to fabricate or guess. Removed
+    // references (SourceReferenceRemoval) are skipped. Silent fallback
+    // on query failure so AI edits still work even if the refs table
+    // query hiccups.
+    const explicitAttachedIds = parsed.data.attachedSourceIds ?? []
+    let sectionRefUploadIds: string[] = []
+    try {
+      const refs = await app.prisma.sourceReference.findMany({
+        where:  { documentId, sectionId: section.sectionId },
+        select: { id: true, uploadId: true },
+      })
+      const removedRows = await app.prisma.sourceReferenceRemoval
+        .findMany({
+          where:  { documentId, referenceId: { in: refs.map(r => r.id) } },
+          select: { referenceId: true },
+        })
+        .catch(() => [] as Array<{ referenceId: string }>)
+      const removed = new Set(removedRows.map(r => r.referenceId))
+      sectionRefUploadIds = Array.from(new Set(
+        refs.filter(r => !removed.has(r.id)).map(r => r.uploadId),
+      ))
+    } catch (err) {
+      app.log.warn({ err, documentId, sectionId: section.sectionId }, 'section references auto-attach: lookup failed')
+    }
+    const effectiveAttachedIds = Array.from(new Set([...explicitAttachedIds, ...sectionRefUploadIds]))
+    const hasAttachments = effectiveAttachedIds.length > 0
     const scope = hasAttachments ? 'source' : (parsed.data.scope ?? 'section')
     let additionalContext = ''
     // Images attached as source documents travel out-of-band as vision
@@ -1908,7 +1965,7 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
       // a stub to the AI; attaching 1-2 docs gives richer context.
       try {
         const sourceIdFilter = hasAttachments
-          ? { uploadId: { in: parsed.data.attachedSourceIds! } }
+          ? { uploadId: { in: effectiveAttachedIds } }
           : {}
         const sources = await app.prisma.documentSource.findMany({
           where:  { documentId, ...sourceIdFilter },
@@ -2148,6 +2205,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     const policy = await resolvePolicyForDocument(app.prisma, {
       docType:               doc.type,
       policyVersionAtCreate: doc.policyVersionAtCreate ?? null,
+      aiPromptRecordId:      doc.aiPromptRecordId ?? null,
+      bestPracticeRecordId:  doc.bestPracticeRecordId ?? null,
     }).catch((err) => {
       app.log.warn({ err, documentId }, 'policy resolve failed — falling back to no-policy prompt')
       return null
@@ -2161,9 +2220,15 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
     // failure — a missing brief or Prisma hiccup must never fail the
     // user's AI request. See carry-prompt/decide.ts for the rollout
     // mechanic (empty env var = off everywhere).
+    // SECTION_GROUNDING_RULES is the product-level guardrail block —
+    // always prepended to section AI calls. States that attached source
+    // documents are authoritative, prohibits fabrication, scopes the
+    // model to single-section rewriting, and preserves reference
+    // markers. Admins see this in the AI Prompts preview panel.
+    const scaffold = SECTION_GROUNDING_RULES
     let promptWithScope = policyBlock
-      ? `${policyBlock}\n\n${legacyPromptWithScope}`
-      : legacyPromptWithScope
+      ? `${scaffold}\n\n${policyBlock}\n\n${legacyPromptWithScope}`
+      : `${scaffold}\n\n${legacyPromptWithScope}`
     let carryPromptUsed = false
     if (carryPromptEnabledFor(hyphenate(doc.type))) {
       try {
@@ -2188,8 +2253,8 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
           }),
         })
         const systemWithPolicy = policyBlock
-          ? `${carry.systemPrompt}\n\n${policyBlock}`
-          : carry.systemPrompt
+          ? `${scaffold}\n\n${carry.systemPrompt}\n\n${policyBlock}`
+          : `${scaffold}\n\n${carry.systemPrompt}`
         promptWithScope = `${systemWithPolicy}\n\n---\n\n${carry.userPrompt}`
         carryPromptUsed = true
       } catch (err) {
@@ -2230,6 +2295,11 @@ export const documentsRoutes: FastifyPluginAsync = async (app) => {
             instructionChars:  promptTextForHistory.length,
             carryPromptUsed,
             policyVersionUsed: policy?.version ?? null,
+            // Auto-attached section references so investigations can trace
+            // which source uploads AI was handed when editing this section
+            // (independent of the user's Scope toggle).
+            autoAttachedRefUploads:    sectionRefUploadIds.length,
+            autoAttachedRefUploadIds:  sectionRefUploadIds,
             outcome,
             ...extra,
           },

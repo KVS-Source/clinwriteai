@@ -272,6 +272,20 @@ async function buildServer() {
     await import('./modules/platform/document-type-policy/routes.js')
   await app.register(documentTypePolicyRoutes, { prefix: '/document-type-policies' })
 
+  // AI Prompt — first-class versioned entity (Phase 1 of the pointer
+  // refactor). AI assembly picks the latest approved row by docType
+  // (or a pinned row on Document).
+  const { aiPromptRoutes } = await import('./modules/platform/ai-prompt/routes.js')
+  await app.register(aiPromptRoutes, { prefix: '/ai-prompts' })
+
+  // Best-Practice Record — first-class versioned entity (Phase 2 of the
+  // pointer refactor). AI assembly picks the latest approved digest by
+  // docType (or a pinned row on Document). Distillation still flows
+  // through /document-type-policies/:docType/distill-best-practice-file
+  // — the worker writes to a draft BestPracticeRecord for admin review.
+  const { bestPracticeRoutes } = await import('./modules/platform/best-practice/routes.js')
+  await app.register(bestPracticeRoutes, { prefix: '/best-practice-records' })
+
   const { documentsUploadRoutes } = await import('./modules/clinical-writing/documents/upload-routes.js')
   await app.register(documentsUploadRoutes, { prefix: '/projects' })
   const { documentsSourceRoutes } = await import('./modules/clinical-writing/documents/source-routes.js')

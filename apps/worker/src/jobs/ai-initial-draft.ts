@@ -32,7 +32,7 @@
 import { createBlobReaderFromEnv } from '../blob-reader.js'
 import { resolveDraftModel } from '../ai-engine-settings.js'
 import { extractMissingItems } from './missing-items.js'
-import { resolveForDocument, renderPolicyPromptBlock, type PolicyRowForAi } from './policy-prompt.js'
+import { resolveForDocument, renderPolicyPromptBlock, SECTION_GROUNDING_RULES, type PolicyRowForAi } from './policy-prompt.js'
 import type { JobHandler } from './types.js'
 
 interface AiInitialDraftPayload {
@@ -215,6 +215,12 @@ async function draftWithClaude(args: {
     `Where the sources do not contain a piece of information this section needs, write the section's usual structure and put a bracketed marker where the information belongs, in the form [TBD: what is needed], for example [TBD: study title from the protocol]. Use one marker per missing item.`,
     `NEVER write a sentence or paragraph that explains the sources are incomplete, lack detail or do not contain the information (for example "the attached source does not contain ..."). The section must read as document text with [TBD: ...] markers in the gaps, not as a note about the sources. If the sources hold nothing for this section, output only its structure (headings, empty table rows, list stubs) with [TBD: ...] markers.`,
     `Do not invent numeric values, patient counts, dates, or citations. Quote figures only when they appear in the sources.`,
+    '',
+    // Product-level guardrails — same text injected by /ai-suggest on
+    // the API side. Keeps initial-draft + section-rewrite answering
+    // against the same "sources are authoritative, no fabrication"
+    // contract. See apps/api/.../document-type-policy/resolve.ts.
+    SECTION_GROUNDING_RULES,
     authorBlock,
     policySection,
   ].join('\n')
@@ -332,12 +338,19 @@ export const handleAiInitialDraft: JobHandler<AiInitialDraftPayload> = async (jo
   // against the same rule-set the document was created under.
   const docRow = await prisma.document.findUnique({
     where:  { id: documentId },
-    select: { aiInstructions: true, policyVersionAtCreate: true },
+    select: {
+      aiInstructions:       true,
+      policyVersionAtCreate: true,
+      aiPromptRecordId:     true,
+      bestPracticeRecordId: true,
+    },
   })
   const aiInstructions = docRow?.aiInstructions?.trim() || null
   const policy = await resolveForDocument(prisma, {
     docType:               type,
     policyVersionAtCreate: docRow?.policyVersionAtCreate ?? null,
+    aiPromptRecordId:      docRow?.aiPromptRecordId      ?? null,
+    bestPracticeRecordId:  docRow?.bestPracticeRecordId  ?? null,
   })
   if (policy) {
     log.info({ documentId, policyId: policy.id, policyVersion: policy.version }, 'ai_initial_draft: policy resolved')

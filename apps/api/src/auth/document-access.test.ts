@@ -30,6 +30,7 @@ function fakePrisma() {
   return {
     projectMember: { findMany: vi.fn(async ({ where }: { where: { userId: string } }) => (where.userId === 'pm' ? [{ projectId: 'P-IN' }] : [])) },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     raciAssignment: { findMany: vi.fn(async () => []) },
     document: {
       findMany: vi.fn(async () => []),

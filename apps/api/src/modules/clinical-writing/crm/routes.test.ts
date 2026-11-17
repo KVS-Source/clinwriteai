@@ -51,6 +51,7 @@ function fakePrisma() {
       createMany: async ({ data }: Row) => { attendees.push(...data); return { count: data.length } },
       upsert: async ({ create }: Row) => { attendees.push(create); return create },
       findFirst: async ({ where }: Row) => attendees.find(a => a.meetingId === where.meetingId && a.userId === where.userId) ?? null,
+      findMany: async () => [],
     },
     $queryRawUnsafe: async () => [{ meetingRef: 'CRM-001' }],
     comment: {

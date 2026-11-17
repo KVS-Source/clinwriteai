@@ -54,6 +54,7 @@ async function build(opts: { policy?: PolicyRow | null } = {}) {
     projectMember:  { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     document:       { findMany: vi.fn(async () => []) },
     documentUpload: { findMany: vi.fn(async () => []) },
     documentSource: { createMany: vi.fn(async () => ({ count: 0 })) },
@@ -73,6 +74,18 @@ async function build(opts: { policy?: PolicyRow | null } = {}) {
         policyLookups.push(arg.where)
         return opts.policy ?? null
       }),
+    },
+    // Phase-1 pointer refactor (migration 73): create route resolves
+    // the latest-approved AiPromptRecord for the docType. These tests
+    // don't exercise the pin path, so return null — the Document
+    // leaves aiPromptRecordId null and AI assembly falls back to the
+    // policy row's smePrompt.
+    aiPromptRecord: {
+      findFirst: vi.fn(async () => null),
+    },
+    // Phase-2 pointer refactor (migration 74): same shape for BP.
+    bestPracticeRecord: {
+      findFirst: vi.fn(async () => null),
     },
     $transaction: async (fn: (t: typeof tx) => unknown) => fn(tx),
   } as never)

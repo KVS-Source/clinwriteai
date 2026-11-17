@@ -94,6 +94,7 @@ describe('GET /projects/:id/status', () => {
       projectMember: { findMany: vi.fn(async () => [{ projectId: 'p-1' }]) },
       raciAssignment: { findMany: async () => [] },
       projectTeamMember: { findMany: vi.fn(async () => []) },
+      crmAttendee: { findMany: async () => [] },
       document: { findMany: vi.fn(async () => []) },
       user: { findMany: vi.fn(async () => [{ id: 'u-author', name: 'Sam Author' }]) },
     } as never)

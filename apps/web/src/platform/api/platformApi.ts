@@ -504,6 +504,66 @@ export const platformApi = {
       sectionCount: number
       ruleCount:    number
     }>(`/document-type-policies/${encodeURIComponent(docType)}/extract-section-rules`, {}),
+
+  // --- AiPromptRecord (Phase-1 pointer refactor, migration 73) ----------
+  // Prompts are now their own entity with a draft → approved → retired
+  // workflow. The AI Prompts admin tab talks to these routes; the Doc
+  // Type Policies screen still edits BP digest + section rules on the
+  // legacy `smePrompt` column until Phase 2 promotes BP too.
+  listAiPrompts: () =>
+    api.get<{ prompts: AiPromptRecord[] }>(`/ai-prompts`),
+  /** Latest approved row for a docType — 404 means no approved row exists. */
+  getAiPrompt: async (docType: string): Promise<AiPromptRecord | null> => {
+    try {
+      return await api.get<AiPromptRecord>(`/ai-prompts/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  /** Version history (draft + approved + retired, newest first). */
+  listAiPromptVersions: (docType: string) =>
+    api.get<{ versions: AiPromptRecord[] }>(`/ai-prompts/${encodeURIComponent(docType)}/versions`),
+  createAiPromptDraft: (body: AiPromptCreateBody) =>
+    api.post<AiPromptRecord>(`/ai-prompts`, body),
+  updateAiPromptDraft: (id: string, body: AiPromptPatchBody) =>
+    api.patch<AiPromptRecord>(`/ai-prompts/${encodeURIComponent(id)}`, body),
+  approveAiPrompt: (id: string) =>
+    api.post<AiPromptRecord>(`/ai-prompts/${encodeURIComponent(id)}/approve`, {}),
+  retireAiPrompt: (id: string, reason: string) =>
+    api.post<AiPromptRecord>(`/ai-prompts/${encodeURIComponent(id)}/retire`, { reason }),
+  /** Run AI extraction on this prompt row's smePrompt. Returns parsed
+   *  rules for review — admin saves via `updateAiPromptDraft` to persist. */
+  extractSectionRulesForPrompt: (id: string) =>
+    api.post<{
+      sectionRules: Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+      sectionCount: number
+      ruleCount:    number
+    }>(`/ai-prompts/${encodeURIComponent(id)}/extract-section-rules`, {}),
+
+  // --- BestPracticeRecord (Phase-2 pointer refactor, migration 74) ------
+  // BP digest is its own versioned entity. The distill worker writes to
+  // a draft row for the docType; admin reviews + approves. Distillation
+  // itself is still triggered via the policy route's
+  // distill-best-practice-file endpoint — unchanged UI, new destination.
+  listBestPracticeRecords: () =>
+    api.get<{ records: BestPracticeRecord[] }>(`/best-practice-records`),
+  getBestPracticeRecord: async (docType: string): Promise<BestPracticeRecord | null> => {
+    try {
+      return await api.get<BestPracticeRecord>(`/best-practice-records/${encodeURIComponent(docType)}`)
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 404) return null
+      throw err
+    }
+  },
+  listBestPracticeVersions: (docType: string) =>
+    api.get<{ versions: BestPracticeRecord[] }>(`/best-practice-records/${encodeURIComponent(docType)}/versions`),
+  updateBestPracticeDraft: (id: string, body: BestPracticePatchBody) =>
+    api.patch<BestPracticeRecord>(`/best-practice-records/${encodeURIComponent(id)}`, body),
+  approveBestPractice: (id: string) =>
+    api.post<BestPracticeRecord>(`/best-practice-records/${encodeURIComponent(id)}/approve`, {}),
+  retireBestPractice: (id: string, reason: string) =>
+    api.post<BestPracticeRecord>(`/best-practice-records/${encodeURIComponent(id)}/retire`, { reason }),
   // One-shot admin upload for the Best Practices parser: pick a PDF,
   // the server stores it as a platform DocumentUpload (projectId=null,
   // sourceCategory='best_practice') AND enqueues distillation in the
@@ -678,6 +738,88 @@ export type DocumentTypePolicyUpdateBody = DocumentTypePolicyEditableFields
 export interface DocumentTypePolicyBumpBody extends DocumentTypePolicyEditableFields {
   smePrompt:    string        // required on bump (API Zod re-posts the whole body)
   changeReason: string
+}
+
+// --- AiPromptRecord (platform/ai-prompt) ---------------------------------
+// Phase-1 pointer refactor (migration 73): AI prompts become their own
+// versioned entity with an explicit draft → approved → retired workflow.
+// A Document pins the id+version it was created under so later admin
+// approvals don't rewrite how it gets drafted.
+export type AiPromptStatus = 'draft' | 'approved' | 'retired'
+
+export type AiPromptSectionRules = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
+
+export interface AiPromptRecord {
+  id:            string
+  docType:       string
+  version:       number
+  status:        AiPromptStatus
+  smePrompt:     string
+  sectionRules:  unknown           // parsed structure — see AiPromptSectionRules
+  supersededBy:  string | null
+  effectiveDate: string | null
+  retiredAt:     string | null
+  retireReason:  string | null
+  approvedBy:    string | null
+  approvedAt:    string | null
+  createdBy:     string
+  updatedBy:     string
+  createdAt:     string
+  updatedAt:     string
+}
+
+export interface AiPromptCreateBody {
+  docType:       string
+  smePrompt:     string
+  sectionRules?: AiPromptSectionRules
+}
+
+export interface AiPromptPatchBody {
+  smePrompt?:    string
+  sectionRules?: AiPromptSectionRules
+}
+
+// --- BestPracticeRecord (platform/best-practice) --------------------------
+// Phase-2 pointer refactor (migration 74): BP digest becomes its own
+// versioned entity with the same draft → approved → retired workflow as
+// AiPromptRecord. The distill worker writes to a draft row; admin
+// reviews + approves.
+export type BestPracticeStatus = 'draft' | 'approved' | 'retired'
+
+export interface BestPracticeDigestShape {
+  principles:     Array<{
+    scope:    string                                     // 'whole-doc' | 'section:<key>'
+    severity: 'must' | 'should' | 'nice'
+    text:     string
+  }>
+  sourcePdfId?:   string
+  distilledAt?:   string
+  distilledModel?: string
+}
+
+export interface BestPracticeRecord {
+  id:             string
+  docType:        string
+  version:        number
+  status:         BestPracticeStatus
+  digest:         BestPracticeDigestShape
+  sourcePdfId:    string | null
+  distilledAt:    string | null
+  distilledModel: string | null
+  supersededBy:   string | null
+  effectiveDate:  string | null
+  retiredAt:      string | null
+  retireReason:   string | null
+  approvedBy:     string | null
+  approvedAt:     string | null
+  createdBy:      string
+  updatedBy:      string
+  createdAt:      string
+  updatedAt:      string
+}
+
+export interface BestPracticePatchBody {
+  digest?: BestPracticeDigestShape
 }
 
 // --- Template Library admin shape ---------------------------------------

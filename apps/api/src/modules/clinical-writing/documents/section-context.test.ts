@@ -46,6 +46,8 @@ async function build(opts: {
       findUnique: vi.fn(async () => ({
         id: 'DOC-1', projectId: 'proj-1', type: 'protocol',
         policyVersionAtCreate: opts.policyVersionAtCreate ?? null,
+        aiPromptRecordId:      null,
+        bestPracticeRecordId:  null,
         aiInstructions:        opts.aiInstructions        ?? null,
         deletedAt:             null,
         currentVersion: { sections },
@@ -56,11 +58,27 @@ async function build(opts: {
     // canSeeDocument helper taps these: the PM is on proj-1.
     projectMember:  { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     documentRaci:   { findMany: vi.fn(async () => []) },
     raciAssignment: { findMany: vi.fn(async () => []) },
     documentTypePolicy: {
       findUnique: vi.fn(async () => opts.policyPinned ?? null),
       findFirst:  vi.fn(async () => opts.policyCurrent ?? null),
+    },
+    // Phase-1 pointer refactor (migration 73): resolver reads
+    // AiPromptRecord first. Tests here exercise the policy fallback so
+    // both lookups return null — the resolver falls through to the
+    // policy row.
+    aiPromptRecord: {
+      findUnique: vi.fn(async () => null),
+      findFirst:  vi.fn(async () => null),
+    },
+    // Phase-2 pointer refactor (migration 74): resolver also reads
+    // BestPracticeRecord. Same approach — null forces the policy
+    // fallback so these tests continue to assert the digest shape.
+    bestPracticeRecord: {
+      findUnique: vi.fn(async () => null),
+      findFirst:  vi.fn(async () => null),
     },
   } as never)
   app.decorate('audit', { append: vi.fn() } as never)

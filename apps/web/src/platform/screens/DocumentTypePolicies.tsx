@@ -1,59 +1,38 @@
-// Document Type Policies — admin screen (step 7 of the policy wiring).
+// Document Type Policies — associations dashboard.
 //
-// One row per doc type. Admin picks one from the left list and edits the
-// current version in the right pane: SME prompt, section rules (JSON),
-// template / checklist / ICH pins, and — read-only — the latest BP digest
-// distilled from the uploaded Best-Practice PDF. Actions: Save (PATCH),
-// Bump new version (POST .../bump) once the current version is pinned by
-// any document, Retire (POST .../retire), and Distill (POST .../distill
-// -best-practice) for a known DocumentUpload id.
+// After the pointer refactor (migrations 73 + 74), SME prompt / section
+// rules / BP digest all live on their own versioned entities (AiPromptRecord,
+// BestPracticeRecord). This screen is now a read-mostly map of what's
+// wired up per doc type — one row per policy, chips for each associated
+// asset, "Manage in <tab>" links out to the dedicated admin surface.
 //
-// English-only copy for now — this screen is super-admin facing and not
-// in the i18n Phase 1 "UI chrome" scope. Keys can be back-filled once
-// the admin surface rolls into Phase 2.
+// Asset edits happen in their own tabs:
+//   - SME prompt + section rules → /master-library/ai-prompts
+//   - BP digest (approval only; upload trigger stays here)
+//   - Template pin  → /master-library/templates
+//   - Checklist     → /master-library/checklists
+//   - ICH framework → /master-library/ich-frameworks
 //
-// Scope deferrals:
-//   - BP PDF upload is still an admin-side operation; this screen takes a
-//     DocumentUpload id and triggers distillation on an already-uploaded
-//     PDF. Adding a native file picker + upload flow lands next.
-//   - Version-history browser (read earlier bumps) is deferred; the
-//     current version is the only one editable anyway.
+// What stays here:
+//   - New policy (anchor a new docType in the system)
+//   - Retire policy
+//   - BP PDF upload (the parser's entry point)
+//   - BP draft review + Approve (until a dedicated BP admin tab lands)
 
 import { MasterLibraryHeading } from '../components/MasterLibraryHeading'
 import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { ApiError } from '../../api/client'
 import {
   platformApi,
   type DocumentTypePolicy,
   type BestPracticeDigest,
+  type AiPromptRecord,
+  type BestPracticeRecord,
 } from '../api/platformApi'
 import { useAiReadiness, isAiReady, AiReadinessBanner } from '../ai-readiness'
-
-type SectionRulesMap = Record<string, Array<{ severity: 'must' | 'should' | 'nice'; text: string }>>
-
-function parseSectionRules(text: string): { ok: SectionRulesMap } | { err: string } {
-  const trimmed = text.trim()
-  if (trimmed.length === 0) return { ok: {} }
-  let parsed: unknown
-  try { parsed = JSON.parse(trimmed) }
-  catch (err) { return { err: `JSON parse: ${err instanceof Error ? err.message : String(err)}` } }
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return { err: 'Must be a JSON object keyed by section id.' }
-  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
-    if (!Array.isArray(value)) return { err: `${key}: value must be an array` }
-    for (const [i, v] of value.entries()) {
-      if (!v || typeof v !== 'object') return { err: `${key}[${i}]: must be an object` }
-      const rule = v as Record<string, unknown>
-      if (rule.severity !== 'must' && rule.severity !== 'should' && rule.severity !== 'nice') {
-        return { err: `${key}[${i}].severity must be must/should/nice` }
-      }
-      if (typeof rule.text !== 'string' || rule.text.trim().length === 0) {
-        return { err: `${key}[${i}].text must be a non-empty string` }
-      }
-    }
-  }
-  return { ok: parsed as SectionRulesMap }
-}
+import { SlidePanel } from '../../components/ui/SlidePanel'
 
 function errMessage(err: unknown, fallback = 'Request failed'): string {
   if (err instanceof ApiError) {
@@ -65,586 +44,785 @@ function errMessage(err: unknown, fallback = 'Request failed'): string {
   return err instanceof Error ? err.message : fallback
 }
 
+type PolicyEnriched = DocumentTypePolicy & {
+  aiPrompt:     AiPromptRecord | null
+  bestPractice: BestPracticeRecord | null
+}
+
 export function DocumentTypePolicies() {
   const qc = useQueryClient()
-  const { data, isLoading, error } = useQuery({
+  const policiesQ = useQuery({
     queryKey: ['document-type-policies'],
     queryFn:  () => platformApi.listDocumentTypePolicies(),
   })
-  const policies = useMemo(() => data?.policies ?? [], [data])
+  const promptsQ = useQuery({
+    queryKey: ['ai-prompts-approved'],
+    queryFn:  () => platformApi.listAiPrompts(),
+  })
+  const bpQ = useQuery({
+    queryKey: ['best-practice-records-approved'],
+    queryFn:  () => platformApi.listBestPracticeRecords(),
+  })
   const { data: readiness } = useAiReadiness()
   const aiReady = isAiReady(readiness)
 
-  const [selectedDocType, setSelectedDocType] = useState<string | null>(null)
-  useEffect(() => {
-    if (!selectedDocType && policies.length > 0) setSelectedDocType(policies[0]!.docType)
-  }, [policies, selectedDocType])
+  // Index AI Prompt + BP approved rows by docType so each policy row can
+  // paint its chips in O(1).
+  const enriched: PolicyEnriched[] = useMemo(() => {
+    const byPrompt = new Map<string, AiPromptRecord>()
+    for (const p of promptsQ.data?.prompts ?? []) byPrompt.set(p.docType, p)
+    const byBp = new Map<string, BestPracticeRecord>()
+    for (const b of bpQ.data?.records ?? []) byBp.set(b.docType, b)
+    return (policiesQ.data?.policies ?? []).map(p => ({
+      ...p,
+      aiPrompt:     byPrompt.get(p.docType) ?? null,
+      bestPractice: byBp.get(p.docType)     ?? null,
+    }))
+  }, [policiesQ.data, promptsQ.data, bpQ.data])
 
-  const selected = policies.find(p => p.docType === selectedDocType) ?? null
+  const [selectedDocType, setSelectedDocType] = useState<string | null>(null)
+  const [detailOpen,  setDetailOpen]  = useState(false)
+  const [newOpen,     setNewOpen]     = useState(false)
+  const [search,      setSearch]      = useState('')
+
+  useEffect(() => {
+    if (selectedDocType && !enriched.find(p => p.docType === selectedDocType)) {
+      setSelectedDocType(null)
+      setDetailOpen(false)
+    }
+  }, [enriched, selectedDocType])
+
+  const openDetail = (docType: string) => { setSelectedDocType(docType); setDetailOpen(true) }
+  const selected = enriched.find(p => p.docType === selectedDocType) ?? null
+
+  const invalidateAll = () => {
+    qc.invalidateQueries({ queryKey: ['document-type-policies'] })
+    qc.invalidateQueries({ queryKey: ['ai-prompts-approved'] })
+    qc.invalidateQueries({ queryKey: ['best-practice-records-approved'] })
+    qc.invalidateQueries({ queryKey: ['bp-versions'] })
+  }
+
+  const loading = policiesQ.isLoading || promptsQ.isLoading || bpQ.isLoading
 
   return (
     <div className="flex h-full min-h-0 flex-col gap-4 p-5" data-screen="document-type-policies">
       <MasterLibraryHeading>
-        <h1 className="text-[20px] font-semibold text-slate-900">Document Type Policies</h1>
+        <h1 className="text-[20px] font-semibold text-slate-900">Doc Type Policies</h1>
         <p className="mt-0.5 text-[13px] text-slate-500">
-          Per doc-type SME prompt, Best-Practice digest, section rules, and template / checklist / ICH pins.
-          The AI drafter and <code>/ai-suggest</code> inject these into every call.
+          What each doc type is wired up with. The SME prompt, best-practice digest, section rules,
+          template, checklist, and ICH framework for a given doc type at a glance. Edits for each
+          asset happen in its own tab.
         </p>
       </MasterLibraryHeading>
 
       <AiReadinessBanner
         readiness={readiness}
-        context="Editing policies or parsing a Best-Practice PDF is blocked until an AI engine is configured — the policies here only matter when AI is live."
+        context="Approving a BP digest or creating a new policy is blocked until an AI engine is configured."
       />
 
-      {isLoading && <p className="text-[13px] text-slate-500">Loading policies…</p>}
-      {error && <p className="text-[13px] text-rose-700">{errMessage(error, 'Could not load policies')}</p>}
+      {loading && <p className="text-[13px] text-slate-500">Loading policies…</p>}
+      {policiesQ.error && <p className="text-[13px] text-rose-700">{errMessage(policiesQ.error, 'Could not load policies')}</p>}
 
-      {!isLoading && !error && (
-        <div className="flex min-h-0 flex-1 gap-4">
-          <PolicyList policies={policies} selected={selectedDocType} onSelect={setSelectedDocType} />
-          <div className="flex-1 overflow-y-auto">
-            {selected
-              ? <PolicyEditor key={selected.id} policy={selected} aiReady={aiReady} onChanged={() => qc.invalidateQueries({ queryKey: ['document-type-policies'] })} />
-              : <CreatePolicyPrompt aiReady={aiReady} onCreated={(docType) => { qc.invalidateQueries({ queryKey: ['document-type-policies'] }); setSelectedDocType(docType) }} />}
-          </div>
+      {!loading && !policiesQ.error && (
+        <AssociationsTable
+          policies={enriched}
+          search={search}
+          onSearch={setSearch}
+          onOpen={openDetail}
+          onNew={() => setNewOpen(true)}
+        />
+      )}
+
+      <SlidePanel
+        open={detailOpen && !!selected}
+        onClose={() => setDetailOpen(false)}
+        title={selected ? `Policy — ${selected.docType}` : 'Policy'}
+        subtitle={selected
+          ? <span className="font-mono text-[11px]">{selected.docType} · v{selected.version}</span>
+          : undefined}
+        storageKey="clinwrite.policies.detail.width"
+        defaultWidth={720}
+        minWidth={520}
+        maxWidth={1100}
+        expandable
+      >
+        {selected && (
+          <AssociationsPanel
+            key={selected.id}
+            policy={selected}
+            aiReady={aiReady}
+            onChanged={invalidateAll}
+          />
+        )}
+      </SlidePanel>
+
+      <SlidePanel
+        open={newOpen}
+        onClose={() => setNewOpen(false)}
+        title="New policy"
+        subtitle="Anchor a new doc type in the system."
+        storageKey="clinwrite.policies.new.width"
+        defaultWidth={520}
+        minWidth={420}
+        maxWidth={800}
+      >
+        <CreatePolicyForm
+          aiReady={aiReady}
+          taken={enriched.map(p => p.docType)}
+          onCreated={(docType) => { invalidateAll(); setNewOpen(false); openDetail(docType) }}
+          onCancel={() => setNewOpen(false)}
+        />
+      </SlidePanel>
+    </div>
+  )
+}
+
+// ---- table --------------------------------------------------------------
+
+function AssociationsTable({
+  policies, search, onSearch, onOpen, onNew,
+}: {
+  policies: PolicyEnriched[]
+  search:   string
+  onSearch: (q: string) => void
+  onOpen:   (docType: string) => void
+  onNew:    () => void
+}) {
+  const q = search.trim().toLowerCase()
+  const visible = policies
+    .filter(p => !q || p.docType.toLowerCase().includes(q))
+    .sort((a, b) => a.docType.localeCompare(b.docType))
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3" data-policies-table>
+      <header className="flex flex-wrap items-center gap-3">
+        <p className="font-mono text-[11px] font-semibold uppercase tracking-widest text-slate-500">
+          {policies.length} polic{policies.length === 1 ? 'y' : 'ies'}
+          {q && visible.length !== policies.length && (
+            <span className="ml-2 text-slate-400">· {visible.length} match{visible.length === 1 ? '' : 'es'}</span>
+          )}
+        </p>
+        <div className="relative flex-1 min-w-[220px] max-w-md">
+          <input
+            type="search"
+            value={search}
+            onChange={e => onSearch(e.currentTarget.value)}
+            placeholder="Search by doc type (e.g. protocol, CSR)…"
+            className="w-full rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] placeholder:text-slate-400"
+            data-field="search-policies"
+          />
+        </div>
+        <div className="flex-1" />
+        <button
+          type="button"
+          onClick={onNew}
+          className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
+          data-action="new-policy"
+        >
+          + New policy
+        </button>
+      </header>
+
+      {policies.length === 0 && (
+        <div className="flex flex-col items-center justify-center gap-2 rounded-md border border-dashed border-slate-300 bg-white p-8 text-center" data-empty>
+          <p className="text-[13px] font-semibold text-slate-800">No policies yet</p>
+          <p className="max-w-md text-[12px] text-slate-500">
+            Anchor a doc type here, then wire up its AI prompt, BP digest, template, checklist, and
+            ICH framework from their own tabs.
+          </p>
+          <button
+            type="button"
+            onClick={onNew}
+            className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700"
+            data-action="empty-new-policy"
+          >
+            + New policy
+          </button>
+        </div>
+      )}
+
+      {policies.length > 0 && visible.length === 0 && (
+        <p className="rounded-md border border-dashed border-slate-300 bg-white p-4 text-center text-[13px] text-slate-500" data-no-matches>
+          No policies match "{search}".
+        </p>
+      )}
+
+      {visible.length > 0 && (
+        <div className="overflow-hidden rounded-md border border-slate-200 bg-white" data-table>
+          <table className="w-full text-[13px]">
+            <thead className="bg-slate-50 text-left font-mono text-[10px] uppercase tracking-widest text-slate-500">
+              <tr>
+                <th className="px-3 py-2 font-semibold">Doc type</th>
+                <th className="px-3 py-2 font-semibold">AI prompt</th>
+                <th className="px-3 py-2 font-semibold">BP digest</th>
+                <th className="px-3 py-2 font-semibold">Template</th>
+                <th className="px-3 py-2 font-semibold">Checklist</th>
+                <th className="px-3 py-2 font-semibold">ICH</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(p => (
+                <tr
+                  key={p.id}
+                  onClick={() => onOpen(p.docType)}
+                  tabIndex={0}
+                  onKeyDown={e => { if (e.key === 'Enter') onOpen(p.docType) }}
+                  className="cursor-pointer border-t border-slate-100 hover:bg-blue-50/60"
+                  data-row={p.docType}
+                >
+                  <td className="px-3 py-2 align-top">
+                    <div className="flex flex-col">
+                      <span className="font-semibold text-slate-900">{p.docType}</span>
+                      <span className="font-mono text-[10px] text-slate-500">policy v{p.version}</span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2 align-top"><ChipAiPrompt row={p.aiPrompt} legacy={p.smePrompt} /></td>
+                  <td className="px-3 py-2 align-top"><ChipBp row={p.bestPractice} legacy={p.bestPracticeDigest} /></td>
+                  <td className="px-3 py-2 align-top"><ChipTemplate policy={p} /></td>
+                  <td className="px-3 py-2 align-top"><ChipChecklist policy={p} /></td>
+                  <td className="px-3 py-2 align-top"><ChipFramework policy={p} /></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       )}
     </div>
   )
 }
 
-// ---- list ---------------------------------------------------------------
+// ---- chips --------------------------------------------------------------
 
-function PolicyList({
-  policies, selected, onSelect,
+function Chip({
+  state, label, hint,
 }: {
-  policies: DocumentTypePolicy[]
-  selected: string | null
-  onSelect: (docType: string) => void
+  state: 'approved' | 'legacy' | 'auto' | 'pinned' | 'missing'
+  label: string
+  hint?: string
 }) {
-  const [showCreate, setShowCreate] = useState(false)
+  const palette: Record<typeof state, string> = {
+    approved: 'bg-emerald-100 text-emerald-800',
+    legacy:   'bg-amber-100 text-amber-800',
+    auto:     'bg-sky-100 text-sky-800',
+    pinned:   'bg-indigo-100 text-indigo-800',
+    missing:  'bg-slate-100 text-slate-500 italic',
+  } as const
   return (
-    <aside className="w-64 shrink-0 overflow-y-auto rounded-md border border-slate-200 bg-white">
-      <div className="flex items-center justify-between border-b border-slate-200 px-3 py-2">
-        <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
-          Doc types ({policies.length})
-        </p>
-        <button
-          type="button"
-          onClick={() => { setShowCreate(true); onSelect('__new__') }}
-          className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-          data-action="new-policy"
-        >
-          + New
-        </button>
-      </div>
-      {policies.length === 0 && !showCreate && (
-        <p className="p-3 text-[12px] text-slate-500">
-          No policies authored yet. Use the <strong>+ New</strong> button to add one.
-        </p>
-      )}
-      <ul>
-        {policies.map(p => (
-          <li key={p.id}>
-            <button
-              type="button"
-              onClick={() => onSelect(p.docType)}
-              className={`w-full border-b border-slate-100 px-3 py-2 text-left text-[13px] hover:bg-slate-50 ${
-                selected === p.docType ? 'bg-blue-50/60 font-semibold text-blue-800' : 'text-slate-800'
-              }`}
-              data-doc-type={p.docType}
-            >
-              <div className="flex items-baseline justify-between">
-                <span>{p.docType}</span>
-                <span className="font-mono text-[10px] text-slate-500">v{p.version}</span>
-              </div>
-              <PolicyChips policy={p} />
-            </button>
-          </li>
-        ))}
-      </ul>
-    </aside>
+    <span
+      className={`inline-flex rounded px-1.5 py-0.5 font-mono text-[10px] font-semibold ${palette[state]}`}
+      title={hint}
+      data-chip-state={state}
+    >
+      {label}
+    </span>
   )
 }
 
-function PolicyChips({ policy }: { policy: DocumentTypePolicy }) {
-  const digest = (policy.bestPracticeDigest ?? { principles: [] }) as BestPracticeDigest
-  const ruleCount = policy.sectionRules ? Object.keys(policy.sectionRules).length : 0
-  return (
-    <div className="mt-1 flex flex-wrap gap-1 text-[10px] text-slate-500">
-      <span className="rounded bg-slate-100 px-1.5">{digest.principles.length} BP</span>
-      <span className="rounded bg-slate-100 px-1.5">{ruleCount} rules</span>
-      {policy.ichFramework && <span className="rounded bg-slate-100 px-1.5">{policy.ichFramework}</span>}
-      {policy.templateId && <span className="rounded bg-slate-100 px-1.5">tmpl</span>}
-      {policy.checklistTemplateId && <span className="rounded bg-slate-100 px-1.5">chk</span>}
-    </div>
-  )
+function ChipAiPrompt({ row, legacy }: { row: AiPromptRecord | null; legacy: string }) {
+  if (row) {
+    const rules = (row.sectionRules as Record<string, unknown> | null) ?? {}
+    const sections = Object.keys(rules).length
+    return <Chip state="approved" label={`v${row.version}`} hint={`Approved · ${row.smePrompt.length} chars · ${sections} section rule groups`} />
+  }
+  if (legacy && legacy.trim().length > 0) {
+    return <Chip state="legacy" label="legacy" hint="Falling back to policy.smePrompt — approve an AiPromptRecord to migrate." />
+  }
+  return <Chip state="missing" label="none" hint="No SME prompt. AI drafter uses built-in defaults for this doc type." />
 }
 
-// ---- editor -------------------------------------------------------------
+function ChipBp({ row, legacy }: { row: BestPracticeRecord | null; legacy: BestPracticeDigest | null }) {
+  if (row) {
+    const count = row.digest?.principles?.length ?? 0
+    return <Chip state="approved" label={`v${row.version} · ${count}p`} hint={`Approved BP digest · ${count} principles`} />
+  }
+  if (legacy?.principles?.length) {
+    return <Chip state="legacy" label={`legacy · ${legacy.principles.length}p`} hint="Falling back to policy.bestPracticeDigest — approve a BestPracticeRecord to migrate." />
+  }
+  return <Chip state="missing" label="none" hint="No BP digest. Upload a BP PDF to distill principles." />
+}
 
-function PolicyEditor({ policy, aiReady, onChanged }: { policy: DocumentTypePolicy; aiReady: boolean; onChanged: () => void }) {
-  const [smePrompt,           setSmePrompt]           = useState(policy.smePrompt)
-  const [templateId,          setTemplateId]          = useState(policy.templateId ?? '')
-  const [checklistTemplateId, setChecklistTemplateId] = useState(policy.checklistTemplateId ?? '')
-  const [ichFramework,        setIchFramework]        = useState(policy.ichFramework ?? '')
-  const [sectionRulesText,    setSectionRulesText]    = useState(JSON.stringify(policy.sectionRules ?? {}, null, 2))
-  const [bpFile,              setBpFile]              = useState<File | null>(null)
-  const [actionError,         setActionError]         = useState<string | null>(null)
-  const [actionInfo,          setActionInfo]          = useState<string | null>(null)
-  const [bumpReason,          setBumpReason]          = useState('')
-  const [bumpOpen,            setBumpOpen]            = useState(false)
-  // Overrides panel starts open when any pin is already set on the row,
-  // so admins who've explicitly overridden assets see their state first.
-  const [showOverrides,       setShowOverrides]       = useState(
-    !!(policy.templateId || policy.checklistTemplateId || policy.ichFramework),
-  )
+function ChipTemplate({ policy }: { policy: DocumentTypePolicy }) {
+  const eff = policy.resolved?.template.effective
+  if (eff === 'pinned' && policy.resolved!.template.pinned) {
+    return <Chip state="pinned" label={`v${policy.resolved!.template.pinned.version}`} hint={`Pinned: ${policy.resolved!.template.pinned.label}`} />
+  }
+  if (eff === 'auto' && policy.resolved!.template.auto) {
+    return <Chip state="auto" label={`auto v${policy.resolved!.template.auto.version}`} hint={`Auto-matched: ${policy.resolved!.template.auto.label}`} />
+  }
+  return <Chip state="missing" label="none" hint="No template for this doc type." />
+}
 
-  const rulesParse = useMemo(() => parseSectionRules(sectionRulesText), [sectionRulesText])
-  const rulesOk    = 'ok' in rulesParse
+function ChipChecklist({ policy }: { policy: DocumentTypePolicy }) {
+  const eff = policy.resolved?.checklist.effective
+  if (eff === 'pinned' && policy.resolved!.checklist.pinned) {
+    return <Chip state="pinned" label={`v${policy.resolved!.checklist.pinned.version}`} hint="Pinned checklist" />
+  }
+  if (eff === 'auto' && policy.resolved!.checklist.auto) {
+    return <Chip state="auto" label={`auto v${policy.resolved!.checklist.auto.version}`} hint="Auto-matched checklist" />
+  }
+  return <Chip state="missing" label="none" hint="No checklist for this doc type." />
+}
 
-  const digest = (policy.bestPracticeDigest ?? { principles: [] }) as BestPracticeDigest
+function ChipFramework({ policy }: { policy: DocumentTypePolicy }) {
+  if (policy.ichFramework) {
+    return <Chip state="pinned" label={policy.ichFramework} hint={`ICH framework pin: ${policy.ichFramework}`} />
+  }
+  return <Chip state="missing" label="none" />
+}
 
-  const save = useMutation({
-    mutationFn: () => platformApi.updateDocumentTypePolicy(policy.docType, {
-      smePrompt,
-      sectionRules:        rulesOk ? (rulesParse as { ok: SectionRulesMap }).ok : {},
-      templateId:          templateId.trim() || null,
-      checklistTemplateId: checklistTemplateId.trim() || null,
-      ichFramework:        ichFramework.trim() || null,
-    }),
-    onSuccess: () => { setActionInfo('Saved.'); setActionError(null); onChanged() },
-    onError:   (err: unknown) => { setActionError(errMessage(err, 'Save failed')); setActionInfo(null) },
-  })
+// ---- side panel: details + minimal edits -------------------------------
 
-  const bump = useMutation({
-    mutationFn: () => platformApi.bumpDocumentTypePolicy(policy.docType, {
-      smePrompt,
-      sectionRules:        rulesOk ? (rulesParse as { ok: SectionRulesMap }).ok : {},
-      templateId:          templateId.trim() || null,
-      checklistTemplateId: checklistTemplateId.trim() || null,
-      ichFramework:        ichFramework.trim() || null,
-      changeReason:        bumpReason.trim(),
-    }),
-    onSuccess: () => { setActionInfo('New version created.'); setActionError(null); setBumpOpen(false); setBumpReason(''); onChanged() },
-    onError:   (err: unknown) => { setActionError(errMessage(err, 'Bump failed')); setActionInfo(null) },
-  })
+function AssociationsPanel({
+  policy, aiReady, onChanged,
+}: {
+  policy:    PolicyEnriched
+  aiReady:   boolean
+  onChanged: () => void
+}) {
+  const [actionError, setActionError] = useState<string | null>(null)
+  const [actionInfo,  setActionInfo]  = useState<string | null>(null)
 
   const retire = useMutation({
     mutationFn: (reason: string) => platformApi.retireDocumentTypePolicy(policy.docType, reason),
-    onSuccess: () => { setActionInfo('Policy retired.'); setActionError(null); onChanged() },
-    onError:   (err: unknown) => { setActionError(errMessage(err, 'Retire failed')); setActionInfo(null) },
-  })
-
-  const distill = useMutation({
-    mutationFn: () => {
-      if (!bpFile) throw new Error('Pick a PDF first')
-      return platformApi.distillBestPracticeFile(policy.docType, bpFile)
-    },
-    onSuccess: (res) => {
-      setActionInfo(`Parser enqueued for ${res.fileName} — the digest will populate in a few moments. (job ${res.jobId})`)
-      setActionError(null)
-      setBpFile(null)
-    },
-    onError:   (err: unknown) => { setActionError(errMessage(err, 'Parser enqueue failed')); setActionInfo(null) },
-  })
-
-  // AI extract section rules from the SME prompt. Loads the result into the
-  // textarea so the admin can review + edit, then click Save on the editor
-  // header to persist. Does NOT auto-save — SME prompt extraction is
-  // inference, not a vetted source like a BP PDF, so the human is in the loop.
-  const extractRules = useMutation({
-    mutationFn: () => platformApi.extractSectionRules(policy.docType),
-    onSuccess: (res) => {
-      setSectionRulesText(JSON.stringify(res.sectionRules, null, 2))
-      setActionError(null)
-      setActionInfo(
-        res.ruleCount === 0
-          ? 'AI found no per-section rules in the SME prompt. The extracted JSON is empty — this prompt may only carry whole-document guidance.'
-          : `AI extracted ${res.ruleCount} rule${res.ruleCount === 1 ? '' : 's'} across ${res.sectionCount} section${res.sectionCount === 1 ? '' : 's'}. Review the JSON and click Save to persist.`,
-      )
-    },
-    onError:   (err: unknown) => { setActionError(errMessage(err, 'Extract failed')); setActionInfo(null) },
+    onSuccess:  () => { setActionInfo('Policy retired.'); setActionError(null); onChanged() },
+    onError:    (err: unknown) => { setActionError(errMessage(err, 'Retire failed')); setActionInfo(null) },
   })
 
   const onRetire = () => {
-    const reason = window.prompt('Reason for retiring this policy (required):', '')
+    const reason = window.prompt('Reason for retiring this policy (goes on the audit trail):', '')
     if (!reason || !reason.trim()) return
     retire.mutate(reason.trim())
   }
 
   return (
-    <div className="flex flex-col gap-4" data-editor={policy.docType}>
-      <header className="flex items-baseline justify-between border-b border-slate-200 pb-2">
-        <div>
-          <h2 className="text-[16px] font-semibold text-slate-900">
-            {policy.docType} <span className="ml-2 font-mono text-[11px] text-slate-500">v{policy.version}</span>
-          </h2>
-          <p className="text-[12px] text-slate-500">
-            Current · updated {new Date(policy.updatedAt).toLocaleString()} by {policy.updatedBy}
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={() => save.mutate()}
-            disabled={save.isPending || !rulesOk || !aiReady}
-            title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
-            className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            data-action="save"
-          >
-            {save.isPending ? 'Saving…' : 'Save changes'}
-          </button>
-          <button
-            type="button"
-            onClick={() => setBumpOpen(v => !v)}
-            disabled={!aiReady}
-            title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
-            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            data-action="bump-toggle"
-          >
-            Bump new version
-          </button>
-          <button
-            type="button"
-            onClick={onRetire}
-            disabled={retire.isPending}
-            className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
-            data-action="retire"
-          >
-            Retire
-          </button>
-        </div>
-      </header>
-
+    <div className="flex flex-col gap-4 p-4" data-panel={policy.docType}>
       {actionError && <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{actionError}</p>}
       {actionInfo  && <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800">{actionInfo}</p>}
 
-      {bumpOpen && (
-        <div className="rounded-md border border-slate-200 bg-slate-50 p-3" data-bump-form>
-          <p className="text-[12px] text-slate-700">
-            Bumping creates a new version with the fields above. The old
-            version stays on every document already pinned to it. Reason
-            goes on the audit trail — be specific.
+      <AssociationRow
+        label="AI prompt"
+        state={policy.aiPrompt ? 'approved' : (policy.smePrompt?.trim() ? 'legacy' : 'missing')}
+        summary={policy.aiPrompt
+          ? `Approved v${policy.aiPrompt.version} · ${policy.aiPrompt.smePrompt.length.toLocaleString()} chars`
+          : policy.smePrompt?.trim()
+            ? `Legacy prompt still in use · ${policy.smePrompt.length.toLocaleString()} chars`
+            : 'No prompt'}
+        detail={policy.aiPrompt?.smePrompt ?? policy.smePrompt ?? ''}
+        manageTo="/master-library/ai-prompts"
+        manageLabel="Manage in AI Prompts"
+      />
+
+      <AssociationRow
+        label="Best-practice digest"
+        state={policy.bestPractice ? 'approved' : (policy.bestPracticeDigest?.principles?.length ? 'legacy' : 'missing')}
+        summary={policy.bestPractice
+          ? `Approved v${policy.bestPractice.version} · ${policy.bestPractice.digest?.principles?.length ?? 0} principles`
+          : policy.bestPracticeDigest?.principles?.length
+            ? `Legacy digest still in use · ${policy.bestPracticeDigest.principles.length} principles`
+            : 'No digest'}
+        detail={null}
+        manageTo={null}
+        manageLabel={null}
+      >
+        <BpSection docType={policy.docType} aiReady={aiReady} onChanged={onChanged} />
+      </AssociationRow>
+
+      <AssociationRow
+        label="Template"
+        state={policy.resolved?.template.effective === 'none' ? 'missing' : (policy.resolved?.template.effective ?? 'missing')}
+        summary={
+          policy.resolved?.template.effective === 'pinned' && policy.resolved.template.pinned
+            ? `Pinned: ${policy.resolved.template.pinned.label} · v${policy.resolved.template.pinned.version}`
+            : policy.resolved?.template.effective === 'auto' && policy.resolved.template.auto
+              ? `Auto-matched: ${policy.resolved.template.auto.label} · v${policy.resolved.template.auto.version}`
+              : 'No template'
+        }
+        detail={null}
+        manageTo="/master-library/templates"
+        manageLabel="Manage in Templates"
+      />
+
+      <AssociationRow
+        label="Checklist"
+        state={policy.resolved?.checklist.effective === 'none' ? 'missing' : (policy.resolved?.checklist.effective ?? 'missing')}
+        summary={
+          policy.resolved?.checklist.effective === 'pinned' && policy.resolved.checklist.pinned
+            ? `Pinned v${policy.resolved.checklist.pinned.version}`
+            : policy.resolved?.checklist.effective === 'auto' && policy.resolved.checklist.auto
+              ? `Auto-matched v${policy.resolved.checklist.auto.version}`
+              : 'No checklist'
+        }
+        detail={null}
+        manageTo="/master-library/checklists"
+        manageLabel="Manage in Checklists"
+      />
+
+      <AssociationRow
+        label="ICH framework"
+        state={policy.ichFramework ? 'pinned' : 'missing'}
+        summary={policy.ichFramework || 'No ICH framework pin'}
+        detail={null}
+        manageTo="/master-library/ich-frameworks"
+        manageLabel="Manage in ICH Frameworks"
+      />
+
+      <footer className="mt-2 flex items-center justify-between border-t border-slate-200 pt-3">
+        <p className="font-mono text-[10px] text-slate-400">
+          Policy created {new Date(policy.createdAt).toLocaleDateString()} · last updated {new Date(policy.updatedAt).toLocaleDateString()} by {policy.updatedBy}
+        </p>
+        <button
+          type="button"
+          onClick={onRetire}
+          disabled={retire.isPending}
+          className="rounded-md border border-rose-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+          data-action="retire"
+        >
+          {retire.isPending ? 'Retiring…' : 'Retire policy'}
+        </button>
+      </footer>
+    </div>
+  )
+}
+
+function AssociationRow({
+  label, state, summary, detail, manageTo, manageLabel, children,
+}: {
+  label:       string
+  state:       'approved' | 'legacy' | 'auto' | 'pinned' | 'missing'
+  summary:     string
+  detail:      string | null
+  manageTo:    string | null
+  manageLabel: string | null
+  children?:   React.ReactNode
+}) {
+  const [open, setOpen] = useState(false)
+  const palette: Record<typeof state, string> = {
+    approved: 'border-emerald-200 bg-emerald-50/40',
+    legacy:   'border-amber-200 bg-amber-50/40',
+    auto:     'border-sky-200 bg-sky-50/40',
+    pinned:   'border-indigo-200 bg-indigo-50/40',
+    missing:  'border-slate-200 bg-white',
+  } as const
+  return (
+    <section className={`rounded-md border ${palette[state]} p-3`} data-assoc={label}>
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-600">
+            {label}
           </p>
-          <textarea
-            value={bumpReason}
-            onChange={e => setBumpReason(e.currentTarget.value)}
-            rows={2}
-            placeholder="e.g. Updated section 6.2 inclusion criteria after sponsor review."
-            className="mt-2 w-full rounded-md border border-slate-300 px-3 py-2 text-[13px]"
-            data-field="bump-reason"
-          />
-          <div className="mt-2 flex justify-end gap-2">
-            <button type="button" onClick={() => setBumpOpen(false)} className="rounded-md border border-slate-300 bg-white px-3 py-1 text-[12px] text-slate-700">Cancel</button>
+          <Chip state={state} label={state} />
+        </div>
+        <div className="flex items-center gap-2">
+          {detail && (
             <button
               type="button"
-              onClick={() => bump.mutate()}
-              disabled={bump.isPending || !bumpReason.trim() || !rulesOk || !aiReady}
-              title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
-              className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-              data-action="bump-confirm"
+              onClick={() => setOpen(v => !v)}
+              className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              data-action={`toggle-${label}`}
+              aria-expanded={open}
             >
-              {bump.isPending ? 'Bumping…' : 'Create new version'}
+              {open ? 'Hide' : 'Show'}
             </button>
+          )}
+          {manageTo && manageLabel && (
+            <Link
+              to={manageTo}
+              className="rounded-md border border-blue-600 bg-white px-2 py-0.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50"
+              data-action={`manage-${label}`}
+            >
+              {manageLabel} →
+            </Link>
+          )}
+        </div>
+      </header>
+      <p className="mt-1 text-[12px] text-slate-700">{summary}</p>
+      {open && detail && (
+        <pre className="mt-2 max-h-56 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-slate-800">
+          {detail}
+        </pre>
+      )}
+      {children}
+    </section>
+  )
+}
+
+// ---- BP section (upload + draft approval) -------------------------------
+// BP digests don't have their own admin tab yet — upload + draft approval
+// still live inside the Policy slide panel. Previously this block + the
+// giant SME-prompt / section-rules editor crowded the main policy screen;
+// confining it to the detail panel is the point of the redesign.
+
+function BpSection({
+  docType, aiReady, onChanged,
+}: {
+  docType:   string
+  aiReady:   boolean
+  onChanged: () => void
+}) {
+  const qc = useQueryClient()
+  const versionsQ = useQuery({
+    queryKey: ['bp-versions', docType],
+    queryFn:  () => platformApi.listBestPracticeVersions(docType),
+    refetchInterval: 5_000,
+  })
+  const versions = versionsQ.data?.versions ?? []
+  const draft    = versions.find(v => v.status === 'draft')
+  const approved = versions.find(v => v.status === 'approved')
+
+  const [bpFile, setBpFile] = useState<File | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
+  const [localInfo,  setLocalInfo]  = useState<string | null>(null)
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['bp-versions', docType] })
+    onChanged()
+  }
+
+  const distill = useMutation({
+    mutationFn: () => {
+      if (!bpFile) throw new Error('Pick a PDF first')
+      return platformApi.distillBestPracticeFile(docType, bpFile)
+    },
+    onSuccess: (res) => {
+      setLocalInfo(`Parser enqueued for ${res.fileName} — the draft digest will appear here shortly. (job ${res.jobId})`)
+      setLocalError(null)
+      setBpFile(null)
+    },
+    onError: (err: unknown) => { setLocalError(errMessage(err, 'Parser enqueue failed')); setLocalInfo(null) },
+  })
+
+  const approve = useMutation({
+    mutationFn: () => platformApi.approveBestPractice(draft!.id),
+    onSuccess:  () => { setLocalInfo('Draft approved — AI starts using it for new documents immediately.'); setLocalError(null); invalidate() },
+    onError:    (err: unknown) => { setLocalError(errMessage(err, 'Approve failed')); setLocalInfo(null) },
+  })
+
+  const discard = useMutation({
+    mutationFn: () => platformApi.retireBestPractice(draft!.id, 'Draft discarded by admin'),
+    onSuccess:  () => { setLocalInfo('Draft discarded. The approved version is unaffected.'); setLocalError(null); invalidate() },
+    onError:    (err: unknown) => { setLocalError(errMessage(err, 'Discard failed')); setLocalInfo(null) },
+  })
+
+  return (
+    <div className="mt-2 flex flex-col gap-2" data-bp-section>
+      <div className="flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3" data-bp-upload>
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={e => setBpFile(e.currentTarget.files?.[0] ?? null)}
+            className="flex-1 text-[12px]"
+            data-field="bp-pdf-file"
+          />
+          <button
+            type="button"
+            onClick={() => distill.mutate()}
+            disabled={distill.isPending || !bpFile || !aiReady}
+            title={!aiReady ? 'AI is not set up — the parser needs an AI engine.' : undefined}
+            className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            data-action="distill-file"
+          >
+            {distill.isPending ? 'Uploading + parsing…' : 'Upload + parse'}
+          </button>
+        </div>
+        {bpFile && (
+          <p className="text-[11px] text-slate-600">
+            Selected <span className="font-mono">{bpFile.name}</span>
+            {' · '}
+            {(bpFile.size / (1024 * 1024)).toFixed(2)} MB
+          </p>
+        )}
+        <p className="text-[11px] text-slate-500">
+          PDF only, up to 50&nbsp;MB. The parser writes a <strong>draft BestPracticeRecord</strong> —
+          review + Approve below to make it live.
+        </p>
+      </div>
+
+      {draft && (
+        <div className="flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-3" data-bp-draft={draft.id}>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="rounded bg-amber-100 px-1.5 py-0.5 font-mono text-[10px] font-semibold uppercase text-amber-900">
+                Pending draft v{draft.version}
+              </span>
+              <span className="font-mono text-[10px] text-slate-600">
+                {draft.digest?.principles?.length ?? 0} principle{(draft.digest?.principles?.length ?? 0) === 1 ? '' : 's'}
+                {draft.distilledAt ? ` · parsed ${new Date(draft.distilledAt).toLocaleString()}` : ''}
+                {draft.distilledModel ? ` · model ${draft.distilledModel}` : ''}
+              </span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(v => !v)}
+                className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                data-action="toggle-bp-draft-preview"
+              >
+                {previewOpen ? 'Hide draft' : 'Preview draft'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { if (confirm(`Discard draft v${draft.version}? The approved version is unaffected.`)) discard.mutate() }}
+                disabled={discard.isPending}
+                className="rounded-md border border-rose-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                data-action="discard-bp-draft"
+              >
+                {discard.isPending ? 'Discarding…' : 'Discard'}
+              </button>
+              <button
+                type="button"
+                onClick={() => approve.mutate()}
+                disabled={approve.isPending || !aiReady}
+                title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
+                className="rounded-md border border-emerald-600 bg-emerald-600 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                data-action="approve-bp-draft"
+              >
+                {approve.isPending
+                  ? 'Approving…'
+                  : approved ? `Approve (retires v${approved.version})` : 'Approve'}
+              </button>
+            </div>
           </div>
+          <p className="text-[11px] text-amber-900">
+            AI still reads the approved version
+            {approved ? ` (v${approved.version})` : ' (legacy policy field)'} until you approve this draft.
+          </p>
+          {previewOpen && <DigestPreview digest={draft.digest as unknown as BestPracticeDigest} />}
         </div>
       )}
 
-      <Field label="SME prompt" help="The role-specific preamble injected into every AI call. Long-form OK.">
-        <textarea
-          value={smePrompt}
-          onChange={e => setSmePrompt(e.currentTarget.value)}
-          rows={10}
-          className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 font-mono text-[12px]"
-          data-field="sme-prompt"
-        />
-      </Field>
-
-      <Field
-        label={`Best-Practice digest (${digest.principles.length} principles)`}
-        help={digest.distilledAt
-          ? `Parsed ${new Date(digest.distilledAt).toLocaleString()} by ${digest.distilledModel ?? 'unknown model'}.`
-          : 'No digest yet — upload a Best-Practice PDF and the parser will convert it to structured principles.'}
-      >
-        <DigestPreview digest={digest} />
-        <div className="mt-2 flex flex-col gap-2 rounded-md border border-slate-200 bg-slate-50 p-3" data-bp-upload>
-          <div className="flex items-center gap-2">
-            <input
-              type="file"
-              accept="application/pdf,.pdf"
-              onChange={e => setBpFile(e.currentTarget.files?.[0] ?? null)}
-              className="flex-1 text-[12px]"
-              data-field="bp-pdf-file"
-            />
-            <button
-              type="button"
-              onClick={() => distill.mutate()}
-              disabled={distill.isPending || !bpFile || !aiReady}
-              title={!aiReady ? 'AI is not set up — the parser needs an AI engine.' : undefined}
-              className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-              data-action="distill-file"
-            >
-              {distill.isPending ? 'Uploading + parsing…' : 'Upload + parse'}
-            </button>
-          </div>
-          {bpFile && (
-            <p className="text-[11px] text-slate-600">
-              Selected <span className="font-mono">{bpFile.name}</span>
-              {' · '}
-              {(bpFile.size / (1024 * 1024)).toFixed(2)} MB
-            </p>
-          )}
-          <p className="text-[11px] text-slate-500">
-            PDF only, up to 50&nbsp;MB. The parser extracts principles into
-            JSON — severity (<code>must</code>/<code>should</code>/<code>nice</code>) and scope
-            (<code>whole-doc</code> or <code>section:&lt;key&gt;</code>) — and overwrites the
-            digest on this policy once done.
-          </p>
-        </div>
-      </Field>
-
-      <Field label="Section rules (JSON)" help={`Keyed by section id, each a list of { severity, text }. ${rulesOk ? 'Valid.' : (rulesParse as { err: string }).err}`}>
-        <div className="mb-2 flex items-center justify-between gap-2 rounded-md border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-[11px] text-slate-600" data-extract-rules-strip>
-          <span>
-            Section rules aren't auto-parsed from the SME prompt. Click <strong>Extract from SME prompt</strong> to let AI surface per-section guidance into this JSON — then review + Save.
-          </span>
-          <button
-            type="button"
-            onClick={() => extractRules.mutate()}
-            disabled={extractRules.isPending || !aiReady || !policy.smePrompt.trim()}
-            title={
-              !policy.smePrompt.trim() ? 'Save an SME prompt first, then extract.' :
-              !aiReady                 ? 'AI is not set up — configure an AI engine first.' :
-              undefined
-            }
-            className="shrink-0 rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-            data-action="extract-section-rules"
-          >
-            {extractRules.isPending ? 'Extracting…' : 'Extract from SME prompt (AI)'}
-          </button>
-        </div>
-        <textarea
-          value={sectionRulesText}
-          onChange={e => setSectionRulesText(e.currentTarget.value)}
-          rows={10}
-          className={`w-full resize-y rounded-md border px-3 py-2 font-mono text-[12px] ${rulesOk ? 'border-slate-300' : 'border-rose-400 bg-rose-50'}`}
-          data-field="section-rules"
-        />
-      </Field>
-
-      <section className="flex flex-col gap-3 rounded-md border border-slate-200 bg-slate-50 p-3" data-applied-assets>
-        <header className="flex items-baseline justify-between">
-          <div>
-            <p className="text-[12px] font-semibold text-slate-800">Applied assets</p>
-            <p className="text-[11px] text-slate-500">
-              Template + Checklist auto-match the current asset tagged with <span className="font-mono">{policy.docType}</span> in the Templates / Checklists tabs.
-              Override here only when you need a specific non-current asset.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => setShowOverrides(v => !v)}
-            className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
-            data-action="toggle-overrides"
-          >
-            {showOverrides ? 'Hide overrides' : 'Override…'}
-          </button>
-        </header>
-
-        <div className="grid grid-cols-3 gap-3">
-          <AssetChip
-            label="Template"
-            auto={policy.resolved?.template.auto
-              ? `${policy.resolved.template.auto.label} · v${policy.resolved.template.auto.version}`
-              : null}
-            pinned={policy.resolved?.template.pinned
-              ? `${policy.resolved.template.pinned.label} · v${policy.resolved.template.pinned.version}`
-              : null}
-            effective={policy.resolved?.template.effective ?? 'none'}
-            manageHref="/master-library/templates"
-          />
-          <AssetChip
-            label="Checklist"
-            auto={policy.resolved?.checklist.auto
-              ? `v${policy.resolved.checklist.auto.version}`
-              : null}
-            pinned={policy.resolved?.checklist.pinned
-              ? `v${policy.resolved.checklist.pinned.version}`
-              : null}
-            effective={policy.resolved?.checklist.effective ?? 'none'}
-            manageHref="/master-library/checklists"
-          />
-          <AssetChip
-            label="ICH framework"
-            auto={null}
-            pinned={ichFramework || null}
-            effective={ichFramework ? 'pinned' : 'none'}
-            manageHref="/master-library/ich-frameworks"
-          />
-        </div>
-
-        {showOverrides && (
-          <div className="grid grid-cols-3 gap-3 border-t border-slate-200 pt-3" data-overrides-panel>
-            <Field label="Template id override" help="Leave blank to use the auto-matched current template.">
-              <input
-                type="text"
-                value={templateId}
-                onChange={e => setTemplateId(e.currentTarget.value)}
-                placeholder="(auto)"
-                className="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-[12px]"
-                data-field="template-id"
-              />
-            </Field>
-            <Field label="Checklist template id override" help="Leave blank for the platform baseline.">
-              <input
-                type="text"
-                value={checklistTemplateId}
-                onChange={e => setChecklistTemplateId(e.currentTarget.value)}
-                placeholder="(auto)"
-                className="w-full rounded-md border border-slate-300 px-3 py-1.5 font-mono text-[12px]"
-                data-field="checklist-template-id"
-              />
-            </Field>
-            <Field label="ICH framework" help="e.g. 'ICH E3', 'ICH E6(R3)'. No auto-match; pick manually from the ICH tab's catalogue.">
-              <input
-                type="text"
-                value={ichFramework}
-                onChange={e => setIchFramework(e.currentTarget.value)}
-                placeholder="ICH E3"
-                className="w-full rounded-md border border-slate-300 px-3 py-1.5 text-[13px]"
-                data-field="ich-framework"
-              />
-            </Field>
-          </div>
-        )}
-      </section>
+      {localError && <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{localError}</p>}
+      {localInfo  && <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800">{localInfo}</p>}
     </div>
   )
 }
 
-// Small helper — shows the auto-match or override state for a dependent
-// asset with a link back to the tab where the asset actually lives.
-function AssetChip({
-  label, auto, pinned, effective, manageHref,
+// ---- new-policy form ----------------------------------------------------
+
+function CreatePolicyForm({
+  aiReady, taken, onCreated, onCancel,
 }: {
-  label:       string
-  auto:        string | null
-  pinned:      string | null
-  effective:   'auto' | 'pinned' | 'none'
-  manageHref:  string
+  aiReady:   boolean
+  taken:     string[]
+  onCreated: (docType: string) => void
+  onCancel?: () => void
 }) {
-  const [stateLabel, stateTone] =
-    effective === 'pinned' ? ['Overridden', 'bg-amber-100 text-amber-800']  as const :
-    effective === 'auto'   ? ['Auto-matched', 'bg-emerald-100 text-emerald-800'] as const :
-                             ['None', 'bg-slate-100 text-slate-700'] as const
-  const value = effective === 'pinned' ? pinned : effective === 'auto' ? auto : null
-  return (
-    <div className="flex flex-col gap-1 rounded-md border border-slate-200 bg-white p-3" data-asset-chip={label}>
-      <div className="flex items-center justify-between">
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">{label}</span>
-        <span className={`rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${stateTone}`}>{stateLabel}</span>
-      </div>
-      <p className="text-[13px] font-semibold text-slate-800" data-asset-value>
-        {value ?? <span className="italic font-normal text-slate-400">No asset for this doc type yet</span>}
-      </p>
-      <a
-        href={manageHref}
-        className="text-[11px] font-semibold text-blue-700 hover:underline"
-        data-asset-manage-href={manageHref}
-      >
-        Manage in {label}s tab →
-      </a>
-    </div>
-  )
-}
-
-function Field({ label, help, children }: { label: string; help?: string; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1">
-      <span className="text-[12px] font-semibold text-slate-800">{label}</span>
-      {help && <span className="text-[11px] text-slate-500">{help}</span>}
-      {children}
-    </label>
-  )
-}
-
-function DigestPreview({ digest }: { digest: BestPracticeDigest }) {
-  if (digest.principles.length === 0) {
-    return <p className="rounded-md border border-dashed border-slate-200 bg-white p-3 text-[12px] text-slate-500">No principles. Distil a Best-Practice PDF to populate this.</p>
-  }
-  const SEV_ORDER = { must: 0, should: 1, nice: 2 } as const
-  const sorted = [...digest.principles].sort((a, b) => SEV_ORDER[a.severity] - SEV_ORDER[b.severity])
-  return (
-    <ul className="max-h-60 space-y-1 overflow-y-auto rounded-md border border-slate-200 bg-white p-2 text-[12px]" data-bp-principles>
-      {sorted.map((p, i) => (
-        <li key={i} className="flex gap-2">
-          <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[10px] uppercase ${
-            p.severity === 'must' ? 'bg-rose-100 text-rose-800' :
-            p.severity === 'should' ? 'bg-amber-100 text-amber-800' :
-            'bg-slate-100 text-slate-700'
-          }`}>{p.severity}</span>
-          <span className="shrink-0 font-mono text-[10px] text-slate-500">{p.scope}</span>
-          <span className="text-slate-700">{p.text}</span>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
-// ---- create -------------------------------------------------------------
-
-function CreatePolicyPrompt({ aiReady, onCreated }: { aiReady: boolean; onCreated: (docType: string) => void }) {
-  const [docType,   setDocType]   = useState('')
+  const [docType, setDocType]     = useState('')
   const [smePrompt, setSmePrompt] = useState('')
-  const [error, setError] = useState<string | null>(null)
+  const [error, setError]         = useState<string | null>(null)
+  const normalizedDocType = docType.trim().replace(/-/g, '_')
+  const duplicate = taken.includes(normalizedDocType)
+
   const create = useMutation({
     mutationFn: () => platformApi.createDocumentTypePolicy({
-      docType:   docType.trim().replace(/-/g, '_'),
-      smePrompt: smePrompt.trim(),
+      docType:   normalizedDocType,
+      smePrompt: smePrompt.trim() || `SME prompt for ${normalizedDocType} — configure in AI Prompts.`,
     }),
     onSuccess: (row) => { setError(null); onCreated(row.docType) },
     onError:   (err: unknown) => setError(errMessage(err, 'Create failed')),
   })
+
   return (
-    <div className="rounded-md border border-dashed border-slate-300 bg-white p-4" data-create-prompt>
-      <h2 className="text-[14px] font-semibold text-slate-900">New policy</h2>
-      <p className="mt-0.5 text-[12px] text-slate-500">
-        Pick a doc type (underscored canonical form: <code>csr_full</code>, <code>protocol</code>, …)
-        and paste its SME prompt. You can edit everything else after.
+    <div className="flex h-full flex-col gap-3 p-4" data-new-policy>
+      <p className="text-[12px] text-slate-500">
+        Anchor a doc type in the system so authors can create documents of that kind. After the
+        policy is created, wire up the AI prompt, BP digest, template, checklist, and ICH framework
+        from their own tabs.
       </p>
-      {error && <p className="mt-2 rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{error}</p>}
-      <div className="mt-3 flex flex-col gap-2">
+      {error && <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{error}</p>}
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Doc type (underscored canonical form)</span>
         <input
           type="text"
           value={docType}
           onChange={e => setDocType(e.currentTarget.value)}
-          placeholder="doc type (e.g. protocol)"
-          className="rounded-md border border-slate-300 px-3 py-1.5 font-mono text-[12px]"
+          placeholder="e.g. protocol_amendment"
+          className="h-9 rounded-md border border-slate-300 bg-white px-3 text-[13px]"
           data-field="create-doc-type"
         />
+        {duplicate && (
+          <p className="text-[11px] font-semibold text-rose-700" role="alert">A policy for this doc type already exists.</p>
+        )}
+      </label>
+      <label className="flex flex-col gap-1">
+        <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Starter SME prompt (optional)</span>
         <textarea
           value={smePrompt}
           onChange={e => setSmePrompt(e.currentTarget.value)}
           rows={8}
-          placeholder="SME prompt — the role-specific preamble the AI reads on every call."
-          className="rounded-md border border-slate-300 px-3 py-2 font-mono text-[12px]"
+          placeholder="Leave blank to ship a placeholder — you'll author the real prompt in the AI Prompts tab."
+          className="resize-y rounded-md border border-slate-300 px-3 py-2 font-mono text-[12px] leading-relaxed"
           data-field="create-sme-prompt"
         />
-        <div>
+      </label>
+      <div className="flex items-center justify-end gap-2 border-t border-slate-200 pt-3">
+        {onCancel && (
           <button
             type="button"
-            onClick={() => create.mutate()}
-            disabled={create.isPending || !docType.trim() || !smePrompt.trim() || !aiReady}
-            title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
-            className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-            data-action="create-policy"
+            onClick={onCancel}
+            disabled={create.isPending}
+            className="rounded-md border border-slate-300 bg-white px-3 py-1.5 text-[12px] font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+            data-action="create-cancel"
           >
-            {create.isPending ? 'Creating…' : 'Create policy'}
+            Cancel
           </button>
-        </div>
+        )}
+        <button
+          type="button"
+          onClick={() => create.mutate()}
+          disabled={create.isPending || !normalizedDocType || duplicate || !aiReady}
+          title={!aiReady ? 'AI is not set up — configure an AI engine first.' : undefined}
+          className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+          data-action="create-policy"
+        >
+          {create.isPending ? 'Creating…' : 'Create policy'}
+        </button>
       </div>
     </div>
+  )
+}
+
+// ---- BP preview helper (re-used) ---------------------------------------
+// Compact render of a BestPracticeDigest. The admin reviews the parsed
+// principles grouped by scope before clicking Approve.
+
+function DigestPreview({ digest }: { digest: BestPracticeDigest }) {
+  const principles = digest.principles ?? []
+  if (principles.length === 0) {
+    return <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-center text-[12px] italic text-slate-500">No principles in this digest.</p>
+  }
+  const bySection = new Map<string, typeof principles>()
+  for (const p of principles) {
+    const key = p.scope || 'whole-doc'
+    const bucket = bySection.get(key) ?? []
+    bucket.push(p)
+    bySection.set(key, bucket)
+  }
+  const keys = Array.from(bySection.keys()).sort((a, b) => {
+    if (a === 'whole-doc') return -1
+    if (b === 'whole-doc') return 1
+    return a.localeCompare(b)
+  })
+  return (
+    <ul className="flex flex-col gap-2" data-digest-preview>
+      {keys.map(key => (
+        <li key={key} className="rounded-md border border-slate-200 bg-white p-2">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-600">{key}</p>
+          <ul className="mt-1 space-y-1 text-[12px]">
+            {bySection.get(key)!.map((p, i) => (
+              <li key={i} className="flex items-start gap-2">
+                <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] uppercase ${
+                  p.severity === 'must'   ? 'bg-rose-100 text-rose-800' :
+                  p.severity === 'should' ? 'bg-amber-100 text-amber-800' :
+                                             'bg-slate-100 text-slate-700'
+                }`}>{p.severity}</span>
+                <span className="text-slate-800">{p.text}</span>
+              </li>
+            ))}
+          </ul>
+        </li>
+      ))}
+    </ul>
   )
 }

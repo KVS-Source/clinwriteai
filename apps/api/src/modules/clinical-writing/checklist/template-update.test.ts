@@ -191,6 +191,7 @@ function routesApp(opts: { docStatus?: string } = {}) {
     signatureChain: { findFirst: vi.fn(async () => null) },
     projectMember: { findMany: vi.fn(async () => [{ projectId: 'P1' }]) },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     raciAssignment: { findMany: vi.fn(async () => []) },
   }
   const append = vi.fn(async () => undefined)

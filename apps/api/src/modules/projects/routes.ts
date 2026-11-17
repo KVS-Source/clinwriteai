@@ -123,12 +123,13 @@ export const projectRoutes: FastifyPluginAsync = async (app) => {
     // One grouped count for all projects (live Module A documents) so the list
     // can show a real document total per row — counting only the documents
     // this user can see (contributors: the ones they work on).
+    const docScope = await documentVisibilityWhere(app.prisma, request.user!)
     const counts = await app.prisma.document.groupBy({
       by: ['projectId'],
       where: {
         deletedAt: null,
         ...(visible === 'all' ? {} : { projectId: { in: [...visible] } }),
-        ...(documentVisibilityWhere(request.user!) ?? {}),
+        ...(docScope ?? {}),
       },
       _count: { _all: true },
     })

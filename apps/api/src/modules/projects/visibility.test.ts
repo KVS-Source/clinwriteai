@@ -8,6 +8,7 @@ interface FakeRows {
   legacyTeam?:  Array<{ userId: string; projectId: string }>
   raciDocs?:    Array<{ userId: string; projectId: string; removedAt: Date | null }>
   createdDocs?: Array<{ userId: string; projectId: string }>
+  invites?:     Array<{ userId: string; documentId: string }>
   projectRaci?: Array<{ projectId: string; responsibleId?: string; accountableId?: string; consultedIds?: string[]; informedIds?: string[] }>
 }
 
@@ -46,6 +47,11 @@ function fakePrisma(rows: FakeRows): PrismaClient {
         if (creatorCounts) for (const r of rows.createdDocs ?? []) if (r.userId === userId) ids.add(r.projectId)
         return [...ids].map(projectId => ({ projectId }))
       },
+    },
+    // CRM meetings the user is invited to (scheduled / running), as { meeting: { documentId } } rows.
+    crmAttendee: {
+      findMany: async ({ where }: { where: { userId: string } }) =>
+        (rows.invites ?? []).filter(r => r.userId === where.userId).map(r => ({ meeting: { documentId: r.documentId } })),
     },
     raciAssignment: {
       findMany: async ({ where }: { where: { OR: Array<Record<string, unknown>> } }) => {
@@ -220,14 +226,14 @@ describe('PM + Contributor: projects depend on the role in use', () => {
 })
 
 describe('documentVisibilityWhere / canSeeDocument', () => {
-  it('admins, auditors and PMs see every document', () => {
+  it('admins, auditors and PMs see every document', async () => {
     for (const role of ['tenant-admin', 'admin', 'auditor', 'pm'] as const) {
-      expect(documentVisibilityWhere(user(role))).toBeNull()
+      expect(await documentVisibilityWhere(fakePrisma({}), user(role))).toBeNull()
     }
   })
 
-  it('contributors see only documents they are assignee, creator or on the RACI of', () => {
-    expect(documentVisibilityWhere(user('contributor', 'ravi'))).toEqual({
+  it('contributors see only documents they are assignee, creator or on the RACI of', async () => {
+    expect(await documentVisibilityWhere(fakePrisma({}), user('contributor', 'ravi'))).toEqual({
       OR: [
         { assigneeId: 'ravi' },
         { createdBy: 'ravi' },
@@ -241,8 +247,19 @@ describe('documentVisibilityWhere / canSeeDocument', () => {
     })
   })
 
-  it('an Approver (A) only gets the document once review and CRM are done (pending signature or signed)', () => {
-    const where = documentVisibilityWhere(user('contributor', 'asha')) as { OR: Array<Record<string, unknown>> }
+  it('an Approver invited to an open CRM meeting sees that document (and its project) while it is open', async () => {
+    const prisma = fakePrisma({ invites: [{ userId: 'asha', documentId: 'DOC-9' }], raciDocs: [{ userId: 'asha', projectId: 'p-crm', removedAt: null }] })
+    const where = await documentVisibilityWhere(prisma, user('contributor', 'asha')) as { OR: Array<Record<string, unknown>> }
+    const raci = where.OR[2] as { OR: Array<Record<string, unknown>> }
+    expect(raci.OR[2]).toEqual({ id: { in: ['DOC-9'] }, raciRows: { some: { userId: 'asha', removedAt: null, letter: 'A' } } })
+    expect(await visibleProjectIdsForUser(prisma, user('contributor', 'asha'))).toEqual(new Set(['p-crm']))
+    // Not invited: no extra clause.
+    const plain = await documentVisibilityWhere(fakePrisma({}), user('contributor', 'asha')) as { OR: Array<{ OR?: unknown[] }> }
+    expect(plain.OR[2]!.OR).toHaveLength(2)
+  })
+
+  it('an Approver (A) only gets the document once review and CRM are done (pending signature or signed)', async () => {
+    const where = await documentVisibilityWhere(fakePrisma({}), user('contributor', 'asha')) as { OR: Array<Record<string, unknown>> }
     const raci = where.OR[2] as { OR: Array<{ status?: { in: string[] }; raciRows: { some: { letter: unknown } } }> }
     // Any letter but A counts straight away.
     expect(raci.OR[0]!.status).toBeUndefined()
@@ -254,7 +271,7 @@ describe('documentVisibilityWhere / canSeeDocument', () => {
 
   it('canSeeDocument counts the document under the contributor scope', async () => {
     const seen: unknown[] = []
-    const prisma = { document: { count: async (args: unknown) => { seen.push(args); return 0 } } } as unknown as PrismaClient
+    const prisma = { crmAttendee: { findMany: async () => [] }, document: { count: async (args: unknown) => { seen.push(args); return 0 } } } as unknown as PrismaClient
     expect(await canSeeDocument(prisma, user('contributor', 'ravi'), 'DOC-1')).toBe(false)
     expect(seen[0]).toMatchObject({ where: { id: 'DOC-1', OR: expect.any(Array) } })
     expect(await canSeeDocument(prisma, user('tenant-admin'), 'DOC-1')).toBe(true)
@@ -313,7 +330,7 @@ describe('visibleDocumentIds', () => {
   })
   it('a contributor sees only documents they work on (assignee, creator or a role), not a whole project', async () => {
     let sent: { where: Record<string, unknown> } | undefined
-    const prisma = { document: { findMany: async (args: { where: Record<string, unknown> }) => { sent = args; return [{ id: 'mine' }] } } } as unknown as PrismaClient
+    const prisma = { crmAttendee: { findMany: async () => [] }, document: { findMany: async (args: { where: Record<string, unknown> }) => { sent = args; return [{ id: 'mine' }] } } } as unknown as PrismaClient
     expect([...await visibleDocumentIds(prisma, user('author', 'c-1'), ['mine', 'theirs'])]).toEqual(['mine'])
     expect(sent!.where).toMatchObject({ id: { in: ['mine', 'theirs'] }, OR: expect.any(Array) })
     expect(sent!.where).not.toHaveProperty('projectId')

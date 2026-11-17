@@ -48,6 +48,7 @@ async function build(actor: Partial<AuthenticatedUser> = {}, opts: { onProject?:
     },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: async () => [] },
+    crmAttendee: { findMany: async () => [] },
     document: { findMany: async () => [] },
     therapeuticArea: { findMany: async () => [{ label: 'Oncology' }], findFirst: async () => ({ label: 'Oncology' }) },
     user: {

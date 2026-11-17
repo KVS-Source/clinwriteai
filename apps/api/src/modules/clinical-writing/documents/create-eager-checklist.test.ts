@@ -47,6 +47,7 @@ async function build(opts: { existingTemplate?: boolean } = {}) {
     projectMember:     { findMany: vi.fn(async () => [{ projectId: 'proj-1' }]) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     document:          { findMany: vi.fn(async () => []) },
     documentUpload: { findMany: vi.fn(async () => []) },
     documentSource: { createMany: vi.fn(async () => ({ count: 0 })) },

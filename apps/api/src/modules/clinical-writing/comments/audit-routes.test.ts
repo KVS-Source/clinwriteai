@@ -51,6 +51,7 @@ async function buildApp(opts: AppOpts) {
     projectMember: { findMany: vi.fn(async () => (opts.projectMember ? [{ projectId: 'PROJ-1' }] : [])) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     user: { findMany: vi.fn(async () => [{ id: 'user-a', name: 'Alex' }]), findUnique: vi.fn(async () => null) },
   } as never)
   app.decorate('audit', audit as never)

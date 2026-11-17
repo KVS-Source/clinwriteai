@@ -27,6 +27,7 @@ function prisma(opts: { rows?: Row[]; assignee?: string; memberOf?: string[] } =
     projectMember:     { findMany: async () => (opts.memberOf ?? []).map(projectId => ({ projectId })) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: async () => [] },
+    crmAttendee: { findMany: async () => [] },
   } as never
 }
 

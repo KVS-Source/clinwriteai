@@ -32,6 +32,7 @@ async function build(users: U[], members: Array<{ userId: string; projectRole: s
     projectMember: { findMany: vi.fn(async () => members) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => []) },
+    crmAttendee: { findMany: async () => [] },
     user: { findMany },
   } as never)
   app.decorateRequest('user', null)

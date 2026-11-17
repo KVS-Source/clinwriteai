@@ -45,6 +45,7 @@ async function build(actor: Partial<AuthenticatedUser>, opts: BuildOpts = {}) {
   const userId = actor.id ?? 'u-1'
   const now = new Date()
   app.decorate('prisma', {
+    crmAttendee: { findMany: async () => [] },
     document: {
       findUnique: vi.fn(async () => ({
         id: DOC, projectId: 'p-1', type: 'csr_full', status: 'in_authoring', stage: 'study-start-up',

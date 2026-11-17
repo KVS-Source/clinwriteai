@@ -15,6 +15,7 @@ const prismaFor = (status: string, visibleCount = 1) => ({
     count: vi.fn(async () => visibleCount),
   },
   project: { findUnique: vi.fn(async () => ({ id: 'proj-1', status })) },
+  crmAttendee: { findMany: async () => [] },
   documentRaci: { findFirst: vi.fn(async () => ({ id: 'raci-r' })), findMany: vi.fn(async () => []) },
   comment: { findMany: vi.fn(async () => []), create: vi.fn() },
 })
@@ -92,6 +93,7 @@ describe('document-scoped reads respect visibility', () => {
     const projectLists = (member: boolean) => ({
       projectMember: { findMany: vi.fn(async () => (member ? [{ projectId: 'proj-1' }] : [])) },
       projectTeamMember: { findMany: vi.fn(async () => []) },
+      crmAttendee: { findMany: async () => [] },
       raciAssignment: { findMany: vi.fn(async () => []) },
     })
     const pm = { ...base, role: 'pm' } as AuthenticatedUser

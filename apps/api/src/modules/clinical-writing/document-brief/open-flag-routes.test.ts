@@ -28,6 +28,7 @@ async function build(opts: {
 
   const flagState = { row: opts.flag ?? null }
   app.decorate('prisma', {
+    crmAttendee: { findMany: async () => [] },
     document: {
       findUnique: vi.fn(async () => ({ id: DOC, deletedAt: null, projectId: 'proj-1' })),
       count:      vi.fn(async () => (opts.canSee === false ? 0 : 1)),

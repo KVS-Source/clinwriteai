@@ -38,13 +38,26 @@ import { hasAnyRole, onlyRolesIn, type AuthenticatedUser } from '../../auth/rbac
  * document once review and the CRM meeting are done, i.e. when it is awaiting signature or signed:
  * until then they neither see it in their lists nor can open it. Any other letter counts at once.
  */
-function raciWorksOn(userId: string): Prisma.DocumentWhereInput {
+function raciWorksOn(userId: string, invitedDocIds: readonly string[] = []): Prisma.DocumentWhereInput {
   return {
     OR: [
       { raciRows: { some: { userId, removedAt: null, letter: { not: 'A' } } } },
       { status: { in: ['pending_signature', 'signed'] }, raciRows: { some: { userId, removedAt: null, letter: 'A' } } },
+      // An Approver invited to a scheduled or running CRM meeting on the document sees it while it is open.
+      ...(invitedDocIds.length > 0
+        ? [{ id: { in: [...invitedDocIds] }, raciRows: { some: { userId, removedAt: null, letter: 'A' } } }]
+        : []),
     ],
   }
+}
+
+/** Documents with a scheduled or running CRM meeting the user is invited to (as chair or attendee). */
+async function crmInvitedDocumentIds(prisma: PrismaClient, userId: string): Promise<string[]> {
+  const rows = await prisma.crmAttendee.findMany({
+    where:  { userId, meeting: { status: { in: ['scheduled', 'in_progress'] } } },
+    select: { meeting: { select: { documentId: true } } },
+  })
+  return [...new Set(rows.map(r => r.meeting.documentId))]
 }
 
 /** ProjectMember.projectRole written for the creating PM and for PMs added to a project. */
@@ -86,6 +99,7 @@ export async function visibleProjectIdsForUser(
     return new Set(managed.map(r => r.projectId))
   }
 
+  const invitedDocIds = await crmInvitedDocumentIds(prisma, user.id)
   const [members, legacyTeam, raciDocs, projectRaci] = await Promise.all([
     prisma.projectMember.findMany({
       where: {
@@ -107,7 +121,7 @@ export async function visibleProjectIdsForUser(
         OR: [
           { assigneeId: user.id },
           ...(asPm ? [{ createdBy: user.id }] : []),
-          raciWorksOn(user.id),
+          raciWorksOn(user.id, invitedDocIds),
         ],
       },
       select: { projectId: true },
@@ -147,13 +161,13 @@ export async function visibleProjectIdsForUser(
 const SEE_ALL_DOCUMENT_ROLES: ReadonlySet<string> = new Set([...SEE_ALL_ROLES, 'pm'])
 
 /** Prisma filter limiting documents to the ones `user` works on, or null when they see all. */
-export function documentVisibilityWhere(user: AuthenticatedUser): Prisma.DocumentWhereInput | null {
+export async function documentVisibilityWhere(prisma: PrismaClient, user: AuthenticatedUser): Promise<Prisma.DocumentWhereInput | null> {
   if (hasAnyRole(user, ...SEE_ALL_DOCUMENT_ROLES)) return null
   return {
     OR: [
       { assigneeId: user.id },
       { createdBy: user.id },
-      raciWorksOn(user.id),
+      raciWorksOn(user.id, await crmInvitedDocumentIds(prisma, user.id)),
     ],
   }
 }
@@ -172,7 +186,7 @@ export function documentVisibilityWhere(user: AuthenticatedUser): Prisma.Documen
  */
 export async function canSeeDocument(prisma: PrismaClient, user: AuthenticatedUser, documentId: string): Promise<boolean> {
   if (hasAnyRole(user, ...SEE_ALL_ROLES)) return true
-  const scope = documentVisibilityWhere(user)
+  const scope = await documentVisibilityWhere(prisma, user)
   if (scope) return (await prisma.document.count({ where: { id: documentId, ...scope } })) > 0
   const projects = await visibleProjectIdsForUser(prisma, user)
   if (projects === 'all') return true
@@ -187,7 +201,7 @@ export async function canSeeDocument(prisma: PrismaClient, user: AuthenticatedUs
 export async function visibleDocumentIds(prisma: PrismaClient, user: AuthenticatedUser, documentIds: string[]): Promise<Set<string>> {
   if (documentIds.length === 0) return new Set()
   if (hasAnyRole(user, ...SEE_ALL_ROLES)) return new Set(documentIds)
-  const scope = documentVisibilityWhere(user)
+  const scope = await documentVisibilityWhere(prisma, user)
   let projectFilter: Prisma.DocumentWhereInput = {}
   if (!scope) {
     const projects = await visibleProjectIdsForUser(prisma, user)

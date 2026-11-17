@@ -35,6 +35,7 @@ async function build(opts: {
   }
 
   app.decorate('prisma', {
+    crmAttendee: { findMany: async () => [] },
     document: {
       // Route's own findUnique uses select: { id, deletedAt }.
       // Service's findUnique uses include: { currentVersion: { select: { sections } } }.

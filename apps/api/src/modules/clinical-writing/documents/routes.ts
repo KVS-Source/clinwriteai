@@ -304,7 +304,7 @@ export const documentsProjectScopedRoutes: FastifyPluginAsync = async (app) => {
     }
 
     // Contributors and guests only see the documents they work on.
-    const docScope = documentVisibilityWhere(request.user!)
+    const docScope = await documentVisibilityWhere(app.prisma, request.user!)
     const rows = await app.prisma.document.findMany({
       where: { projectId, deletedAt: null, ...(docScope ?? {}) },
       orderBy: { updatedAt: 'desc' },

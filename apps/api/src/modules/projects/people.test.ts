@@ -15,6 +15,7 @@ async function build(role = 'admin') {
     projectMember: { findMany: vi.fn(async () => [{ userId: 'u-pm' }, { userId: 'u-member' }]) },
     raciAssignment: { findMany: async () => [] },
     projectTeamMember: { findMany: vi.fn(async () => [{ userId: 'u-team' }, { userId: 'user-PLACEHOLDER' }, { userId: 'u-member' }]) },
+    crmAttendee: { findMany: async () => [] },
     document: { findMany: vi.fn(async () => [
       { assigneeId: 'u-assignee', createdBy: 'u-creator' },
       { assigneeId: 'u-assignee', createdBy: 'u-pm' },

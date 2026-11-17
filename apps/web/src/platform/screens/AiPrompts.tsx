@@ -129,6 +129,38 @@ function toRow(r: AiPromptRecord): AiPromptRow {
   return { ...r, rules: (r.sectionRules as AiPromptSectionRules | null) ?? {} }
 }
 
+/** JSON → AiPromptSectionRules with light validation. Used by the Edit JSON
+ *  toggle on the parsed-rules panel so admins can tweak severity/text
+ *  without losing the structured view. */
+function parseRulesJson(text: string): { ok: AiPromptSectionRules } | { err: string } {
+  const trimmed = text.trim()
+  if (trimmed.length === 0) return { ok: {} }
+  let parsed: unknown
+  try { parsed = JSON.parse(trimmed) }
+  catch (err) { return { err: `JSON parse: ${err instanceof Error ? err.message : String(err)}` } }
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+    return { err: 'Must be a JSON object keyed by section id.' }
+  }
+  const out: AiPromptSectionRules = {}
+  for (const [key, value] of Object.entries(parsed as Record<string, unknown>)) {
+    if (!Array.isArray(value)) return { err: `${key}: value must be an array` }
+    const bucket: Array<{ severity: 'must' | 'should' | 'nice'; text: string }> = []
+    for (const [i, v] of value.entries()) {
+      if (!v || typeof v !== 'object') return { err: `${key}[${i}]: must be an object` }
+      const rule = v as Record<string, unknown>
+      if (rule.severity !== 'must' && rule.severity !== 'should' && rule.severity !== 'nice') {
+        return { err: `${key}[${i}].severity must be must/should/nice` }
+      }
+      if (typeof rule.text !== 'string' || rule.text.trim().length === 0) {
+        return { err: `${key}[${i}].text must be a non-empty string` }
+      }
+      bucket.push({ severity: rule.severity, text: rule.text })
+    }
+    out[key] = bucket
+  }
+  return { ok: out }
+}
+
 export function AiPrompts() {
   const qc = useQueryClient()
   // List of latest-approved rows (list screen). Drafts live per-docType and
@@ -464,7 +496,63 @@ function ApprovedSummary({ row }: { row: AiPromptRow }) {
           {row.smePrompt}
         </pre>
       </details>
+      <details className="mt-2" open={ruleTotal > 0 && ruleTotal <= 10}>
+        <summary className="cursor-pointer text-[11px] font-semibold text-emerald-900">
+          Show parsed section rules{ruleTotal === 0 ? ' — none' : ` (${ruleTotal})`}
+        </summary>
+        <div className="mt-2">
+          <ParsedRulesView rules={row.rules} tone="approved" />
+        </div>
+      </details>
     </section>
+  )
+}
+
+// Readable, non-JSON rendering of section rules. Grouped by section with
+// severity chips. Used by both the approved summary (read-only) + the
+// draft editor (where it sits alongside the Parse button).
+function ParsedRulesView({
+  rules, tone,
+}: {
+  rules: AiPromptSectionRules
+  tone:  'approved' | 'draft'
+}) {
+  const sectionKeys = Object.keys(rules).sort()
+  if (sectionKeys.length === 0) {
+    return (
+      <p className="rounded-md border border-dashed border-slate-300 bg-slate-50 p-3 text-center text-[12px] italic text-slate-500" data-empty-rules>
+        No per-section rules parsed yet. Click <strong>Parse SME prompt</strong> to let AI surface
+        per-section guidance from the prompt text — or author rules by hand with Edit JSON.
+      </p>
+    )
+  }
+  const frame = tone === 'approved'
+    ? 'border-emerald-200 bg-white/70'
+    : 'border-blue-200 bg-white'
+  const key = tone === 'approved' ? 'text-emerald-900' : 'text-blue-900'
+  return (
+    <ul className="flex flex-col gap-2" data-parsed-rules-view={tone}>
+      {sectionKeys.map(sectionKey => {
+        const items = rules[sectionKey] ?? []
+        return (
+          <li key={sectionKey} className={`rounded-md border ${frame} p-2`} data-parsed-section={sectionKey}>
+            <p className={`font-mono text-[10px] font-semibold ${key}`}>{sectionKey}</p>
+            <ul className="mt-1.5 space-y-1 text-[12px]">
+              {items.map((r, i) => (
+                <li key={i} className="flex items-start gap-2">
+                  <span className={`shrink-0 rounded px-1.5 py-0.5 font-mono text-[9px] uppercase ${
+                    r.severity === 'must'   ? 'bg-rose-100 text-rose-800' :
+                    r.severity === 'should' ? 'bg-amber-100 text-amber-800' :
+                                               'bg-slate-100 text-slate-700'
+                  }`}>{r.severity}</span>
+                  <span className="text-slate-800">{r.text}</span>
+                </li>
+              ))}
+            </ul>
+          </li>
+        )
+      })}
+    </ul>
   )
 }
 
@@ -527,6 +615,9 @@ function DraftEditor({
   const [actionError, setActionError] = useState<string | null>(null)
   const [actionInfo,  setActionInfo]  = useState<string | null>(null)
   const [previewOpen, setPreviewOpen] = useState(false)
+  const [rulesJsonOpen,  setRulesJsonOpen]  = useState(false)
+  const [rulesJsonText,  setRulesJsonText]  = useState(() => JSON.stringify(draft.rules, null, 2))
+  const [rulesJsonError, setRulesJsonError] = useState<string | null>(null)
 
   const dirty = smePrompt !== draft.smePrompt || JSON.stringify(rules) !== JSON.stringify(draft.rules)
   const trimmed = smePrompt.trim()
@@ -673,30 +764,78 @@ function DraftEditor({
         placeholder="SME prompt — role-specific preamble the AI reads on every draft + rewrite."
       />
 
-      <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-white p-3" data-parsed-structures>
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">Parsed structures (draft)</span>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-chip="section-rules">
-            Section rules · {ruleSections} section{ruleSections === 1 ? '' : 's'} / {ruleTotal} rule{ruleTotal === 1 ? '' : 's'}
-          </span>
-          <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-chip="bp-digest">
-            BP digest (policy) · {policy?.bestPracticeDigest?.principles.length ?? 0} principle{(policy?.bestPracticeDigest?.principles.length ?? 0) === 1 ? '' : 's'}
-          </span>
-        </div>
-        <button
-          type="button"
-          onClick={() => extract.mutate()}
-          disabled={extract.isPending || !aiReady || !trimmed}
-          title={
-            !aiReady ? 'AI is not set up — configure an AI engine first.' :
-            !trimmed ? 'Write an SME prompt first.' :
-            undefined
-          }
-          className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
-          data-action="extract-parse"
-        >
-          {extract.isPending ? 'Parsing…' : 'Parse SME prompt (AI) ✦'}
-        </button>
+      <section className="rounded-md border border-slate-200 bg-white p-3" data-parsed-structures>
+        <header className="mb-2 flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              Parsed section rules (draft)
+            </span>
+            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-chip="section-rules">
+              {ruleSections} section{ruleSections === 1 ? '' : 's'} · {ruleTotal} rule{ruleTotal === 1 ? '' : 's'}
+            </span>
+            {policy?.bestPracticeDigest?.principles?.length ? (
+              <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[11px] font-semibold text-slate-700" data-chip="bp-digest">
+                BP digest · {policy.bestPracticeDigest.principles.length} principle{policy.bestPracticeDigest.principles.length === 1 ? '' : 's'}
+              </span>
+            ) : null}
+          </div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setRulesJsonOpen(v => !v)}
+              className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              data-action="edit-rules-json"
+              aria-expanded={rulesJsonOpen}
+            >
+              {rulesJsonOpen ? 'Hide JSON' : 'Edit JSON'}
+            </button>
+            <button
+              type="button"
+              onClick={() => extract.mutate()}
+              disabled={extract.isPending || !aiReady || !trimmed}
+              title={
+                !aiReady ? 'AI is not set up — configure an AI engine first.' :
+                !trimmed ? 'Write an SME prompt first.' :
+                undefined
+              }
+              className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              data-action="extract-parse"
+            >
+              {extract.isPending ? 'Parsing…' : 'Parse SME prompt (AI) ✦'}
+            </button>
+          </div>
+        </header>
+        <ParsedRulesView rules={rules} tone="draft" />
+        {rulesJsonOpen && (
+          <div className="mt-3" data-rules-json-editor>
+            <p className="mb-1 font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500">
+              Rules JSON (editable){rulesJsonError && <span className="ml-2 font-normal text-rose-700">· {rulesJsonError}</span>}
+            </p>
+            <textarea
+              value={rulesJsonText}
+              onChange={e => {
+                const txt = e.currentTarget.value
+                setRulesJsonText(txt)
+                const parsed = parseRulesJson(txt)
+                if ('ok' in parsed) {
+                  setRulesJsonError(null)
+                  setRules(parsed.ok)
+                  setActionInfo(null)
+                } else {
+                  setRulesJsonError(parsed.err)
+                }
+              }}
+              rows={10}
+              spellCheck={false}
+              className="w-full resize-y rounded-md border border-slate-300 px-3 py-2 font-mono text-[11px] leading-relaxed"
+              data-field="rules-json"
+            />
+            <p className="mt-1 text-[10px] text-slate-500">
+              Keyed by section id, each a list of <code>{'{ severity, text }'}</code>. Changes merge
+              into the draft once the JSON parses cleanly.
+            </p>
+          </div>
+        )}
       </section>
 
       <section className="rounded-md border border-slate-200 bg-slate-50" data-preview-panel>

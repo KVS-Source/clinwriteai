@@ -582,6 +582,22 @@ export const platformApi = {
     api.patch<PublicationTypePolicy>(`/publication-type-policies/${encodeURIComponent(docType)}`, body),
   retirePublicationTypePolicy: (docType: string, reason: string) =>
     api.post<PublicationTypePolicy>(`/publication-type-policies/${encodeURIComponent(docType)}/retire`, { reason }),
+  /** Admin BP PDF upload — stores as a platform DocumentUpload and
+   *  enqueues publications.distill_best_practice. Worker writes to a
+   *  draft PublicationBestPracticeRecord; admin approves separately. */
+  distillPublicationBestPracticeFile: (docType: string, file: File) => {
+    const form = new FormData()
+    form.append('file', file, file.name)
+    return api.upload<{
+      jobId:     string
+      uploadId:  string
+      policyId:  string
+      docType:   string
+      version:   number
+      fileName:  string
+      sizeBytes: number
+    }>(`/publication-type-policies/${encodeURIComponent(docType)}/distill-best-practice-file`, form)
+  },
 
   listPublicationAiPrompts: () =>
     api.get<{ prompts: PublicationAiPromptRecord[] }>(`/publication-ai-prompts`),

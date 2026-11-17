@@ -420,25 +420,9 @@ function AssociationsPanel({
       {actionError && <p className="rounded-md border border-rose-200 bg-rose-50 px-3 py-2 text-[12px] text-rose-700">{actionError}</p>}
       {actionInfo  && <p className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-[12px] text-emerald-800">{actionInfo}</p>}
 
-      <AssociationRow
-        label="AI prompt"
-        state={policy.aiPrompt ? 'approved' : (policy.smePrompt?.trim() ? 'legacy' : 'missing')}
-        summary={policy.aiPrompt
-          ? `Approved v${policy.aiPrompt.version} · ${policy.aiPrompt.smePrompt.length.toLocaleString()} chars`
-          : policy.smePrompt?.trim()
-            ? `Legacy prompt in use · ${policy.smePrompt.length.toLocaleString()} chars`
-            : 'No prompt'}
-      />
+      <AiPromptSection docType={policy.docType} approved={policy.aiPrompt} legacySme={policy.smePrompt} aiReady={aiReady} onChanged={onChanged} />
 
-      <AssociationRow
-        label="Best-practice digest"
-        state={policy.bestPractice ? 'approved' : ((policy.bestPracticeDigest as { principles?: unknown[] } | null)?.principles?.length ? 'legacy' : 'missing')}
-        summary={policy.bestPractice
-          ? `Approved v${policy.bestPractice.version} · ${policy.bestPractice.digest?.principles?.length ?? 0} principles`
-          : (policy.bestPracticeDigest as { principles?: unknown[] } | null)?.principles?.length
-            ? `Legacy digest in use · ${(policy.bestPracticeDigest as { principles?: unknown[] }).principles!.length} principles`
-            : 'No digest'}
-      />
+      <BpSection docType={policy.docType} approved={policy.bestPractice} legacyDigest={policy.bestPracticeDigest as { principles?: unknown[] } | null} aiReady={aiReady} onChanged={onChanged} />
 
       <section className="rounded-md border border-slate-200 bg-slate-50 p-3" data-pins>
         <p className="mb-2 text-[12px] font-semibold text-slate-800">Policy pins</p>
@@ -512,15 +496,6 @@ function AssociationsPanel({
         </button>
       </footer>
 
-      {/* AI prompt + BP editor UIs for Module B land in follow-up Phase
-          M-B.1 polish. For now, use the API routes directly or wait for
-          the dedicated tabs. */}
-      <p className="text-[11px] text-slate-500" data-manage-hint>
-        AI prompt draft/approve + BP digest draft/approve for publications land in follow-up
-        iterations of this phase. The API routes (`/publication-ai-prompts`,
-        `/publication-best-practice-records`) are already live.
-      </p>
-
       {!aiReady && (
         <p className="rounded-md border border-amber-300 bg-amber-50 p-2 text-[11px] text-amber-900">
           AI isn't configured — approving a draft / running the distiller will 503 until an engine
@@ -528,33 +503,6 @@ function AssociationsPanel({
         </p>
       )}
     </div>
-  )
-}
-
-function AssociationRow({
-  label, state, summary,
-}: {
-  label:   string
-  state:   ChipState
-  summary: string
-}) {
-  const palette: Record<ChipState, string> = {
-    approved: 'border-emerald-200 bg-emerald-50/40',
-    legacy:   'border-amber-200 bg-amber-50/40',
-    auto:     'border-sky-200 bg-sky-50/40',
-    pinned:   'border-indigo-200 bg-indigo-50/40',
-    missing:  'border-slate-200 bg-white',
-  }
-  return (
-    <section className={`rounded-md border ${palette[state]} p-3`} data-assoc={label}>
-      <header className="flex flex-wrap items-center justify-between gap-2">
-        <div className="flex items-center gap-2">
-          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-600">{label}</p>
-          <Chip state={state} label={state} />
-        </div>
-      </header>
-      <p className="mt-1 text-[12px] text-slate-700">{summary}</p>
-    </section>
   )
 }
 
@@ -659,5 +607,320 @@ function CreatePolicyForm({
         </button>
       </div>
     </div>
+  )
+}
+
+// ---- AI prompt section (inline draft/approve) --------------------------
+
+function AiPromptSection({
+  docType, approved, legacySme, aiReady, onChanged,
+}: {
+  docType:   string
+  approved:  PublicationAiPromptRecord | null
+  legacySme: string | null | undefined
+  aiReady:   boolean
+  onChanged: () => void
+}) {
+  const qc = useQueryClient()
+  const versionsQ = useQuery({
+    queryKey: ['publication-ai-prompt-versions', docType],
+    queryFn:  () => platformApi.listPublicationAiPromptVersions(docType),
+  })
+  const versions = versionsQ.data?.versions ?? []
+  const draft = versions.find(v => v.status === 'draft') ?? null
+
+  const [promptText, setPromptText] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
+  const [localInfo,  setLocalInfo]  = useState<string | null>(null)
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['publication-ai-prompt-versions', docType] })
+    qc.invalidateQueries({ queryKey: ['publication-ai-prompts-approved'] })
+    onChanged()
+  }
+
+  const startDraft = useMutation({
+    mutationFn: () => platformApi.createPublicationAiPromptDraft({
+      docType,
+      smePrompt: promptText.trim() || (approved?.smePrompt ?? legacySme ?? ''),
+    }),
+    onSuccess: () => { setEditing(false); setLocalInfo('Draft created. Review + Approve below to make it live.'); setLocalError(null); invalidate() },
+    onError:   (err: unknown) => { setLocalError(errMessage(err, 'Draft create failed')); setLocalInfo(null) },
+  })
+
+  const saveDraft = useMutation({
+    mutationFn: () => platformApi.updatePublicationAiPromptDraft(draft!.id, { smePrompt: promptText }),
+    onSuccess: () => { setEditing(false); setLocalInfo('Draft saved.'); setLocalError(null); invalidate() },
+    onError:   (err: unknown) => { setLocalError(errMessage(err, 'Save failed')); setLocalInfo(null) },
+  })
+
+  const approve = useMutation({
+    mutationFn: () => platformApi.approvePublicationAiPrompt(draft!.id),
+    onSuccess: () => { setLocalInfo('Draft approved — AI starts using this prompt for new publications.'); setLocalError(null); invalidate() },
+    onError:   (err: unknown) => { setLocalError(errMessage(err, 'Approve failed')); setLocalInfo(null) },
+  })
+
+  const discard = useMutation({
+    mutationFn: () => platformApi.retirePublicationAiPrompt(draft!.id, 'Draft discarded by admin'),
+    onSuccess: () => { setLocalInfo('Draft discarded. The approved version is unaffected.'); setLocalError(null); invalidate() },
+    onError:   (err: unknown) => { setLocalError(errMessage(err, 'Discard failed')); setLocalInfo(null) },
+  })
+
+  const state: ChipState = approved ? 'approved' : (legacySme?.trim() ? 'legacy' : 'missing')
+  const summary = approved
+    ? `Approved v${approved.version} · ${approved.smePrompt.length.toLocaleString()} chars`
+    : legacySme?.trim()
+      ? `Legacy prompt in use · ${legacySme.length.toLocaleString()} chars`
+      : 'No prompt yet'
+
+  const palette: Record<ChipState, string> = {
+    approved: 'border-emerald-200 bg-emerald-50/40',
+    legacy:   'border-amber-200 bg-amber-50/40',
+    auto:     'border-sky-200 bg-sky-50/40',
+    pinned:   'border-indigo-200 bg-indigo-50/40',
+    missing:  'border-slate-200 bg-white',
+  }
+
+  return (
+    <section className={`rounded-md border ${palette[state]} p-3`} data-assoc="AI prompt">
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-600">AI prompt</p>
+          <Chip state={state} label={state} />
+        </div>
+      </header>
+      <p className="mt-1 text-[12px] text-slate-700">{summary}</p>
+
+      {approved && (
+        <details className="mt-2">
+          <summary className="cursor-pointer text-[11px] font-semibold text-slate-700">Show approved SME prompt</summary>
+          <pre className="mt-1 max-h-40 overflow-auto rounded border border-slate-200 bg-white p-2 font-mono text-[11px] leading-relaxed text-slate-800">{approved.smePrompt}</pre>
+        </details>
+      )}
+
+      {draft && !editing && (
+        <div className="mt-2 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-2" data-draft={draft.id}>
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[10px] font-semibold uppercase text-amber-900">Pending draft v{draft.version}</span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => { setPromptText(draft.smePrompt); setEditing(true) }}
+                className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+                data-action="edit-pub-ai-prompt-draft"
+              >Edit</button>
+              <button
+                type="button"
+                onClick={() => { if (confirm('Discard draft?')) discard.mutate() }}
+                disabled={discard.isPending}
+                className="rounded-md border border-rose-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                data-action="discard-pub-ai-prompt-draft"
+              >{discard.isPending ? 'Discarding…' : 'Discard'}</button>
+              <button
+                type="button"
+                onClick={() => approve.mutate()}
+                disabled={approve.isPending || !aiReady}
+                title={!aiReady ? 'AI is not set up.' : undefined}
+                className="rounded-md border border-emerald-600 bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                data-action="approve-pub-ai-prompt-draft"
+              >{approve.isPending ? 'Approving…' : (approved ? `Approve (retires v${approved.version})` : 'Approve')}</button>
+            </div>
+          </div>
+          <pre className="max-h-40 overflow-auto rounded border border-amber-200 bg-white p-2 font-mono text-[11px] text-slate-800">{draft.smePrompt}</pre>
+        </div>
+      )}
+
+      {editing && (
+        <div className="mt-2 flex flex-col gap-2 rounded-md border border-blue-200 bg-blue-50/40 p-2" data-editing>
+          <textarea
+            value={promptText}
+            onChange={e => setPromptText(e.currentTarget.value)}
+            rows={10}
+            className="w-full resize-y rounded-md border border-slate-300 bg-white px-3 py-2 font-mono text-[12px] leading-relaxed"
+            data-field="pub-ai-prompt-editor"
+          />
+          <div className="flex justify-end gap-2">
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              className="rounded-md border border-slate-300 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+            >Cancel</button>
+            <button
+              type="button"
+              onClick={() => draft ? saveDraft.mutate() : startDraft.mutate()}
+              disabled={saveDraft.isPending || startDraft.isPending || !aiReady || !promptText.trim()}
+              title={!aiReady ? 'AI is not set up.' : undefined}
+              className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1 text-[11px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+              data-action="save-pub-ai-prompt-draft"
+            >{saveDraft.isPending || startDraft.isPending ? 'Saving…' : (draft ? 'Save draft' : 'Create draft')}</button>
+          </div>
+        </div>
+      )}
+
+      {!draft && !editing && (
+        <div className="mt-2 flex justify-end">
+          <button
+            type="button"
+            onClick={() => { setPromptText(approved?.smePrompt ?? legacySme ?? ''); setEditing(true) }}
+            disabled={!aiReady}
+            title={!aiReady ? 'AI is not set up.' : undefined}
+            className="rounded-md border border-blue-600 bg-white px-2 py-0.5 text-[11px] font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50"
+            data-action="start-pub-ai-prompt-draft"
+          >{approved ? 'Start new version' : 'Author prompt'}</button>
+        </div>
+      )}
+
+      {localInfo  && <p className="mt-2 text-[11px] text-emerald-700">{localInfo}</p>}
+      {localError && <p className="mt-2 text-[11px] text-rose-700">{localError}</p>}
+    </section>
+  )
+}
+
+// ---- BP section (upload + draft approve) --------------------------------
+
+function BpSection({
+  docType, approved, legacyDigest, aiReady, onChanged,
+}: {
+  docType:      string
+  approved:     PublicationBestPracticeRecord | null
+  legacyDigest: { principles?: unknown[] } | null
+  aiReady:      boolean
+  onChanged:    () => void
+}) {
+  const qc = useQueryClient()
+  const versionsQ = useQuery({
+    queryKey: ['publication-bp-versions', docType],
+    queryFn:  () => platformApi.listPublicationBestPracticeVersions(docType),
+    refetchInterval: 5_000,   // worker is async
+  })
+  const draft = versionsQ.data?.versions.find(v => v.status === 'draft') ?? null
+
+  const [bpFile, setBpFile] = useState<File | null>(null)
+  const [previewOpen, setPreviewOpen] = useState(false)
+  const [localError, setLocalError] = useState<string | null>(null)
+  const [localInfo,  setLocalInfo]  = useState<string | null>(null)
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['publication-bp-versions', docType] })
+    qc.invalidateQueries({ queryKey: ['publication-best-practice-records-approved'] })
+    onChanged()
+  }
+
+  const distill = useMutation({
+    mutationFn: () => {
+      if (!bpFile) throw new Error('Pick a PDF first')
+      return platformApi.distillPublicationBestPracticeFile(docType, bpFile)
+    },
+    onSuccess: (res) => {
+      setLocalInfo(`Parser enqueued for ${res.fileName} — the draft digest will appear here shortly. (job ${res.jobId})`)
+      setLocalError(null)
+      setBpFile(null)
+    },
+    onError: (err: unknown) => { setLocalError(errMessage(err, 'Parser enqueue failed')); setLocalInfo(null) },
+  })
+
+  const approve = useMutation({
+    mutationFn: () => platformApi.approvePublicationBestPractice(draft!.id),
+    onSuccess: () => { setLocalInfo('Draft approved — AI starts using this digest.'); setLocalError(null); invalidate() },
+    onError:   (err: unknown) => { setLocalError(errMessage(err, 'Approve failed')); setLocalInfo(null) },
+  })
+
+  const discard = useMutation({
+    mutationFn: () => platformApi.retirePublicationBestPractice(draft!.id, 'Draft discarded by admin'),
+    onSuccess: () => { setLocalInfo('Draft discarded. The approved version is unaffected.'); setLocalError(null); invalidate() },
+    onError:   (err: unknown) => { setLocalError(errMessage(err, 'Discard failed')); setLocalInfo(null) },
+  })
+
+  const state: ChipState = approved ? 'approved' : (legacyDigest?.principles?.length ? 'legacy' : 'missing')
+  const summary = approved
+    ? `Approved v${approved.version} · ${approved.digest?.principles?.length ?? 0} principles`
+    : legacyDigest?.principles?.length
+      ? `Legacy digest in use · ${legacyDigest.principles.length} principles`
+      : 'No digest yet'
+
+  const palette: Record<ChipState, string> = {
+    approved: 'border-emerald-200 bg-emerald-50/40',
+    legacy:   'border-amber-200 bg-amber-50/40',
+    auto:     'border-sky-200 bg-sky-50/40',
+    pinned:   'border-indigo-200 bg-indigo-50/40',
+    missing:  'border-slate-200 bg-white',
+  }
+
+  return (
+    <section className={`rounded-md border ${palette[state]} p-3`} data-assoc="Best-practice digest">
+      <header className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <p className="font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-600">Best-practice digest</p>
+          <Chip state={state} label={state} />
+        </div>
+      </header>
+      <p className="mt-1 text-[12px] text-slate-700">{summary}</p>
+
+      <div className="mt-2 flex flex-col gap-2 rounded-md border border-slate-200 bg-white p-2" data-bp-upload>
+        <div className="flex items-center gap-2">
+          <input
+            type="file"
+            accept="application/pdf,.pdf"
+            onChange={e => setBpFile(e.currentTarget.files?.[0] ?? null)}
+            className="flex-1 text-[12px]"
+            data-field="pub-bp-pdf-file"
+          />
+          <button
+            type="button"
+            onClick={() => distill.mutate()}
+            disabled={distill.isPending || !bpFile || !aiReady}
+            title={!aiReady ? 'AI is not set up.' : undefined}
+            className="rounded-md border border-blue-600 bg-blue-600 px-3 py-1.5 text-[12px] font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            data-action="pub-distill-bp"
+          >{distill.isPending ? 'Uploading + parsing…' : 'Upload + parse'}</button>
+        </div>
+        {bpFile && <p className="text-[11px] text-slate-600">{bpFile.name} · {(bpFile.size / (1024*1024)).toFixed(2)} MB</p>}
+        <p className="text-[11px] text-slate-500">
+          PDF only. The parser writes a draft BestPracticeRecord — review + Approve below to make it live.
+        </p>
+      </div>
+
+      {draft && (
+        <div className="mt-2 flex flex-col gap-2 rounded-md border border-amber-300 bg-amber-50 p-2" data-bp-draft={draft.id}>
+          <div className="flex items-center justify-between">
+            <span className="font-mono text-[10px] font-semibold uppercase text-amber-900">
+              Pending draft v{draft.version} · {draft.digest?.principles?.length ?? 0} principles
+              {draft.distilledAt ? ` · parsed ${new Date(draft.distilledAt).toLocaleString()}` : ''}
+            </span>
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => setPreviewOpen(v => !v)}
+                className="rounded-md border border-slate-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-slate-700 hover:bg-slate-50"
+              >{previewOpen ? 'Hide' : 'Preview'}</button>
+              <button
+                type="button"
+                onClick={() => { if (confirm(`Discard draft v${draft.version}?`)) discard.mutate() }}
+                disabled={discard.isPending}
+                className="rounded-md border border-rose-300 bg-white px-2 py-0.5 text-[11px] font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-50"
+                data-action="discard-pub-bp-draft"
+              >{discard.isPending ? 'Discarding…' : 'Discard'}</button>
+              <button
+                type="button"
+                onClick={() => approve.mutate()}
+                disabled={approve.isPending || !aiReady}
+                title={!aiReady ? 'AI is not set up.' : undefined}
+                className="rounded-md border border-emerald-600 bg-emerald-600 px-2 py-0.5 text-[11px] font-semibold text-white hover:bg-emerald-700 disabled:opacity-50"
+                data-action="approve-pub-bp-draft"
+              >{approve.isPending ? 'Approving…' : (approved ? `Approve (retires v${approved.version})` : 'Approve')}</button>
+            </div>
+          </div>
+          {previewOpen && (
+            <pre className="max-h-56 overflow-auto rounded border border-amber-200 bg-white p-2 font-mono text-[11px] text-slate-800">
+              {JSON.stringify(draft.digest, null, 2)}
+            </pre>
+          )}
+        </div>
+      )}
+
+      {localInfo  && <p className="mt-2 text-[11px] text-emerald-700">{localInfo}</p>}
+      {localError && <p className="mt-2 text-[11px] text-rose-700">{localError}</p>}
+    </section>
   )
 }

@@ -3,7 +3,7 @@ import { api, ApiError } from '../../api/client'
 import type { TherapeuticArea } from '../../api/taxonomy'
 import type {
   PlatformConfig, AiConnectionTestResult, AiEngineSaveBody, PlatformUser, MasterLibraryItem,
-  BestPractice,
+  MasterLibraryShareRecord, BestPractice,
   AuditTrailEntry, RateCard, Subscription, ReportDefinition,
   ModuleHealthScore, TATag, RegulatoryFramework, SlideDeckJob, Slide,
   PlatformClient, PlatformAnalytics,
@@ -256,6 +256,9 @@ export const platformApi = {
   // else (no account) gets an invitation whose link opens the document only after an emailed one-time code.
   shareLibraryItem: (itemId: string, emails: string[]) =>
     api.post<{ shared: Array<{ email: string; kind: 'user' | 'invite'; name?: string }>; failed: string[] }>(`/library/${encodeURIComponent(itemId)}/share`, { emails }),
+  // Everyone the document has ever been shared with, by whom and when (newest first, permanent).
+  listLibraryItemShares: (itemId: string) =>
+    api.get<MasterLibraryShareRecord[]>(`/library/${encodeURIComponent(itemId)}/shares`),
   // Records that a section was pulled into a document (usage count + audit).
   adoptLibrarySection: (itemId: string, body: { adoptingModule: 'A' | 'B' | 'C' | 'D' | 'E'; adoptingEntity: string }) =>
     api.post<unknown>(`/library/sections/${itemId}/adopt`, body),

@@ -5,6 +5,7 @@
 import Fastify, { type FastifyInstance } from 'fastify'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { AuthenticatedUser, Role } from '../../../auth/rbac.js'
+import { InMemoryAuditRepository } from '../../../audit/repository.js'
 import { libraryShareRoutes, sharedLibraryPublicRoutes, maskEmail, CODE_MAX_ATTEMPTS } from './share.js'
 
 type FakeUser = { id: string; email: string; name: string; role: string; additionalRoles: string[]; tenantId: string | null; status: string }
@@ -34,7 +35,9 @@ async function setup(s: Setup = {}) {
     if (s.notifyFails?.includes(args.recipientId)) throw new Error('queue down')
     return {}
   })
-  const append = vi.fn(async (_event: Record<string, unknown>) => ({}))
+  // A real (in-memory) audit trail, so the share history can be read back from what the share route wrote.
+  const audit = new InMemoryAuditRepository('x'.repeat(32))
+  const append = vi.fn(async (event: Record<string, unknown>) => audit.append(event as never))
   const apply = (row: Share, data: Record<string, unknown>) => {
     for (const [k, v] of Object.entries(data)) {
       if (v && typeof v === 'object' && 'increment' in (v as object)) row[k] = ((row[k] as number) ?? 0) + (v as { increment: number }).increment
@@ -57,14 +60,22 @@ async function setup(s: Setup = {}) {
   const app = Fastify()
   app.decorate('env', { CORS_ORIGIN: 'http://localhost:5173' } as never)
   app.decorate('prisma', {
-    librarySection: { findFirst: vi.fn(async () => item), findUnique: vi.fn(async () => item) },
+    librarySection: {
+      // Honours the tenant visibility filter ({ AND: [{ OR: [{ tenantId: null }, { tenantId }] }] }).
+      findFirst: vi.fn(async ({ where }: { where?: { AND?: Array<{ OR?: Array<{ tenantId: string | null }> }> } } = {}) => {
+        const or = where?.AND?.[0]?.OR
+        return item && (!or || or.some(c => c.tenantId === item.tenantId)) ? item : null
+      }),
+      findUnique: vi.fn(async () => item),
+    },
     user: {
-      findMany: vi.fn(async ({ where }: { where: { email: { in: string[] } } }) => USERS.filter(u => where.email.in.includes(u.email.toLowerCase()))),
+      findMany: vi.fn(async ({ where }: { where: { email?: { in: string[] }; id?: { in: string[] } } }) =>
+        USERS.filter(u => (where.email ? where.email.in.includes(u.email.toLowerCase()) : where.id!.in.includes(u.id)))),
       findUnique: vi.fn(async () => ({ name: 'Alex PM' })),
     },
     libraryShare,
   } as never)
-  app.decorate('audit', { append } as never)
+  app.decorate('audit', { append, pageForEntity: audit.pageForEntity.bind(audit) } as never)
   app.decorate('notifications', { send } as never)
   app.decorate('mailer', {
     sendMail: vi.fn(async (m: { to: string; subject: string; text: string }) => { if (s.mailFails) throw new Error('smtp down'); mails.push(m); return { messageId: 'm', transport: 'log' } }),
@@ -79,7 +90,7 @@ async function setup(s: Setup = {}) {
   await app.register(sharedLibraryPublicRoutes, { prefix: '/shared-library' })
   await app.ready()
   current = app
-  return { app, send, append, shares, mails }
+  return { app, send, append, audit, shares, mails }
 }
 
 let current: FastifyInstance | null = null
@@ -169,6 +180,94 @@ describe('POST /library/:id/share', () => {
     expect((await share((await setup({ item: null })).app, ['raj@x.io'])).statusCode).toBe(404)
     await closeApp()
     expect((await share((await setup({ item: { retiredAt: new Date() } })).app, ['raj@x.io'])).statusCode).toBe(409)
+  })
+})
+
+describe('GET /library/:id/shares — share history', () => {
+  const history = async (app: FastifyInstance, id = 'lib-1') => app.inject({ method: 'GET', url: `/library/${id}/shares` })
+
+  it('empty until the document is shared', async () => {
+    const t = await setup()
+    const res = await history(t.app)
+    expect(res.statusCode).toBe(200)
+    expect(res.json()).toEqual([])
+  })
+
+  it('a row for a colleague share and for an invitation, each with only who, by whom and when', async () => {
+    const t = await setup()
+    await share(t.app, ['raj@x.io', 'ceo@acme.com'])
+    const rows = (await history(t.app)).json() as Array<Record<string, unknown>>
+    expect(rows).toHaveLength(2)
+    expect(rows.map(r => r.sharedWith)).toEqual(['raj@x.io', 'ceo@acme.com'])
+    for (const r of rows) {
+      expect(Object.keys(r).sort()).toEqual(['sharedAt', 'sharedBy', 'sharedWith'])
+      expect(r.sharedBy).toBe('Alex PM')
+      expect(Number.isNaN(Date.parse(r.sharedAt as string))).toBe(false)
+    }
+  })
+
+  it('a re-share adds a new row and keeps the earlier one, newest first', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-11-17T09:00:00Z'))
+    const t = await setup()
+    await share(t.app, ['ceo@acme.com'])
+    vi.setSystemTime(new Date('2026-11-17T10:30:00Z'))
+    await share(t.app, ['ceo@acme.com'])
+    expect(t.shares[0]!.revokedAt).toBeInstanceOf(Date)   // the earlier invitation link stopped working…
+    const rows = (await history(t.app)).json()
+    expect(rows).toEqual([                                // …but both shares stay in the history
+      { sharedWith: 'ceo@acme.com', sharedBy: 'Alex PM', sharedAt: '2026-11-17T10:30:00.000Z' },
+      { sharedWith: 'ceo@acme.com', sharedBy: 'Alex PM', sharedAt: '2026-11-17T09:00:00.000Z' },
+    ])
+  })
+
+  it('an uploaded document (audited on the library entry) has its history too', async () => {
+    const t = await setup({ item: { tags: ['module:A', 'origin:upload', 'project:p1'] } })
+    await share(t.app, ['raj@x.io'])
+    expect((await history(t.app)).json()).toMatchObject([{ sharedWith: 'raj@x.io' }])
+  })
+
+  it('earlier shares already in the audit trail are listed; other entries on the same document are not', async () => {
+    const t = await setup()
+    const base = { actorId: 'u2', entityType: 'document', entityId: 'doc-9', ipAddress: null }
+    await t.audit.append({ ...base, timestamp: '2026-11-13T08:00:00.000Z', action: 'library_document_shared', details: { libraryItemId: 'lib-1', recipients: [{ kind: 'invite', email: 'old@acme.com' }] } })
+    await t.audit.append({ ...base, timestamp: '2026-11-13T09:00:00.000Z', action: 'library_document_shared', details: { libraryItemId: 'lib-0', recipients: [{ kind: 'invite', email: 'v0@acme.com' }] } })
+    await t.audit.append({ ...base, timestamp: '2026-11-13T10:00:00.000Z', action: 'library_share_opened', details: { libraryItemId: 'lib-1', email: 'opened@acme.com' } })
+    expect((await history(t.app)).json()).toEqual([{ sharedWith: 'old@acme.com', sharedBy: 'Raj', sharedAt: '2026-11-13T08:00:00.000Z' }])
+  })
+
+  it('a sharer whose account is gone shows as null', async () => {
+    const t = await setup()
+    await t.audit.append({ timestamp: '2026-11-13T08:00:00.000Z', actorId: 'u-deleted', action: 'library_document_shared', entityType: 'document', entityId: 'doc-9', details: { libraryItemId: 'lib-1', recipients: [{ kind: 'invite', email: 'x@acme.com' }] }, ipAddress: null })
+    expect((await history(t.app)).json()).toEqual([{ sharedWith: 'x@acme.com', sharedBy: null, sharedAt: '2026-11-13T08:00:00.000Z' }])
+  })
+
+  it('never returns link tokens, codes, hashes or ids', async () => {
+    const t = await setup()
+    await share(t.app, ['ceo@acme.com', 'raj@x.io'])
+    const token = tokenFrom(t.mails[0]!)
+    await t.app.inject({ method: 'POST', url: `/shared-library/${token}/code` })
+    const code = codeFrom(t.mails[1]!)
+    const body = (await history(t.app)).payload
+    expect(body).not.toContain(token)
+    expect(body).not.toContain(code)
+    expect(body).not.toContain(t.shares[0]!.tokenHash)
+    expect(body).not.toMatch(/[0-9a-f]{64}/)
+    expect(body).not.toMatch(/"(id|kind|token|tokenHash|codeHash|libraryItemId|expiresAt)"/)
+  })
+
+  it('same visibility as the Master Library: another organisation’s entry or a missing one is 404; any library role may read it', async () => {
+    expect((await history((await setup({ item: { tenantId: 't2' } })).app)).statusCode).toBe(404)
+    await closeApp()
+    expect((await history((await setup({ item: null })).app)).statusCode).toBe(404)
+    await closeApp()
+    const platformWide = await setup({ item: { tenantId: null } })
+    expect((await history(platformWide.app)).statusCode).toBe(200)
+    await closeApp()
+    for (const role of ['contributor', 'auditor', 'qc'] as Role[]) {
+      expect((await history((await setup({ role })).app)).statusCode, role).toBe(200)
+      await closeApp()
+    }
   })
 })
 

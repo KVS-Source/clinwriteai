@@ -1805,6 +1805,17 @@ export interface MasterLibraryItem {
   body?:             string
 }
 
+/** One row of a Master Library document's share history (GET /library/:id/shares), newest first. One row per
+ *  person per share; a re-share is a new row. Never carries link tokens, codes or hashes. */
+export interface MasterLibraryShareRecord {
+  /** The address the document was shared with. */
+  sharedWith: string
+  /** Name of the user who shared it; null when that account no longer exists. */
+  sharedBy:   string | null
+  /** ISO 8601 UTC. */
+  sharedAt:   string
+}
+
 export interface BestPractice {
   id:                 string
   module:             ModuleKey

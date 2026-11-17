@@ -45,6 +45,14 @@ function formatDateTime(iso: string): string {
   return `${formatDay(iso)}, ${String(d.getUTCHours()).padStart(2, '0')}:${String(d.getUTCMinutes()).padStart(2, '0')} UTC`
 }
 
+// India Standard Time is always UTC+05:30 (no daylight saving), so shift the instant and reuse the UTC formatter's
+// fields. Used for the Share history "When" column.
+const IST_OFFSET_MS = (5 * 60 + 30) * 60_000
+function formatDateTimeIst(iso: string): string {
+  const shifted = new Date(new Date(iso).getTime() + IST_OFFSET_MS).toISOString()
+  return formatDateTime(shifted).replace(/ UTC$/, ' IST')
+}
+
 const labelClass = 'font-mono text-[10px] font-semibold uppercase tracking-widest text-slate-500'
 const selectClass = 'h-8 w-full rounded-md border border-slate-300 bg-white px-2 text-[12px]'
 
@@ -158,7 +166,7 @@ export function MasterLibrary() {
       .catch(() => { if (!cancelled) flash(t('page.master_library.shared_link_missing')) })
       .finally(() => { if (!cancelled) setSearchParams(p => { p.delete('item'); return p }, { replace: true }) })
     return () => { cancelled = true }
-  }, [linkedItemId]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [linkedItemId])
 
   // View and Share each open their own side panel over the details panel. Closing it returns to the
   // details. It also closes when another document is opened, or the details close.
@@ -187,6 +195,12 @@ export function MasterLibrary() {
     enabled: viewing && !!active,
     staleTime: 5 * 60_000,
     retry: false,
+  })
+  // Share history: every share of this document by anyone, newest first (from the audit trail, so it's permanent).
+  const shareHistory = useQuery({
+    queryKey: ['library-shares', active?.id],
+    queryFn: () => platformApi.listLibraryItemShares(active!.id),
+    enabled: !!active,
   })
 
   // Switching the timezone keeps the range pointing at the same moments (as on the Audit Trail).
@@ -439,6 +453,29 @@ export function MasterLibrary() {
               )}
             </div>
 
+            <div className="rounded-md border border-slate-200 p-3" data-share-history>
+              <p className={labelClass}>{t('page.master_library.share_history')}</p>
+              {shareHistory.isLoading ? (
+                <p className="mt-1 text-[12px] text-slate-500" data-share-history-state="loading">{t('page.master_library.share_history_loading')}</p>
+              ) : shareHistory.error ? (
+                <p className="mt-1 text-[12px] text-red-700" data-share-history-state="error">{t('page.master_library.share_history_failed')}</p>
+              ) : !shareHistory.data?.length ? (
+                <p className="mt-1 text-[12px] text-slate-800" data-share-history-state="empty">{t('page.master_library.share_history_empty')}</p>
+              ) : (
+                <ul className="mt-2 flex flex-col divide-y divide-slate-100">
+                  {shareHistory.data.map((s, i) => (
+                    <li key={i} className="py-1.5 first:pt-0 last:pb-0" data-share-history-row>
+                      <dl className="grid grid-cols-[100px_1fr] gap-x-3 gap-y-0.5 text-[12px]">
+                        <dt className={labelClass}>{t('page.master_library.shared_with')}</dt><dd className="break-all text-slate-800" data-shared-with>{s.sharedWith}</dd>
+                        <dt className={labelClass}>{t('page.master_library.shared_by')}</dt><dd className="text-slate-800" data-shared-by>{s.sharedBy ?? t('page.master_library.shared_by_unknown')}</dd>
+                        <dt className={labelClass}>{t('page.master_library.shared_at')}</dt><dd className="text-slate-800" data-shared-at>{formatDateTimeIst(s.sharedAt)}</dd>
+                      </dl>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               {canShare && !active.isArchived && (
                 <button type="button" onClick={() => setOverlay('share')}
@@ -465,7 +502,7 @@ export function MasterLibrary() {
       {/* Document viewer — its own side panel, opened over the details panel by View. */}
       {active && (
         <SharePanel open={overlay === 'share'} item={active} onClose={() => setOverlay(null)}
-          onDone={(msg) => { setOverlay(null); flash(msg) }} />
+          onDone={(msg) => { setOverlay(null); flash(msg); void queryClient.invalidateQueries({ queryKey: ['library-shares', active.id] }) }} />
       )}
 
       <SlidePanel open={viewing && !!active} onClose={() => setOverlay(null)} title={active?.name ?? ''}

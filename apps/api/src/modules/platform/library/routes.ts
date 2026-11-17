@@ -298,7 +298,7 @@ export const libraryRoutes: FastifyPluginAsync = async (app) => {
     const excerpts = new Map<string, string>()
     const inTextIds = new Set<string>()
     if (!q.q) {
-      ;[total, rows] = await Promise.all([
+      [total, rows] = await Promise.all([
         app.prisma.librarySection.count({ where }),
         // Everything but `body`: the list never shows the text, so the database doesn't read it or send it to the API.
         app.prisma.librarySection.findMany({ where, orderBy, skip, take: q.limit, select: LIST_COLUMNS }),
